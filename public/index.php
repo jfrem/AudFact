@@ -33,13 +33,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Manejo global de excepciones
 set_exception_handler(function ($e) {
+    if ($e instanceof \Core\Exceptions\HttpResponseException) {
+        \Core\Response::json($e->getData(), $e->getCode());
+        return;
+    }
+
     Logger::error('Unhandled exception: ' . $e->getMessage(), ['exception' => $e]);
 
-    if (Env::get('APP_ENV') === 'production') {
-        \Core\Response::error('Internal server error', 500);
-    } else {
-        \Core\Response::error($e->getMessage(), 500);
-    }
+    $message = Env::get('APP_ENV') === 'production' ? 'Internal server error' : $e->getMessage();
+    \Core\Response::json(['success' => false, 'message' => $message], 500);
 });
 
 try {

@@ -2,13 +2,14 @@
 
 namespace Core;
 
+use Core\Exceptions\HttpResponseException;
+
 class Response
 {
     public static function json($data, $code = 200)
     {
         http_response_code($code);
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-        exit;
     }
 
     public static function success($data = [], $message = 'Operación exitosa', $code = 200)
@@ -24,7 +25,7 @@ class Response
     {
         $response = ['success' => false, 'message' => $message];
         if ($errors !== null) $response['errors'] = $errors;
-        self::json($response, $code);
+        throw new HttpResponseException($response, $code);
     }
 
     /**

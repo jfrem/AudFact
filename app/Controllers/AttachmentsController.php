@@ -114,7 +114,7 @@ class AttachmentsController extends Controller
             if (is_callable($blob['close'])) {
                 $blob['close']();
             }
-            exit;
+            return;
         }
 
         Response::error('Adjunto sin contenido', 404);
@@ -189,6 +189,6 @@ class AttachmentsController extends Controller
         fpassthru($handle);
         fclose($handle);
         unlink($path);
-        exit;
+        return;
     }
 }
