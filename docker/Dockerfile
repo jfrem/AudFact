@@ -27,6 +27,7 @@ RUN pecl install xdebug \
 WORKDIR /var/www/html
 
 COPY docker/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+COPY docker/php-fpm-pool.conf /usr/local/etc/php-fpm.d/www.conf
 
 COPY composer.json composer.lock* ./
 COPY .env.example ./

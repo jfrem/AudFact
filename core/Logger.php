@@ -1,4 +1,5 @@
 <?php
+
 namespace Core;
 
 class Logger
@@ -40,13 +41,13 @@ class Logger
     private static function sanitizeContext(array $context): array
     {
         $sensitiveKeys = ['password', 'token', 'secret', 'api_key', 'credit_card', 'ssn', 'authorization'];
-        
-        array_walk_recursive($context, function(&$value, $key) use ($sensitiveKeys) {
+
+        array_walk_recursive($context, function (&$value, $key) use ($sensitiveKeys) {
             if (in_array(strtolower($key), $sensitiveKeys, true)) {
                 $value = '[REDACTED]';
             }
         });
-        
+
         return $context;
     }
 
@@ -61,7 +62,8 @@ class Logger
             @mkdir(self::$logDir, 0750, true);
         }
 
-        $logFile = self::$logDir . '/app-' . date('Y-m-d') . '.log';
+        $hostname = gethostname();
+        $logFile = self::$logDir . "/app-{$hostname}-" . date('Y-m-d') . '.log';
 
         // Sanitize log file path to prevent directory traversal
         $realLogDir = realpath(self::$logDir);
@@ -92,7 +94,7 @@ class Logger
 
         if (!empty($context)) {
             $context = self::sanitizeContext($context);
-            
+
             if (isset($context['exception']) && $context['exception'] instanceof \Throwable) {
                 $e = $context['exception'];
                 $context['exception'] = [
@@ -114,7 +116,7 @@ class Logger
         $cutoff = strtotime('-' . self::$retentionDays . ' days');
 
         foreach (glob(self::$logDir . '/app-*.log') as $file) {
-            if (preg_match('/app-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
+            if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
                 $fileDate = strtotime($matches[1]);
                 if ($fileDate < $cutoff) {
                     unlink($file);

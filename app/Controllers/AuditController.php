@@ -63,4 +63,23 @@ class AuditController extends Controller
             'items' => $results,
         ], 'Auditoría ejecutada');
     }
+
+    public function single(): void
+    {
+        // Validar y sanitizar los parámetros de entrada
+        $data = $this->validate([
+            'FacNro' => 'required|string|min_length:1',
+        ]);
+
+        Logger::info("AuditController::single: Received request with parameters: " . json_encode($data));
+
+        $FacNro = (string)$data['FacNro'];
+        $auditor = new GeminiAuditService();
+
+        // El id de dispensación principal es la factura en una petición individual directa
+        // ya que la base de datos se consultará mediante FacNro
+        $result = $auditor->auditInvoice($FacNro, $FacNro, null);
+
+        Response::success($result, 'Auditoría individual completada');
+    }
 }

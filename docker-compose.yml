@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: audfact-php
+    # container_name has been REMOVED to allow replica scaling
     env_file:
       - .env
     volumes:
@@ -11,6 +11,19 @@ services:
       - ./logs:/var/www/html/logs
     expose:
       - "9000"
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      # Depende de la presencia de fpm-healthcheck o curl para el estado de fpm
+      test: ["CMD-SHELL", "cgi-fcgi -bind -connect 127.0.0.1:9000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   nginx:
     image: nginx:1.25-alpine
@@ -21,4 +34,5 @@ services:
       - "8080:80"
     volumes:
       - ./:/var/www/html
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Utilizar la nueva configuración HA como default en el contenedor
+      - ./docker/nginx-ha.conf:/etc/nginx/conf.d/default.conf:ro

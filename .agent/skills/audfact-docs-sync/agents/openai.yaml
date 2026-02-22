@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Docs Sync"
+  short_description: "Exige la sincronizacion documental luego de realizar cambios de código."
+  default_prompt: "Usa $audfact-docs-sync obligatoriamente antes de terminar una tarea o responder al usuario luego de programar para garantizar que los manuales queden sincronizados."

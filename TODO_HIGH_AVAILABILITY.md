@@ -17,15 +17,17 @@
 
 - **1 sola réplica PHP-FPM** → saturación con +10 requests concurrentes
 - Nginx apunta directamente a `php:9000` (sin upstream pool)
-- No hay endpoint individual de auditoría (solo batch vía `AuditController::run()`)
+- Rutas no preparadas para balanceo (se requiere configuración de sesiones/red separada si es necesario)
+- Logs compartidos (riesgo de colisión si múltiples procesos escriben el mismo archivo)
 
 ---
 
 ## Arquitectura Objetivo
 
-```
+```text
                     ┌── Nginx Load Balancer ──┐
                     │  upstream audit_pool {   │
+                    │    least_conn; # <----   │
                     │    server php-1:9000;    │
                     │    server php-2:9000;    │
                     │    server php-3:9000;    │
@@ -38,7 +40,7 @@
         ▼        ▼       ▼       ▼        ▼
     PHP-FPM 1  PHP-FPM 2  PHP-FPM 3  PHP-FPM 4  PHP-FPM 5
     (10 children)  (10 children)  (10 children)  (10 children)  (10 children)
-    = 50 workers concurrentes
+    = 50 workers concurrentes estáticos
 ```
 
 ---
@@ -64,6 +66,8 @@ public function single(): void
     $auditor = new GeminiAuditService();
     $result = $auditor->auditInvoice($FacNro, $FacNro, null);
 
+    // TODO: Recuperar Rate Limit Remaining y añadirlo al final de todo si la IA nos da métricas
+
     Response::success($result, 'Auditoría individual completada');
 }
 ```
@@ -75,15 +79,8 @@ public function single(): void
 ```ini
 ; docker/php-fpm-pool.conf
 [www]
-pm = dynamic
-pm.max_children = 10
-pm.start_servers = 4
-pm.min_spare_servers = 2
-pm.max_spare_servers = 6
-pm.max_requests = 500
-pm.process_idle_timeout = 30s
-
-; Timeout alto porque cada auditoría toma ~25s
+pm = static               ; <-- Force allocation at boot for predictable RAM
+pm.max_children = 10      ; <-- Maximum workers to hold memory
 request_terminate_timeout = 120s
 ```
 
@@ -140,6 +137,9 @@ services:
 ```nginx
 # docker/nginx-ha.conf
 upstream php_pool {
+    # Least Connections strategy es crítica ante latencia asimétrica de IA
+    least_conn;
+    
     # Docker Compose DNS resuelve a todas las réplicas
     server php:9000;
 
@@ -271,6 +271,6 @@ docker compose up -d --scale php=3
 ## Notas Importantes
 
 1. **`container_name: audfact-php`** debe eliminarse — Docker no permite réplicas con nombre fijo
-2. **Volúmenes compartidos**: `./logs/` y `./tmp/` serán compartidos por todas las réplicas. Usar nombres únicos por proceso (el `AuditFileManager` ya usa `tempnam()`, OK)
+2. **Volúmenes compartidos**: `./logs/` y `./tmp/` serán compartidos por todas las réplicas.
 3. **`.env`** se comparte por todas las réplicas vía `env_file` — una sola configuración
-4. **Logs concurrentes**: Considerar que N réplicas escriben al mismo archivo de log. Usar `flock()` o separar logs por réplica
+4. **Logs Concurrentes CRÍTICO**: Al tener N réplicas escribiendo en `./logs/app.log`, colisionarán y las escrituras se sobrepondrán y truncarán. El componente `Core\Logger` será modificado de manera **obligatoria** para incluir un sufijo con el `hostname` del emisor. (E.g. `app-0ff5db123.log`).

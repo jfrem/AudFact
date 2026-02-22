@@ -130,24 +130,24 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ```bash
 # Levantar entorno
-docker compose up -d --build
+wsl docker compose up -d --build
 
 # Verificar contenedores
-docker compose ps
+wsl docker compose ps
 
 # Logs en tiempo real
-docker compose logs -f php
-docker compose logs -f nginx
+wsl docker compose logs -f php
+wsl docker compose logs -f nginx
 
 # Acceder al contenedor PHP
-docker exec -it audfact-php bash
+wsl docker exec -it audfact-php bash
 
 # Instalar dependencias
-docker exec -it audfact-php composer install
+wsl docker exec -it audfact-php composer install
 
 # Ejecutar tests CLI existentes
-docker exec -it audfact-php php tests/cli_test_audit.php
-docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
+wsl docker exec -it audfact-php php tests/cli_test_audit.php
+wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 ```
 
 ### API local
@@ -210,13 +210,14 @@ docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 
 ### Guardrails de seguridad
 
-- **Rate limiting**: `Core\RateLimit` — 100 req/min por IP (configurable)
+- **Rate limiting**: `Core\RateLimit` usando APCu o fallback a archivos — 100 req/min por IP (configurable)
 - **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`
-- **Payload máximo**: `MAX_JSON_SIZE` (default 1 MB)
+- **Payload máximo**: `MAX_JSON_SIZE` (default 1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB) para evitar agotar memoria con BLOBs
+- **Timeouts de ejecución**: Límites de tiempo explícitos asignados dinámicamente (`set_time_limit`) para procesos pesados
 - **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente
 - Nunca loguear valores de API keys, passwords, o datos de pacientes
 - Nunca exponer stack traces o rutas internas en respuestas de error de producción
-- Webhook MCP (`app/wrap/webhook.php`): debe tener autenticación por API key
+- Webhook MCP (`app/wrap/webhook.php`): Autenticación obligatoria mediante la cabecera `X-API-KEY` validada contra `MCP_WEBHOOK_SECRET`
 
 ### SQL Server
 
@@ -238,6 +239,7 @@ docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 | `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
 | `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
+| `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |
 
 ### Base de datos (SQL Server)
@@ -300,298 +302,20 @@ docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 
 ## Docker y Operaciones Runtime
 
-### Arquitectura de contenedores
-
-```
-┌─────────────┐     ┌───────────────┐     ┌──────────────┐
-│   Nginx     │────▶│   PHP-FPM     │────▶│  SQL Server  │
-│  :8080→:80  │     │   :9000       │     │  (externo)   │
-└─────────────┘     └───────────────┘     └──────────────┘
-```
-
-### Troubleshooting Docker
-
-```bash
-# PHP no conecta a SQL Server
-wsl docker exec -it audfact-php php -m | grep sqlsrv     # verificar extensiones
-wsl docker exec -it audfact-php php -r "new PDO('sqlsrv:Server=...');"  # probar conexión
-
-# Nginx 502 Bad Gateway
-wsl docker compose logs nginx          # verificar upstream
-wsl docker exec -it audfact-php ps aux # verificar PHP-FPM activo
-
-# Rebuild completo (si hay cambios en Dockerfile)
-wsl docker compose down && wsl docker compose up -d --build --force-recreate
-```
-
-### Precauciones
-
-- **Xdebug**: actualmente habilitado siempre en Dockerfile — impacta rendimiento
-- **Volúmenes**: `./logs` montado en `./logs:/var/www/html/logs` — es redundante con el mount de `./`
-- No editar archivos dentro del contenedor directamente; usar el mount de volumen
+> 📖 **Ver documento dedicado:** [plans/docker-operations.md](file:///c:/Users/USER/Desktop/AudFact/plans/docker-operations.md)
 
 ---
 
 ## Testing
 
-### Estado actual
-
-- **No hay PHPUnit configurado** — solo scripts CLI en `tests/`
-- Tests de integración existentes: `cli_test_audit.php`, `cli_test_single.php`
-- Estos tests requieren conexión real a SQL Server y API key de Gemini
-
-### Al agregar tests
-
-- Framework objetivo: **PHPUnit 10+** con **Mockery**
-- Tests unitarios: `tests/Unit/<namespace>/<Clase>Test.php`
-- Tests de integración: `tests/Integration/<Clase>Test.php`
-- Ejecutar tests antes de push cuando se toque lógica core
-- **No mockear** la base de datos en tests de integración — usar datos reales o fixtures
-- Cada test file debe ser autocontenido (setup/teardown propios)
+> 📖 **Ver documento dedicado:** [plans/testing-strategy.md](file:///c:/Users/USER/Desktop/AudFact/plans/testing-strategy.md)
 
 ---
 
 ## Control de Versiones (Git)
 
-### Estado actual
+> 📖 **Ver documento dedicado:** [plans/git-workflow.md](file:///c:/Users/USER/Desktop/AudFact/plans/git-workflow.md)
 
-> ⚠️ El repositorio **puede no estar inicializado**. Antes de cualquier operación Git, verificar con `git status`. Si no existe repo, inicializarlo siguiendo el procedimiento de esta sección.
-
-### Inicialización del repositorio
-
-Si el proyecto no tiene Git inicializado:
-
-```bash
-# 1. Inicializar
-git init
-
-# 2. Crear .gitignore ANTES del primer commit
-# (ver contenido obligatorio abajo)
-
-# 3. Primer commit
-git add .
-git commit -m "chore: inicializar repositorio AudFact"
-
-# 4. Configurar remote (si aplica)
-git remote add origin <url-del-repositorio>
-git push -u origin main
-```
-
-### .gitignore obligatorio
-
-El archivo `.gitignore` **debe existir** antes del primer commit. Contenido mínimo:
-
-```gitignore
-# Dependencias
-/vendor/
-
-# Variables de entorno (credenciales)
-.env
-.env.dev
-.env.prod
-.env.test
-
-# Logs
-/logs/*.log
-/logs/*.txt
-
-# Respuestas crudas de IA (debug)
-/responseIA/
-
-# IDE y editores
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Sistema operativo
-Thumbs.db
-.DS_Store
-
-# Archivos temporales
-*.tmp
-*.bak
-
-# Composer
-composer.phar
-
-# Docker (volúmenes locales)
-docker/data/
-```
-
-**NUNCA deben entrar al repo**: `.env`, `logs/`, `vendor/`, `responseIA/`, credenciales, API keys.
-
-### Estrategia de branching
-
-Se usa **Git Flow simplificado** adaptado para el proyecto:
-
-```
-main ← rama de producción estable
-  └── develop ← rama de integración
-        ├── feature/<nombre> ← nuevas funcionalidades
-        ├── fix/<nombre> ← correcciones de bugs
-        ├── refactor/<nombre> ← refactorizaciones
-        └── security/<nombre> ← parches de seguridad
-```
-
-| Branch | Propósito | Se crea desde | Se mergea a |
-|---|---|---|---|
-| `main` | Producción estable | — | — |
-| `develop` | Integración y pruebas | `main` | `main` (via merge) |
-| `feature/*` | Nueva funcionalidad | `develop` | `develop` |
-| `fix/*` | Corrección de bug | `develop` | `develop` |
-| `refactor/*` | Reorganización de código | `develop` | `develop` |
-| `security/*` | Parche de seguridad urgente | `main` | `main` + `develop` |
-
-### Nomenclatura de branches
-
-```
-feature/agregar-timeout-auditoria
-fix/C01-eliminar-exit-response
-refactor/rate-limit-apcu-driver
-security/C05-autenticar-webhook-mcp
-```
-
-Reglas:
-- Nombres en **español** o en **inglés técnico** (consistente dentro del proyecto)
-- Usar **kebab-case** (minúsculas, guiones)
-- Incluir **ID de hallazgo** si aplica: `fix/C01-descripcion`
-- Máximo **50 caracteres** en el nombre de la rama
-
-### Flujo de trabajo Git (paso a paso)
-
-Este flujo se integra con el tablero Kanban de la sección "Planificación Pre-Implementación":
-
-```
-1. Plan aprobado (📌→🛠️)
-   └── git checkout develop
-   └── git pull origin develop
-   └── git checkout -b feature/nombre-tarea
-
-2. Implementación (🧑‍💻 In Dev)
-   └── Hacer cambios
-   └── git add <archivos-específicos>   ← NUNCA usar git add .
-   └── git commit -m "tipo(ámbito): descripción"
-
-3. Code Review (🔍)
-   └── git push origin feature/nombre-tarea
-   └── Crear Pull Request hacia develop
-   └── Solicitar revisión
-
-4. QA / Testing (🧪)
-   └── Verificar en branch de feature
-   └── Ejecutar tests
-
-5. Merge (📦→✅)
-   └── git checkout develop
-   └── git merge --no-ff feature/nombre-tarea
-   └── git push origin develop
-   └── git branch -d feature/nombre-tarea
-```
-
-### Commits
-
-#### Formato (Conventional Commits en español)
-
-```
-<tipo>(<ámbito>): <descripción breve>
-
-feat(audit): agregar timeout de 120s al batch de auditoría
-fix(models): cerrar cursor PDO después de fetch en AttachmentsModel
-refactor(core): extraer rate limit a interfaz + driver APCu
-docs(agents): crear AGENTS.md con guidelines del proyecto
-chore(docker): condicionar instalación de Xdebug
-security(wrap): C05 agregar autenticación API key al webhook
-```
-
-#### Tipos permitidos
-
-| Tipo | Uso |
-|---|---|
-| `feat` | Nueva funcionalidad |
-| `fix` | Corrección de bug |
-| `refactor` | Cambio de código sin cambiar comportamiento |
-| `docs` | Documentación |
-| `chore` | Tareas de mantenimiento, dependencias |
-| `test` | Agregar o modificar tests |
-| `perf` | Mejora de rendimiento |
-| `security` | Corrección de seguridad |
-
-#### Reglas de commits
-
-- **Atómicos**: un commit = un cambio lógico. No mezclar refactors con features
-- **Específicos**: usar `git add <archivo>` en lugar de `git add .`
-- **Verificados**: asegurarse de que el código funciona antes de commitear
-- **Referenciados**: si resuelve un hallazgo → `fix(core): C01 eliminar exit() de Response`
-- **Sin archivos prohibidos**: `.env`, `logs/`, `vendor/`, `responseIA/`, `composer.lock`
-
-### Cuándo hacer commit
-
-| Situación | ¿Commitear? | Ejemplo |
-|---|---|---|
-| Feature completa y probada | ✅ Sí | `feat(audit): agregar límite de archivos` |
-| Fix de bug verificado | ✅ Sí | `fix(models): corregir query de attachments` |
-| Antes de un refactor riesgoso | ✅ Sí (checkpoint) | `chore: checkpoint antes de refactor rate-limit` |
-| Código a medio hacer | ❌ No | — |
-| Solo cambios de formato | ⚠️ Separar | `chore(format): aplicar prettier a controllers` |
-| Documentación | ✅ Sí | `docs(agents): agregar sección de Git` |
-
-### Protecciones y reglas de seguridad
-
-```
-⛔ PROHIBIDO en Git:
-├── Commitear .env o archivos con credenciales
-├── Force push a main o develop
-├── Commitear directamente a main (siempre via merge desde develop)
-├── Eliminar branches remotas sin aprobación
-├── Rebase de branches compartidas
-└── Hacer git add . (agregar archivos uno por uno)
-
-⚠️ REQUIERE APROBACIÓN del usuario:
-├── Merge a main
-├── Crear tags/releases
-├── Resolver conflictos (mostrar ambos lados al usuario)
-├── Crear/eliminar git stash
-└── Cambiar de branch cuando hay cambios sin commitear
-```
-
-### Resolución de conflictos
-
-Cuando ocurra un conflicto de merge:
-
-1. **Nunca resolver automáticamente** — siempre informar al usuario
-2. Mostrar ambos lados del conflicto con contexto
-3. Proponer resolución con justificación
-4. Esperar aprobación antes de aplicar
-5. Después del merge, verificar que el código funciona
-
-```bash
-# Ver archivos en conflicto
-git diff --name-only --diff-filter=U
-
-# Después de resolver
-git add <archivo-resuelto>
-git commit -m "fix: resolver conflicto en <archivo> (merge develop)"
-```
-
-### Tags y releases
-
-Para marcar versiones estables:
-
-```bash
-# Formato semántico: v<major>.<minor>.<patch>
-git tag -a v1.0.0 -m "release: versión inicial estable"
-git push origin v1.0.0
-```
-
-| Cambio | Bump |
-|---|---|
-| Breaking change / cambio de API | Major (v**2**.0.0) |
-| Nueva funcionalidad compatible | Minor (v1.**1**.0) |
-| Bug fix | Patch (v1.0.**1**) |
-
-**Solo crear tags con aprobación del usuario.**
 
 ---
 
@@ -834,17 +558,8 @@ Todo método público nuevo o modificado debe tener PHPDoc mínimo:
 
 ## Hallazgos de Auditoría Conocidos
 
-> Referencia rápida de problemas documentados. Ver `walkthrough.md` de auditoría para detalle completo.
+> 📖 **Ver documento dedicado:** [plans/audit-findings.md](file:///c:/Users/USER/Desktop/AudFact/plans/audit-findings.md)
 
-| ID | Severidad | Descripción | Estado |
-|---|---|---|---|
-| C01 | 🔴 Crítico | `exit()` en `Response.php` y `Controller.php` | Pendiente |
-| C02 | 🔴 Crítico | Rate limiting basado en archivo (no escala) | Pendiente |
-| C03 | 🔴 Crítico | Auditoría secuencial sin timeout ni límite | Pendiente |
-| C04 | 🔴 Crítico | BLOBs base64 sin límite de memoria | Pendiente |
-| C05 | 🔴 Crítico | Webhook MCP sin autenticación | Pendiente |
-
-Al implementar fixes, referenciar estos IDs en el commit message y actualizar esta tabla (ver protocolo de documentación arriba).
 
 ---
 
@@ -859,9 +574,9 @@ Al implementar fixes, referenciar estos IDs en el commit message y actualizar es
 ```
              Capa                          Manejo
 ┌─────────── public/index.php ──────────── Único exit() del sistema
-│  ┌──────── Controlador ─────────────── Valida entrada, atrapa excepciones de servicio
-│  │  ┌───── Servicio/Modelo ──────────── Lanza excepciones
-│  │  │  ┌── Core\Response ────────────── Envía JSON, NO hace exit()
+│  ┌──────── Controlador ───────────────── Valida entrada, atrapa excepciones de servicio
+│  │  ┌───── Servicio/Modelo ───────────── Lanza excepciones
+│  │  │  ┌── Core\Response ─────────────── Envía JSON, NO hace exit()
 ```
 
 ### Reglas de manejo de errores
@@ -1075,206 +790,22 @@ docker exec -it audfact-php composer update vendor/package
 
 ---
 
-## Procedimiento de Rollback y Recuperación
+## Despliegue, CI/CD y Rollback
 
-### Contexto de deploy
-
-- **Deploy actual**: manual por copia de archivos al servidor
-- **Docker**: solo para desarrollo local (producción pendiente; se evaluará Docker en prod si se implementa Redis como caché)
-- **Producción**: no existe aún, pero todo el desarrollo debe quedar **production-ready**
-
-### Procedimiento de rollback (deploy manual)
-
-```
-1. ANTES de deployar
-   └── Crear copia de respaldo del directorio actual en servidor
-       └── cp -r /ruta/proyecto /ruta/proyecto.backup.YYYY-MM-DD
-
-2. Deployar
-   └── Copiar archivos nuevos
-   └── Ejecutar composer install (si cambiaron dependencias)
-   └── Verificar health check: curl http://servidor/health
-
-3. Si algo falla
-   └── Restaurar backup inmediatamente:
-       └── rm -rf /ruta/proyecto
-       └── mv /ruta/proyecto.backup.YYYY-MM-DD /ruta/proyecto
-   └── Verificar health check nuevamente
-   └── Documentar qué falló y por qué
-```
-
-### Rollback con Git (cuando el repo esté inicializado)
-
-```bash
-# Ver commits recientes
-git log --oneline -10
-
-# Revertir último commit (crea nuevo commit de reversión)
-git revert HEAD --no-edit
-
-# Revertir a un commit específico (PELIGRO: descarta commits)
-# REQUIERE aprobación del usuario
-git reset --hard <commit-hash>
-```
-
-### Rollback en Docker (entorno local)
-
-```bash
-# Si un cambio de config rompe el contenedor
-docker compose down
-git checkout -- docker-compose.yml docker/
-docker compose up -d --build
-
-# Rebuild completo desde cero
-docker compose down -v
-docker compose up -d --build --force-recreate
-```
-
-### Checklist pre-deploy
-
-- [ ] Código funciona en entorno local Docker
-- [ ] Health check (`/health`) responde correctamente
-- [ ] Variables de entorno de producción configuradas (`.env`)
-- [ ] No hay `exit()` sueltos que rompan el flujo (cuando C01 esté resuelto)
-- [ ] Logs configurados en nivel apropiado (`LOG_LEVEL=warning` o `error` en prod)
-- [ ] `APP_ENV=production` (desactiva mensajes de error detallados y CORS abierto)
-- [ ] `composer install --no-dev` (sin dependencias de desarrollo)
-- [ ] Backup del estado actual en servidor
-
----
-
-## Configuración de CI/CD (Pipeline Propuesto)
-
-Aunque el despliegue es manual, se define un flujo de **Integración Continua** para asegurar la calidad antes de cada release.
-
-### Pipeline de Verificación (Pre-Push/PR)
-
-| Etapa | Comando / Herramienta | Objetivo |
-|---|---|---|
-| **Lint** | `php -l` o `composer lint` | Detectar errores de sintaxis |
-| **Estilos** | `php-cs-fixer` | Asegurar cumplimiento de PSR-12 |
-| **Security Audit** | `composer audit` | Detectar vulnerabilidades en dependencias |
-| **Unit Tests** | `phpunit` | Validar lógica core (cuando se implementen) |
-| **Integración** | `tests/cli_test_audit.php` | Validar comunicación con Gemini/SQL |
-
-### Flujo de Release
-1. **Develop**: Los agentes integran features en la rama `develop`.
-2. **QA Auto**: Al mergear a `develop`, el agente debe ejecutar la suite de tests CLI.
-3. **Staging**: Un entorno Docker idéntico a producción para validación final.
-4. **Main**: Merge a `main` → Usuario aprueba el tag de versión (ej: `v1.0.1`).
-5. **Deploy**: Copia manual de archivos de `main` al servidor de producción.
+> 📖 **Ver documento dedicado:** [plans/deployment-and-ci.md](file:///c:/Users/USER/Desktop/AudFact/plans/deployment-and-ci.md)
 
 ---
 
 ## Glosario de Dominio
 
-> Términos del negocio usados en el código y la base de datos. Referencia para que cualquier agente entienda el contexto del proyecto.
+> 📖 **Ver documento dedicado:** [plans/domain-glossary.md](file:///c:/Users/USER/Desktop/AudFact/plans/domain-glossary.md)
 
-### Entidades principales
-
-| Término | Significado | Tabla/Vista en BD | Campo clave |
-|---|---|---|---|
-| **Factura** | Documento de cobro emitido por la farmacia a la EPS | `dbo.factura` | `FacSec`, `FacNro` |
-| **Dispensa / Dispensación** | Acto de entregar medicamentos a un paciente bajo una fórmula médica. Una factura puede tener múltiples dispensaciones | `vw_discolnet_dispensas` | `Dispensa` (= `DisDetNro`) |
-| **Cliente / EPS** | Entidad Promotora de Salud que contrata los servicios. Es el "cliente" del sistema | `Clientes`, `NIT` | `NitSec`, `NitCom` |
-| **Paciente** | Persona que recibe los medicamentos dispensados | (dentro de la dispensa) | `Paciente_doc`, `Paciente_doct` |
-| **Attachment / Adjunto** | Documento digitalizado asociado a una dispensa (fórmula médica, autorización, acta de entrega) | Modelo `AttachmentsModel` | `attachmentId` |
-| **Auditoría IA** | Proceso automatizado donde Google Gemini analiza una factura y sus documentos adjuntos para detectar inconsistencias, fraude o errores administrativos | `AudDispEst` | `EstAud` |
-
-### Identificadores
-
-| Campo | Significado | Ejemplo |
-|---|---|---|
-| `FacSec` | ID secuencial interno de la factura | `12345` |
-| `FacNro` | Número de factura visible | `FAC-2026-001` |
-| `FacNitSec` | ID del cliente/EPS asociado a la factura | `67` |
-| `DisDetNro` | Número del detalle de dispensación (= `Dispensa`) | `DIS-2026-0001` |
-| `NitSec` | ID secuencial del NIT en el sistema | `89` |
-| `NitCom` | Número de NIT comercial de la EPS | `900123456` |
-| `DisId` | ID de la dispensación vinculada a la factura | `54321` |
-
-### Términos médicos y regulatorios
-
-| Término | Significado |
-|---|---|
-| **NIT** | Número de Identificación Tributaria (Colombia) |
-| **IPS** | Institución Prestadora de Salud |
-| **CUM** | Código Único de Medicamento (registro INVIMA Colombia) |
-| **CIE** | Clasificación Internacional de Enfermedades (código diagnóstico) |
-| **Mipres** | Sistema de prescripción electrónica del Ministerio de Salud de Colombia |
-| **Copago** | Valor que paga el paciente directamente |
-| **Autorización** | Número aprobado por la EPS para la dispensación |
-| **Acta de Entrega** | Documento firmado por el paciente al recibir medicamentos (obligatorio) |
-| **Fórmula Médica** | Prescripción del médico que autoriza la entrega de medicamentos |
-| **Lote** | Identificador del lote de fabricación del medicamento |
-
-### Pipeline de auditoría
-
-| Término | Significado |
-|---|---|
-| **Auditoría batch** | Proceso que analiza múltiples facturas en una sola solicitud |
-| **GeminiAuditService** | Servicio PHP que orquesta la comunicación con Google Gemini API |
-| **AuditPromptBuilder** | Clase que construye los prompts y schemas para la API de Gemini |
-| **JsonResponseParser** | Parsea las respuestas JSON de Gemini (pueden venir malformadas) |
-| **JsonRepairHelper** | Intenta reparar JSON truncado o malformado de Gemini |
-| **EstAud** | Campo en `AudDispEst` que almacena el estado de la auditoría |
 
 ---
 
 ## Decisiones de Arquitectura (ADR)
 
-### Qué es un ADR
-
-Un **Architecture Decision Record** documenta una decisión técnica significativa con su contexto y consecuencias. Sirve para que cualquier agente o desarrollador futuro entienda el **por qué** detrás de una decisión, no solo el **qué**.
-
-### Cuándo crear un ADR
-
-- Cambio de tecnología o framework (ej: agregar Redis, migrar a PHPUnit)
-- Decisión de diseño que afecta múltiples componentes (ej: refactorizar rate limiting)
-- Trade-offs importantes (ej: base de datos de archivos vs. APCu para rate limiting)
-- Rechazo de una alternativa (documentar por qué NO se eligió)
-
-### Template de ADR
-
-Almacenar en `plans/adr/` con el formato `ADR-NNN-titulo.md`:
-
-```markdown
-# ADR-NNN: [Título de la Decisión]
-
-**Fecha**: YYYY-MM-DD
-**Estado**: Propuesto | Aceptado | Rechazado | Obsoleto
-**Hallazgo relacionado**: [ID si aplica, ej: C02]
-
-## Contexto
-[Qué problema o necesidad motivó esta decisión]
-
-## Decisión
-[Qué se decidió hacer]
-
-## Alternativas consideradas
-
-### Alternativa A: [nombre]
-- Pros: ...
-- Contras: ...
-
-### Alternativa B: [nombre]
-- Pros: ...
-- Contras: ...
-
-## Consecuencias
-- [Impacto positivo]
-- [Impacto negativo o trade-off]
-- [Acciones de seguimiento]
-```
-
-### ADRs existentes (implícitos, por documentar)
-
-| Decisión | Contexto | Estado |
-|---|---|---|
-| PHP MVC custom en lugar de Laravel/Symfony | Proyecto legacy con requerimientos específicos de SQL Server | Aceptado (implícito) |
-| SQL Server como BD (no MySQL/PostgreSQL) | Integración con sistema existente Discolnet | Aceptado (implícito) |
-| Google Gemini API para auditoría IA | Capacidad multimodal necesaria para analizar documentos escaneados | Aceptado (implícito) |
-| Docker solo para desarrollo local | Infraestructura de producción actual no soporta contenedores | Aceptado |
+> 📖 **Ver documento dedicado:** [plans/architecture-decisions.md](file:///c:/Users/USER/Desktop/AudFact/plans/architecture-decisions.md)
 
 ---
 

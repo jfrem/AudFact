@@ -1,5 +1,35 @@
 # Changelog — AudFact
 
+## [2026-02-22] Depuración de AGENTS.md y Modularización
+
+**Tipo**: Documentación
+
+**Descripción**: Reducción drástica del tamaño de `AGENTS.md` extrayendo dominios operacionales a archivos exclusivos en `plans/` para reducir latencia cognitiva y evitar *Dilución de Contexto* por parte de la IA.
+
+**Cambios realizados**:
+- Movido modelo operativo Testing a `plans/testing-strategy.md`
+- Movido modelo de ramas Git a `plans/git-workflow.md`
+- Movida matriz de vulnerabilidades a `plans/audit-findings.md`
+- Movido glosario de términos a `plans/domain-glossary.md`
+- Movidos comandos Docker a `plans/docker-operations.md`
+- Movidos procedimientos de despliegue y CI/CD a `plans/deployment-and-ci.md`
+- Movidas decisiones de arquitectura a `plans/architecture-decisions.md`
+
+---------------------------------------
+
+
+## [2026-02-22] Implementación de Guardrails de Seguridad y Optimización (C01-C05)
+
+**Tipo**: Seguridad y Rendimiento
+
+**Descripción**: Resolución de hallazgos críticos de auditoría enfocados en la estabilidad, seguridad y el rendimiento de la aplicación en procesos masivos y endpoints expuestos.
+
+**Cambios realizados**:
+- **C01 (Control de Flujo)**: Eliminación de llamadas `exit()` en controladores en favor de una nueva excepción `Core\Exceptions\HttpResponseException` gestionada a nivel global en `public/index.php`.
+- **C02 (Rate Limiting)**: Refactorización de `Core\RateLimit` para utilizar memoria compartida con `APCu` de forma atómica y concurrente, manteniendo fallback al sistema de archivos.
+- **C03 (Timeouts)**: Asignación dinámica de `set_time_limit(3600)` para procesos por lotes en `AuditController` y `set_time_limit(120)` interno por cada factura procesada en `GeminiAuditService`.
+- **C04 (Gestión de Memoria)**: Implementación de la constante `MAX_FILE_SIZE_BYTES` (15 MB) en `AuditFileManager` para bloquear la carga a RAM (y posterior conversión a base64) de BLOBs SQL excesivamente grandes, además de ampliar el límite a 1024M para lotes masivos.
+- **C05 (Autenticación MCP)**: Autenticación obligatoria para el Webhook MCP (`app/wrap/webhook.php`) mediante la exigencia de la cabecera HTTP `X-API-KEY` validada contra la nueva variable de entorno `MCP_WEBHOOK_SECRET`.
 ## [2026-02-20] Rediseño de Prompt v3.0 y Optimización BLOB
 
 ### Rediseño de System Instruction (v3.0)

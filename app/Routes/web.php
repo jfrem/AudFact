@@ -21,4 +21,5 @@ $router->get('/dispensation/{DisDetNro}', 'DispensationController', 'show');
 $router->post('/dispensation', 'DispensationController', 'lookup');
 
 // Audit
-$router->post('/audit', 'AuditController', 'run');
+$router->post('/audit', 'AuditController', 'run'); // Batch
+$router->post('/audit/single', 'AuditController', 'single'); // Individual HA
