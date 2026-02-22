@@ -1,0 +1,91 @@
+{
+  "baseline": "audfact-skills-validation",
+  "version": 1,
+  "updated_at": "2026-02-17",
+  "root": ".agent/skills",
+  "checks": {
+    "required_root_files": [
+      "CATALOG.md",
+      "catalog.json",
+      "bundles.json",
+      "aliases.json"
+    ],
+    "required_skill_files": [
+      "SKILL.md",
+      "agents/openai.yaml"
+    ],
+    "frontmatter_required_fields": [
+      "name",
+      "description"
+    ],
+    "openai_yaml_required_fields": [
+      "interface.display_name",
+      "interface.short_description",
+      "interface.default_prompt"
+    ]
+  },
+  "skills": [
+    {
+      "name": "audfact-api-rest",
+      "path": ".agent/skills/audfact-api-rest",
+      "files": [
+        ".agent/skills/audfact-api-rest/SKILL.md",
+        ".agent/skills/audfact-api-rest/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-audit-gemini",
+      "path": ".agent/skills/audfact-audit-gemini",
+      "files": [
+        ".agent/skills/audfact-audit-gemini/SKILL.md",
+        ".agent/skills/audfact-audit-gemini/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-sqlsrv-models",
+      "path": ".agent/skills/audfact-sqlsrv-models",
+      "files": [
+        ".agent/skills/audfact-sqlsrv-models/SKILL.md",
+        ".agent/skills/audfact-sqlsrv-models/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-mcp-wrap",
+      "path": ".agent/skills/audfact-mcp-wrap",
+      "files": [
+        ".agent/skills/audfact-mcp-wrap/SKILL.md",
+        ".agent/skills/audfact-mcp-wrap/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-runtime-docker",
+      "path": ".agent/skills/audfact-runtime-docker",
+      "files": [
+        ".agent/skills/audfact-runtime-docker/SKILL.md",
+        ".agent/skills/audfact-runtime-docker/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-security-guardrails",
+      "path": ".agent/skills/audfact-security-guardrails",
+      "files": [
+        ".agent/skills/audfact-security-guardrails/SKILL.md",
+        ".agent/skills/audfact-security-guardrails/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-project-overview",
+      "path": ".agent/skills/audfact-project-overview",
+      "files": [
+        ".agent/skills/audfact-project-overview/SKILL.md",
+        ".agent/skills/audfact-project-overview/agents/openai.yaml"
+      ]
+    }
+  ],
+  "consistency": {
+    "catalog_names_must_match_skill_dirs": true,
+    "bundles_must_reference_existing_skills": true,
+    "aliases_must_reference_existing_skills": true,
+    "default_prompt_must_mention_skill_token": true
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "AudFact (PHP 8.2)",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "php",
+  "workspaceFolder": "/var/www/html",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [8080],
+  "postCreateCommand": "if [ ! -d vendor ]; then composer install --no-interaction --prefer-dist; fi",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "xdebug.php-debug",
+        "ms-azuretools.vscode-docker",
+        "esbenp.prettier-vscode",
+        "rooveterinaryinc.roo-cline"
+      ],
+      "settings": {
+        "php.validate.executablePath": "/usr/local/bin/php",
+        "php.debug.executablePath": "/usr/local/bin/php",
+        "php.debug.ideKey": "VSCODE"
+      }
+    }
+  }
+}

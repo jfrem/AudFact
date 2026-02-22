@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact MCP Wrap"
+  short_description: "Extiende la integracion MCP y sus tools."
+  default_prompt: "Use $audfact-mcp-wrap para implementar o corregir tools MCP y alinearlas con rutas REST reales."

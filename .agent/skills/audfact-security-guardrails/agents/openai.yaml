@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Security Guardrails"
+  short_description: "Aplica hardening en validacion, logs y CORS."
+  default_prompt: "Use $audfact-security-guardrails para reforzar validaciones, rate limit, CORS y manejo seguro de archivos."

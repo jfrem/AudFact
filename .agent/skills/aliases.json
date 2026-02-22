@@ -1,0 +1,16 @@
+{
+  "aliases": {
+    "api": "audfact-api-rest",
+    "rest": "audfact-api-rest",
+    "audit": "audfact-audit-gemini",
+    "gemini": "audfact-audit-gemini",
+    "sqlsrv": "audfact-sqlsrv-models",
+    "db": "audfact-sqlsrv-models",
+    "mcp": "audfact-mcp-wrap",
+    "wrap": "audfact-mcp-wrap",
+    "docker": "audfact-runtime-docker",
+    "runtime": "audfact-runtime-docker",
+    "security": "audfact-security-guardrails",
+    "hardening": "audfact-security-guardrails"
+  }
+}

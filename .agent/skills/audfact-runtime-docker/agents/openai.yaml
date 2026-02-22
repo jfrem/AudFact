@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Runtime Docker"
+  short_description: "Depura el runtime Docker, Nginx y PHP-FPM."
+  default_prompt: "Use $audfact-runtime-docker para revisar y corregir la configuracion Docker/Nginx/PHP-FPM del proyecto."

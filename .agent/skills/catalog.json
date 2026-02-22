@@ -1,0 +1,41 @@
+{
+  "catalog": "audfact-skills",
+  "generated_at": "2026-02-17",
+  "skills": [
+    {
+      "name": "audfact-api-rest",
+      "path": ".agent/skills/audfact-api-rest",
+      "description": "Endpoints REST en PHP MVC. Cubre 12 endpoints en web.php, controladores CRUD y validación centralizada."
+    },
+    {
+      "name": "audfact-audit-gemini",
+      "path": ".agent/skills/audfact-audit-gemini",
+      "description": "Pipeline de auditoría IA con Gemini. Cubre GeminiAuditService, servicios de auditoría y manejo de adjuntos."
+    },
+    {
+      "name": "audfact-sqlsrv-models",
+      "path": ".agent/skills/audfact-sqlsrv-models",
+      "description": "Modelos SQL Server vía PDO sqlsrv. Gestión de datos transaccionales y streams BLOB."
+    },
+    {
+      "name": "audfact-mcp-wrap",
+      "path": ".agent/skills/audfact-mcp-wrap",
+      "description": "Integración MCP (Model Context Protocol) para AudFact. Traducción de tools a endpoints REST internos."
+    },
+    {
+      "name": "audfact-runtime-docker",
+      "path": ".agent/skills/audfact-runtime-docker",
+      "description": "Entorno Docker (PHP-FPM + Nginx) y conectividad con SQL Server."
+    },
+    {
+      "name": "audfact-security-guardrails",
+      "path": ".agent/skills/audfact-security-guardrails",
+      "description": "Políticas de seguridad: Rate Limit (100/min), CORS y sanitización de logs."
+    },
+    {
+      "name": "audfact-project-overview",
+      "path": ".agent/skills/audfact-project-overview",
+      "description": "Visión general, arquitectura y flujos de datos principales del sistema AudFact."
+    }
+  ]
+}

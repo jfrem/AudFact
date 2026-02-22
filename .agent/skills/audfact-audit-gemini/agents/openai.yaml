@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Audit Gemini"
+  short_description: "Orquesta y mejora la auditoria documental IA."
+  default_prompt: "Use $audfact-audit-gemini para ajustar el flujo de auditoria con Gemini, adjuntos y validacion JSON."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact API REST"
+  short_description: "Disena y ajusta endpoints REST del backend."
+  default_prompt: "Use $audfact-api-rest para crear o modificar un endpoint REST con validacion y respuestas consistentes."

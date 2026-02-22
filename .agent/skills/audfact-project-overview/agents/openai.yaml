@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Project Overview"
+  short_description: "Proporciona una visión general de la arquitectura y componentes de AudFact."
+  default_prompt: "Uso la skill $audfact-project-overview para entender la arquitectura, componentes y flujo de trabajo de AudFact."

@@ -1,0 +1,8 @@
+.git
+.gitignore
+node_modules
+vendor
+logs
+tmp
+public/mcp/node_modules
+public/mcp/build

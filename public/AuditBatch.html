@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AudFact — Auditoría Inteligente de Facturas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #818cf8;
+            --primary-glow: rgba(99, 102, 241, .25);
+            --bg: #050a18;
+            --bg-subtle: #0c1425;
+            --card-bg: rgba(15, 23, 42, .65);
+            --card-border: rgba(99, 102, 241, .12);
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #1e293b;
+            --success: #10b981;
+            --success-bg: rgba(16, 185, 129, .12);
+            --warning: #f59e0b;
+            --warning-bg: rgba(245, 158, 11, .12);
+            --error: #ef4444;
+            --error-bg: rgba(239, 68, 68, .12);
+            --info: #3b82f6;
+            --info-bg: rgba(59, 130, 246, .12);
+            --human: #a855f7;
+            --human-bg: rgba(168, 85, 247, .12);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, .15), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 100%, rgba(16, 185, 129, .08), transparent);
+        }
+
+        /* ── Header ── */
+        .app-header {
+            padding: 2rem 1.5rem 1.5rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .app-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--card-border), transparent);
+        }
+
+        .app-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: .6rem;
+            margin-bottom: .35rem;
+        }
+
+        .app-logo i {
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, #818cf8, #6ee7b7);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .app-logo h1 {
+            font-size: 1.65rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #818cf8, #6ee7b7);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -.02em;
+        }
+
+        .app-subtitle {
+            color: var(--text-muted);
+            font-size: .85rem;
+            font-weight: 400;
+        }
+
+        /* ── Layout ── */
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.15rem;
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 1.25rem 1.5rem 3rem;
+        }
+
+        /* ── Card ── */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            padding: 1.25rem 1.35rem;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: border-color .2s;
+        }
+
+        .card:hover {
+            border-color: rgba(99, 102, 241, .22);
+        }
+
+        .card-title {
+            font-size: .95rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            margin-bottom: .85rem;
+            display: flex;
+            align-items: center;
+            gap: .45rem;
+        }
+
+        .card-title i {
+            font-size: .9rem;
+            opacity: .6;
+            width: 18px;
+            text-align: center;
+        }
+
+        /* ── Grid inputs ── */
+        .grid-inputs {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        @media (max-width: 700px) {
+            .grid-inputs {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        label {
+            font-weight: 500;
+            font-size: .78rem;
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        input,
+        select {
+            width: 100%;
+            background: var(--bg-subtle);
+            border: 1px solid var(--border);
+            padding: 10px 12px;
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: inherit;
+            font-size: .9rem;
+            transition: border-color .2s, box-shadow .2s;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+
+        /* ── Custom select wrapper ── */
+        .select-wrap {
+            position: relative;
+        }
+
+        .select-wrap::after {
+            content: '';
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid var(--text-muted);
+            pointer-events: none;
+        }
+
+        .select-wrap select {
+            padding-right: 32px;
+            cursor: pointer;
+        }
+
+        /* ── Search input inside client selector card ── */
+        .client-search {
+            margin-bottom: .5rem;
+        }
+
+        .client-search input {
+            background: var(--bg);
+            border-color: var(--border);
+            font-size: .82rem;
+            padding: 8px 10px 8px 32px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: 10px center;
+        }
+
+        /* ── Buttons ── */
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .6rem;
+            align-items: center;
+        }
+
+        button {
+            border: 0;
+            border-radius: var(--radius-sm);
+            padding: 10px 20px;
+            color: #fff;
+            font-family: inherit;
+            font-size: .88rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform .15s, box-shadow .2s, opacity .2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #818cf8);
+            box-shadow: 0 2px 12px var(--primary-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px var(--primary-glow);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: .5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .btn-secondary {
+            background: rgba(51, 65, 85, .5);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(71, 85, 105, .5);
+        }
+
+        /* ── Status bar ── */
+        .status {
+            padding: 11px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            background: var(--bg-subtle);
+            font-size: .88rem;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            transition: border-color .3s, background .3s;
+        }
+
+        .status i {
+            font-size: .9rem;
+            flex-shrink: 0;
+            width: 18px;
+            text-align: center;
+        }
+
+        .status.info {
+            border-color: var(--info);
+            background: var(--info-bg);
+        }
+
+        .status.success {
+            border-color: var(--success);
+            background: var(--success-bg);
+        }
+
+        .status.error {
+            border-color: var(--error);
+            background: var(--error-bg);
+        }
+
+        .status.loading {
+            border-color: var(--primary);
+            background: var(--primary-glow);
+        }
+
+        /* ── Progress bar ── */
+        .progress-wrap {
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .progress-wrap.active {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), #818cf8, var(--success));
+            border-radius: 4px;
+            transition: width .4s ease;
+            width: 0%;
+        }
+
+        /* ── Summary cards ── */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: .75rem;
+        }
+
+        @media (max-width: 700px) {
+            .summary-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .summary-item {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            background: var(--bg-subtle);
+            text-align: center;
+            transition: border-color .2s, transform .15s;
+        }
+
+        .summary-item:hover {
+            border-color: var(--card-border);
+            transform: translateY(-2px);
+        }
+
+        .summary-label {
+            color: var(--text-muted);
+            font-size: .72rem;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+        }
+
+        .summary-value {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-top: 2px;
+        }
+
+        .summary-item.s-total .summary-value {
+            color: var(--text);
+        }
+
+        .summary-item.s-success .summary-value {
+            color: var(--success);
+        }
+
+        .summary-item.s-warning .summary-value {
+            color: var(--warning);
+        }
+
+        .summary-item.s-error .summary-value {
+            color: var(--error);
+        }
+
+        .summary-item.s-human .summary-value {
+            color: var(--human);
+        }
+
+        /* ── Table ── */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid var(--border);
+            padding: 11px 10px;
+            text-align: left;
+            vertical-align: middle;
+            font-size: .85rem;
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: .75rem;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        tr.clickable {
+            cursor: pointer;
+            transition: background .15s;
+        }
+
+        tr.clickable:hover {
+            background: rgba(99, 102, 241, .06);
+        }
+
+        tr.selected {
+            background: rgba(99, 102, 241, .1) !important;
+        }
+
+        tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, .015);
+        }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            border-radius: 999px;
+            padding: 4px 12px;
+            font-size: .72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+
+        .badge i {
+            font-size: .65rem;
+        }
+
+        .badge.success {
+            background: var(--success-bg);
+            color: #6ee7b7;
+        }
+
+        .badge.warning {
+            background: var(--warning-bg);
+            color: #fbbf24;
+        }
+
+        .badge.error {
+            background: var(--error-bg);
+            color: #fca5a5;
+        }
+
+        .badge.human_review {
+            background: var(--human-bg);
+            color: #c4b5fd;
+        }
+
+        /* ── Detail / JSON ── */
+        pre {
+            margin: 0;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+            max-height: 420px;
+            overflow: auto;
+            white-space: pre-wrap;
+            font-size: .82rem;
+            line-height: 1.6;
+            color: #cbd5e1;
+        }
+
+        pre .json-key {
+            color: #93c5fd;
+        }
+
+        pre .json-str {
+            color: #6ee7b7;
+        }
+
+        pre .json-num {
+            color: #fbbf24;
+        }
+
+        pre .json-bool {
+            color: #c4b5fd;
+        }
+
+        pre .json-null {
+            color: #94a3b8;
+        }
+
+        /* ── Enriched Detail Panel ── */
+        .detail-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .detail-message {
+            background: linear-gradient(135deg, rgba(99, 102, 241, .08), rgba(16, 185, 129, .08));
+            border: 1px solid rgba(99, 102, 241, .2);
+            border-radius: var(--radius-sm);
+            padding: 14px 18px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .detail-message i {
+            font-size: 1.2rem;
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+
+        .detail-message-text {
+            font-size: .88rem;
+            line-height: 1.55;
+            color: var(--text);
+        }
+
+        .detail-meta-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .detail-meta-card {
+            background: rgba(255, 255, 255, .03);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+        }
+
+        .detail-meta-card h4 {
+            margin: 0 0 10px 0;
+            font-size: .78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .detail-meta-card h4 i {
+            font-size: .7rem;
+            opacity: .7;
+        }
+
+        /* Phase timing bars */
+        .phase-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .phase-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .phase-label {
+            font-size: .75rem;
+            color: var(--text-muted);
+            min-width: 90px;
+            flex-shrink: 0;
+        }
+
+        .phase-bar-track {
+            flex: 1;
+            height: 8px;
+            background: rgba(255, 255, 255, .06);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .phase-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width .6s ease;
+        }
+
+        .phase-bar-fill.data-fetch {
+            background: linear-gradient(90deg, #818cf8, #6366f1);
+        }
+
+        .phase-bar-fill.file-prep {
+            background: linear-gradient(90deg, #fbbf24, #f59e0b);
+        }
+
+        .phase-bar-fill.gemini-api {
+            background: linear-gradient(90deg, #34d399, #10b981);
+        }
+
+        .phase-time {
+            font-size: .75rem;
+            color: var(--text-muted);
+            min-width: 50px;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Document pills */
+        .doc-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .doc-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: .72rem;
+            font-weight: 500;
+            background: rgba(99, 102, 241, .12);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, .2);
+        }
+
+        .doc-pill i {
+            font-size: .6rem;
+            opacity: .7;
+        }
+
+        /* JSON toggle */
+        .json-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 7px 14px;
+            color: var(--text-muted);
+            font-size: .78rem;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all .2s;
+        }
+
+        .json-toggle:hover {
+            border-color: var(--primary);
+            color: var(--text);
+        }
+
+        .json-toggle i {
+            font-size: .65rem;
+            transition: transform .2s;
+        }
+
+        .json-toggle.open i {
+            transform: rotate(90deg);
+        }
+
+        /* ── Animations ── */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .container>* {
+            animation: fadeIn .4s ease both;
+        }
+
+        .container> :nth-child(2) {
+            animation-delay: .05s;
+        }
+
+        .container> :nth-child(3) {
+            animation-delay: .1s;
+        }
+
+        .container> :nth-child(4) {
+            animation-delay: .15s;
+        }
+
+        .container> :nth-child(5) {
+            animation-delay: .2s;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .loading-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -200% 0;
+            }
+
+            100% {
+                background-position: 200% 0;
+            }
+        }
+
+        .progress-bar.active {
+            background-size: 200% 100%;
+            animation: shimmer 2s linear infinite;
+        }
+
+        /* ── Spinner ── */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ── Footer ── */
+        .app-footer {
+            text-align: center;
+            padding: 1.5rem;
+            color: var(--text-muted);
+            font-size: .75rem;
+            opacity: .5;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- ── App Header ── -->
+    <header class="app-header">
+        <div class="app-logo">
+            <i class="fa-solid fa-shield-halved"></i>
+            <h1>AudFact</h1>
+        </div>
+        <p class="app-subtitle">Auditoría Inteligente de Facturas con IA</p>
+    </header>
+
+    <main>
+        <div class="container">
+            <!-- ── Configuración ── -->
+            <section class="card">
+                <div class="card-title">
+                    <i class="fa-solid fa-sliders"></i>
+                    Configuración
+                </div>
+                <div class="grid-inputs">
+                    <div>
+                        <label for="clientSearch">Cliente</label>
+                        <div class="client-search">
+                            <input id="clientSearch" type="text" placeholder="Buscar cliente por nombre o NIT...">
+                        </div>
+                        <div class="select-wrap">
+                            <select id="facNitSec">
+                                <option value="" disabled selected>Cargando clientes...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="date">Fecha de Corte</label>
+                        <input id="date" type="date" value="2025-12-30">
+                    </div>
+                    <div>
+                        <label for="limit">Límite Facturas</label>
+                        <input id="limit" type="number" min="1" max="1000" value="3">
+                    </div>
+                </div>
+                <div class="row">
+                    <button id="btn-run" class="btn-primary" type="button" disabled>
+                        <i class="fa-solid fa-play" style="margin-right:5px;font-size:.75rem"></i>
+                        Ejecutar Auditoría
+                    </button>
+                    <button id="btn-clear" type="button" class="btn-secondary">Limpiar</button>
+                </div>
+            </section>
+
+            <!-- ── Estado y Progreso ── -->
+            <section class="card">
+                <div id="status" class="status info">
+                    <span class="spinner"></span>
+                    Inicializando sistema...
+                </div>
+                <div id="progress-wrap" class="progress-wrap">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+            </section>
+
+            <!-- ── Resumen ── -->
+            <section class="card" id="section-summary" style="display:none">
+                <div class="card-title">
+                    <i class="fa-solid fa-chart-pie"></i>
+                    Resumen de Auditoría
+                </div>
+                <div id="summary" class="summary-grid"></div>
+            </section>
+
+            <!-- ── Resultados ── -->
+            <section class="card" id="section-results" style="display:none">
+                <div class="card-title">
+                    <i class="fa-solid fa-table-list"></i>
+                    Resultados por Factura
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Factura</th>
+                                <th>DisId</th>
+                                <th>Estado</th>
+                                <th>Mensaje</th>
+                                <th>Tiempo</th>
+                                <th>Intentos</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ── Detalle ── -->
+            <section class="card" id="section-detail" style="display:none">
+                <div class="card-title">
+                    <i class="fa-solid fa-file-code"></i>
+                    Detalle del Resultado Seleccionado
+                </div>
+                <div id="detail" class="detail-panel">
+                    <p style="color:var(--text-muted);font-size:.88rem">Haz clic en una fila de la tabla para ver el
+                        detalle.</p>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- ── Footer ── -->
+    <footer class="app-footer">AudFact v1.0 — Motor de Auditoría IA &copy; 2025</footer>
+
+    <script type="module">
+        /* ── Helpers ── */
+        const byId = (id) => document.getElementById(id);
+        const escapeHtml = (v) => String(v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+        let api = null;
+        let allClients = [];
+        let currentItems = [];
+        let selectedIndex = -1;
+
+        /* ── DOM refs ── */
+        const statusEl = byId('status');
+        const summaryEl = byId('summary');
+        const resultsBodyEl = byId('results-body');
+        const detailEl = byId('detail');
+        const btnRunEl = byId('btn-run');
+        const btnClearEl = byId('btn-clear');
+        const selectEl = byId('facNitSec');
+        const searchEl = byId('clientSearch');
+        const progressWrap = byId('progress-wrap');
+        const progressBar = byId('progress-bar');
+        const sectionSummary = byId('section-summary');
+        const sectionResults = byId('section-results');
+        const sectionDetail = byId('section-detail');
+
+        /* ── Font Awesome icon helpers ── */
+        const icons = {
+            check: '<i class="fa-solid fa-circle-check"></i>',
+            alert: '<i class="fa-solid fa-triangle-exclamation"></i>',
+            x: '<i class="fa-solid fa-circle-xmark"></i>',
+            eye: '<i class="fa-solid fa-eye"></i>',
+            info: '<i class="fa-solid fa-circle-info"></i>',
+            spinner: '<span class="spinner"></span>',
+        };
+
+        const statusIcon = { info: icons.info, success: icons.check, error: icons.x, loading: icons.spinner };
+
+        /* ── Status ── */
+        const setStatus = (message, tone = 'info') => {
+            statusEl.className = `status ${tone}`;
+            statusEl.innerHTML = `${statusIcon[tone] || statusIcon.info} ${escapeHtml(message)}`;
+        };
+
+        /* ── Progress ── */
+        const setProgress = (pct) => {
+            progressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+            if (pct > 0) {
+                progressWrap.classList.add('active');
+                progressBar.classList.add('active');
+            }
+        };
+        const resetProgress = () => {
+            progressWrap.classList.remove('active');
+            progressBar.classList.remove('active');
+            progressBar.style.width = '0%';
+        };
+
+        /* ── Badge ── */
+        const badgeIcons = {
+            success: icons.check,
+            warning: icons.alert,
+            error: icons.x,
+            human_review: icons.eye,
+        };
+        const badge = (status) => {
+            const n = (status || 'error').toLowerCase();
+            const icon = badgeIcons[n] || '';
+            return `<span class="badge ${escapeHtml(n)}">${icon} ${escapeHtml(n)}</span>`;
+        };
+
+        /* ── Client Selector ── */
+        const populateClients = (clients) => {
+            selectEl.innerHTML = '<option value="" disabled selected>— Seleccionar cliente —</option>';
+            clients.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.NitSec;
+                opt.textContent = `${c.NitCom} (NIT: ${c.NitSec})`;
+                selectEl.appendChild(opt);
+            });
+        };
+
+        searchEl.addEventListener('input', () => {
+            const q = searchEl.value.toLowerCase().trim();
+            if (!q) { populateClients(allClients); return; }
+            const filtered = allClients.filter(c =>
+                String(c.NitCom).toLowerCase().includes(q) ||
+                String(c.NitSec).toLowerCase().includes(q)
+            );
+            populateClients(filtered);
+        });
+
+        selectEl.addEventListener('change', () => {
+            if (selectEl.value) btnRunEl.disabled = false;
+        });
+
+        /* ── Summary ── */
+        const computeSummary = (items) => {
+            const s = { total: items.length, success: 0, warning: 0, error: 0, human_review: 0 };
+            for (const item of items) {
+                const k = String(item?.result?.response || 'error').toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(s, k)) s[k] += 1;
+            }
+            return s;
+        };
+
+        const summaryMeta = [
+            { key: 'total', label: 'Total', cls: 's-total', icon: '📊' },
+            { key: 'success', label: 'Aprobadas', cls: 's-success', icon: '✅' },
+            { key: 'warning', label: 'Advertencias', cls: 's-warning', icon: '⚠️' },
+            { key: 'error', label: 'Errores', cls: 's-error', icon: '❌' },
+            { key: 'human_review', label: 'Revisión', cls: 's-human', icon: '👁️' },
+        ];
+
+        const renderSummary = (items) => {
+            const s = computeSummary(items);
+            summaryEl.innerHTML = summaryMeta.map(m =>
+                `<div class="summary-item ${m.cls}">
+                    <div class="summary-label">${m.icon} ${m.label}</div>
+                    <div class="summary-value">${s[m.key]}</div>
+                </div>`
+            ).join('');
+        };
+
+        /* ── JSON Syntax Highlight ── */
+        const highlightJSON = (obj) => {
+            const raw = JSON.stringify(obj, null, 2);
+            return raw
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"([^"]+)"(?=\s*:)/g, '<span class="json-key">"$1"</span>')
+                .replace(/:\s*"([^"]*)"/g, ': <span class="json-str">"$1"</span>')
+                .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+                .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+                .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+        };
+
+        /* ── Detail ── */
+        const renderDetail = (index) => {
+            sectionDetail.style.display = '';
+            if (index < 0 || index >= currentItems.length) {
+                detailEl.innerHTML = '<p style="color:var(--text-muted);font-size:.88rem">Haz clic en una fila de la tabla para ver el detalle.</p>';
+                return;
+            }
+
+            const item = currentItems[index];
+            const res = item?.result || {};
+            const meta = res?._meta || {};
+            const phases = meta?.phases || {};
+            const resp = String(res?.response || 'error').toLowerCase();
+            const msg = String(res?.message || '—');
+            const docs = Array.isArray(meta?.documentos) ? meta.documentos : [];
+            const totalMs = meta?.totalTimeMs || 1;
+
+            /* Badge icon for the message */
+            const msgIcon = resp === 'success' ? '<i class="fa-solid fa-circle-check" style="color:#34d399"></i>'
+                : resp === 'warning' ? '<i class="fa-solid fa-triangle-exclamation" style="color:#fbbf24"></i>'
+                    : resp === 'human_review' ? '<i class="fa-solid fa-eye" style="color:#c4b5fd"></i>'
+                        : '<i class="fa-solid fa-circle-xmark" style="color:#fca5a5"></i>';
+
+            /* Phase timing bars */
+            const phaseData = [
+                { key: 'dataFetchMs', label: 'SQL Data', cls: 'data-fetch', icon: 'fa-database' },
+                { key: 'filePrepMs', label: 'Archivos', cls: 'file-prep', icon: 'fa-folder-open' },
+                { key: 'geminiApiMs', label: 'Gemini IA', cls: 'gemini-api', icon: 'fa-wand-magic-sparkles' },
+            ];
+
+            const phaseBarsHtml = phaseData.map(p => {
+                const ms = phases[p.key] || 0;
+                const pct = Math.min((ms / totalMs) * 100, 100).toFixed(1);
+                return `<div class="phase-row">
+                    <span class="phase-label"><i class="fa-solid ${p.icon}"></i> ${p.label}</span>
+                    <div class="phase-bar-track"><div class="phase-bar-fill ${p.cls}" style="width:${pct}%"></div></div>
+                    <span class="phase-time">${formatTime(ms)}</span>
+                </div>`;
+            }).join('');
+
+            /* Document pills */
+            const docIcon = { 'ACTA DE ENTREGA': 'fa-file-signature', 'FORMULA MEDICA': 'fa-prescription', 'VALIDADOR DE DERECHOS': 'fa-id-card' };
+            const docPillsHtml = docs.map(d => {
+                const ic = docIcon[d] || 'fa-file';
+                return `<span class="doc-pill"><i class="fa-solid ${ic}"></i> ${escapeHtml(d)}</span>`;
+            }).join('');
+
+            /* Compose panel */
+            detailEl.innerHTML = `
+                <div class="detail-message">
+                    ${msgIcon}
+                    <div class="detail-message-text">${escapeHtml(msg)}</div>
+                </div>
+
+                <div class="detail-meta-grid">
+                    <div class="detail-meta-card">
+                        <h4><i class="fa-solid fa-stopwatch"></i> Tiempos por Fase</h4>
+                        <div class="phase-list">
+                            ${phaseBarsHtml}
+                            <div class="phase-row" style="margin-top:4px;border-top:1px solid var(--border);padding-top:8px">
+                                <span class="phase-label" style="font-weight:600;color:var(--text)">Total</span>
+                                <div class="phase-bar-track"><div class="phase-bar-fill gemini-api" style="width:100%;opacity:.3"></div></div>
+                                <span class="phase-time" style="font-weight:600;color:var(--text)">${formatTime(totalMs)}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="detail-meta-card">
+                        <h4><i class="fa-solid fa-file-lines"></i> Documentos Auditados</h4>
+                        <div class="doc-pills">${docPillsHtml || '<span style="color:var(--text-muted);font-size:.8rem">Sin documentos</span>'}</div>
+                        <div style="margin-top:12px;display:flex;gap:16px;font-size:.78rem;color:var(--text-muted)">
+                            <span><i class="fa-solid fa-rotate"></i> Intentos: <strong style="color:var(--text)">${meta?.attempts ?? '-'}</strong></span>
+                            <span><i class="fa-solid fa-receipt"></i> Factura: <strong style="color:var(--text)">${escapeHtml(meta?.factura ?? '-')}</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="json-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'':'none'">
+                    <i class="fa-solid fa-chevron-right"></i> Ver JSON completo
+                </button>
+                <pre style="display:none">${highlightJSON(item)}</pre>
+            `;
+        };
+
+        /* ── Results table ── */
+        const formatTime = (ms) => {
+            if (ms === undefined || ms === null || ms === '-') return '-';
+            const n = Number(ms);
+            if (n >= 1000) return `${(n / 1000).toFixed(1)}s`;
+            return `${Math.round(n)}ms`;
+        };
+
+        const renderResults = (items) => {
+            sectionResults.style.display = '';
+            if (!items.length) {
+                resultsBodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No se encontraron facturas para los parámetros indicados.</td></tr>`;
+                return;
+            }
+            resultsBodyEl.innerHTML = items.map((row, idx) => {
+                const inv = row?.invoice || {};
+                const res = row?.result || {};
+                const resp = String(res?.response || 'error').toLowerCase();
+                const msg = String(res?.message || '—');
+                const time = res?._meta?.totalTimeMs;
+                const att = res?._meta?.attempts ?? '-';
+                return `<tr class="clickable${selectedIndex === idx ? ' selected' : ''}" data-index="${idx}">
+                    <td>${idx + 1}</td>
+                    <td><strong>${escapeHtml(inv.FacNro ?? '-')}</strong></td>
+                    <td>${escapeHtml(inv.DisId ?? '-')}</td>
+                    <td>${badge(resp)}</td>
+                    <td>${escapeHtml(msg)}</td>
+                    <td>${formatTime(time)}</td>
+                    <td>${escapeHtml(att)}</td>
+                </tr>`;
+            }).join('');
+
+            resultsBodyEl.querySelectorAll('tr.clickable').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    selectedIndex = Number(tr.dataset.index);
+                    renderResults(currentItems);
+                    renderDetail(selectedIndex);
+                });
+            });
+        };
+
+        /* ── Clear ── */
+        const clearAll = () => {
+            currentItems = [];
+            selectedIndex = -1;
+            sectionSummary.style.display = 'none';
+            sectionResults.style.display = 'none';
+            sectionDetail.style.display = 'none';
+            resetProgress();
+            setStatus('Panel limpio. Selecciona un cliente para comenzar.', 'info');
+        };
+
+        /* ── Validate ── */
+        const validateInputs = () => {
+            const facNitSec = Number(selectEl.value);
+            const date = byId('date').value;
+            const limit = Number(byId('limit').value);
+
+            if (!facNitSec || facNitSec < 1) throw new Error('Debes seleccionar un cliente.');
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('La fecha debe tener formato YYYY-MM-DD.');
+            if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('El límite debe estar entre 1 y 1000.');
+
+            return { facNitSec, date, limit };
+        };
+
+        /* ── Run Batch ── */
+        const runBatch = async () => {
+            try {
+                if (!api) throw new Error('Cliente HTTP no inicializado.');
+                const payload = validateInputs();
+
+                btnRunEl.disabled = true;
+                btnClearEl.disabled = true;
+                setStatus('Ejecutando auditoría batch con IA. Esto puede tardar varios minutos...', 'loading');
+                setProgress(5);
+
+                /* Simulate progress ticks while waiting */
+                let pct = 5;
+                const ticker = setInterval(() => {
+                    pct = Math.min(pct + Math.random() * 8, 92);
+                    setProgress(pct);
+                }, 3500);
+
+                const response = await api.post('/audit', payload, { timeout: 900000 });
+
+                clearInterval(ticker);
+                setProgress(100);
+
+                const envelope = response?.data || {};
+                const items = envelope?.data?.items || [];
+
+                currentItems = Array.isArray(items) ? items : [];
+                selectedIndex = currentItems.length ? 0 : -1;
+
+                sectionSummary.style.display = '';
+                renderSummary(currentItems);
+                renderResults(currentItems);
+                if (selectedIndex >= 0) renderDetail(selectedIndex);
+
+                const elapsed = envelope?.data?.totalTimeMs;
+                const timeStr = elapsed ? ` en ${(elapsed / 1000).toFixed(1)}s` : '';
+                setStatus(`Auditoría completada${timeStr} — ${currentItems.length} factura(s) procesada(s).`, 'success');
+
+                setTimeout(resetProgress, 2000);
+            } catch (error) {
+                resetProgress();
+                const details = error?.data ? ` | ${JSON.stringify(error.data)}` : '';
+                setStatus(`Error: ${error?.message || 'Error desconocido'}${details}`, 'error');
+            } finally {
+                btnRunEl.disabled = !selectEl.value;
+                btnClearEl.disabled = false;
+            }
+        };
+
+        /* ── Event listeners ── */
+        btnRunEl.addEventListener('click', runBatch);
+        btnClearEl.addEventListener('click', clearAll);
+
+        /* ── Bootstrap ── */
+        const bootstrap = async () => {
+            try {
+                const module = await import('/src/HttpClient.js');
+                const HttpClient = module.HttpClient;
+                if (!HttpClient) throw new Error('No se pudo importar HttpClient.');
+
+                api = new HttpClient({ baseURL: window.location.origin, timeout: 600000, retries: 1 });
+
+                /* Health check */
+                const health = await api.get('/health');
+                if (!health?.ok) {
+                    setStatus('Conexión parcial: /health no respondió OK.', 'error');
+                    return;
+                }
+
+                /* Load clients */
+                setStatus('Cargando lista de clientes...', 'loading');
+                const res = await api.get('/clients');
+                const clients = res?.data?.data || [];
+
+                if (!Array.isArray(clients) || !clients.length) {
+                    setStatus('No se encontraron clientes en el backend.', 'error');
+                    return;
+                }
+
+                allClients = clients;
+                populateClients(allClients);
+                setStatus(`Conectado — ${allClients.length} clientes disponibles. Selecciona uno para auditar.`, 'success');
+            } catch (e) {
+                setStatus(`Error de inicialización: ${e?.message || 'desconocido'}`, 'error');
+            }
+        };
+
+        bootstrap();
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact SQLServer Models"
+  short_description: "Optimiza y corrige consultas SQL Server PDO."
+  default_prompt: "Use $audfact-sqlsrv-models para modificar modelos SQL Server con consultas parametrizadas y tipos PDO correctos."

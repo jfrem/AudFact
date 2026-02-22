@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auditoría Dispensación</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #3b82f6;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Outfit", sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        main {
+            padding: 2rem;
+            display: grid;
+            gap: 1rem;
+            max-width: 900px;
+        }
+
+        button {
+            padding: 0.5rem 1rem;
+            background-color: var(--primary);
+            color: var(--text);
+            border: none;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+        }
+
+        pre {
+            background-color: var(--card-bg);
+            padding: 1rem;
+            border-radius: 0.25rem;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+
+        iframe {
+            width: 100%;
+            min-height: 480px;
+            border: 1px solid var(--border);
+            border-radius: 0.25rem;
+            background: #fff;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        input {
+            padding: 0.45rem 0.6rem;
+            border-radius: 0.25rem;
+            border: 1px solid var(--border);
+            background: #0b1220;
+            color: var(--text);
+        }
+
+        label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .small {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .attachments-list {
+            display: grid;
+            gap: 0.5rem;
+        }
+
+        .attachment-item {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: space-between;
+            background: #0b1220;
+            border: 1px solid var(--border);
+            border-radius: 0.35rem;
+            padding: 0.6rem;
+        }
+
+        .attachment-meta {
+            display: grid;
+            gap: 0.2rem;
+        }
+
+        .viewer-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.6rem;
+        }
+
+        .btn-secondary {
+            background: #334155;
+        }
+
+        .btn-secondary:hover {
+            background: #475569;
+        }
+
+        #viewer-meta {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>Panel Admin - AudFact</h1>
+        <div class="card row">
+            <button id="btn-health" type="button">Probar /health</button>
+            <button id="btn-clients-all" type="button">GET /clients</button>
+        </div>
+
+        <section class="card">
+            <div class="row">
+                <label for="clientId">clientId</label>
+                <input id="clientId" type="number" value="1165" min="1">
+                <button id="btn-client-by-id" type="button">GET /clients/{id}</button>
+                <button id="btn-client-lookup" type="button">POST /clients</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="row">
+                <label for="facNitSec">facNitSec</label>
+                <input id="facNitSec" type="number" value="1165" min="1">
+                <label for="date">date</label>
+                <input id="date" type="date" value="2025-12-30">
+                <label for="limit">limit</label>
+                <input id="limit" type="number" value="10" min="1" max="1000">
+                <button id="btn-invoices-get" type="button">GET /invoices</button>
+                <button id="btn-invoices-post" type="button">POST /invoices</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="row">
+                <label for="invoiceId">invoiceId</label>
+                <input id="invoiceId" type="text" value="D19251005204">
+                <button id="btn-dispensation-get" type="button">GET /dispensation/{id}</button>
+                <button id="btn-dispensation-post" type="button">POST /dispensation</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="row">
+                <label for="nitSec">nitSec</label>
+                <input id="nitSec" type="text" value="1165">
+                <button id="btn-attachments-list" type="button">GET /dispensation/{id}/attachments/{nitSec}</button>
+            </div>
+            <div class="row" style="margin-top:0.5rem;">
+                <label for="attachmentId">attachmentId</label>
+                <input id="attachmentId" type="text" value="1">
+                <button id="btn-attachments-download" type="button">GET
+                    /dispensation/{id}/attachments/download/{attachmentId}</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2 style="margin-top:0;">Lista de Adjuntos</h2>
+            <div id="attachments-list" class="attachments-list small">Sin datos. Ejecuta "GET /attachments/{nitSec}".
+            </div>
+        </section>
+
+        <section class="card">
+            <h2 style="margin-top:0;">Visualizador de Adjunto</h2>
+            <div class="viewer-toolbar">
+                <button id="btn-view-attachment" type="button">Ver adjunto</button>
+                <button id="btn-download-current" type="button" class="btn-secondary">Descargar actual</button>
+                <button id="btn-clear-viewer" type="button" class="btn-secondary">Limpiar visor</button>
+                <span id="viewer-meta">Sin adjunto cargado.</span>
+            </div>
+            <div id="viewer" class="small">Aquí aparecerá la vista previa.</div>
+        </section>
+
+        <pre id="output">Listo para probar la API...</pre>
+    </main>
+
+    <script type="module">
+        import { HttpClient } from '/src/HttpClient.js';
+
+        const byId = (id) => document.getElementById(id);
+        const output = document.getElementById('output');
+        const attachmentsListEl = byId('attachments-list');
+        const viewerEl = byId('viewer');
+        const viewerMetaEl = byId('viewer-meta');
+        let activeObjectUrl = null;
+        let currentAttachment = null;
+
+        const api = new HttpClient({
+            baseURL: window.location.origin,
+            timeout: 5000,
+            retries: 1
+        });
+
+        const run = async (label, request) => {
+            output.textContent = `${label}...`;
+            try {
+                const response = await request();
+                output.textContent = JSON.stringify({
+                    status: response.status,
+                    ok: response.ok,
+                    data: response.data
+                }, null, 2);
+            } catch (error) {
+                output.textContent = `Error: ${error?.message || 'Unknown error'}`;
+            }
+        };
+
+        const revokeActiveObjectUrl = () => {
+            if (activeObjectUrl) {
+                URL.revokeObjectURL(activeObjectUrl);
+                activeObjectUrl = null;
+            }
+        };
+
+        const clearViewer = () => {
+            revokeActiveObjectUrl();
+            currentAttachment = null;
+            viewerEl.innerHTML = 'Aquí aparecerá la vista previa.';
+            viewerMetaEl.textContent = 'Sin adjunto cargado.';
+        };
+
+        const parseFilenameFromHeaders = (headers) => {
+            const disposition = headers?.get?.('content-disposition') || '';
+            const match = disposition.match(/filename="?([^"]+)"?/i);
+            return match ? match[1] : null;
+        };
+
+        const extractDataArray = (payload) => {
+            if (Array.isArray(payload)) {
+                return payload;
+            }
+            if (payload && Array.isArray(payload.data)) {
+                return payload.data;
+            }
+            if (payload && Array.isArray(payload?.data?.data)) {
+                return payload.data.data;
+            }
+            return [];
+        };
+
+        const escapeHtml = (value) => String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const renderAttachmentsList = (items) => {
+            if (!items.length) {
+                attachmentsListEl.textContent = 'No se encontraron adjuntos.';
+                return;
+            }
+
+            const html = items.map((item) => {
+                const id = escapeHtml(item.id_documento ?? '');
+                const name = escapeHtml(item.nombre_documento ?? item.nombre_alternativo ?? 'Documento');
+                const type = escapeHtml(item.TipoAlmacenamiento ?? 'N/A');
+                return `
+                    <article class="attachment-item">
+                        <div class="attachment-meta">
+                            <strong>${name}</strong>
+                            <span class="small">attachmentId: ${id} | tipo: ${type}</span>
+                        </div>
+                        <button type="button" class="btn-use-attachment" data-attachment-id="${id}">Usar ID</button>
+                    </article>
+                `;
+            }).join('');
+
+            attachmentsListEl.innerHTML = html;
+            attachmentsListEl.querySelectorAll('.btn-use-attachment').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    byId('attachmentId').value = btn.dataset.attachmentId || '';
+                    output.textContent = `attachmentId seleccionado: ${byId('attachmentId').value}`;
+                });
+            });
+        };
+
+        const base64ToBlob = (base64, mime = 'application/octet-stream') => {
+            const binary = atob(base64);
+            const length = binary.length;
+            const bytes = new Uint8Array(length);
+            for (let i = 0; i < length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return new Blob([bytes], { type: mime });
+        };
+
+        const renderAttachment = async (blob, mime, filename = 'adjunto') => {
+            revokeActiveObjectUrl();
+            activeObjectUrl = URL.createObjectURL(blob);
+
+            currentAttachment = { blob, mime, filename };
+            viewerMetaEl.textContent = `${filename} | ${mime || 'application/octet-stream'} | ${blob.size} bytes`;
+
+            if (mime?.startsWith('image/')) {
+                viewerEl.innerHTML = `<img src="${activeObjectUrl}" alt="Adjunto" style="max-width:100%;border-radius:0.25rem;">`;
+                return;
+            }
+
+            if (mime === 'application/pdf') {
+                viewerEl.innerHTML = `<iframe src="${activeObjectUrl}" title="PDF"></iframe>`;
+                return;
+            }
+
+            if (mime?.startsWith('text/')) {
+                const text = await blob.text();
+                viewerEl.innerHTML = `<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+                return;
+            }
+
+            viewerEl.innerHTML = `
+                <p class="small">No hay vista previa para este tipo MIME.</p>
+                <p class="small">Usa "Descargar actual" para abrirlo localmente.</p>
+            `;
+        };
+
+        const downloadCurrentAttachment = () => {
+            if (!currentAttachment?.blob) {
+                output.textContent = 'No hay adjunto cargado para descargar.';
+                return;
+            }
+            const url = URL.createObjectURL(currentAttachment.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentAttachment.filename || 'adjunto';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        };
+
+        const viewSelectedAttachment = async () => {
+            const invoiceId = byId('invoiceId').value.trim();
+            const attachmentId = byId('attachmentId').value.trim();
+            if (!invoiceId || !attachmentId) {
+                output.textContent = 'Debes indicar invoiceId y attachmentId.';
+                return;
+            }
+
+            const path = `/dispensation/${invoiceId}/attachments/download/${attachmentId}`;
+            output.textContent = 'Descargando adjunto en binario...';
+
+            try {
+                const response = await api.get(path, {}, { responseType: 'blob' });
+                const blob = response.data;
+                const mime = blob.type || response.headers.get('content-type') || 'application/octet-stream';
+                const filename = parseFilenameFromHeaders(response.headers) || `adjunto-${attachmentId}`;
+                await renderAttachment(blob, mime, filename);
+                output.textContent = `Adjunto cargado en visor (stream binario).`;
+                return;
+            } catch (blobError) {
+                output.textContent = `Fallback a JSON/base64 por error binario: ${blobError?.message || 'desconocido'}`;
+            }
+
+            try {
+                const response = await api.get(path, {}, { headers: { Accept: 'application/json' } });
+                const payload = response.data || {};
+                const mime = payload.mime || 'application/octet-stream';
+                const data = payload.data || '';
+                if (!data) {
+                    throw new Error('Respuesta JSON sin campo data(base64).');
+                }
+                const blob = base64ToBlob(data, mime);
+                await renderAttachment(blob, mime, `adjunto-${attachmentId}`);
+                output.textContent = 'Adjunto cargado en visor (fallback JSON/base64).';
+            } catch (jsonError) {
+                output.textContent = `Error al visualizar adjunto: ${jsonError?.message || 'Unknown error'}`;
+                clearViewer();
+            }
+        };
+
+        byId('btn-health').addEventListener('click', () => run('Consultando /health', () => api.get('/health')));
+        byId('btn-clients-all').addEventListener('click', () => run('Consultando /clients', () => api.get('/clients')));
+
+        byId('btn-client-by-id').addEventListener('click', () => {
+            const clientId = Number(byId('clientId').value || 0);
+            return run('Consultando /clients/{id}', () => api.get(`/clients/${clientId}`));
+        });
+
+        byId('btn-client-lookup').addEventListener('click', () => {
+            const clientId = Number(byId('clientId').value || 0);
+            return run('Consultando POST /clients', () => api.post('/clients', { clientId }));
+        });
+
+        byId('btn-invoices-get').addEventListener('click', () => {
+            const facNitSec = Number(byId('facNitSec').value || 0);
+            const date = byId('date').value;
+            const limit = Number(byId('limit').value || 100);
+            return run('Consultando GET /invoices', () => api.get('/invoices', { facNitSec, date, limit }));
+        });
+
+        byId('btn-invoices-post').addEventListener('click', () => {
+            const facNitSec = Number(byId('facNitSec').value || 0);
+            const date = byId('date').value;
+            const limit = Number(byId('limit').value || 100);
+            return run('Consultando POST /invoices', () => api.post('/invoices', { facNitSec, date, limit }));
+        });
+
+        byId('btn-dispensation-get').addEventListener('click', () => {
+            const invoiceId = byId('invoiceId').value.trim();
+            return run('Consultando GET /dispensation/{id}', () => api.get(`/dispensation/${invoiceId}`));
+        });
+
+        byId('btn-dispensation-post').addEventListener('click', () => {
+            const invoiceId = byId('invoiceId').value.trim();
+            return run('Consultando POST /dispensation', () => api.post('/dispensation', { DisDetNro: invoiceId }));
+        });
+
+        byId('btn-attachments-list').addEventListener('click', () => {
+            const invoiceId = byId('invoiceId').value.trim();
+            const nitSec = byId('nitSec').value.trim();
+            return run(
+                'Consultando GET /dispensation/{id}/attachments/{nitSec}',
+                async () => {
+                    const response = await api.get(`/dispensation/${invoiceId}/attachments/${nitSec}`);
+                    const items = extractDataArray(response.data);
+                    renderAttachmentsList(items);
+                    return response;
+                }
+            );
+        });
+
+        byId('btn-attachments-download').addEventListener('click', () => {
+            const invoiceId = byId('invoiceId').value.trim();
+            const attachmentId = byId('attachmentId').value.trim();
+            return run(
+                'Consultando GET /dispensation/{id}/attachments/download/{attachmentId}',
+                () => api.get(`/dispensation/${invoiceId}/attachments/download/${attachmentId}`)
+            );
+        });
+
+        byId('btn-view-attachment').addEventListener('click', viewSelectedAttachment);
+        byId('btn-download-current').addEventListener('click', downloadCurrentAttachment);
+        byId('btn-clear-viewer').addEventListener('click', clearViewer);
+    </script>
+</body>
+
+</html>

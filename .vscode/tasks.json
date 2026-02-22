@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Composer: install",
+      "type": "shell",
+      "command": "composer install --no-interaction --prefer-dist",
+      "problemMatcher": []
+    },
+    {
+      "label": "PHP: lint (app, core)",
+      "type": "shell",
+      "command": "find app core -name '*.php' -print0 | xargs -0 -n1 -P4 php -l",
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests: cli_test_audit",
+      "type": "shell",
+      "command": "php tests/cli_test_audit.php",
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests: cli_test_single",
+      "type": "shell",
+      "command": "php tests/cli_test_single.php",
+      "problemMatcher": []
+    }
+  ]
+}

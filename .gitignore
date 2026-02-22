@@ -1,0 +1,13 @@
+.env
+.env.*.local
+/vendor/
+/node_modules/
+/logs/*.log
+/logs/ratelimit.json
+/logs/ratelimit.lock
+*.log
+.DS_Store
+Thumbs.db
+CLAUDE.md
+GEMINI.md
+.cursorrules
