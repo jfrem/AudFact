@@ -11,6 +11,11 @@ class AuditController extends Controller
 {
     public function run(): void
     {
+        // C03: Prevenir timeout en auditorías masivas cerrando límites
+        set_time_limit(3600); // 1 hora máximo para el lote
+        // C04: Proveer memoria suficiente para el array de resultados y procesamiento base64
+        ini_set('memory_limit', '1024M');
+
         // Validar y sanitizar los parámetros de entrada
         $data = $this->validate([
             'facNitSec' => 'required|integer|min_value:1',

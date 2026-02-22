@@ -137,6 +137,9 @@ class GeminiAuditService
      */
     public function auditInvoice(string $invoiceId, string $DisDetNro, ?string $attachmentId = null): array
     {
+        // C03: Resetear timeout por cada factura auditoría (ej: 2 minutos adicionales)
+        set_time_limit(120);
+
         $totalStart = hrtime(true);
         $attempts = 0;
 

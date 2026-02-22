@@ -19,6 +19,9 @@ class AuditFileManager
         'image/heif'
     ];
 
+    // C04: Límite de tamaño sugerido por la API y para evitar Out Of Memory processing base64 (~15MB limit)
+    private const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
+
     private string $tmpDir;
     private GoogleDriveAuthService $driveService;
     private AttachmentsModel $attachmentsModel;
@@ -242,6 +245,11 @@ class AuditFileManager
             throw new \RuntimeException('BLOB vacío o no leído correctamente');
         }
 
+        // C04: Control de tamaño base64
+        if (strlen($binaryContent) > self::MAX_FILE_SIZE_BYTES) {
+            throw new \RuntimeException(sprintf('Archivo %s excede el límite máximo (15MB)', $documentName));
+        }
+
         Logger::info("BLOB procesado directo en memoria", [
             'attachmentId' => $attachmentId,
             'sizeBytes' => strlen($binaryContent),
@@ -382,6 +390,13 @@ class AuditFileManager
         }
 
         $mime = $mimeOverride ?: $this->detectMime($path, $originalName);
+
+        // C04: Control de tamaño base64 previo a readFile
+        $size = filesize($path);
+        if ($size > self::MAX_FILE_SIZE_BYTES) {
+            throw new \RuntimeException(sprintf('Archivo %s excede el límite máximo (15MB)', $originalName));
+        }
+
         $content = file_get_contents($path);
 
         if ($content === false) {
