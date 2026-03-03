@@ -17,7 +17,8 @@ class AuditPersistenceService
     }
 
     /**
-     * Persiste la respuesta de auditoría en disco para trazabilidad.
+     * Persiste la respuesta de auditoría en disco para trazabilidad (solo en dev/test).
+     * En producción se omite para evitar acumulación de archivos JSON en disco.
      *
      * @param string $disDetNro Identificador de dispensación/factura
      * @param array $result Resultado final de auditoría
@@ -25,6 +26,11 @@ class AuditPersistenceService
      */
     public function saveResponse(string $disDetNro, array $result): void
     {
+        $env = strtolower(trim($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production'));
+        if (!in_array($env, ['dev', 'development', 'test', 'local'], true)) {
+            return;
+        }
+
         $dir = __DIR__ . self::RESPONSE_DIR;
 
         if (!is_dir($dir)) {
