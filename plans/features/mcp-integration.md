@@ -26,7 +26,7 @@ Capa de integración que expone los datos del sistema a asistentes de IA (Claude
    - `tools/list` → Retorna tools disponibles desde `capabilities.php`
    - `tools/call` → Ejecuta tool específica
 4. La tool invocada usa `ApiClient` para llamar al endpoint REST interno correspondiente
-5. `ApiClient` hace HTTP request local (ej: `GET /api/clients`)
+5. `ApiClient` hace HTTP request local (ej: `GET /clients`)
 6. La respuesta se formatea como `content` MCP y se retorna al asistente
 
 ## Dependencias

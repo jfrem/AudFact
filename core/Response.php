@@ -1,30 +1,33 @@
 <?php
+declare(strict_types=1);
 
 namespace Core;
 
+use Core\Exceptions\HttpResponseException;
+
 class Response
 {
-    public static function json($data, $code = 200)
+    public static function json(mixed $data, int $code = 200): void
     {
         http_response_code($code);
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-        exit;
     }
 
-    public static function success($data = [], $message = 'Operación exitosa', $code = 200)
+    public static function success(mixed $data = [], string $message = 'Operación exitosa', int $code = 200): void
     {
-        self::json([
+        $response = [
             'success' => true,
             'message' => $message,
             'data' => $data
-        ], $code);
+        ];
+        throw new HttpResponseException($response, $code);
     }
 
-    public static function error($message, $code = 400, $errors = null)
+    public static function error(string $message, int $code = 400, mixed $errors = null): void
     {
         $response = ['success' => false, 'message' => $message];
         if ($errors !== null) $response['errors'] = $errors;
-        self::json($response, $code);
+        throw new HttpResponseException($response, $code);
     }
 
     /**
@@ -35,11 +38,11 @@ class Response
      * @param int $total Total de elementos
      * @param string $message Mensaje opcional
      */
-    public static function paginated(array $data, int $page, int $perPage, int $total, string $message = 'Operación exitosa')
+    public static function paginated(array $data, int $page, int $perPage, int $total, string $message = 'Operación exitosa'): void
     {
         $totalPages = (int)ceil($total / $perPage);
 
-        self::json([
+        $response = [
             'success' => true,
             'message' => $message,
             'data' => $data,
@@ -51,6 +54,7 @@ class Response
                 'has_next_page' => $page < $totalPages,
                 'has_prev_page' => $page > 1
             ]
-        ]);
+        ];
+        throw new HttpResponseException($response, 200);
     }
 }

@@ -4,1016 +4,725 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>AudFact — Auditoría Inteligente de Facturas</title>
+    <meta name="description" content="Panel de auditoría batch de facturas con inteligencia artificial — AudFact">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
-        integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#050a18',
+                            subtle: '#0c1425',
+                            card: 'rgba(15,23,42,0.65)',
+                            border: 'rgba(99,102,241,0.12)',
+                        },
+                        accent: {
+                            DEFAULT: '#6366f1',
+                            hover: '#818cf8',
+                            glow: 'rgba(99,102,241,0.25)',
+                        },
+                        human: '#a855f7',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    borderRadius: {
+                        card: '12px',
+                        sm: '8px',
+                    },
+                    animation: {
+                        shimmer: 'shimmer 2s linear infinite',
+                        'fade-in': 'fadeIn .35s ease both',
+                        'fade-in-up': 'fadeInUp .35s ease both',
+                        'slide-in': 'slideIn .25s ease both',
+                        'toast-in': 'toastIn .3s ease both',
+                        'toast-out': 'toastOut .25s ease both',
+                    },
+                    keyframes: {
+                        shimmer: {
+                            '0%': { backgroundPosition: '-200% 0' },
+                            '100%': { backgroundPosition: '200% 0' },
+                        },
+                        fadeIn: {
+                            from: { opacity: '0' },
+                            to: { opacity: '1' },
+                        },
+                        fadeInUp: {
+                            from: { opacity: '0', transform: 'translateY(8px)' },
+                            to: { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideIn: {
+                            from: { opacity: '0', transform: 'scale(0.95) translateY(10px)' },
+                            to: { opacity: '1', transform: 'scale(1) translateY(0)' },
+                        },
+                        toastIn: {
+                            from: { opacity: '0', transform: 'translateX(100%)' },
+                            to: { opacity: '1', transform: 'translateX(0)' },
+                        },
+                        toastOut: {
+                            from: { opacity: '1', transform: 'translateX(0)' },
+                            to: { opacity: '0', transform: 'translateX(100%)' },
+                        },
+                    },
+                },
+            },
+        };
+    </script>
     <style>
-        :root {
-            --primary: #6366f1;
-            --primary-hover: #818cf8;
-            --primary-glow: rgba(99, 102, 241, .25);
-            --bg: #050a18;
-            --bg-subtle: #0c1425;
-            --card-bg: rgba(15, 23, 42, .65);
-            --card-border: rgba(99, 102, 241, .12);
-            --text: #f1f5f9;
-            --text-muted: #94a3b8;
-            --border: #1e293b;
-            --success: #10b981;
-            --success-bg: rgba(16, 185, 129, .12);
-            --warning: #f59e0b;
-            --warning-bg: rgba(245, 158, 11, .12);
-            --error: #ef4444;
-            --error-bg: rgba(239, 68, 68, .12);
-            --info: #3b82f6;
-            --info-bg: rgba(59, 130, 246, .12);
-            --human: #a855f7;
-            --human-bg: rgba(168, 85, 247, .12);
-            --radius: 12px;
-            --radius-sm: 8px;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0
-        }
-
+        /* ── Only custom styles that Tailwind CDN can't cover ── */
         body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
             background-image:
                 radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, .15), transparent),
                 radial-gradient(ellipse 60% 40% at 80% 100%, rgba(16, 185, 129, .08), transparent);
         }
 
-        /* ── Header ── */
-        .app-header {
-            padding: 2rem 1.5rem 1.5rem;
-            text-align: center;
-            position: relative;
-        }
-
-        .app-header::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 10%;
-            right: 10%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--card-border), transparent);
-        }
-
-        .app-logo {
-            display: inline-flex;
-            align-items: center;
-            gap: .6rem;
-            margin-bottom: .35rem;
-        }
-
-        .app-logo i {
-            font-size: 1.8rem;
-            background: linear-gradient(135deg, #818cf8, #6ee7b7);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .app-logo h1 {
-            font-size: 1.65rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #818cf8, #6ee7b7);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -.02em;
-        }
-
-        .app-subtitle {
-            color: var(--text-muted);
-            font-size: .85rem;
-            font-weight: 400;
-        }
-
-        /* ── Layout ── */
-        .container {
-            display: flex;
-            flex-direction: column;
-            gap: 1.15rem;
-            max-width: 1280px;
-            margin: 0 auto;
-            padding: 1.25rem 1.5rem 3rem;
-        }
-
-        /* ── Card ── */
-        .card {
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: var(--radius);
-            padding: 1.25rem 1.35rem;
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            transition: border-color .2s;
-        }
-
-        .card:hover {
-            border-color: rgba(99, 102, 241, .22);
-        }
-
-        .card-title {
-            font-size: .95rem;
-            font-weight: 700;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: .06em;
-            margin-bottom: .85rem;
-            display: flex;
-            align-items: center;
-            gap: .45rem;
-        }
-
-        .card-title i {
-            font-size: .9rem;
-            opacity: .6;
-            width: 18px;
-            text-align: center;
-        }
-
-        /* ── Grid inputs ── */
-        .grid-inputs {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }
-
-        @media (max-width: 700px) {
-            .grid-inputs {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        label {
-            font-weight: 500;
-            font-size: .78rem;
-            display: block;
-            margin-bottom: 5px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: .04em;
-        }
-
-        input,
-        select {
-            width: 100%;
-            background: var(--bg-subtle);
-            border: 1px solid var(--border);
-            padding: 10px 12px;
-            border-radius: var(--radius-sm);
-            color: var(--text);
-            font-family: inherit;
-            font-size: .9rem;
-            transition: border-color .2s, box-shadow .2s;
-            appearance: none;
-            -webkit-appearance: none;
-        }
-
-        input:focus,
-        select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px var(--primary-glow);
-        }
-
-        /* ── Custom select wrapper ── */
-        .select-wrap {
-            position: relative;
-        }
-
-        .select-wrap::after {
-            content: '';
-            position: absolute;
-            right: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 0;
-            height: 0;
-            border-left: 5px solid transparent;
-            border-right: 5px solid transparent;
-            border-top: 5px solid var(--text-muted);
-            pointer-events: none;
-        }
-
-        .select-wrap select {
-            padding-right: 32px;
-            cursor: pointer;
-        }
-
-        /* ── Search input inside client selector card ── */
-        .client-search {
-            margin-bottom: .5rem;
-        }
-
-        .client-search input {
-            background: var(--bg);
-            border-color: var(--border);
-            font-size: .82rem;
-            padding: 8px 10px 8px 32px;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: 10px center;
-        }
-
-        /* ── Buttons ── */
-        .row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: .6rem;
-            align-items: center;
-        }
-
-        button {
-            border: 0;
-            border-radius: var(--radius-sm);
-            padding: 10px 20px;
-            color: #fff;
-            font-family: inherit;
-            font-size: .88rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform .15s, box-shadow .2s, opacity .2s;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #818cf8);
-            box-shadow: 0 2px 12px var(--primary-glow);
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 20px var(--primary-glow);
-        }
-
-        .btn-primary:active {
-            transform: translateY(0);
-        }
-
-        button:disabled {
-            opacity: .5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-
-        .btn-secondary {
-            background: rgba(51, 65, 85, .5);
-            border: 1px solid var(--border);
-        }
-
-        .btn-secondary:hover {
-            background: rgba(71, 85, 105, .5);
-        }
-
-        /* ── Status bar ── */
-        .status {
-            padding: 11px 14px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: var(--bg-subtle);
-            font-size: .88rem;
-            display: flex;
-            align-items: center;
-            gap: .5rem;
-            transition: border-color .3s, background .3s;
-        }
-
-        .status i {
-            font-size: .9rem;
-            flex-shrink: 0;
-            width: 18px;
-            text-align: center;
-        }
-
-        .status.info {
-            border-color: var(--info);
-            background: var(--info-bg);
-        }
-
-        .status.success {
-            border-color: var(--success);
-            background: var(--success-bg);
-        }
-
-        .status.error {
-            border-color: var(--error);
-            background: var(--error-bg);
-        }
-
-        .status.loading {
-            border-color: var(--primary);
-            background: var(--primary-glow);
-        }
-
-        /* ── Progress bar ── */
-        .progress-wrap {
-            width: 100%;
-            height: 4px;
-            background: var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 8px;
-            display: none;
-        }
-
-        .progress-wrap.active {
-            display: block;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), #818cf8, var(--success));
-            border-radius: 4px;
-            transition: width .4s ease;
-            width: 0%;
-        }
-
-        /* ── Summary cards ── */
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: .75rem;
-        }
-
-        @media (max-width: 700px) {
-            .summary-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        .summary-item {
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 12px 14px;
-            background: var(--bg-subtle);
-            text-align: center;
-            transition: border-color .2s, transform .15s;
-        }
-
-        .summary-item:hover {
-            border-color: var(--card-border);
-            transform: translateY(-2px);
-        }
-
-        .summary-label {
-            color: var(--text-muted);
-            font-size: .72rem;
-            text-transform: uppercase;
-            letter-spacing: .05em;
-        }
-
-        .summary-value {
-            font-size: 1.5rem;
-            font-weight: 800;
-            margin-top: 2px;
-        }
-
-        .summary-item.s-total .summary-value {
-            color: var(--text);
-        }
-
-        .summary-item.s-success .summary-value {
-            color: var(--success);
-        }
-
-        .summary-item.s-warning .summary-value {
-            color: var(--warning);
-        }
-
-        .summary-item.s-error .summary-value {
-            color: var(--error);
-        }
-
-        .summary-item.s-human .summary-value {
-            color: var(--human);
-        }
-
-        /* ── Table ── */
-        .table-wrap {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th,
-        td {
-            border-bottom: 1px solid var(--border);
-            padding: 11px 10px;
-            text-align: left;
-            vertical-align: middle;
-            font-size: .85rem;
-        }
-
-        th {
-            color: var(--text-muted);
-            font-weight: 600;
-            font-size: .75rem;
-            text-transform: uppercase;
-            letter-spacing: .04em;
-        }
-
-        tr.clickable {
-            cursor: pointer;
-            transition: background .15s;
-        }
-
-        tr.clickable:hover {
-            background: rgba(99, 102, 241, .06);
-        }
-
-        tr.selected {
-            background: rgba(99, 102, 241, .1) !important;
-        }
-
-        tbody tr:nth-child(even) {
-            background: rgba(255, 255, 255, .015);
-        }
-
-        /* ── Badges ── */
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            border-radius: 999px;
-            padding: 4px 12px;
-            font-size: .72rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: .04em;
-        }
-
-        .badge i {
-            font-size: .65rem;
-        }
-
-        .badge.success {
-            background: var(--success-bg);
-            color: #6ee7b7;
-        }
-
-        .badge.warning {
-            background: var(--warning-bg);
-            color: #fbbf24;
-        }
-
-        .badge.error {
-            background: var(--error-bg);
-            color: #fca5a5;
-        }
-
-        .badge.human_review {
-            background: var(--human-bg);
-            color: #c4b5fd;
-        }
-
-        /* ── Detail / JSON ── */
-        pre {
-            margin: 0;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 14px 16px;
-            max-height: 420px;
-            overflow: auto;
-            white-space: pre-wrap;
-            font-size: .82rem;
-            line-height: 1.6;
-            color: #cbd5e1;
-        }
-
-        pre .json-key {
-            color: #93c5fd;
-        }
-
-        pre .json-str {
-            color: #6ee7b7;
-        }
-
-        pre .json-num {
-            color: #fbbf24;
-        }
-
-        pre .json-bool {
-            color: #c4b5fd;
-        }
-
-        pre .json-null {
-            color: #94a3b8;
-        }
-
-        /* ── Enriched Detail Panel ── */
-        .detail-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .detail-message {
-            background: linear-gradient(135deg, rgba(99, 102, 241, .08), rgba(16, 185, 129, .08));
-            border: 1px solid rgba(99, 102, 241, .2);
-            border-radius: var(--radius-sm);
-            padding: 14px 18px;
-            display: flex;
-            gap: 12px;
-            align-items: flex-start;
-        }
-
-        .detail-message i {
-            font-size: 1.2rem;
-            margin-top: 2px;
-            flex-shrink: 0;
-        }
-
-        .detail-message-text {
-            font-size: .88rem;
-            line-height: 1.55;
-            color: var(--text);
-        }
-
-        .detail-meta-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 14px;
-        }
-
-        .detail-meta-card {
-            background: rgba(255, 255, 255, .03);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 14px 16px;
-        }
-
-        .detail-meta-card h4 {
-            margin: 0 0 10px 0;
-            font-size: .78rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: .06em;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .detail-meta-card h4 i {
-            font-size: .7rem;
-            opacity: .7;
-        }
-
-        /* Phase timing bars */
-        .phase-list {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .phase-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .phase-label {
-            font-size: .75rem;
-            color: var(--text-muted);
-            min-width: 90px;
-            flex-shrink: 0;
-        }
-
-        .phase-bar-track {
-            flex: 1;
-            height: 8px;
-            background: rgba(255, 255, 255, .06);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .phase-bar-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width .6s ease;
-        }
-
-        .phase-bar-fill.data-fetch {
-            background: linear-gradient(90deg, #818cf8, #6366f1);
-        }
-
-        .phase-bar-fill.file-prep {
-            background: linear-gradient(90deg, #fbbf24, #f59e0b);
-        }
-
-        .phase-bar-fill.gemini-api {
-            background: linear-gradient(90deg, #34d399, #10b981);
-        }
-
-        .phase-time {
-            font-size: .75rem;
-            color: var(--text-muted);
-            min-width: 50px;
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }
-
-        /* Document pills */
-        .doc-pills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
-
-        .doc-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            padding: 5px 10px;
-            border-radius: 20px;
-            font-size: .72rem;
-            font-weight: 500;
-            background: rgba(99, 102, 241, .12);
-            color: #a5b4fc;
-            border: 1px solid rgba(99, 102, 241, .2);
-        }
-
-        .doc-pill i {
-            font-size: .6rem;
-            opacity: .7;
-        }
-
-        /* JSON toggle */
-        .json-toggle {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: none;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 7px 14px;
-            color: var(--text-muted);
-            font-size: .78rem;
-            font-family: inherit;
-            cursor: pointer;
-            transition: all .2s;
-        }
-
-        .json-toggle:hover {
-            border-color: var(--primary);
-            color: var(--text);
-        }
-
-        .json-toggle i {
-            font-size: .65rem;
-            transition: transform .2s;
-        }
-
-        .json-toggle.open i {
-            transform: rotate(90deg);
-        }
-
-        /* ── Animations ── */
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(8px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .container>* {
-            animation: fadeIn .4s ease both;
-        }
-
-        .container> :nth-child(2) {
-            animation-delay: .05s;
-        }
-
-        .container> :nth-child(3) {
-            animation-delay: .1s;
-        }
-
-        .container> :nth-child(4) {
-            animation-delay: .15s;
-        }
-
-        .container> :nth-child(5) {
-            animation-delay: .2s;
-        }
-
-        @keyframes pulse {
-
-            0%,
-            100% {
-                opacity: 1;
-            }
-
-            50% {
-                opacity: .5;
-            }
-        }
-
-        .loading-pulse {
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes shimmer {
-            0% {
-                background-position: -200% 0;
-            }
-
-            100% {
-                background-position: 200% 0;
-            }
-        }
-
-        .progress-bar.active {
+        .progress-bar-active {
+            background: linear-gradient(90deg, #6366f1, #818cf8, #10b981);
             background-size: 200% 100%;
             animation: shimmer 2s linear infinite;
         }
 
-        /* ── Spinner ── */
-        .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid var(--border);
-            border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin .6s linear infinite;
+        /* Custom scrollbar for dropdowns */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
         }
 
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
         }
 
-        /* ── Footer ── */
-        .app-footer {
-            text-align: center;
-            padding: 1.5rem;
-            color: var(--text-muted);
-            font-size: .75rem;
-            opacity: .5;
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        /* Phase bar gradients */
+        .phase-data {
+            background: linear-gradient(90deg, #818cf8, #6366f1);
+        }
+
+        .phase-files {
+            background: linear-gradient(90deg, #fbbf24, #f59e0b);
+        }
+
+        .phase-gemini {
+            background: linear-gradient(90deg, #34d399, #10b981);
+        }
+
+        /* JSON syntax colors */
+        .json-key {
+            color: #93c5fd;
+        }
+
+        .json-str {
+            color: #6ee7b7;
+        }
+
+        .json-num {
+            color: #fbbf24;
+        }
+
+        .json-bool {
+            color: #c4b5fd;
+        }
+
+        .json-null {
+            color: #94a3b8;
         }
     </style>
 </head>
 
-<body>
-    <!-- ── App Header ── -->
-    <header class="app-header">
-        <div class="app-logo">
-            <i class="fa-solid fa-shield-halved"></i>
-            <h1>AudFact</h1>
+<body class="bg-brand-bg text-slate-100 font-sans min-h-screen antialiased">
+
+    <!-- ═══════════════ TOAST CONTAINER ═══════════════ -->
+    <div id="toast-container"
+        class="fixed top-5 right-5 z-[100] flex flex-col gap-3 pointer-events-none max-w-sm w-full"></div>
+
+    <!-- ═══════════════ MODAL BACKDROP ═══════════════ -->
+    <div id="modal-backdrop"
+        class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+        <div id="modal-content"
+            class="relative bg-brand-subtle border border-slate-700/60 rounded-card w-full max-w-5xl max-h-[90vh] overflow-y-auto custom-scroll shadow-2xl shadow-accent/10 animate-slide-in">
+            <!-- Dynamic content injected via JS -->
         </div>
-        <p class="app-subtitle">Auditoría Inteligente de Facturas con IA</p>
+    </div>
+
+    <!-- ═══════════════ HEADER ═══════════════ -->
+    <header class="relative py-8 pb-6 text-center">
+        <div class="inline-flex items-center gap-2.5 mb-1">
+            <i
+                class="fa-solid fa-shield-halved text-3xl bg-gradient-to-br from-indigo-400 to-emerald-300 bg-clip-text text-transparent"></i>
+            <h1
+                class="text-2xl font-extrabold tracking-tight bg-gradient-to-br from-indigo-400 to-emerald-300 bg-clip-text text-transparent">
+                AudFact</h1>
+        </div>
+        <p class="text-slate-400 text-sm">Auditoría Inteligente de Facturas con IA</p>
+        <div
+            class="absolute bottom-0 left-[10%] right-[10%] h-px bg-gradient-to-r from-transparent via-brand-border to-transparent">
+        </div>
     </header>
 
-    <main>
-        <div class="container">
-            <!-- ── Configuración ── -->
-            <section class="card">
-                <div class="card-title">
-                    <i class="fa-solid fa-sliders"></i>
-                    Configuración
-                </div>
-                <div class="grid-inputs">
-                    <div>
-                        <label for="clientSearch">Cliente</label>
-                        <div class="client-search">
-                            <input id="clientSearch" type="text" placeholder="Buscar cliente por nombre o NIT...">
+    <!-- ═══════════════ MAIN ═══════════════ -->
+    <main class="max-w-6xl mx-auto px-4 sm:px-6 pb-12 flex flex-col gap-4">
+
+        <!-- ── Card: Configuración ── -->
+        <section
+            class="relative z-10 bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl transition-colors hover:border-indigo-500/20 animate-fade-in-up">
+            <h2 class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <i class="fa-solid fa-sliders text-sm opacity-60 w-4 text-center"></i> Configuración
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr_1fr] gap-4 mb-4">
+                <!-- Searchable Select -->
+                <div>
+                    <label
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Cliente</label>
+                    <div id="select-wrapper" class="relative">
+                        <div id="select-trigger"
+                            class="w-full flex items-center gap-2 bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 cursor-pointer transition-all hover:border-slate-600 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-glow">
+                            <i class="fa-solid fa-building text-slate-500 text-xs"></i>
+                            <input id="clientSearch" type="text" placeholder="Buscar cliente por nombre o NIT..."
+                                class="flex-1 bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-500"
+                                autocomplete="off">
+                            <i class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform duration-200"
+                                id="select-chevron"></i>
                         </div>
-                        <div class="select-wrap">
-                            <select id="facNitSec">
-                                <option value="" disabled selected>Cargando clientes...</option>
-                            </select>
+                        <div id="select-dropdown"
+                            class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-brand-subtle border border-slate-700 rounded-sm shadow-xl shadow-black/40 max-h-60 overflow-y-auto custom-scroll">
+                            <div id="select-options" class="py-1">
+                                <div class="px-3 py-6 text-center text-slate-500 text-sm">
+                                    <i class="fa-solid fa-spinner fa-spin mr-1"></i> Cargando clientes...
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div>
-                        <label for="date">Fecha de Corte</label>
-                        <input id="date" type="date" value="2025-12-30">
-                    </div>
-                    <div>
-                        <label for="limit">Límite Facturas</label>
-                        <input id="limit" type="number" min="1" max="1000" value="3">
-                    </div>
+                    <input type="hidden" id="facNitSec" value="">
                 </div>
-                <div class="row">
-                    <button id="btn-run" class="btn-primary" type="button" disabled>
-                        <i class="fa-solid fa-play" style="margin-right:5px;font-size:.75rem"></i>
-                        Ejecutar Auditoría
+
+                <!-- Date -->
+                <div>
+                    <label for="date"
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Fecha
+                        de Corte</label>
+                    <input id="date" type="date" value="2025-12-30"
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow [color-scheme:dark]">
+                </div>
+
+                <!-- Limit -->
+                <div>
+                    <label for="limit"
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Límite
+                        Facturas</label>
+                    <input id="limit" type="number" min="1" max="10" value="3"
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow">
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex flex-wrap gap-3 items-center">
+                <button id="btn-run" disabled
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold text-white bg-gradient-to-br from-indigo-500 to-indigo-400 shadow-lg shadow-accent-glow transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-glow disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none cursor-pointer">
+                    <i class="fa-solid fa-play text-xs"></i> Ejecutar Auditoría
+                </button>
+                <button id="btn-clear"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-sm text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 transition-colors hover:bg-slate-600/50 cursor-pointer">
+                    <i class="fa-solid fa-eraser text-xs"></i> Limpiar
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Card: Estado y Progreso ── -->
+        <section class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl animate-fade-in-up"
+            style="animation-delay:.05s">
+            <div id="status"
+                class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border border-slate-700 bg-brand-subtle text-sm transition-all">
+                <span
+                    class="inline-block w-4 h-4 border-2 border-slate-600 border-t-accent rounded-full animate-spin"></span>
+                Inicializando sistema...
+            </div>
+            <div id="progress-wrap" class="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-3 hidden">
+                <div id="progress-bar" class="h-full rounded-full transition-[width] duration-500 ease-out w-0"></div>
+            </div>
+        </section>
+
+        <!-- ── Card: Resumen ── -->
+        <section id="section-summary"
+            class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl hidden animate-fade-in-up"
+            style="animation-delay:.1s">
+            <h2 class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <i class="fa-solid fa-chart-pie text-sm opacity-60 w-4 text-center"></i> Resumen de Auditoría
+            </h2>
+            <div id="summary" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3"></div>
+        </section>
+
+        <!-- ── Card: Resultados ── -->
+        <section id="section-results"
+            class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl hidden animate-fade-in-up"
+            style="animation-delay:.15s">
+            <h2 class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <i class="fa-solid fa-table-list text-sm opacity-60 w-4 text-center"></i> Resultados por Factura
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="text-left">
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                #</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Factura</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Dispensa</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Estado</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Mensaje</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Tiempo</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Intentos</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700 text-center">
+                                Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body" class="text-sm"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ── Card: Historial de Auditorías ── -->
+        <section class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl animate-fade-in-up"
+            style="animation-delay:.2s">
+            <h2 class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <i class="fa-solid fa-clock-rotate-left text-sm opacity-60 w-4 text-center"></i> Historial de Auditorías
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-[1.5fr_1fr_1fr_1fr_auto] gap-3 mb-4">
+                <!-- Client selector -->
+                <div>
+                    <label
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Cliente</label>
+                    <div id="hist-select-wrapper" class="relative">
+                        <div id="hist-select-trigger"
+                            class="w-full flex items-center gap-2 bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 cursor-pointer transition-all hover:border-slate-600 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-glow">
+                            <i class="fa-solid fa-building text-slate-500 text-xs"></i>
+                            <input id="hist-clientSearch" type="text" placeholder="Todos los clientes..."
+                                class="flex-1 bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-500"
+                                autocomplete="off">
+                            <button id="hist-clear-client"
+                                class="hidden text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                                title="Limpiar cliente">
+                                <i class="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                            <i class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform duration-200"
+                                id="hist-select-chevron"></i>
+                        </div>
+                        <div id="hist-select-dropdown"
+                            class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-brand-subtle border border-slate-700 rounded-sm shadow-xl shadow-black/40 max-h-60 overflow-y-auto custom-scroll">
+                            <div id="hist-select-options" class="py-1"></div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="hist-facNitSec" value="">
+                </div>
+                <!-- Factura search -->
+                <div>
+                    <label class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Factura /
+                        Dispensación</label>
+                    <input id="hist-facNro" type="text" placeholder="Ej: U882601..."
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow placeholder:text-slate-500">
+                </div>
+                <!-- Date From -->
+                <div>
+                    <label
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Desde</label>
+                    <input id="hist-dateFrom" type="date"
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow [color-scheme:dark]">
+                </div>
+                <!-- Date To -->
+                <div>
+                    <label
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Hasta</label>
+                    <input id="hist-dateTo" type="date"
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow [color-scheme:dark]">
+                </div>
+                <!-- Search button -->
+                <div class="flex items-end">
+                    <button id="btn-history"
+                        class="inline-flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold text-white bg-gradient-to-br from-slate-600 to-slate-500 shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl cursor-pointer">
+                        <i class="fa-solid fa-magnifying-glass text-xs"></i> Consultar
                     </button>
-                    <button id="btn-clear" type="button" class="btn-secondary">Limpiar</button>
                 </div>
-            </section>
+            </div>
 
-            <!-- ── Estado y Progreso ── -->
-            <section class="card">
-                <div id="status" class="status info">
-                    <span class="spinner"></span>
-                    Inicializando sistema...
+            <!-- History results -->
+            <div id="history-results" class="hidden">
+                <div class="flex items-center justify-between mb-3">
+                    <span id="history-count" class="text-xs text-slate-400"></span>
+                    <!-- Page size selector -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-500">Mostrar:</span>
+                        <select id="hist-pageSize"
+                            class="bg-brand-subtle border border-slate-700 rounded-sm px-2 py-1 text-xs text-slate-300 outline-none focus:border-accent cursor-pointer">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
                 </div>
-                <div id="progress-wrap" class="progress-wrap">
-                    <div id="progress-bar" class="progress-bar"></div>
-                </div>
-            </section>
-
-            <!-- ── Resumen ── -->
-            <section class="card" id="section-summary" style="display:none">
-                <div class="card-title">
-                    <i class="fa-solid fa-chart-pie"></i>
-                    Resumen de Auditoría
-                </div>
-                <div id="summary" class="summary-grid"></div>
-            </section>
-
-            <!-- ── Resultados ── -->
-            <section class="card" id="section-results" style="display:none">
-                <div class="card-title">
-                    <i class="fa-solid fa-table-list"></i>
-                    Resultados por Factura
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Factura</th>
-                                <th>DisId</th>
-                                <th>Estado</th>
-                                <th>Mensaje</th>
-                                <th>Tiempo</th>
-                                <th>Intentos</th>
+                <div class="overflow-x-auto max-h-[500px] overflow-y-auto custom-scroll">
+                    <table class="w-full border-collapse">
+                        <thead class="sticky top-0 bg-brand-subtle z-10">
+                            <tr class="text-left">
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    #</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Factura</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Cliente</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Estado</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Severidad</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Hallazgos</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Docs</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Duración</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                    Fecha</th>
+                                <th
+                                    class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700 text-center">
+                                    Acción</th>
                             </tr>
                         </thead>
-                        <tbody id="results-body"></tbody>
+                        <tbody id="history-body" class="text-sm"></tbody>
                     </table>
                 </div>
-            </section>
 
-            <!-- ── Detalle ── -->
-            <section class="card" id="section-detail" style="display:none">
-                <div class="card-title">
-                    <i class="fa-solid fa-file-code"></i>
-                    Detalle del Resultado Seleccionado
+                <!-- Pagination controls -->
+                <div id="history-pagination"
+                    class="flex items-center justify-between mt-4 pt-3 border-t border-slate-700/50">
+                    <span id="pagination-info" class="text-xs text-slate-500"></span>
+                    <div class="flex items-center gap-1.5">
+                        <button id="btn-page-first" title="Primera página"
+                            class="w-8 h-8 flex items-center justify-center rounded-sm text-xs text-slate-400 bg-brand-subtle border border-slate-700 transition-all hover:bg-indigo-500/10 hover:border-accent hover:text-indigo-300 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                            <i class="fa-solid fa-angles-left"></i>
+                        </button>
+                        <button id="btn-page-prev" title="Página anterior"
+                            class="w-8 h-8 flex items-center justify-center rounded-sm text-xs text-slate-400 bg-brand-subtle border border-slate-700 transition-all hover:bg-indigo-500/10 hover:border-accent hover:text-indigo-300 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                            <i class="fa-solid fa-chevron-left"></i>
+                        </button>
+                        <span id="pagination-pages" class="flex items-center gap-1"></span>
+                        <button id="btn-page-next" title="Página siguiente"
+                            class="w-8 h-8 flex items-center justify-center rounded-sm text-xs text-slate-400 bg-brand-subtle border border-slate-700 transition-all hover:bg-indigo-500/10 hover:border-accent hover:text-indigo-300 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                            <i class="fa-solid fa-chevron-right"></i>
+                        </button>
+                        <button id="btn-page-last" title="Última página"
+                            class="w-8 h-8 flex items-center justify-center rounded-sm text-xs text-slate-400 bg-brand-subtle border border-slate-700 transition-all hover:bg-indigo-500/10 hover:border-accent hover:text-indigo-300 disabled:opacity-30 disabled:pointer-events-none cursor-pointer">
+                            <i class="fa-solid fa-angles-right"></i>
+                        </button>
+                    </div>
                 </div>
-                <div id="detail" class="detail-panel">
-                    <p style="color:var(--text-muted);font-size:.88rem">Haz clic en una fila de la tabla para ver el
-                        detalle.</p>
-                </div>
-            </section>
-        </div>
+            </div>
+
+            <div id="history-empty" class="hidden text-center py-6 text-slate-500 text-sm">
+                <i class="fa-solid fa-inbox text-2xl mb-2 block opacity-40"></i>
+                No se encontraron auditorías con los filtros seleccionados.
+            </div>
+        </section>
     </main>
 
     <!-- ── Footer ── -->
-    <footer class="app-footer">AudFact v1.0 — Motor de Auditoría IA &copy; 2025</footer>
+    <footer class="text-center py-6 text-slate-500 text-xs opacity-50">AudFact v1.0 — Motor de Auditoría IA &copy; 2025
+    </footer>
 
+    <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
     <script type="module">
-        /* ── Helpers ── */
+        /* ──────────────────────────────────────────
+         *  HELPERS
+         * ────────────────────────────────────────── */
         const byId = (id) => document.getElementById(id);
-        const escapeHtml = (v) => String(v)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 
         let api = null;
         let allClients = [];
         let currentItems = [];
-        let selectedIndex = -1;
+        // Configuración dinámica cargada desde GET /config/public
+        let appConfig = { maxLimit: 100, timeoutMs: 3600000 };
 
-        /* ── DOM refs ── */
+        /* ──────────────────────────────────────────
+         *  DOM REFS
+         * ────────────────────────────────────────── */
         const statusEl = byId('status');
         const summaryEl = byId('summary');
         const resultsBodyEl = byId('results-body');
-        const detailEl = byId('detail');
         const btnRunEl = byId('btn-run');
         const btnClearEl = byId('btn-clear');
-        const selectEl = byId('facNitSec');
+        const hiddenSelect = byId('facNitSec');
         const searchEl = byId('clientSearch');
         const progressWrap = byId('progress-wrap');
         const progressBar = byId('progress-bar');
         const sectionSummary = byId('section-summary');
         const sectionResults = byId('section-results');
-        const sectionDetail = byId('section-detail');
+        const selectWrapper = byId('select-wrapper');
+        const selectTrigger = byId('select-trigger');
+        const selectDropdown = byId('select-dropdown');
+        const selectOptions = byId('select-options');
+        const selectChevron = byId('select-chevron');
+        const modalBackdrop = byId('modal-backdrop');
+        const modalContent = byId('modal-content');
+        const toastContainer = byId('toast-container');
 
-        /* ── Font Awesome icon helpers ── */
-        const icons = {
-            check: '<i class="fa-solid fa-circle-check"></i>',
-            alert: '<i class="fa-solid fa-triangle-exclamation"></i>',
-            x: '<i class="fa-solid fa-circle-xmark"></i>',
-            eye: '<i class="fa-solid fa-eye"></i>',
-            info: '<i class="fa-solid fa-circle-info"></i>',
-            spinner: '<span class="spinner"></span>',
+        /* ──────────────────────────────────────────
+         *  TOAST SYSTEM
+         * ────────────────────────────────────────── */
+        const toastIcons = {
+            success: 'fa-circle-check text-emerald-400',
+            error: 'fa-circle-xmark text-red-400',
+            warning: 'fa-triangle-exclamation text-amber-400',
+            info: 'fa-circle-info text-blue-400',
+        };
+        const toastBorders = {
+            success: 'border-emerald-500/30',
+            error: 'border-red-500/30',
+            warning: 'border-amber-500/30',
+            info: 'border-blue-500/30',
         };
 
-        const statusIcon = { info: icons.info, success: icons.check, error: icons.x, loading: icons.spinner };
+        function showToast(message, type = 'info', durationMs = 5000) {
+            const el = document.createElement('div');
+            el.className = `pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-sm border ${toastBorders[type] || toastBorders.info} bg-brand-subtle/95 backdrop-blur-md shadow-xl shadow-black/30 text-sm animate-toast-in`;
+            el.innerHTML = `
+                <i class="fa-solid ${toastIcons[type] || toastIcons.info} mt-0.5 flex-shrink-0"></i>
+                <span class="flex-1 text-slate-200">${escapeHtml(message)}</span>
+                <button class="text-slate-500 hover:text-slate-300 transition-colors cursor-pointer" aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>`;
+            el.querySelector('button').addEventListener('click', () => dismissToast(el));
+            toastContainer.appendChild(el);
+            if (durationMs > 0) setTimeout(() => dismissToast(el), durationMs);
+        }
 
-        /* ── Status ── */
-        const setStatus = (message, tone = 'info') => {
-            statusEl.className = `status ${tone}`;
-            statusEl.innerHTML = `${statusIcon[tone] || statusIcon.info} ${escapeHtml(message)}`;
-        };
+        function dismissToast(el) {
+            if (!el || !el.parentNode) return;
+            el.classList.remove('animate-toast-in');
+            el.classList.add('animate-toast-out');
+            el.addEventListener('animationend', () => el.remove(), { once: true });
+        }
 
-        /* ── Progress ── */
-        const setProgress = (pct) => {
-            progressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-            if (pct > 0) {
-                progressWrap.classList.add('active');
-                progressBar.classList.add('active');
+        /* ──────────────────────────────────────────
+         *  MODAL SYSTEM
+         * ────────────────────────────────────────── */
+        function openModal(htmlContent) {
+            modalContent.innerHTML = htmlContent;
+            modalBackdrop.classList.remove('hidden');
+            modalBackdrop.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modalBackdrop.classList.add('hidden');
+            modalBackdrop.classList.remove('flex');
+            document.body.style.overflow = '';
+        }
+        window.closeModal = closeModal;
+
+        modalBackdrop.addEventListener('click', (e) => {
+            if (e.target === modalBackdrop) closeModal();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        /* ──────────────────────────────────────────
+         *  SEARCHABLE SELECT
+         * ────────────────────────────────────────── */
+        let selectOpen = false;
+        let selectedClient = null;
+
+        function toggleDropdown(forceState) {
+            selectOpen = forceState !== undefined ? forceState : !selectOpen;
+            selectDropdown.classList.toggle('hidden', !selectOpen);
+            selectChevron.classList.toggle('rotate-180', selectOpen);
+            if (selectOpen) searchEl.focus();
+        }
+
+        function renderOptions(clients) {
+            if (!clients.length) {
+                selectOptions.innerHTML = `<div class="px-3 py-4 text-center text-slate-500 text-sm">Sin resultados</div>`;
+                return;
             }
-        };
-        const resetProgress = () => {
-            progressWrap.classList.remove('active');
-            progressBar.classList.remove('active');
-            progressBar.style.width = '0%';
-        };
+            selectOptions.innerHTML = clients.map(c => `
+                <div class="select-opt flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors hover:bg-indigo-500/10 text-sm ${String(c.NitSec) === hiddenSelect.value ? 'bg-indigo-500/15 text-indigo-300' : 'text-slate-300'}"
+                     data-value="${escapeHtml(c.NitSec)}" data-label="${escapeHtml(c.NitCom)}">
+                    <i class="fa-solid fa-building-columns text-xs opacity-40"></i>
+                    <span class="flex-1 truncate">${escapeHtml(c.NitCom)}</span>
+                    <span class="text-xs text-slate-500 font-mono">${escapeHtml(c.NitSec)}</span>
+                </div>`).join('');
 
-        /* ── Badge ── */
-        const badgeIcons = {
-            success: icons.check,
-            warning: icons.alert,
-            error: icons.x,
-            human_review: icons.eye,
-        };
-        const badge = (status) => {
-            const n = (status || 'error').toLowerCase();
-            const icon = badgeIcons[n] || '';
-            return `<span class="badge ${escapeHtml(n)}">${icon} ${escapeHtml(n)}</span>`;
-        };
-
-        /* ── Client Selector ── */
-        const populateClients = (clients) => {
-            selectEl.innerHTML = '<option value="" disabled selected>— Seleccionar cliente —</option>';
-            clients.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c.NitSec;
-                opt.textContent = `${c.NitCom} (NIT: ${c.NitSec})`;
-                selectEl.appendChild(opt);
+            selectOptions.querySelectorAll('.select-opt').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    const val = opt.dataset.value;
+                    const label = opt.dataset.label;
+                    hiddenSelect.value = val;
+                    selectedClient = { NitSec: val, NitCom: label };
+                    searchEl.value = `${label} (${val})`;
+                    toggleDropdown(false);
+                    btnRunEl.disabled = false;
+                    renderOptions(allClients);
+                });
             });
-        };
+        }
 
+        selectTrigger.addEventListener('click', (e) => {
+            if (e.target !== searchEl) toggleDropdown();
+        });
+        searchEl.addEventListener('focus', () => toggleDropdown(true));
         searchEl.addEventListener('input', () => {
             const q = searchEl.value.toLowerCase().trim();
-            if (!q) { populateClients(allClients); return; }
+            if (!q) { renderOptions(allClients); return; }
             const filtered = allClients.filter(c =>
                 String(c.NitCom).toLowerCase().includes(q) ||
                 String(c.NitSec).toLowerCase().includes(q)
             );
-            populateClients(filtered);
+            renderOptions(filtered);
+            if (!selectOpen) toggleDropdown(true);
         });
 
-        selectEl.addEventListener('change', () => {
-            if (selectEl.value) btnRunEl.disabled = false;
+        document.addEventListener('click', (e) => {
+            if (!selectWrapper.contains(e.target)) toggleDropdown(false);
         });
 
-        /* ── Summary ── */
-        const computeSummary = (items) => {
+        /* ──────────────────────────────────────────
+         *  STATUS BAR
+         * ────────────────────────────────────────── */
+        const statusStyles = {
+            info: { border: 'border-blue-500', bg: 'bg-blue-500/10', icon: 'fa-circle-info text-blue-400' },
+            success: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', icon: 'fa-circle-check text-emerald-400' },
+            error: { border: 'border-red-500', bg: 'bg-red-500/10', icon: 'fa-circle-xmark text-red-400' },
+            loading: { border: 'border-accent', bg: 'bg-accent-glow', icon: null },
+        };
+
+        function setStatus(message, tone = 'info') {
+            const s = statusStyles[tone] || statusStyles.info;
+            const iconHtml = tone === 'loading'
+                ? `<span class="inline-block w-4 h-4 border-2 border-slate-600 border-t-accent rounded-full animate-spin flex-shrink-0"></span>`
+                : `<i class="fa-solid ${s.icon} flex-shrink-0"></i>`;
+            statusEl.className = `flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border ${s.border} ${s.bg} text-sm transition-all`;
+            statusEl.innerHTML = `${iconHtml} ${escapeHtml(message)}`;
+        }
+
+        /* ──────────────────────────────────────────
+         *  PROGRESS BAR
+         * ────────────────────────────────────────── */
+        function setProgress(pct) {
+            progressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+            if (pct > 0) {
+                progressWrap.classList.remove('hidden');
+                progressBar.classList.add('progress-bar-active');
+            }
+        }
+
+        function resetProgress() {
+            progressWrap.classList.add('hidden');
+            progressBar.classList.remove('progress-bar-active');
+            progressBar.style.width = '0%';
+        }
+
+        /* ──────────────────────────────────────────
+         *  BADGES
+         * ────────────────────────────────────────── */
+        const badgeCfg = {
+            success: { cls: 'bg-emerald-500/10 text-emerald-300', icon: 'fa-circle-check' },
+            warning: { cls: 'bg-amber-500/10 text-amber-300', icon: 'fa-triangle-exclamation' },
+            error: { cls: 'bg-red-500/10 text-red-300', icon: 'fa-circle-xmark' },
+            human_review: { cls: 'bg-purple-500/10 text-purple-300', icon: 'fa-eye' },
+        };
+
+        function badge(status) {
+            const n = (status || 'error').toLowerCase();
+            const c = badgeCfg[n] || badgeCfg.error;
+            return `<span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${c.cls}">
+                <i class="fa-solid ${c.icon} text-[.6rem]"></i> ${escapeHtml(n)}
+            </span>`;
+        }
+
+        /* ──────────────────────────────────────────
+         *  FORMAT TIME
+         * ────────────────────────────────────────── */
+        function formatTime(ms) {
+            if (ms === undefined || ms === null || ms === '-') return '-';
+            const n = Number(ms);
+            if (n >= 1000) return `${(n / 1000).toFixed(1)}s`;
+            return `${Math.round(n)}ms`;
+        }
+
+        /* ──────────────────────────────────────────
+         *  SUMMARY
+         * ────────────────────────────────────────── */
+        const summaryMeta = [
+            { key: 'total', label: 'Total', color: 'text-slate-100', icon: 'fa-chart-bar', iconColor: 'text-slate-400' },
+            { key: 'success', label: 'Aprobadas', color: 'text-emerald-400', icon: 'fa-circle-check', iconColor: 'text-emerald-500/60' },
+            { key: 'warning', label: 'Advertencias', color: 'text-amber-400', icon: 'fa-triangle-exclamation', iconColor: 'text-amber-500/60' },
+            { key: 'error', label: 'Errores', color: 'text-red-400', icon: 'fa-circle-xmark', iconColor: 'text-red-500/60' },
+            { key: 'human_review', label: 'Revisión', color: 'text-purple-400', icon: 'fa-eye', iconColor: 'text-purple-500/60' },
+        ];
+
+        function computeSummary(items) {
             const s = { total: items.length, success: 0, warning: 0, error: 0, human_review: 0 };
             for (const item of items) {
                 const k = String(item?.result?.response || 'error').toLowerCase();
                 if (Object.prototype.hasOwnProperty.call(s, k)) s[k] += 1;
             }
             return s;
-        };
+        }
 
-        const summaryMeta = [
-            { key: 'total', label: 'Total', cls: 's-total', icon: '📊' },
-            { key: 'success', label: 'Aprobadas', cls: 's-success', icon: '✅' },
-            { key: 'warning', label: 'Advertencias', cls: 's-warning', icon: '⚠️' },
-            { key: 'error', label: 'Errores', cls: 's-error', icon: '❌' },
-            { key: 'human_review', label: 'Revisión', cls: 's-human', icon: '👁️' },
-        ];
-
-        const renderSummary = (items) => {
+        function renderSummary(items) {
             const s = computeSummary(items);
-            summaryEl.innerHTML = summaryMeta.map(m =>
-                `<div class="summary-item ${m.cls}">
-                    <div class="summary-label">${m.icon} ${m.label}</div>
-                    <div class="summary-value">${s[m.key]}</div>
-                </div>`
-            ).join('');
-        };
+            summaryEl.innerHTML = summaryMeta.map(m => `
+                <div class="border border-slate-700/60 rounded-sm p-3.5 bg-brand-subtle text-center transition-all hover:border-brand-border hover:-translate-y-0.5 cursor-default">
+                    <div class="flex items-center justify-center gap-1.5 text-xs uppercase tracking-wider text-slate-400 mb-1">
+                        <i class="fa-solid ${m.icon} ${m.iconColor}"></i> ${m.label}
+                    </div>
+                    <div class="text-2xl font-extrabold ${m.color} tabular-nums">${s[m.key]}</div>
+                </div>`).join('');
+        }
 
-        /* ── JSON Syntax Highlight ── */
-        const highlightJSON = (obj) => {
+        /* ──────────────────────────────────────────
+         *  JSON HIGHLIGHT
+         * ────────────────────────────────────────── */
+        function highlightJSON(obj) {
             const raw = JSON.stringify(obj, null, 2);
             return raw
                 .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1022,15 +731,13 @@
                 .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
                 .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
                 .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
-        };
+        }
 
-        /* ── Detail ── */
-        const renderDetail = (index) => {
-            sectionDetail.style.display = '';
-            if (index < 0 || index >= currentItems.length) {
-                detailEl.innerHTML = '<p style="color:var(--text-muted);font-size:.88rem">Haz clic en una fila de la tabla para ver el detalle.</p>';
-                return;
-            }
+        /* ──────────────────────────────────────────
+         *  MODAL: DETAIL
+         * ────────────────────────────────────────── */
+        function openDetailModal(index) {
+            if (index < 0 || index >= currentItems.length) return;
 
             const item = currentItems[index];
             const res = item?.result || {};
@@ -1040,85 +747,320 @@
             const msg = String(res?.message || '—');
             const docs = Array.isArray(meta?.documentos) ? meta.documentos : [];
             const totalMs = meta?.totalTimeMs || 1;
+            const inv = item?.invoice || {};
 
-            /* Badge icon for the message */
-            const msgIcon = resp === 'success' ? '<i class="fa-solid fa-circle-check" style="color:#34d399"></i>'
-                : resp === 'warning' ? '<i class="fa-solid fa-triangle-exclamation" style="color:#fbbf24"></i>'
-                    : resp === 'human_review' ? '<i class="fa-solid fa-eye" style="color:#c4b5fd"></i>'
-                        : '<i class="fa-solid fa-circle-xmark" style="color:#fca5a5"></i>';
+            const respIcons = {
+                success: 'fa-circle-check text-emerald-400',
+                warning: 'fa-triangle-exclamation text-amber-400',
+                human_review: 'fa-eye text-purple-400',
+                error: 'fa-circle-xmark text-red-400',
+            };
+            const msgIcon = respIcons[resp] || respIcons.error;
 
-            /* Phase timing bars */
             const phaseData = [
-                { key: 'dataFetchMs', label: 'SQL Data', cls: 'data-fetch', icon: 'fa-database' },
-                { key: 'filePrepMs', label: 'Archivos', cls: 'file-prep', icon: 'fa-folder-open' },
-                { key: 'geminiApiMs', label: 'Gemini IA', cls: 'gemini-api', icon: 'fa-wand-magic-sparkles' },
+                { key: 'dataFetchMs', label: 'SQL Data', cls: 'phase-data', icon: 'fa-database' },
+                { key: 'filePrepMs', label: 'Archivos', cls: 'phase-files', icon: 'fa-folder-open' },
+                { key: 'geminiApiMs', label: 'Gemini IA', cls: 'phase-gemini', icon: 'fa-wand-magic-sparkles' },
             ];
 
-            const phaseBarsHtml = phaseData.map(p => {
+            const phaseBars = phaseData.map(p => {
                 const ms = phases[p.key] || 0;
                 const pct = Math.min((ms / totalMs) * 100, 100).toFixed(1);
-                return `<div class="phase-row">
-                    <span class="phase-label"><i class="fa-solid ${p.icon}"></i> ${p.label}</span>
-                    <div class="phase-bar-track"><div class="phase-bar-fill ${p.cls}" style="width:${pct}%"></div></div>
-                    <span class="phase-time">${formatTime(ms)}</span>
+                return `<div class="flex items-center gap-3">
+                    <span class="text-xs text-slate-400 min-w-[90px] flex items-center gap-1.5"><i class="fa-solid ${p.icon} text-[.6rem] opacity-60"></i> ${p.label}</span>
+                    <div class="flex-1 h-2 bg-white/5 rounded-full overflow-hidden"><div class="${p.cls} h-full rounded-full" style="width:${pct}%"></div></div>
+                    <span class="text-xs text-slate-400 min-w-[50px] text-right tabular-nums">${formatTime(ms)}</span>
                 </div>`;
             }).join('');
 
-            /* Document pills */
-            const docIcon = { 'ACTA DE ENTREGA': 'fa-file-signature', 'FORMULA MEDICA': 'fa-prescription', 'VALIDADOR DE DERECHOS': 'fa-id-card' };
-            const docPillsHtml = docs.map(d => {
-                const ic = docIcon[d] || 'fa-file';
-                return `<span class="doc-pill"><i class="fa-solid ${ic}"></i> ${escapeHtml(d)}</span>`;
+            const docIcons = { 'ACTA DE ENTREGA': 'fa-file-signature', 'FORMULA MEDICA': 'fa-prescription', 'VALIDADOR DE DERECHOS': 'fa-id-card', 'AUTORIZACION DE SERVICIOS': 'fa-file-shield' };
+            const docPills = docs.map(d => {
+                const ic = docIcons[d] || 'fa-file';
+                return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                    <i class="fa-solid ${ic} text-[.6rem] opacity-70"></i> ${escapeHtml(d)}
+                </span>`;
             }).join('');
 
-            /* Compose panel */
-            detailEl.innerHTML = `
-                <div class="detail-message">
-                    ${msgIcon}
-                    <div class="detail-message-text">${escapeHtml(msg)}</div>
-                </div>
+            openModal(`
+                <div class="p-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-magnifying-glass-chart text-accent"></i>
+                            Detalle de Auditoría — Factura ${escapeHtml(inv.Dispensa ?? '-')}
+                        </h3>
+                        <button onclick="document.getElementById('modal-backdrop').classList.add('hidden');document.getElementById('modal-backdrop').classList.remove('flex');document.body.style.overflow=''"
+                            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
 
-                <div class="detail-meta-grid">
-                    <div class="detail-meta-card">
-                        <h4><i class="fa-solid fa-stopwatch"></i> Tiempos por Fase</h4>
-                        <div class="phase-list">
-                            ${phaseBarsHtml}
-                            <div class="phase-row" style="margin-top:4px;border-top:1px solid var(--border);padding-top:8px">
-                                <span class="phase-label" style="font-weight:600;color:var(--text)">Total</span>
-                                <div class="phase-bar-track"><div class="phase-bar-fill gemini-api" style="width:100%;opacity:.3"></div></div>
-                                <span class="phase-time" style="font-weight:600;color:var(--text)">${formatTime(totalMs)}</span>
+                    <!-- Status message -->
+                    <div class="flex gap-3 items-start p-4 rounded-sm bg-gradient-to-r from-indigo-500/5 to-emerald-500/5 border border-indigo-500/15 mb-5">
+                        <i class="fa-solid ${msgIcon} text-xl mt-0.5 flex-shrink-0"></i>
+                        <div>
+                            <div class="mb-1">${badge(resp)}</div>
+                            <p class="text-sm text-slate-200 leading-relaxed">${escapeHtml(msg)}</p>
+                        </div>
+                    </div>
+
+                    <!-- Two-column meta grid -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                        <!-- Phase timing -->
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-4">
+                            <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                <i class="fa-solid fa-stopwatch text-[.6rem] opacity-60"></i> Tiempos por Fase
+                            </h4>
+                            <div class="flex flex-col gap-2.5">
+                                ${phaseBars}
+                                <div class="flex items-center gap-3 mt-1 pt-2.5 border-t border-slate-700/50">
+                                    <span class="text-xs text-slate-100 font-semibold min-w-[90px]">Total</span>
+                                    <div class="flex-1 h-2 bg-white/5 rounded-full overflow-hidden"><div class="phase-gemini h-full rounded-full opacity-30" style="width:100%"></div></div>
+                                    <span class="text-xs text-slate-100 font-semibold min-w-[50px] text-right tabular-nums">${formatTime(totalMs)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Documents + meta -->
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-4">
+                            <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                                <i class="fa-solid fa-file-lines text-[.6rem] opacity-60"></i> Documentos Auditados
+                            </h4>
+                            <div class="flex flex-wrap gap-2 mb-4">
+                                ${docPills || '<span class="text-sm text-slate-500">Sin documentos</span>'}
+                            </div>
+                            <div class="flex gap-5 text-xs text-slate-400">
+                                <span><i class="fa-solid fa-rotate mr-1"></i> Intentos: <strong class="text-slate-200">${meta?.attempts ?? '-'}</strong></span>
+                                <span><i class="fa-solid fa-receipt mr-1"></i> Factura: <strong class="text-slate-200">${escapeHtml(meta?.factura ?? '-')}</strong></span>
                             </div>
                         </div>
                     </div>
-                    <div class="detail-meta-card">
-                        <h4><i class="fa-solid fa-file-lines"></i> Documentos Auditados</h4>
-                        <div class="doc-pills">${docPillsHtml || '<span style="color:var(--text-muted);font-size:.8rem">Sin documentos</span>'}</div>
-                        <div style="margin-top:12px;display:flex;gap:16px;font-size:.78rem;color:var(--text-muted)">
-                            <span><i class="fa-solid fa-rotate"></i> Intentos: <strong style="color:var(--text)">${meta?.attempts ?? '-'}</strong></span>
-                            <span><i class="fa-solid fa-receipt"></i> Factura: <strong style="color:var(--text)">${escapeHtml(meta?.factura ?? '-')}</strong></span>
+
+                    <!-- JSON toggle -->
+                    <details class="group">
+                        <summary class="flex items-center gap-2 px-3 py-2 rounded-sm border border-slate-700 text-xs text-slate-400 cursor-pointer hover:border-accent hover:text-slate-200 transition-all w-fit">
+                            <i class="fa-solid fa-chevron-right text-[.6rem] transition-transform group-open:rotate-90"></i>
+                            Ver JSON completo
+                        </summary>
+                        <pre class="mt-3 bg-brand-bg border border-slate-700 rounded-sm p-4 max-h-96 overflow-auto text-xs leading-relaxed custom-scroll">${highlightJSON(item)}</pre>
+                    </details>
+                </div>
+            `);
+        }
+
+        /* ──────────────────────────────────────────
+         *  MODAL: DOCUMENTATION (with live attachment fetch)
+         * ────────────────────────────────────────── */
+        async function openDocsModal(index) {
+            if (index < 0 || index >= currentItems.length) return;
+
+            const item = currentItems[index];
+            const res = item?.result || {};
+            const meta = res?._meta || {};
+            const auditDocs = Array.isArray(meta?.documentos) ? meta.documentos : [];
+            const inv = item?.invoice || {};
+            const resp = String(res?.response || 'error').toLowerCase();
+            const factura = meta?.factura || inv.Dispensa || '-';
+            const nitSec = hiddenSelect.value || '';
+
+            /* ── Show modal with loading state ── */
+            openModal(`
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-paperclip text-accent"></i>
+                            Documentación — Factura ${escapeHtml(factura)}
+                        </h3>
+                        <button onclick="document.getElementById('modal-backdrop').classList.add('hidden');document.getElementById('modal-backdrop').classList.remove('flex');document.body.style.overflow=''"
+                            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <!-- Info bar -->
+                    <div class="flex flex-wrap items-center gap-4 text-xs text-slate-400 mb-5 p-3 rounded-sm bg-white/[.02] border border-slate-700/50">
+                        <span><i class="fa-solid fa-hashtag mr-1"></i> FacSec: <strong class="text-slate-200">${escapeHtml(inv.FacSec ?? '-')}</strong></span>
+                        <span><i class="fa-solid fa-receipt mr-1"></i> Factura: <strong class="text-slate-200">${escapeHtml(factura)}</strong></span>
+                        <span><i class="fa-solid fa-file-lines mr-1"></i> Docs Auditoría: <strong class="text-slate-200">${auditDocs.length}</strong></span>
+                        <span class="ml-auto">${badge(resp)}</span>
+                    </div>
+
+                    <!-- Audit docs pills -->
+                    <div class="mb-4">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-brain text-[.6rem] opacity-60"></i> Documentos Evaluados por IA
+                        </h4>
+                        <div class="flex flex-wrap gap-2">${auditDocs.map(d => {
+                const ic = { 'ACTA DE ENTREGA': 'fa-file-signature', 'FORMULA MEDICA': 'fa-prescription', 'VALIDADOR DE DERECHOS': 'fa-id-card', 'AUTORIZACION DE SERVICIOS': 'fa-file-shield' }[d] || 'fa-file';
+                return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"><i class="fa-solid ${ic} text-[.6rem] opacity-70"></i> ${escapeHtml(d)}</span>`;
+            }).join('') || '<span class="text-sm text-slate-500">Ninguno</span>'}</div>
+                    </div>
+
+                    <!-- Attachments container (loading) -->
+                    <div id="attachments-live" class="mt-4">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                            <i class="fa-solid fa-download text-[.6rem] opacity-60"></i> Archivos Adjuntos del Servidor
+                        </h4>
+                        <div class="flex items-center gap-2 py-6 justify-center text-slate-500 text-sm">
+                            <span class="inline-block w-4 h-4 border-2 border-slate-600 border-t-accent rounded-full animate-spin"></span>
+                            Consultando adjuntos...
                         </div>
                     </div>
                 </div>
+            `);
 
-                <button class="json-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'':'none'">
-                    <i class="fa-solid fa-chevron-right"></i> Ver JSON completo
-                </button>
-                <pre style="display:none">${highlightJSON(item)}</pre>
-            `;
-        };
+            /* ── Fetch real attachments from API ── */
+            const attachContainer = document.getElementById('attachments-live');
+            if (!attachContainer) return;
 
-        /* ── Results table ── */
-        const formatTime = (ms) => {
-            if (ms === undefined || ms === null || ms === '-') return '-';
-            const n = Number(ms);
-            if (n >= 1000) return `${(n / 1000).toFixed(1)}s`;
-            return `${Math.round(n)}ms`;
-        };
+            try {
+                if (!api || !nitSec || factura === '-') {
+                    attachContainer.querySelector('div:last-child').innerHTML = `
+                        <div class="text-center py-4 text-slate-500 text-sm">
+                            <i class="fa-solid fa-circle-info mr-1"></i> No se puede consultar adjuntos (faltan parámetros).
+                        </div>`;
+                    return;
+                }
 
-        const renderResults = (items) => {
-            sectionResults.style.display = '';
+                const response = await api.get(`/dispensation/${factura}/attachments/${nitSec}`);
+                const attachments = response?.data?.data || [];
+
+                if (!Array.isArray(attachments) || !attachments.length) {
+                    attachContainer.querySelector('div:last-child').innerHTML = `
+                        <div class="text-center py-4 text-slate-500 text-sm">
+                            <i class="fa-solid fa-folder-open mr-1"></i> No se encontraron archivos adjuntos para esta factura.
+                        </div>`;
+                    return;
+                }
+
+                /* ── Build attachment cards ── */
+                const storageIcons = {
+                    'BLOB': { icon: 'fa-database', color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', label: 'Almacenado en BD' },
+                    'URL': { icon: 'fa-cloud', color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Enlace remoto' },
+                    'SIN_DOCUMENTOS': { icon: 'fa-file-circle-question', color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-500/20', label: 'Sin contenido' },
+                };
+
+                const docTypeIcons = {
+                    'ACTA DE ENTREGA': 'fa-file-signature',
+                    'FORMULA MEDICA': 'fa-prescription',
+                    'VALIDADOR DE DERECHOS': 'fa-id-card',
+                    'AUTORIZACION DE SERVICIOS': 'fa-file-shield',
+                };
+
+                const cards = attachments.map((att, i) => {
+                    const st = storageIcons[att.TipoAlmacenamiento] || storageIcons.SIN_DOCUMENTOS;
+                    const docName = att.nombre_documento || att.nombre_alternativo || 'Documento';
+                    const docIcon = docTypeIcons[docName] || docTypeIcons[att.nombre_alternativo] || 'fa-file';
+                    const docId = att.id_documento;
+                    const hasContent = att.TipoAlmacenamiento === 'BLOB' || att.TipoAlmacenamiento === 'URL';
+                    const downloadUrl = `/dispensation/${encodeURIComponent(factura)}/attachments/download/${encodeURIComponent(docId)}`;
+
+                    return `<div class="flex items-center gap-3 p-3.5 rounded-sm ${st.bg} border ${st.border} transition-all hover:-translate-y-0.5 animate-fade-in-up" style="animation-delay:${i * 0.05}s">
+                        <div class="w-10 h-10 rounded-full ${st.bg} flex items-center justify-center flex-shrink-0">
+                            <i class="fa-solid ${docIcon} ${st.color}"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-200 truncate">${escapeHtml(docName)}</p>
+                            <div class="flex items-center gap-2 mt-0.5">
+                                <span class="inline-flex items-center gap-1 text-xs ${st.color}">
+                                    <i class="fa-solid ${st.icon} text-[.55rem]"></i> ${st.label}
+                                </span>
+                                <span class="text-xs text-slate-600">•</span>
+                                <span class="text-xs text-slate-500 font-mono">ID: ${escapeHtml(docId)}</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 flex-shrink-0">
+                            ${hasContent ? `
+                                <button class="btn-preview-att inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-accent/15 text-indigo-300 border border-accent/25 transition-all hover:bg-accent/25 hover:-translate-y-0.5 cursor-pointer"
+                                    data-download-url="${downloadUrl}"
+                                    data-doc-name="${escapeHtml(docName)}"
+                                    title="Previsualizar archivo">
+                                    <i class="fa-solid fa-eye text-[.6rem]"></i> Ver
+                                </button>
+                            ` : `
+                                <span class="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs text-slate-500 border border-slate-700">
+                                    <i class="fa-solid fa-ban text-[.6rem]"></i> No disponible
+                                </span>
+                            `}
+                        </div>
+                    </div>`;
+                }).join('');
+
+                /* Replace loading with cards */
+                const lastChild = attachContainer.querySelector('div:last-child');
+                if (lastChild) {
+                    lastChild.outerHTML = `
+                        <div class="flex flex-col gap-2.5">${cards}</div>
+                        <p class="text-xs text-slate-500 mt-3 text-center"><i class="fa-solid fa-circle-info mr-1"></i> ${attachments.length} adjunto(s) encontrado(s) en el servidor.</p>
+                    `;
+                }
+
+                // Bind preview buttons
+                attachContainer.querySelectorAll('.btn-preview-att').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const dlUrl = btn.dataset.downloadUrl;
+                        const docName = btn.dataset.docName || 'Documento';
+                        const origHtml = btn.innerHTML;
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[.6rem]"></i> Cargando...';
+                        btn.disabled = true;
+
+                        try {
+                            const fileRes = await api.get(dlUrl, { headers: { 'Accept': 'application/json' } });
+                            const fileData = fileRes.data;
+                            const mime = fileData.mime || 'application/pdf';
+                            const b64 = fileData.data || '';
+                            const dataUri = `data:${mime};base64,${b64}`;
+
+                            closeModal();
+                            setTimeout(() => {
+                                openModal(`
+                                    <div class="p-0 flex flex-col" style="height:85vh">
+                                        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700/60 flex-shrink-0">
+                                            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2 truncate">
+                                                <i class="fa-solid fa-file-lines text-accent"></i>
+                                                ${escapeHtml(docName)}
+                                            </h3>
+                                            <button onclick="closeModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer flex-shrink-0">
+                                                <i class="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
+                                        <iframe src="${dataUri}" class="flex-1 w-full bg-white rounded-b-sm" style="border:none; min-height:0;"></iframe>
+                                    </div>
+                                `);
+                            }, 150);
+                        } catch (err) {
+                            console.error('Preview error:', err);
+                            showToast('No se pudo previsualizar el documento', 'error');
+                        } finally {
+                            btn.innerHTML = origHtml;
+                            btn.disabled = false;
+                        }
+                    });
+                });
+            } catch (err) {
+                const lastChild = attachContainer.querySelector('div:last-child');
+                if (lastChild) {
+                    lastChild.innerHTML = `
+                        <div class="text-center py-4 text-red-400 text-sm">
+                            <i class="fa-solid fa-circle-xmark mr-1"></i> Error al consultar adjuntos: ${escapeHtml(err?.message || 'desconocido')}
+                        </div>`;
+                }
+            }
+        }
+
+        /* ──────────────────────────────────────────
+         *  RESULTS TABLE
+         * ────────────────────────────────────────── */
+        function renderResults(items) {
+            sectionResults.classList.remove('hidden');
+            // Apply scroll to the table container within sectionResults
+            const tableContainer = sectionResults.querySelector('.overflow-x-auto');
+            if (tableContainer) {
+                tableContainer.classList.add('max-h-[500px]', 'overflow-y-auto', 'no-scrollbar');
+            }
+
             if (!items.length) {
-                resultsBodyEl.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No se encontraron facturas para los parámetros indicados.</td></tr>`;
+                resultsBodyEl.innerHTML = `<tr><td colspan="8" class="text-center text-slate-500 py-8">No se encontraron facturas para los parámetros indicados.</td></tr>`;
                 return;
             }
             resultsBodyEl.innerHTML = items.map((row, idx) => {
@@ -1128,52 +1070,444 @@
                 const msg = String(res?.message || '—');
                 const time = res?._meta?.totalTimeMs;
                 const att = res?._meta?.attempts ?? '-';
-                return `<tr class="clickable${selectedIndex === idx ? ' selected' : ''}" data-index="${idx}">
-                    <td>${idx + 1}</td>
-                    <td><strong>${escapeHtml(inv.FacNro ?? '-')}</strong></td>
-                    <td>${escapeHtml(inv.DisId ?? '-')}</td>
-                    <td>${badge(resp)}</td>
-                    <td>${escapeHtml(msg)}</td>
-                    <td>${formatTime(time)}</td>
-                    <td>${escapeHtml(att)}</td>
+                const docs = Array.isArray(res?._meta?.documentos) ? res._meta.documentos : [];
+                return `<tr class="border-b border-slate-800 transition-colors hover:bg-indigo-500/[.04] even:bg-white/[.01]">
+                    <td class="px-3 py-2.5 text-slate-500 tabular-nums">${idx + 1}</td>
+                    <td class="px-3 py-2.5 font-semibold">${escapeHtml(inv.Dispensa ?? '-')}</td>
+                    <td class="px-3 py-2.5 text-slate-400">${escapeHtml(inv.FacSec ?? '-')}</td>
+                    <td class="px-3 py-2.5">${badge(resp)}</td>
+                    <td class="px-3 py-2.5 text-slate-300 max-w-xs truncate" title="${escapeHtml(msg)}">${escapeHtml(msg)}</td>
+                    <td class="px-3 py-2.5 text-slate-400 tabular-nums">${formatTime(time)}</td>
+                    <td class="px-3 py-2.5 text-slate-400 text-center tabular-nums">${escapeHtml(att)}</td>
+                    <td class="px-3 py-2.5 text-center">
+                        <div class="flex items-center justify-center gap-1.5">
+                            <button data-action="detail" data-idx="${idx}"
+                                class="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/25 transition-colors cursor-pointer"
+                                title="Ver detalle de auditoría">
+                                <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                            </button>
+                            <button data-action="docs" data-idx="${idx}"
+                                class="w-8 h-8 flex items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/25 transition-colors cursor-pointer ${docs.length ? '' : 'opacity-30 pointer-events-none'}"
+                                title="Ver documentación adjunta (${docs.length})">
+                                <i class="fa-solid fa-paperclip text-xs"></i>
+                            </button>
+                        </div>
+                    </td>
                 </tr>`;
             }).join('');
 
-            resultsBodyEl.querySelectorAll('tr.clickable').forEach(tr => {
-                tr.addEventListener('click', () => {
-                    selectedIndex = Number(tr.dataset.index);
-                    renderResults(currentItems);
-                    renderDetail(selectedIndex);
+            /* Attach action handlers */
+            resultsBodyEl.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const idx = Number(btn.dataset.idx);
+                    if (btn.dataset.action === 'detail') openDetailModal(idx);
+                    else if (btn.dataset.action === 'docs') openDocsModal(idx);
                 });
             });
+        }
+
+        /* ──────────────────────────────────────────
+         *  HISTORY: CLIENT SELECT (reuses allClients)
+         * ────────────────────────────────────────── */
+        const histSelectWrapper = byId('hist-select-wrapper');
+        const histSelectTrigger = byId('hist-select-trigger');
+        const histSelectDropdown = byId('hist-select-dropdown');
+        const histSelectOptions = byId('hist-select-options');
+        const histSelectChevron = byId('hist-select-chevron');
+        const histClientSearch = byId('hist-clientSearch');
+        const histClearClient = byId('hist-clear-client');
+        const histFacNitSec = byId('hist-facNitSec');
+        let histSelectOpen = false;
+
+        function toggleHistDropdown(forceState) {
+            histSelectOpen = forceState !== undefined ? forceState : !histSelectOpen;
+            histSelectDropdown.classList.toggle('hidden', !histSelectOpen);
+            histSelectChevron.classList.toggle('rotate-180', histSelectOpen);
+            if (histSelectOpen) histClientSearch.focus();
+        }
+
+        function renderHistOptions(clients) {
+            if (!clients.length) {
+                histSelectOptions.innerHTML = `<div class="px-3 py-4 text-center text-slate-500 text-sm">Sin resultados</div>`;
+                return;
+            }
+            histSelectOptions.innerHTML = clients.map(c => `
+                <div class="hist-select-opt flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors hover:bg-indigo-500/10 text-sm ${String(c.NitSec) === histFacNitSec.value ? 'bg-indigo-500/15 text-indigo-300' : 'text-slate-300'}"
+                     data-value="${escapeHtml(c.NitSec)}" data-label="${escapeHtml(c.NitCom)}">
+                    <i class="fa-solid fa-building-columns text-xs opacity-40"></i>
+                    <span class="flex-1 truncate">${escapeHtml(c.NitCom)}</span>
+                    <span class="text-xs text-slate-500 font-mono">${escapeHtml(c.NitSec)}</span>
+                </div>`).join('');
+
+            histSelectOptions.querySelectorAll('.hist-select-opt').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    histFacNitSec.value = opt.dataset.value;
+                    histClientSearch.value = `${opt.dataset.label} (${opt.dataset.value})`;
+                    histClearClient.classList.remove('hidden');
+                    toggleHistDropdown(false);
+                    renderHistOptions(allClients);
+                });
+            });
+        }
+
+        histSelectTrigger.addEventListener('click', (e) => {
+            if (e.target !== histClientSearch && e.target !== histClearClient && !histClearClient.contains(e.target)) toggleHistDropdown();
+        });
+        histClientSearch.addEventListener('focus', () => toggleHistDropdown(true));
+        histClientSearch.addEventListener('input', () => {
+            const q = histClientSearch.value.toLowerCase().trim();
+            if (!q) { renderHistOptions(allClients); return; }
+            const filtered = allClients.filter(c =>
+                String(c.NitCom).toLowerCase().includes(q) ||
+                String(c.NitSec).toLowerCase().includes(q)
+            );
+            renderHistOptions(filtered);
+            if (!histSelectOpen) toggleHistDropdown(true);
+        });
+        histClearClient.addEventListener('click', (e) => {
+            e.stopPropagation();
+            histFacNitSec.value = '';
+            histClientSearch.value = '';
+            histClearClient.classList.add('hidden');
+            renderHistOptions(allClients);
+        });
+        document.addEventListener('click', (e) => {
+            if (!histSelectWrapper.contains(e.target)) toggleHistDropdown(false);
+        });
+
+        /* ──────────────────────────────────────────
+         *  HISTORY: FETCH & RENDER (with pagination)
+         * ────────────────────────────────────────── */
+        const histResultsEl = byId('history-results');
+        const histBodyEl = byId('history-body');
+        const histCountEl = byId('history-count');
+        const histEmptyEl = byId('history-empty');
+        const btnHistoryEl = byId('btn-history');
+        const histPageSizeEl = byId('hist-pageSize');
+        const paginationInfo = byId('pagination-info');
+        const paginationPages = byId('pagination-pages');
+
+        let historyItems = [];
+        let histCurrentPage = 1;
+        let histTotalPages = 1;
+        let histTotal = 0;
+
+        function getClientName(nitSec) {
+            const c = allClients.find(cl => String(cl.NitSec) === String(nitSec));
+            return c ? c.NitCom : String(nitSec || '—');
+        }
+
+        async function fetchHistory(page = 1) {
+            if (!api) { showToast('Cliente HTTP no inicializado.', 'error'); return; }
+
+            const params = new URLSearchParams();
+            const facNitSec = histFacNitSec.value;
+            const facNro = byId('hist-facNro').value.trim();
+            const dateFrom = byId('hist-dateFrom').value;
+            const dateTo = byId('hist-dateTo').value;
+            const pageSize = Number(histPageSizeEl.value) || 20;
+
+            if (facNitSec) params.set('facNitSec', facNitSec);
+            if (facNro) params.set('facNro', facNro);
+            if (dateFrom) params.set('dateFrom', dateFrom);
+            if (dateTo) params.set('dateTo', dateTo);
+            params.set('page', page);
+            params.set('pageSize', pageSize);
+
+            const qs = params.toString();
+            const origHtml = btnHistoryEl.innerHTML;
+            btnHistoryEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i> Buscando...';
+            btnHistoryEl.disabled = true;
+
+            try {
+                const res = await api.get(`/audit/results?${qs}`);
+                const data = res?.data?.data || {};
+                historyItems = Array.isArray(data.items) ? data.items : [];
+                histTotal = data.total || 0;
+                histCurrentPage = data.page || 1;
+                histTotalPages = data.totalPages || 1;
+
+                if (histTotal === 0) {
+                    histResultsEl.classList.add('hidden');
+                    histEmptyEl.classList.remove('hidden');
+                    showToast('No se encontraron auditorías.', 'info', 3000);
+                } else {
+                    histEmptyEl.classList.add('hidden');
+                    histResultsEl.classList.remove('hidden');
+                    const from = (histCurrentPage - 1) * pageSize + 1;
+                    const to = Math.min(histCurrentPage * pageSize, histTotal);
+                    histCountEl.textContent = `${histTotal} resultado(s) — mostrando ${from}–${to}`;
+                    renderHistory(historyItems);
+                    renderPagination();
+                    if (page === 1) showToast(`${histTotal} auditoría(s) encontrada(s).`, 'success', 3000);
+                }
+            } catch (err) {
+                showToast(`Error: ${err?.message || 'desconocido'}`, 'error');
+            } finally {
+                btnHistoryEl.innerHTML = origHtml;
+                btnHistoryEl.disabled = false;
+            }
+        }
+
+        function renderPagination() {
+            const pageSize = Number(histPageSizeEl.value) || 20;
+            const from = (histCurrentPage - 1) * pageSize + 1;
+            const to = Math.min(histCurrentPage * pageSize, histTotal);
+            paginationInfo.textContent = `Página ${histCurrentPage} de ${histTotalPages} (${histTotal} registros)`;
+
+            // Page buttons
+            let pages = [];
+            const maxVisible = 5;
+            let startPage = Math.max(1, histCurrentPage - Math.floor(maxVisible / 2));
+            let endPage = Math.min(histTotalPages, startPage + maxVisible - 1);
+            if (endPage - startPage < maxVisible - 1) startPage = Math.max(1, endPage - maxVisible + 1);
+
+            for (let i = startPage; i <= endPage; i++) {
+                const active = i === histCurrentPage;
+                pages.push(`<button data-page="${i}"
+                    class="w-8 h-8 flex items-center justify-center rounded-sm text-xs font-semibold transition-all cursor-pointer
+                    ${active
+                        ? 'bg-accent text-white border border-accent shadow-md shadow-accent-glow'
+                        : 'text-slate-400 bg-brand-subtle border border-slate-700 hover:bg-indigo-500/10 hover:border-accent hover:text-indigo-300'
+                    }">${i}</button>`);
+            }
+            paginationPages.innerHTML = pages.join('');
+
+            // Bind page clicks
+            paginationPages.querySelectorAll('[data-page]').forEach(btn => {
+                btn.addEventListener('click', () => fetchHistory(Number(btn.dataset.page)));
+            });
+
+            // Navigation buttons
+            byId('btn-page-first').disabled = histCurrentPage <= 1;
+            byId('btn-page-prev').disabled = histCurrentPage <= 1;
+            byId('btn-page-next').disabled = histCurrentPage >= histTotalPages;
+            byId('btn-page-last').disabled = histCurrentPage >= histTotalPages;
+        }
+
+        byId('btn-page-first').addEventListener('click', () => fetchHistory(1));
+        byId('btn-page-prev').addEventListener('click', () => fetchHistory(Math.max(1, histCurrentPage - 1)));
+        byId('btn-page-next').addEventListener('click', () => fetchHistory(Math.min(histTotalPages, histCurrentPage + 1)));
+        byId('btn-page-last').addEventListener('click', () => fetchHistory(histTotalPages));
+        histPageSizeEl.addEventListener('change', () => fetchHistory(1));
+
+        const sevBadgeCfg = {
+            alta: { cls: 'bg-red-500/10 text-red-300 border-red-500/20', icon: 'fa-circle-exclamation' },
+            media: { cls: 'bg-amber-500/10 text-amber-300 border-amber-500/20', icon: 'fa-triangle-exclamation' },
+            baja: { cls: 'bg-blue-500/10 text-blue-300 border-blue-500/20', icon: 'fa-circle-info' },
+            ninguna: { cls: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20', icon: 'fa-circle-check' },
         };
 
-        /* ── Clear ── */
-        const clearAll = () => {
+        function sevBadge(sev) {
+            const key = (sev || 'ninguna').toLowerCase();
+            const c = sevBadgeCfg[key] || sevBadgeCfg.ninguna;
+            return `<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider border ${c.cls}"><i class="fa-solid ${c.icon} text-[.55rem]"></i> ${escapeHtml(key)}</span>`;
+        }
+
+        function renderHistory(items) {
+            const pageSize = Number(histPageSizeEl.value) || 20;
+            const baseIdx = (histCurrentPage - 1) * pageSize;
+            histBodyEl.innerHTML = items.map((row, idx) => {
+                const estado = row.EstadoDetallado || (row.EstAud ? 'procesado' : 'pendiente');
+                const hallazgos = row.Hallazgos ? String(row.Hallazgos).substring(0, 80) + (row.Hallazgos.length > 80 ? '...' : '') : '—';
+                const fecha = row.FechaCreacion ? new Date(row.FechaCreacion).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+                const humanReview = row.RequiereRevisionHumana ? '<i class="fa-solid fa-eye text-purple-400 text-xs" title="Requiere revisión humana"></i>' : '';
+                const clientName = getClientName(row.FacNitSec);
+                const shortClient = clientName.length > 25 ? clientName.substring(0, 25) + '…' : clientName;
+                return `<tr class="border-b border-slate-800 transition-colors hover:bg-indigo-500/[.04] even:bg-white/[.01]">
+                    <td class="px-3 py-2.5 text-slate-500 tabular-nums">${baseIdx + idx + 1}</td>
+                    <td class="px-3 py-2.5 font-semibold">${escapeHtml(row.FacNro || '—')}</td>
+                    <td class="px-3 py-2.5 text-slate-400 text-xs" title="${escapeHtml(clientName)}">${escapeHtml(shortClient)}</td>
+                    <td class="px-3 py-2.5">${badge(estado)}</td>
+                    <td class="px-3 py-2.5">${sevBadge(row.Severidad)} ${humanReview}</td>
+                    <td class="px-3 py-2.5 text-slate-300 max-w-xs truncate" title="${escapeHtml(row.Hallazgos || '')}">${escapeHtml(hallazgos)}</td>
+                    <td class="px-3 py-2.5 text-slate-400 text-center tabular-nums">${row.DocumentosProcesados ?? 0}</td>
+                    <td class="px-3 py-2.5 text-slate-400 tabular-nums">${formatTime(row.DuracionProcesamientoMs)}</td>
+                    <td class="px-3 py-2.5 text-slate-400 text-xs">${fecha}</td>
+                    <td class="px-3 py-2.5 text-center">
+                        <button data-hist-idx="${idx}"
+                            class="w-8 h-8 flex items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/25 transition-colors cursor-pointer"
+                            title="Ver detalle">
+                            <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            histBodyEl.querySelectorAll('[data-hist-idx]').forEach(btn => {
+                btn.addEventListener('click', () => openHistoryDetail(Number(btn.dataset.histIdx)));
+            });
+        }
+
+        function openHistoryDetail(idx) {
+            if (idx < 0 || idx >= historyItems.length) return;
+            const row = historyItems[idx];
+
+            const resp = String(row.EstadoDetallado || 'pendiente').toLowerCase();
+            const respIcons = {
+                success: 'fa-circle-check text-emerald-400',
+                warning: 'fa-triangle-exclamation text-amber-400',
+                human_review: 'fa-eye text-purple-400',
+                error: 'fa-circle-xmark text-red-400',
+            };
+            const msgIcon = respIcons[resp] || 'fa-circle-info text-blue-400';
+            const clientName = getClientName(row.FacNitSec);
+
+            let hallazgosHtml = '<span class="text-slate-500">Sin hallazgos registrados.</span>';
+            if (row.Hallazgos) {
+                try {
+                    const parsed = JSON.parse(row.Hallazgos);
+                    hallazgosHtml = `<pre class="bg-brand-bg border border-slate-700 rounded-sm p-4 max-h-80 overflow-auto text-xs leading-relaxed custom-scroll">${highlightJSON(parsed)}</pre>`;
+                } catch {
+                    hallazgosHtml = `<pre class="bg-brand-bg border border-slate-700 rounded-sm p-4 max-h-80 overflow-auto text-xs leading-relaxed custom-scroll whitespace-pre-wrap">${escapeHtml(row.Hallazgos)}</pre>`;
+                }
+            }
+
+            let errorHtml = '';
+            if (row.DetalleError) {
+                errorHtml = `
+                    <div class="mt-4">
+                        <h4 class="text-xs font-semibold uppercase tracking-wider text-red-400 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-bug text-[.6rem] opacity-60"></i> Detalle de Error
+                        </h4>
+                        <pre class="bg-red-500/5 border border-red-500/20 rounded-sm p-4 max-h-40 overflow-auto text-xs text-red-300 custom-scroll whitespace-pre-wrap">${escapeHtml(row.DetalleError)}</pre>
+                    </div>`;
+            }
+
+            const fecha = row.FechaCreacion ? new Date(row.FechaCreacion).toLocaleString('es-CO') : '—';
+            const fechaUpd = row.FechaActualizacion ? new Date(row.FechaActualizacion).toLocaleString('es-CO') : '—';
+
+            openModal(`
+                <div class="p-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-magnifying-glass-chart text-accent"></i>
+                            Detalle — Factura ${escapeHtml(row.FacNro || '—')}
+                        </h3>
+                        <button onclick="closeModal()"
+                            class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <!-- Status message (consistent with openDetailModal) -->
+                    <div class="flex gap-3 items-start p-4 rounded-sm bg-gradient-to-r from-indigo-500/5 to-emerald-500/5 border border-indigo-500/15 mb-5">
+                        <i class="fa-solid ${msgIcon} text-xl mt-0.5 flex-shrink-0"></i>
+                        <div>
+                            <div class="mb-1">${badge(resp)}</div>
+                            <p class="text-sm text-slate-200 leading-relaxed">${escapeHtml(clientName)}</p>
+                        </div>
+                    </div>
+
+                    <!-- Metrics grid (consistent 2x3 layout) -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3  gap-3 mb-5">
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Estado</div>
+                            <div>${badge(row.EstadoDetallado || 'pendiente')}</div>
+                        </div>
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Severidad</div>
+                            <div>${sevBadge(row.Severidad)}</div>
+                        </div>
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Documentos</div>
+                            <div class="text-lg font-bold text-slate-100 tabular-nums">${row.DocumentosProcesados ?? 0}</div>
+                        </div>
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Duración</div>
+                            <div class="text-lg font-bold text-slate-100 tabular-nums">${formatTime(row.DuracionProcesamientoMs)}</div>
+                        </div>
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Creado</div>
+                            <div class="text-xs font-medium text-slate-200">${fecha}</div>
+                        </div>
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-3 text-center">
+                            <div class="text-xs text-slate-400 mb-1">Actualizado</div>
+                            <div class="text-xs font-medium text-slate-200">${fechaUpd}</div>
+                        </div>
+                    </div>
+
+                    <!-- Meta info bar -->
+                    <div class="flex flex-wrap gap-4 text-xs text-slate-400 mb-4 p-3 rounded-sm bg-white/[.02] border border-slate-700/50">
+                        <span><i class="fa-solid fa-hashtag mr-1"></i> FacSec: <strong class="text-slate-200">${escapeHtml(row.FacSec || '—')}</strong></span>
+                        <span><i class="fa-solid fa-building mr-1"></i> Cliente: <strong class="text-slate-200">${escapeHtml(clientName)}</strong></span>
+                        <span class="font-mono text-slate-500">NitSec: ${escapeHtml(row.FacNitSec || '—')}</span>
+                        ${row.RequiereRevisionHumana ? '<span class="text-purple-400"><i class="fa-solid fa-eye mr-1"></i> Requiere Revisión Humana</span>' : ''}
+                        ${row.DocumentoFallido ? `<span class="text-red-400"><i class="fa-solid fa-file-circle-xmark mr-1"></i> Doc Fallido: <strong>${escapeHtml(row.DocumentoFallido)}</strong></span>` : ''}
+                    </div>
+
+                    <!-- Hallazgos -->
+                    <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-list-check text-[.6rem] opacity-60"></i> Hallazgos
+                    </h4>
+                    ${hallazgosHtml}
+                    ${errorHtml}
+
+                    <!-- JSON toggle -->
+                    <details class="group mt-4">
+                        <summary class="flex items-center gap-2 px-3 py-2 rounded-sm border border-slate-700 text-xs text-slate-400 cursor-pointer hover:border-accent hover:text-slate-200 transition-all w-fit">
+                            <i class="fa-solid fa-chevron-right text-[.6rem] transition-transform group-open:rotate-90"></i>
+                            Ver JSON completo
+                        </summary>
+                        <pre class="mt-3 bg-brand-bg border border-slate-700 rounded-sm p-4 max-h-96 overflow-auto text-xs leading-relaxed custom-scroll">${highlightJSON(row)}</pre>
+                    </details>
+                </div>
+            `);
+        }
+
+        btnHistoryEl.addEventListener('click', () => fetchHistory(1));
+
+        /* ──────────────────────────────────────────
+         *  CLEAR
+         * ────────────────────────────────────────── */
+        function clearAll() {
             currentItems = [];
-            selectedIndex = -1;
-            sectionSummary.style.display = 'none';
-            sectionResults.style.display = 'none';
-            sectionDetail.style.display = 'none';
+            historyItems = [];
+            histCurrentPage = 1;
+            histTotalPages = 1;
+            histTotal = 0;
+            selectedClient = null;
+            hiddenSelect.value = '';
+            searchEl.value = '';
+            btnRunEl.disabled = true;
+            sectionSummary.classList.add('hidden');
+            sectionResults.classList.add('hidden');
+            histResultsEl.classList.add('hidden');
+            histEmptyEl.classList.add('hidden');
+            byId('hist-facNro').value = '';
+            byId('hist-dateFrom').value = '';
+            byId('hist-dateTo').value = '';
+            histFacNitSec.value = '';
+            histClientSearch.value = '';
+            histClearClient.classList.add('hidden');
             resetProgress();
+            renderOptions(allClients);
+            renderHistOptions(allClients);
             setStatus('Panel limpio. Selecciona un cliente para comenzar.', 'info');
-        };
+            showToast('Panel limpiado correctamente.', 'info', 3000);
+        }
 
-        /* ── Validate ── */
-        const validateInputs = () => {
-            const facNitSec = Number(selectEl.value);
+        /* ──────────────────────────────────────────
+         *  VALIDATE INPUTS
+         * ────────────────────────────────────────── */
+        function validateInputs() {
+            const facNitSec = Number(hiddenSelect.value);
             const date = byId('date').value;
             const limit = Number(byId('limit').value);
 
             if (!facNitSec || facNitSec < 1) throw new Error('Debes seleccionar un cliente.');
             if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('La fecha debe tener formato YYYY-MM-DD.');
-            if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('El límite debe estar entre 1 y 1000.');
+            if (!Number.isInteger(limit) || limit < 1 || limit > appConfig.maxLimit) throw new Error(`El límite debe estar entre 1 y ${appConfig.maxLimit}.`);
 
             return { facNitSec, date, limit };
-        };
+        }
 
-        /* ── Run Batch ── */
-        const runBatch = async () => {
+        /* ──────────────────────────────────────────
+         *  RUN BATCH AUDIT
+         * ────────────────────────────────────────── */
+        async function runBatch() {
             try {
                 if (!api) throw new Error('Cliente HTTP no inicializado.');
                 const payload = validateInputs();
@@ -1182,15 +1516,15 @@
                 btnClearEl.disabled = true;
                 setStatus('Ejecutando auditoría batch con IA. Esto puede tardar varios minutos...', 'loading');
                 setProgress(5);
+                showToast('Auditoría iniciada. Por favor espera...', 'info');
 
-                /* Simulate progress ticks while waiting */
                 let pct = 5;
                 const ticker = setInterval(() => {
                     pct = Math.min(pct + Math.random() * 8, 92);
                     setProgress(pct);
                 }, 3500);
 
-                const response = await api.post('/audit', payload, { timeout: 900000 });
+                const response = await api.post('/audit', payload, { timeout: appConfig.timeoutMs });
 
                 clearInterval(ticker);
                 setProgress(100);
@@ -1199,34 +1533,38 @@
                 const items = envelope?.data?.items || [];
 
                 currentItems = Array.isArray(items) ? items : [];
-                selectedIndex = currentItems.length ? 0 : -1;
 
-                sectionSummary.style.display = '';
+                sectionSummary.classList.remove('hidden');
                 renderSummary(currentItems);
                 renderResults(currentItems);
-                if (selectedIndex >= 0) renderDetail(selectedIndex);
 
                 const elapsed = envelope?.data?.totalTimeMs;
                 const timeStr = elapsed ? ` en ${(elapsed / 1000).toFixed(1)}s` : '';
                 setStatus(`Auditoría completada${timeStr} — ${currentItems.length} factura(s) procesada(s).`, 'success');
+                showToast(`Auditoría completada: ${currentItems.length} factura(s) procesada(s).`, 'success');
 
                 setTimeout(resetProgress, 2000);
             } catch (error) {
                 resetProgress();
-                const details = error?.data ? ` | ${JSON.stringify(error.data)}` : '';
-                setStatus(`Error: ${error?.message || 'Error desconocido'}${details}`, 'error');
+                const msg = error?.message || 'Error desconocido';
+                setStatus(`Error: ${msg}`, 'error');
+                showToast(msg, 'error', 8000);
             } finally {
-                btnRunEl.disabled = !selectEl.value;
+                btnRunEl.disabled = !hiddenSelect.value;
                 btnClearEl.disabled = false;
             }
-        };
+        }
 
-        /* ── Event listeners ── */
+        /* ──────────────────────────────────────────
+         *  EVENT LISTENERS
+         * ────────────────────────────────────────── */
         btnRunEl.addEventListener('click', runBatch);
         btnClearEl.addEventListener('click', clearAll);
 
-        /* ── Bootstrap ── */
-        const bootstrap = async () => {
+        /* ──────────────────────────────────────────
+         *  BOOTSTRAP
+         * ────────────────────────────────────────── */
+        async function bootstrap() {
             try {
                 const module = await import('/src/HttpClient.js');
                 const HttpClient = module.HttpClient;
@@ -1238,7 +1576,19 @@
                 const health = await api.get('/health');
                 if (!health?.ok) {
                     setStatus('Conexión parcial: /health no respondió OK.', 'error');
+                    showToast('Health check falló. Verifica el backend.', 'error');
                     return;
+                }
+
+                /* Cargar configuración centralizada desde el backend */
+                try {
+                    const cfgRes = await api.get('/config/public');
+                    const cfg = cfgRes?.data?.data || {};
+                    if (cfg.auditBatchMaxLimit) appConfig.maxLimit = cfg.auditBatchMaxLimit;
+                    if (cfg.auditBatchTimeoutMs) appConfig.timeoutMs = cfg.auditBatchTimeoutMs;
+                    console.log('[config] Configuración cargada:', appConfig);
+                } catch (cfgErr) {
+                    console.warn('[config] No se pudo cargar /config/public, usando defaults:', cfgErr.message);
                 }
 
                 /* Load clients */
@@ -1248,17 +1598,56 @@
 
                 if (!Array.isArray(clients) || !clients.length) {
                     setStatus('No se encontraron clientes en el backend.', 'error');
+                    showToast('No se encontraron clientes.', 'warning');
                     return;
                 }
 
                 allClients = clients;
-                populateClients(allClients);
+                renderOptions(allClients);
+                renderHistOptions(allClients);
                 setStatus(`Conectado — ${allClients.length} clientes disponibles. Selecciona uno para auditar.`, 'success');
-            } catch (e) {
-                setStatus(`Error de inicialización: ${e?.message || 'desconocido'}`, 'error');
+                showToast(`Sistema listo. ${allClients.length} clientes cargados.`, 'success', 4000);
+            } catch (error) {
+                console.error('Error in bootstrap:', error);
+                setStatus(`Error de inicialización: ${error?.message || 'desconocido'}`, 'error');
+                showToast('Error de inicialización. Revisa la consola.', 'error', 6000);
+            }
+        }
+
+        /* ──────────────────────────────────────────
+         *  VIEW ATTACHMENT IN BROWSER
+         * ────────────────────────────────────────── */
+        window.viewDocument = async function (url) {
+            // Legacy fallback: redirect to iframe preview
+            showToast('Cargando previsualización...', 'info', 2000);
+            try {
+                const response = await api.get(url, { headers: { 'Accept': 'application/json' } });
+                const fileData = response.data;
+                const mime = fileData.mime || 'application/pdf';
+                const b64 = fileData.data || '';
+                const dataUri = `data:${mime};base64,${b64}`;
+
+                openModal(`
+                    <div class="p-0 flex flex-col" style="height:85vh">
+                        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700/60 flex-shrink-0">
+                            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2 truncate">
+                                <i class="fa-solid fa-file-lines text-accent"></i>
+                                Documento
+                            </h3>
+                            <button onclick="closeModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer flex-shrink-0">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                        <iframe src="${dataUri}" class="flex-1 w-full bg-white rounded-b-sm" style="border:none; min-height:0;"></iframe>
+                    </div>
+                `);
+            } catch (err) {
+                console.error('Error al obtener documento para ver:', err);
+                showToast('Error al intentar abrir el documento.', 'error');
             }
         };
 
+        // RUN
         bootstrap();
     </script>
 </body>

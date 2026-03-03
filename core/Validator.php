@@ -1,4 +1,5 @@
 <?php
+
 namespace Core;
 
 class Validator
@@ -6,16 +7,16 @@ class Validator
     public static function validate(array $data, array $rules): array
     {
         $errors = [];
-        
+
         foreach ($rules as $field => $ruleset) {
             $rulesArray = explode('|', $ruleset);
-            
+
             foreach ($rulesArray as $rule) {
-                if ($rule === 'nullable' && ( !isset($data[$field]) || $data[$field] === '' || $data[$field] === null)) {
+                if ($rule === 'nullable' && (!isset($data[$field]) || $data[$field] === '' || $data[$field] === null)) {
                     continue 2;
                 }
 
-                if ($rule === 'required' && empty($data[$field])) {
+                if ($rule === 'required' && (!isset($data[$field]) || $data[$field] === '' || $data[$field] === null)) {
                     $errors[$field][] = "El campo {$field} es requerido";
                     continue;
                 }
@@ -32,20 +33,20 @@ class Validator
                         $errors[$field][] = "El campo {$field} debe tener al menos {$min} caracteres";
                     }
                 }
-                
+
                 if (str_starts_with($rule, 'max:') && isset($data[$field])) {
                     $max = (int)substr($rule, 4);
                     if (strlen($data[$field]) > $max) {
                         $errors[$field][] = "El campo {$field} no puede tener más de {$max} caracteres";
                     }
                 }
-                
+
                 if ($rule === 'email' && isset($data[$field])) {
                     if (!filter_var($data[$field], FILTER_VALIDATE_EMAIL)) {
                         $errors[$field][] = "El campo {$field} debe ser un email válido";
                     }
                 }
-                
+
                 if ($rule === 'numeric' && isset($data[$field])) {
                     if (!is_numeric($data[$field])) {
                         $errors[$field][] = "El campo {$field} debe ser numérico";

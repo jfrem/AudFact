@@ -1,6 +1,7 @@
 <?php
 $router->get('/', 'Controller', 'index');
 $router->get('/health', 'HealthController', 'status');
+$router->get('/config/public', 'ConfigController', 'publicConfig');
 
 // Clients
 $router->get('/clients', 'ClientsController', 'index');
@@ -21,4 +22,7 @@ $router->get('/dispensation/{DisDetNro}', 'DispensationController', 'show');
 $router->post('/dispensation', 'DispensationController', 'lookup');
 
 // Audit
-$router->post('/audit', 'AuditController', 'run');
+// TODO: FIX #3 PENDIENTE — Aplicar ->middleware('auth') cuando se implemente AuthMiddleware + JWT
+$router->get('/audit/results', 'AuditController', 'results'); // Historial persistido
+$router->post('/audit', 'AuditController', 'run'); // Batch
+$router->post('/audit/single', 'AuditController', 'single'); // Individual HA

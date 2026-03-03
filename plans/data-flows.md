@@ -10,15 +10,15 @@ Flujo estándar para consultas de lectura a la API REST.
 ```mermaid
 sequenceDiagram
     participant U as Usuario/Frontend
-    participant N as Nginx
-    participant P as PHP-FPM
+    participant N as Nginx (Load Balancer)
+    participant P as PHP-FPM (Réplica)
     participant R as Router
     participant MW as Middleware
     participant C as Controller
     participant M as Model
     participant DB as SQL Server
 
-    U->>N: GET /api/clients
+    U->>N: GET /clients
     N->>P: FastCGI :9000
     P->>R: Despacha ruta
     R->>MW: Rate Limit + CORS
@@ -44,7 +44,7 @@ sequenceDiagram
 
 ---
 
-## 2. Auditoría IA (Flujo Principal)
+## 2. Auditoría IA Principal (Flujo por Lote)
 
 ### Descripción
 Pipeline completo de auditoría: recibe lote de facturas, obtiene datos de dispensación + documentos adjuntos, envía a Gemini Flash para análisis multimodal, parsea y valida el resultado.
@@ -66,7 +66,7 @@ sequenceDiagram
     participant ARV as AuditResultValidator
     participant DB as SQL Server
 
-    U->>AC: POST /api/audit/batch {clientId, date, invoices[]}
+    U->>AC: POST /audit {facNitSec, date, limit}
     AC->>AC: Validar input
 
     loop Para cada factura
@@ -145,6 +145,37 @@ sequenceDiagram
 
 ---
 
+## 3. Auditoría IA (Flujo Individual / Alta Disponibilidad)
+
+### Descripción
+Pipeline de evaluación aislado (Single) optimizado para integrarse de forma síncrona visual en Puntos de Dispensación. Utiliza el balanceador de Nginx para distribuir la carga entre las réplicas de FPM en base a `least_conn`.
+
+### Flujo
+
+```mermaid
+sequenceDiagram
+    participant U as Frontend (Punto Disp.)
+    participant N as Nginx Load Balancer
+    participant P as PHP-FPM Réplica (1..N)
+    participant GAS as GeminiAuditService
+    participant G as Gemini Flash API
+
+    U->>N: POST /audit/single {FacNro}
+    N->>P: Balanceo (least_conn)
+    P->>GAS: auditInvoice(FacNro)
+    GAS->>G: generateContent()
+    G-->>GAS: JSON
+    GAS-->>P: AuditResult
+    P-->>N: 200 JSON
+    N-->>U: Respuesta Síncrona
+```
+
+### Manejo de Errores
+- Nginx distribuye fuera del worker si un contenedor FPM satura sus child processes estáticos.
+- Logging segregado mediante nombre de contenedor (`app-{HOSTNAME}...log`).
+
+---
+
 ## 3. Protocolo MCP
 
 ### Descripción
@@ -165,7 +196,7 @@ sequenceDiagram
     WH->>MCP: handleRequest()
     MCP->>MCP: Identificar tool
     MCP->>Tool: execute(params)
-    Tool->>API: GET /api/clients
+    Tool->>API: GET /clients
     API->>REST: HTTP interno
     REST-->>API: JSON response
     API-->>Tool: Datos

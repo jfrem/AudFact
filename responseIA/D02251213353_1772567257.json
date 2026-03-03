@@ -1,0 +1,66 @@
+{
+    "response": "error",
+    "severity": "alta",
+    "message": "Se detectaron discrepancias críticas en la fecha de la fórmula médica y el documento de identidad del médico tratante.",
+    "documento": "MULTIPLE",
+    "data": {
+        "items": [
+            {
+                "item": "FechaFormula",
+                "detalle": "Fuente de Verdad: '2025-11-14'. Documento: '2025-11-14' en Acta de Entrega, pero '2025-08-14' en Fórmula Médica (pág 2).",
+                "documento": "FORMULA MEDICA",
+                "severidad": "media"
+            },
+            {
+                "item": "DocumentoMedico",
+                "detalle": "Fuente de Verdad: '1075296850'. Documento: '26421031' (Registro Médico).",
+                "documento": "FORMULA MEDICA",
+                "severidad": "alta"
+            },
+            {
+                "item": "FechaAutorizacion",
+                "detalle": "Fuente de Verdad: '2025-12-30'. Documento: '2025-12-30' en Acta de Entrega, pero no se adjunta soporte de Autorización de Servicios para validar origen.",
+                "documento": "No encontrado",
+                "severidad": "media"
+            }
+        ]
+    },
+    "metrics": {
+        "TotalCamposEvaluados": 24,
+        "TotalCoincidentes": 21,
+        "TotalDiscrepancias": 3,
+        "Altas": 1,
+        "Medias": 2,
+        "Bajas": 0
+    },
+    "config_used": {
+        "weights": {
+            "alta": 10,
+            "media": 5,
+            "baja": 1
+        },
+        "thresholds": {
+            "warning": 5,
+            "error": 10
+        },
+        "max_score": 100
+    },
+    "_errorOrigin": "gemini",
+    "_meta": {
+        "totalTimeMs": 13417,
+        "phases": {
+            "dataFetchMs": 546,
+            "filePrepMs": 2571,
+            "geminiApiMs": 10288
+        },
+        "attempts": 1,
+        "factura": "D02251213353",
+        "FacSec": "90648650",
+        "documentos": [
+            "ACTA DE ENTREGA",
+            "FORMULA MEDICA",
+            "VALIDADOR DE DERECHOS"
+        ],
+        "timestamp": "2026-03-03T19:47:37+00:00"
+    }
+}

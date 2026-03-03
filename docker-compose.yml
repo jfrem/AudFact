@@ -3,7 +3,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: audfact-php
+      args:
+        ENABLE_XDEBUG: "0"
+    # container_name has been REMOVED to allow replica scaling
     env_file:
       - .env
     volumes:
@@ -11,6 +13,19 @@ services:
       - ./logs:/var/www/html/logs
     expose:
       - "9000"
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      # Verificación real: carga app PHP + SELECT 1 contra SQL Server
+      test: ["CMD", "php", "/var/www/html/docker/healthcheck.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   nginx:
     image: nginx:1.25-alpine
@@ -21,4 +36,9 @@ services:
       - "8080:80"
     volumes:
       - ./:/var/www/html
-      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Template con envsubst nativo de nginx:alpine
+      - ./docker/nginx-ha.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      # Solo sustituir variables que empiecen con AUDIT_
+      NGINX_ENVSUBST_FILTER: "AUDIT_"
+      AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}

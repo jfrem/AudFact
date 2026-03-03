@@ -7,8 +7,20 @@ use App\wrap\core\tools\GetClients;
 use App\wrap\core\tools\GetInvoices;
 use App\wrap\core\tools\GetAttachments;
 use App\wrap\core\tools\GetDispensation;
+use Core\Env;
+
+Env::load();
 
 header('Content-Type: application/json');
+
+$expectedSecret = Env::get('MCP_WEBHOOK_SECRET');
+$providedSecret = $_SERVER['HTTP_X_API_KEY'] ?? '';
+
+if (empty($expectedSecret) || !hash_equals($expectedSecret, $providedSecret)) {
+    http_response_code(401);
+    echo json_encode(["error" => "Unauthorized"]);
+    exit;
+}
 
 $input = file_get_contents('php://input');
 $data = json_decode($input, true);

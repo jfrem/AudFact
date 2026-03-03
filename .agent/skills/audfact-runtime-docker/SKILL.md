@@ -101,8 +101,9 @@ Cliente HTTP
 
 ## Comandos útiles
 ```bash
-# Levantar entorno
-wsl docker compose down && docker compose up --build -d
+# Levantar entorno (rebuild completo)
+# ⚠️ Usar wsl bash -c "..." para ejecutar TODA la cadena dentro de WSL
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
 # Validar health
 curl http://localhost:8080/health
@@ -117,7 +118,10 @@ wsl docker exec -it audfact-php bash
 wsl docker exec audfact-php php -m | grep -i sql
 
 # Rebuild solo PHP sin cache
-wsl docker compose build --no-cache php
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose build --no-cache php"
+
+# Conflicto de nombre (container name already in use)
+wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Desktop/AudFact && docker compose up -d"
 ```
 
 ## Checklist rápido

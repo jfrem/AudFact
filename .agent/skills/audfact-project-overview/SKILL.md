@@ -12,7 +12,7 @@ description: >
 Sistema de auditoría documental automatizada que compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, usando **Google Gemini Flash** como motor de análisis multimodal.
 
 > [!NOTE]
-> Para una visión más profunda, consulta [overview.md](file:///c:/Users/USER/Desktop/AudFact/plans/overview.md) y [architecture.md](file:///c:/Users/USER/Desktop/AudFact/plans/architecture.md).
+> Para una visión más profunda, consulta [overview.md](/plans/overview.md) y [architecture.md](/plans/architecture.md).
 
 ## Stack
 

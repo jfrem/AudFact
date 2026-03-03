@@ -1,0 +1,84 @@
+# ── Rate Limiting Centralizado ──────────────────────────────────────────
+# Zona general: 10 requests/segundo por IP (~600/min), 10MB ≈ 160K IPs
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+
+# Zona para auditoría IA: 2 requests/segundo por IP (costoso en recursos)
+limit_req_zone $binary_remote_addr zone=audit_limit:10m rate=2r/s;
+
+upstream php_pool {
+    # Least Connections strategy es critica ante latencia asimetrica de IA
+    least_conn;
+
+    # Docker Compose DNS resuelve a todas las replicas
+    server php:9000;
+
+    # Mantener conexiones persistentes con FPM
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name _;
+    root /var/www/html/public;
+    index index.php;
+
+    # ── Seguridad ────────────────────────────────────────────────────────
+    server_tokens off;
+    client_max_body_size 10m;
+
+    # Security headers — protección en profundidad
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # ── Gzip — compresión de respuestas JSON ────────────────────────────
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 256;
+    gzip_comp_level 4;
+    gzip_types
+        application/json
+        text/plain
+        text/css
+        application/javascript;
+
+    # Timeout centralizado desde .env -> AUDIT_NGINX_READ_TIMEOUT
+    fastcgi_read_timeout ${AUDIT_NGINX_READ_TIMEOUT}s;
+    fastcgi_send_timeout 120s;
+    proxy_connect_timeout 10s;
+
+    location / {
+        try_files $uri /index.php?$query_string;
+    }
+
+    # ── Endpoint de auditoría IA — rate limit estricto (costoso) ────────
+    location = /audit {
+        limit_req zone=audit_limit burst=5 nodelay;
+        limit_req_status 429;
+        try_files $uri /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        # Rate limit general: burst de 20 para picos legítimos
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+        # Apuntar al balanceador en lugar de una replica directa
+        fastcgi_pass php_pool;
+
+        # Keepalive con FPM
+        fastcgi_keep_conn on;
+
+        # ── Retry a siguiente réplica si la actual falla ────────────────
+        # Solo en fase de conexión/handshake, NO en errores de aplicación
+        # (Gemini API ya tiene su propio retry+backoff)
+        fastcgi_next_upstream error timeout invalid_header;
+        fastcgi_next_upstream_tries 2;
+        fastcgi_next_upstream_timeout 10s;
+    }
+}

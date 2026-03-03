@@ -13,6 +13,11 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml` | Entorno Docker y conectividad DB. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
+| `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
+| `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |
+| `code-quality-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de mantenibilidad, complejidad, testabilidad y deuda técnica. |
+| `security-assessment` | Auditoría Técnica | Repositorio completo | Auditoría de seguridad (auth/authz, secretos, vulnerabilidades, hardening). |
+| `technical-governance-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de gobernanza técnica: ownership, code review, incidentes y roadmap. |
 
 ## Bundles
 
@@ -22,6 +27,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-ai-audit` | `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-security-guardrails` | Pipeline de auditoría completo |
 | `audfact-integration` | `audfact-mcp-wrap`, `audfact-api-rest` | Integración con agentes IA |
 | `audfact-ops` | `audfact-runtime-docker`, `audfact-security-guardrails` | Infraestructura y hardening |
+| `audfact-tech-assessment` | `audit-skill-router`, `architecture-assessment`, `code-quality-assessment`, `security-assessment`, `technical-governance-assessment` | Auditorías técnicas integrales con score global |
 
 ## Mapeo Archivo → Skill
 
@@ -41,3 +47,4 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `core/RateLimit.php` | `audfact-security-guardrails` |
 | `core/Logger.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
+| `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |

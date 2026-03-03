@@ -1,11 +1,13 @@
 <?php
+declare(strict_types=1);
+
 namespace Core;
 
 class Middleware
 {
-    private static $middlewares = [];
+    private static array $middlewares = [];
     
-    public static function register(string $name, string $handler): void
+    public static function register(string $name, callable|string $handler): void
     {
         self::$middlewares[$name] = $handler;
     }

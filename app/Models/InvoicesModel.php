@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace App\Models;
 
@@ -7,20 +8,23 @@ use Core\Logger;
 
 class InvoicesModel extends Model
 {
-    public function getInvoices(int $facNitSec, $date, int $limit = 100)
+    public function getInvoices(int $facNitSec, string $date, int $limit = 100): array
     {
         $limit = min(max($limit, 1), 1000);
         $sql = "SELECT TOP (:limit)
-                f.FacNitSec,
-                f.FacSec,
-                f.FacNro,
-                f.DisId
-            FROM dbo.factura f
-            LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = f.DisId
+                d.NitSec,
+                d.FacSec,
+                d.Dispensa
+            FROM vw_discolnet_dispensas d
+            LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = d.FacSec
             WHERE
-                f.FacFec = :date
-                AND f.FacNitSec = :facNitSec
-                AND (a.EstAud IS NULL)";
+                d.Fecha_solicitud = :date
+                AND d.NitSec = :facNitSec
+                AND d.Tipo_servicio in ('POS','MIPRES')
+                AND d.pendientes = 0
+                AND d.estadodisp = 'A'
+                AND (a.EstAud IS NULL)
+            GROUP BY d.NitSec, d.FacSec, d.Dispensa";
         $stmt = $this->db->prepare($sql);
         $stmt->bindParam(':facNitSec', $facNitSec, PDO::PARAM_INT);
         $stmt->bindParam(':date', $date);

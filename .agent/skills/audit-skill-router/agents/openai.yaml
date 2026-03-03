@@ -1,0 +1,3 @@
+display_name: Audit Router
+short_description: Route audit requests to the minimal domain skill set and return one consolidated report.
+default_prompt: Route this audit request with audit-skill-router, select the correct domains, and produce one consolidated scored report.

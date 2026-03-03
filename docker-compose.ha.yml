@@ -1,0 +1,43 @@
+name: audfact-ha
+
+services:
+  php:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+    env_file:
+      - .env
+    volumes:
+      - ./:/var/www/html
+      - ./logs:/var/www/html/logs
+    expose:
+      - "9000"
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      # Verificación real: carga app PHP + SELECT 1 contra SQL Server
+      test: ["CMD", "php", "/var/www/html/docker/healthcheck.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: audfact-nginx
+    depends_on:
+      - php
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx-ha.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      NGINX_ENVSUBST_FILTER: "AUDIT_"
+      AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}

@@ -1,0 +1,87 @@
+# Report Template
+
+## Scope And Assumptions
+
+- Repository:
+- Revision:
+- Scope:
+- Assumptions:
+
+## Findings
+
+Use ID format `QUAL-001`, `QUAL-002`, ... from [../../_shared/references/finding-id-convention.md](../../_shared/references/finding-id-convention.md).
+Use severity from [../../_shared/references/severity-matrix.md](../../_shared/references/severity-matrix.md).
+Set execution priority with [../../_shared/references/business-risk-matrix.md](../../_shared/references/business-risk-matrix.md).
+Evidence format is required as `path:line` (Critical/High should include at least two references).
+Evidence command is required as reproducible read-only command per finding.
+
+| ID | Severity | Component | Evidence | Evidence Command | Technical Risk | Business Impact | Priority | Recommendation | Action Type | Owner | ETA |
+|----|----------|-----------|----------|------------------|----------------|-----------------|----------|----------------|-------------|-------|-----|
+
+## Domain Scoring
+
+| Module | Criticality | Raw Score (0-5) | Weight | Weighted Contribution | Key Rationale |
+|--------|-------------|------------------|--------|-----------------------|---------------|
+
+| Domain | Raw Score (0-5) | Weight | Weighted Score | Cap Applied | Rationale | Confidence |
+|--------|------------------|--------|----------------|-------------|-----------|------------|
+| Code Quality | | 100% (single-domain) | | Yes/No | | High/Medium/Low |
+
+## Global Result
+
+- Global score:
+- Classification: A/B/C/D
+- Ceiling rule applied: Yes/No
+- Multi-domain weight profile (if applicable): Core 4 from [../../_shared/references/global-scoring-weights.md](../../_shared/references/global-scoring-weights.md)
+
+## 30-60-90 Plan
+
+| Horizon | Action | Owner | Success Metric |
+|---------|--------|-------|----------------|
+| 30 days | | | |
+| 60 days | | | |
+| 90 days | | | |
+
+## Missing Evidence
+
+- Evidence gap:
+- Collection method:
+- Impact on confidence:
+
+## Structured Output
+
+```json
+{
+  "domain_scores": [
+    {
+      "domain": "Code Quality",
+      "raw_score": 0.0,
+      "weight": 0.0,
+      "weighted_score": 0.0,
+      "cap_applied": false,
+      "confidence": "High|Medium|Low"
+    }
+  ],
+  "global_score": 0.0,
+  "classification": "A|B|C|D",
+  "ceiling_rule_applied": false,
+  "confidence": "High|Medium|Low",
+  "caps_triggered": [],
+  "findings": [
+    {
+      "id": "QUAL-001",
+      "domain": "Code Quality",
+      "severity": "Critical|High|Medium|Low",
+      "component": "",
+      "evidence": [],
+      "evidence_command": "",
+      "priority": "P0|P1|P2|P3"
+    }
+  ]
+}
+```
+
+
+
+
+

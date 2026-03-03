@@ -1,6 +1,6 @@
 {
   "catalog": "audfact-skills",
-  "generated_at": "2026-02-17",
+  "generated_at": "2026-03-02",
   "skills": [
     {
       "name": "audfact-api-rest",
@@ -36,6 +36,31 @@
       "name": "audfact-project-overview",
       "path": ".agent/skills/audfact-project-overview",
       "description": "Visión general, arquitectura y flujos de datos principales del sistema AudFact."
+    },
+    {
+      "path": ".agent/skills/audit-skill-router",
+      "description": "Enruta auditorías técnicas al conjunto mínimo de dominios y consolida salida con score global.",
+      "name": "audit-skill-router"
+    },
+    {
+      "path": ".agent/skills/architecture-assessment",
+      "description": "Evalúa arquitectura: límites modulares, acoplamiento, extensibilidad y escalabilidad.",
+      "name": "architecture-assessment"
+    },
+    {
+      "path": ".agent/skills/code-quality-assessment",
+      "description": "Evalúa calidad de código y mantenibilidad: complejidad, duplicación, testabilidad y deuda técnica.",
+      "name": "code-quality-assessment"
+    },
+    {
+      "path": ".agent/skills/security-assessment",
+      "description": "Audita postura de seguridad: auth/authz, secretos, vulnerabilidades y hardening de release.",
+      "name": "security-assessment"
+    },
+    {
+      "path": ".agent/skills/technical-governance-assessment",
+      "description": "Evalúa gobernanza técnica: ownership, code review, incidentes, deuda y alineación de roadmap.",
+      "name": "technical-governance-assessment"
     }
   ]
 }

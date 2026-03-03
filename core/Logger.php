@@ -1,4 +1,5 @@
 <?php
+
 namespace Core;
 
 class Logger
@@ -6,7 +7,9 @@ class Logger
     private static $logDir = __DIR__ . '/../logs';
     private static $retentionDays = 7;
     private static $maxSizeMb = 10;
+    private static $maxBackups = 5;
     private static $minLevel = 'info';
+    private static bool $initialized = false;
 
     private static function loadConfig(): void
     {
@@ -39,20 +42,38 @@ class Logger
 
     private static function sanitizeContext(array $context): array
     {
-        $sensitiveKeys = ['password', 'token', 'secret', 'api_key', 'credit_card', 'ssn', 'authorization'];
-        
-        array_walk_recursive($context, function(&$value, $key) use ($sensitiveKeys) {
+        $sensitiveKeys = [
+            'password',
+            'token',
+            'secret',
+            'api_key',
+            'credit_card',
+            'ssn',
+            'authorization',
+            'raw',
+            'rawtext',
+            'parsed',
+            'hallazgos',
+            'details',
+            'trace'
+        ];
+
+        array_walk_recursive($context, function (&$value, $key) use ($sensitiveKeys) {
             if (in_array(strtolower($key), $sensitiveKeys, true)) {
                 $value = '[REDACTED]';
             }
         });
-        
+
         return $context;
     }
 
     private static function write(string $level, string $message, array $context = []): void
     {
-        self::loadConfig();
+        if (!self::$initialized) {
+            self::loadConfig();
+            self::cleanupOldLogs();
+            self::$initialized = true;
+        }
         if (!self::shouldLog($level)) {
             return;
         }
@@ -61,7 +82,8 @@ class Logger
             @mkdir(self::$logDir, 0750, true);
         }
 
-        $logFile = self::$logDir . '/app-' . date('Y-m-d') . '.log';
+        $hostname = gethostname();
+        $logFile = self::$logDir . "/app-{$hostname}-" . date('Y-m-d') . '.log';
 
         // Sanitize log file path to prevent directory traversal
         $realLogDir = realpath(self::$logDir);
@@ -73,16 +95,7 @@ class Logger
             return;
         }
 
-        self::cleanupOldLogs();
-
-        // Enforce max size without creating multiple files per day
-        if (file_exists($logFile)) {
-            $maxBytes = self::$maxSizeMb * 1024 * 1024;
-            $size = filesize($logFile);
-            if ($size !== false && $size >= $maxBytes) {
-                file_put_contents($logFile, '');
-            }
-        }
+        self::rotateIfNeeded($logFile);
 
         $entry = [
             'timestamp' => date('c'),
@@ -92,7 +105,7 @@ class Logger
 
         if (!empty($context)) {
             $context = self::sanitizeContext($context);
-            
+
             if (isset($context['exception']) && $context['exception'] instanceof \Throwable) {
                 $e = $context['exception'];
                 $context['exception'] = [
@@ -109,12 +122,49 @@ class Logger
         file_put_contents($logFile, $jsonEntry . "\n", FILE_APPEND | LOCK_EX);
     }
 
+    private static function rotateIfNeeded(string $logFile): void
+    {
+        if (!file_exists($logFile)) {
+            return;
+        }
+
+        $maxBytes = self::$maxSizeMb * 1024 * 1024;
+        $size = filesize($logFile);
+        if ($size === false || $size < $maxBytes) {
+            return;
+        }
+
+        $oldest = $logFile . '.' . self::$maxBackups;
+        if (file_exists($oldest)) {
+            @unlink($oldest);
+        }
+
+        for ($i = self::$maxBackups - 1; $i >= 1; $i--) {
+            $src = $logFile . '.' . $i;
+            $dst = $logFile . '.' . ($i + 1);
+            if (file_exists($src)) {
+                @rename($src, $dst);
+            }
+        }
+
+        @rename($logFile, $logFile . '.1');
+    }
+
     private static function cleanupOldLogs(): void
     {
         $cutoff = strtotime('-' . self::$retentionDays . ' days');
 
         foreach (glob(self::$logDir . '/app-*.log') as $file) {
-            if (preg_match('/app-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
+            if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
+                $fileDate = strtotime($matches[1]);
+                if ($fileDate < $cutoff) {
+                    unlink($file);
+                }
+            }
+        }
+
+        foreach (glob(self::$logDir . '/app-*.log.*') as $file) {
+            if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log\.\d+$/', $file, $matches)) {
                 $fileDate = strtotime($matches[1]);
                 if ($fileDate < $cutoff) {
                     unlink($file);

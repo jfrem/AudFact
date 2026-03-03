@@ -2,16 +2,29 @@
 
 namespace App\wrap\core;
 
+use Core\Env;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
+
 class ApiClient
 {
     private string $baseUrl;
+    private Client $httpClient;
 
     public function __construct()
     {
-        if (class_exists('\\Core\\Env')) {
-            \Core\Env::load();
+        Env::load();
+
+        $this->baseUrl = rtrim((string) Env::get('WRAP_API_BASE', 'http://localhost:8001'), '/');
+        $timeoutMs = (int) Env::get('REQUEST_TIMEOUT_MS', 0);
+
+        $clientConfig = [];
+        if ($timeoutMs > 0) {
+            $clientConfig['timeout'] = $timeoutMs / 1000;
+            $clientConfig['connect_timeout'] = $timeoutMs / 1000;
         }
-        $this->baseUrl = rtrim(getenv('WRAP_API_BASE') ?: 'http://localhost:8001', '/');
+
+        $this->httpClient = new Client($clientConfig);
     }
 
     public function get(string $path, array $query = [], array $headers = []): array
@@ -32,41 +45,42 @@ class ApiClient
 
     private function request(string $method, string $url, array $payload = [], array $headers = []): array
     {
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-        $baseHeaders = ['Content-Type: application/json'];
-        if (!empty($headers)) {
-            foreach ($headers as $header) {
-                $baseHeaders[] = $header;
+        $requestHeaders = [];
+        foreach ($headers as $header) {
+            if (!is_string($header) || !str_contains($header, ':')) {
+                continue;
             }
-        }
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $baseHeaders);
 
-        // Timeout configurable (ms) con fallback seguro
-        $timeoutMs = (int)(getenv('REQUEST_TIMEOUT_MS') ?: 0);
-        if ($timeoutMs > 0) {
-            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeoutMs);
+            [$name, $value] = explode(':', $header, 2);
+            $requestHeaders[trim($name)] = trim($value);
         }
+
+        if (!isset($requestHeaders['Content-Type'])) {
+            $requestHeaders['Content-Type'] = 'application/json';
+        }
+
+        $options = [
+            'headers' => $requestHeaders,
+            'http_errors' => false,
+        ];
 
         if ($method === 'POST') {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            $options['json'] = $payload;
         }
 
-        $body = curl_exec($ch);
-        $err = curl_error($ch);
-        $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        try {
+            $response = $this->httpClient->request($method, $url, $options);
+            $status = $response->getStatusCode();
+            $body = (string) $response->getBody();
+            $decoded = json_decode($body, true);
 
-        if ($err) {
-            return ['success' => false, 'status' => 500, 'error' => $err];
+            return [
+                'success' => $status >= 200 && $status < 300,
+                'status' => $status,
+                'body' => $decoded !== null ? $decoded : $body
+            ];
+        } catch (GuzzleException $e) {
+            return ['success' => false, 'status' => 500, 'error' => $e->getMessage()];
         }
-
-        $decoded = json_decode($body, true);
-        return [
-            'success' => $status >= 200 && $status < 300,
-            'status' => $status,
-            'body' => $decoded !== null ? $decoded : $body
-        ];
     }
 }

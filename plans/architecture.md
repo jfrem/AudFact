@@ -2,7 +2,7 @@
 
 ## Visión General
 
-AudFact sigue una arquitectura **MVC monolítica** con un framework PHP custom. La aplicación corre como un par de contenedores Docker (PHP-FPM + Nginx) y se comunica con SQL Server para datos, Gemini API para IA, y Google Drive para almacenamiento documental.
+AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con un framework PHP custom. La aplicación cuenta con un balanceador **Nginx (`least_conn`)** que reparte el tráfico sobre **múltiples réplicas Docker de PHP-FPM (static pool)** y se comunica con SQL Server para datos, Gemini API para IA, y Google Drive para almacenamiento documental. La arquitectura soporta **Alta Disponibilidad (HA)** aislando recursos compartidos (como logs multi-nodo) para evitar race-conditions en concurrencia.
 
 ---
 
@@ -32,10 +32,10 @@ AudFact sigue una arquitectura **MVC monolítica** con un framework PHP custom. 
 | Controlador | Responsabilidad | Modelo |
 |---|---|---|
 | `Controller.php` | Base — `validate()`, manejo de errores | — |
-| `HealthController.php` | Health check (`GET /`) | — |
+| `HealthController.php` | Health check (`GET /health`) | — |
 | `ClientsController.php` | CRUD clientes/EPS | `ClientsModel` |
 | `InvoicesController.php` | Búsqueda de facturas | `InvoicesModel` |
-| `AttachmentsController.php` | Descarga de documentos (BLOB/URL) | `AttachmentsModel` |
+| `AttachmentsController.php` | Descarga/previsualización de documentos (BLOB/URL) con detección MIME por magic bytes | `AttachmentsModel` |
 | `DispensationController.php` | Datos de dispensación | `DispensationModel` |
 | `AuditController.php` | Orquestador de auditoría IA | Todos los modelos |
 
@@ -71,11 +71,11 @@ AudFact sigue una arquitectura **MVC monolítica** con un framework PHP custom. 
 | `JsonResponseParser.php` | Parseo robusto de respuestas Gemini |
 
 **Dependencias**: Guzzle HTTP, `core/Logger`.
-**Interfaz**: Invocados por `GeminiAuditService` (worker).
+**Interfaz**: Invocados por `AuditOrchestrator`.
 
 ---
 
-### Worker (`app/worker/GeminiAuditService.php`)
+### Orchestrator (`app/Services/Audit/AuditOrchestrator.php`)
 
 **Responsabilidad**: Orquesta el pipeline completo de auditoría IA.
 
@@ -106,6 +106,16 @@ AudFact sigue una arquitectura **MVC monolítica** con un framework PHP custom. 
 
 ---
 
+## Modos de Ejecución Docker
+
+| Modo | Compose | Descripción |
+|---|---|---|
+| Desarrollo | `docker-compose.dev.yml` | Topología simple (1 PHP-FPM + 1 Nginx con `docker/nginx.conf`). |
+| HA / Stress | `docker-compose.ha.yml` | Topología HA (5 réplicas PHP-FPM + Nginx con `docker/nginx-ha.conf.template`). |
+| Base actual | `docker-compose.yml` | Mantiene la topología HA como configuración principal del repositorio. |
+
+---
+
 ## Decisiones de Diseño
 
 | Decisión | Justificación |
@@ -115,7 +125,10 @@ AudFact sigue una arquitectura **MVC monolítica** con un framework PHP custom. 
 | Gemini Flash (no Pro) | Balance costo/velocidad para análisis multimodal masivo |
 | Dual storage (BLOB + Drive URL) | Compatibilidad con documentos legacy (BLOB) y nuevos (Drive) |
 | MCP como capa separada | Reutiliza la API REST existente sin duplicar lógica |
-| Docker multi-container | Separación Nginx/PHP-FPM para escalabilidad independiente |
+| Docker multi-container | Separación Nginx/PHP-FPM para escalabilidad independiente de las fases de request/processing |
+| Load Balancing (Nginx least_conn) | El tráfico a Gemini es variable en tiempo (5s a 25s). `least_conn` asegura que Nginx no envíe N peticiones pesadas a la misma réplica estática. |
+| PHP-FPM (Static Pool) | Evita overhead the spawn processes (Dynamic/Ondemand) bajo peaks de carga concurrente. Asigna inmediatamente memoria a procesos `www-data` para latencias consistentes. |
+| Hostname Logging | Evita que X réplicas corrompan JSON log entries escribiendo al unísono sobre el mount compartido `app-YYYY-MM-DD.log`. |
 
 ## Integraciones Externas
 

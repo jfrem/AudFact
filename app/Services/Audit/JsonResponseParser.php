@@ -33,7 +33,20 @@ class JsonResponseParser
             return null;
         }
 
-        return $this->isValidSchema($decoded) ? $decoded : null;
+        return $this->isValidSchema($decoded) ? $this->sanitizeOutput($decoded) : null;
+    }
+
+    /**
+     * Sanitiza recursivamente strings para prevenir XSS desde salidas textuales de la IA.
+     */
+    private function sanitizeOutput(array $data): array
+    {
+        array_walk_recursive($data, function (&$value) {
+            if (is_string($value)) {
+                $value = htmlspecialchars($value, ENT_NOQUOTES, 'UTF-8');
+            }
+        });
+        return $data;
     }
 
     private function stripCodeFences(string $text): string

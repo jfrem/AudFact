@@ -71,7 +71,7 @@ docker-compose up -d
 ```bash
 # Con Docker (recomendado)
 docker-compose up -d
-# API disponible en http://localhost:80
+# API disponible en http://localhost:8080
 
 # Sin Docker (desarrollo)
 php -S localhost:8000 -t public/

@@ -50,7 +50,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `FacFec` | date | Fecha de facturación |
 | `DisId` | varchar | Identificador de dispensación |
 
-**Usada por**: `InvoicesModel`
+**Usada por**: ~~`InvoicesModel`~~ (migrado a `vw_discolnet_dispensas` en v2026-02-24). Tabla de referencia del ERP.
 
 ---
 
@@ -98,7 +98,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `IdRepEnt` | — | ID reporte entrega |
 | `IdFact` | — | ID facturación |
 
-**Usada por**: `DispensationModel`
+**Usada por**: `DispensationModel`, `InvoicesModel` (columnas `NitSec`, `FacSec`, `Dispensa`)
 
 ---
 
@@ -152,10 +152,10 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `FacSec` | int (FK) | Referencia a factura.DisId |
+| `FacSec` | int (FK) | Referencia a `vw_discolnet_dispensas.FacSec` |
 | `EstAud` | varchar | Estado de auditoría (NULL = no auditada) |
 
-**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar facturas no auditadas)
+**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas), `AuditStatusModel` (MERGE para guardar resultados)
 
 ---
 
@@ -167,6 +167,7 @@ erDiagram
     NIT ||--o{ NitDocumentos : "NitSec"
     NIT ||--o{ factura : "FacNitSec"
 
+    vw_discolnet_dispensas ||--o| AudDispEst : "FacSec"
     factura ||--o| AudDispEst : "DisId = FacSec"
 
     DispensacionDetalleServicio ||--o{ AdjuntosDispensacion : "DisId"

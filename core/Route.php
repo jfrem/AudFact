@@ -1,12 +1,14 @@
 <?php
+declare(strict_types=1);
+
 namespace Core;
 
 class Route
 {
-    private $path;
-    private $controller;
-    private $action;
-    private $middlewares = [];
+    private string $path;
+    private string $controller;
+    private string $action;
+    private array $middlewares = [];
 
     public function __construct(string $path, string $controller, string $action)
     {

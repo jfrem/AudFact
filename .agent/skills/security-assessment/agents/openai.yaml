@@ -1,0 +1,3 @@
+display_name: Security Audit
+short_description: Audit security controls, vulnerability exposure, and release hardening with deterministic scoring.
+default_prompt: Run the security-assessment skill on this repository and provide evidence-based findings, score, and remediation plan.
