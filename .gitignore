@@ -2,6 +2,7 @@
 .env.*.local
 /vendor/
 /node_modules/
+/responseIA/
 /logs/*.log
 /logs/ratelimit.json
 /logs/ratelimit.lock
