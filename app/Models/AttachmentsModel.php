@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace App\Models;
 
@@ -20,7 +21,7 @@ class AttachmentsModel extends Model
      * Además, registra en el log la cantidad de documentos encontrados y
      * cuántos de ellos no cumplen con los requisitos.
      */
-    public function getAttachmentsByInvoiceId(string $invoiceId, string $nitSec)
+    public function getAttachmentsByInvoiceId(string $invoiceId, string $nitSec): array
     {
         $sql = "SELECT
                 a.DisId AS [dispiensa],
@@ -30,14 +31,13 @@ class AttachmentsModel extends Model
                 NitMedDocNom AS [nombre_documento],
                 NitMedDocCodAlt AS [nombre_alternativo],
                 AdjDisDocUrl AS [almacenamiento_remoto],
-                NULL AS [almacenamiento_blob],
                 CASE
                     WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
                     WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
                 ELSE 'SIN_DOCUMENTOS'
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
                 WHERE n.NitSec = :nitSec AND d.DisDetNro = :invoiceId";
 
@@ -61,7 +61,7 @@ class AttachmentsModel extends Model
      * @param string $invoiceId Identificador de la dispensa
      * @return array|false
      */
-    public function getAttachmentByIdForDispensation(string $attachmentId, string $invoiceId)
+    public function getAttachmentByIdForDispensation(string $attachmentId, string $invoiceId): array|false
     {
         $sql = "SELECT
                     a.AdjDisId,
@@ -75,7 +75,7 @@ class AttachmentsModel extends Model
                     END AS TipoAlmacenamiento,
                     DATALENGTH(a.AdjDisDoc) AS BlobSize
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
 
         $stmt = $this->db->prepare($sql);
@@ -97,10 +97,10 @@ class AttachmentsModel extends Model
      * @param string $invoiceId Identificador de la dispensa (DisDetNro)
      * @return array Array con 'stream' y función 'close'
      */
-    public function getAttachmentBlobStreamByIdForDispensation(string $attachmentId, string $invoiceId)
+    public function getAttachmentBlobStreamByIdForDispensation(string $attachmentId, string $invoiceId): array
     {
         $sql = "SELECT a.AdjDisDoc FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
 
         $stmt = $this->db->prepare($sql);
@@ -131,64 +131,5 @@ class AttachmentsModel extends Model
                 $stmt->closeCursor();
             }
         ];
-    }
-
-    /**
-     * Obtiene TODOS los BLOBs de una factura en una sola query.
-     * Optimización: elimina N round-trips TCP a SQL Server.
-     *
-     * @param string $invoiceId Identificador de la dispensa (DisDetNro)
-     * @param array<string> $attachmentIds Lista de IDs de documentos a traer
-     * @return array<string, string> Mapa de attachmentId => contenido binario
-     */
-    public function getAttachmentBlobsByInvoiceId(string $invoiceId, array $attachmentIds): array
-    {
-        if (empty($attachmentIds)) {
-            return [];
-        }
-
-        // Construir placeholders para IN clause
-        $placeholders = [];
-        $params = [];
-        foreach ($attachmentIds as $i => $id) {
-            $key = ":aid{$i}";
-            $placeholders[] = $key;
-            $params[$key] = $id;
-        }
-        $inClause = implode(', ', $placeholders);
-
-        $sql = "SELECT a.AdjDisId, a.AdjDisDoc
-                FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId
-                WHERE a.AdjDisId IN ({$inClause}) AND d.DisDetNro = :invoiceId
-                  AND a.AdjDisDoc IS NOT NULL AND DATALENGTH(a.AdjDisDoc) > 0";
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value, PDO::PARAM_STR);
-        }
-        $stmt->execute();
-
-        $results = [];
-        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-            $id = $row['AdjDisId'];
-            $blob = $row['AdjDisDoc'];
-            // PDO/SQLSRV puede devolver stream o string según el driver
-            if (is_resource($blob)) {
-                $results[$id] = stream_get_contents($blob);
-            } else {
-                $results[$id] = $blob;
-            }
-        }
-        $stmt->closeCursor();
-
-        Logger::info("BLOBs obtenidos en lote", [
-            'invoiceId' => $invoiceId,
-            'requested' => count($attachmentIds),
-            'fetched' => count($results)
-        ]);
-
-        return $results;
     }
 }

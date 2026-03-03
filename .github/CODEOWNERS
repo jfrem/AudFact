@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────
+# CODEOWNERS — AudFact
+# ─────────────────────────────────────────────────
+# Definir aquí los handles de GitHub de los responsables.
+# Reemplazar @team-audfact con los usuarios reales.
+#
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: todo cambio requiere review
+*                               @team-audfact
+
+# Core framework — cambios de alto impacto
+/core/                          @team-audfact
+/public/index.php               @team-audfact
+
+# Seguridad
+/.env.example                   @team-audfact
+/docker/                        @team-audfact
+
+# Servicios de auditoría IA
+/app/Services/Audit/            @team-audfact
+
+# Rutas y controladores
+/app/Routes/                    @team-audfact
+/app/Controllers/               @team-audfact

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace App\Models;
 
@@ -32,6 +33,7 @@ class DispensationModel extends Model
                 Paciente_doct AS TipoDocumentoPaciente,
                 Paciente_doc AS DocumentoPaciente,
                 Fecha_nac AS FechaNacimiento,
+                Regimen AS RegimenPaciente,
                 
                 -- Médico
                 Medico,
@@ -69,10 +71,10 @@ class DispensationModel extends Model
                 IdFact,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
-            WHERE Dispensa = :DisDetNro
+            WHERE Dispensa = :DisDetNro --AND Tipo_servicio in ('POS','MIPRES')
             GROUP BY
                 facsec, Dispensa, Cliente, Nit, NitSec, Copago, IPS, IPS_nit,
-                Paciente, Paciente_doct, Paciente_doc, Fecha_nac,
+                Paciente, Paciente_doct, Paciente_doc, Fecha_nac, Regimen,
                 Medico, Medico_DocT, Medico_Doc,
                 Cie, CieNom,
                 Fecha_solicitud, Fecha_formula, Fecha_autorizacion,

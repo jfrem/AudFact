@@ -64,6 +64,7 @@ class AttachmentsController extends Controller
                 $data = base64_encode(file_get_contents($tmp['path']));
                 unlink($tmp['path']);
                 Response::json(['mime' => $mime, 'data' => $data]);
+                return;
             }
 
             $mimeForName = mime_content_type($tmp['path']) ?: 'application/octet-stream';
@@ -96,8 +97,9 @@ class AttachmentsController extends Controller
                     Response::error('No se pudo leer el adjunto', 500);
                 }
                 $name = (string)($attachment['AdjDisNom'] ?? ($attachment['AdjDisDocNom'] ?? ''));
-                $mime = $this->mimeFromName($name) ?: 'application/octet-stream';
-                Response::json(['mime' => $mime ?: 'application/octet-stream', 'data' => base64_encode($data)]);
+                $mime = $this->mimeFromName($name) ?: $this->detectMimeFromContent($data) ?: 'application/octet-stream';
+                Response::json(['mime' => $mime, 'data' => base64_encode($data)]);
+                return;
             }
 
             $mimeForName = $this->mimeFromName($nombre) ?: 'application/octet-stream';
@@ -190,5 +192,49 @@ class AttachmentsController extends Controller
         fclose($handle);
         unlink($path);
         return;
+    }
+
+    /**
+     * Detect MIME type from binary content using magic bytes.
+     * Used when filename has no extension.
+     */
+    private function detectMimeFromContent(string $data): ?string
+    {
+        if (strlen($data) < 4) {
+            return null;
+        }
+
+        $header = substr($data, 0, 16);
+
+        // PDF: %PDF
+        if (str_starts_with($header, '%PDF')) {
+            return 'application/pdf';
+        }
+        // JPEG: FF D8 FF
+        if (str_starts_with($header, "\xFF\xD8\xFF")) {
+            return 'image/jpeg';
+        }
+        // PNG: 89 50 4E 47
+        if (str_starts_with($header, "\x89PNG")) {
+            return 'image/png';
+        }
+        // GIF: GIF87a or GIF89a
+        if (str_starts_with($header, 'GIF87a') || str_starts_with($header, 'GIF89a')) {
+            return 'image/gif';
+        }
+        // WEBP: RIFF....WEBP
+        if (str_starts_with($header, 'RIFF') && substr($data, 8, 4) === 'WEBP') {
+            return 'image/webp';
+        }
+        // TIFF: 49 49 2A 00 (little-endian) or 4D 4D 00 2A (big-endian)
+        if (str_starts_with($header, "\x49\x49\x2A\x00") || str_starts_with($header, "\x4D\x4D\x00\x2A")) {
+            return 'image/tiff';
+        }
+        // ZIP: PK
+        if (str_starts_with($header, "PK")) {
+            return 'application/zip';
+        }
+
+        return null;
     }
 }

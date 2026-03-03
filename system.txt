@@ -52,9 +52,16 @@ Formato estricto:
 - Sin texto fuera del JSON
 
 
-wsl docker compose down && wsl docker compose up --build -d
+# DEV
+  89549114
 
-sudo systemctl restart docker docker.socket
-  exit
-  # abre una nueva terminal WSL
-  docker ps
+  # HA
+  wsl docker compose -f docker-compose.ha.yml down
+  wsl docker compose -f docker-compose.ha.yml up -d --build
+  wsl docker compose -f docker-compose.ha.yml ps
+
+  Verificar estado:
+
+  wsl docker compose -f docker-compose.dev.yml ps
+  # o
+  wsl docker compose -f docker-compose.ha.yml ps

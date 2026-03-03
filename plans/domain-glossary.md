@@ -17,13 +17,13 @@
 
 | Campo | Significado | Ejemplo |
 |---|---|---|
-| `FacSec` | ID secuencial interno de la factura | `12345` |
-| `FacNro` | Número de factura visible | `FAC-2026-001` |
-| `FacNitSec` | ID del cliente/EPS asociado a la factura | `67` |
-| `DisDetNro` | Número del detalle de dispensación (= `Dispensa`) | `DIS-2026-0001` |
-| `NitSec` | ID secuencial del NIT en el sistema | `89` |
-| `NitCom` | Número de NIT comercial de la EPS | `900123456` |
-| `DisId` | ID de la dispensación vinculada a la factura | `54321` |
+| `FacSec` | ID secuencial interno de la factura | `89549114` |
+| `FacNro` | Número de factura visible | `D19251100113` |
+| `FacNitSec` | ID del cliente/EPS asociado a la factura | `1165` |
+| `DisDetNro` | Número del detalle de dispensación (= `Dispensa`) | `D19251100113` |
+| `NitSec` | ID secuencial del NIT en el sistema | `1165` |
+| `NitCom` | Número de NIT comercial de la EPS | `ENTIDAD PROMOTORA DE SALUD SANITAS S.A.S.` |
+| `DisId` | ID de la dispensación vinculada a la factura | `89549114` |
 
 ## Términos médicos y regulatorios
 

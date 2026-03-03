@@ -1,9 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Controllers;
 
+use App\Models\AttachmentsModel;
 use App\Models\InvoicesModel;
-use App\Worker\GeminiAuditService;
+use App\Models\AuditStatusModel;
+use App\Models\DispensationModel;
+use App\Services\Audit\AuditFileManager;
+use App\Services\Audit\AuditOrchestrator;
+use App\Services\Audit\AuditPersistenceService;
+use App\Services\Audit\AuditPreValidator;
+use App\Services\Audit\AuditPromptBuilder;
+use App\Services\Audit\AuditResultValidator;
+use App\Services\Audit\AuditTelemetryService;
+use App\Services\Audit\GeminiGateway;
+use App\Services\Audit\JsonResponseParser;
+use GuzzleHttp\Client;
 use Core\Response;
 use Core\Logger;
 
@@ -11,16 +25,19 @@ class AuditController extends Controller
 {
     public function run(): void
     {
-        // C03: Prevenir timeout en auditorías masivas cerrando límites
-        set_time_limit(3600); // 1 hora máximo para el lote
+        // Leer configuración centralizada desde .env
+        $batchTimeout = (int) \Core\Env::get('AUDIT_BATCH_TIMEOUT', 3600); // 1 hora
+        $batchMaxLimit = (int) \Core\Env::get('AUDIT_BATCH_MAX_LIMIT', 100); // 100 facturas
+
+        // C03: Prevenir timeout en auditorías masivas
+        set_time_limit($batchTimeout);
         // C04: Proveer memoria suficiente para el array de resultados y procesamiento base64
         ini_set('memory_limit', '1024M');
 
-        // Validar y sanitizar los parámetros de entrada
         $data = $this->validate([
             'facNitSec' => 'required|integer|min_value:1',
             'date' => 'required|date',
-            'limit' => 'required|integer|min_value:1|max_value:1000',
+            'limit' => "required|integer|min_value:1|max_value:{$batchMaxLimit}",
         ]);
 
         Logger::info("AuditController: Received request with parameters: " . json_encode($data));
@@ -35,18 +52,34 @@ class AuditController extends Controller
             Response::success(['items' => []], 'No se encontraron facturas para los parámetros indicados.');
         }
 
-        $auditor = new GeminiAuditService();
+        $auditor = $this->buildAuditOrchestrator();
         $results = [];
-        foreach ($invoices as $invoice) {
-            $FacNro = (string)($invoice['FacNro'] ?? '');
-            $disId = (string)($invoice['DisId'] ?? $FacNro);
+        // Circuit breaker de tiempo — valor centralizado desde .env
+        $batchStartTime = time();
+        $maxBatchDurationSeconds = $batchTimeout;
+        $stoppedEarly = false;
 
-            if ($FacNro === '' || $disId === '') {
+        foreach ($invoices as $invoice) {
+            // Circuit breaker: verificar si se excedió el tiempo máximo de batch
+            if ((time() - $batchStartTime) > $maxBatchDurationSeconds) {
+                Logger::warning('Circuit breaker activado — batch detenido por tiempo', [
+                    'elapsed' => time() - $batchStartTime,
+                    'processed' => count($results),
+                    'total' => count($invoices),
+                ]);
+                $stoppedEarly = true;
+                break;
+            }
+
+            $Dispensa = (string)($invoice['Dispensa'] ?? '');
+            $facSec = (string)($invoice['FacSec'] ?? '');
+
+            if ($Dispensa === '' || $facSec === '') {
                 $results[] = [
                     'invoice' => $invoice,
                     'result' => [
                         'response' => 'error',
-                        'message' => 'Factura inválida: FacNro/DisId faltante',
+                        'message' => 'Factura inválida: Dispensa/FacSec faltante',
                         'data' => ['items' => []],
                     ],
                 ];
@@ -55,13 +88,20 @@ class AuditController extends Controller
 
             $results[] = [
                 'invoice' => $invoice,
-                'result' => $auditor->auditInvoice($disId, $FacNro, null),
+                'result' => $auditor->auditInvoice($facSec, $Dispensa, null),
             ];
         }
 
+        $message = $stoppedEarly
+            ? sprintf('Auditoría parcial: %d de %d facturas procesadas (tiempo límite alcanzado)', count($results), count($invoices))
+            : 'Auditoría ejecutada';
+
         Response::success([
             'items' => $results,
-        ], 'Auditoría ejecutada');
+            'stoppedEarly' => $stoppedEarly,
+            'totalRequested' => count($invoices),
+            'totalProcessed' => count($results),
+        ], $message);
     }
 
     public function single(): void
@@ -74,12 +114,132 @@ class AuditController extends Controller
         Logger::info("AuditController::single: Received request with parameters: " . json_encode($data));
 
         $FacNro = (string)$data['FacNro'];
-        $auditor = new GeminiAuditService();
+        $auditor = $this->buildAuditOrchestrator();
 
-        // El id de dispensación principal es la factura en una petición individual directa
-        // ya que la base de datos se consultará mediante FacNro
         $result = $auditor->auditInvoice($FacNro, $FacNro, null);
 
         Response::success($result, 'Auditoría individual completada');
+    }
+
+    /**
+     * GET /audit/results — Consulta auditorías persistidas con filtros opcionales y paginación.
+     * Query params: facNitSec, facNro, dateFrom, dateTo, page, pageSize
+     */
+    public function results(): void
+    {
+        $validated = $this->validateQuery([
+            'facNitSec' => 'nullable|integer|min_value:1',
+            'facNro' => 'nullable|string|max:50',
+            'dateFrom' => 'nullable|date',
+            'dateTo' => 'nullable|date',
+            'page' => 'nullable|integer|min_value:1',
+            'pageSize' => 'nullable|integer|min_value:1|max_value:100',
+        ]);
+
+        if (
+            isset($validated['dateFrom'], $validated['dateTo']) &&
+            $validated['dateFrom'] !== '' &&
+            $validated['dateTo'] !== '' &&
+            $validated['dateFrom'] > $validated['dateTo']
+        ) {
+            Response::error('dateFrom no puede ser mayor que dateTo', 422);
+        }
+
+        $filters = [];
+        foreach (['facNitSec', 'facNro', 'dateFrom', 'dateTo'] as $key) {
+            if (isset($validated[$key]) && $validated[$key] !== '') {
+                $filters[$key] = $validated[$key];
+            }
+        }
+
+        $page = (isset($validated['page']) && $validated['page'] !== '') ? (int)$validated['page'] : 1;
+        $pageSize = (isset($validated['pageSize']) && $validated['pageSize'] !== '') ? (int)$validated['pageSize'] : 20;
+
+        Logger::info('AuditController::results', [
+            'filters'  => $filters,
+            'page'     => $page,
+            'pageSize' => $pageSize,
+        ]);
+
+        $model = new AuditStatusModel();
+        $total = $model->countAudits($filters);
+        $results = $model->searchAudits($filters, $page, $pageSize);
+        $totalPages = (int)ceil($total / $pageSize);
+
+        Response::success([
+            'items'      => $results,
+            'total'      => $total,
+            'page'       => $page,
+            'pageSize'   => $pageSize,
+            'totalPages' => $totalPages,
+            'filters'    => $filters,
+        ], 'Resultados de auditorías');
+    }
+
+    private function buildAuditOrchestrator(): AuditOrchestrator
+    {
+        $apiKey = (string) \Core\Env::get('GEMINI_API_KEY', '');
+        if ($apiKey === '') {
+            throw new \RuntimeException('GEMINI_API_KEY no configurada');
+        }
+
+        $model = (string) \Core\Env::get('GEMINI_MODEL', '');
+        if ($model === '') {
+            throw new \RuntimeException('GEMINI_MODEL no está configurada en .env');
+        }
+
+        $timeout = (int) \Core\Env::get('GEMINI_TIMEOUT', 60);
+        $httpClient = new Client(['timeout' => $timeout > 0 ? $timeout : 60]);
+
+        $maxOutputTokens = (int) \Core\Env::get('GEMINI_MAX_OUTPUT_TOKENS', 0);
+        if ($maxOutputTokens <= 0) {
+            throw new \RuntimeException('GEMINI_MAX_OUTPUT_TOKENS no está configurada o es inválida en .env');
+        }
+
+        $responseMimeType = (string) \Core\Env::get('GEMINI_RESPONSE_MIME', '');
+        if ($responseMimeType === '') {
+            throw new \RuntimeException('GEMINI_RESPONSE_MIME no está configurada en .env');
+        }
+
+        $temperature = \Core\Env::get('GEMINI_TEMPERATURE');
+        $topP = \Core\Env::get('GEMINI_TOP_P');
+        $topK = \Core\Env::get('GEMINI_TOP_K');
+        $thinkingBudget = \Core\Env::get('GEMINI_THINKING_BUDGET');
+
+        $gateway = new GeminiGateway(
+            $httpClient,
+            $apiKey,
+            $model,
+            ($temperature !== null && $temperature !== '') ? (float) $temperature : null,
+            ($topP !== null && $topP !== '') ? (float) $topP : null,
+            ($topK !== null && $topK !== '') ? (int) $topK : null,
+            $maxOutputTokens,
+            $responseMimeType,
+            \Core\Env::get('GEMINI_MEDIA_RESOLUTION') ?: null,
+            ($thinkingBudget !== null && $thinkingBudget !== '') ? (int) $thinkingBudget : null
+        );
+
+        $dispensationModel = new DispensationModel();
+        $attachmentsModel = new AttachmentsModel();
+        $fileManager = new AuditFileManager();
+        $persistence = new AuditPersistenceService(new AuditStatusModel());
+
+        $preValidator = new AuditPreValidator(
+            $dispensationModel,
+            $attachmentsModel,
+            $fileManager,
+            $persistence
+        );
+
+        return new AuditOrchestrator(
+            $fileManager,
+            new AuditPromptBuilder(),
+            new AuditResultValidator(),
+            new JsonResponseParser(),
+            $gateway,
+            $persistence,
+            new AuditTelemetryService(),
+            $preValidator
+        );
     }
 }

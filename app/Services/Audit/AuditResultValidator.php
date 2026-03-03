@@ -23,7 +23,9 @@ class AuditResultValidator
     public function isValid(?array $data): bool
     {
         if (!is_array($data)) {
-            Logger::warning('AuditResultValidator: Data is not an array', ['data' => $data]);
+            Logger::warning('AuditResultValidator: Data is not an array', [
+                'receivedType' => gettype($data)
+            ]);
             return false;
         }
 
@@ -32,7 +34,8 @@ class AuditResultValidator
         if (!$validation['valid']) {
             Logger::warning('AuditResultValidator: Schema validation failed', [
                 'errors' => $validation['errors'],
-                'data' => $data
+                'responseType' => $data['response'] ?? null,
+                'itemsCount' => count($data['data']['items'] ?? [])
             ]);
         }
 

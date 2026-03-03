@@ -1,14 +1,17 @@
 <?php
+declare(strict_types=1);
+
 namespace App\Controllers;
 
+use Core\Env;
 use Core\Response;
 use Core\Validator;
 
 class Controller
 {
-    protected $model;
+    protected mixed $model = null;
 
-    public function index()
+    public function index(): void
     {
         Response::success([], 'Controlador base funcionando');
     }
@@ -27,7 +30,7 @@ class Controller
         }
         
         // Límite de tamaño de JSON (por defecto 1MB, configurable vía MAX_JSON_SIZE)
-        $maxSize = (int)(getenv('MAX_JSON_SIZE') ?: 1048576);
+        $maxSize = (int) Env::get('MAX_JSON_SIZE', 1048576);
         $contentLength = isset($_SERVER['CONTENT_LENGTH']) ? (int)$_SERVER['CONTENT_LENGTH'] : 0;
         if ($contentLength > 0 && $maxSize > 0 && $contentLength > $maxSize) {
             Response::error('Payload Too Large', 413);
@@ -76,5 +79,35 @@ class Controller
             Response::error('Errores de validación', 422, $errors);
         }
         return $data;
+    }
+
+    /**
+     * Obtiene query params sanitizados.
+     */
+    protected function getQueryParams(): array
+    {
+        $query = [];
+
+        foreach ($_GET as $key => $value) {
+            if (!is_string($key)) {
+                continue;
+            }
+
+            if (is_array($value)) {
+                continue;
+            }
+
+            $query[$key] = is_string($value) ? trim($value) : $value;
+        }
+
+        return $query;
+    }
+
+    /**
+     * Valida query params usando las mismas reglas del validador central.
+     */
+    protected function validateQuery(array $rules): array
+    {
+        return $this->validateArray($this->getQueryParams(), $rules);
     }
 }

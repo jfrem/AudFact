@@ -32,7 +32,6 @@ class AuditFileManager
     {
         $this->tmpDir = sys_get_temp_dir() . '/audfact';
         if (!is_dir($this->tmpDir)) {
-            // FIX #1: Permisos restrictivos para datos sensibles (contexto médico/auditoría)
             if (!mkdir($this->tmpDir, 0750, true) && !is_dir($this->tmpDir)) {
                 $this->tmpDir = sys_get_temp_dir();
             }
@@ -45,7 +44,7 @@ class AuditFileManager
      * Prepara un archivo adjunto para su procesamiento.
      *
      * @param array $attachment Datos del adjunto
-     * @return array Estructura ['mime', 'data', 'tmp_path']
+     * @return array Estructura ['mime', 'data', 'tmp', 'pages']
      * @throws \RuntimeException Si falla la obtención del archivo
      */
     public function prepareAttachment(array $attachment): array
@@ -75,8 +74,6 @@ class AuditFileManager
 
     /**
      * Prepara todos los adjuntos requeridos.
-     * FIX #2: Si un adjunto falla, limpia todos los anteriores ya acumulados.
-     *
      * @param array $attachments Lista de adjuntos
      * @param array $dispensationData Datos de la dispensación
      * @return array Lista de archivos preparados
@@ -108,7 +105,6 @@ class AuditFileManager
                 $files[] = $file;
             }
         } catch (\Throwable $e) {
-            // FIX #2: Limpiar todos los archivos acumulados antes de la excepción
             foreach ($files as $accumulated) {
                 $this->cleanup($accumulated);
             }
@@ -263,6 +259,7 @@ class AuditFileManager
             'mime' => $mime,
             'data' => base64_encode($binaryContent),
             'tmp' => null,
+            'pages' => $this->countPagesByMime($binaryContent, $mime),
         ];
     }
 
@@ -358,7 +355,7 @@ class AuditFileManager
             Logger::info('Documento de autorización no requerido para la dispensación', [
                 'documento' => $documentName,
                 'dispensaIds' => array_values(array_unique(array_map(
-                    fn($d) => $d['FacSec'] ?? $d['DisId'] ?? 'N/A',
+                    fn($d) => $d['FacSec'] ?? 'N/A',
                     $dispensationData
                 )))
             ]);
@@ -409,7 +406,26 @@ class AuditFileManager
             'mime' => $mime,
             'data' => $data,
             'tmp' => $tmpPath,
+            'pages' => $this->countPagesByMime($content, $mime),
         ];
+    }
+
+    /**
+     * Cuenta páginas del adjunto según MIME.
+     * Para imágenes retorna 1; para PDF estima por objetos /Type /Page.
+     */
+    private function countPagesByMime(string $binaryContent, string $mime): int
+    {
+        if ($mime !== 'application/pdf') {
+            return 1;
+        }
+
+        $matches = preg_match_all('/\/Type\s*\/Page\b/', $binaryContent);
+        if (!is_int($matches) || $matches < 1) {
+            return 1;
+        }
+
+        return $matches;
     }
 
     /**

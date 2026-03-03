@@ -52,21 +52,20 @@ class Database
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
             PDO::ATTR_STRINGIFY_FETCHES => false,
-            // Asegurar UTF-8 en driver SQLSrv
             PDO::SQLSRV_ATTR_ENCODING => PDO::SQLSRV_ENCODING_UTF8,
         ];
 
         // Manejo de conexiones persistentes
         if ($persistent) {
-            // Advertir si hay instancia nombrada
             if (strpos($host, '\\') !== false) {
                 Logger::warning("DB_PERSISTENT con instancias nombradas ('{$host}') puede causar problemas de estabilidad");
             }
             $options[PDO::ATTR_PERSISTENT] = true;
         }
 
-        // Construir DSN
-        $dsn = "sqlsrv:Server={$server};Database={$db};TrustServerCertificate=yes";
+        $encrypt = Env::get($prefix . 'ENCRYPT', 'no');
+        $trustCert = Env::get($prefix . 'TRUST_SERVER_CERT', 'yes');
+        $dsn = "sqlsrv:Server={$server};Database={$db};Encrypt={$encrypt};TrustServerCertificate={$trustCert}";
         $dsn .= $pooling ? ';ConnectionPooling=1' : ';ConnectionPooling=0';
         $dsn .= ";LoginTimeout={$timeout}";
 

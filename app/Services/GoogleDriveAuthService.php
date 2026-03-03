@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use Exception;
+use Core\Env;
 use Firebase\JWT\JWT;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
@@ -31,24 +32,58 @@ class GoogleDriveAuthService implements GoogleDriveServiceInterface
     private const TOKEN_LIFETIME_SECONDS = 3600;
     private const HTTP_TIMEOUT_SECONDS = 60.0;
     private const DIRECTORY_PERMISSIONS = 0755;
+    private const TLS_VERIFY_DEFAULT = true;
 
     public function __construct(?Client $httpClient = null)
     {
-        $this->clientEmail = getenv('GOOGLE_DRIVE_CLIENT_EMAIL') ?: '';
-        $this->privateKey = str_replace('\\n', "\n", getenv('GOOGLE_DRIVE_PRIVATE_KEY') ?: '');
+        $this->clientEmail = (string) Env::get('GOOGLE_DRIVE_CLIENT_EMAIL', '');
+        $this->privateKey = str_replace('\\n', "\n", (string) Env::get('GOOGLE_DRIVE_PRIVATE_KEY', ''));
 
         // Validar credenciales
         $this->validateCredentials();
 
+        $tlsVerify = $this->readBoolEnv('GOOGLE_DRIVE_TLS_VERIFY', self::TLS_VERIFY_DEFAULT);
+
         // Inyección de dependencias con fallback
         $this->httpClient = $httpClient ?? new Client([
             'timeout' => self::HTTP_TIMEOUT_SECONDS,
-            'verify' => false
+            'verify' => $tlsVerify
         ]);
 
         Logger::info('GoogleDriveAuthService initialized', [
-            'clientEmail' => $this->clientEmail
+            'clientEmail' => $this->clientEmail,
+            'tlsVerify' => $tlsVerify,
         ]);
+
+        if (!$tlsVerify) {
+            Logger::warning('GoogleDriveAuthService TLS verification is disabled by configuration');
+        }
+    }
+
+    /**
+     * Lee una variable de entorno booleana con soporte para 1/0, true/false, yes/no, on/off.
+     *
+     * @param string $key Nombre de la variable
+     * @param bool $default Valor por defecto
+     * @return bool
+     */
+    private function readBoolEnv(string $key, bool $default): bool
+    {
+        $raw = Env::get($key);
+        if ($raw === null || $raw === '') {
+            return $default;
+        }
+
+        $normalized = strtolower(trim((string) $raw));
+        if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+            return true;
+        }
+
+        if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+            return false;
+        }
+
+        return $default;
     }
 
     /**

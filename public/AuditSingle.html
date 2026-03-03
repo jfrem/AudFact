@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>AudFact — Auditoría Inteligente Individual</title>
+    <meta name="description" content="Panel de auditoría individual de facturas con inteligencia artificial — AudFact">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            bg: '#050a18',
+                            subtle: '#0c1425',
+                            card: 'rgba(15,23,42,0.65)',
+                            border: 'rgba(99,102,241,0.12)',
+                        },
+                        accent: {
+                            DEFAULT: '#6366f1',
+                            hover: '#818cf8',
+                            glow: 'rgba(99,102,241,0.25)',
+                        },
+                        human: '#a855f7',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
+                    borderRadius: {
+                        card: '12px',
+                        sm: '8px',
+                    },
+                    animation: {
+                        shimmer: 'shimmer 2s linear infinite',
+                        'fade-in': 'fadeIn .35s ease both',
+                        'fade-in-up': 'fadeInUp .35s ease both',
+                        'slide-in': 'slideIn .25s ease both',
+                        'toast-in': 'toastIn .3s ease both',
+                        'toast-out': 'toastOut .25s ease both',
+                    },
+                    keyframes: {
+                        shimmer: {
+                            '0%': { backgroundPosition: '-200% 0' },
+                            '100%': { backgroundPosition: '200% 0' },
+                        },
+                        fadeIn: {
+                            from: { opacity: '0' },
+                            to: { opacity: '1' },
+                        },
+                        fadeInUp: {
+                            from: { opacity: '0', transform: 'translateY(8px)' },
+                            to: { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideIn: {
+                            from: { opacity: '0', transform: 'scale(0.95) translateY(10px)' },
+                            to: { opacity: '1', transform: 'scale(1) translateY(0)' },
+                        },
+                        toastIn: {
+                            from: { opacity: '0', transform: 'translateX(100%)' },
+                            to: { opacity: '1', transform: 'translateX(0)' },
+                        },
+                        toastOut: {
+                            from: { opacity: '1', transform: 'translateX(0)' },
+                            to: { opacity: '0', transform: 'translateX(100%)' },
+                        },
+                    },
+                },
+            },
+        };
+    </script>
+    <style>
+        /* ── Only custom styles that Tailwind CDN can't cover ── */
+        body {
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, .15), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 100%, rgba(16, 185, 129, .08), transparent);
+        }
+
+        .progress-bar-active {
+            background: linear-gradient(90deg, #6366f1, #818cf8, #10b981);
+            background-size: 200% 100%;
+            animation: shimmer 2s linear infinite;
+        }
+
+        /* Custom scrollbar for dropdowns */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        /* Phase bar gradients */
+        .phase-data {
+            background: linear-gradient(90deg, #818cf8, #6366f1);
+        }
+
+        .phase-files {
+            background: linear-gradient(90deg, #fbbf24, #f59e0b);
+        }
+
+        .phase-gemini {
+            background: linear-gradient(90deg, #34d399, #10b981);
+        }
+
+        /* JSON syntax colors */
+        .json-key {
+            color: #93c5fd;
+        }
+
+        .json-str {
+            color: #6ee7b7;
+        }
+
+        .json-num {
+            color: #fbbf24;
+        }
+
+        .json-bool {
+            color: #c4b5fd;
+        }
+
+        .json-null {
+            color: #94a3b8;
+        }
+    </style>
+</head>
+
+<body class="bg-brand-bg text-slate-100 font-sans min-h-screen antialiased">
+    <!-- ═══════════════ TOAST CONTAINER ═══════════════ -->
+    <div id="toast-container"
+        class="fixed top-5 right-5 z-[100] flex flex-col gap-3 pointer-events-none max-w-sm w-full"></div>
+
+    <!-- ═══════════════ MODAL BACKDROP ═══════════════ -->
+    <div id="modal-backdrop"
+        class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+        <div id="modal-content"
+            class="relative bg-brand-subtle border border-slate-700/60 rounded-card w-full max-w-5xl max-h-[90vh] overflow-y-auto custom-scroll shadow-2xl shadow-accent/10 animate-slide-in">
+            <!-- Dynamic content injected via JS -->
+        </div>
+    </div>
+
+    <!-- ═══════════════ HEADER ═══════════════ -->
+    <header class="relative py-8 pb-6 text-center">
+        <div class="inline-flex items-center gap-2.5 mb-1">
+            <i
+                class="fa-solid fa-microscope text-3xl bg-gradient-to-br from-indigo-400 to-emerald-300 bg-clip-text text-transparent"></i>
+            <h1
+                class="text-2xl font-extrabold tracking-tight bg-gradient-to-br from-indigo-400 to-emerald-300 bg-clip-text text-transparent">
+                AudFact
+            </h1>
+        </div>
+        <p class="text-slate-400 text-sm">Auditoría Individual de Factura (1:1)</p>
+        <div
+            class="absolute bottom-0 left-[10%] right-[10%] h-px bg-gradient-to-r from-transparent via-brand-border to-transparent">
+        </div>
+    </header>
+
+    <!-- ═══════════════ MAIN ═══════════════ -->
+    <main class="max-w-6xl mx-auto px-4 sm:px-6 pb-12 flex flex-col gap-4">
+
+        <!-- ── Card: Configuración de Búsqueda ── -->
+        <section
+            class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl transition-colors hover:border-indigo-500/20 animate-fade-in-up">
+            <h2 class="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <i class="fa-solid fa-magnifying-glass text-sm opacity-60 w-4 text-center"></i> Buscar Dispensaciones
+            </h2>
+
+            <!-- NUEVO: Búsqueda Directa -->
+            <div class="mb-5 pb-5 border-b border-brand-border">
+                <label class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Búsqueda Directa
+                    (Por ID)</label>
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <input id="directSearchId" type="text" placeholder="Ej: D02260101795"
+                        class="flex-1 bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow">
+                    <button id="btn-direct-search"
+                        class="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold text-white bg-gradient-to-br from-indigo-500 to-emerald-500 shadow-lg shadow-accent-glow/30 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-glow cursor-pointer">
+                        <i class="fa-solid fa-bolt text-xs min-w-[14px]"></i> Buscar ID
+                    </button>
+                </div>
+            </div>
+
+            <h3 class="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">O Búsqueda Avanzada</h3>
+            <div class="grid grid-cols-1 md:grid-cols-[2fr_1fr] gap-4 mb-4">
+                <!-- Searchable Select para Cliente -->
+                <div>
+                    <label
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Cliente</label>
+                    <div id="select-wrapper" class="relative">
+                        <div id="select-trigger"
+                            class="w-full flex items-center gap-2 bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 cursor-pointer transition-all hover:border-slate-600 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-glow">
+                            <i class="fa-solid fa-building text-slate-500 text-xs"></i>
+                            <input id="clientSearch" type="text" placeholder="Buscar cliente por nombre o NIT..."
+                                class="flex-1 bg-transparent border-none outline-none text-sm text-slate-100 placeholder:text-slate-500"
+                                autocomplete="off">
+                            <i class="fa-solid fa-chevron-down text-slate-500 text-xs transition-transform duration-200"
+                                id="select-chevron"></i>
+                        </div>
+                        <div id="select-dropdown"
+                            class="hidden absolute z-30 top-full left-0 right-0 mt-1 bg-brand-subtle border border-slate-700 rounded-sm shadow-xl shadow-black/40 max-h-60 overflow-y-auto custom-scroll">
+                            <div id="select-options" class="py-1">
+                                <div class="px-3 py-6 text-center text-slate-500 text-sm">
+                                    <i class="fa-solid fa-spinner fa-spin mr-1"></i> Cargando clientes...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="facNitSec" value="">
+                </div>
+
+                <!-- Date -->
+                <div>
+                    <label for="date"
+                        class="block text-xs font-medium uppercase tracking-wider text-slate-400 mb-1.5">Fecha de
+                        Corte</label>
+                    <input id="date" type="date" value="2025-12-30"
+                        class="w-full bg-brand-subtle border border-slate-700 rounded-sm px-3 py-2.5 text-sm text-slate-100 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent-glow [color-scheme:dark]">
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex flex-wrap gap-3 items-center">
+                <button id="btn-search" disabled
+                    class="inline-flex items-center gap-2 px-5 py-2.5 rounded-sm text-sm font-semibold text-white bg-gradient-to-br from-indigo-500 to-indigo-400 shadow-lg shadow-accent-glow transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-accent-glow disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none cursor-pointer">
+                    <i class="fa-solid fa-search text-xs"></i> Buscar Facturas
+                </button>
+                <button id="btn-clear"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 rounded-sm text-sm font-medium text-slate-300 bg-slate-700/50 border border-slate-600/50 transition-colors hover:bg-slate-600/50 cursor-pointer">
+                    <i class="fa-solid fa-eraser text-xs"></i> Limpiar
+                </button>
+            </div>
+        </section>
+
+        <!-- ── Card: Estado de Auditoría Individual (Progreso) ── -->
+        <section class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl animate-fade-in-up"
+            style="animation-delay:.05s">
+            <div id="status"
+                class="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border border-slate-700 bg-brand-subtle text-sm transition-all">
+                <span
+                    class="inline-block w-4 h-4 border-2 border-slate-600 border-t-accent rounded-full animate-spin"></span>
+                Inicializando sistema...
+            </div>
+            <div id="progress-wrap" class="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-3 hidden">
+                <div id="progress-bar" class="h-full rounded-full transition-[width] duration-500 ease-out w-0"></div>
+            </div>
+        </section>
+
+        <!-- ── Card: Resultados de Búsqueda (Facturas) ── -->
+        <section id="section-results"
+            class="bg-brand-card border border-brand-border rounded-card p-5 backdrop-blur-2xl hidden animate-fade-in-up"
+            style="animation-delay:.15s">
+            <h2
+                class="flex items-center justify-between text-xs font-bold uppercase tracking-widest text-slate-400 mb-4">
+                <span class="flex items-center gap-2">
+                    <i class="fa-solid fa-list text-sm opacity-60 w-4 text-center"></i> Facturas Disponibles
+                </span>
+                <span id="results-count" class="text-indigo-400 font-mono">0 encontradas</span>
+            </h2>
+            <div class="overflow-x-auto overflow-y-auto max-h-96 rounded-sm border border-slate-700/50">
+                <table class="w-full border-collapse">
+                    <thead class="sticky top-0 z-10">
+                        <tr class="text-left bg-slate-800/90 backdrop-blur-sm">
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                #</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Dispensa</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                FacSec</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                                Docs</th>
+                            <th
+                                class="px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-700 text-center">
+                                Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body" class="text-sm">
+                        <!-- Llenado dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ── Footer ── -->
+    <footer class="text-center py-6 text-slate-500 text-xs opacity-50">AudFact v1.0 — Auditoría Individual IA &copy;
+        2025</footer>
+
+    <!-- ═══════════════ JAVASCRIPT ═══════════════ -->
+    <script type="module">
+        import { HttpClient } from '/src/HttpClient.js';
+
+        /* ──────────────────────────────────────────
+         *  HELPERS
+         * ────────────────────────────────────────── */
+        const byId = (id) => document.getElementById(id);
+        const escapeHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+        let api = null;
+        let allClients = [];
+        let currentInvoices = [];
+
+        /* ──────────────────────────────────────────
+         *  DOM REFS
+         * ────────────────────────────────────────── */
+        const directSearchInputEl = byId('directSearchId');
+        const btnDirectSearchEl = byId('btn-direct-search');
+
+        const statusEl = byId('status');
+        const resultsBodyEl = byId('results-body');
+        const resultsCountEl = byId('results-count');
+        const btnSearchEl = byId('btn-search');
+        const btnClearEl = byId('btn-clear');
+        const hiddenSelect = byId('facNitSec');
+        const searchInputEl = byId('clientSearch');
+        const dateEl = byId('date');
+        const progressWrap = byId('progress-wrap');
+        const progressBar = byId('progress-bar');
+        const sectionResults = byId('section-results');
+
+        // Select custom
+        const selectWrapper = byId('select-wrapper');
+        const selectTrigger = byId('select-trigger');
+        const selectDropdown = byId('select-dropdown');
+        const selectOptions = byId('select-options');
+        const selectChevron = byId('select-chevron');
+
+        // Modals y Toasts
+        const modalBackdrop = byId('modal-backdrop');
+        const modalContent = byId('modal-content');
+        const toastContainer = byId('toast-container');
+
+        /* ──────────────────────────────────────────
+         *  TOAST SYSTEM
+         * ────────────────────────────────────────── */
+        const toastIcons = { success: 'fa-circle-check text-emerald-400', error: 'fa-circle-xmark text-red-400', warning: 'fa-triangle-exclamation text-amber-400', info: 'fa-circle-info text-blue-400' };
+        const toastBorders = { success: 'border-emerald-500/30', error: 'border-red-500/30', warning: 'border-amber-500/30', info: 'border-blue-500/30' };
+
+        function showToast(message, type = 'info', durationMs = 5000) {
+            const el = document.createElement('div');
+            el.className = `pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-sm border ${toastBorders[type] || toastBorders.info} bg-brand-subtle/95 backdrop-blur-md shadow-xl shadow-black/30 text-sm animate-toast-in`;
+            el.innerHTML = `<i class="fa-solid ${toastIcons[type] || toastIcons.info} mt-0.5 flex-shrink-0"></i><span class="flex-1 text-slate-200">${escapeHtml(message)}</span><button class="text-slate-500 hover:text-slate-300 transition-colors cursor-pointer" aria-label="Cerrar"><i class="fa-solid fa-xmark"></i></button>`;
+            el.querySelector('button').addEventListener('click', () => dismissToast(el));
+            toastContainer.appendChild(el);
+            if (durationMs > 0) setTimeout(() => dismissToast(el), durationMs);
+        }
+
+        function dismissToast(el) {
+            if (!el || !el.parentNode) return;
+            el.classList.remove('animate-toast-in');
+            el.classList.add('animate-toast-out');
+            el.addEventListener('animationend', () => el.remove(), { once: true });
+        }
+
+        /* ──────────────────────────────────────────
+         *  MODAL SYSTEM
+         * ────────────────────────────────────────── */
+        function openModal(htmlContent) {
+            modalContent.innerHTML = htmlContent;
+            modalBackdrop.classList.remove('hidden');
+            modalBackdrop.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            modalBackdrop.classList.add('hidden');
+            modalBackdrop.classList.remove('flex');
+            document.body.style.overflow = '';
+        }
+
+        modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop) closeModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+        window.closeModal = closeModal; // Export to global namespace for inline onClick
+
+        /* ──────────────────────────────────────────
+         *  BUSQUEDA DIRECTA
+         * ────────────────────────────────────────── */
+        if (btnDirectSearchEl) {
+            btnDirectSearchEl.addEventListener('click', async () => {
+                const disID = directSearchInputEl.value.trim();
+                if (!disID) {
+                    showToast('Por favor, ingresa un ID válido', 'warning');
+                    return;
+                }
+
+                setStatus('Buscando dispensación...', 'loading');
+                resultsBodyEl.innerHTML = `<tr><td colspan="5" class="px-3 py-8 text-center"><i class="fa-solid fa-spinner fa-spin text-accent text-2xl mb-3"></i><p class="text-sm text-slate-400">Buscando dispensa...</p></td></tr>`;
+                sectionResults.classList.remove('hidden');
+
+                try {
+                    const res = await api.get('/dispensation/' + encodeURIComponent(disID));
+                    const dispList = Array.isArray(res.data?.data) ? res.data.data : [];
+
+                    if (dispList.length === 0) {
+                        currentInvoices = [];
+                        resultsCountEl.textContent = '0 encontradas';
+                        resultsBodyEl.innerHTML = `<tr><td colspan="5" class="px-3 py-8 text-center text-slate-500 text-sm">No se encontró ninguna dispensación con el ID proporcionado.</td></tr>`;
+                        setStatus('Dispensación no encontrada', 'warning');
+                        return;
+                    }
+
+                    // Map to invoice-like array structure expected by renderInvoices.
+                    // FacNro controls the search, so we inject the 'NumeroFactura' or exactly the disID mapped.
+                    currentInvoices = dispList.map(d => ({
+                        Dispensa: d.NumeroFactura || disID,
+                        FacSec: d.FacSec,
+                        NitSec: d.NitSec || d.NITCliente
+                    }));
+
+                    resultsCountEl.textContent = `${currentInvoices.length} encontrada(s)`;
+                    renderResultsTable(currentInvoices);
+                    setStatus('Dispensación encontrada y lista', 'success');
+                } catch (err) {
+                    console.error(err);
+                    setStatus('Error al buscar dispensación', 'error');
+                    showToast('Falló la búsqueda de la dispensación.', 'error');
+                    resultsBodyEl.innerHTML = `<tr><td colspan="5" class="px-3 py-8 text-center text-slate-500 text-sm">Ocurrió un error en la búsqueda.</td></tr>`;
+                }
+            });
+        }
+
+        /* ──────────────────────────────────────────
+         *  SEARCHABLE SELECT
+         * ────────────────────────────────────────── */
+        let selectOpen = false;
+
+        function toggleDropdown(forceState) {
+            selectOpen = forceState !== undefined ? forceState : !selectOpen;
+            selectDropdown.classList.toggle('hidden', !selectOpen);
+            selectChevron.classList.toggle('rotate-180', selectOpen);
+            if (selectOpen) searchInputEl.focus();
+        }
+
+        function renderOptions(clients) {
+            if (!clients.length) {
+                selectOptions.innerHTML = `<div class="px-3 py-4 text-center text-slate-500 text-sm">Sin resultados</div>`;
+                return;
+            }
+            selectOptions.innerHTML = clients.map(c => `
+                <div class="select-opt flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors hover:bg-indigo-500/10 text-sm ${String(c.NitSec) === hiddenSelect.value ? 'bg-indigo-500/15 text-indigo-300' : 'text-slate-300'}"
+                     data-value="${escapeHtml(c.NitSec)}" data-label="${escapeHtml(c.NitCom)}">
+                    <i class="fa-solid fa-building-columns text-xs opacity-40"></i>
+                    <span class="flex-1 truncate">${escapeHtml(c.NitCom)}</span>
+                    <span class="text-xs text-slate-500 font-mono">${escapeHtml(c.NitSec)}</span>
+                </div>`).join('');
+
+            selectOptions.querySelectorAll('.select-opt').forEach(opt => {
+                opt.addEventListener('click', () => {
+                    hiddenSelect.value = opt.dataset.value;
+                    searchInputEl.value = `${opt.dataset.label} (${opt.dataset.value})`;
+                    toggleDropdown(false);
+                    btnSearchEl.disabled = false;
+                    renderOptions(allClients); // reset filter
+                });
+            });
+        }
+
+        selectTrigger.addEventListener('click', (e) => { if (e.target !== searchInputEl) toggleDropdown(); });
+        searchInputEl.addEventListener('focus', () => toggleDropdown(true));
+        searchInputEl.addEventListener('input', () => {
+            const q = searchInputEl.value.toLowerCase().trim();
+            if (!q) { renderOptions(allClients); return; }
+            renderOptions(allClients.filter(c => String(c.NitCom).toLowerCase().includes(q) || String(c.NitSec).toLowerCase().includes(q)));
+            if (!selectOpen) toggleDropdown(true);
+        });
+        document.addEventListener('click', (e) => { if (!selectWrapper.contains(e.target)) toggleDropdown(false); });
+
+        /* ──────────────────────────────────────────
+         *  STATUS BAR
+         * ────────────────────────────────────────── */
+        const statusStyles = {
+            info: { border: 'border-blue-500', bg: 'bg-blue-500/10', icon: 'fa-circle-info text-blue-400' },
+            success: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', icon: 'fa-circle-check text-emerald-400' },
+            error: { border: 'border-red-500', bg: 'bg-red-500/10', icon: 'fa-circle-xmark text-red-400' },
+            loading: { border: 'border-accent', bg: 'bg-accent-glow', icon: null },
+        };
+
+        function setStatus(message, tone = 'info') {
+            const s = statusStyles[tone] || statusStyles.info;
+            const iconHtml = tone === 'loading'
+                ? `<span class="inline-block w-4 h-4 border-2 border-slate-600 border-t-accent rounded-full animate-spin flex-shrink-0"></span>`
+                : `<i class="fa-solid ${s.icon} flex-shrink-0"></i>`;
+            statusEl.className = `flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm border ${s.border} ${s.bg} text-sm transition-all`;
+            statusEl.innerHTML = `${iconHtml} ${escapeHtml(message)}`;
+        }
+
+        function setProgress(pct) {
+            progressBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+            if (pct > 0) { progressWrap.classList.remove('hidden'); progressBar.classList.add('progress-bar-active'); }
+        }
+
+        function resetProgress() {
+            progressWrap.classList.add('hidden');
+            progressBar.classList.remove('progress-bar-active');
+            progressBar.style.width = '0%';
+        }
+
+        function badge(status) {
+            const cfg = {
+                success: { cls: 'bg-emerald-500/10 text-emerald-300', icon: 'fa-circle-check' },
+                warning: { cls: 'bg-amber-500/10 text-amber-300', icon: 'fa-triangle-exclamation' },
+                error: { cls: 'bg-red-500/10 text-red-300', icon: 'fa-circle-xmark' },
+                human_review: { cls: 'bg-purple-500/10 text-purple-300', icon: 'fa-eye' },
+            };
+            const n = (status || 'error').toLowerCase();
+            const c = cfg[n] || cfg.error;
+            return `<span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${c.cls}"><i class="fa-solid ${c.icon} text-[.6rem]"></i> ${escapeHtml(n)}</span>`;
+        }
+
+        function formatTime(ms) {
+            if (ms === undefined || ms === null || ms === '-') return '-';
+            const n = Number(ms);
+            return n >= 1000 ? `${(n / 1000).toFixed(1)}s` : `${Math.round(n)}ms`;
+        }
+
+        /* ──────────────────────────────────────────
+         *  MODAL: AUDIT RESULT DETAIL
+         * ────────────────────────────────────────── */
+        function highlightJSON(obj) {
+            const raw = JSON.stringify(obj, null, 2);
+            return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"([^"]+)"(?=\s*:)/g, '<span class="json-key">"$1"</span>')
+                .replace(/:\s*"([^"]*)"/g, ': <span class="json-str">"$1"</span>')
+                .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+                .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+                .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+        }
+
+        function showResultModal(item) {
+            const meta = item?._meta || {};
+            const phases = meta?.phases || {};
+            const resp = String(item?.response || 'error').toLowerCase();
+            const msg = String(item?.message || '—');
+            const docs = Array.isArray(meta?.documentos) ? meta.documentos : [];
+            const totalMs = meta?.totalTimeMs || 1;
+            const factura = meta?.factura || '-';
+
+            const respIcons = { success: 'fa-circle-check text-emerald-400', warning: 'fa-triangle-exclamation text-amber-400', human_review: 'fa-eye text-purple-400', error: 'fa-circle-xmark text-red-400' };
+            const msgIcon = respIcons[resp] || respIcons.error;
+
+            const docPills = docs.map(d => {
+                const ic = { 'ACTA DE ENTREGA': 'fa-file-signature', 'FORMULA MEDICA': 'fa-prescription', 'VALIDADOR DE DERECHOS': 'fa-id-card', 'AUTORIZACION DE SERVICIOS': 'fa-file-shield' }[d] || 'fa-file';
+                return `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"><i class="fa-solid ${ic} text-[.6rem] opacity-70"></i> ${escapeHtml(d)}</span>`;
+            }).join('');
+
+            const phaseBars = [
+                { key: 'dataFetchMs', label: 'SQL Data', cls: 'phase-data', icon: 'fa-database' },
+                { key: 'filePrepMs', label: 'Archivos', cls: 'phase-files', icon: 'fa-folder-open' },
+                { key: 'geminiApiMs', label: 'Gemini IA', cls: 'phase-gemini', icon: 'fa-wand-magic-sparkles' }
+            ].map(p => {
+                const ms = phases[p.key] || 0;
+                const pct = Math.min((ms / totalMs) * 100, 100).toFixed(1);
+                return `<div class="flex items-center gap-3">
+                    <span class="text-xs text-slate-400 min-w-[90px] flex items-center gap-1.5"><i class="fa-solid ${p.icon} text-[.6rem] opacity-60"></i> ${p.label}</span>
+                    <div class="flex-1 h-2 bg-white/5 rounded-full overflow-hidden"><div class="${p.cls} h-full rounded-full" style="width:${pct}%"></div></div>
+                    <span class="text-xs text-slate-400 min-w-[50px] text-right tabular-nums">${formatTime(ms)}</span>
+                </div>`;
+            }).join('');
+
+            openModal(`
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-magnifying-glass-chart text-accent"></i>
+                            Resultado — Factura ${escapeHtml(factura)}
+                        </h3>
+                        <button onclick="window.closeModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex gap-3 items-start p-4 rounded-sm bg-gradient-to-r from-indigo-500/5 to-emerald-500/5 border border-indigo-500/15 mb-5">
+                        <i class="fa-solid ${msgIcon} text-xl mt-0.5 flex-shrink-0"></i>
+                        <div>
+                            <div class="mb-1">${badge(resp)}</div>
+                            <p class="text-sm text-slate-200 leading-relaxed">${escapeHtml(msg)}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-4">
+                            <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5"><i class="fa-solid fa-stopwatch text-[.6rem] opacity-60"></i> Tiempos por Fase</h4>
+                            <div class="flex flex-col gap-2.5">
+                                ${phaseBars}
+                                <div class="flex items-center gap-3 mt-1 pt-2.5 border-t border-slate-700/50">
+                                    <span class="text-xs text-slate-100 font-semibold min-w-[90px]">Total</span>
+                                    <div class="flex-1 h-2 bg-white/5 rounded-full overflow-hidden"><div class="phase-gemini h-full rounded-full opacity-30" style="width:100%"></div></div>
+                                    <span class="text-xs text-slate-100 font-semibold min-w-[50px] text-right tabular-nums">${formatTime(totalMs)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white/[.02] border border-slate-700/60 rounded-sm p-4">
+                            <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5"><i class="fa-solid fa-file-lines text-[.6rem] opacity-60"></i> Documentos Evaluados</h4>
+                            <div class="flex flex-wrap gap-2 mb-4">${docPills || '<span class="text-sm text-slate-500">Sin documentos</span>'}</div>
+                            <div class="flex gap-5 text-xs text-slate-400">
+                                <span><i class="fa-solid fa-rotate mr-1"></i> Intentos: <strong class="text-slate-200">${meta?.attempts ?? '-'}</strong></span>
+                                <span><i class="fa-solid fa-receipt mr-1"></i> Factura: <strong class="text-slate-200">${escapeHtml(factura)}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <details class="group" open>
+                        <summary class="flex items-center gap-2 px-3 py-2 rounded-sm border border-slate-700 text-xs text-slate-400 cursor-pointer hover:border-accent hover:text-slate-200 transition-all w-fit">
+                            <i class="fa-solid fa-chevron-right text-[.6rem] transition-transform group-open:rotate-90"></i>
+                            Análisis JSON Completo
+                        </summary>
+                        <pre class="mt-3 bg-brand-bg border border-slate-700 rounded-sm p-4 max-h-96 overflow-auto text-xs leading-relaxed custom-scroll">${highlightJSON(item)}</pre>
+                    </details>
+                </div>
+            `);
+        }
+
+        /* ──────────────────────────────────────────
+         *  CORE LOGIC
+         * ────────────────────────────────────────── */
+        async function fetchClients() {
+            try {
+                const res = await api.get('/clients');
+                allClients = res.data?.data || [];
+                renderOptions(allClients);
+                setStatus('Sistema listo. Selecciona un cliente para iniciar.', 'success');
+            } catch (err) {
+                console.error(err);
+                setStatus('Error de conexión a la API', 'error');
+                selectOptions.innerHTML = `<div class="px-3 py-4 text-center text-red-400 text-sm">Error al cargar</div>`;
+            }
+        }
+
+        async function searchInvoices() {
+            const facNitSec = hiddenSelect.value;
+            const dat = dateEl.value;
+
+            if (!facNitSec || !dat) {
+                showToast('Selecciona cliente y fecha', 'warning');
+                return;
+            }
+
+            btnSearchEl.disabled = true;
+            setStatus('Buscando dispensaciones...', 'loading');
+            setProgress(30);
+
+            try {
+                // Invoices endpoint params: facNitSec, date, limit limit is high here to find all
+                const res = await api.post('/invoices', { facNitSec, date: dat, limit: 100 });
+                const invoices = res.data?.data || [];
+                currentInvoices = invoices;
+
+                setProgress(100);
+                setTimeout(resetProgress, 400);
+
+                if (invoices.length === 0) {
+                    setStatus('No se encontraron facturas para ese día.', 'warning');
+                    sectionResults.classList.add('hidden');
+                    return;
+                }
+
+                setStatus(`Se encontraron ${invoices.length} facturas.`, 'success');
+                resultsCountEl.innerText = `${invoices.length} dispuestas`;
+                renderResultsTable(invoices);
+                sectionResults.classList.remove('hidden');
+
+            } catch (err) {
+                console.error(err);
+                resetProgress();
+                setStatus(err.data?.message || err.message || 'Error buscando facturas', 'error');
+                showToast(err.message || 'Error buscando facturas', 'error');
+            } finally {
+                btnSearchEl.disabled = false;
+            }
+        }
+
+        function renderResultsTable(invoices) {
+            resultsBodyEl.innerHTML = invoices.map((inv, idx) => `
+                <tr class="group hover:bg-slate-800/40 transition-colors border-b border-slate-700/50 last:border-0">
+                    <td class="px-3 py-2.5 text-slate-500">${idx + 1}</td>
+                    <td class="px-3 py-2.5 font-mono text-indigo-300">${escapeHtml(inv.Dispensa)}</td>
+                    <td class="px-3 py-2.5 font-mono text-slate-400">${escapeHtml(inv.FacSec)}</td>
+                    <td class="px-3 py-2.5 text-slate-300">
+                        <button class="btn-docs text-xs bg-slate-700/50 hover:bg-slate-600 px-2.5 py-1 rounded transition-colors border border-slate-600/50" data-idx="${idx}">
+                            <i class="fa-solid fa-folder-open text-amber-500/80 mr-1"></i> Ver Adjuntos
+                        </button>
+                    </td>
+                    <td class="px-3 py-2.5 text-center">
+                        <button class="btn-audit px-3 py-1.5 rounded bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500 hover:text-white transition-colors border border-indigo-500/30 font-medium tracking-wide flex items-center justify-center gap-2 min-w-[120px] mx-auto" data-idx="${idx}">
+                            <i class="fa-solid fa-wand-magic-sparkles text-xs"></i> Auditar
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Asignar eventos a los botones
+            document.querySelectorAll('.btn-audit').forEach(btn => {
+                btn.addEventListener('click', (e) => executeSingleAudit(e.currentTarget.dataset.idx));
+            });
+
+            document.querySelectorAll('.btn-docs').forEach(btn => {
+                btn.addEventListener('click', (e) => showServerDocs(e.currentTarget.dataset.idx));
+            });
+        }
+
+        async function showServerDocs(idx) {
+            const inv = currentInvoices[idx];
+            if (!inv) return;
+            const facNro = inv.Dispensa;
+            const nitSec = hiddenSelect.value || inv.NitSec || '';
+
+            openModal(`
+                <div class="p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3 class="text-lg font-bold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-paperclip text-accent"></i> Adjuntos — Factura ${escapeHtml(facNro)}</h3>
+                        <button onclick="window.closeModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div id="docs-content" class="min-h-[100px] flex items-center justify-center">
+                        <p class="text-slate-500 text-sm"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Cargando...</p>
+                    </div>
+                </div>
+            `);
+
+            try {
+                const res = await api.get(`/dispensation/${facNro}/attachments/${nitSec}`);
+                const attachments = res.data?.data || [];
+                const container = document.getElementById('docs-content');
+
+                if (!attachments.length) {
+                    container.innerHTML = `<div class="text-center w-full py-8 text-slate-500"><i class="fa-solid fa-folder-open text-2xl mb-2 block opacity-40"></i> No hay documentos en el servidor para esta factura.</div>`;
+                    return;
+                }
+
+                const storageIcons = {
+                    'BLOB': { icon: 'fa-database', color: 'text-blue-400', bg: 'bg-blue-500/10', label: 'Base de Datos', hasFile: true },
+                    'URL': { icon: 'fa-cloud', color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Google Drive', hasFile: true },
+                    'SIN_DOCUMENTOS': { icon: 'fa-triangle-exclamation', color: 'text-red-400', bg: 'bg-red-500/10', label: 'Sin Documento', hasFile: false }
+                };
+
+                container.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">${attachments.map((att, i) => {
+                    const st = storageIcons[att.TipoAlmacenamiento] || { icon: 'fa-file-circle-question', color: 'text-slate-400', bg: 'bg-slate-800', label: 'Desconocido', hasFile: false };
+                    const name = att.nombre_documento || att.nombre_alternativo || 'Documento';
+
+                    const actionBtn = st.hasFile
+                        ? `<button class="btn-preview-att w-8 h-8 rounded border border-slate-600 flex items-center justify-center text-slate-400 hover:text-white hover:border-accent hover:bg-indigo-500/20 transition-colors cursor-pointer" data-att-idx="${i}" title="Previsualizar"><i class="fa-solid fa-eye text-xs"></i></button>`
+                        : `<span class="w-8 h-8 rounded border border-red-900/40 flex items-center justify-center text-red-500/50" title="No disponible"><i class="fa-solid fa-ban text-xs"></i></span>`;
+
+                    return `<div class="border ${st.hasFile ? 'border-slate-700/60' : 'border-red-500/20'} rounded-sm p-3 bg-brand-bg flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-sm ${st.bg} flex items-center justify-center flex-shrink-0"><i class="fa-solid ${st.icon} ${st.color}"></i></div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium ${st.hasFile ? 'text-slate-200' : 'text-red-300'} truncate" title="${escapeHtml(name)}">${escapeHtml(name)}</p>
+                            <p class="text-xs ${st.hasFile ? 'text-slate-500' : 'text-red-500/70'} mt-0.5">${st.label}</p>
+                        </div>
+                        ${actionBtn}
+                    </div>`;
+                }).join('')}</div>`;
+
+                // Bind preview buttons
+                container.querySelectorAll('.btn-preview-att').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const attIdx = parseInt(e.currentTarget.dataset.attIdx);
+                        const att = attachments[attIdx];
+                        if (!att) return;
+                        const docName = att.nombre_documento || att.nombre_alternativo || 'Documento';
+                        const dlUrl = `/dispensation/${facNro}/attachments/download/${att.id_documento}`;
+
+                        // Show loading state on button
+                        const origHtml = btn.innerHTML;
+                        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-xs"></i>';
+                        btn.disabled = true;
+
+                        try {
+                            const fileRes = await api.get(dlUrl, {}, { headers: { 'Accept': 'application/json' } });
+                            const fileData = fileRes.data;
+                            const mime = fileData.mime || 'application/pdf';
+                            const b64 = fileData.data || '';
+                            const dataUri = `data:${mime};base64,${b64}`;
+
+                            // Close the docs modal and open preview modal
+                            closeModal();
+                            setTimeout(() => {
+                                openModal(`
+                                    <div class="p-0 flex flex-col" style="height:85vh">
+                                        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700/60 flex-shrink-0">
+                                            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-2 truncate">
+                                                <i class="fa-solid fa-file-lines text-accent"></i>
+                                                ${escapeHtml(docName)}
+                                            </h3>
+                                            <button onclick="window.closeModal()" class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-700/50 transition-colors text-slate-400 hover:text-slate-200 cursor-pointer flex-shrink-0">
+                                                <i class="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
+                                        <iframe src="${dataUri}" class="flex-1 w-full bg-white rounded-b-sm" style="border:none; min-height:0;"></iframe>
+                                    </div>
+                                `);
+                            }, 150);
+                        } catch (err) {
+                            console.error('Preview error:', err);
+                            showToast('No se pudo previsualizar el documento', 'error');
+                        } finally {
+                            btn.innerHTML = origHtml;
+                            btn.disabled = false;
+                        }
+                    });
+                });
+            } catch (err) {
+                document.getElementById('docs-content').innerHTML = `<div class="text-center text-red-400 w-full py-4 text-sm"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Error al cargar documentos.</div>`;
+            }
+        }
+
+        async function executeSingleAudit(idx) {
+            const invoice = currentInvoices[idx];
+            if (!invoice) return;
+
+            // Bloquear botones
+            const allBtns = document.querySelectorAll('.btn-audit, #btn-search, #btn-clear');
+            allBtns.forEach(b => b.disabled = true);
+            const thisBtn = document.querySelector(`.btn-audit[data-idx="${idx}"]`);
+            const oriHtml = thisBtn.innerHTML;
+            thisBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Auditando...`;
+            thisBtn.classList.replace('text-indigo-300', 'text-amber-300');
+            thisBtn.classList.replace('border-indigo-500/30', 'border-amber-500/50');
+
+            setStatus(`Ejecutando auditoría en ${invoice.Dispensa}...`, 'loading');
+            setProgress(40);
+
+            try {
+                // Notar que el endpoint individual espera un obj con { FacNro: '...' }
+                const res = await api.post('/audit/single', { FacNro: invoice.Dispensa });
+                const auditResult = res.data?.data;
+
+                setProgress(100);
+                setTimeout(resetProgress, 500);
+                setStatus(`Auditoría finalizada para ${invoice.Dispensa}`, 'success');
+                showToast(`Se completó el análisis de la factura ${invoice.Dispensa}`, 'success');
+
+                // Mostrar el resultado directamente en el modal
+                showResultModal(auditResult);
+
+            } catch (err) {
+                console.error(err);
+                resetProgress();
+                setStatus(err.response?.data?.message || 'Error en la auditoría individual', 'error');
+                showToast(err.message, 'error');
+            } finally {
+                // Restaurar botones
+                allBtns.forEach(b => b.disabled = false);
+                thisBtn.innerHTML = oriHtml;
+                thisBtn.classList.replace('text-amber-300', 'text-indigo-300');
+                thisBtn.classList.replace('border-amber-500/50', 'border-indigo-500/30');
+            }
+        }
+
+        /* ──────────────────────────────────────────
+         *  INIT
+         * ────────────────────────────────────────── */
+        document.addEventListener('DOMContentLoaded', async () => {
+            setStatus('Conectando con la API...', 'loading');
+
+            try {
+                api = new HttpClient({ baseURL: window.location.origin, timeout: 600000, retries: 1 });
+            } catch (e) {
+                setStatus('Error al cargar el cliente HTTP', 'error');
+                showToast('No se pudo inicializar HttpClient', 'error');
+                return;
+            }
+
+
+            fetchClients();
+
+            // Set max date to today
+            const today = new Date().toISOString().split('T')[0];
+            dateEl.setAttribute('max', today);
+
+            // Events
+            btnSearchEl.addEventListener('click', searchInvoices);
+            btnClearEl.addEventListener('click', () => {
+                hiddenSelect.value = '';
+                searchInputEl.value = '';
+                dateEl.value = '2025-12-30';
+                btnSearchEl.disabled = true;
+                sectionResults.classList.add('hidden');
+                currentInvoices = [];
+                setStatus('Filtros limpiados.', 'info');
+                renderOptions(allClients); // Reset dropdown
+            });
+        });
+    </script>
+</body>
+
+</html>

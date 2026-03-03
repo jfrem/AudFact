@@ -1,0 +1,10 @@
+{
+    "response": "error",
+    "message": "Adjunto supera el maximo de páginas permitidas",
+    "documento": "D19251212736",
+    "DisDetNro": "D19251212736",
+    "data": {
+        "items": []
+    },
+    "_errorOrigin": "business"
+}

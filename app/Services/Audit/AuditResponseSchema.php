@@ -40,7 +40,7 @@ class AuditResponseSchema
             'title' => 'AuditResponse',
             'description' => 'Estructura de respuesta para auditoría de documentos farmacéuticos con IA',
             'type' => 'object',
-            'required' => ['response', 'severity', 'message', 'documento', 'data'],
+            'required' => ['response', 'severity', 'message', 'documento', 'data', 'metrics', 'config_used'],
             'properties' => [
                 'response' => [
                     'type' => 'string',
@@ -112,6 +112,53 @@ class AuditResponseSchema
                         ]
                     ],
                     'additionalProperties' => false
+                ],
+                'metrics' => [
+                    'type' => 'object',
+                    'required' => [
+                        'TotalCamposEvaluados',
+                        'TotalCoincidentes',
+                        'TotalDiscrepancias',
+                        'Altas',
+                        'Medias',
+                        'Bajas'
+                    ],
+                    'properties' => [
+                        'TotalCamposEvaluados' => ['type' => 'integer', 'minimum' => 0],
+                        'TotalCoincidentes' => ['type' => 'integer', 'minimum' => 0],
+                        'TotalDiscrepancias' => ['type' => 'integer', 'minimum' => 0],
+                        'Altas' => ['type' => 'integer', 'minimum' => 0],
+                        'Medias' => ['type' => 'integer', 'minimum' => 0],
+                        'Bajas' => ['type' => 'integer', 'minimum' => 0]
+                    ],
+                    'additionalProperties' => false
+                ],
+                'config_used' => [
+                    'type' => 'object',
+                    'required' => ['weights', 'thresholds', 'max_score'],
+                    'properties' => [
+                        'weights' => [
+                            'type' => 'object',
+                            'required' => ['alta', 'media', 'baja'],
+                            'properties' => [
+                                'alta' => ['type' => 'integer', 'minimum' => 0],
+                                'media' => ['type' => 'integer', 'minimum' => 0],
+                                'baja' => ['type' => 'integer', 'minimum' => 0],
+                            ],
+                            'additionalProperties' => false
+                        ],
+                        'thresholds' => [
+                            'type' => 'object',
+                            'required' => ['warning', 'error'],
+                            'properties' => [
+                                'warning' => ['type' => 'integer', 'minimum' => 0],
+                                'error' => ['type' => 'integer', 'minimum' => 0],
+                            ],
+                            'additionalProperties' => false
+                        ],
+                        'max_score' => ['type' => 'integer', 'minimum' => 0],
+                    ],
+                    'additionalProperties' => false
                 ]
             ],
             'additionalProperties' => false
@@ -175,9 +222,52 @@ class AuditResponseSchema
                         ]
                     ],
                     'required' => ['items']
+                ],
+                'metrics' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'TotalCamposEvaluados' => ['type' => 'integer'],
+                        'TotalCoincidentes' => ['type' => 'integer'],
+                        'TotalDiscrepancias' => ['type' => 'integer'],
+                        'Altas' => ['type' => 'integer'],
+                        'Medias' => ['type' => 'integer'],
+                        'Bajas' => ['type' => 'integer']
+                    ],
+                    'required' => [
+                        'TotalCamposEvaluados',
+                        'TotalCoincidentes',
+                        'TotalDiscrepancias',
+                        'Altas',
+                        'Medias',
+                        'Bajas'
+                    ]
+                ],
+                'config_used' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'weights' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'alta' => ['type' => 'integer'],
+                                'media' => ['type' => 'integer'],
+                                'baja' => ['type' => 'integer']
+                            ],
+                            'required' => ['alta', 'media', 'baja']
+                        ],
+                        'thresholds' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'warning' => ['type' => 'integer'],
+                                'error' => ['type' => 'integer']
+                            ],
+                            'required' => ['warning', 'error']
+                        ],
+                        'max_score' => ['type' => 'integer']
+                    ],
+                    'required' => ['weights', 'thresholds', 'max_score']
                 ]
             ],
-            'required' => ['response', 'severity', 'message', 'documento', 'data']
+            'required' => ['response', 'severity', 'message', 'documento', 'data', 'metrics', 'config_used']
         ];
     }
 
@@ -200,7 +290,7 @@ class AuditResponseSchema
         }
 
         // Validar campos requeridos a nivel raíz
-        $requiredFields = ['response', 'message', 'documento', 'data'];
+        $requiredFields = ['response', 'severity', 'message', 'documento', 'data', 'metrics', 'config_used'];
         foreach ($requiredFields as $field) {
             if (!isset($data[$field])) {
                 $errors[] = "Missing required field: '{$field}'";
@@ -281,6 +371,67 @@ class AuditResponseSchema
             }
         }
 
+        // Validar 'metrics'
+        if (!isset($data['metrics']) || !is_array($data['metrics'])) {
+            $errors[] = "Field 'metrics' must be an object/array";
+        } else {
+            $metricFields = [
+                'TotalCamposEvaluados',
+                'TotalCoincidentes',
+                'TotalDiscrepancias',
+                'Altas',
+                'Medias',
+                'Bajas',
+            ];
+
+            foreach ($metricFields as $field) {
+                if (!array_key_exists($field, $data['metrics'])) {
+                    $errors[] = "Missing required field: 'metrics.{$field}'";
+                    continue;
+                }
+
+                if (!is_int($data['metrics'][$field]) || $data['metrics'][$field] < 0) {
+                    $errors[] = "Field 'metrics.{$field}' must be a non-negative integer";
+                }
+            }
+        }
+
+        // Validar 'config_used'
+        if (!isset($data['config_used']) || !is_array($data['config_used'])) {
+            $errors[] = "Field 'config_used' must be an object/array";
+        } else {
+            $cfg = $data['config_used'];
+            if (!isset($cfg['weights']) || !is_array($cfg['weights'])) {
+                $errors[] = "Missing required field: 'config_used.weights'";
+            } else {
+                foreach (['alta', 'media', 'baja'] as $k) {
+                    if (!array_key_exists($k, $cfg['weights'])) {
+                        $errors[] = "Missing required field: 'config_used.weights.{$k}'";
+                    } elseif (!is_int($cfg['weights'][$k]) || $cfg['weights'][$k] < 0) {
+                        $errors[] = "Field 'config_used.weights.{$k}' must be a non-negative integer";
+                    }
+                }
+            }
+
+            if (!isset($cfg['thresholds']) || !is_array($cfg['thresholds'])) {
+                $errors[] = "Missing required field: 'config_used.thresholds'";
+            } else {
+                foreach (['warning', 'error'] as $k) {
+                    if (!array_key_exists($k, $cfg['thresholds'])) {
+                        $errors[] = "Missing required field: 'config_used.thresholds.{$k}'";
+                    } elseif (!is_int($cfg['thresholds'][$k]) || $cfg['thresholds'][$k] < 0) {
+                        $errors[] = "Field 'config_used.thresholds.{$k}' must be a non-negative integer";
+                    }
+                }
+            }
+
+            if (!array_key_exists('max_score', $cfg)) {
+                $errors[] = "Missing required field: 'config_used.max_score'";
+            } elseif (!is_int($cfg['max_score']) || $cfg['max_score'] < 0) {
+                $errors[] = "Field 'config_used.max_score' must be a non-negative integer";
+            }
+        }
+
         return [
             'valid' => empty($errors),
             'errors' => $errors
@@ -296,6 +447,7 @@ class AuditResponseSchema
     {
         return [
             'response' => self::RESPONSE_WARNING,
+            'severity' => 'media',
             'message' => 'Se encontraron 2 discrepancias en la validación del Acta de Entrega',
             'documento' => self::DOCUMENTO_ACTA_ENTREGA,
             'data' => [
@@ -311,6 +463,26 @@ class AuditResponseSchema
                         'documento' => 'ACTA_ENTREGA'
                     ]
                 ]
+            ],
+            'metrics' => [
+                'TotalCamposEvaluados' => 10,
+                'TotalCoincidentes' => 8,
+                'TotalDiscrepancias' => 2,
+                'Altas' => 1,
+                'Medias' => 1,
+                'Bajas' => 0
+            ],
+            'config_used' => [
+                'weights' => [
+                    'alta' => 10,
+                    'media' => 5,
+                    'baja' => 1
+                ],
+                'thresholds' => [
+                    'warning' => 5,
+                    'error' => 10
+                ],
+                'max_score' => 100
             ]
         ];
     }

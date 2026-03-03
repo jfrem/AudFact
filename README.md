@@ -23,12 +23,12 @@ AudFact/
 │   ├── Controllers/       # 7 controladores REST
 │   ├── Models/            # 5 modelos SQL Server
 │   ├── Services/          # Google Drive + 6 servicios de auditoría IA
-│   ├── worker/            # GeminiAuditService (orquestador IA)
+│   ├── Services/Audit/    # AuditOrchestrator (orquestador IA)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger...
 ├── public/                # Entry point (index.php) + frontend HTML
-├── docker/                # Dockerfile + nginx.conf
+├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck
 ├── logs/                  # Logs rotados por fecha
 ├── plans/                 # Documentación del proyecto
 │   ├── overview.md
@@ -62,7 +62,7 @@ cp .env.example .env
 composer install
 
 # 3. Levantar con Docker
-docker-compose up -d
+wsl docker-compose up -d
 ```
 
 ### Variables de Entorno
@@ -73,51 +73,82 @@ docker-compose up -d
 | `DB_TYPE` | Tipo de BD (`sqlsrv`) |
 | `DB_HOST` | Host de SQL Server |
 | `DB_PORT` | Puerto (default: `1433`) |
-| `DB_DATABASE` | Nombre de la base de datos |
-| `DB_USERNAME` | Usuario de BD |
-| `DB_PASSWORD` | Contraseña de BD |
+| `DB_NAME` | Nombre de la base de datos |
+| `DB_USER` | Usuario de BD |
+| `DB_PASS` | Contraseña de BD |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
-| `GOOGLE_PROJECT_ID` | ID proyecto Google Cloud |
-| `GOOGLE_CLIENT_EMAIL` | Email cuenta de servicio |
-| `GOOGLE_PRIVATE_KEY` | Clave privada |
-| `LOG_LEVEL` | Nivel de log (`debug`, `info`, `error`) |
-| `CORS_ALLOWED_ORIGINS` | Orígenes permitidos |
+| `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
+| `GOOGLE_DRIVE_PRIVATE_KEY` | Clave privada |
+| `LOG_LEVEL` | Nivel de log (`error`, `warning`, `info`) |
+| `ALLOWED_ORIGINS` | Origenes CORS permitidos (comma-separated) |
+| `MCP_WEBHOOK_SECRET` | Secreto para `X-API-KEY` del webhook MCP |
+
+### Minimo para Produccion
+
+- `APP_ENV=production`
+- Definir `ALLOWED_ORIGINS` con dominios explicitos (sin `*`)
+- Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo)
+- Definir `DB_PASS` y `GEMINI_API_KEY` reales por entorno
+- Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion)
 
 ## API
 
-Base URL: `http://localhost:80`
+Base URL: `http://localhost:8080`
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/` | Health check |
-| `GET` | `/api/clients` | Listar clientes |
-| `GET` | `/api/clients/{id}` | Obtener cliente |
-| `GET` | `/api/invoices` | Buscar facturas |
-| `GET` | `/api/dispensation/{id}` | Datos de dispensación |
-| `GET` | `/api/attachments/{id}` | Listar adjuntos |
-| `GET` | `/api/attachments/{id}/document/{docId}` | Descargar documento |
-| `POST` | `/api/audit` | Auditoría individual |
-| `POST` | `/api/audit/batch` | Auditoría en lote |
-| `GET` | `/api/audit/status/{id}` | Estado de batch |
-| `GET` | `/api/audit/results/{id}` | Resultados de auditoría |
-| `POST` | `/wrap/webhook.php` | Endpoint MCP |
+| `GET` | `/health` | Estado de salud del backend |
+| `GET` | `/clients` | Listar clientes |
+| `GET` | `/clients/{clientId}` | Obtener cliente |
+| `GET` | `/invoices` | Buscar facturas |
+| `POST` | `/invoices` | Buscar facturas por body JSON |
+| `GET` | `/dispensation/{DisDetNro}` | Datos de dispensación |
+| `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | Listar adjuntos |
+| `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
+| `POST` | `/audit` | Auditoría en lote |
+| `POST` | `/audit/single` | Auditoría individual |
+| `GET` | `/audit/results` | Resultados persistidos de auditoría |
+| `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
 
 > Ver documentación detallada en [`plans/api-endpoints.md`](plans/api-endpoints.md)
 
 ## Docker
 
+### Desarrollo local (recomendado)
+
 ```bash
-# Levantar servicios
-docker-compose up -d
+wsl docker compose -f docker-compose.dev.yml up -d --build
 
-# Ver logs
-docker-compose logs -f
+# Ver estado y logs (dev)
+wsl docker compose -f docker-compose.dev.yml ps
+wsl docker compose -f docker-compose.dev.yml logs -f
 
-# Reconstruir
-docker-compose up -d --build
+# Detener entorno dev
+wsl docker compose -f docker-compose.dev.yml down
 ```
 
-Servicios: `audfact-php` (PHP 8.2-FPM) + `audfact-nginx` (Nginx 1.25)
+### Modo HA / stress testing
+
+```bash
+# Levantar stack HA
+wsl docker compose -f docker-compose.ha.yml up -d --build
+
+# Ver estado y logs (HA)
+wsl docker compose -f docker-compose.ha.yml ps
+wsl docker compose -f docker-compose.ha.yml logs -f
+
+# Detener entorno HA
+wsl docker compose -f docker-compose.ha.yml down
+```
+
+Servicios (dev): `php` + `nginx` (1 replica por servicio)  
+Servicios (ha): `php` (5 replicas) + `nginx` con balanceo via template
+
+Estado actual de configuración: `docker-compose.yml` mantiene topología HA (5 réplicas PHP-FPM + Nginx con `least_conn`), mientras que `docker-compose.dev.yml` se conserva como modo local simple.
+El build de `php` usa `ENABLE_XDEBUG` por entorno: en `docker-compose.dev.yml` está en `1` (debug activo) y en `docker-compose.yml` / `docker-compose.ha.yml` está en `0` (debug deshabilitado).
+
+Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
 
 ## Documentación
 

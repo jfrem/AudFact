@@ -1,0 +1,66 @@
+{
+    "response": "error",
+    "severity": "alta",
+    "message": "Discrepancias críticas encontradas en fecha de nacimiento, documento del médico y firma del acta de entrega.",
+    "documento": "MULTIPLE",
+    "data": {
+        "items": [
+            {
+                "item": "FechaNacimiento",
+                "detalle": "Fuente de Verdad: '1957-06-01'. Documento: '1953-06-26'.",
+                "documento": "VALIDADOR DE DERECHOS",
+                "severidad": "alta"
+            },
+            {
+                "item": "DocumentoMedico",
+                "detalle": "Fuente de Verdad: '1075296850'. Documento: '26421031'.",
+                "documento": "FORMULA MEDICA",
+                "severidad": "alta"
+            },
+            {
+                "item": "FirmaActaEntrega",
+                "detalle": "Fuente de Verdad: 'Obligatorio'. Documento: No se evidencia firma del paciente o tercero en el acta de entrega.",
+                "documento": "ACTA DE ENTREGA",
+                "severidad": "alta"
+            }
+        ]
+    },
+    "metrics": {
+        "TotalCamposEvaluados": 24,
+        "TotalCoincidentes": 21,
+        "TotalDiscrepancias": 3,
+        "Altas": 3,
+        "Medias": 0,
+        "Bajas": 0
+    },
+    "config_used": {
+        "weights": {
+            "alta": 10,
+            "media": 5,
+            "baja": 1
+        },
+        "thresholds": {
+            "warning": 5,
+            "error": 10
+        },
+        "max_score": 100
+    },
+    "_errorOrigin": "gemini",
+    "_meta": {
+        "totalTimeMs": 13215,
+        "phases": {
+            "dataFetchMs": 598,
+            "filePrepMs": 4305,
+            "geminiApiMs": 8302
+        },
+        "attempts": 1,
+        "factura": "D02251213357",
+        "FacSec": "90648673",
+        "documentos": [
+            "ACTA DE ENTREGA",
+            "FORMULA MEDICA",
+            "VALIDADOR DE DERECHOS"
+        ],
+        "timestamp": "2026-03-03T19:59:20+00:00"
+    }
+}

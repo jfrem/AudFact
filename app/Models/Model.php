@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Core\Database;
@@ -7,14 +9,14 @@ use PDO;
 
 class Model
 {
-    protected $db;
-    protected $table = '';
+    protected \PDO $db;
+    protected string $table = '';
     
     /**
      * Lista blanca de columnas que pueden ser asignadas masivamente
      * DEBE ser definida en cada modelo hijo para seguridad
      */
-    protected $fillable = [];
+    protected array $fillable = [];
 
     public function __construct()
     {
@@ -79,7 +81,7 @@ class Model
         return $stmt->fetchAll();
     }
 
-    public function find($id)
+    public function find(int|string $id): array|false
     {
         $table = $this->getQuotedTable();
         $stmt = $this->db->prepare("SELECT * FROM {$table} WHERE id = ?");
@@ -87,7 +89,7 @@ class Model
         return $stmt->fetch();
     }
 
-    public function create(array $data)
+    public function create(array $data): array|false
     {
         // Filtrar datos por la lista blanca $fillable
         $data = $this->filterFillable($data);
@@ -112,7 +114,7 @@ class Model
         return $this->find($this->db->lastInsertId());
     }
 
-    public function update($id, array $data)
+    public function update(int|string $id, array $data): array|false
     {
         // Filtrar datos por la lista blanca $fillable
         $data = $this->filterFillable($data);
@@ -134,7 +136,7 @@ class Model
         return $this->find($id);
     }
 
-    public function delete($id): bool
+    public function delete(int|string $id): bool
     {
         $table = $this->getQuotedTable();
         $stmt = $this->db->prepare("DELETE FROM {$table} WHERE id = ?");

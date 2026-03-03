@@ -13,7 +13,7 @@
 - **Código fuente**: `core/` (framework), `app/` (aplicación MVC)
 - **Controladores**: `app/Controllers/` — Un controlador por recurso REST
 - **Modelos**: `app/Models/` — Acceso a datos vía PDO, queries embebidas
-- **Servicios**: `app/Services/` (audit pipeline), `app/worker/` (GeminiAuditService)
+- **Servicios**: `app/Services/` (audit pipeline y AuditOrchestrator)
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
@@ -35,6 +35,11 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-mcp-wrap` | MCP | Webhook, herramientas, ApiClient |
 | `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
 | `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
+| `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
+| `architecture-assessment` | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad |
+| `code-quality-assessment` | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica |
+| `security-assessment` | Auditoría técnica | Auditoría de seguridad para readiness de release |
+| `technical-governance-assessment` | Auditoría técnica | Evaluación de madurez de gobernanza técnica |
 
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
 
@@ -61,7 +66,8 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `POST` | `/dispensation` | `DispensationController` | `lookup` | `auth` | Buscar dispensa por ID |
 | `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | `auth` | Listar metadatos de adjuntos |
 | `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | `auth` | Descargar BLOB de adjunto |
-| `POST` | `/audit` | `AuditController` | `run` | `auth` | **Pipeline IA**: Ejecutar auditoría Gemini |
+| `POST` | `/audit` | `AuditController` | `run` | `auth` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote) |
+| `POST` | `/audit/single` | `AuditController` | `single` | `auth` | **Pipeline IA**: Auditoría individual HA (Punto Dispensación) |
 
 ---
 
@@ -88,7 +94,7 @@ El sistema sigue un pipeline secuencial para cada petición HTTP:
 
 ### 4. Controlador (`app/Controllers/*`)
 - **Validación**: Usa `Core\Validator` para limpiar y validar `$_POST`/`$_GET`.
-- **Negocio**: Llama a modelos o servicios (ej: `GeminiAuditService`).
+- **Negocio**: Llama a modelos o servicios (ej: `AuditOrchestrator`).
 - **Respuesta**: Llama a `Core\Response::success()` o `error()`.
 
 ### 5. Salida (`Core\Response`)
@@ -215,6 +221,7 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 - **Payload máximo**: `MAX_JSON_SIZE` (default 1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB) para evitar agotar memoria con BLOBs
 - **Timeouts de ejecución**: Límites de tiempo explícitos asignados dinámicamente (`set_time_limit`) para procesos pesados
 - **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente
+- **TLS saliente**: `GoogleDriveAuthService` valida certificados HTTPS por defecto; solo se permite desactivar en desarrollo vía `GOOGLE_DRIVE_TLS_VERIFY=0`
 - Nunca loguear valores de API keys, passwords, o datos de pacientes
 - Nunca exponer stack traces o rutas internas en respuestas de error de producción
 - Webhook MCP (`app/wrap/webhook.php`): Autenticación obligatoria mediante la cabecera `X-API-KEY` validada contra `MCP_WEBHOOK_SECRET`
@@ -260,6 +267,7 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 |---|---|---|---|
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | *(vacío)* | ⚠️ Solo adjuntos URL | Service account para acceso a archivos en Drive |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | *(vacío)* | ⚠️ Solo adjuntos URL | Clave privada del service account |
+| `GOOGLE_DRIVE_TLS_VERIFY` | `1` | ❌ | `GoogleDriveAuthService` — validación TLS de conexiones HTTPS a Google Drive (`0` solo para entornos de desarrollo controlados) |
 
 ### Logging
 
@@ -281,7 +289,7 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
-| `GEMINI_API_KEY` | *(vacío)* | ✅ | `GeminiAuditService` — API key de Google AI |
+| `GEMINI_API_KEY` | *(vacío)* | ✅ | `AuditOrchestrator` — API key de Google AI |
 | `GEMINI_MODEL` | `gemini-flash-latest` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
@@ -421,11 +429,23 @@ Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
 ### Comportamiento general
 
 - **Idioma**: toda comunicación en Español (Latinoamérica)
+- **Documentación primero**: OBLIGATORIO revisar planes (`plans/api-endpoints.md`, `plans/architecture.md`, etc.) ANTES de intentar adivinar URLs, comandos o la estructura del ruteo.
 - **Verificar en código**: responder con alta confianza; no adivinar comportamientos
 - **Consultar skills**: antes de modificar un archivo, leer la skill correspondiente del catálogo
 - **No editar `vendor/`**: las actualizaciones lo sobreescriben
 - **No editar archivos dentro de contenedores Docker**: usar el mount de volumen local
 - **Checkpoint obligatorio**: crear respaldo antes de cualquier modificación significativa
+
+### Regla Obligatoria de Auditoría (Skill Gate)
+
+Cuando el usuario solicite auditar/revisar/evaluar/assessment de un repositorio o proyecto, el agente debe:
+
+1. Cargar y aplicar obligatoriamente la skill `.agent/skills/audit-skill-router/SKILL.md`.
+2. Ejecutar el enrutamiento por dominio y el contrato de orquestación consolidado, salvo que el usuario limite explícitamente el alcance.
+3. Entregar siempre: alcance/supuestos, hallazgos por severidad con evidencia, tabla de scoring por dominio (0-5) con ponderado, score global + clasificación (A/B/C/D), nota de regla de techo (si aplica), y plan 30/60/90 con responsables.
+4. Si la skill no existe, no puede leerse o falla: detener el flujo normal, reportar bloqueo explícito y continuar solo con fallback manual marcado como "auditoría provisional sin framework", incluyendo evidencia faltante.
+
+Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Multi-agent safety
 
@@ -437,7 +457,7 @@ Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
 
 ### Pipeline de auditoría IA
 
-- **Archivos críticos**: `app/worker/GeminiAuditService.php` es el core del pipeline — cambios requieren review cuidadoso
+- **Archivos críticos**: `app/Services/Audit/AuditOrchestrator.php` es el core del pipeline — cambios requieren review cuidadoso
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
 - **Prompts**: definidos en `app/Services/Audit/AuditPromptBuilder.php` — cualquier cambio afecta la calidad de las auditorías
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño
@@ -627,7 +647,7 @@ set_exception_handler(function ($e) {
 
 ### Implementación actual: `Core\Logger`
 
-El logger escribe archivos JSON rotados en `logs/app-YYYY-MM-DD.log`.
+El logger escribe archivos JSON rotados en `logs/app-{HOSTNAME}-YYYY-MM-DD.log`. La integración del sufijo `{HOSTNAME}` es un blindaje vital de **Alta Disponibilidad** para permitir que múltiples procesos Docker FPM concurrentes logueen en tiempo real sin pisarse por race condition de escrituras exclusivas en un único archivo compartido del mount host.
 
 ### Niveles de log
 

@@ -15,14 +15,16 @@ class RateLimit
             }
             return self::fileCheck($ip, $limit, $window);
         } catch (\Exception $e) {
-            // En producción, fallar silenciosamente es mejor que exponer errores
+            Logger::error('Rate limiting failed/backend unavailable: ' . $e->getMessage());
+            
+            // En caso de fallo del backend de Rate Limit, aplicamos Fail-Closed para protección
             if (Env::get('APP_ENV') === 'development') {
                 throw $e;
             }
 
-            // En producción, permitir la solicitud si el rate limiting falla
-            Logger::error('Rate limiting failed: ' . $e->getMessage());
-            return true;
+            // Evitar bypass silencioso (Fail Open). Bloquear acceso preventivamente.
+            Response::error('Service Unavailable - Rate limiter backend is unreachable', 503);
+            return false;
         }
     }
 

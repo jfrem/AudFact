@@ -1,0 +1,64 @@
+name: CI — AudFact
+
+on:
+  push:
+    branches: [main, develop, "feature/*"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    name: PHP Lint & Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo, pdo_sqlsrv
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: PHP Syntax Check
+        run: |
+          echo "🔍 Checking PHP syntax..."
+          find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -P4 php -l
+          echo "✅ All PHP files passed syntax check"
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Check project structure
+        run: |
+          echo "📁 Validating project structure..."
+          for dir in app/Controllers app/Models app/Services core public; do
+            if [ ! -d "$dir" ]; then
+              echo "❌ Missing directory: $dir"
+              exit 1
+            fi
+          done
+          echo "✅ Project structure is valid"
+
+      - name: Check for secrets in code
+        run: |
+          echo "🔐 Scanning for hardcoded secrets..."
+          ISSUES=$(grep -rn --include="*.php" -E "(password|secret|api_key)\s*=\s*['\"][^'\"]+['\"]" --exclude-dir=vendor . || true)
+          if [ -n "$ISSUES" ]; then
+            echo "⚠️ Possible hardcoded secrets found:"
+            echo "$ISSUES"
+            echo "::warning::Potential hardcoded secrets detected in source files"
+          else
+            echo "✅ No hardcoded secrets found"
+          fi
+
+      - name: Run PHPUnit Tests
+        run: |
+          echo "🧪 Running unit tests..."
+          vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always
+          echo "✅ All tests passed"

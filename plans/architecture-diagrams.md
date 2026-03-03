@@ -44,7 +44,7 @@ C4Container
 
     Rel(user, nginx, "HTTPS", "REST JSON")
     Rel(mcp, nginx, "HTTPS", "JSON-RPC 2.0")
-    Rel(nginx, phpfpm, "FastCGI", ":9000")
+    Rel(nginx, phpfpm, "FastCGI", "least_conn load balancing hacia pool")
     Rel(phpfpm, sqlsrv, "PDO", "sqlsrv")
     Rel(phpfpm, gemini, "HTTPS", "Guzzle")
     Rel(phpfpm, gdrive, "HTTPS", "JWT + Guzzle")
@@ -58,7 +58,7 @@ C4Container
 C4Component
     title AudFact — Componentes del Application Server
 
-    Container_Boundary(phpfpm, "PHP 8.2-FPM") {
+    Container_Boundary(phpfpm, "PHP 8.2-FPM (Pool N Replicas + static)") {
         Component(router, "Router + Route", "core/", "Despacho de rutas HTTP con middleware pipeline")
         Component(middleware, "Middleware Pipeline", "core/", "Rate limit, CORS, validación")
         Component(controllers, "Controllers", "app/Controllers/", "7 controladores REST: Health, Clients, Invoices, Attachments, Dispensation, Audit")

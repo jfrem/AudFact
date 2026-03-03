@@ -1,0 +1,21 @@
+[www]
+user = www-data
+group = www-data
+listen = 9000
+
+; Optimización de alta disponibilidad
+; Se asignan workers estáticos pre-cargados al inicio del contenedor
+; para mitigar carga y destrucción de procesos bajo estrés de la IA.
+pm = static
+pm.max_children = 10
+
+; Timeout centralizado desde .env → AUDIT_FPM_TERMINATE_TIMEOUT
+; Cada consulta a Gemini Flash toma ~10-30s; el circuit breaker en AuditController controla el límite real
+request_terminate_timeout = ${AUDIT_FPM_TERMINATE_TIMEOUT}s
+
+; Exponer variables de entorno (necesario en Docker FPM)
+clear_env = no
+
+; Logs (Para atrapar output de scripts, workers)
+catch_workers_output = yes
+decorate_workers_output = no

@@ -1,0 +1,3 @@
+display_name: Architecture Review
+short_description: Review architecture boundaries, coupling, and scalability risks with deterministic scoring.
+default_prompt: Review this repository architecture using the architecture-assessment skill and provide findings, score, and 30-60-90 plan.
