@@ -12,6 +12,8 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
 
+header('X-PHP-Container: ' . gethostname());
+
 // Cargar .env lo antes posible para que aplique al bootstrap
 Env::load();
 
