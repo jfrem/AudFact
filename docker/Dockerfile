@@ -1,4 +1,5 @@
 FROM php:8.2-fpm
+RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
 
 ARG ENABLE_XDEBUG=0
 
