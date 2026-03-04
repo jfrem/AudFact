@@ -154,13 +154,13 @@ Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `dock
 
 Documentación completa disponible en `plans/`:
 
-- [Overview](plans/overview.md) — Visión general
-- [Arquitectura](plans/architecture.md) — Componentes y diseño
-- [Diagramas C4](plans/architecture-diagrams.md) — Diagramas de arquitectura
-- [Flujos de Datos](plans/data-flows.md) — Diagramas de secuencia
-- [API Endpoints](plans/api-endpoints.md) — Contratos de API
-- [Database Schema](plans/database-schema.md) — Tablas y relaciones
-- [Changelog](plans/changelog.md) — Historial de cambios
+- [Overview](plans/overview.md) — Visión general.
+- [Arquitectura](plans/architecture.md) — Componentes y diseño.
+- [Diagramas C4](plans/architecture-diagrams.md) — Diagramas de arquitectura.
+- [Flujos de Datos](plans/data-flows.md) — Diagramas de secuencia.
+- [API Endpoints](plans/api-endpoints.md) — Contratos de API.
+- [Database Schema](plans/database-schema.md) — Tablas y relaciones.
+- [Changelog](plans/changelog.md) — Historial de cambios.
 
 ## Seguridad
 
