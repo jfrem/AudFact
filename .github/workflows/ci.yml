@@ -66,36 +66,27 @@ jobs:
   deploy:
     name: 🚀 Deploy to Production
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          port: ${{ secrets.SSH_PORT }}
-          command_timeout: 10m
-          script: |
-            echo "📦 Starting deployment..."
-            cd ${{ secrets.DEPLOY_PATH }}
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-            echo "🔄 Pulling latest changes..."
-            git pull origin main
+      - name: ⚙️ Rebuild and Restart Containers
+        run: |
+          echo "🐳 Rebuilding containers locally on self-hosted runner..."
+          docker compose down
+          docker compose up --build -d
 
-            echo "🐳 Rebuilding containers..."
-            docker compose down
-            docker compose up --build -d
-
-            echo "⏳ Waiting for containers to start..."
-            sleep 15
-
-            echo "🏥 Running health check..."
-            if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
-              echo "✅ Deploy successful — Health check passed"
-            else
-              echo "⚠️ Health check failed — containers may still be starting"
-              docker ps --format "table {{.Names}}\t{{.Status}}"
-            fi
+      - name: 🏥 Health Check
+        run: |
+          echo "⏳ Waiting for containers to start..."
+          sleep 15
+          if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+            echo "✅ Deploy successful — Health check passed"
+          else
+            echo "⚠️ Health check failed — containers may still be starting"
+            docker ps --format "table {{.Names}}\t{{.Status}}"
+            exit 1
+          fi
