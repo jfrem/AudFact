@@ -73,7 +73,7 @@ jobs:
       - name: 🧹 Fix workspace permissions (Docker creates root-owned files)
         run: |
           echo "🔧 Reclaiming workspace ownership from root..."
-          sudo chown -R $USER:$USER "$GITHUB_WORKSPACE" 2>/dev/null || true
+          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" alpine chown -R $(id -u):$(id -g) "$GITHUB_WORKSPACE"
 
       - name: 📥 Checkout code
         uses: actions/checkout@v4
