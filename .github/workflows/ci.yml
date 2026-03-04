@@ -154,6 +154,8 @@ jobs:
           mkdir -p logs
           docker compose down
           docker compose up --build -d
+          echo "🔧 Fixing logs permissions for www-data (UID 33)..."
+          docker run --rm -v "$(pwd)/logs:/mnt/logs" alpine sh -c "chown -R 33:33 /mnt/logs && chmod -R 775 /mnt/logs"
 
       - name: 🏥 Health Check
         run: |
