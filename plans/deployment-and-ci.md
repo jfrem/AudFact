@@ -1,90 +1,102 @@
 # Estrategia de Despliegue y CI/CD
 
-## Procedimiento de Rollback y Recuperación
+## Deploy Automatizado (CD)
 
-### Contexto de deploy
+El despliegue a producción está automatizado mediante **GitHub Actions**.
 
-- **Deploy actual**: manual por copia de archivos al servidor
-- **Docker**: solo para desarrollo local (producción pendiente; se evaluará Docker en prod si se implementa Redis como caché)
-- **Producción**: no existe aún, pero todo el desarrollo debe quedar **production-ready**
-
-### Procedimiento de rollback (deploy manual)
+### Flujo
 
 ```
-1. ANTES de deployar
-   └── Crear copia de respaldo del directorio actual en servidor
-       └── cp -r /ruta/proyecto /ruta/proyecto.backup.YYYY-MM-DD
-
-2. Deployar
-   └── Copiar archivos nuevos
-   └── Ejecutar composer install (si cambiaron dependencias)
-   └── Verificar health check: curl http://servidor/health
-
-3. Si algo falla
-   └── Restaurar backup inmediatamente:
-       └── rm -rf /ruta/proyecto
-       └── mv /ruta/proyecto.backup.YYYY-MM-DD /ruta/proyecto
-   └── Verificar health check nuevamente
-   └── Documentar qué falló y por qué
+Push a main → CI (lint + tests) → CD (SSH → servidor → git pull → docker compose up)
 ```
 
-### Rollback con Git (cuando el repo esté inicializado)
+### Configuración
 
-```bash
-# Ver commits recientes
-git log --oneline -10
+- **Servidor**: `172.16.0.3` (usuario `admon`)
+- **Autenticación**: SSH con password (almacenado en GitHub Secrets)
+- **Ruta**: `/home/admon/AudFact`
+- **Runtime**: Docker Compose (PHP-FPM x5 + Nginx)
 
-# Revertir último commit (crea nuevo commit de reversión)
-git revert HEAD --no-edit
+### GitHub Secrets requeridos
 
-# Revertir a un commit específico (PELIGRO: descarta commits)
-# REQUIERE aprobación del usuario
-git reset --hard <commit-hash>
-```
+| Secret | Descripción |
+|---|---|
+| `SSH_HOST` | IP del servidor (`172.16.0.3`) |
+| `SSH_USER` | Usuario SSH (`admon`) |
+| `SSH_PASSWORD` | Contraseña SSH |
+| `SSH_PORT` | Puerto SSH (`22`) |
+| `DEPLOY_PATH` | Ruta absoluta (`/home/admon/AudFact`) |
 
-### Rollback en Docker (entorno local)
+### Qué hace el deploy
 
-```bash
-# Si un cambio de config rompe el contenedor
-wsl docker compose down
-git checkout -- docker-compose.yml docker/
-wsl docker compose up -d --build
+1. Conecta al servidor vía SSH
+2. `git pull origin main` — descarga últimos cambios
+3. `docker compose down` — detiene contenedores
+4. `docker compose up --build -d` — reconstruye y levanta
+5. Health check: `curl http://localhost:8080/`
 
-# Rebuild completo desde cero
-wsl docker compose down -v
-wsl docker compose up -d --build --force-recreate
-```
+### Condiciones de ejecución
 
-### Checklist pre-deploy
-
-- [ ] Código funciona en entorno local Docker
-- [ ] Health check (`/health`) responde correctamente
-- [ ] Variables de entorno de producción configuradas (`.env`)
-- [ ] No hay `exit()` sueltos que rompan el flujo
-- [ ] Logs configurados en nivel apropiado (`LOG_LEVEL=warning` o `error` en prod)
-- [ ] `APP_ENV=production` (desactiva mensajes de error detallados y CORS abierto)
-- [ ] `composer install --no-dev` (sin dependencias de desarrollo)
-- [ ] Backup del estado actual en servidor
+- Solo se activa en **push a `main`** (no en PRs ni feature branches)
+- Requiere que el job `lint` (CI) pase exitosamente
 
 ---
 
-## Configuración de CI/CD (Pipeline Propuesto)
+## Procedimiento de Rollback y Recuperación
 
-Aunque el despliegue es manual, se define un flujo de **Integración Continua** para asegurar la calidad antes de cada release.
+### Rollback automático (recomendado)
 
-### Pipeline de Verificación (Pre-Push/PR)
+```bash
+# Revertir último commit y hacer push — CD se re-ejecuta automáticamente
+git revert HEAD --no-edit
+git push origin main
+```
 
-| Etapa | Comando / Herramienta | Objetivo |
+### Rollback manual en servidor
+
+```bash
+ssh admon@172.16.0.3
+cd /home/admon/AudFact
+
+# Volver a un commit específico
+git log --oneline -5
+git checkout <commit-hash> -- .
+docker compose down && docker compose up --build -d
+```
+
+### Rollback por backup
+
+```bash
+# ANTES de deployar (si se hace manual)
+cp -r /home/admon/AudFact /home/admon/AudFact.backup.$(date +%F)
+
+# Si algo falla
+rm -rf /home/admon/AudFact
+mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
+```
+
+---
+
+## Checklist Pre-Deploy
+
+- [ ] Código funciona en entorno local Docker
+- [ ] Health check (`/`) responde correctamente
+- [ ] Variables de entorno de producción configuradas (`.env`)
+- [ ] `APP_ENV=production`
+- [ ] `composer install --no-dev` (sin dependencias de desarrollo)
+- [ ] Tests unitarios pasan (CI)
+
+---
+
+## Pipeline CI (Verificación)
+
+| Etapa | Herramienta | Objetivo |
 |---|---|---|
-| **Lint** | `php -l` o `composer lint` | Detectar errores de sintaxis |
-| **Estilos** | `php-cs-fixer` | Asegurar cumplimiento de PSR-12 |
-| **Security Audit** | `composer audit` | Detectar vulnerabilidades en dependencias |
-| **Unit Tests** | `phpunit` | Validar lógica core (cuando se implementen) |
-| **Integración** | `tests/cli_test_audit.php` | Validar comunicación con Gemini/SQL |
+| **Lint** | `php -l` | Detectar errores de sintaxis |
+| **Estructura** | Script custom | Validar directorios obligatorios |
+| **Secrets Scan** | `grep` | Detectar credenciales hardcodeadas |
+| **Unit Tests** | PHPUnit | Validar lógica core |
 
-### Flujo de Release
-1. **Develop**: Los agentes integran features en la rama `develop`.
-2. **QA Auto**: Al mergear a `develop`, el agente debe ejecutar la suite de tests CLI.
-3. **Staging**: Un entorno Docker idéntico a producción para validación final.
-4. **Main**: Merge a `main` → Usuario aprueba el tag de versión (ej: `v1.0.1`).
-5. **Deploy**: Copia manual de archivos de `main` al servidor de producción.
+### Branches monitoreados
+- `main`, `develop`, `feature/*` (push)
+- `main`, `develop` (pull_request)

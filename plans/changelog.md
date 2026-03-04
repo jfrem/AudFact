@@ -1,5 +1,17 @@
 # Changelog — AudFact
 
+## [2026-03-03] CD Pipeline — Despliegue Automático a Producción
+
+**Tipo**: Infraestructura / CI-CD
+
+**Cambios realizados**:
+- Nuevo job `deploy` en `.github/workflows/ci.yml` que despliega automáticamente al servidor `172.16.0.3` tras CI exitoso en `main`.
+- Usa `appleboy/ssh-action@v1` con autenticación SSH por password vía GitHub Secrets.
+- Script remoto: `git pull` → `docker compose down` → `docker compose up --build -d` → health check.
+- Documentación `plans/deployment-and-ci.md` reescrita para reflejar flujo automatizado.
+- `responseIA/` condicionado a `APP_ENV=dev|test` para evitar acumulación en producción.
+
+
 ## [2026-03-03] Quick Fix — Purgado masivo de código muerto en AuditOrchestrator
 
 **Tipo**: Refactoring / Clean Code
