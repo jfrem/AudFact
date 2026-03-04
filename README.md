@@ -86,10 +86,10 @@ wsl docker-compose up -d
 ### Minimo para Produccion
 
 - `APP_ENV=production`
-- Definir `ALLOWED_ORIGINS` con dominios explicitos (sin `*`)
-- Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo)
-- Definir `DB_PASS` y `GEMINI_API_KEY` reales por entorno
-- Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion)
+- Definir `ALLOWED_ORIGINS` con dominios explicitos (sin `*`).
+- Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo).
+- Definir `DB_PASS` y `GEMINI_API_KEY` reales por entorno.
+- Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion).
 
 ## API
 
@@ -174,5 +174,7 @@ Documentación completa disponible en `plans/`:
 ## Licencia
 
 Uso interno — Software propietario.
+
+
 
 
