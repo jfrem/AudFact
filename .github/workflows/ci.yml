@@ -146,23 +146,34 @@ jobs:
       - name: ⚙️ Rebuild and Restart Containers
         run: |
           echo "🐳 Rebuilding containers locally on self-hosted runner..."
+          mkdir -p logs
+          chmod 775 logs
           docker compose down
           docker compose up --build -d
+
+      - name: 🛠️ Prepare Runtime Permissions and Git Safe Directory
+        run: |
+          echo "🔧 Fixing git safe.directory and logs permissions..."
+          docker compose exec -T php git config --global --add safe.directory /var/www/html
+          docker compose exec -T php sh -lc "mkdir -p /var/www/html/logs && chown -R www-data:www-data /var/www/html/logs && chmod -R ug+rwX /var/www/html/logs"
+          echo "✅ Runtime permissions ready"
 
       - name: 📦 Install PHP Dependencies in Container
         run: |
           echo "📥 Installing Composer dependencies inside php container..."
           docker compose exec -T php composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader
+          docker compose exec -T php sh -lc "test -f /var/www/html/vendor/autoload.php"
           echo "✅ Composer dependencies installed"
 
       - name: 🏥 Health Check
         run: |
           echo "⏳ Waiting for containers to start..."
           sleep 15
-          if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+          if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
             echo "✅ Deploy successful — Health check passed"
           else
             echo "⚠️ Health check failed — containers may still be starting"
             docker ps --format "table {{.Names}}\t{{.Status}}"
+            docker compose logs --tail=120 php nginx
             exit 1
           fi

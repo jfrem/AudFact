@@ -1,5 +1,11 @@
 ## [2026-03-03]
 
+### Tipo (fix)
+- **Ambito**: Hardening del deploy para estabilidad de runtime en self-hosted runner.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el deploy ahora asegura permisos de `logs/` para rate limiter/logger, configura `safe.directory` para Composer en contenedor, valida existencia de `vendor/autoload.php` y usa `GET /health` como check funcional.
+
 ### Tipo (security)
 - **Ambito**: Endurecimiento del deploy en runner self-hosted para generar `.env` desde GitHub Secrets.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
