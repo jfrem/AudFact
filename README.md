@@ -142,7 +142,7 @@ wsl docker compose -f docker-compose.ha.yml logs -f
 wsl docker compose -f docker-compose.ha.yml down
 ```
 
-Servicios (dev): `php` + `nginx` (1 replica por servicio)  
+Servicios (dev): `php` + `nginx` (1 replica por servicio)
 Servicios (ha): `php` (5 replicas) + `nginx` con balanceo via template
 
 Estado actual de configuración: `docker-compose.yml` mantiene topología HA (5 réplicas PHP-FPM + Nginx con `least_conn`), mientras que `docker-compose.dev.yml` se conserva como modo local simple.
@@ -175,6 +175,8 @@ Documentación completa disponible en `plans/`:
 ## Licencia
 
 Uso interno — Software propietario.
+
+
 
 
 
