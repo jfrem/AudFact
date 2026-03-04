@@ -79,6 +79,12 @@ jobs:
           docker compose down
           docker compose up --build -d
 
+      - name: 📦 Install PHP Dependencies in Container
+        run: |
+          echo "📥 Installing Composer dependencies inside php container..."
+          docker compose exec -T php composer install --no-interaction --prefer-dist --no-dev --optimize-autoloader
+          echo "✅ Composer dependencies installed"
+
       - name: 🏥 Health Check
         run: |
           echo "⏳ Waiting for containers to start..."

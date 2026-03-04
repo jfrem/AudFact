@@ -7,14 +7,14 @@ El despliegue a producción está automatizado mediante **GitHub Actions**.
 ### Flujo
 
 ```
-Push a main → CI (lint + tests) → CD (SSH → servidor → git pull → docker compose up)
+Push a main → CI (lint + tests) → CD (GitHub notifica Runner Local → git pull → docker compose up)
 ```
 
 ### Configuración
 
-- **Servidor**: `172.16.0.3` (usuario `admon`)
-- **Autenticación**: SSH con password (almacenado en GitHub Secrets)
-- **Ruta**: `/home/admon/AudFact`
+- **Host**: Runner instalado en servidor local (`172.16.0.3` usuario `admon`)
+- **Autenticación**: Token de registro de GitHub Actions
+- **Ruta Base**: `/home/admon/actions-runner`
 - **Runtime**: Docker Compose (PHP-FPM x5 + Nginx)
 
 ### GitHub Secrets requeridos

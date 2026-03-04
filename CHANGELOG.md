@@ -1,5 +1,11 @@
 ## [2026-03-03]
 
+### Tipo (fix)
+- **Ambito**: Endurecimiento del deploy CI/CD para garantizar dependencias PHP en runtime con bind mount activo.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el job `deploy` ahora ejecuta `composer install` dentro del contenedor `php` despues de `docker compose up --build -d`, evitando el error fatal por `vendor/autoload.php` inexistente en servidor.
+
 ### Tipo (feat)
 - **Ambito**: Creacion de nuevo CLI en PHP (Symfony Console) en directorio `cli/` con modo interactivo, presets y soporte multi-base de datos.
   - Archivos modificados: `cli/composer.json`, `cli/bin/php-init`, `cli/src/Application.php`, `cli/src/Command/NewProjectCommand.php`, `cli/src/Command/MakeControllerCommand.php`, `cli/src/Command/MakeModelCommand.php`, `cli/src/Command/MakeMiddlewareCommand.php`, `cli/src/Command/MakeCrudCommand.php`, `cli/src/Command/ListRoutesCommand.php`, `cli/src/Command/DbMigrateCommand.php`, `cli/src/Command/DbFreshCommand.php`, `cli/src/Command/InitDockerCommand.php`, `cli/src/Support/ProjectScaffolder.php`, `cli/src/Support/ScaffoldTemplates.php`, `cli/src/Support/SafeWriter.php`, `cli/src/Support/NameSanitizer.php`, `cli/src/Support/EnvReader.php`, `cli/src/Support/ProjectContext.php`, `cli/README.md`, `plans/TODO/checkpoints/cli-migration-20260302-215142.md`, `CHANGELOG.md`
