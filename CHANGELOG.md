@@ -1,3 +1,11 @@
+## [2026-03-04]
+
+### Tipo (fix)
+- **Ambito**: Hardening de logging en runtime para evitar warnings por permisos en `logs/` durante despliegues remotos.
+  - Archivos modificados: `core/Logger.php`, `docker/docker-entrypoint.sh`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: cuando el path primario de logs no es escribible, el logger usa fallback en `/tmp/audfact-logs` y el endpoint HTTP evita exponer warnings; el entrypoint reporta en arranque si `logs/` no es escribible por `www-data`.
+
 ## [2026-03-03]
 
 ### Tipo (fix)

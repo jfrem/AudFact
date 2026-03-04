@@ -119,7 +119,31 @@ class Logger
         }
 
         $jsonEntry = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        file_put_contents($logFile, $jsonEntry . "\n", FILE_APPEND | LOCK_EX);
+        self::appendToLog($logFile, $jsonEntry . "\n");
+    }
+
+    private static function appendToLog(string $logFile, string $payload): void
+    {
+        $written = @file_put_contents($logFile, $payload, FILE_APPEND | LOCK_EX);
+        if ($written !== false) {
+            return;
+        }
+
+        $hostname = gethostname();
+        $fallbackDir = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'audfact-logs';
+        if (!is_dir($fallbackDir)) {
+            @mkdir($fallbackDir, 0770, true);
+        }
+
+        $fallbackFile = $fallbackDir . DIRECTORY_SEPARATOR . "app-{$hostname}-" . date('Y-m-d') . '.log';
+        $fallbackWritten = @file_put_contents($fallbackFile, $payload, FILE_APPEND | LOCK_EX);
+
+        if ($fallbackWritten === false) {
+            error_log("Logger write failed for primary and fallback targets: {$logFile}");
+            return;
+        }
+
+        error_log("Logger fallback activated. Primary log path is not writable: {$logFile}");
     }
 
     private static function rotateIfNeeded(string $logFile): void
