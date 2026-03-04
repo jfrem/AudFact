@@ -47,11 +47,14 @@ else
 fi
 
 # ── 3. Fix runtime permissions ────────────────────────────────────
-# Asegurar que www-data pueda escribir logs y rate-limit locks
-if [ -d /var/www/html/logs ]; then
-  chown -R www-data:www-data /var/www/html/logs 2>/dev/null || true
-  chmod -R 775 /var/www/html/logs 2>/dev/null || true
+# Asegurar que www-data pueda leer .env y escribir logs
+if [ -f /var/www/html/.env ]; then
+  chmod 644 /var/www/html/.env 2>/dev/null || true
 fi
+
+mkdir -p /var/www/html/logs
+chown -R www-data:www-data /var/www/html/logs 2>/dev/null || true
+chmod -R 775 /var/www/html/logs 2>/dev/null || true
 
 # ── 4. Launch PHP-FPM ─────────────────────────────────────────────
 exec docker-php-entrypoint php-fpm

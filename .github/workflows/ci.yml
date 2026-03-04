@@ -145,7 +145,7 @@ jobs:
           AUDIT_FPM_TERMINATE_TIMEOUT=3600
           EOF
 
-          chmod 600 .env
+          chmod 644 .env
           echo "✅ .env generated successfully"
 
       - name: ⚙️ Rebuild and Restart Containers
