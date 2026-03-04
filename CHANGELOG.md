@@ -1,5 +1,11 @@
 ## [2026-03-03]
 
+### Tipo (security)
+- **Ambito**: Endurecimiento del deploy en runner self-hosted para generar `.env` desde GitHub Secrets.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: cada deploy ahora crea `.env` con secretos requeridos antes de `docker compose up`, evitando arranques con variables demo o ausencia total del archivo.
+
 ### Tipo (fix)
 - **Ambito**: Endurecimiento del deploy CI/CD para garantizar dependencias PHP en runtime con bind mount activo.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
