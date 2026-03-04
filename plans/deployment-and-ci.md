@@ -21,19 +21,28 @@ Push a main → CI (lint + tests) → CD (GitHub notifica Runner Local → git p
 
 | Secret | Descripción |
 |---|---|
-| `SSH_HOST` | IP del servidor (`172.16.0.3`) |
-| `SSH_USER` | Usuario SSH (`admon`) |
-| `SSH_PASSWORD` | Contraseña SSH |
-| `SSH_PORT` | Puerto SSH (`22`) |
-| `DEPLOY_PATH` | Ruta absoluta (`/home/admon/AudFact`) |
+| `APP_ENV` | Entorno (`production`) |
+| `DB_HOST` | Host SQL Server |
+| `DB_PORT` | Puerto SQL Server (`1433`) |
+| `DB_NAME` | Nombre de base de datos |
+| `DB_USER` | Usuario BD |
+| `DB_PASS` | Contraseña BD |
+| `DB_ENCRYPT` | Cifrado de conexión (`no`/`yes`) |
+| `DB_TRUST_SERVER_CERT` | Trust cert (`yes`/`no`) |
+| `GEMINI_API_KEY` | API Key de Google Gemini |
+| `ALLOWED_ORIGINS` | Orígenes CORS permitidos |
+| `MCP_WEBHOOK_SECRET` | Secret del webhook MCP |
+| `LOG_LEVEL` | Nivel de log (`info`) |
+| `AUDIT_NGINX_READ_TIMEOUT` | Timeout lectura Nginx (`3600`) |
 
 ### Qué hace el deploy
 
-1. Conecta al servidor vía SSH
-2. `git pull origin main` — descarga últimos cambios
-3. `docker compose down` — detiene contenedores
-4. `docker compose up --build -d` — reconstruye y levanta
-5. Health check: `curl http://localhost:8080/`
+1. **CI (GitHub-hosted)**: Lint PHP, validación Composer, PHPUnit
+2. **CD (Self-hosted runner)**: Checkout del código
+3. Genera `.env` desde GitHub Secrets
+4. `docker compose down` → `docker compose up --build -d`
+5. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
+6. Health check con **retry loop** (3 intentos, 10s entre cada uno)
 
 ### Condiciones de ejecución
 
@@ -80,11 +89,11 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 ## Checklist Pre-Deploy
 
 - [ ] Código funciona en entorno local Docker
-- [ ] Health check (`/`) responde correctamente
-- [ ] Variables de entorno de producción configuradas (`.env`)
-- [ ] `APP_ENV=production`
-- [ ] `composer install --no-dev` (sin dependencias de desarrollo)
-- [ ] Tests unitarios pasan (CI)
+- [ ] Health check (`/health`) responde correctamente
+- [ ] GitHub Secrets de producción configurados (ver tabla arriba)
+- [ ] `APP_ENV=production` en Secrets
+- [ ] Tests unitarios pasan (CI automático)
+- [ ] `vendor/` se instala automáticamente por el entrypoint (no requiere paso manual)
 
 ---
 

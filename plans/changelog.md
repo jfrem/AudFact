@@ -1,5 +1,17 @@
 # Changelog — AudFact
 
+## [2026-03-04] Zero-Intervention Deploy — Entrypoint Autónomo
+
+**Tipo**: Infraestructura / CI-CD
+
+**Descripción**: Eliminación de toda intervención manual en el pipeline de despliegue. El entrypoint de Docker ahora gestiona automáticamente la instalación de dependencias y los permisos de ejecución.
+
+**Cambios realizados**:
+- **docker/docker-entrypoint.sh**: Lógica de auto-instalación de Composer con detección por hash de `composer.lock` (archivo `.composer.lock.stamp`). Si `vendor/autoload.php` no existe o el lockfile cambió, ejecuta `composer install --no-dev --optimize-autoloader` automáticamente. También auto-repara permisos de `logs/` (`chown www-data`).
+- **ci.yml**: Eliminados pasos manuales `🛠️ Prepare Runtime Permissions`, `📦 Install PHP Dependencies in Container`. Health check mejorado con **retry loop** (3 intentos, 10s entre cada uno) y wait inicial de 30s para permitir la instalación de composer en el primer arranque.
+
+**Problema resuelto**: El montaje de volúmenes (`./:/var/www/html`) ocultaba la carpeta `vendor/` generada durante el build de la imagen Docker, requiriendo un `docker compose exec php composer install` manual post-deploy.
+
 ## [2026-03-03] CD Pipeline — Despliegue Automático a Producción
 
 **Tipo**: Infraestructura / CI-CD
