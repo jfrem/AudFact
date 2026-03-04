@@ -164,13 +164,15 @@ Documentación completa disponible en `plans/`:
 
 ## Seguridad
 
-- Rate limiting por IP (archivo)
-- Validación de entrada vía `Validator`
-- Prepared statements (PDO) — Sin SQL injection
-- CORS configurable
-- Whitelist de campos (`$fillable`) en modelos
-- Logging estructurado con rotación diaria
+- Rate limiting por IP (archivo).
+- Validación de entrada vía `Validator`.
+- Prepared statements (PDO) — Sin SQL injection.
+- CORS configurable.
+- Whitelist de campos (`$fillable`) en modelos.
+- Logging estructurado con rotación diaria.
 
 ## Licencia
 
 Uso interno — Software propietario.
+
+
