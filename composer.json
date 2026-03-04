@@ -1,6 +1,7 @@
 {
   "name": "usuario/php-backend",
   "description": "Backend PHP MVC con API REST JSON",
+  "license": "proprietary",
   "autoload": {
     "psr-4": {
       "App\\": "app/",
