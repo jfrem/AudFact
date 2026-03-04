@@ -12,6 +12,12 @@
   - Hallazgo resuelto: ninguno
   - Impacto: en `APP_ENV=production` los logs se emiten por `stderr`, por lo que `/health` y endpoints no exponen warnings de `file_put_contents`; en dev se mantiene logging a archivos con rotación.
 
+### Tipo (fix)
+- **Ambito**: Alineación de perfiles Docker Compose para UID/GID parametrizable en build de PHP.
+  - Archivos modificados: `docker-compose.ha.yml`, `docker-compose.dev.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: los perfiles `ha` y `dev` ahora usan los mismos build args `WWWUSER_ID/WWWGROUP_ID` que el compose base, evitando diferencias de permisos/ownership entre entornos.
+
 ## [2026-03-03]
 
 ### Tipo (fix)

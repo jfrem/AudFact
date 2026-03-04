@@ -5,6 +5,8 @@ services:
       dockerfile: docker/Dockerfile
       args:
         ENABLE_XDEBUG: "1"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
     env_file:
       - .env
     volumes:
