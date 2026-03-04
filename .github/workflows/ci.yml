@@ -106,6 +106,8 @@ jobs:
 
           cat > .env << EOF
           APP_ENV=${APP_ENV}
+          WWWUSER_ID=$(id -u)
+          WWWGROUP_ID=$(id -g)
           WRAP_API_BASE=http://nginx
           WEBHOOK_URL=http://localhost:8080/app/wrap/webhook.php
           CAPABILITIES_URL=http://localhost:8080/app/wrap/capabilities.php
@@ -154,8 +156,6 @@ jobs:
           mkdir -p logs
           docker compose down
           docker compose up --build -d
-          echo "🔧 Fixing logs permissions for www-data (UID 33)..."
-          docker run --rm -v "$(pwd)/logs:/mnt/logs" alpine sh -c "chown -R 33:33 /mnt/logs && chmod -R 775 /mnt/logs"
 
       - name: 🏥 Health Check
         run: |

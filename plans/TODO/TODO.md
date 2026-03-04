@@ -1,8 +1,47 @@
 # 📋 TODO — Optimización AudFact (System Design Applied)
 
 > **Origen**: Principios extraídos de *System Design Interview* (Alex Xu) y *Designing Data-Intensive Applications* (Martin Kleppmann).
-> **Estado**: 🔒 Pendiente de autorización para sprint posterior.
+> **Estado**: 🟡 Activo (backlog estratégico, con avances parciales ya implementados).
 > **Fecha de creación**: 2026-02-24
+> **Última alineación con código real**: 2026-03-04
+
+---
+
+## Estado Actual Verificado (2026-03-04)
+
+### Implementado actualmente
+
+- Logger en `APP_ENV=production` escribe a `stderr` (logs de contenedor).
+- `docker-compose.yml` y `docker-compose.ha.yml` no montan volumen dedicado `./logs`.
+- `docker/nginx-ha.conf.template` ya incluye:
+  - `least_conn` en upstream de PHP.
+  - `gzip` para respuestas.
+  - headers de seguridad.
+  - `limit_req` general y específico para `/audit`.
+- Endpoint `GET /health` ya reporta estado granular de:
+  - base de datos,
+  - disco,
+  - memoria.
+
+### Aún no implementado
+
+- Redis como backend compartido.
+- Rate limit global multi-réplica en Redis (actual: APCu o archivo local).
+- Cola asíncrona (`Queue`) y workers dedicados (`AuditWorker`).
+- Circuit breaker y token bucket para Gemini.
+- Endpoint `/metrics`.
+- Healthcheck de Redis.
+
+> Nota: este documento permanece como hoja de ruta por sprints, pero ahora refleja explícitamente qué parte ya existe en el repositorio actual.
+
+### Hallazgos de Auditoría End-to-End incorporados (2026-03-04)
+
+- **P0 / SEC-001**: endpoints críticos sin `auth` aplicado en rutas REST.
+- **P0 / SEC-002**: defaults de TLS hacia SQL Server inseguros (`DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes` por default/fallback).
+- **P1 / ARCH-001**: rate limit no compartido entre réplicas HA (backend local por nodo).
+- **P1 / ARCH-002**: auditoría batch síncrona en request HTTP (latencia y throughput frágiles).
+- **P2 / QUAL-001**: cobertura de tests insuficiente en flujos críticos API.
+- **P2 / GOV-001**: inconsistencia operativa de UID/GID/permisos entre imagen y pipeline de deploy.
 
 ---
 
@@ -247,11 +286,32 @@ graph TB
 
 ## ✅ Checklist de Implementación Secuencial
 
+### Sprint 0 — Cierre de Riesgos P0 (Security + Release Baseline)
+
+> **Objetivo**: cerrar exposición inmediata antes de escalar arquitectura.
+
+- [ ] **0.1** Aplicar `->middleware('auth')` a rutas críticas REST:
+  - [ ] `/clients*`, `/invoices*`, `/dispensation*`, `/audit*`
+  - [ ] Excluir `GET /health` y `GET /config/public` por diseño
+- [ ] **0.2** Implementar `Core\AuthMiddleware::handle` (JWT/API key según diseño vigente)
+- [ ] **0.3** Agregar tests de autorización:
+  - [ ] Request sin token → `401/403`
+  - [ ] Token válido → `200` en rutas protegidas
+- [ ] **0.4** Endurecer defaults de SQL Server para producción:
+  - [ ] `.env.example`: `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` (con nota de cert válido)
+  - [ ] CI/CD: fallar deploy si en `APP_ENV=production` estos valores no son seguros
+- [ ] **0.5** Corregir inconsistencia de UID/GID en deploy:
+  - [ ] Alinear UID de `www-data` en imagen con `chown` del runner
+  - [ ] Eliminar workaround manual recurrente de permisos
+- [ ] **0.6** **Test de salida**: 0 warnings de permisos en `/health` tras 20 refresh + auth bloquea accesos no autorizados
+
+---
+
 ### Sprint 1 — Infraestructura Base (Redis + Docker)
 
 > **Objetivo**: Añadir Redis al stack y crear las abstracciones base.
 
-- [ ] **1.1** Añadir servicio Redis a `docker-compose.ha.yml`
+- [ ] **1.1** Añadir servicio Redis a `docker-compose.ha.yml` y `docker-compose.yml` (base HA actual)
   ```yaml
   redis:
     image: redis:7-alpine
@@ -280,8 +340,8 @@ graph TB
   - [ ] Fallback graceful si Redis no está disponible
 - [ ] **1.5** Añadir Redis al `healthcheck.php`
   - [ ] Verificar `PING` a Redis además de `SELECT 1` a SQL Server
-- [ ] **1.6** Verificar que `docker-compose -f docker-compose.ha.yml up -d` levanta todos los servicios
-- [ ] **1.7** Verificar health checks de todos los contenedores con `docker ps`
+- [ ] **1.6** Verificar que `docker-compose up -d` y `docker-compose -f docker-compose.ha.yml up -d` levantan todos los servicios (incluyendo Redis)
+- [ ] **1.7** Verificar health checks de todos los contenedores con `docker ps` (incluyendo Redis)
 
 ---
 
@@ -289,13 +349,26 @@ graph TB
 
 > **Objetivo**: Migrar Rate Limiting de archivo local a Redis compartido.
 
+#### Política de fallo en producción (obligatoria)
+- **Modo por defecto**: `fail-closed` para endpoints de negocio (`/clients`, `/invoices`, `/dispensation`, `/audit*`).
+- **Comportamiento esperado si Redis no está disponible**:
+  - Responder `503 Service Unavailable` de forma inmediata.
+  - Mensaje controlado: `Rate limiter backend unavailable`.
+  - Log estructurado con severidad `ERROR` y marcador `rate_limiter_backend_unavailable`.
+- **Excepción operativa**: `GET /health` no debe bloquearse por rate limiter para no romper observabilidad.
+- **Fail-open** solo permitido de forma temporal en `APP_ENV=development` o bajo feature flag explícito de emergencia.
+
 - [ ] **2.1** Crear método `redisCheck()` en `core/RateLimit.php`
   - [ ] Usar `INCR` + `EXPIRE` atómico para contador por IP
-  - [ ] Fallback a `apcuCheck()` si Redis no disponible
-  - [ ] Fallback final a `fileCheck()` si APCu tampoco disponible
+  - [ ] Fallback a `apcuCheck()` solo en desarrollo/local
+  - [ ] En producción: sin fallback a archivo local (`fileCheck`) para evitar inconsistencia multi-réplica
+- [ ] **2.1.1** Implementar bypass explícito de rate limiter para `GET /health`
+  - [ ] Opción A: bypass por ruta/método antes de `RateLimit::check()` en `public/index.php`
+  - [ ] Opción B: parámetro de exclusión en `RateLimit::check()` para endpoints de observabilidad
+  - [ ] Documentar decisión final y mantener consistencia con política fail-closed
 - [ ] **2.2** Actualizar jerarquía de backends en `check()`:
   ```
-  Redis → APCu → Archivo (último recurso)
+  Producción: Redis (backend obligatorio) | Desarrollo: Redis → APCu (sin archivo en HA)
   ```
 - [ ] **2.3** Eliminar dependencia de `ratelimit.json` y `ratelimit.lock` como backend primario
 - [ ] **2.4** Implementar algoritmo **Token Bucket** en Redis:
@@ -304,6 +377,11 @@ graph TB
   - [ ] Configurar: `RATE_LIMIT_BUCKET_SIZE=100`, `RATE_LIMIT_REFILL_RATE=10/s`
 - [ ] **2.5** Añadir headers `X-RateLimit-Remaining` y `X-RateLimit-Retry-After` a Response
 - [ ] **2.6** **Test**: Levantar 3 réplicas PHP, enviar 200 requests desde la misma IP, verificar que el límite es global
+- [ ] **2.7** **E2E fail-closed con excepción `/health`**:
+  - [ ] Con Redis caído, `GET /health` debe responder sin bloqueo por rate limiter
+  - [ ] Con Redis caído, rutas de negocio (`/clients`, `/invoices`, `/dispensation`, `/audit*`) deben responder `503`
+  - [ ] Verificar que no exista bypass accidental por rutas similares (`/healthz`, `/health/foo`, query params)
+  - [ ] Confirmar log estructurado `rate_limiter_backend_unavailable` solo en rutas de negocio afectadas
 
 ---
 
@@ -312,7 +390,7 @@ graph TB
 > **Objetivo**: Implementar las 3 capas de caché para reducir latencia.
 
 #### Capa 1: Cache de Resultados de Auditoría IA
-- [ ] **3.1** Modificar `GeminiAuditService::auditInvoice()`:
+- [ ] **3.1** Modificar `AuditOrchestrator::auditInvoice()`:
   - [ ] Antes de procesar: `Cache::get("audit:{$DisDetNro}")`
   - [ ] Si HIT → retornar resultado cacheado inmediatamente
   - [ ] Si MISS → procesar normalmente
@@ -375,14 +453,14 @@ graph LR
 - [ ] **4.2** Modificar `AuditController::run()`:
   - [ ] Generar `$jobId = bin2hex(random_bytes(16))`
   - [ ] `Queue::push('audit_queue', ['job_id' => $jobId, 'invoice_id' => ..., 'params' => ...])`
-  - [ ] `Response::success(['job_id' => $jobId, 'status_url' => "/audit/status/{$jobId}"], 202)`
+  - [ ] `Response::success(['job_id' => $jobId, 'status_url' => "/audit/status/{$jobId}"], 'Trabajo encolado', 202)`
 - [ ] **4.3** Crear `AuditController::status(string $jobId)`:
   - [ ] `$status = Queue::getStatus($jobId)`
   - [ ] Si COMPLETED: incluir resultado
   - [ ] Si FAILED: incluir error message
 - [ ] **4.4** Añadir ruta en `web.php`:
   ```php
-  Route::get('/audit/status/{jobId}', [AuditController::class, 'status']);
+  $router->get('/audit/status/{jobId}', 'AuditController', 'status');
   ```
 
 #### Worker (Consumidor)
@@ -390,10 +468,10 @@ graph LR
   - [ ] CLI entry point: `php app/worker/AuditWorker.php`
   - [ ] Loop infinito con `BRPOP` (timeout 30s)
   - [ ] Check idempotencia: `SETNX idempotency:{job_id} processing EX 3600`
-  - [ ] Ejecutar `GeminiAuditService::auditInvoice()`
+  - [ ] Ejecutar `AuditOrchestrator::auditInvoice()`
   - [ ] Guardar resultado: `Queue::setResult($jobId, $result)`
   - [ ] Manejar señales SIGTERM/SIGINT para graceful shutdown
-- [ ] **4.6** Añadir servicio worker a `docker-compose.ha.yml`:
+- [ ] **4.6** Añadir servicio worker a `docker-compose.yml` y `docker-compose.ha.yml`:
   ```yaml
   audit-worker:
     build:
@@ -436,7 +514,7 @@ graph LR
   - [ ] Almacenar en Redis: `tb:gemini:tokens`, `tb:gemini:last_refill`
   - [ ] Método `consume(int $tokens = 1): bool` → true si hay tokens disponibles
 
-- [ ] **5.3** Integrar en `GeminiAuditService::sendGeminiRequestWithRetry()`:
+- [ ] **5.3** Integrar en `GeminiGateway::sendWithRetry()` (invocado por `AuditOrchestrator`):
   ```php
   if (!CircuitBreaker::allowRequest()) {
       throw new \RuntimeException('Gemini circuit is OPEN', 503);
@@ -504,21 +582,21 @@ graph LR
 
 > **Objetivo**: Optimizar Nginx como API Gateway y preparar CDN.
 
-- [ ] **7.1** Actualizar `docker/nginx-ha.conf.template`:
-  - [ ] Habilitar compresión gzip:
+- [ ] **7.1** Actualizar `docker/nginx-ha.conf.template` (**parcialmente implementado**):
+  - [x] Habilitar compresión gzip:
     ```nginx
     gzip on;
     gzip_types application/json text/plain application/javascript;
     gzip_min_length 256;
     ```
-  - [ ] Añadir headers de seguridad:
+  - [ ] Añadir headers de seguridad (pendiente HSTS):
     ```nginx
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Strict-Transport-Security "max-age=31536000" always;
     ```
-  - [ ] Configurar rate limiting a nivel Nginx (defensa en profundidad):
+  - [x] Configurar rate limiting a nivel Nginx (defensa en profundidad):
     ```nginx
     limit_req_zone $binary_remote_addr zone=api:10m rate=30r/s;
     limit_req zone=api burst=50 nodelay;
@@ -530,7 +608,7 @@ graph LR
       add_header Cache-Control "public, immutable";
   }
   ```
-- [ ] **7.3** **Test**: Verificar headers de respuesta con `curl -I http://localhost:8080/health`
+- [x] **7.3** **Test**: Verificar headers de respuesta con `curl -I http://localhost:8080/health`
 
 ---
 
@@ -544,7 +622,7 @@ graph LR
   public static function endTimer(string $name): float  // retorna ms
   public static function metric(string $name, float $value, string $unit): void
   ```
-- [ ] **8.2** Instrumentar `GeminiAuditService`:
+- [ ] **8.2** Instrumentar `AuditOrchestrator` y `GeminiGateway`:
   - [ ] `Logger::startTimer('gemini_request')`
   - [ ] `Logger::endTimer('gemini_request')` → `audit.gemini.latency_ms`
   - [ ] Registrar si fue cache hit o miss
@@ -564,8 +642,8 @@ graph LR
   ```
 - [ ] **8.5** Añadir ruta en `web.php`:
   ```php
-  Route::get('/metrics', [HealthController::class, 'metrics'])
-       ->middleware('auth');
+  $router->get('/metrics', 'HealthController', 'metrics')
+         ->middleware('auth');
   ```
 - [ ] **8.6** **Test**: Ejecutar batch de 20 auditorías y verificar que `/metrics` muestra datos reales
 
@@ -595,18 +673,15 @@ graph LR
       throw new \RuntimeException('Low memory');
   }
   ```
-- [ ] **9.2** Expandir `GET /health` para retornar status granular:
+- [x] **9.2** Expandir `GET /health` para retornar status granular:
   ```json
   {
     "status": "healthy",
     "checks": {
       "database": {"status": "ok", "latency_ms": 12},
-      "redis": {"status": "ok", "latency_ms": 1},
       "disk": {"status": "ok", "free_mb": 2048},
       "memory": {"status": "ok", "used_mb": 128, "limit_mb": 512}
-    },
-    "version": "1.2.0",
-    "hostname": "audfact-php-3"
+    }
   }
   ```
 - [ ] **9.3** **Test**: Detener Redis y verificar que health check reporta `redis: FAIL`
@@ -617,15 +692,16 @@ graph LR
 
 | Sprint | Área | Estado Actual | Estado Objetivo | Riesgo |
 |:---:|---|---|---|:---:|
+| 0 | Seguridad Baseline | Exposición auth/TLS/permisos | Cierre de riesgos P0 de release | 🔴 Alto |
 | 1 | Infraestructura Redis | Sin Redis | Redis 7 en Docker | 🟢 Bajo |
 | 2 | Rate Limiting | Archivo local por nodo | Redis global + Token Bucket | 🟢 Bajo |
 | 3 | Caching | Sin caché | 3 capas (IA, BD, Rate Limit) | 🟡 Medio |
 | 4 | Async Processing | Síncrono (5-25s) | Queue + Workers (async) | 🔴 Alto |
 | 5 | API Guardrails | Solo retry | Circuit Breaker + Token Bucket | 🟡 Medio |
 | 6 | Database | Single host | Failover + Replicas + Índices | 🟡 Medio |
-| 7 | Nginx / CDN | Básico | gzip + headers + rate limit | 🟢 Bajo |
+| 7 | Nginx / CDN | gzip + headers + rate limit (sin CDN) | Cache estática + capa CDN | 🟢 Bajo |
 | 8 | Monitoreo | Logs básicos | Métricas p95/p99 + /metrics | 🟢 Bajo |
-| 9 | Health Checks | Solo BD | BD + Redis + Disco + Memoria | 🟢 Bajo |
+| 9 | Health Checks | BD + Disco + Memoria | + Redis y checks de degradación | 🟢 Bajo |
 
 ---
 
@@ -640,10 +716,12 @@ graph LR
 | `core/Logger.php` | 8 |
 | `app/Controllers/AuditController.php` | 4 |
 | `app/Routes/web.php` | 3, 4, 8 |
-| `app/worker/GeminiAuditService.php` | 3, 5 |
+| `app/Services/Audit/AuditOrchestrator.php` | 3, 5, 8 |
+| `app/Services/Audit/GeminiGateway.php` | 5, 8 |
 | `app/Models/DispensationModel.php` | 3, 6 |
 | `app/Models/AttachmentsModel.php` | 3, 6 |
 | `app/Models/InvoicesModel.php` | 6 |
+| `docker-compose.yml` | 1, 4 |
 | `docker-compose.ha.yml` | 1, 4 |
 | `docker/healthcheck.php` | 1, 9 |
 | `docker/nginx-ha.conf.template` | 7 |
@@ -665,4 +743,4 @@ graph LR
 > [!NOTE]
 > Este plan requiere **autorización formal** antes de iniciar cualquier sprint.
 > Cada sprint es independiente y puede ejecutarse de forma aislada.
-> Se recomienda priorizar: **Sprint 1 → 2 → 4 → 5** como ruta crítica.
+> Ruta crítica actualizada por auditoría: **Sprint 0 → 1 → 2 → 4 → 5**.

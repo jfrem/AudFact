@@ -1,12 +1,15 @@
 FROM php:8.2-fpm
-RUN usermod -u 1000 www-data && groupmod -g 1000 www-data
+
+ARG WWWGROUP_ID=33
+ARG WWWUSER_ID=33
+RUN usermod -u ${WWWUSER_ID} www-data && groupmod -g ${WWWGROUP_ID} www-data
 
 ARG ENABLE_XDEBUG=0
 
 # Instalación de dependencias y drivers
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        git curl unzip gnupg2 ca-certificates libzip-dev unixodbc-dev gettext-base \
+    git curl unzip gnupg2 ca-certificates libzip-dev unixodbc-dev gettext-base \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \

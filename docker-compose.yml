@@ -5,6 +5,8 @@ services:
       dockerfile: docker/Dockerfile
       args:
         ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
     # container_name has been REMOVED to allow replica scaling
     env_file:
       - .env
