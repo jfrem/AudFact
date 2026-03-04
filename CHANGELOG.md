@@ -6,6 +6,12 @@
   - Hallazgo resuelto: ninguno
   - Impacto: cuando el path primario de logs no es escribible, el logger usa fallback en `/tmp/audfact-logs` y el endpoint HTTP evita exponer warnings; el entrypoint reporta en arranque si `logs/` no es escribible por `www-data`.
 
+### Tipo (fix)
+- **Ambito**: Logging robusto de producción orientado a contenedor para eliminar dependencia de permisos en `./logs`.
+  - Archivos modificados: `core/Logger.php`, `docker-compose.yml`, `docker-compose.ha.yml`, `docker/docker-entrypoint.sh`, `README.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: en `APP_ENV=production` los logs se emiten por `stderr`, por lo que `/health` y endpoints no exponen warnings de `file_put_contents`; en dev se mantiene logging a archivos con rotación.
+
 ## [2026-03-03]
 
 ### Tipo (fix)

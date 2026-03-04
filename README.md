@@ -147,6 +147,7 @@ Servicios (ha): `php` (5 replicas) + `nginx` con balanceo via template
 
 Estado actual de configuración: `docker-compose.yml` mantiene topología HA (5 réplicas PHP-FPM + Nginx con `least_conn`), mientras que `docker-compose.dev.yml` se conserva como modo local simple.
 El build de `php` usa `ENABLE_XDEBUG` por entorno: en `docker-compose.dev.yml` está en `1` (debug activo) y en `docker-compose.yml` / `docker-compose.ha.yml` está en `0` (debug deshabilitado).
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor) y los compose de prod/HA no montan `./logs` dedicado para evitar errores de permisos en bind mounts.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
 

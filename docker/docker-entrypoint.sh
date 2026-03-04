@@ -47,19 +47,23 @@ else
 fi
 
 # ── 3. Fix runtime permissions ────────────────────────────────────
-# Asegurar que www-data pueda leer .env y escribir logs
+# Asegurar que www-data pueda leer .env.
 if [ -f /var/www/html/.env ]; then
   chmod 644 /var/www/html/.env 2>/dev/null || true
 fi
 
-mkdir -p /var/www/html/logs
-chown -R www-data:www-data /var/www/html/logs 2>/dev/null || true
-chmod -R 775 /var/www/html/logs 2>/dev/null || true
-
-if su -s /bin/sh -c 'touch /var/www/html/logs/.write-test && rm -f /var/www/html/logs/.write-test' www-data 2>/dev/null; then
-  echo "[entrypoint] ✅ logs/ writable for www-data"
+if [ "${APP_ENV}" = "production" ]; then
+  echo "[entrypoint] APP_ENV=production -> logger uses stderr"
 else
-  echo "[entrypoint] ⚠️ logs/ is not writable for www-data. Logger fallback will be used."
+  mkdir -p /var/www/html/logs
+  chown -R www-data:www-data /var/www/html/logs 2>/dev/null || true
+  chmod -R 775 /var/www/html/logs 2>/dev/null || true
+
+  if su -s /bin/sh -c 'touch /var/www/html/logs/.write-test && rm -f /var/www/html/logs/.write-test' www-data 2>/dev/null; then
+    echo "[entrypoint] ✅ logs/ writable for www-data"
+  else
+    echo "[entrypoint] ⚠️ logs/ is not writable for www-data. Logger fallback will be used."
+  fi
 fi
 
 # ── 4. Launch PHP-FPM ─────────────────────────────────────────────

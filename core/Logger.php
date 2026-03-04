@@ -67,35 +67,23 @@ class Logger
         return $context;
     }
 
+    private static function shouldUseStderrLogging(): bool
+    {
+        return strtolower((string)Env::get('APP_ENV', 'development')) === 'production';
+    }
+
     private static function write(string $level, string $message, array $context = []): void
     {
         if (!self::$initialized) {
             self::loadConfig();
-            self::cleanupOldLogs();
+            if (!self::shouldUseStderrLogging()) {
+                self::cleanupOldLogs();
+            }
             self::$initialized = true;
         }
         if (!self::shouldLog($level)) {
             return;
         }
-
-        if (!is_dir(self::$logDir)) {
-            @mkdir(self::$logDir, 0750, true);
-        }
-
-        $hostname = gethostname();
-        $logFile = self::$logDir . "/app-{$hostname}-" . date('Y-m-d') . '.log';
-
-        // Sanitize log file path to prevent directory traversal
-        $realLogDir = realpath(self::$logDir);
-        $realLogFile = realpath(dirname($logFile));
-
-        if (!$realLogDir || !$realLogFile || strpos($realLogFile, $realLogDir) !== 0) {
-            // Log to a safe fallback or throw an exception
-            error_log("Security: Invalid log file path detected: {$logFile}");
-            return;
-        }
-
-        self::rotateIfNeeded($logFile);
 
         $entry = [
             'timestamp' => date('c'),
@@ -119,6 +107,34 @@ class Logger
         }
 
         $jsonEntry = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        if (self::shouldUseStderrLogging()) {
+            error_log($jsonEntry === false ? '{"level":"ERROR","message":"Failed to encode log entry"}' : $jsonEntry);
+            return;
+        }
+
+        if (!is_dir(self::$logDir)) {
+            @mkdir(self::$logDir, 0750, true);
+        }
+
+        $hostname = gethostname();
+        $logFile = self::$logDir . "/app-{$hostname}-" . date('Y-m-d') . '.log';
+
+        // Sanitize log file path to prevent directory traversal
+        $realLogDir = realpath(self::$logDir);
+        $realLogFile = realpath(dirname($logFile));
+
+        if (!$realLogDir || !$realLogFile || strpos($realLogFile, $realLogDir) !== 0) {
+            error_log("Security: Invalid log file path detected: {$logFile}");
+            return;
+        }
+
+        self::rotateIfNeeded($logFile);
+        if ($jsonEntry === false) {
+            error_log('{"level":"ERROR","message":"Failed to encode log entry"}');
+            return;
+        }
+
         self::appendToLog($logFile, $jsonEntry . "\n");
     }
 
@@ -178,20 +194,28 @@ class Logger
     {
         $cutoff = strtotime('-' . self::$retentionDays . ' days');
 
-        foreach (glob(self::$logDir . '/app-*.log') as $file) {
-            if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
-                $fileDate = strtotime($matches[1]);
-                if ($fileDate < $cutoff) {
-                    unlink($file);
+        $dailyLogs = glob(self::$logDir . '/app-*.log');
+        if ($dailyLogs !== false) {
+            foreach ($dailyLogs as $file) {
+                if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log$/', $file, $matches)) {
+                    $fileDate = strtotime($matches[1]);
+                    if ($fileDate < $cutoff) {
+                        @unlink($file);
+                    }
                 }
             }
         }
 
-        foreach (glob(self::$logDir . '/app-*.log.*') as $file) {
+        $rotatedLogs = glob(self::$logDir . '/app-*.log.*');
+        if ($rotatedLogs === false) {
+            return;
+        }
+
+        foreach ($rotatedLogs as $file) {
             if (preg_match('/app-.*-(\d{4}-\d{2}-\d{2})\.log\.\d+$/', $file, $matches)) {
                 $fileDate = strtotime($matches[1]);
                 if ($fileDate < $cutoff) {
-                    unlink($file);
+                    @unlink($file);
                 }
             }
         }

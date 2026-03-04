@@ -11,7 +11,6 @@ services:
       - .env
     volumes:
       - ./:/var/www/html
-      - ./logs:/var/www/html/logs
     expose:
       - "9000"
     deploy:
