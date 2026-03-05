@@ -46,10 +46,10 @@ AudFact/
 
 ### Prerrequisitos
 
-- Docker + Docker Compose.
-- SQL Server con base de datos de dispensación.
-- API Key de Google Gemini.
-- Credenciales de servicio Google Drive (JSON).
+- Docker + Docker Compose
+- SQL Server con base de datos de dispensación
+- API Key de Google Gemini
+- Credenciales de servicio Google Drive (JSON)
 
 ### Instalación
 
@@ -175,6 +175,8 @@ Documentación completa disponible en `plans/`:
 ## Licencia
 
 Uso interno — Software propietario.
+
+
 
 
 
