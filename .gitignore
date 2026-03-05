@@ -1,14 +1,29 @@
-.env
-.env.*.local
+# Dependencias
 /vendor/
 /node_modules/
-/responseIA/
+composer.lock
+
+# Variables de Entorno y Configuración
+.env
+.env.*.local
+
+# Logs, Caché y Archivos Temporales
+*.log
 /logs/*.log
 /logs/ratelimit.json
 /logs/ratelimit.lock
-*.log
+.phpunit.cache
+/responseIA/
+
+# IDE, Herramientas y OS
+.vscode/
+.roo/
 .DS_Store
 Thumbs.db
+
+# Agentes de IA
+/.agent/skills/ui-ux-pro-max/
+/.agent/skills/ui-ux-pro-max-skill/
 CLAUDE.md
 GEMINI.md
 .cursorrules
