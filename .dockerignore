@@ -1,8 +1,30 @@
+# Metadatos del controlador de versiones
 .git
 .gitignore
+
+# Dependencias locales (dev)
 node_modules
 vendor
+
+# Logs y Temporales
 logs
 tmp
 public/mcp/node_modules
 public/mcp/build
+
+# Herramientas de Desarrollo y Testing
+tests/
+phpunit.xml
+.phpunit.cache
+.env.dev
+.env.test
+
+# Documentación y Planes
+plans/
+*.md
+.agent/
+
+# IDEs y Entornos
+.vscode/
+.devcontainer/
+.roo/

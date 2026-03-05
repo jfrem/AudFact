@@ -77,6 +77,16 @@ jobs:
 
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: 🧹 Purge development artifacts from Runner
+        run: |
+          echo "🧽 Cleaning remaining ignored/dev directories from Host workspace..."
+          # git clean -fdx deletes all untracked and ignored files (like .agent, vendor, etc.)
+          # Except whatever is already committed or tracked, and the logs/ directory.
+          git clean -fdx -e logs/
+          echo "✅ Runner environment is now clean and immutable ready"
 
       - name: 🔐 Create .env from GitHub Secrets
         env:

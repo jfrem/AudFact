@@ -10,8 +10,10 @@ services:
     # container_name has been REMOVED to allow replica scaling
     env_file:
       - .env
+    # El código fuente se integra en la fase de build (Dockerfile).
+    # Ya NO vinculamos ./:/var/www/html para mantener el entorno de producción inmutable y limpio.
     volumes:
-      - ./:/var/www/html
+      - ./logs:/var/www/html/logs
     expose:
       - "9000"
     deploy:
@@ -36,7 +38,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ./:/var/www/html
+      - ./public:/var/www/html/public
       # Template con envsubst nativo de nginx:alpine
       - ./docker/nginx-ha.conf.template:/etc/nginx/templates/default.conf.template:ro
     environment:
