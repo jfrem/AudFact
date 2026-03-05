@@ -33,6 +33,26 @@ Health check del sistema.
 
 ---
 
+## Configuración
+
+### `GET /config/public`
+
+Devuelve la configuración pública del sistema para uso del frontend.
+
+**Parámetros**: Ninguno
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "success": true,
+    "data": {
+        "auditBatchMaxLimit": 10
+    }
+}
+```
+
+---
+
 ## Clientes
 
 ### `GET /clients`
@@ -48,6 +68,27 @@ Lista todos los clientes (EPS) activos.
     "data": [
         { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
     ]
+}
+```
+
+---
+
+### `POST /clients`
+
+Busca clientes por filtros (lookup).
+
+**Request Body**:
+```json
+{
+    "NitSec": 123
+}
+```
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
 }
 ```
 
@@ -299,7 +340,7 @@ Ejecuta auditoría IA para un lote de facturas.
 |---|---|---|---|
 | `facNitSec` | integer | ✅ | NitSec del cliente (EPS) |
 | `date` | string | ✅ | Fecha de dispensación (YYYY-MM-DD) |
-| `limit` | integer | ✅ | Máximo de facturas a procesar (1–100) |
+| `limit` | integer | ✅ | Máximo de facturas a procesar (1–10) |
 
 **Respuesta exitosa** (`200`):
 ```json
@@ -320,6 +361,36 @@ Ejecuta auditoría IA para un lote de facturas.
 - `429` — Rate limit o quota Gemini excedida
 - `500` — Error del pipeline de auditoría
 - `503` — Modelo Gemini no disponible
+
+---
+
+### `GET /audit/results`
+
+Devuelve los resultados persistidos de auditorías IA. Soporta filtros por cliente y fecha.
+
+**Parámetros**:
+
+| Nombre | Ubicación | Tipo | Requerido | Descripción |
+|---|---|---|---|---|
+| `facNitSec` | query | integer | ❌ | NitSec del cliente |
+| `date` | query | string | ❌ | Fecha (YYYY-MM-DD) |
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "success": true,
+    "data": [
+        {
+            "FacNro": "U88260100225",
+            "Estado": "AUD",
+            "Resultado": "success",
+            "Severidad": "baja",
+            "RiskScore": 15,
+            "FechaAuditoria": "2026-02-27T02:00:21+00:00"
+        }
+    ]
+}
+```
 
 ---
 

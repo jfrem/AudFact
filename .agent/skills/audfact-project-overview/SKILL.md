@@ -30,27 +30,27 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 ```
 AudFact/
 ├── app/
-│   ├── Controllers/     # 7 controladores REST
+│   ├── Controllers/     # 8 controladores REST
 │   ├── Models/          # 6 modelos SQL Server
-│   ├── Services/        # GoogleDrive + Audit/ (6 servicios)
-│   ├── worker/          # GeminiAuditService (817 líneas)
-│   ├── Routes/web.php   # 12 endpoints
+│   ├── Services/        # GoogleDrive + Audit/ (10 servicios)
+│   ├── Routes/web.php   # 15 endpoints
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
-├── docker/              # Dockerfile, nginx.conf, xdebug.ini
-├── docker-compose.yml   # php + nginx
+├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
+├── docker-compose.yml   # php (HA: 5 réplicas) + nginx
 ├── tests/               # CLI tests + install script
 ├── responseIA/          # Resultados de auditoría IA
 └── logs/                # Logs rotativos
 ```
 
-## Endpoints REST (12)
+## Endpoints REST (15)
 
 | Método | URI | Controlador |
 |---|---|---|
 | GET | `/` | Controller::index |
 | GET | `/health` | HealthController::status |
+| GET | `/config/public` | ConfigController::publicConfig |
 | GET | `/clients` | ClientsController::index |
 | GET | `/clients/{clientId}` | ClientsController::show |
 | POST | `/clients` | ClientsController::lookup |
@@ -60,21 +60,22 @@ AudFact/
 | GET | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | AttachmentsController::downloadByDispensation |
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
+| GET | `/audit/results` | AuditController::results |
 | POST | `/audit` | AuditController::run |
+| POST | `/audit/single` | AuditController::single |
 
 ## Flujo principal — Auditoría IA
 
 ```
 1. POST /audit → AuditController
-2. → GeminiAuditService.auditInvoice()
+2. → AuditOrchestrator.orchestrate()
 3.   → DispensationModel (source of truth)
 4.   → AttachmentsModel → AuditFileManager (BLOB a memoria | Drive URL descarga)
 5.   → AuditPromptBuilder (Prompt v3.0 con 4 capas y axiomas)
-6.   → Gemini API (Análisis multimodal con motor de 6 dimensiones)
-7.   → Gemini API (con retry + backoff)
+6.   → GeminiGateway (retry + backoff)
 7.   → JsonResponseParser → AuditResultValidator
-8.   → saveResponse() → responseIA/{DisDetNro}.json
-9.   → saveToDatabase() → AudDispEst (upsert via AuditStatusModel)
+8.   → AuditPersistenceService → AudDispEst (upsert)
+9.   → AuditTelemetryService (métricas)
 ```
 
 ## Skills disponibles
@@ -103,3 +104,19 @@ AudFact/
 2. **Consultar la documentación en `plans/`** para contexto arquitectónico.
 3. **Seguir el flujo de trabajo** definido en la skill específica.
 4. **Verificar consistencia** con los diagramas de arquitectura en `plans/architecture-diagrams.md`.
+
+## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
+
+**Después de implementar cualquier cambio significativo en el proyecto, DEBES:**
+
+1. **Verificar si este SKILL.md sigue siendo preciso**:
+   - ¿Los conteos de controllers, models, services, endpoints siguen correctos?
+   - ¿La estructura de directorios refleja la realidad?
+   - ¿La tabla de endpoints está completa?
+   - ¿El flujo principal de auditoría refleja el orquestador actual?
+2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
+3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+
+> [!CAUTION]
+> Ignorar este paso y dejar la skill desactualizada generará drift
+> acumulativo que confundirá a futuros agentes.

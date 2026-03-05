@@ -8,7 +8,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 |---|---|---|---|
 | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
 | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
-| `audfact-audit-gemini` | Auditoría IA | `app/worker/*`, `app/Services/Audit/*` | Pipeline con Gemini y servicios. |
+| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` | Pipeline con Gemini y servicios (AuditOrchestrator). |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml` | Entorno Docker y conectividad DB. |
@@ -37,7 +37,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `app/Controllers/*.php` | `audfact-api-rest` |
 | `app/Models/*.php` | `audfact-sqlsrv-models` |
 | `core/Database.php` | `audfact-sqlsrv-models` |
-| `app/worker/GeminiAuditService.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/AuditOrchestrator.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/*.php` | `audfact-audit-gemini` |
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
@@ -48,3 +48,8 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `core/Logger.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
+
+---
+
+> [!IMPORTANT]
+> **Mantenimiento obligatorio**: Este catálogo DEBE ser actualizado por `audfact-docs-sync` si se crean, eliminan o renombran archivos gobernados. Un CATALOG.md desactualizado rompe la cadena de trazabilidad archivo→skill.

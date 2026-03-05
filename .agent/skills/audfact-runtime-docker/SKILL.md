@@ -15,9 +15,12 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `docker-compose.yml` | 501 B | Define 2 servicios: php + nginx |
-| `docker/Dockerfile` | 1.4 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug |
-| `docker/nginx.conf` | 720 B | Reverse proxy → PHP-FPM :9000 |
+| `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + nginx (Xdebug off) |
+| `docker-compose.dev.yml` | ~0.7 KB | Desarrollo: php + nginx (Xdebug on, source mounted) |
+| `docker/Dockerfile` | ~1.5 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional |
+| `docker/nginx.Dockerfile` | ~0.4 KB | Nginx 1.25 Alpine con assets estáticos baked-in |
+| `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM |
+| `docker/nginx-ha.conf.template` | ~1.5 KB | Template con upstream multi-worker + envsubst |
 | `docker/xdebug.ini` | 197 B | Configuración Xdebug |
 | `public/index.php` | 2 KB | Bootstrap: env, CORS, rate limit, dispatch |
 | `.env` | 2.5 KB | Variables de entorno (secretos) |
@@ -51,17 +54,24 @@ Cliente HTTP
 ## Extensiones PHP instaladas
 - `sqlsrv` — Driver SQL Server
 - `pdo_sqlsrv` — PDO para SQL Server
-- `xdebug` — Debug
+- `xdebug` — Debug (**condicional**: `ENABLE_XDEBUG=1` en dev, `0` en prod/HA)
 - `zip` — Manejo de archivos comprimidos
+- `apcu` — Cache en memoria (rate limiting)
 
 ## Volúmenes Docker
 
+### Desarrollo (`docker-compose.dev.yml`)
 | Host | Container | Uso |
 |---|---|---|
-| `./` | `/var/www/html` | Código fuente completo |
+| `./` | `/var/www/html` | Código fuente completo (hot-reload) |
 | `./logs` | `/var/www/html/logs` | Logs rotativos |
-| `./tmp` | `/var/www/html/tmp` | Archivos temporales |
 | `./docker/nginx.conf` | `/etc/nginx/conf.d/default.conf` | Config Nginx (read-only) |
+
+### Producción (`docker-compose.yml`)
+| Host | Container | Uso |
+|---|---|---|
+| `./logs` | `/var/www/html/logs` | Logs rotativos (Zero-Source: único mount de datos) |
+| *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ## Variables .env obligatorias
 
@@ -109,13 +119,13 @@ wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && dock
 curl http://localhost:8080/health
 
 # Logs del contenedor PHP
-wsl docker logs audfact-php --tail 100
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose logs php --tail 100"
 
 # Shell dentro del contenedor
-wsl docker exec -it audfact-php bash
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose exec php bash"
 
 # Verificar extensiones PHP
-wsl docker exec audfact-php php -m | grep -i sql
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose exec php php -m | grep -i sql"
 
 # Rebuild solo PHP sin cache
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose build --no-cache php"
@@ -131,6 +141,23 @@ wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Deskto
 4. `app/wrap/webhook.php` accesible.
 5. Logs útiles para diagnóstico.
 6. `.env` tiene todas las variables obligatorias.
+
+## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
+
+**Después de implementar cualquier cambio en los archivos gobernados por esta skill, DEBES:**
+
+1. **Verificar si este SKILL.md sigue siendo preciso**:
+   - ¿Los archivos de Docker listados siguen existiendo? ¿Hay nuevos?
+   - ¿Los volúmenes dev/prod siguen correctos?
+   - ¿Las extensiones PHP instaladas están actualizadas?
+   - ¿Los comandos útiles funcionan con la arquitectura actual?
+   - ¿Las variables `.env` obligatorias están completas?
+2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
+3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+
+> [!CAUTION]
+> Ignorar este paso y dejar la skill desactualizada generará drift
+> acumulativo que confundirá a futuros agentes.
 
 ## Referencias
 1. Ver casos ampliados en `references/examples.md`.

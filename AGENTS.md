@@ -17,10 +17,11 @@
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
-- **Docker**: `docker/` (Dockerfile, nginx.conf, xdebug.ini), `docker-compose.yml`
-- **Tests**: `tests/` — Scripts CLI de integración (PHPUnit pendiente)
-- **Logs**: `logs/` — Rotación automática por `Core\Logger`
-- **Docs/Plans**: `plans/` — Documentos de planificación
+- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`
+- **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
+- **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
+- **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
+- **Zero-Source**: El Host de producción solo contiene orquestación y secretos. El código vive dentro de las imágenes.
 
 ### Skills disponibles
 
@@ -45,29 +46,27 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 
 ---
 
-- **Docs/Plans**: `plans/` — Documentos de planificación
-
----
-
 ## Mapa de Endpoints REST
 
 > El router gestiona estas rutas en `app/Routes/web.php`. Los parámetros entre `{}` son dinámicos.
 
-| Método | Endpoint | Controlador | Acción | Middleware | Descripción |
-|---|---|---|---|---|---|
-| `GET` | `/` | `Controller` | `index` | - | Bienvenida / Status API |
-| `GET` | `/health` | `HealthController` | `status` | - | Health check (Docker/System) |
-| `GET` | `/clients` | `ClientsController` | `index` | `auth` | Listar todos los clientes/EPS |
-| `GET` | `/clients/{clientId}` | `ClientsController` | `show` | `auth` | Detalle de un cliente específico |
-| `POST` | `/clients` | `ClientsController` | `lookup` | `auth` | Buscar cliente por filtros |
-| `GET` | `/invoices` | `InvoicesController` | `index` | `auth` | Listar facturas (top 100) |
-| `POST` | `/invoices` | `InvoicesController` | `search` | `auth` | Buscar facturas por fecha/nit |
-| `GET` | `/dispensation/{DisDetNro}` | `DispensationController` | `show` | `auth` | Detalle técnico de una dispensa |
-| `POST` | `/dispensation` | `DispensationController` | `lookup` | `auth` | Buscar dispensa por ID |
-| `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | `auth` | Listar metadatos de adjuntos |
-| `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | `auth` | Descargar BLOB de adjunto |
-| `POST` | `/audit` | `AuditController` | `run` | `auth` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote) |
-| `POST` | `/audit/single` | `AuditController` | `single` | `auth` | **Pipeline IA**: Auditoría individual HA (Punto Dispensación) |
+| Método | Endpoint | Controlador | Acción | Descripción |
+|---|---|---|---|---|
+| `GET` | `/` | `Controller` | `index` | Bienvenida / Status API |
+| `GET` | `/health` | `HealthController` | `status` | Health check (Docker/System) |
+| `GET` | `/config/public` | `ConfigController` | `publicConfig` | Configuración pública del frontend |
+| `GET` | `/clients` | `ClientsController` | `index` | Listar todos los clientes/EPS |
+| `GET` | `/clients/{clientId}` | `ClientsController` | `show` | Detalle de un cliente específico |
+| `POST` | `/clients` | `ClientsController` | `lookup` | Buscar cliente por filtros |
+| `GET` | `/invoices` | `InvoicesController` | `index` | Listar facturas (top 100) |
+| `POST` | `/invoices` | `InvoicesController` | `search` | Buscar facturas por fecha/nit |
+| `GET` | `/dispensation/{DisDetNro}` | `DispensationController` | `show` | Detalle técnico de una dispensa |
+| `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por ID |
+| `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
+| `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | Descargar BLOB de adjunto |
+| `GET` | `/audit/results` | `AuditController` | `results` | Historial persistido de auditorías |
+| `POST` | `/audit` | `AuditController` | `run` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote, máx 10) |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual HA (Punto Dispensación) |
 
 ---
 
@@ -76,15 +75,16 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 El sistema sigue un pipeline secuencial para cada petición HTTP:
 
 ### 1. Entrada (Nginx & PHP-FPM)
-- La petición llega al puerto `:8080`.
-- Nginx la recibe y la pasa al contenedor `audfact-php` vía socket fastcgi.
+- La petición llega al puerto `:8080` (Host).
+- Nginx (Imagen inmutable con assets empaquetados) recibe y procesa estáticos.
+- Nginx pasa la ejecución dinámica al pool de contenedores `php` vía fastcgi.
 
 ### 2. Bootstrap (`public/index.php`)
 - **Autoload**: Carga clases vía Composer.
 - **Env**: Carga variables `.env`.
 - **CORS**: Inyecta headers según `APP_ENV`.
-- **ErrorHandler**: Registra el manejador global de excepciones.
-- **Rate Limit**: Verifica IP en `Core\RateLimit`.
+- **ErrorHandler**: Registra el manejador global de excepciones (`HttpResponseException`).
+- **Rate Limit**: Verifica IP en `Core\RateLimit` (APCu con fallback a archivos).
 - **Middleware**: Registra manejadores (ej: `auth`).
 
 ### 3. Enrutamiento (`Core\Router`)
@@ -100,7 +100,7 @@ El sistema sigue un pipeline secuencial para cada petición HTTP:
 ### 5. Salida (`Core\Response`)
 - Serializa datos a JSON.
 - Establece el código HTTP (200, 400, 404, 500).
-- Envía el payload y termina la ejecución (vía `exit`).
+- Envía el payload (sin `exit()` — el flujo termina en `index.php`).
 
 ---
 
@@ -112,119 +112,17 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 | Modelo | Tabla / Vista | Propósito | PK / Identificador |
 |---|---|---|---|
-| `InvoicesModel` | `dbo.factura` | Cabeceras de facturas | `FacSec` |
+| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas con datos de dispensación | `FacSec` |
 | `ClientsModel` | `NIT` / `Clientes` | Gestión de EPS/Clientes | `NitSec` |
 | `DispensationModel` | `vw_discolnet_dispensas` | Datos detallados de entrega | `DisDetNro` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Archivos binarios (BLOB/URL) | `AdjDisId` |
-| `AuditStatusModel` | `dbo.AudDispEst` | **Nueva**: Resultados de auditoría IA | `FacSec` |
+| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacSec` |
 
 ### Relaciones Clave
 
 - **Factura ↔ Dispensa**: Relación 1:N. Una factura (`FacSec`) agrupa múltiples dispensaciones (`DisId`).
 - **Dispensa ↔ Adjuntos**: Relación 1:N. Una dispensa tiene múltiples documentos (fórmula, acta, etc.).
-- **Factura ↔ Auditoría**: Relación 1:1. El estado de auditoría se persiste en `AudDispEst` usando el `FacSec` de la factura como llave secundaria/primaria de auditoría.
-
-### Transaccionalidad
-- El sistema es mayoritariamente de **lectura**.
-- La única tabla con escritura frecuente por parte de la API es `AudDispEst` (vía `AuditStatusModel::upsertAuditResult`).
-
----
-
-## Comandos de Build, Test y Desarrollo
-
-### Docker (entorno principal)
-
-```bash
-# Levantar entorno
-wsl docker compose up -d --build
-
-# Verificar contenedores
-wsl docker compose ps
-
-# Logs en tiempo real
-wsl docker compose logs -f php
-wsl docker compose logs -f nginx
-
-# Acceder al contenedor PHP
-wsl docker exec -it audfact-php bash
-
-# Instalar dependencias
-wsl docker exec -it audfact-php composer install
-
-# Ejecutar tests CLI existentes
-wsl docker exec -it audfact-php php tests/cli_test_audit.php
-wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
-```
-
-### API local
-
-- Base URL: `http://localhost:8080`
-- Health check: `GET /health`
-- Webhook MCP: `POST /app/wrap/webhook.php`
-
-### Dependencias
-
-- Si falta `vendor/`, ejecutar `composer install` dentro del contenedor o rebuild Docker
-- Dependencias de producción: `guzzlehttp/guzzle ^7.10`, `firebase/php-jwt ^7.0`
-- **Nunca** agregar dependencias sin discutirlo primero
-
----
-
-## Estilo de Código y Convenciones
-
-### PHP
-
-- **PSR-4 autoloading**: `App\` → `app/`, `Core\` → `core/`
-- **Tipado estricto**: usar type hints en parámetros y retornos
-- **Sin SQL en controladores**: toda query SQL va en modelos (`app/Models/`)
-- **Sin `exit()` en clases**: usar excepciones. El único `exit` permitido está en `public/index.php`
-- **Respuestas JSON**: siempre vía `Core\Response::success()` o `Core\Response::error()`
-- **Validación**: siempre vía `Core\Validator` en el controlador, nunca validar manualmente
-- **Logging**: usar `Core\Logger` (info/warning/error), nunca `echo` o `var_dump` en código de producción
-- **Archivos ≤ 500 LOC**: si un archivo crece más, extraer helpers o servicios
-- **Comentarios**: breves, solo para lógica no obvia o decisiones de diseño
-
-### Nombrado
-
-| Elemento | Convención | Ejemplo |
-|---|---|---|
-| Controlador | `PascalCase` + sufijo `Controller` | `InvoicesController` |
-| Modelo | `PascalCase` + sufijo `Model` | `InvoicesModel` |
-| Método | `camelCase` | `getInvoices()` |
-| Tabla SQL | Nombre original de la BD (legacy) | `dbo.factura` |
-| Ruta REST | `kebab-case`, plural | `/dispensation/{id}/attachments` |
-| Variable | `camelCase` | `$facNitSec` |
-| Constante | `UPPER_SNAKE_CASE` | `MAX_FILE_SIZE_BYTES` |
-
-### Patterns obligatorios
-
-- **Mass assignment protection**: todo modelo define `$fillable`
-- **Prepared statements**: nunca concatenar valores en SQL
-- **Inyección de dependencias**: pasar `GuzzleHttp\Client` como parámetro, no instanciar internamente
-- **Error propagation**: lanzar excepciones, no llamar `Response::error()` desde servicios
-
----
-
-## Seguridad y Configuración
-
-### Variables de entorno
-
-- Las variables de entorno se cargan desde `.env` vía `Core\Env::load()`
-- **Nunca commitear** `.env` con credenciales reales
-- **Archivo de referencia**: `.env.example` — mantenerlo actualizado con toda variable nueva
-- Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
-
-### Guardrails de seguridad
-
-- **Rate limiting**: `Core\RateLimit` usando APCu o fallback a archivos — 100 req/min por IP (configurable)
-- **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`
-- **Payload máximo**: `MAX_JSON_SIZE` (default 1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB) para evitar agotar memoria con BLOBs
-- **Timeouts de ejecución**: Límites de tiempo explícitos asignados dinámicamente (`set_time_limit`) para procesos pesados
-- **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente
-- **TLS saliente**: `GoogleDriveAuthService` valida certificados HTTPS por defecto; solo se permite desactivar en desarrollo vía `GOOGLE_DRIVE_TLS_VERIFY=0`
-- Nunca loguear valores de API keys, passwords, o datos de pacientes
-- Nunca exponer stack traces o rutas internas en respuestas de error de producción
-- Webhook MCP (`app/wrap/webhook.php`): Autenticación obligatoria mediante la cabecera `X-API-KEY` validada contra `MCP_WEBHOOK_SECRET`
+- **Factura ↔ Auditoría**: Relación 1:1. El estado de auditoría se persiste en `AudDispEst` usando el `FacSec`.
 
 ### SQL Server
 
@@ -233,6 +131,28 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 - Queries contra vistas legacy: usar los nombres exactos de la BD (`vw_discolnet_dispensas`, etc.)
 - Para BLOBs: usar `PDO::SQLSRV_ENCODING_BINARY` y stream resources
 - Política de conexión en modelos: consultas (`SELECT`) por `db2` (`DB2_*`) y escrituras (`INSERT/UPDATE/DELETE/MERGE`) por `default` (`DB_*`)
+
+### Seguridad y Configuración
+
+#### Variables de entorno
+
+- Las variables de entorno se cargan desde `.env` vía `Core\Env::load()`
+- **Nunca commitear** `.env` con credenciales reales. El CI/CD lo genera dinámicamente desde Github Secrets.
+- **Archivo de referencia**: `.env.example` — mantenerlo actualizado.
+- **Inmutabilidad**: El código en producción NO puede modificarse desde el host (Zero-Source).
+- Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
+
+#### Guardrails de seguridad
+
+- **Rate limiting**: `Core\RateLimit` — APCu con fallback a archivos, 100 req/min general. Nginx restringe `/audit` a 2 req/seg.
+- **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`.
+- **Payload máximo**: `MAX_JSON_SIZE` (1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB).
+- **Timeouts**: `AUDIT_NGINX_READ_TIMEOUT` (Nginx) y `AUDIT_FPM_TERMINATE_TIMEOUT` (PHP) sincronizados (default 3600s).
+- **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente.
+- **TLS saliente**: `GoogleDriveAuthService` valida certificados HTTPS por defecto.
+- Nunca loguear valores de API keys, passwords, o datos de pacientes
+- Nunca exponer stack traces o rutas internas en respuestas de error de producción
+- Webhook MCP (`app/wrap/webhook.php`): Autenticación obligatoria mediante la cabecera `X-API-KEY` validada contra `MCP_WEBHOOK_SECRET`
 
 ---
 
@@ -304,7 +224,7 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
 | `GEMINI_TOP_P` | *(vacío)* | ❌ | Nucleus sampling (opcional) |
 | `GEMINI_TOP_K` | *(vacío)* | ❌ | Top-K sampling (opcional) |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de tokens en la respuesta |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | ❌ | Límite de tokens en la respuesta |
 | `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de la respuesta |
 | `GEMINI_MEDIA_RESOLUTION` | *(vacío)* | ❌ | Resolución de imágenes enviadas |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
@@ -475,9 +395,9 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 ### MCP Wrap
 
 - **Webhook** (`app/wrap/webhook.php`): punto de entrada para agentes IA externos
-- **Sin autenticación actualmente** — implementar antes de exponer a internet
+- **Autenticación**: Validación obligatoria de cabecera `X-API-KEY` contra `MCP_WEBHOOK_SECRET`
 - **Herramientas disponibles**: `GetClients`, `GetInvoices`, `GetAttachments`, `GetDispensation`
-- `ApiClient.php` actualmente tiene `verify => false` — riesgo de SSL en producción
+- `ApiClient.php` usa Guzzle HTTP con configuración TLS del proyecto
 
 ### Archivos que NO deben editarse
 
@@ -594,11 +514,11 @@ Todo método público nuevo o modificado debe tener PHPDoc mínimo:
 
 ## Manejo de Errores y Excepciones
 
-### Estado actual (⚠️ en proceso de corrección — ver C01)
+### Estado actual (✅ C01 resuelto)
 
-`Core\Response::json()` **todavía usa `exit()`** después de enviar la respuesta. Esto es un problema conocido (hallazgo C01) que impide testing unitario y rompe el flujo de ejecución.
+`Core\Response::json()` ya no usa `exit()`. Se utiliza `HttpResponseException` para control de flujo, capturada por el handler global en `public/index.php`.
 
-### Estado objetivo (después de implementar C01)
+### Arquitectura de excepciones
 
 ```
              Capa                          Manejo
@@ -723,7 +643,7 @@ El rendimiento es crítico en AudFact debido a la latencia de la API de Gemini y
 ### 1. Base de Datos (SQL Server)
 - **WITH (NOLOCK)**: Usar siempre en queries de lectura para evitar bloqueos en el sistema transaccional de producción.
 - **Paginación**: Nunca traer más de 1000 registros de una vez.
-- **Batch Processing**: Usar `getAttachmentBlobsByInvoiceId()` para traer todos los archivos de una factura en un solo viaje TCP.
+- **Stream Processing**: Usar `getAttachmentBlobStreamByIdForDispensation()` con lectura directa a memoria sin archivo temporal.
 
 ### 2. Caché y Almacenamiento
 - **APCu**: Se recomienda para caché de nivel de sistema (ej: tokens JWT, rate limiting hits) para evitar latencia de archivos.
@@ -771,7 +691,17 @@ El equipo debe ser notificado si:
 }
 ```
 
-No hay dependencias de desarrollo (`require-dev`) configuradas. PHPUnit será la primera (ver hallazgo en Testing).
+Dependencias de desarrollo:
+
+```json
+{
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    }
+}
+```
+
+PHPUnit 10 está configurado y activo. Los tests se ejecutan automáticamente en el pipeline CI.
 
 ### Reglas para agregar dependencias
 
@@ -815,7 +745,7 @@ docker exec -it audfact-php composer update vendor/package
 | `composer.lock` | ✅ Sí | Garantiza versiones reproducibles |
 | `vendor/` | ❌ No | Se regenera con `composer install` |
 
-> **Nota**: actualmente `composer.lock` está en la lista de "nunca commitear" del `.gitignore`. Esto debe revisarse cuando se inicialice Git — la práctica recomendada es **sí comitearlo** para tener builds reproducibles.
+> **Nota**: `composer.lock` se commitea normalmente para garantizar builds reproducibles.
 
 ---
 

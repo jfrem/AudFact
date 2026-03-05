@@ -7,7 +7,7 @@ El despliegue a producción está automatizado mediante **GitHub Actions**.
 ### Flujo
 
 ```
-Push a main → CI (lint + tests) → CD (GitHub notifica Runner Local → git pull → docker compose up)
+Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → generate .env → docker compose up --build → health check → Zero-Source Host Purge)
 ```
 
 ### Configuración
@@ -46,11 +46,12 @@ Push a main → CI (lint + tests) → CD (GitHub notifica Runner Local → git p
 ### Qué hace el deploy
 
 1. **CI (GitHub-hosted)**: Lint PHP, validación Composer, PHPUnit
-2. **CD (Self-hosted runner)**: Checkout del código
-3. Genera `.env` desde GitHub Secrets
+2. **CD (Self-hosted runner)**: Fix de permisos Docker + Checkout del código (`clean: true`)
+3. Genera `.env` dinámicamente desde GitHub Secrets (con validación de secrets requeridos)
 4. `docker compose down` → `docker compose up --build -d`
 5. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
 6. Health check con **retry loop** (3 intentos, 10s entre cada uno)
+7. **Zero-Source Host Purge** (Lean Production 3.0): Elimina todo el código fuente y metadatos del workspace del runner, dejando solo `.env`, `docker-compose.yml`, `logs/` y `.git`
 
 ### Condiciones de ejecución
 
@@ -73,7 +74,7 @@ git push origin main
 
 ```bash
 ssh admon@172.16.0.3
-cd /home/admon/AudFact
+cd /home/admon/actions-runner/_work/AudFact/AudFact
 
 # Volver a un commit específico
 git log --oneline -5

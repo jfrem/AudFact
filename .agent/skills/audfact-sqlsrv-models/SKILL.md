@@ -28,7 +28,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | Modelo | Tabla BD | Responsabilidad |
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
-| `InvoicesModel` | `dbo.factura` | Facturas por NIT, fecha, límite |
+| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas de dispensación por NIT, fecha, límite |
 | `DispensationModel` | Dispensación | Datos de referencia (source of truth) |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (consumido como stream para procesamiento en memoria) |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` | Estado de auditoría (upsert MERGE) |
@@ -132,6 +132,22 @@ Database::transaction(function ($conn) use ($data) {
 4. Compatible con controladores actuales.
 5. Sin regresión en endpoints relacionados.
 6. BLOB streams cerrados correctamente.
+
+## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
+
+**Después de implementar cualquier cambio en los archivos gobernados por esta skill, DEBES:**
+
+1. **Verificar si este SKILL.md sigue siendo preciso**:
+   - ¿Los modelos y tablas listados siguen correctos?
+   - ¿Hay modelos nuevos o eliminados?
+   - ¿Las capacidades de `Database.php` siguen documentadas correctamente?
+   - ¿Los ejemplos de queries siguen siendo válidos?
+2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
+3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+
+> [!CAUTION]
+> Ignorar este paso y dejar la skill desactualizada generará drift
+> acumulativo que confundirá a futuros agentes.
 
 ## Referencias
 1. Ver casos ampliados en `references/examples.md`.

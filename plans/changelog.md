@@ -1,6 +1,52 @@
 # Changelog — AudFact
 
-## [2026-03-04] Zero-Intervention Deploy — Entrypoint Autónomo
+## [2026-03-05] Corrección de Documentation Drift en Skills (.agent/skills/)
+
+**Tipo**: Documentación (Skills de Agente IA)
+
+**Descripción**: Auditoría y corrección de drift en las 7 skills de dominio AudFact.
+
+**Cambios realizados**:
+- **audfact-api-rest**: 12→15 endpoints, +ConfigController, exit→HttpResponseException
+- **audfact-audit-gemini**: GeminiAuditService→AuditOrchestrator, -JsonRepairHelper, +4 servicios (GeminiGateway, AuditPersistenceService, AuditTelemetryService, AuditPreValidator)
+- **audfact-mcp-wrap**: +autenticación X-API-KEY, +anti-pattern MCP_WEBHOOK_SECRET
+- **audfact-project-overview**: 7→8 controllers, 6→10 servicios, 12→15 endpoints, -worker/, +AuditOrchestrator
+- **audfact-runtime-docker**: +docker-compose.dev.yml, +nginx.Dockerfile, Xdebug condicional, volúmenes dev/prod separados, comandos docker compose exec
+- **audfact-security-guardrails**: RateLimit file-based→APCu con file fallback
+- **audfact-sqlsrv-models**: InvoicesModel dbo.factura→vw_discolnet_dispensas
+
+---
+
+## [2026-03-05] Corrección Masiva de Documentation Drift
+
+**Tipo**: Documentación
+
+**Descripción**: Auditoría exhaustiva y corrección de 23+ desviaciones entre la documentación y el código fuente real.
+
+**Cambios realizados**:
+- **AGENTS.md**: Reconstrucción de sección "Estructura del Proyecto" destruida (~120 líneas). Corrección de `GEMINI_MAX_OUTPUT_TOKENS`, MCP auth, C01, Composer.
+- **architecture.md**: Agregados `ConfigController`, `AuditStatusModel`, 4 servicios faltantes. Eliminado `JsonRepairHelper`.
+- **api-endpoints.md**: Documentados 3 endpoints (`GET /config/public`, `GET /audit/results`, `POST /clients`). Límite `POST /audit` corregido (100→10).
+- **deployment-and-ci.md**: Flujo actualizado (Zero-Source Purge). Ruta de rollback corregida.
+- **docker-operations.md**: Xdebug condicional, volumen no redundante, comandos exec actualizados.
+- **README.md**: Conteos corregidos (8 controllers, 6 models, 10 services). Nota de logs corregida.
+
+---
+
+## [2026-03-05] Hardening Producción — Lean Production 3.0
+
+**Tipo**: Infraestructura / Seguridad
+
+**Descripción**: Implementación de la estrategia de endurecimiento definitiva para el entorno de producción, eliminando toda superficie de ataque innecesaria y garantizando la inmutabilidad de los servicios.
+
+**Cambios realizados**:
+- **Zero-Source Host Purge**: El pipeline de CI/CD ahora elimina recursivamente todo el código fuente, metadata de Git y documentación del host tras el deploy exitoso, dejando solo los binarios (Docker), orquestación (`docker-compose.yml`), secretos (`.env`) y datos persistentes (`logs/`).
+- **Nginx Bundle**: Se eliminó el bind mount de la carpeta `public/`. Los activos estáticos ahora se inyectan directamente en la imagen de Nginx durante el build (`docker/nginx.Dockerfile`), convirtiendo al servidor web en un artefacto inmutable.
+- **PHP Artifact Purge**: El Dockerfile de PHP ahora realiza una limpieza agresiva de archivos de orquestación (`docker/`, `composer.*`) tras la instalación de dependencias, reduciendo el "leaks" de metadatos dentro del contenedor.
+- **Timeout Alignment**: Sincronización de `AUDIT_NGINX_READ_TIMEOUT` y `AUDIT_FPM_TERMINATE_TIMEOUT` (3600s) para soportar ejecuciones de IA multimodal de larga duración sin cortes de conexión.
+
+---
+
 
 **Tipo**: Infraestructura / CI-CD
 

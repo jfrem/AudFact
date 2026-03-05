@@ -1,10 +1,10 @@
 ## [2026-03-05]
 
 ### Tipo (infra)
-- **Ambito**: Endurecimiento de Despliegue en Producción (Lean Production 2.0).
-  - Archivos modificados: `docker-compose.yml`, `.dockerignore`, `.github/workflows/ci.yml`
-  - Hallazgo resuelto: Archivos de desarrollo, repositorios .git y herramientas de auditoría se estaban filtrando u hospedando innecesariamente en el servidor de Producción debido al mapeo de volúmenes raíz.
-  - Impacto: El contenedor alojado en producción es ahora 100% inmutable, no comparte código crudo del runner y se filtra toda herramienta de desarrollo antes de empujar la imagen. El Workflow de GitHub ejecuta un comando `git clean -fdx` purgar los artefactos extra en el propio Action Runner al completarse el despliegue.
+- **Ambito**: Endurecimiento de Despliegue en Producción (Lean Production 3.0).
+  - Archivos modificados: `docker-compose.yml`, `.dockerignore`, `.github/workflows/ci.yml`, `docker/nginx.Dockerfile`, `docker/Dockerfile`
+  - Hallazgo resuelto: Archivos de desarrollo, repositorios .git y herramientas de auditoría se estaban filtrando u hospedando innecesariamente en el servidor de Producción.
+  - Impacto: El host es ahora **Zero-Source** (purgado post-deploy). Nginx es un **bundle inmutable** con assets integrados (sin bind mount). PHP purga artefactos de orquestación en build. Sincronización de timeouts Nginx/FPM para procesos IA largos (3600s).
 
 ### Tipo (fix)
 - **Ambito**: Endurecimiento de sintaxis YAML en `ci.yml` para generación dinámica de `.env`.

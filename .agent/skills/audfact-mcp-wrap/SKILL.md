@@ -35,10 +35,11 @@ Mantener interoperabilidad estable entre asistentes IA y endpoints REST internos
 
 ## Flujo MCP
 1. Recibir payload con `tools[]` en `webhook.php`.
-2. Registrar tools en `MCPServer`.
-3. Ejecutar cada tool con `params`.
-4. Resolver llamada interna via `ApiClient` → API REST local.
-5. Retornar arreglo de resultados JSON.
+2. **Validar autenticación**: header `X-API-KEY` debe coincidir con `MCP_WEBHOOK_SECRET` env.
+3. Registrar tools en `MCPServer`.
+4. Ejecutar cada tool con `params`.
+5. Resolver llamada interna via `ApiClient` → API REST local.
+6. Retornar arreglo de resultados JSON.
 
 ## Reglas de implementación
 1. **Validar formato MCP de entrada** antes de ejecutar tools.
@@ -53,6 +54,7 @@ Mantener interoperabilidad estable entre asistentes IA y endpoints REST internos
 2. **No olvidar actualizar `capabilities.php`** al agregar/modificar una tool.
 3. **No asumir que los params MCP están validados** — validar dentro de cada tool.
 4. **No hacer llamadas externas desde tools** — solo llamadas a la API REST propia.
+5. **No olvidar `MCP_WEBHOOK_SECRET` en `.env`** — requests sin `X-API-KEY` válido reciben `401`.
 
 ## Cross-references
 - **`audfact-api-rest`**: Las tools son wrappers de endpoints REST; cambios en rutas requieren actualizar tools.
@@ -94,6 +96,22 @@ class GetDispensation
 3. Path interno válido y coincide con `web.php`.
 4. Manejo de errores consistente por tool.
 5. Respuesta JSON útil para asistentes IA.
+
+## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
+
+**Después de implementar cualquier cambio en los archivos gobernados por esta skill, DEBES:**
+
+1. **Verificar si este SKILL.md sigue siendo preciso**:
+   - ¿Los archivos de tools siguen existiendo? ¿Se crearon nuevas?
+   - ¿El mapeo Tool→Endpoint REST sigue alineado con `web.php`?
+   - ¿El flujo MCP refleja los pasos actuales (incluida autenticación)?
+   - ¿El `capabilities.php` está actualizado?
+2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
+3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+
+> [!CAUTION]
+> Ignorar este paso y dejar la skill desactualizada generará drift
+> acumulativo que confundirá a futuros agentes.
 
 ## Referencias
 1. Ver casos ampliados en `references/examples.md`.

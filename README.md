@@ -20,9 +20,9 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 ```
 AudFact/
 ├── app/
-│   ├── Controllers/       # 7 controladores REST
-│   ├── Models/            # 5 modelos SQL Server
-│   ├── Services/          # Google Drive + 6 servicios de auditoría IA
+│   ├── Controllers/       # 8 controladores REST
+│   ├── Models/            # 6 modelos SQL Server
+│   ├── Services/          # Google Drive + 10 servicios de auditoría IA
 │   ├── Services/Audit/    # AuditOrchestrator (orquestador IA)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
@@ -147,7 +147,7 @@ Servicios (ha): `php` (5 replicas) + `nginx` con balanceo via template.
 
 Estado actual de configuración: `docker-compose.yml` mantiene topología HA (5 réplicas PHP-FPM + Nginx con `least_conn`), mientras que `docker-compose.dev.yml` se conserva como modo local simple.
 El build de `php` usa `ENABLE_XDEBUG` por entorno: en `docker-compose.dev.yml` está en `1` (debug activo) y en `docker-compose.yml` / `docker-compose.ha.yml` está en `0` (debug deshabilitado).
-En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor) y los compose de prod/HA no montan `./logs` dedicado para evitar errores de permisos en bind mounts.
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose de producción (`docker-compose.yml`) monta únicamente `./logs:/var/www/html/logs` para persistir logs en el host; el código fuente vive dentro de la imagen (Zero-Source).
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
 

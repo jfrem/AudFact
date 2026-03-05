@@ -16,7 +16,7 @@ Mantener un baseline de seguridad consistente en todo el backend.
 | Archivo | Tamaño | Rol |
 |---|---|---|
 | `public/index.php` | 2 KB | CORS, exception handler, rate limit bootstrap |
-| `core/RateLimit.php` | 6.5 KB | Rate limiting file-based (100/min por IP) |
+| `core/RateLimit.php` | 6.5 KB | Rate limiting APCu con file fallback (100/min por IP) |
 | `core/Validator.php` | 4 KB | Validación de entrada: required, integer, date, min_value |
 | `core/Logger.php` | 4.5 KB | Logging rotacional con redacción de secretos |
 | `core/Middleware.php` | 1.6 KB | Sistema de middlewares (auth registrado) |
@@ -35,8 +35,8 @@ Mantener un baseline de seguridad consistente en todo el backend.
 - Preflight `OPTIONS` → `200` inmediato
 
 ### 2. Rate Limiting (en `core/RateLimit.php`)
-- **Mecanismo**: File-based locking por IP
-- **Límite por defecto**: 100 requests/minuto
+- **Mecanismo**: APCu (cache en memoria) con file-based fallback cuando APCu no está disponible
+- **Límite por defecto**: 100 requests/minuto por IP
 - **En producción**: Falla silenciosamente (permite request si rate limit falla)
 - **En desarrollo**: Lanza excepción
 
@@ -111,6 +111,22 @@ if (Env::get('APP_ENV') === 'development') {
 4. Logs sin secretos expuestos.
 5. Descargas seguras para URL/BLOB.
 6. Excepciones manejadas con logging.
+
+## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
+
+**Después de implementar cualquier cambio en los archivos gobernados por esta skill, DEBES:**
+
+1. **Verificar si este SKILL.md sigue siendo preciso**:
+   - ¿El mecanismo de Rate Limiting está correctamente documentado?
+   - ¿La política de CORS refleja el código actual?
+   - ¿Los ejemplos de código en la sección de seguridad siguen vigentes?
+   - ¿El estado del JWT Middleware es preciso?
+2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
+3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+
+> [!CAUTION]
+> Ignorar este paso y dejar la skill desactualizada generará drift
+> acumulativo que confundirá a futuros agentes.
 
 ## Referencias
 1. Ver casos ampliados en `references/examples.md`.

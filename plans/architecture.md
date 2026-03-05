@@ -20,7 +20,7 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 | `Response.php` | Respuestas JSON estandarizadas |
 | `Logger.php` | Logging estructurado con rotación diaria |
 | `Env.php` | Carga de `.env` por entorno |
-| `RateLimit.php` | Rate limiting por IP (archivo) |
+| `RateLimit.php` | Rate limiting por IP (APCu con fallback a archivos) |
 
 **Dependencias**: Ninguna externa (framework standalone).
 **Interfaz**: Cada módulo es invocado desde `public/index.php` o los controladores.
@@ -33,11 +33,12 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 |---|---|---|
 | `Controller.php` | Base — `validate()`, manejo de errores | — |
 | `HealthController.php` | Health check (`GET /health`) | — |
+| `ConfigController.php` | Configuración pública del frontend (`GET /config/public`) | — |
 | `ClientsController.php` | CRUD clientes/EPS | `ClientsModel` |
 | `InvoicesController.php` | Búsqueda de facturas | `InvoicesModel` |
 | `AttachmentsController.php` | Descarga/previsualización de documentos (BLOB/URL) con detección MIME por magic bytes | `AttachmentsModel` |
 | `DispensationController.php` | Datos de dispensación | `DispensationModel` |
-| `AuditController.php` | Orquestador de auditoría IA | Todos los modelos |
+| `AuditController.php` | Orquestador de auditoría IA + resultados persistidos | Todos los modelos |
 
 **Dependencias**: `core/Validator`, `core/Response`, `core/Logger`, Modelos.
 **Interfaz**: REST JSON vía `app/Routes/web.php`.
@@ -50,9 +51,10 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 |---|---|---|
 | `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `factura` + `AudDispEst` | `getInvoices()` |
+| `InvoicesModel.php` | `vw_discolnet_dispensas` | `getInvoices()` |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByInvoiceId()`, `getAttachmentByIdForDispensation()`, `getAttachmentBlobStreamByIdForDispensation()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` |
+| `AuditStatusModel.php` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | `getAuditResults()`, `upsertAuditStatus()`, `upsertObservacionDetalle()` |
 
 **Dependencias**: `core/Database` (PDO sqlsrv).
 **Interfaz**: Invocados por Controllers y Worker.
@@ -67,8 +69,12 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 | `AuditPromptBuilder.php` | Ingeniería de prompts: Philosophy + System Instruction v3.0 (4 capas con axiomas deterministas) |
 | `AuditResponseSchema.php` | Definición del JSON schema esperado de Gemini |
 | `AuditResultValidator.php` | Validación de la respuesta contra el schema |
-| `JsonRepairHelper.php` | Reparación de JSON truncado/malformado |
-| `JsonResponseParser.php` | Parseo robusto de respuestas Gemini |
+| `JsonResponseParser.php` | Parseo robusto de respuestas Gemini (incluye reparación JSON) |
+| `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y manejo de errores |
+| `AuditPersistenceService.php` | Persistencia de resultados de auditoría en `AudDispEst` y observaciones |
+| `AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
+| `AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
+| `GoogleDriveAuthService.php` | Autenticación JWT para acceso a archivos en Google Drive |
 
 **Dependencias**: Guzzle HTTP, `core/Logger`.
 **Interfaz**: Invocados por `AuditOrchestrator`.
@@ -112,7 +118,7 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 |---|---|---|
 | Desarrollo | `docker-compose.dev.yml` | Topología simple (1 PHP-FPM + 1 Nginx con `docker/nginx.conf`). |
 | HA / Stress | `docker-compose.ha.yml` | Topología HA (5 réplicas PHP-FPM + Nginx con `docker/nginx-ha.conf.template`). |
-| Base actual | `docker-compose.yml` | Mantiene la topología HA como configuración principal del repositorio. |
+| Base actual | `docker-compose.yml` | Mantiene la topología HA. Implementa **Lean Production 3.0**: Nginx es un bundle inmutable (incluye assets) y PHP se purga de artefactos tras el build. El host de producción es **Zero-Source** (solo orquestación y secretos). |
 
 ---
 
@@ -128,7 +134,9 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 | Docker multi-container | Separación Nginx/PHP-FPM para escalabilidad independiente de las fases de request/processing |
 | Load Balancing (Nginx least_conn) | El tráfico a Gemini es variable en tiempo (5s a 25s). `least_conn` asegura que Nginx no envíe N peticiones pesadas a la misma réplica estática. |
 | PHP-FPM (Static Pool) | Evita overhead the spawn processes (Dynamic/Ondemand) bajo peaks de carga concurrente. Asigna inmediatamente memoria a procesos `www-data` para latencias consistentes. |
-| Hostname Logging | Evita que X réplicas corrompan JSON log entries escribiendo al unísono sobre el mount compartido `app-YYYY-MM-DD.log`. |
+| Nginx Bundle (Assets) | Elimina el bind mount de la carpeta `public/`. Los assets se inyectan en el build de Nginx, garantizando que el servidor web sea una unidad inmutable y atómica. |
+| Zero-Source Host | El Runner de CI/CD elimina todo rastro de código fuente, `.git` y docs del host tras el despliegue exitoso (`Host Purge`), dejando solo `.env`, `docker-compose.yml` y `logs/`. |
+| PHP Artifact Purge | El Dockerfile de PHP elimina `composer.json`, `docker/` y archivos de orquestación tras el build para reducir la superficie de ataque dentro del contenedor. |
 
 ## Integraciones Externas
 
