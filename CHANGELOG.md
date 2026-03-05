@@ -1,5 +1,11 @@
 ## [2026-03-05]
 
+### Tipo (fix)
+- **Ambito**: Endurecimiento de sintaxis YAML en `ci.yml` para generación dinámica de `.env`.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: Error de sintaxis de heredoc Bash / YAML en Runner.
+  - Impacto: El heredoc que genera el `.env` retira los bloqueos de parsing para asegurar inyección de variables dinámicas al tiempo que provee despliegue fluido a los Runner Nodes.
+
 ### Tipo (refactor)
 - **Ambito**: Estandarización de variables de entorno para BD de consulta usando solo prefijo `DB2_*` (sin alias `SECONDARY_DB_*`).
   - Archivos modificados: `core/Database.php`, `app/Models/Model.php`, `.env.example`, `AGENTS.md`, `CHANGELOG.md`
