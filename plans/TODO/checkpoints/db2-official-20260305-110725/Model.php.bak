@@ -1,5 +1,4 @@
 <?php
-
 declare(strict_types=1);
 
 namespace App\Models;
@@ -10,12 +9,13 @@ use PDO;
 
 class Model
 {
+    protected \PDO $db;
     protected \PDO $readDb;
-    protected ?\PDO $writeDb = null;
+    protected \PDO $writeDb;
     protected string $table = '';
-    protected string $readConnectionName = 'db2';
+    protected string $readConnectionName = 'secondary';
     protected string $writeConnectionName = 'default';
-
+    
     /**
      * Lista blanca de columnas que pueden ser asignadas masivamente
      * DEBE ser definida en cada modelo hijo para seguridad
@@ -30,20 +30,8 @@ class Model
     public function __construct()
     {
         $this->readDb = Database::getConnection($this->readConnectionName);
-    }
-
-    /**
-     * Retorna la conexión de escritura, instanciándola on-demand (lazy).
-     * Modelos de solo lectura nunca crean esta conexión.
-     *
-     * @return \PDO
-     */
-    protected function getWriteDb(): \PDO
-    {
-        if ($this->writeDb === null) {
-            $this->writeDb = Database::getConnection($this->writeConnectionName);
-        }
-        return $this->writeDb;
+        $this->writeDb = Database::getConnection($this->writeConnectionName);
+        $this->db = $this->readDb;
     }
 
     /**
@@ -71,7 +59,7 @@ class Model
     protected function escapeIdentifier(string $identifier): string
     {
         $dbType = Env::get('DB_TYPE', 'mysql');
-
+        
         switch ($dbType) {
             case 'sqlsrv':
                 return '[' . str_replace(']', ']]', $identifier) . ']';
@@ -134,25 +122,25 @@ class Model
     {
         // Filtrar datos por la lista blanca $fillable
         $data = $this->filterFillable($data);
-
+        
         if (empty($data)) {
             throw new \InvalidArgumentException('No valid data provided for mass assignment');
         }
 
         $table = $this->getQuotedTable();
-
+        
         $escapedCols = array_map(
             fn($col) => $this->escapeIdentifier($col),
             array_keys($data)
         );
-
+        
         $cols = implode(', ', $escapedCols);
         $vals = implode(', ', array_fill(0, count($data), '?'));
-
-        $stmt = $this->getWriteDb()->prepare("INSERT INTO {$table} ({$cols}) VALUES ({$vals})");
+        
+        $stmt = $this->writeDb->prepare("INSERT INTO {$table} ({$cols}) VALUES ({$vals})");
         $stmt->execute(array_values($data));
-
-        return $this->findByConnection($this->getWriteDb(), $this->getWriteDb()->lastInsertId());
+        
+        return $this->findByConnection($this->writeDb, $this->writeDb->lastInsertId());
     }
 
     /**
@@ -167,22 +155,22 @@ class Model
     {
         // Filtrar datos por la lista blanca $fillable
         $data = $this->filterFillable($data);
-
+        
         if (empty($data)) {
             throw new \InvalidArgumentException('No valid data provided for mass assignment');
         }
 
         $table = $this->getQuotedTable();
-
+        
         $sets = implode(', ', array_map(
             fn($k) => $this->escapeIdentifier($k) . ' = ?',
             array_keys($data)
         ));
-
-        $stmt = $this->getWriteDb()->prepare("UPDATE {$table} SET {$sets} WHERE id = ?");
+        
+        $stmt = $this->writeDb->prepare("UPDATE {$table} SET {$sets} WHERE id = ?");
         $stmt->execute([...array_values($data), $id]);
-
-        return $this->findByConnection($this->getWriteDb(), $id);
+        
+        return $this->findByConnection($this->writeDb, $id);
     }
 
     /**
@@ -194,7 +182,7 @@ class Model
     public function delete(int|string $id): bool
     {
         $table = $this->getQuotedTable();
-        $stmt = $this->getWriteDb()->prepare("DELETE FROM {$table} WHERE id = ?");
+        $stmt = $this->writeDb->prepare("DELETE FROM {$table} WHERE id = ?");
         return $stmt->execute([$id]);
     }
 

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace App\Models;
@@ -82,7 +83,7 @@ class DispensationModel extends Model
                 Codigo, Codigo_aut, Producto, Laboratorio, Cum, Lot, LotFec,
                 Unidades_entr, Unidades_pres, Mipres,
                 IdPrincipal, IdDirec, IdProg, IdEntr, IdRepEnt, IdFact";
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':DisDetNro', $DisDetNro, PDO::PARAM_STR);
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);

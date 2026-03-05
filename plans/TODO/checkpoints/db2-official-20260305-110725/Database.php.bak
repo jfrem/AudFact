@@ -202,18 +202,19 @@ class Database
      */
     private static function resolveConnectionConfig(string $name): array
     {
-        $prefix = self::resolveEnvPrefix($name);
+        $prefix = $name === 'default' ? 'DB_' : strtoupper($name) . '_DB_';
+        $legacyPrefix = self::getLegacyPrefix($name);
 
-        $host = Env::get($prefix . 'HOST', 'localhost');
-        $port = Env::get($prefix . 'PORT', '1433');
-        $db = Env::get($prefix . 'NAME', 'mi_base');
-        $user = Env::get($prefix . 'USER', 'sa');
-        $pass = Env::get($prefix . 'PASS', '');
-        $persistent = Env::get($prefix . 'PERSISTENT', '0') === '1';
-        $pooling = Env::get($prefix . 'POOLING', '1') === '1';
-        $timeout = (int) Env::get($prefix . 'TIMEOUT', '30');
-        $encrypt = Env::get($prefix . 'ENCRYPT', 'no');
-        $trustCert = Env::get($prefix . 'TRUST_SERVER_CERT', 'yes');
+        $host = self::getEnvValue($prefix . 'HOST', $legacyPrefix . 'HOST', 'localhost');
+        $port = self::getEnvValue($prefix . 'PORT', $legacyPrefix . 'PORT', '1433');
+        $db = self::getEnvValue($prefix . 'NAME', $legacyPrefix . 'NAME', 'mi_base');
+        $user = self::getEnvValue($prefix . 'USER', $legacyPrefix . 'USER', 'sa');
+        $pass = self::getEnvValue($prefix . 'PASS', $legacyPrefix . 'PASS', '');
+        $persistent = self::getEnvValue($prefix . 'PERSISTENT', $legacyPrefix . 'PERSISTENT', '0') === '1';
+        $pooling = self::getEnvValue($prefix . 'POOLING', $legacyPrefix . 'POOLING', '1') === '1';
+        $timeout = (int) self::getEnvValue($prefix . 'TIMEOUT', $legacyPrefix . 'TIMEOUT', '30');
+        $encrypt = self::getEnvValue($prefix . 'ENCRYPT', $legacyPrefix . 'ENCRYPT', 'no');
+        $trustCert = self::getEnvValue($prefix . 'TRUST_SERVER_CERT', $legacyPrefix . 'TRUST_SERVER_CERT', 'yes');
 
         return [
             'host' => $host,
@@ -248,16 +249,29 @@ class Database
         return hash('sha256', (string) json_encode($fingerprint));
     }
 
-    private static function resolveEnvPrefix(string $name): string
+    private static function getLegacyPrefix(string $name): string
     {
-        if ($name === 'default') {
-            return 'DB_';
-        }
-
-        if ($name === 'db2') {
+        if ($name === 'secondary') {
             return 'DB2_';
         }
 
-        return strtoupper($name) . '_DB_';
+        return '';
+    }
+
+    private static function getEnvValue(string $primaryKey, string $legacyKey, string $default): string
+    {
+        $value = Env::get($primaryKey);
+        if ($value !== null && $value !== '') {
+            return $value;
+        }
+
+        if ($legacyKey !== '') {
+            $legacyValue = Env::get($legacyKey);
+            if ($legacyValue !== null && $legacyValue !== '') {
+                return $legacyValue;
+            }
+        }
+
+        return Env::get($primaryKey, $default);
     }
 }

@@ -19,21 +19,29 @@ Push a main → CI (lint + tests) → CD (GitHub notifica Runner Local → git p
 
 ### GitHub Secrets requeridos
 
-| Secret | Descripción |
-|---|---|
-| `APP_ENV` | Entorno (`production`) |
-| `DB_HOST` | Host SQL Server |
-| `DB_PORT` | Puerto SQL Server (`1433`) |
-| `DB_NAME` | Nombre de base de datos |
-| `DB_USER` | Usuario BD |
-| `DB_PASS` | Contraseña BD |
-| `DB_ENCRYPT` | Cifrado de conexión (`no`/`yes`) |
-| `DB_TRUST_SERVER_CERT` | Trust cert (`yes`/`no`) |
-| `GEMINI_API_KEY` | API Key de Google Gemini |
-| `ALLOWED_ORIGINS` | Orígenes CORS permitidos |
-| `MCP_WEBHOOK_SECRET` | Secret del webhook MCP |
-| `LOG_LEVEL` | Nivel de log (`info`) |
-| `AUDIT_NGINX_READ_TIMEOUT` | Timeout lectura Nginx (`3600`) |
+| Secret | Requerido | Descripción |
+|---|---|---|
+| `APP_ENV` | ✅ | Entorno (`production`) |
+| `DB_HOST` | ✅ | Host SQL Server escritura (ej: `169.46.6.53\SQL2022`) |
+| `DB_PORT` | ✅ | Puerto SQL Server (`1433`) |
+| `DB_NAME` | ✅ | Nombre de base de datos |
+| `DB_USER` | ✅ | Usuario BD escritura |
+| `DB_PASS` | ✅ | Contraseña BD escritura |
+| `DB_ENCRYPT` | — | Cifrado de conexión (`no`/`yes`, default: `no`) |
+| `DB_TRUST_SERVER_CERT` | — | Trust cert (`yes`/`no`, default: `yes`) |
+| `DB2_HOST` | ✅ | Host SQL Server lectura (ej: `169.46.6.55\SQL2022_REPLICA`) |
+| `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
+| `DB2_NAME` | ✅ | Nombre de BD lectura |
+| `DB2_USER` | ✅ | Usuario BD lectura |
+| `DB2_PASS` | ✅ | Contraseña BD lectura |
+| `GOOGLE_DRIVE_CLIENT_EMAIL` | — | Email de service account de Google Drive |
+| `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
+| `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
+| `ALLOWED_ORIGINS` | — | Orígenes CORS permitidos |
+| `MCP_WEBHOOK_SECRET` | — | Secret del webhook MCP |
+| `LOG_LEVEL` | — | Nivel de log (`info`, default: `info`) |
+| `AUDIT_NGINX_READ_TIMEOUT` | — | Timeout lectura Nginx (default: `3600`) |
+
 
 ### Qué hace el deploy
 

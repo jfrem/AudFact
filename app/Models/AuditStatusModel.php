@@ -7,6 +7,14 @@ namespace App\Models;
 use PDO;
 use Core\Logger;
 
+/**
+ * Modelo de estado de auditoría de dispensaciones.
+ *
+ * @important Dependencia cross-database: TODAS las queries de este modelo operan
+ *            contra Discolnet.dbo.AudDispEst (SELECT, MERGE, INSERT). Esta tabla
+ *            DEBE residir en la misma instancia SQL Server que la BD principal
+ *            (DB_NAME). Si la topología cambia, este modelo dejará de funcionar.
+ */
 class AuditStatusModel extends Model
 {
     /**
@@ -34,7 +42,7 @@ class AuditStatusModel extends Model
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
                 WHERE [FacSec] = :facSec";
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
         $stmt->execute();
 
@@ -57,8 +65,7 @@ class AuditStatusModel extends Model
         $sql = "SELECT COUNT(*) AS total
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
                 {$where}";
-
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         foreach ($params as $key => $value) {
             $stmt->bindValue($key, $value, PDO::PARAM_STR);
         }
@@ -94,7 +101,7 @@ class AuditStatusModel extends Model
         $params[':offset'] = $offset;
         $params[':pageSize'] = $pageSize;
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         foreach ($params as $key => $value) {
             $type = is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR;
             $stmt->bindValue($key, $value, $type);
@@ -157,6 +164,7 @@ class AuditStatusModel extends Model
         if (empty($data['FacSec'])) {
             throw new \InvalidArgumentException('FacSec is required for upsert');
         }
+        $writeDb = $this->getWriteDb();
 
         $sql = "MERGE Discolnet.dbo.AudDispEst AS target
                 USING (SELECT
@@ -198,7 +206,7 @@ class AuditStatusModel extends Model
                             source.[DocumentosProcesados], source.[DocumentoFallido],
                             source.[DuracionProcesamientoMs], source.[FacNitSec]);";
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $writeDb->prepare($sql);
 
         // Bind con tipos PDO explícitos por columna
         $stmt->bindParam(':FacSec', $data['FacSec'], PDO::PARAM_STR);
@@ -221,7 +229,7 @@ class AuditStatusModel extends Model
             'EstAud' => $data['EstAud']
         ]);
 
-        return $this->getByFacSec($data['FacSec']);
+        return $this->getByFacSecFromConnection($writeDb, $data['FacSec']);
     }
 
     /**
@@ -238,6 +246,7 @@ class AuditStatusModel extends Model
     public function insertAuditObservation(string $facNro, string $observation, ?string $documentoFallido): bool
     {
         $maxRetries = 2;
+        $writeDb = $this->getWriteDb();
 
         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
             try {
@@ -246,7 +255,7 @@ class AuditStatusModel extends Model
                     FROM DispensacionDetalleServicio d WITH (NOLOCK)
                     WHERE d.DisDetNro = :facNro";
 
-                $stmtResolve = $this->db->prepare($sqlResolve);
+                $stmtResolve = $writeDb->prepare($sqlResolve);
                 $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
                 $stmtResolve->execute();
                 $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
@@ -267,7 +276,7 @@ class AuditStatusModel extends Model
                     WHERE a.DisId = :disId AND a.DisDetId = :disDetId
                       AND a.AdjDisNom = :documentoFallido";
 
-                $stmtAdj = $this->db->prepare($sqlAdj);
+                $stmtAdj = $writeDb->prepare($sqlAdj);
                 $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
                 $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                 $stmtAdj->bindParam(':documentoFallido', $documentoFallido, PDO::PARAM_STR);
@@ -281,7 +290,7 @@ class AuditStatusModel extends Model
                         WHERE a.DisId = :disId AND a.DisDetId = :disDetId
                         ORDER BY a.AdjDisId ASC";
 
-                    $stmtFallback = $this->db->prepare($sqlFallback);
+                    $stmtFallback = $writeDb->prepare($sqlFallback);
                     $stmtFallback->bindParam(':disId', $disId, PDO::PARAM_STR);
                     $stmtFallback->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                     $stmtFallback->execute();
@@ -306,7 +315,7 @@ class AuditStatusModel extends Model
                     WHERE DisId = :disId AND DisDetId = :disDetId
                       AND AdjDisId = :adjDisId AND DisDetAdjDetUsuCod = 'Z-IA'";
 
-                $stmtExists = $this->db->prepare($sqlExists);
+                $stmtExists = $writeDb->prepare($sqlExists);
                 $stmtExists->bindParam(':disId', $disId, PDO::PARAM_STR);
                 $stmtExists->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                 $stmtExists->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
@@ -323,7 +332,7 @@ class AuditStatusModel extends Model
                 }
 
                 // 4. INSERT con transacción y bloqueo pesimista
-                $this->db->beginTransaction();
+                $writeDb->beginTransaction();
 
                 // Obtener siguiente secuencia con UPDLOCK, HOLDLOCK
                 $sqlNextSec = "SELECT ISNULL(MAX(det.DisDetAdjDetSec), 0) + 1 AS nextSec
@@ -332,7 +341,7 @@ class AuditStatusModel extends Model
                       AND det.DisDetId = :disDetId
                       AND det.AdjDisId = :adjDisId";
 
-                $stmtSec = $this->db->prepare($sqlNextSec);
+                $stmtSec = $writeDb->prepare($sqlNextSec);
                 $stmtSec->bindParam(':disId', $disId, PDO::PARAM_STR);
                 $stmtSec->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                 $stmtSec->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
@@ -350,7 +359,7 @@ class AuditStatusModel extends Model
                         GETDATE(), :usuario, :observacion, :adjDisNom, :subRecConSopCod
                     )";
 
-                $stmtInsert = $this->db->prepare($sqlInsert);
+                $stmtInsert = $writeDb->prepare($sqlInsert);
                 $stmtInsert->bindParam(':disId', $disId, PDO::PARAM_STR);
                 $stmtInsert->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                 $stmtInsert->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
@@ -362,7 +371,7 @@ class AuditStatusModel extends Model
                 $stmtInsert->bindParam(':subRecConSopCod', $subRecConSopCod, PDO::PARAM_INT);
                 $stmtInsert->execute();
 
-                $this->db->commit();
+                $writeDb->commit();
 
                 Logger::info('insertAuditObservation: observación insertada', [
                     'DisId' => $disId,
@@ -375,8 +384,8 @@ class AuditStatusModel extends Model
                 return true;
             } catch (\PDOException $e) {
                 // Rollback si la transacción está activa
-                if ($this->db->inTransaction()) {
-                    $this->db->rollBack();
+                if ($writeDb->inTransaction()) {
+                    $writeDb->rollBack();
                 }
 
                 // Retry en caso de duplicate key (SQLSTATE 23000)
@@ -398,5 +407,31 @@ class AuditStatusModel extends Model
         }
 
         return false;
+    }
+
+    private function getByFacSecFromConnection(PDO $connection, string $facSec): array|false
+    {
+        $sql = "SELECT
+                    [FacSec],
+                    [FacNro],
+                    [EstAud],
+                    [EstadoDetallado],
+                    [RequiereRevisionHumana],
+                    [Severidad],
+                    [Hallazgos],
+                    [DetalleError],
+                    [DocumentosProcesados],
+                    [DocumentoFallido],
+                    [DuracionProcesamientoMs],
+                    [FacNitSec],
+                    [FechaCreacion],
+                    [FechaActualizacion]
+                FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
+                WHERE [FacSec] = :facSec";
+
+        $stmt = $connection->prepare($sql);
+        $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 }

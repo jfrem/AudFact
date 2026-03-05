@@ -150,6 +150,13 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 **Propósito**: Estado de auditoría de dispensaciones (base de datos cruzada).
 
+> [!WARNING]
+> **Dependencia de misma instancia**: Esta tabla reside en la base de datos `Discolnet`,
+> que DEBE coexistir en la misma instancia SQL Server que la BD principal (`DB_NAME`).
+> Las queries cross-database (`Discolnet.dbo.AudDispEst`) dependen de esta topología.
+> Si alguna vez las bases de datos se separan a instancias distintas, será necesario
+> refactorizar a linked servers o replicación.
+
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `FacSec` | int (FK) | Referencia a `vw_discolnet_dispensas.FacSec` |

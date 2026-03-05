@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace App\Models;
@@ -41,7 +42,7 @@ class AttachmentsModel extends Model
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
                 WHERE n.NitSec = :nitSec AND d.DisDetNro = :invoiceId";
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
         $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
         $stmt->execute();
@@ -78,7 +79,7 @@ class AttachmentsModel extends Model
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
         $stmt->execute();
@@ -103,7 +104,7 @@ class AttachmentsModel extends Model
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
 
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
         $stmt->execute();

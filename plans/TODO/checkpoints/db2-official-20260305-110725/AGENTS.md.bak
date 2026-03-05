@@ -232,7 +232,7 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 - Cerrar cursores explícitamente después de fetch large result sets
 - Queries contra vistas legacy: usar los nombres exactos de la BD (`vw_discolnet_dispensas`, etc.)
 - Para BLOBs: usar `PDO::SQLSRV_ENCODING_BINARY` y stream resources
-- Política de conexión en modelos: consultas (`SELECT`) por `db2` (`DB2_*`) y escrituras (`INSERT/UPDATE/DELETE/MERGE`) por `default` (`DB_*`)
+- Política de conexión en modelos: consultas (`SELECT`) por `secondary` (fallback `DB2_*`) y escrituras (`INSERT/UPDATE/DELETE/MERGE`) por `default`
 
 ---
 
@@ -261,14 +261,14 @@ wsl docker exec -it audfact-php php tests/cli_test_single.php <FACSEC>
 | `DB_USER` | `sa` | ✅ | `Core\Database` — usuario |
 | `DB_PASS` | *(vacío)* | ✅ | `Core\Database` — contraseña |
 | `DB_POOLING` | `1` | ❌ | `Core\Database` — connection pooling PDO |
-| `DB2_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta) |
-| `DB2_PORT` | `1433` | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `db2` |
-| `DB2_NAME` | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD de consulta |
-| `DB2_USER` | `sa` | ⚠️ Multi-BD | `Core\Database` — usuario de BD de consulta |
-| `DB2_PASS` | *(vacío)* | ⚠️ Multi-BD | `Core\Database` — contraseña de BD de consulta |
-| `DB2_POOLING` | `1` | ❌ | `Core\Database` — pooling PDO para conexión `db2` |
-| `DB2_ENCRYPT` | `no` | ❌ | `Core\Database` — cifrado TLS de conexión `db2` |
-| `DB2_TRUST_SERVER_CERT` | `yes` | ❌ | `Core\Database` — trust del certificado SQL Server de `db2` |
+| `SECONDARY_DB_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `secondary` |
+| `SECONDARY_DB_PORT` | `1433` | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `secondary` |
+| `SECONDARY_DB_NAME` | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD secundaria |
+| `SECONDARY_DB_USER` | `sa` | ⚠️ Multi-BD | `Core\Database` — usuario de BD secundaria |
+| `SECONDARY_DB_PASS` | *(vacío)* | ⚠️ Multi-BD | `Core\Database` — contraseña de BD secundaria |
+| `SECONDARY_DB_POOLING` | `1` | ❌ | `Core\Database` — pooling PDO para conexión `secondary` |
+| `SECONDARY_DB_ENCRYPT` | `no` | ❌ | `Core\Database` — cifrado TLS de conexión `secondary` |
+| `SECONDARY_DB_TRUST_SERVER_CERT` | `yes` | ❌ | `Core\Database` — trust del certificado SQL Server secundario |
 
 ### Google Drive
 

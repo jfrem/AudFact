@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace App\Models;
@@ -22,7 +23,7 @@ class ClientsModel extends Model
                 n.NitSec,
                 n.NitCom
             order by n.NitCom Asc";
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':clientId', $clientId, PDO::PARAM_INT);
         $stmt->execute();
         $result = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -47,7 +48,7 @@ class ClientsModel extends Model
                 n.NitSec,
                 n.NitCom
             order by n.NitCom Asc";
-        $stmt = $this->db->prepare($sql);
+        $stmt = $this->readDb->prepare($sql);
         $stmt->execute();
         $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         Logger::info("Executed SQL to fetch all clients", [
