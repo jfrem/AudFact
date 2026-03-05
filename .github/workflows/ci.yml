@@ -80,13 +80,6 @@ jobs:
         with:
           clean: true
 
-      - name: 🧹 Purge development artifacts from Runner
-        run: |
-          echo "🧽 Cleaning remaining ignored/dev directories from Host workspace..."
-          # git clean -fdx deletes all untracked and ignored files (like .agent, vendor, etc.)
-          # Except whatever is already committed or tracked, and the logs/ directory.
-          git clean -fdx -e logs/
-          echo "✅ Runner environment is now clean and immutable ready"
 
       - name: 🔐 Create .env from GitHub Secrets
         env:
@@ -203,3 +196,10 @@ jobs:
           docker compose logs --tail=120 php nginx
           exit 1
 
+      - name: 🧹 Zero-Source Host Purge (Lean Production 3.0)
+        if: success()
+        run: |
+          echo "🔥 Purging all source code and metadata from the deployment host..."
+          # Delete everything except the essentials (.env, logs, docker-compose.yml, .git)
+          find . -mindepth 1 -maxdepth 1 ! -name 'logs' ! -name '.env' ! -name 'docker-compose.yml' ! -name '.git' -exec rm -rf {} +
+          echo "✅ Host is now completely clean. Zero-source deployment achieved."

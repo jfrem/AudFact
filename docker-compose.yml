@@ -31,16 +31,14 @@ services:
       start_period: 10s
 
   nginx:
-    image: nginx:1.25-alpine
+    build:
+      context: .
+      dockerfile: docker/nginx.Dockerfile
     container_name: audfact-nginx
     depends_on:
       - php
     ports:
       - "8080:80"
-    volumes:
-      - ./public:/var/www/html/public
-      # Template con envsubst nativo de nginx:alpine
-      - ./docker/nginx-ha.conf.template:/etc/nginx/templates/default.conf.template:ro
     environment:
       # Solo sustituir variables que empiecen con AUDIT_
       NGINX_ENVSUBST_FILTER: "AUDIT_"

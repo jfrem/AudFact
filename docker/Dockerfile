@@ -40,7 +40,9 @@ RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
 
 COPY . .
 
-# Ajuste de permisos
-RUN chown -R www-data:www-data /var/www/html
+# Limpieza Profunda de Artefactos de Orquestación y Construcción
+# Eliminamos todo rastro de herramientas ajenas a la ejecución de PHP en producción.
+RUN rm -rf docker/ composer.* .env.example docker-compose*.yml docker.ps1 system.txt \
+    && chown -R www-data:www-data /var/www/html
 
 ENTRYPOINT ["docker-entrypoint-custom.sh"]
