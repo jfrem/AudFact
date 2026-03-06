@@ -257,8 +257,12 @@ class AuditPromptBuilder
       - Reportar discrepancias por línea: campo "item" debe incluir el número de línea.
 
       **Firma Acta de Entrega:**
-      - Si FirmaActaEntrega es "Obligatorio" ({$firmaActa}), verificar que el ACTA DE ENTREGA contenga firma manuscrita, huella dactilar, o sello de recibido del paciente/tercero.
-      - Si no hay evidencia visual de recepción → reportar como discrepancia · alta.
+      - Si FirmaActaEntrega es "Obligatorio" ({$firmaActa}):
+        1. Localizar la sección inferior del ACTA DE ENTREGA, cerca de "Nombre quien recibe" o campo de recepción equivalente.
+        2. Evidencia válida: firma manuscrita (trazos de tinta), huella dactilar, rúbrica o marca del paciente/tercero autorizado.
+        3. La firma puede ser parcial, superpuesta a texto impreso, o de difícil lectura. Cualquier trazo manuscrito no impreso en la zona de recepción ES evidencia válida.
+        4. Solo reportar si la zona de firma/recepción está completamente vacía, sin ningún trazo manual.
+      - Severidad: alta (únicamente si la zona está absolutamente vacía).
 
       ---
 
@@ -304,6 +308,8 @@ class AuditPromptBuilder
       10. ¿risk_score calculado con la config recibida?
       11. ¿"Días de tratamiento" NO se comparó con cantidades?
       12. ¿Firma del acta verificada si es obligatoria?
+      13. RECONFIRMACIÓN DE HALLAZGOS: Para CADA item que incluirás en "data.items", re-verificar: (a) ¿El valor comparado es exactamente el de la Fuente de Verdad? (b) ¿Consulté el documento autoritativo correcto de §02? (c) ¿Apliqué la normalización correcta de §03? (d) ¿La severidad corresponde a §04? Si alguna respuesta es NO → ELIMINAR el hallazgo del resultado final.
+      14. FIRMA ACTA: Si marcaste FirmaActaEntrega como discrepancia, re-inspeccionar la zona inferior del Acta, junto a "Nombre quien recibe". Si hay CUALQUIER trazo manuscrito, rúbrica o marca de huella → ELIMINAR el hallazgo. Solo mantenerlo si la zona está completamente vacía.
 
       ---
 

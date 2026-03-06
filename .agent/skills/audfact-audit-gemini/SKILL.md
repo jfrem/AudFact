@@ -16,13 +16,13 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | Archivo | Rol |
 |---|---|
 | `app/Services/Audit/AuditOrchestrator.php` | ⭐ Orquestador principal — coordina todo el flujo de auditoría |
-| `app/Services/Audit/AuditPromptBuilder.php` | Prompt v3.0: 4 capas con axiomas deterministas y motor de 6 dimensiones |
+| `app/Services/Audit/AuditPromptBuilder.php` | Prompt v3.0: 4 capas con axiomas deterministas, motor de 6 dimensiones y protocolo de reconfirmación anti-alucinación (§08 items 13-14) |
 | `app/Services/Audit/AuditResponseSchema.php` | Schema JSON esperado de Gemini |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado, sin disco), URL → Drive |
 | `app/Services/Audit/AuditResultValidator.php` | Valida que la respuesta cumpla el schema |
 | `app/Services/Audit/JsonResponseParser.php` | Extrae y repara JSON de la respuesta de Gemini |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y backoff |
-| `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados en `AudDispEst` y observaciones detalle |
+| `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE baseline C + rechazo R individual) |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
 | `app/Services/GoogleDriveAuthService.php` | JWT auth y streaming desde Google Drive |
@@ -44,7 +44,7 @@ AuditOrchestrator
 ├── GeminiGateway (HTTP → Gemini API)
 ├── JsonResponseParser (parseo + reparación)
 ├── AuditResultValidator (validación schema)
-├── AuditPersistenceService (BD: AudDispEst)
+├── AuditPersistenceService (BD: AudDispEst + AdjuntosDispensacion)
 ├── AuditTelemetryService (métricas)
 ├── AuditResponseSchema (schema ref)
 └── Core\Logger (diagnóstico)
@@ -81,11 +81,11 @@ Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con p
 1. Mantener respuesta final con campos `response`, `message`, `documento`, `data.items`.
 2. **No omitir limpieza de temporales en `finally`**.
 3. Tratar errores de API con mensaje corto y código HTTP cuando exista.
-4. Limitar cambios de prompt a reglas de negocio verificables siguiendo los **Axiomas (A1-A4)**.
+4. Limitar cambios de prompt a reglas de negocio verificables siguiendo los **Axiomas (A1-A4)**. §08 contiene 14 items de auto-auditoría incluyendo reconfirmación de hallazgos y verificación visual de firma.
 5. **No romper compatibilidad con `AuditResponseSchema`**.
 6. Evaluar hallazgos bajo el **Protocolo de 6 Dimensiones** (Identidad, Cuantitativa, Temporal, Descriptiva, Integridad, Forense).
 7. Inyección de dependencias: constructor acepta todas como parámetros opcionales.
-8. Resultados se persisten dual: disco (`responseIA/`) + BD (`AudDispEst` via `AuditStatusModel`).
+8. Resultados se persisten triple: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert) + BD adjuntos (`AdjuntosDispensacion` via `updateAuditResult` con estrategia baseline+rechazo individual).
 
 ## Anti-patterns ⚠️
 1. **No truncar JSON manualmente** — `JsonResponseParser` incluye reparación automática.

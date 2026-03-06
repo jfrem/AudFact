@@ -1,5 +1,11 @@
 ## [2026-03-05]
 
+### Tipo (refactor)
+- **Ambito**: Blindaje de gobernanza de skills para agentes (skill-gate estricto + triggers + sync de compatibilidad).
+  - Archivos modificados: `AGENTS.md`, `.agent/skills/CATALOG.md`, `CLAUDE.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: se fuerza detección/carga de skill antes de análisis técnico, se añade checklist pre-ejecución y se reducen omisiones por ambigüedad con triggers por skill.
+
 ### Tipo (infra)
 - **Ambito**: Endurecimiento de Despliegue en Producción (Lean Production 3.0).
   - Archivos modificados: `docker-compose.yml`, `.dockerignore`, `.github/workflows/ci.yml`, `docker/nginx.Dockerfile`, `docker/Dockerfile`

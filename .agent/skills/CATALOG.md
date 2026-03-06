@@ -19,6 +19,25 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `security-assessment` | Auditoría Técnica | Repositorio completo | Auditoría de seguridad (auth/authz, secretos, vulnerabilidades, hardening). |
 | `technical-governance-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de gobernanza técnica: ownership, code review, incidentes y roadmap. |
 
+## Triggers Sugeridos por Skill
+
+Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt coincide con varios, aplicar multi-skill en orden de impacto.
+
+| Skill | Triggers sugeridos |
+|---|---|
+| `audfact-project-overview` | overview, visión general, arquitectura, cómo está organizado, mapear dependencias, estructura del proyecto |
+| `audfact-api-rest` | endpoint, ruta, controller, request/response, validación HTTP, web.php, API REST |
+| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, retry/backoff, AuditOrchestrator |
+| `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
+| `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
+| `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
+| `audfact-security-guardrails` | rate limit, CORS, sanitización, secretos, hardening, seguridad |
+| `audit-skill-router` | auditoría técnica integral, assessment, review global, scoring, 30/60/90 |
+| `architecture-assessment` | acoplamiento, límites de módulos, escalabilidad, diseño de arquitectura |
+| `code-quality-assessment` | deuda técnica, mantenibilidad, complejidad, testabilidad, code quality |
+| `security-assessment` | vulnerabilidades, auth/authz, OWASP, exposición de secretos |
+| `technical-governance-assessment` | ownership, gobernanza, estándares, code review process, roadmap técnico |
+
 ## Bundles
 
 | Bundle | Skills | Uso |

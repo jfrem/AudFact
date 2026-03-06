@@ -55,7 +55,8 @@ class AuditPersistenceService
     }
 
     /**
-     * Persiste el estado de auditoría en la tabla AudDispEst.
+     * Persiste el estado de auditoría en la tabla AudDispEst y actualiza
+     * el resultado en AdjuntosDispensacion.
      *
      * @param string $disDetNro Identificador de dispensación/factura
      * @param array $result Resultado final de auditoría
@@ -99,15 +100,14 @@ class AuditPersistenceService
 
             Logger::info('Persistiendo auditoría en BD', ['FacSec' => $disDetNro, 'EstAud' => $data['EstAud']]);
             $this->auditStatusModel->upsertAuditResult($data);
-            // Insertar observación en AdjuntosDispensacionDetalle solo si:
-            // 1. La auditoría NO fue exitosa
-            // 2. NO es un error de infraestructura (timeout, quota, API caída)
+
+            // Actualizar resultado en AdjuntosDispensacion excepto errores de infraestructura
             $errorOrigin = $result['_errorOrigin'] ?? 'infrastructure';
 
-            if ($response !== 'success' && $errorOrigin !== 'infrastructure') {
-                $this->insertObservationIfNeeded($data['FacNro'], $result, $failedDoc);
-            } elseif ($response !== 'success' && $errorOrigin === 'infrastructure') {
-                Logger::info('Observación NO insertada: error de infraestructura', [
+            if ($errorOrigin !== 'infrastructure') {
+                $this->updateAuditResultIfNeeded($data['FacNro'], $isSuccess, $result);
+            } else if (!$isSuccess) {
+                Logger::info('Resultado en AdjuntosDispensacion NO actualizado: error de infraestructura', [
                     'FacNro' => $data['FacNro'],
                     'message' => $result['message'] ?? 'N/A',
                 ]);
@@ -122,55 +122,88 @@ class AuditPersistenceService
     }
 
     /**
-     * Construye la observación textual y la inserta en AdjuntosDispensacionDetalle.
+     * Actualiza AdjuntosDispensacion según los hallazgos de la auditoría.
+     *
+     * Estrategia:
+     * - Auditoría aprobada (sin hallazgos): marca TODOS los adjuntos como conformes (C).
+     * - Auditoría con hallazgos: primero marca TODOS como conformes (baseline),
+     *   luego rechaza individualmente cada documento que tenga hallazgos.
      *
      * @param string $facNro Número de factura
+     * @param bool $isSuccess true si auditoría aprobada globalmente
      * @param array $result Resultado de auditoría completo
-     * @param string|null $failedDoc Documento fallido identificado
      * @return void
      */
-    private function insertObservationIfNeeded(string $facNro, array $result, ?string $failedDoc): void
+    private function updateAuditResultIfNeeded(string $facNro, bool $isSuccess, array $result): void
     {
         try {
-            // Construir observación textual
-            $parts = [];
-            $message = $result['message'] ?? '';
-            if (!empty($message)) {
-                $parts[] = $message;
+            // Paso 1: Aprobar TODOS los adjuntos como baseline
+            $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
+
+            if ($isSuccess) {
+                Logger::info('Resultado de auditoría: todos los adjuntos aprobados', [
+                    'FacNro' => $facNro,
+                ]);
+                return;
             }
 
+            // Paso 2: Agrupar hallazgos por documento
             $findings = $result['data']['items'] ?? [];
+            $findingsByDoc = [];
             foreach ($findings as $finding) {
-                $severity = $finding['severidad'] ?? '';
-                $item = $finding['item'] ?? '';
-                $detail = $finding['hallazgo'] ?? '';
-                if (!empty($detail)) {
-                    $parts[] = "[{$severity}] {$item}: {$detail}";
+                $doc = $finding['documento'] ?? null;
+                if ($doc !== null) {
+                    $findingsByDoc[$doc][] = $finding;
                 }
             }
 
-            $observation = implode(' | ', $parts);
-            // Truncar a 4000 caracteres (límite razonable para campo de texto SQL Server)
-            $observation = mb_substr($observation, 0, 4000);
-
-            if (empty($observation)) {
-                $observation = 'Auditoría IA detectó hallazgos — ver detalle en AudDispEst';
-            }
-
-            $inserted = $this->auditStatusModel->insertAuditObservation(
-                $facNro,
-                $observation,
-                $failedDoc
-            );
-
-            if ($inserted) {
-                Logger::info('Observación de auditoría insertada en AdjuntosDispensacionDetalle', [
+            if (empty($findingsByDoc)) {
+                Logger::warning('Auditoría con hallazgos pero sin documento asociado', [
                     'FacNro' => $facNro,
+                    'findingsCount' => count($findings),
                 ]);
+                return;
             }
+
+            // Paso 3: Rechazar individualmente cada documento con hallazgos
+            $rejectedCount = 0;
+            foreach ($findingsByDoc as $docName => $docFindings) {
+                $parts = [];
+                foreach ($docFindings as $finding) {
+                    $item = $finding['item'] ?? '';
+                    $detail = $finding['hallazgo'] ?? $finding['detalle'] ?? '';
+                    if (!empty($detail)) {
+                        $parts[] = "{$item}: {$detail}";
+                    }
+                }
+
+                $observation = implode(' | ', $parts);
+                $observation = mb_substr($observation, 0, 4000);
+
+                if (empty($observation)) {
+                    $observation = 'Auditoría IA detectó hallazgos — ver detalle en AudDispEst';
+                }
+
+                $updated = $this->auditStatusModel->updateAuditResult(
+                    $facNro,
+                    false,
+                    $observation,
+                    $docName
+                );
+
+                if ($updated) {
+                    $rejectedCount++;
+                }
+            }
+
+            Logger::info('Resultado de auditoría: adjuntos rechazados individualmente', [
+                'FacNro' => $facNro,
+                'documentosRechazados' => $rejectedCount,
+                'documentosTotales' => count($findingsByDoc),
+            ]);
         } catch (\Exception $e) {
-            // No debe fallar el flujo principal si esta inserción falla
-            Logger::error('Error insertando observación de auditoría', [
+            // No debe fallar el flujo principal si esta actualización falla
+            Logger::error('Error actualizando resultado de auditoría en AdjuntosDispensacion', [
                 'FacNro' => $facNro,
                 'error' => $e->getMessage(),
             ]);

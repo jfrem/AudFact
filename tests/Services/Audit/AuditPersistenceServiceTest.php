@@ -10,7 +10,8 @@ use App\Models\AuditStatusModel;
 /**
  * Tests unitarios para AuditPersistenceService.
  *
- * Valida guards de persistencia: _errorOrigin, idempotencia y construcción de observaciones.
+ * Valida guards de persistencia: _errorOrigin, flujo aprobada/rechazada
+ * y construcción de observaciones.
  */
 class AuditPersistenceServiceTest extends TestCase
 {
@@ -23,9 +24,9 @@ class AuditPersistenceServiceTest extends TestCase
         $this->service = new AuditPersistenceService($this->auditStatusModel);
     }
 
-    // ── Guard: _errorOrigin infrastructure no inserta observación ──
+    // ── Guard: _errorOrigin infrastructure no actualiza AdjuntosDispensacion ──
 
-    public function testSaveToDatabaseSkipsObservationForInfrastructureErrors(): void
+    public function testSaveToDatabaseSkipsUpdateForInfrastructureErrors(): void
     {
         $result = [
             'response' => 'error',
@@ -40,17 +41,17 @@ class AuditPersistenceServiceTest extends TestCase
             ->expects($this->once())
             ->method('upsertAuditResult');
 
-        // insertAuditObservation NO debe llamarse
+        // updateAuditResult NO debe llamarse para errores de infraestructura
         $this->auditStatusModel
             ->expects($this->never())
-            ->method('insertAuditObservation');
+            ->method('updateAuditResult');
 
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
     }
 
-    // ── Guard: success no inserta observación ──
+    // ── Success: marca todos los adjuntos como C (baseline only) ──
 
-    public function testSaveToDatabaseSkipsObservationOnSuccess(): void
+    public function testSaveToDatabaseApprovesAllOnSuccess(): void
     {
         $result = [
             'response' => 'success',
@@ -65,16 +66,24 @@ class AuditPersistenceServiceTest extends TestCase
             ->expects($this->once())
             ->method('upsertAuditResult');
 
+        // Solo 1 llamada: baseline approved (marca todos como C)
         $this->auditStatusModel
-            ->expects($this->never())
-            ->method('insertAuditObservation');
+            ->expects($this->once())
+            ->method('updateAuditResult')
+            ->with(
+                'FAC-001',
+                true,       // approved baseline
+                null,
+                null
+            )
+            ->willReturn(true);
 
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
     }
 
-    // ── Inserción de observación para errores de negocio/gemini ──
+    // ── Rechazada: baseline C + rechazo individual por documento ──
 
-    public function testSaveToDatabaseInsertsObservationForBusinessErrors(): void
+    public function testSaveToDatabaseRejectsDocumentWithFindings(): void
     {
         $result = [
             'response' => 'warning',
@@ -91,13 +100,47 @@ class AuditPersistenceServiceTest extends TestCase
             ->expects($this->once())
             ->method('upsertAuditResult');
 
+        // 2 llamadas: 1 baseline (approved) + 1 rechazo (factura.pdf)
+        $this->auditStatusModel
+            ->expects($this->exactly(2))
+            ->method('updateAuditResult')
+            ->withConsecutive(
+                ['FAC-001', true, null, null],
+                ['FAC-001', false, $this->stringContains('No coincide'), 'factura.pdf']
+            )
+            ->willReturn(true);
+
+        $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
+    }
+
+    // ── Multi-documento: cada documento con hallazgos se rechaza individualmente ──
+
+    public function testSaveToDatabaseRejectsMultipleDocumentsIndividually(): void
+    {
+        $result = [
+            'response' => 'warning',
+            'message' => 'Múltiples hallazgos',
+            '_errorOrigin' => 'gemini',
+            '_meta' => ['factura' => 'FAC-001', 'documentos' => [], 'totalTimeMs' => 3000],
+            'data' => ['items' => [
+                ['severidad' => 'alta', 'item' => 'Regimen', 'hallazgo' => 'Discrepancia régimen', 'documento' => 'VALIDADOR DE DERECHOS'],
+                ['severidad' => 'media', 'item' => 'Firma', 'hallazgo' => 'Falta firma', 'documento' => 'ACTA DE ENTREGA'],
+            ]],
+            'severity' => 'alta',
+        ];
+
         $this->auditStatusModel
             ->expects($this->once())
-            ->method('insertAuditObservation')
-            ->with(
-                'FAC-001',
-                $this->stringContains('Discrepancia encontrada'),
-                'factura.pdf'
+            ->method('upsertAuditResult');
+
+        // 3 llamadas: 1 baseline (approved=true) + 2 rechazos (uno por documento)
+        $this->auditStatusModel
+            ->expects($this->exactly(3))
+            ->method('updateAuditResult')
+            ->withConsecutive(
+                ['FAC-001', true, null, null],
+                ['FAC-001', false, $this->stringContains('Discrepancia régimen'), 'VALIDADOR DE DERECHOS'],
+                ['FAC-001', false, $this->stringContains('Falta firma'), 'ACTA DE ENTREGA']
             )
             ->willReturn(true);
 

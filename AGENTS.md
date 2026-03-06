@@ -360,10 +360,30 @@ Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
 - **Idioma**: toda comunicación en Español (Latinoamérica)
 - **Documentación primero**: OBLIGATORIO revisar planes (`plans/api-endpoints.md`, `plans/architecture.md`, etc.) ANTES de intentar adivinar URLs, comandos o la estructura del ruteo.
 - **Verificar en código**: responder con alta confianza; no adivinar comportamientos
-- **Consultar skills**: antes de modificar un archivo, leer la skill correspondiente del catálogo
+- **Skill-first**: antes de analizar, responder o modificar, detectar y cargar la skill aplicable desde `.agent/skills/CATALOG.md`
 - **No editar `vendor/`**: las actualizaciones lo sobreescriben
 - **No editar archivos dentro de contenedores Docker**: usar el mount de volumen local
 - **Checkpoint obligatorio**: crear respaldo antes de cualquier modificación significativa
+
+### Skill Gate Estricto (Global)
+
+Esta regla aplica a TODA tarea técnica (análisis, overview, implementación, refactor, review).
+
+1. Detectar intención del usuario y mapearla a una skill del catálogo.
+2. Cargar y leer `SKILL.md` correspondiente ANTES de abrir archivos de código o responder contenido técnico.
+3. Declarar explícitamente en la primera respuesta operativa: `Skill aplicada: <nombre>`.
+4. Si aplican múltiples skills, declarar orden de uso y alcance de cada una.
+5. Si la skill no existe, no puede leerse o falla: detener flujo normal, reportar bloqueo y continuar con fallback manual marcado como `provisional sin skill`.
+
+Checklist operativo obligatorio al inicio de cada tarea:
+- `Skill detectada`
+- `SKILL.md leído`
+- `Archivos objetivo identificados`
+
+Excepciones (no requieren skill-gate formal):
+- Correcciones de typo/formato sin impacto funcional
+- Edición menor de documentación existente
+- Conversación casual sin análisis técnico
 
 ### Regla Obligatoria de Auditoría (Skill Gate)
 

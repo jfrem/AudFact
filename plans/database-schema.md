@@ -112,9 +112,13 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `AdjDisNom` | varchar | Nombre del archivo |
 | `AdjDisDoc` | varbinary(max) | Documento almacenado como BLOB |
 | `AdjDisDocUrl` | varchar | URL del documento en Google Drive |
+| `AdjDisOpc` | varchar(1) | Documento opcional: `N`=obligatorio, `S`=opcional |
+| `AdjDisEstSop` | varchar | Estado del soporte: `P`=pendiente, `A`=aprobado, `C`=conforme, `R`=rechazado, `I`=en revisión |
+| `AdjDisRec` | varchar(1) | Reclamación: `' '`=sin revisar, `N`=no reclamado, `S`=reclamado |
 | `DisId` | int (FK) | Referencia a la dispensación |
+| `DisDetId` | int (FK) | Referencia al detalle de dispensación |
 
-**Usada por**: `AttachmentsModel`
+**Usada por**: `AttachmentsModel`, `InvoicesModel` (LEFT JOIN con `AdjDisOpc='N'` para filtrar docs obligatorios conformes)
 
 ---
 
@@ -224,6 +228,11 @@ erDiagram
         varchar EstAud
     }
 ```
+
+### Vistas Clave
+- `vw_discolnet_dispensas`: Fuente principal de dispensados.
+- `vw_discolnet_facturas`: Movimientos de inventario/unidades (usada para filtrar `KarUni = 0`).
+- `vw_discolnet_conceptos`: Conceptos de recobro.
 
 > [!NOTE]
 > La vista `vw_discolnet_dispensas` no se incluye en el ER porque es una vista consolidada que ya resuelve los JOINs necesarios internamente.

@@ -233,72 +233,98 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Inserta una observación de auditoría IA en AdjuntosDispensacionDetalle.
+     * Actualiza el resultado de auditoría IA en AdjuntosDispensacion.
      *
-     * Resuelve la cadena de PKs: FacNro → (DisId, DisDetId) → AdjDisId → INSERT.
-     * Retry una vez en caso de duplicate key (SQLSTATE 23000).
+     * Resuelve la cadena de PKs: FacNro → (DisId, DisDetId) → AdjDisId → UPDATE.
+     * Dos escenarios:
+     *   - Aprobada: EstSop='C', Rec='N', campos de recobro NULL.
+     *   - Rechazada: EstSop='R', Rec='S', observación textual, RecConSopCod=30.
      *
      * @param string $facNro Número de factura (ej: 'D03251203452')
-     * @param string $observation Observación textual de la IA
+     * @param bool $approved true si la auditoría aprobó el documento
+     * @param string|null $observation Observación textual (solo para rechazadas)
      * @param string|null $documentoFallido Nombre del documento fallido (ej: 'FORMULA MEDICA')
-     * @return bool true si la inserción fue exitosa
+     * @return bool true si el UPDATE fue exitoso
      */
-    public function insertAuditObservation(string $facNro, string $observation, ?string $documentoFallido): bool
+    public function updateAuditResult(string $facNro, bool $approved, ?string $observation, ?string $documentoFallido): bool
     {
-        $maxRetries = 2;
         $writeDb = $this->getWriteDb();
 
-        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-            try {
-                // 1. Resolver DisId y DisDetId
-                $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
-                    FROM DispensacionDetalleServicio d WITH (NOLOCK)
-                    WHERE d.DisDetNro = :facNro";
+        try {
+            // 1. Resolver DisId y DisDetId
+            $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
+                FROM DispensacionDetalleServicio d WITH (NOLOCK)
+                WHERE d.DisDetNro = :facNro
+                ORDER BY d.DisDetId ASC";
 
-                $stmtResolve = $writeDb->prepare($sqlResolve);
-                $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-                $stmtResolve->execute();
-                $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
+            $stmtResolve = $writeDb->prepare($sqlResolve);
+            $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
+            $stmtResolve->execute();
+            $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
 
-                if (!$dispensacion) {
-                    Logger::warning('insertAuditObservation: no se encontró DispensacionDetalleServicio', [
-                        'FacNro' => $facNro,
-                    ]);
-                    return false;
-                }
+            if (!$dispensacion) {
+                Logger::warning('updateAuditResult: no se encontró DispensacionDetalleServicio', [
+                    'FacNro' => $facNro,
+                ]);
+                return false;
+            }
 
-                $disId = $dispensacion['DisId'];
-                $disDetId = $dispensacion['DisDetId'];
+            $disId = $dispensacion['DisId'];
+            $disDetId = $dispensacion['DisDetId'];
 
-                // 2. Resolver AdjDisId y AdjDisNom
-                $sqlAdj = "SELECT TOP 1 a.AdjDisId, a.AdjDisNom
-                    FROM AdjuntosDispensacion a WITH (NOLOCK)
-                    WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-                      AND a.AdjDisNom = :documentoFallido";
+            if ($approved) {
+                // 2a. APROBADA: actualizar TODOS los adjuntos de la dispensación
+                $sql = "UPDATE AdjuntosDispensacion SET
+                            AdjDisObsRec  = NULL,
+                            RecConSopCod  = NULL,
+                            AdjDisEstSop  = 'C',
+                            AdjDisUsuAudi = 'Z-IA',
+                            AdJDisFecAudi = GETDATE(),
+                            AdjDisRec     = 'N',
+                            AdjDisUsuRec  = NULL,
+                            AdjDisFecRec  = NULL
+                        WHERE DisId = :disId AND DisDetId = :disDetId";
 
-                $stmtAdj = $writeDb->prepare($sqlAdj);
-                $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmtAdj->bindParam(':documentoFallido', $documentoFallido, PDO::PARAM_STR);
-                $stmtAdj->execute();
-                $adjunto = $stmtAdj->fetch(PDO::FETCH_ASSOC);
+                $stmt = $writeDb->prepare($sql);
+                $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+                $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+                $stmt->execute();
 
-                // Fallback: primer adjunto si no hay match por nombre
-                if (!$adjunto) {
-                    $sqlFallback = "SELECT TOP 1 a.AdjDisId, a.AdjDisNom
+                Logger::info('updateAuditResult: todos los adjuntos aprobados', [
+                    'DisId' => $disId,
+                    'DisDetId' => $disDetId,
+                    'FacNro' => $facNro,
+                    'rowsAffected' => $stmt->rowCount(),
+                ]);
+            } else {
+                // 2b. RECHAZADA: resolver AdjDisId por nombre (case-insensitive)
+                if ($documentoFallido !== null) {
+                    $sqlAdj = "SELECT TOP 1 a.AdjDisId
+                        FROM AdjuntosDispensacion a WITH (NOLOCK)
+                        WHERE a.DisId = :disId AND a.DisDetId = :disDetId
+                          AND UPPER(a.AdjDisNom) = UPPER(:documentoFallido)
+                        ORDER BY a.AdjDisId ASC";
+
+                    $stmtAdj = $writeDb->prepare($sqlAdj);
+                    $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
+                    $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+                    $stmtAdj->bindParam(':documentoFallido', $documentoFallido, PDO::PARAM_STR);
+                } else {
+                    // Sin documentoFallido → primer adjunto de la dispensación
+                    $sqlAdj = "SELECT TOP 1 a.AdjDisId
                         FROM AdjuntosDispensacion a WITH (NOLOCK)
                         WHERE a.DisId = :disId AND a.DisDetId = :disDetId
                         ORDER BY a.AdjDisId ASC";
 
-                    $stmtFallback = $writeDb->prepare($sqlFallback);
-                    $stmtFallback->bindParam(':disId', $disId, PDO::PARAM_STR);
-                    $stmtFallback->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                    $stmtFallback->execute();
-                    $adjunto = $stmtFallback->fetch(PDO::FETCH_ASSOC);
+                    $stmtAdj = $writeDb->prepare($sqlAdj);
+                    $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
+                    $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
                 }
+                $stmtAdj->execute();
+                $adjunto = $stmtAdj->fetch(PDO::FETCH_ASSOC);
 
                 if (!$adjunto) {
-                    Logger::warning('insertAuditObservation: no se encontró AdjuntosDispensacion', [
+                    Logger::warning('updateAuditResult: no se encontró AdjuntosDispensacion para rechazo', [
                         'DisId' => $disId,
                         'DisDetId' => $disDetId,
                         'DocumentoFallido' => $documentoFallido,
@@ -307,106 +333,41 @@ class AuditStatusModel extends Model
                 }
 
                 $adjDisId = $adjunto['AdjDisId'];
-                $adjDisNom = $adjunto['AdjDisNom'];
-                $subRecConSopCod = 30; // RESPUESTA AUDITORIA AUTOMATIZADA
 
-                // 3. Idempotencia: verificar si ya existe observación de Z-IA
-                $sqlExists = "SELECT COUNT(1) FROM AdjuntosDispensacionDetalle WITH (NOLOCK)
-                    WHERE DisId = :disId AND DisDetId = :disDetId
-                      AND AdjDisId = :adjDisId AND DisDetAdjDetUsuCod = 'Z-IA'";
+                $sql = "UPDATE AdjuntosDispensacion SET
+                            AdjDisObsRec  = :observation,
+                            RecConSopCod  = 30,
+                            AdjDisEstSop  = 'R',
+                            AdjDisRec     = 'S',
+                            AdjDisUsuRec  = 'Z-IA',
+                            AdjDisFecRec  = GETDATE(),
+                            AdjDisUsuAudi = 'Z-IA',
+                            AdJDisFecAudi = GETDATE()
+                        WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
 
-                $stmtExists = $writeDb->prepare($sqlExists);
-                $stmtExists->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmtExists->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmtExists->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                $stmtExists->execute();
+                $stmt = $writeDb->prepare($sql);
+                $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+                $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+                $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
+                $stmt->bindParam(':observation', $observation, PDO::PARAM_STR);
+                $stmt->execute();
 
-                if ((int) $stmtExists->fetchColumn() > 0) {
-                    Logger::info('insertAuditObservation: observación Z-IA ya existe, skip', [
-                        'DisId' => $disId,
-                        'DisDetId' => $disDetId,
-                        'AdjDisId' => $adjDisId,
-                        'FacNro' => $facNro,
-                    ]);
-                    return true; // Idempotente — no es error
-                }
-
-                // 4. INSERT con transacción y bloqueo pesimista
-                $writeDb->beginTransaction();
-
-                // Obtener siguiente secuencia con UPDLOCK, HOLDLOCK
-                $sqlNextSec = "SELECT ISNULL(MAX(det.DisDetAdjDetSec), 0) + 1 AS nextSec
-                    FROM AdjuntosDispensacionDetalle det WITH (UPDLOCK, HOLDLOCK)
-                    WHERE det.DisId = :disId
-                      AND det.DisDetId = :disDetId
-                      AND det.AdjDisId = :adjDisId";
-
-                $stmtSec = $writeDb->prepare($sqlNextSec);
-                $stmtSec->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmtSec->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmtSec->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                $stmtSec->execute();
-                $nextSec = (int) $stmtSec->fetchColumn();
-
-                // INSERT
-                $sqlInsert = "INSERT INTO AdjuntosDispensacionDetalle (
-                        DisId, DisDetId, AdjDisId, DisDetAdjDetSec,
-                        DisDetAdjDetFecHor, DisDetAdjDetUsuCod,
-                        DisDetAdjDetObsRec, DisDetAdjDetDisNom,
-                        SubRecConSopCod
-                    ) VALUES (
-                        :disId, :disDetId, :adjDisId, :nextSec,
-                        GETDATE(), :usuario, :observacion, :adjDisNom, :subRecConSopCod
-                    )";
-
-                $stmtInsert = $writeDb->prepare($sqlInsert);
-                $stmtInsert->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmtInsert->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmtInsert->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                $stmtInsert->bindParam(':nextSec', $nextSec, PDO::PARAM_INT);
-                $usuario = 'Z-IA';
-                $stmtInsert->bindParam(':usuario', $usuario, PDO::PARAM_STR);
-                $stmtInsert->bindParam(':observacion', $observation, PDO::PARAM_STR);
-                $stmtInsert->bindParam(':adjDisNom', $adjDisNom, PDO::PARAM_STR);
-                $stmtInsert->bindParam(':subRecConSopCod', $subRecConSopCod, PDO::PARAM_INT);
-                $stmtInsert->execute();
-
-                $writeDb->commit();
-
-                Logger::info('insertAuditObservation: observación insertada', [
+                Logger::info('updateAuditResult: adjunto rechazado', [
                     'DisId' => $disId,
                     'DisDetId' => $disDetId,
                     'AdjDisId' => $adjDisId,
-                    'Sec' => $nextSec,
                     'FacNro' => $facNro,
                 ]);
-
-                return true;
-            } catch (\PDOException $e) {
-                // Rollback si la transacción está activa
-                if ($writeDb->inTransaction()) {
-                    $writeDb->rollBack();
-                }
-
-                // Retry en caso de duplicate key (SQLSTATE 23000)
-                if ($e->getCode() === '23000' && $attempt < $maxRetries) {
-                    Logger::warning('insertAuditObservation: duplicate key, reintentando', [
-                        'FacNro' => $facNro,
-                        'attempt' => $attempt,
-                    ]);
-                    continue;
-                }
-
-                Logger::error('insertAuditObservation: error en inserción', [
-                    'FacNro' => $facNro,
-                    'error' => $e->getMessage(),
-                    'attempt' => $attempt,
-                ]);
-                return false;
             }
-        }
 
-        return false;
+            return true;
+        } catch (\PDOException $e) {
+            Logger::error('updateAuditResult: error en UPDATE', [
+                'FacNro' => $facNro,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     private function getByFacSecFromConnection(PDO $connection, string $facSec): array|false

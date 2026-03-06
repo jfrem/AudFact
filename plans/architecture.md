@@ -51,10 +51,10 @@ AudFact sigue una arquitectura **MVC monolítica escalable horizontalmente** con
 |---|---|---|
 | `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `vw_discolnet_dispensas` | `getInvoices()` |
+| `InvoicesModel.php` | `vw_discolnet_dispensas` + `vw_discolnet_facturas` | `getInvoices()` (pendiente por KarUni=0) |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByInvoiceId()`, `getAttachmentByIdForDispensation()`, `getAttachmentBlobStreamByIdForDispensation()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` |
-| `AuditStatusModel.php` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | `getAuditResults()`, `upsertAuditStatus()`, `upsertObservacionDetalle()` |
+| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `getByFacSec()`, `upsertAuditResult()`, `updateAuditResult()` |
 
 **Dependencias**: `core/Database` (PDO sqlsrv).
 **Interfaz**: Invocados por Controllers y Worker.

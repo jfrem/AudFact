@@ -21,17 +21,17 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `app/Models/InvoicesModel.php` | 1.1 KB | Búsqueda de facturas por facNitSec/fecha |
 | `app/Models/DispensationModel.php` | 3.4 KB | Source of truth: datos de dispensación |
 | `app/Models/AttachmentsModel.php` | 5.3 KB | Resolución de adjuntos (URL Drive o BLOB con stream optimizado) |
-| `app/Models/AuditStatusModel.php` | 5.5 KB | Persistencia de auditoría (`AudDispEst`, upsert MERGE) |
+| `app/Models/AuditStatusModel.php` | 17 KB | Persistencia de auditoría: `AudDispEst` (upsert MERGE) + `AdjuntosDispensacion` (updateAuditResult: aprobada masiva / rechazada puntual) |
 
 ## Modelos y tablas
 
 | Modelo | Tabla BD | Responsabilidad |
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
-| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas de dispensación por NIT, fecha, límite |
+| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas de dispensación por NIT, fecha, límite (LEFT JOIN `AdjDisOpc='N'` + `aud.c<aud.ca`) |
 | `DispensationModel` | Dispensación | Datos de referencia (source of truth) |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (consumido como stream para procesamiento en memoria) |
-| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` | Estado de auditoría (upsert MERGE) |
+| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
 
 ## Database.php — Capacidades
