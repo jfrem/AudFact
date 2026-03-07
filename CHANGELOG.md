@@ -1,5 +1,11 @@
 ## [2026-03-07]
 
+### Tipo (infra)
+- **Ambito**: Trazabilidad del workspace en deploy self-hosted para diagnóstico de checkout.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el job de despliegue ahora imprime `GITHUB_WORKSPACE`, `pwd` y listado del workspace real para validar en logs dónde se realiza el checkout durante la ejecución.
+
 ### Tipo (security)
 - **Ambito**: Endurecimiento del pipeline de despliegue en runner self-hosted.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`

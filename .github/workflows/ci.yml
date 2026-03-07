@@ -83,6 +83,16 @@ jobs:
         with:
           clean: true
 
+      - name: Debug workspace
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          if [ -z "$GITHUB_WORKSPACE" ] || [ ! -d "$GITHUB_WORKSPACE" ]; then
+            echo "Workspace path is invalid"
+            exit 1
+          fi
+          ls -la "$GITHUB_WORKSPACE"
 
       - name: Create .env from GitHub Secrets
         env:
