@@ -1,3 +1,17 @@
+## [2026-03-06]
+
+### Tipo (infra)
+- **Ambito**: Corrección del pipeline de despliegue para preservar directorios compartidos vitales.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: El paso `Zero-Source Host Purge` purgaba la carpeta `docker/` y `public/`, los cuales son montados como binarios o plantillas durante la recreación del contenedor provocando un bloqueo silencioso al fallar el entrypoint.
+  - Impacto: Los contenedores volverán a levantar post-merge automáticamente y el `healthcheck` pasará de nuevo asegurando un CD funcional.
+
+### Tipo (fix)
+- **Ambito**: Inclusión de facturas auditadas con errores en la respuesta a pesar de tener un registro en `AudDispEst`.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: Las facturas que ya tenían un intento de auditoría fallido no volvían a aparecer en el listado de "pendientes" porque el cruce `INNER JOIN` (implícito) omitía los registros. 
+  - Impacto: Se cambió el cruce restrictivo por un `LEFT JOIN` a `AudDispEst` permitiendo procesar o re-procesar facturas que sufrieron errores previos (e.g. "Adjunto supera el máximo", fallos de Gemini).
+
 ## [2026-03-05]
 
 ### Tipo (refactor)

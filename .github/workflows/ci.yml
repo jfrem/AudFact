@@ -27,61 +27,61 @@ jobs:
 
       - name: PHP Syntax Check
         run: |
-          echo "🔍 Checking PHP syntax..."
+          echo "Checking PHP syntax..."
           find . -name "*.php" -not -path "./vendor/*" -print0 | xargs -0 -P4 php -l
-          echo "✅ All PHP files passed syntax check"
+          echo "All PHP files passed syntax check"
 
       - name: Validate composer.json
         run: composer validate --strict
 
       - name: Check project structure
         run: |
-          echo "📁 Validating project structure..."
+          echo "Validating project structure..."
           for dir in app/Controllers app/Models app/Services core public; do
             if [ ! -d "$dir" ]; then
-              echo "❌ Missing directory: $dir"
+              echo "Missing directory: $dir"
               exit 1
             fi
           done
-          echo "✅ Project structure is valid"
+          echo "Project structure is valid"
 
       - name: Check for secrets in code
         run: |
-          echo "🔐 Scanning for hardcoded secrets..."
+          echo "Scanning for hardcoded secrets..."
           ISSUES=$(grep -rn --include="*.php" -E "(password|secret|api_key)\s*=\s*['\"][^'\"]+['\"]" --exclude-dir=vendor . || true)
           if [ -n "$ISSUES" ]; then
-            echo "⚠️ Possible hardcoded secrets found:"
+            echo "Possible hardcoded secrets found:"
             echo "$ISSUES"
             echo "::warning::Potential hardcoded secrets detected in source files"
           else
-            echo "✅ No hardcoded secrets found"
+            echo "No hardcoded secrets found"
           fi
 
       - name: Run PHPUnit Tests
         run: |
-          echo "🧪 Running unit tests..."
+          echo "Running unit tests..."
           vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always
-          echo "✅ All tests passed"
+          echo "All tests passed"
 
   deploy:
-    name: 🚀 Deploy to Production
+    name: Deploy to Production
     needs: lint
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: 🧹 Fix workspace permissions (Docker creates root-owned files)
+      - name: Fix workspace permissions (Docker creates root-owned files)
         run: |
           echo "🔧 Reclaiming workspace ownership from root..."
           docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" alpine chown -R $(id -u):$(id -g) "$GITHUB_WORKSPACE"
 
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           clean: true
 
 
-      - name: 🔐 Create .env from GitHub Secrets
+      - name: Create .env from GitHub Secrets
         env:
           APP_ENV: ${{ secrets.APP_ENV }}
           DB_HOST: ${{ secrets.DB_HOST }}
@@ -104,12 +104,12 @@ jobs:
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           AUDIT_NGINX_READ_TIMEOUT: ${{ secrets.AUDIT_NGINX_READ_TIMEOUT }}
         run: |
-          echo "🧾 Generating .env from GitHub Secrets..."
+          echo "Generating .env from GitHub Secrets..."
 
           required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY)
           for key in "${required[@]}"; do
             if [ -z "${!key}" ]; then
-              echo "❌ Missing required GitHub secret: $key"
+              echo "Missing required GitHub secret: $key"
               exit 1
             fi
           done
@@ -169,29 +169,29 @@ jobs:
           EOF
 
           chmod 644 .env
-          echo "✅ .env generated successfully"
+          echo "Generated .env successfully"
 
-      - name: ⚙️ Rebuild and Restart Containers
+      - name: Rebuild and Restart Containers
         run: |
-          echo "🐳 Rebuilding containers locally on self-hosted runner..."
+          echo "Rebuilding containers locally on self-hosted runner..."
           mkdir -p logs
           docker compose down
           docker compose up --build -d
 
-      - name: 🏥 Health Check
+      - name: Health Check
         run: |
-          echo "⏳ Waiting for containers to start (entrypoint installs vendor if needed)..."
+          echo "Waiting for containers to start (entrypoint installs vendor if needed)..."
           sleep 30
           RETRIES=3
           for i in $(seq 1 $RETRIES); do
             if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-              echo "✅ Deploy successful — Health check passed"
+              echo "Deploy successful — Health check passed"
               exit 0
             fi
-            echo "⏳ Attempt $i/$RETRIES failed, waiting 10s..."
+            echo "Attempt $i/$RETRIES failed, waiting 10s..."
             sleep 10
           done
-          echo "❌ Health check failed after $RETRIES attempts"
+          echo "Health check failed after $RETRIES attempts"
           docker ps --format "table {{.Names}}\t{{.Status}}"
           docker compose logs --tail=120 php nginx
           exit 1
@@ -199,7 +199,7 @@ jobs:
       - name: 🧹 Zero-Source Host Purge (Lean Production 3.0)
         if: success()
         run: |
-          echo "🔥 Purging all source code and metadata from the deployment host..."
-          # Delete everything except the essentials (.env, logs, docker-compose.yml, .git)
-          find . -mindepth 1 -maxdepth 1 ! -name 'logs' ! -name '.env' ! -name 'docker-compose.yml' ! -name '.git' -exec rm -rf {} +
-          echo "✅ Host is now completely clean. Zero-source deployment achieved."
+          echo "Purging all source code and metadata from the deployment host..."
+          # Delete everything except the essentials (.env, logs, docker-compose.yml, .git, docker y public para Nginx)
+          find . -mindepth 1 -maxdepth 1 ! -name 'logs' ! -name '.env' ! -name 'docker-compose.yml' ! -name '.git' ! -name 'docker' ! -name 'public' -exec rm -rf {} +
+          echo "Host is now completely clean. Zero-source deployment achieved."
