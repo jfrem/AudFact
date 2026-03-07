@@ -66,7 +66,10 @@ jobs:
   deploy:
     name: Deploy to Production
     needs: lint
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
+    concurrency:
+      group: deploy-production-main
+      cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
@@ -168,7 +171,7 @@ jobs:
           AUDIT_FPM_TERMINATE_TIMEOUT=3600
           EOF
 
-          chmod 644 .env
+          chmod 600 .env
           echo "Generated .env successfully"
 
       - name: Rebuild and Restart Containers
@@ -200,6 +203,20 @@ jobs:
         if: success()
         run: |
           echo "Purging all source code and metadata from the deployment host..."
-          # Delete everything except the essentials (.env, logs, docker-compose.yml, .git, docker y public para Nginx)
-          find . -mindepth 1 -maxdepth 1 ! -name 'logs' ! -name '.env' ! -name 'docker-compose.yml' ! -name '.git' ! -name 'docker' ! -name 'public' -exec rm -rf {} +
+          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
+            echo "Invalid GITHUB_WORKSPACE, aborting purge."
+            exit 1
+          fi
+          cd "$GITHUB_WORKSPACE"
+          # Delete everything except essentials (.env, logs, docker-compose.yml, .git, docker, public, _temp/_actions metadata)
+          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 \
+            ! -name 'logs' \
+            ! -name '.env' \
+            ! -name 'docker-compose.yml' \
+            ! -name '.git' \
+            ! -name 'docker' \
+            ! -name 'public' \
+            ! -name '_temp' \
+            ! -name '_actions' \
+            -print -exec rm -rf {} +
           echo "Host is now completely clean. Zero-source deployment achieved."

@@ -1,3 +1,11 @@
+## [2026-03-07]
+
+### Tipo (security)
+- **Ambito**: Endurecimiento del pipeline de despliegue en runner self-hosted.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el `.env` ahora se crea con permisos `600`, el deploy queda serializado con `concurrency` para evitar ejecuciones simultáneas, y el paso de purga incorpora guardas para reducir riesgo de borrados fuera del workspace.
+
 ## [2026-03-06]
 
 ### Tipo (infra)
