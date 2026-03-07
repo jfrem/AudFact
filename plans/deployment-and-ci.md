@@ -53,6 +53,29 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 6. Health check con **retry loop** (3 intentos, 10s entre cada uno)
 7. **Zero-Source Host Purge** (Lean Production 3.0): Elimina todo el código fuente y metadatos del workspace del runner, dejando solo `.env`, `docker-compose.yml`, `logs/` y `.git`
 
+### Inconsistencias recurrentes y cómo evitarlas
+
+1. **`_work/AudFact` aparece vacío después del deploy**
+   - Causa: comportamiento esperado del paso `Zero-Source Host Purge`.
+   - Prevención: no usar inspección post-job del workspace como criterio de fallo.
+   - Verificación correcta: revisar logs del workflow en GitHub y/o `_diag/Worker_*.log`.
+
+2. **Intentar ejecutar YAML del workflow en shell SSH**
+   - Causa: bloques como `- name:` y `run:` son sintaxis YAML, no comandos bash.
+   - Prevención: ejecutar solo comandos Linux en SSH; editar YAML en `.github/workflows/ci.yml`.
+
+3. **`GITHUB_WORKSPACE` vacío al conectarse por SSH**
+   - Causa: esa variable existe dentro del job de GitHub Actions, no en sesiones interactivas normales.
+   - Prevención: para depuración, agregar un step temporal en el workflow que imprima `GITHUB_WORKSPACE`, `pwd` y `ls -la`.
+
+4. **No aparecen logs nuevos en `_diag/Worker_*`**
+   - Causa más común: el job `deploy` nunca se ejecutó en self-hosted porque `lint` falló antes en `ubuntu-latest`.
+   - Prevención: validar primero el estado del job `lint` en la corrida de Actions.
+
+5. **Fallo de tests por `withConsecutive()` en PHPUnit 10**
+   - Causa: `withConsecutive()` fue removido en PHPUnit 10.
+   - Prevención: usar `willReturnCallback()` + contador/aserciones por invocación en mocks.
+
 ### Condiciones de ejecución
 
 - Solo se activa en **push a `main`** (no en PRs ni feature branches)
@@ -70,15 +93,18 @@ git revert HEAD --no-edit
 git push origin main
 ```
 
-### Rollback manual en servidor
+### Rollback manual en servidor (solo emergencia)
 
 ```bash
 ssh admon@172.16.0.3
-cd /home/admon/actions-runner/_work/AudFact/AudFact
+cd /home/admon/actions-runner
 
-# Volver a un commit específico
-git log --oneline -5
-git checkout <commit-hash> -- .
+# Nota: con Zero-Source activo, el workspace puede quedar vacío tras un deploy exitoso.
+# En condiciones normales, usar rollback automático por git revert desde repositorio remoto.
+# Si necesitas recuperación manual, primero fuerza un checkout limpio en un directorio temporal:
+mkdir -p /tmp/audfact-rollback && cd /tmp/audfact-rollback
+git clone https://github.com/jfrem/AudFact.git .
+git checkout <commit-hash>
 docker compose down && docker compose up --build -d
 ```
 
