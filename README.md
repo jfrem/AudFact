@@ -109,6 +109,7 @@ Base URL: `http://localhost:8080`
 | `POST` | `/audit` | Auditoría en lote |
 | `POST` | `/audit/single` | Auditoría individual |
 | `GET` | `/audit/results` | Resultados persistidos de auditoría |
+| `GET` | `/audit/documents-history` | Historial de documentos auditados (alineado) |
 | `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
 
 > Ver documentación detallada en [`plans/api-endpoints.md`](plans/api-endpoints.md)

@@ -394,6 +394,52 @@ Devuelve los resultados persistidos de auditorías IA. Soporta filtros por clien
 
 ---
 
+### `GET /audit/documents-history`
+
+Devuelve el historial detallado de documentos individuales auditados por Gemini IA integrando la vista de facturas. Este endpoint está alineado con `/audit/results`.
+
+**Parámetros**:
+
+| Nombre | Ubicación | Tipo | Requerido | Descripción |
+|---|---|---|---|---|
+| `facNitSec` | query | integer | ❌ | NitSec del cliente |
+| `facNro` | query | string | ❌ | Número de factura (Dispensa) |
+| `page` | query | integer | ❌ | Número de página (Default: 1) |
+| `pageSize` | query | integer | ❌ | Tamaño de página (Default: 20, Max: 100) |
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "success": true,
+    "message": "Historial de auditorías de documentos",
+    "data": {
+        "items": [
+            {
+                "NroFactura": "T38251201552",
+                "DispensacionID": "90648778",
+                "DetalleID": "555123",
+                "AdjuntoID": "1",
+                "NombreDocumento": "Fórmula",
+                "EstadoSoporte": "C",
+                "ObservacionRechazo": null,
+                "UsuarioAuditor": "Z-IA",
+                "FechaAuditoria": "2026-03-07T12:00:00.000",
+                "UsuarioRechazo": null
+            }
+        ],
+        "total": 150,
+        "page": 1,
+        "pageSize": 20,
+        "totalPages": 8,
+        "filters": {
+            "facNro": "T38251201552"
+        }
+    }
+}
+```
+
+---
+
 ## MCP (Model Context Protocol)
 
 ### `POST /wrap/webhook.php` (ruta directa, no pasa por Router)

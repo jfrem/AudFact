@@ -242,4 +242,53 @@ class AuditController extends Controller
             $preValidator
         );
     }
+
+    /**
+     * Endpoint para consultar el historial completo de documentos auditados por Gemini IA integrando facturas
+     * GET /audit/documents-history
+     */
+    public function documentsHistory(): void
+    {
+        try {
+            $validated = $this->validateQuery([
+                'facNitSec' => 'nullable|integer|min_value:1',
+                'facNro' => 'nullable|string|max:50',
+                'page' => 'nullable|integer|min_value:1',
+                'pageSize' => 'nullable|integer|min_value:1|max_value:100',
+            ]);
+
+            $filters = [];
+            foreach (['facNitSec', 'facNro'] as $key) {
+                if (isset($validated[$key]) && $validated[$key] !== '') {
+                    $filters[$key] = $validated[$key];
+                }
+            }
+
+            $page = (isset($validated['page']) && $validated['page'] !== '') ? (int)$validated['page'] : 1;
+            $pageSize = (isset($validated['pageSize']) && $validated['pageSize'] !== '') ? (int)$validated['pageSize'] : 20;
+
+            $model = new AttachmentsModel();
+            $totalItems = $model->countAuditHistory($filters);
+            $totalPages = (int) ceil($totalItems / $pageSize);
+
+            $results = $model->getAuditHistory($page, $pageSize, $filters);
+
+            Response::success([
+                'items' => $results,
+                'total' => $totalItems,
+                'page' => $page,
+                'pageSize' => $pageSize,
+                'totalPages' => $totalPages,
+                'filters' => $filters
+            ], 'Historial de auditorías de documentos');
+        } catch (\Core\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            Logger::error("Error unexpected querying document audit history", [
+                'exception' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            Response::error('Error unexpected querying document audit history', 500);
+        }
+    }
 }

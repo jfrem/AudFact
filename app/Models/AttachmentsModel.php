@@ -133,4 +133,110 @@ class AttachmentsModel extends Model
             }
         ];
     }
+
+    /**
+     * Cuenta total de documentos auditados por la IA en el histórico cruzado con vista de facturas.
+     * @param array $filters Filtros opcionales (facNro, facNitSec)
+     * @return int
+     */
+    public function countAuditHistory(array $filters = []): int
+    {
+        $params = [];
+        $where = "WHERE (a.AdjDisUsuAudi = 'Z-IA' OR a.AdjDisUsuRec = 'Z-IA')";
+
+        if (!empty($filters['facNro'])) {
+            $where .= " AND v.Dispensa = :facNro";
+            $params['facNro'] = $filters['facNro'];
+        }
+
+        if (!empty($filters['facNitSec'])) {
+            $where .= " AND v.FacNitSec = :facNitSec";
+            $params['facNitSec'] = $filters['facNitSec'];
+        }
+
+        $sql = "SELECT COUNT(*) as total FROM (
+                    SELECT 1 as n
+                    FROM AdjuntosDispensacion a WITH (NOLOCK)
+                    INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
+                    $where
+                    GROUP BY v.Dispensa, a.DisId, a.DisDetId, a.AdjDisId, a.AdjDisNom, a.AdjDisEstSop, a.AdjDisObsRec, a.AdjDisUsuAudi, a.AdJDisFecAudi, a.AdjDisUsuRec
+                ) AS SubQuery";
+
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->execute($params);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ? (int) $result['total'] : 0;
+    }
+
+    /**
+     * Obtiene el historial de documentos auditados por IA integrando NroFactura con soporte de paginación
+     * @param int $page Página actual
+     * @param int $pageSize Tamaño de la página
+     * @param array $filters Filtros opcionales (facNro, facNitSec)
+     * @return array
+     */
+    public function getAuditHistory(int $page = 1, int $pageSize = 20, array $filters = []): array
+    {
+        $params = [];
+        $where = "WHERE (a.AdjDisUsuAudi = 'Z-IA' OR a.AdjDisUsuRec = 'Z-IA')";
+
+        if (!empty($filters['facNro'])) {
+            $where .= " AND v.Dispensa = :facNro";
+            $params['facNro'] = $filters['facNro'];
+        }
+
+        if (!empty($filters['facNitSec'])) {
+            $where .= " AND v.FacNitSec = :facNitSec";
+            $params['facNitSec'] = $filters['facNitSec'];
+        }
+
+        $offset = ($page - 1) * $pageSize;
+        $sql = "SELECT 
+                    v.Dispensa AS NroFactura,
+                    a.DisId AS DispensacionID,
+                    a.DisDetId AS DetalleID,
+                    a.AdjDisId AS AdjuntoID,
+                    a.AdjDisNom AS NombreDocumento,
+                    a.AdjDisEstSop AS EstadoSoporte,
+                    a.AdjDisObsRec AS ObservacionRechazo,
+                    a.AdjDisUsuAudi AS UsuarioAuditor,
+                    a.AdJDisFecAudi AS FechaAuditoria,
+                    a.AdjDisUsuRec AS UsuarioRechazo
+                FROM 
+                    AdjuntosDispensacion a WITH (NOLOCK)
+                INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
+                $where
+                GROUP BY 
+                    v.Dispensa,
+                    a.DisId,
+                    a.DisDetId,
+                    a.AdjDisId,
+                    a.AdjDisNom,
+                    a.AdjDisEstSop,
+                    a.AdjDisObsRec,
+                    a.AdjDisUsuAudi,
+                    a.AdJDisFecAudi,
+                    a.AdjDisUsuRec
+                ORDER BY 
+                    a.AdJDisFecAudi DESC
+                OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+
+        $stmt = $this->readDb->prepare($sql);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':offset', (int) $offset, PDO::PARAM_INT);
+        $stmt->bindValue(':pageSize', (int) $pageSize, PDO::PARAM_INT);
+        $stmt->execute();
+        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Logger::info("Historial de auditorias de documentos obtenido", [
+            'filters' => $filters,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'resultCount' => count($result)
+        ]);
+
+        return $result;
+    }
 }

@@ -15,7 +15,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1 KB | Definición de 15 rutas |
+| `app/Routes/web.php` | ~1 KB | Definición de 16 rutas |
 | `app/Controllers/Controller.php` | 2.3 KB | Base: `validate()`, `validateArray()`, `getJsonBody()` |
 | `app/Controllers/AttachmentsController.php` | 6.7 KB | Controlador más complejo (stream/download) |
 | `app/Controllers/AuditController.php` | ~3 KB | Orquestador de auditoría + resultados |
@@ -28,7 +28,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (15)
+## Endpoints actuales (16)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -45,6 +45,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/dispensation/{DisDetNro}` | `DispensationController::show` |
 | `POST` | `/dispensation` | `DispensationController::lookup` |
 | `GET` | `/audit/results` | `AuditController::results` |
+| `GET` | `/audit/documents-history` | `AuditController::documentsHistory` |
 | `POST` | `/audit` | `AuditController::run` |
 | `POST` | `/audit/single` | `AuditController::single` |
 

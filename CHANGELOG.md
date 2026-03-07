@@ -1,5 +1,10 @@
 ## [2026-03-07]
 
+### Tipo (feature)
+- **Ambito**: Endpoint de historial de auditoría de documentos paginado y alineado.
+  - Archivos modificados: `app/Routes/web.php`, `app/Controllers/AuditController.php`, `app/Models/AttachmentsModel.php`, `plans/api-endpoints.md`.
+  - Descripción: Creación del endpoint `documents-history` y posterior alineación de parámetros (`facNro`, `pageSize`) y estructura JSON con el endpoint `results`.
+
 ### Tipo (fix)
 - **Ambito**: Compatibilidad de tests de persistencia con PHPUnit 10.
   - Archivos modificados: `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
