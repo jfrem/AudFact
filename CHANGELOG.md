@@ -1,5 +1,11 @@
 ## [2026-03-07]
 
+### Tipo (fix)
+- **Ambito**: Compatibilidad de tests de persistencia con PHPUnit 10.
+  - Archivos modificados: `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: se reemplazó `withConsecutive()` por callbacks con aserciones por invocación para evitar errores de método eliminado en PHPUnit 10 y destrabar la etapa de `lint` en CI.
+
 ### Tipo (infra)
 - **Ambito**: Trazabilidad del workspace en deploy self-hosted para diagnóstico de checkout.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`

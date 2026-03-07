@@ -104,11 +104,29 @@ class AuditPersistenceServiceTest extends TestCase
         $this->auditStatusModel
             ->expects($this->exactly(2))
             ->method('updateAuditResult')
-            ->withConsecutive(
-                ['FAC-001', true, null, null],
-                ['FAC-001', false, $this->stringContains('No coincide'), 'factura.pdf']
-            )
-            ->willReturn(true);
+            ->willReturnCallback(function ($invoice, $approved, $observacion, $documento) {
+                static $call = 0;
+                $call++;
+
+                if ($call === 1) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertTrue($approved);
+                    $this->assertNull($observacion);
+                    $this->assertNull($documento);
+                    return true;
+                }
+
+                if ($call === 2) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertFalse($approved);
+                    $this->assertIsString($observacion);
+                    $this->assertStringContainsString('No coincide', $observacion);
+                    $this->assertSame('factura.pdf', $documento);
+                    return true;
+                }
+
+                $this->fail('Cantidad inesperada de llamadas a updateAuditResult');
+            });
 
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
     }
@@ -137,12 +155,38 @@ class AuditPersistenceServiceTest extends TestCase
         $this->auditStatusModel
             ->expects($this->exactly(3))
             ->method('updateAuditResult')
-            ->withConsecutive(
-                ['FAC-001', true, null, null],
-                ['FAC-001', false, $this->stringContains('Discrepancia régimen'), 'VALIDADOR DE DERECHOS'],
-                ['FAC-001', false, $this->stringContains('Falta firma'), 'ACTA DE ENTREGA']
-            )
-            ->willReturn(true);
+            ->willReturnCallback(function ($invoice, $approved, $observacion, $documento) {
+                static $call = 0;
+                $call++;
+
+                if ($call === 1) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertTrue($approved);
+                    $this->assertNull($observacion);
+                    $this->assertNull($documento);
+                    return true;
+                }
+
+                if ($call === 2) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertFalse($approved);
+                    $this->assertIsString($observacion);
+                    $this->assertStringContainsString('Discrepancia régimen', $observacion);
+                    $this->assertSame('VALIDADOR DE DERECHOS', $documento);
+                    return true;
+                }
+
+                if ($call === 3) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertFalse($approved);
+                    $this->assertIsString($observacion);
+                    $this->assertStringContainsString('Falta firma', $observacion);
+                    $this->assertSame('ACTA DE ENTREGA', $documento);
+                    return true;
+                }
+
+                $this->fail('Cantidad inesperada de llamadas a updateAuditResult');
+            });
 
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
     }
