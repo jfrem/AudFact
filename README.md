@@ -62,7 +62,7 @@ cp .env.example .env
 composer install
 
 # 3. Levantar con Docker
-wsl docker-compose up -d
+docker-compose up -d
 ```
 
 ### Variables de Entorno
@@ -118,25 +118,25 @@ Base URL: `http://localhost:8080`
 ### Desarrollo local (recomendado)
 
 ```bash
-wsl docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml up -d --build
 
 # Ver estado y logs (dev)
-wsl docker compose -f docker-compose.dev.yml ps
-wsl docker compose -f docker-compose.dev.yml logs -f
+docker compose -f docker-compose.dev.yml ps
+docker compose -f docker-compose.dev.yml logs -f
 
 # Detener entorno dev
-wsl docker compose -f docker-compose.dev.yml down
+docker compose -f docker-compose.dev.yml down
 ```
 
 ### Modo HA / stress testing
 
 ```bash
 # Levantar stack HA
-wsl docker compose -f docker-compose.ha.yml up -d --build
+docker compose -f docker-compose.ha.yml up -d --build
 
 # Ver estado y logs (HA)
-wsl docker compose -f docker-compose.ha.yml ps
-wsl docker compose -f docker-compose.ha.yml logs -f
+docker compose -f docker-compose.ha.yml ps
+docker compose -f docker-compose.ha.yml logs -f
 
 # Detener entorno HA
 wsl docker compose -f docker-compose.ha.yml down
@@ -175,6 +175,8 @@ Documentación completa disponible en `plans/`:
 ## Licencia
 
 Uso interno — Software propietario.
+
+
 
 
 
