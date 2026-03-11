@@ -203,18 +203,10 @@ jobs:
 
       - name: Rebuild and Restart Containers
         run: |
-          set -euo pipefail
           echo "Rebuilding containers locally on self-hosted runner..."
           mkdir -p logs
           docker compose down
-          if docker compose up --build -d; then
-            echo "Initial rebuild completed successfully"
-          else
-            echo "Initial rebuild failed. Pruning Docker builder cache and retrying once..."
-            docker builder prune -af || true
-            docker image prune -f || true
-            docker compose up --build -d
-          fi
+          docker compose up --build -d
 
       - name: Health Check
         run: |
