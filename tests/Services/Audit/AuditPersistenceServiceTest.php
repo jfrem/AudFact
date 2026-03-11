@@ -148,9 +148,9 @@ class AuditPersistenceServiceTest extends TestCase
             ->expects($this->once())
             ->method('upsertAuditResult')
             ->with($this->callback(function (array $data) {
-                return $data['EstAud'] === 1
+                return $data['EstAud'] === 0
                     && $data['EstadoDetallado'] === 'error'
-                    && $data['Severidad'] === 'alta';
+                    && $data['Severidad'] === 'ninguna';
             }));
 
         // 2 llamadas: rechazo por cada documento faltante (sin rechazo global masivo).
@@ -250,8 +250,9 @@ class AuditPersistenceServiceTest extends TestCase
             ->method('upsertAuditResult')
             ->with($this->callback(function (array $data) {
                 return $data['EstadoDetallado'] === 'human_review'
-                    && $data['Severidad'] === 'media'
-                    && $data['EstAud'] === 1;
+                    && $data['Severidad'] === 'ninguna'
+                    && $data['EstAud'] === 0
+                    && $data['RequiereRevisionHumana'] === 0;
             }));
 
         $this->auditStatusModel
