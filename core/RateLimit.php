@@ -100,15 +100,11 @@ class RateLimit
     {
         $logDir = dirname(self::$lockFile);
 
-        if (!is_dir($logDir)) {
-            if (!@mkdir($logDir, 0755, true) && !is_dir($logDir)) {
-                throw new \RuntimeException('No se pudo crear directorio de logs');
-            }
-        }
+        self::ensureStorageDirectoryExists($logDir);
 
-        $lock = fopen(self::$lockFile, 'c');
+        $lock = @fopen(self::$lockFile, 'c');
         if (!$lock) {
-            throw new \RuntimeException('No se pudo crear archivo de lock');
+            throw new \RuntimeException('No se pudo crear archivo de lock para rate limiting');
         }
 
         $startTime = microtime(true);
@@ -143,12 +139,18 @@ class RateLimit
     private static function saveStorage(array $data): void
     {
         $logDir = dirname(self::$storageFile);
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0755, true);
-        }
+        self::ensureStorageDirectoryExists($logDir);
+
         $tmp = self::$storageFile . '.tmp.' . uniqid();
-        file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
-        rename($tmp, self::$storageFile);
+        $written = @file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+        if ($written === false) {
+            throw new \RuntimeException('No se pudo escribir storage temporal de rate limiting');
+        }
+
+        if (!@rename($tmp, self::$storageFile)) {
+            @unlink($tmp);
+            throw new \RuntimeException('No se pudo persistir storage de rate limiting');
+        }
     }
 
     private static function cleanupOldEntries(int $window): void
@@ -184,6 +186,17 @@ class RateLimit
 
         if ($changed) {
             self::saveStorage($storage);
+        }
+    }
+
+    private static function ensureStorageDirectoryExists(string $dir): void
+    {
+        if (is_dir($dir)) {
+            return;
+        }
+
+        if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException('No se pudo crear directorio de logs para rate limiting');
         }
     }
 }

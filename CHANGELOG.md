@@ -1,6 +1,18 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Hardening del fallback file-based de rate limit para evitar warnings expuestos.
+  - Archivos modificados: `core/RateLimit.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: `fopen(/var/www/html/.../logs/ratelimit.lock)` filtraba warnings HTML al cliente cuando el backend de archivos fallaba
+  - Impacto: el rate limiter ahora maneja creación/apertura de archivos con control explícito de errores y sin exponer warnings crudos en respuestas HTTP.
+
+### fix
+- **Ámbito**: Corrección del loop de render en el header del dashboard frontend.
+  - Archivos modificados: `frontend/src/app/dashboard/_components/dashboard-header.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: `React error #185` por snapshot inestable (`new Date()`) dentro de `useSyncExternalStore`
+  - Impacto: el dashboard deja de entrar en render infinito al hidratar y conserva saludo/fecha cliente sin romper lint.
+
+### fix
 - **Ámbito**: Corrección del lint bloqueante del frontend y limpieza de warnings principales.
   - Archivos modificados: `frontend/src/app/dashboard/_components/dashboard-header.tsx`, `frontend/src/components/providers.tsx`, `frontend/src/app/dashboard/_components/recent-audits-table.tsx`, `frontend/src/app/dashboard/_components/status-distribution-chart.tsx`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/app/settings/page.tsx`, `CHANGELOG.md`
   - Hallazgo resuelto: `npm run lint` fallaba por `setState` síncrono dentro de `useEffect` y dependencias/inutilizados inestables
