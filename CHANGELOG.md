@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Corrección del lint bloqueante del frontend y limpieza de warnings principales.
+  - Archivos modificados: `frontend/src/app/dashboard/_components/dashboard-header.tsx`, `frontend/src/components/providers.tsx`, `frontend/src/app/dashboard/_components/recent-audits-table.tsx`, `frontend/src/app/dashboard/_components/status-distribution-chart.tsx`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/app/settings/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: `npm run lint` fallaba por `setState` síncrono dentro de `useEffect` y dependencias/inutilizados inestables
+  - Impacto: el repo `frontend` usa inicialización segura para cliente e hidrata sin los errores de hooks que bloqueaban GitHub Actions.
+
+### fix
 - **Ámbito**: Bind explícito del frontend a `0.0.0.0` en runtime Docker.
   - Archivos modificados: `frontend/Dockerfile`, `CHANGELOG.md`
   - Hallazgo resuelto: el frontend respondía desde el host pero rechazaba conexiones a `127.0.0.1:3000` dentro del contenedor, dejando el healthcheck en falso negativo
