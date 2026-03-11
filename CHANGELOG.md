@@ -6,6 +6,12 @@
   - Hallazgo resuelto: desbloqueo operativo del deploy con TLS activo y trust temporal del certificado del servidor
   - Impacto: el pipeline sigue exigiendo `Encrypt=yes` para SQL Server principal y de lectura, pero acepta `TrustServerCertificate=yes` hasta completar la instalación de certificados válidos en infraestructura.
 
+### fix
+- **Ámbito**: Disparo automático del deploy de frontend en cada push a `main`.
+  - Archivos modificados: `.github/workflows/deploy-frontend.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: frontend sin despliegue cuando el push no modificaba rutas bajo `frontend/**`
+  - Impacto: `Deploy Frontend — AudFact` puede ejecutarse en cualquier push a `main`, además de disparo manual.
+
 ### security
 - **Ámbito**: Hardening del pipeline de despliegue con GitHub Actions runner.
   - Archivos modificados: `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `docker/Dockerfile`, `docker-compose.yml`, `docker-compose.ha.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`

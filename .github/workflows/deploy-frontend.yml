@@ -3,10 +3,6 @@ name: Deploy Frontend — AudFact
 on:
   push:
     branches: [main]
-    paths:
-      - "frontend/**"
-      - "docker-compose.frontend.yml"
-      - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
 
 jobs:
