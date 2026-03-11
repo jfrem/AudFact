@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Desacople del rate limiter respecto al workspace del runner.
+  - Archivos modificados: `core/RateLimit.php`, `docker/Dockerfile`, `docker/docker-entrypoint.sh`, `CHANGELOG.md`
+  - Hallazgo resuelto: el fallback file-based dependía de `./logs` y fallaba cuando otro workflow limpiaba el workspace del self-hosted runner
+  - Impacto: el rate limiter ahora usa un runtime dir dedicado (`/tmp/audfact-runtime/ratelimit`) dentro del contenedor y deja de romper el backend por la limpieza del workspace.
+
+### fix
 - **Ámbito**: Hardening del fallback file-based de rate limit para evitar warnings expuestos.
   - Archivos modificados: `core/RateLimit.php`, `CHANGELOG.md`
   - Hallazgo resuelto: `fopen(/var/www/html/.../logs/ratelimit.lock)` filtraba warnings HTML al cliente cuando el backend de archivos fallaba

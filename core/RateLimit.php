@@ -4,8 +4,7 @@ namespace Core;
 
 class RateLimit
 {
-    private static $storageFile = __DIR__ . '/../logs/ratelimit.json';
-    private static $lockFile = __DIR__ . '/../logs/ratelimit.lock';
+    private const DEFAULT_STORAGE_DIR = '/tmp/audfact-runtime/ratelimit';
 
     public static function check(string $ip, int $limit = 100, int $window = 60): bool
     {
@@ -98,11 +97,11 @@ class RateLimit
 
     private static function withLock(callable $callback)
     {
-        $logDir = dirname(self::$lockFile);
+        $logDir = self::getStorageDirectory();
 
         self::ensureStorageDirectoryExists($logDir);
 
-        $lock = @fopen(self::$lockFile, 'c');
+        $lock = @fopen(self::getLockFilePath(), 'c');
         if (!$lock) {
             throw new \RuntimeException('No se pudo crear archivo de lock para rate limiting');
         }
@@ -128,26 +127,34 @@ class RateLimit
 
     private static function getStorage(): array
     {
-        if (!file_exists(self::$storageFile)) {
+        $storageFile = self::getStorageFilePath();
+
+        if (!file_exists($storageFile)) {
             return [];
         }
-        $content = file_get_contents(self::$storageFile);
+
+        $content = @file_get_contents($storageFile);
+        if ($content === false) {
+            throw new \RuntimeException('No se pudo leer storage de rate limiting');
+        }
+
         $data = json_decode($content, true);
         return is_array($data) ? $data : [];
     }
 
     private static function saveStorage(array $data): void
     {
-        $logDir = dirname(self::$storageFile);
+        $logDir = self::getStorageDirectory();
         self::ensureStorageDirectoryExists($logDir);
 
-        $tmp = self::$storageFile . '.tmp.' . uniqid();
+        $storageFile = self::getStorageFilePath();
+        $tmp = $storageFile . '.tmp.' . uniqid();
         $written = @file_put_contents($tmp, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
         if ($written === false) {
             throw new \RuntimeException('No se pudo escribir storage temporal de rate limiting');
         }
 
-        if (!@rename($tmp, self::$storageFile)) {
+        if (!@rename($tmp, $storageFile)) {
             @unlink($tmp);
             throw new \RuntimeException('No se pudo persistir storage de rate limiting');
         }
@@ -196,7 +203,22 @@ class RateLimit
         }
 
         if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
-            throw new \RuntimeException('No se pudo crear directorio de logs para rate limiting');
+            throw new \RuntimeException('No se pudo crear directorio runtime para rate limiting');
         }
+    }
+
+    private static function getStorageDirectory(): string
+    {
+        return rtrim(self::DEFAULT_STORAGE_DIR, DIRECTORY_SEPARATOR);
+    }
+
+    private static function getStorageFilePath(): string
+    {
+        return self::getStorageDirectory() . '/ratelimit.json';
+    }
+
+    private static function getLockFilePath(): string
+    {
+        return self::getStorageDirectory() . '/ratelimit.lock';
     }
 }

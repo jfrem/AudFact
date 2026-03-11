@@ -52,6 +52,11 @@ if [ -f /var/www/html/.env ]; then
   chmod 644 /var/www/html/.env 2>/dev/null || true
 fi
 
+RATE_LIMIT_RUNTIME_DIR="/tmp/audfact-runtime/ratelimit"
+mkdir -p "$RATE_LIMIT_RUNTIME_DIR"
+chown -R www-data:www-data "$RATE_LIMIT_RUNTIME_DIR" 2>/dev/null || true
+chmod -R 775 "$RATE_LIMIT_RUNTIME_DIR" 2>/dev/null || true
+
 if [ "${APP_ENV}" = "production" ]; then
   echo "[entrypoint] APP_ENV=production -> logger uses stderr"
 else
@@ -64,6 +69,12 @@ else
   else
     echo "[entrypoint] ⚠️ logs/ is not writable for www-data. Logger fallback will be used."
   fi
+fi
+
+if su -s /bin/sh -c "touch ${RATE_LIMIT_RUNTIME_DIR}/.write-test && rm -f ${RATE_LIMIT_RUNTIME_DIR}/.write-test" www-data 2>/dev/null; then
+  echo "[entrypoint] ✅ rate limit runtime writable for www-data (${RATE_LIMIT_RUNTIME_DIR})"
+else
+  echo "[entrypoint] ⚠️ rate limit runtime is not writable for www-data (${RATE_LIMIT_RUNTIME_DIR})"
 fi
 
 # ── 4. Launch PHP-FPM ─────────────────────────────────────────────

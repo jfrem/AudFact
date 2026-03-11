@@ -45,6 +45,7 @@ COPY . .
 # Limpieza Profunda de Artefactos de Orquestación y Construcción
 # Eliminamos todo rastro de herramientas ajenas a la ejecución de PHP en producción.
 RUN rm -rf docker/ composer.* .env.example docker-compose*.yml docker.ps1 system.txt \
+    && mkdir -p /tmp/audfact-runtime/ratelimit \
     && chown -R www-data:www-data /var/www/html
 
 ENTRYPOINT ["docker-entrypoint-custom.sh"]
