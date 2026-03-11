@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### security
+- **Ámbito**: Excepción operativa para despliegue con SQL Server sin TLS funcional.
+  - Archivos modificados: `.github/workflows/ci.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: desbloqueo del backend en infraestructura donde `Encrypt=yes` falla aun con `TrustServerCertificate=yes`
+  - Impacto: el pipeline de producción exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` hasta corregir TLS en SQL Server.
+
+### security
 - **Ámbito**: Ajuste temporal del gate TLS para despliegue productivo sin certificado SQL Server válido.
   - Archivos modificados: `.github/workflows/ci.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
   - Hallazgo resuelto: desbloqueo operativo del deploy con TLS activo y trust temporal del certificado del servidor

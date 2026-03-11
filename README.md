@@ -78,9 +78,9 @@ docker-compose up -d
 | `DB_NAME` | Nombre de la base de datos |
 | `DB_USER` | Usuario de BD |
 | `DB_PASS` | Contraseña de BD |
-| `DB_ENCRYPT` | Cifrado TLS para conexión principal (`yes` en producción) |
+| `DB_ENCRYPT` | Cifrado SQL Server principal (`no` temporal en este entorno) |
 | `DB_TRUST_SERVER_CERT` | Trust del certificado SQL Server principal (`yes` temporal mientras no exista certificado válido) |
-| `DB2_ENCRYPT` | Cifrado TLS para conexión de lectura (`yes` en producción) |
+| `DB2_ENCRYPT` | Cifrado SQL Server de lectura (`no` temporal en este entorno) |
 | `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server de lectura (`yes` temporal mientras no exista certificado válido) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
@@ -95,8 +95,8 @@ docker-compose up -d
 - Definir `ALLOWED_ORIGINS` con dominios explicitos (sin `*`).
 - Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo).
 - Definir `DB_PASS` y `GEMINI_API_KEY` reales por entorno.
-- Definir `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=yes` y `DB2_TRUST_SERVER_CERT=yes` mientras no exista certificado SQL Server válido.
-- Migrar a `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` cuando el servidor tenga certificado verificable.
+- Definir `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` mientras la infraestructura SQL Server siga fallando con TLS.
+- Migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` cuando el servidor tenga certificado verificable.
 - Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion).
 
 ## API
@@ -184,7 +184,7 @@ El frontend se despliega con un workflow independiente en runner self-hosted:
 ### Seguridad pendiente
 
 La autenticación/autorización de endpoints críticos queda diferida a un sprint posterior. Este release endurece el pipeline de despliegue y el transporte a SQL Server, pero no cambia todavía la exposición funcional de `/clients*`, `/invoices*`, `/dispensation*` y `/audit*`.
-Además, la validación estricta de certificados SQL Server queda temporalmente diferida: el despliegue exige TLS activo, pero acepta `TrustServerCertificate=yes` hasta que exista un certificado válido en la infraestructura.
+Además, la validación estricta de certificados SQL Server queda temporalmente diferida: el despliegue en este entorno opera sin cifrado SQL Server y con `TrustServerCertificate=yes` hasta que infraestructura remedie TLS correctamente.
 
 Comando manual equivalente:
 
