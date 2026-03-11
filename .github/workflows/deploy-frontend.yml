@@ -1,0 +1,93 @@
+name: Deploy Frontend — AudFact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "docker-compose.frontend.yml"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+jobs:
+  validate-frontend:
+    name: Validate Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
+            echo "Missing required GitHub secret: NEXT_PUBLIC_API_URL"
+            exit 1
+          fi
+          npm run build
+
+  deploy-frontend:
+    name: Deploy Frontend to Production
+    needs: validate-frontend
+    runs-on: [self-hosted, Linux, X64]
+    concurrency:
+      group: deploy-production-frontend-main
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Validate required secrets
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
+            echo "Missing required GitHub secret: NEXT_PUBLIC_API_URL"
+            exit 1
+          fi
+
+      - name: Rebuild and restart frontend container
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          echo "Deploying frontend with NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL"
+          docker compose -f docker-compose.frontend.yml down
+          docker compose -f docker-compose.frontend.yml up --build -d
+
+      - name: Frontend health check
+        run: |
+          sleep 20
+          RETRIES=3
+          for i in $(seq 1 $RETRIES); do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "Frontend deploy successful"
+              exit 0
+            fi
+            echo "Attempt $i/$RETRIES failed, waiting 10s..."
+            sleep 10
+          done
+          echo "Frontend health check failed"
+          docker ps --format "table {{.Names}}\t{{.Status}}"
+          docker compose -f docker-compose.frontend.yml logs --tail=120 frontend
+          exit 1

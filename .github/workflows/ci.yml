@@ -109,6 +109,8 @@ jobs:
           DB2_NAME: ${{ secrets.DB2_NAME }}
           DB2_USER: ${{ secrets.DB2_USER }}
           DB2_PASS: ${{ secrets.DB2_PASS }}
+          DB2_ENCRYPT: ${{ secrets.DB2_ENCRYPT }}
+          DB2_TRUST_SERVER_CERT: ${{ secrets.DB2_TRUST_SERVER_CERT }}
           GOOGLE_DRIVE_CLIENT_EMAIL: ${{ secrets.GOOGLE_DRIVE_CLIENT_EMAIL }}
           GOOGLE_DRIVE_PRIVATE_KEY: ${{ secrets.GOOGLE_DRIVE_PRIVATE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -126,6 +128,18 @@ jobs:
               exit 1
             fi
           done
+
+          if [ "$APP_ENV" = "production" ]; then
+            if [ "${DB_ENCRYPT}" != "yes" ] || [ "${DB_TRUST_SERVER_CERT}" != "no" ]; then
+              echo "Production deploy requires DB_ENCRYPT=yes and DB_TRUST_SERVER_CERT=no"
+              exit 1
+            fi
+
+            if [ "${DB2_ENCRYPT}" != "yes" ] || [ "${DB2_TRUST_SERVER_CERT}" != "no" ]; then
+              echo "Production deploy requires DB2_ENCRYPT=yes and DB2_TRUST_SERVER_CERT=no"
+              exit 1
+            fi
+          fi
 
           cat > .env << EOF
           APP_ENV=${APP_ENV}
@@ -150,8 +164,10 @@ jobs:
           DB2_PASS=${DB2_PASS}
 
           DB_POOLING=1
-          DB_ENCRYPT=${DB_ENCRYPT:-no}
-          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-yes}
+          DB_ENCRYPT=${DB_ENCRYPT:-yes}
+          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-no}
+          DB2_ENCRYPT=${DB2_ENCRYPT:-yes}
+          DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-no}
 
           GOOGLE_DRIVE_CLIENT_EMAIL=${GOOGLE_DRIVE_CLIENT_EMAIL}
           GOOGLE_DRIVE_PRIVATE_KEY="${GOOGLE_DRIVE_PRIVATE_KEY}"
@@ -223,6 +239,7 @@ jobs:
             ! -name 'logs' \
             ! -name '.env' \
             ! -name 'docker-compose.yml' \
+            ! -name 'docker-compose.frontend.yml' \
             ! -name '.git' \
             ! -name 'docker' \
             ! -name 'public' \

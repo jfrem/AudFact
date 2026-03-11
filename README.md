@@ -12,13 +12,14 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 → PHP-FPM |
 | Contenedores | Docker Compose |
-| Frontend | HTML/JS (`AuditBatch.html`, `admin.html`) |
+| Frontend | Next.js 16 (React 19) + Tailwind CSS + shadcn/ui |
 | Dependencias | Guzzle 7.x, firebase/php-jwt 7.x |
 
 ## Estructura del Proyecto
 
 ```
 AudFact/
+├── frontend/              # Frontend SPA en Next.js (App Router)
 ├── app/
 │   ├── Controllers/       # 8 controladores REST
 │   ├── Models/            # 6 modelos SQL Server
@@ -27,7 +28,7 @@ AudFact/
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger...
-├── public/                # Entry point (index.php) + frontend HTML
+├── public/                # Entry point (index.php API)
 ├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck
 ├── logs/                  # Logs rotados por fecha
 ├── plans/                 # Documentación del proyecto
@@ -70,12 +71,17 @@ docker-compose up -d
 | Variable | Descripción |
 |---|---|
 | `APP_ENV` | Entorno (`development`, `production`) |
+| `NEXT_PUBLIC_API_URL` | URL pública de la API consumida por el frontend Next.js |
 | `DB_TYPE` | Tipo de BD (`sqlsrv`) |
 | `DB_HOST` | Host de SQL Server |
 | `DB_PORT` | Puerto (default: `1433`) |
 | `DB_NAME` | Nombre de la base de datos |
 | `DB_USER` | Usuario de BD |
 | `DB_PASS` | Contraseña de BD |
+| `DB_ENCRYPT` | Cifrado TLS para conexión principal (`yes` en producción) |
+| `DB_TRUST_SERVER_CERT` | Trust del certificado SQL Server principal (`no` en producción) |
+| `DB2_ENCRYPT` | Cifrado TLS para conexión de lectura (`yes` en producción) |
+| `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server de lectura (`no` en producción) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | Clave privada |
@@ -89,6 +95,7 @@ docker-compose up -d
 - Definir `ALLOWED_ORIGINS` con dominios explicitos (sin `*`).
 - Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo).
 - Definir `DB_PASS` y `GEMINI_API_KEY` reales por entorno.
+- Definir `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no`, `DB2_ENCRYPT=yes` y `DB2_TRUST_SERVER_CERT=no`.
 - Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion).
 
 ## API
@@ -113,6 +120,16 @@ Base URL: `http://localhost:8080`
 | `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
 
 > Ver documentación detallada en [`plans/api-endpoints.md`](plans/api-endpoints.md)
+
+### Nota de Optimización (Pipeline IA)
+
+El pipeline de auditoría (`POST /audit` y `POST /audit/single`) aplica prefiltrado SQL
+de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
+
+- Objetivo: reducir I/O y volumen de documentos procesados por la IA.
+- Alcance: solo flujo interno de auditoría.
+- Importante: el endpoint público `GET /dispensation/{invoiceId}/attachments/{nitSec}`
+  conserva el listado completo de adjuntos para UX/operación.
 
 ## Docker
 
@@ -144,13 +161,34 @@ wsl docker compose -f docker-compose.ha.yml down
 ```
 
 Servicios (dev): `php` + `nginx` (1 replica por servicio).
-Servicios (ha): `php` (5 replicas) + `nginx` con balanceo via template.
+Servicios (ha): `php` (5 replicas declaradas) + `nginx` con balanceo via template.
 
-Estado actual de configuración: `docker-compose.yml` mantiene topología HA (5 réplicas PHP-FPM + Nginx con `least_conn`), mientras que `docker-compose.dev.yml` se conserva como modo local simple.
+Estado actual de configuración: `docker-compose.yml` conserva la intención de topología HA en su definición, pero el workflow de producción ejecuta `docker compose up --build -d` sobre un runner self-hosted. Eso valida y levanta el stack, pero no debe comunicarse como orquestación HA garantizada por sí sola.
 El build de `php` usa `ENABLE_XDEBUG` por entorno: en `docker-compose.dev.yml` está en `1` (debug activo) y en `docker-compose.yml` / `docker-compose.ha.yml` está en `0` (debug deshabilitado).
 En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose de producción (`docker-compose.yml`) monta únicamente `./logs:/var/www/html/logs` para persistir logs en el host; el código fuente vive dentro de la imagen (Zero-Source).
+El contenedor PHP usa un healthcheck empaquetado en `/usr/local/bin/audfact-healthcheck.php`, evitando depender de rutas eliminadas durante el build final.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
+
+### Frontend (Deploy Runner)
+
+El frontend se despliega con un workflow independiente en runner self-hosted:
+
+- Workflow: `.github/workflows/deploy-frontend.yml`
+- Compose: `docker-compose.frontend.yml`
+- Imagen: `frontend/Dockerfile` (Next.js standalone)
+- Puerto: `3000`
+- Gate previo: `lint` + `build` en `ubuntu-latest` antes del deploy al runner self-hosted
+
+### Seguridad pendiente
+
+La autenticación/autorización de endpoints críticos queda diferida a un sprint posterior. Este release endurece el pipeline de despliegue y el transporte a SQL Server, pero no cambia todavía la exposición funcional de `/clients*`, `/invoices*`, `/dispensation*` y `/audit*`.
+
+Comando manual equivalente:
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8080 docker compose -f docker-compose.frontend.yml up --build -d
+```
 
 ## Documentación
 

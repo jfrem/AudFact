@@ -24,7 +24,7 @@ services:
           cpus: '0.5'
     healthcheck:
       # Verificación real: carga app PHP + SELECT 1 contra SQL Server
-      test: ["CMD", "php", "/var/www/html/docker/healthcheck.php"]
+      test: ["CMD", "php", "/usr/local/bin/audfact-healthcheck.php"]
       interval: 30s
       timeout: 5s
       retries: 3

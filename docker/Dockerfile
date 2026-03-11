@@ -26,7 +26,9 @@ WORKDIR /var/www/html
 COPY docker/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 COPY docker/php-fpm-pool.conf.template /usr/local/etc/php-fpm.d/www.conf.template
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint-custom.sh
+COPY docker/healthcheck.php /usr/local/bin/audfact-healthcheck.php
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-custom.sh \
+    && sed -i 's/\r$//' /usr/local/bin/audfact-healthcheck.php \
     && chmod +x /usr/local/bin/docker-entrypoint-custom.sh \
     && if [ "$ENABLE_XDEBUG" != "1" ]; then rm -f /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini; fi
 

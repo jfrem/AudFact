@@ -131,6 +131,138 @@ class AuditPersistenceServiceTest extends TestCase
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
     }
 
+    // ── Error por faltantes: rechazo puntual por documento faltante ──
+
+    public function testSaveToDatabaseRejectsOnlyMissingDocumentsOnBusinessPrevalidationError(): void
+    {
+        $result = [
+            'response' => 'error',
+            'message' => 'Documentos requeridos sin archivo adjunto: AUTORIZACION DE SERVICIOS, VALIDADOR DE DERECHOS',
+            '_errorOrigin' => 'business',
+            '_meta' => ['factura' => 'FAC-001', 'documentos' => [], 'totalTimeMs' => 1200],
+            'data' => ['items' => []],
+            'severity' => 'ninguna',
+        ];
+
+        $this->auditStatusModel
+            ->expects($this->once())
+            ->method('upsertAuditResult')
+            ->with($this->callback(function (array $data) {
+                return $data['EstAud'] === 1
+                    && $data['EstadoDetallado'] === 'error'
+                    && $data['Severidad'] === 'alta';
+            }));
+
+        // 2 llamadas: rechazo por cada documento faltante (sin rechazo global masivo).
+        $this->auditStatusModel
+            ->expects($this->exactly(2))
+            ->method('updateAuditResult')
+            ->willReturnCallback(function ($invoice, $approved, $observation, $documento) {
+                static $call = 0;
+                $call++;
+
+                $this->assertSame('FAC-001', $invoice);
+                $this->assertFalse($approved);
+                $this->assertIsString($observation);
+                $this->assertStringContainsString('Documentos requeridos sin archivo adjunto', $observation);
+
+                if ($call === 1) {
+                    $this->assertSame('AUTORIZACION DE SERVICIOS', $documento);
+                    return true;
+                }
+
+                if ($call === 2) {
+                    $this->assertSame('VALIDADOR DE DERECHOS', $documento);
+                    return true;
+                }
+
+                $this->fail('Cantidad inesperada de llamadas a updateAuditResult');
+            });
+
+        $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
+    }
+
+    public function testSaveToDatabaseRejectsSpecificDocumentWhenBusinessErrorIncludesDocumentFindings(): void
+    {
+        $result = [
+            'response' => 'error',
+            'message' => 'Adjunto supera el maximo de páginas permitidas',
+            '_errorOrigin' => 'business',
+            '_meta' => ['factura' => 'FAC-001', 'documentos' => [], 'totalTimeMs' => 1500],
+            'data' => ['items' => [
+                [
+                    'item' => 'Cantidad de páginas',
+                    'hallazgo' => 'Adjunto supera el maximo de páginas permitidas',
+                    'severidad' => 'alta',
+                    'documento' => 'VALIDADOR DE DERECHOS',
+                ],
+            ]],
+            'severity' => 'alta',
+        ];
+
+        $this->auditStatusModel
+            ->expects($this->once())
+            ->method('upsertAuditResult');
+
+        // 2 llamadas: baseline aprobado + rechazo puntual del documento con hallazgo.
+        $this->auditStatusModel
+            ->expects($this->exactly(2))
+            ->method('updateAuditResult')
+            ->willReturnCallback(function ($invoice, $approved, $observation, $documento) {
+                static $call = 0;
+                $call++;
+
+                if ($call === 1) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertTrue($approved);
+                    $this->assertNull($observation);
+                    $this->assertNull($documento);
+                    return true;
+                }
+
+                if ($call === 2) {
+                    $this->assertSame('FAC-001', $invoice);
+                    $this->assertFalse($approved);
+                    $this->assertIsString($observation);
+                    $this->assertStringContainsString('maximo de páginas', $observation);
+                    $this->assertSame('VALIDADOR DE DERECHOS', $documento);
+                    return true;
+                }
+
+                $this->fail('Cantidad inesperada de llamadas a updateAuditResult');
+            });
+
+        $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
+    }
+
+    public function testSaveToDatabaseMarksTraceabilityForHumanReview(): void
+    {
+        $result = [
+            'response' => 'human_review',
+            'message' => 'Tipo de servicio requiere revisión humana',
+            '_errorOrigin' => 'business',
+            '_meta' => ['factura' => 'FAC-001', 'documentos' => [], 'totalTimeMs' => 900],
+            'data' => ['items' => []],
+        ];
+
+        $this->auditStatusModel
+            ->expects($this->once())
+            ->method('upsertAuditResult')
+            ->with($this->callback(function (array $data) {
+                return $data['EstadoDetallado'] === 'human_review'
+                    && $data['Severidad'] === 'media'
+                    && $data['EstAud'] === 1;
+            }));
+
+        $this->auditStatusModel
+            ->expects($this->once())
+            ->method('updateAuditResult')
+            ->with('FAC-001', true, null, null)
+            ->willReturn(true);
+
+        $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
+    }
+
     // ── Multi-documento: cada documento con hallazgos se rechaza individualmente ──
 
     public function testSaveToDatabaseRejectsMultipleDocumentsIndividually(): void

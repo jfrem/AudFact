@@ -15,7 +15,7 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 - **Host**: Runner instalado en servidor local (`172.16.0.3` usuario `admon`)
 - **Autenticación**: Token de registro de GitHub Actions
 - **Ruta Base**: `/home/admon/actions-runner`
-- **Runtime**: Docker Compose (PHP-FPM x5 + Nginx)
+- **Runtime**: Docker Compose sobre runner self-hosted (`docker compose up --build -d`). La definición conserva intención HA, pero el workflow actual no debe presentarse como orquestación multi-réplica garantizada.
 
 ### GitHub Secrets requeridos
 
@@ -27,13 +27,15 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 | `DB_NAME` | ✅ | Nombre de base de datos |
 | `DB_USER` | ✅ | Usuario BD escritura |
 | `DB_PASS` | ✅ | Contraseña BD escritura |
-| `DB_ENCRYPT` | — | Cifrado de conexión (`no`/`yes`, default: `no`) |
-| `DB_TRUST_SERVER_CERT` | — | Trust cert (`yes`/`no`, default: `yes`) |
+| `DB_ENCRYPT` | ✅ en prod | Cifrado TLS conexión principal (`yes`) |
+| `DB_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión principal (`no`) |
 | `DB2_HOST` | ✅ | Host SQL Server lectura (ej: `169.46.6.55\SQL2022_REPLICA`) |
 | `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
 | `DB2_NAME` | ✅ | Nombre de BD lectura |
 | `DB2_USER` | ✅ | Usuario BD lectura |
 | `DB2_PASS` | ✅ | Contraseña BD lectura |
+| `DB2_ENCRYPT` | ✅ en prod | Cifrado TLS conexión lectura (`yes`) |
+| `DB2_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión lectura (`no`) |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | — | Email de service account de Google Drive |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
 | `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
@@ -46,12 +48,14 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 ### Qué hace el deploy
 
 1. **CI (GitHub-hosted)**: Lint PHP, validación Composer, PHPUnit
-2. **CD (Self-hosted runner)**: Fix de permisos Docker + Checkout del código (`clean: true`)
-3. Genera `.env` dinámicamente desde GitHub Secrets (con validación de secrets requeridos)
-4. `docker compose down` → `docker compose up --build -d`
-5. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
-6. Health check con **retry loop** (3 intentos, 10s entre cada uno)
-7. **Zero-Source Host Purge** (Lean Production 3.0): Elimina todo el código fuente y metadatos del workspace del runner, dejando solo `.env`, `docker-compose.yml`, `logs/` y `.git`
+2. **CI Frontend (GitHub-hosted)**: `npm ci`, `npm run lint`, `npm run build`
+3. **CD (Self-hosted runner)**: Fix de permisos Docker + Checkout del código (`clean: true`)
+4. Genera `.env` dinámicamente desde GitHub Secrets (con validación de secrets requeridos)
+5. En `APP_ENV=production`, el workflow falla si `DB_ENCRYPT/DB2_ENCRYPT != yes` o `DB_TRUST_SERVER_CERT/DB2_TRUST_SERVER_CERT != no`
+6. `docker compose down` → `docker compose up --build -d`
+7. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
+8. Health check con **retry loop** (3 intentos, 10s entre cada uno)
+9. **Zero-Source Host Purge** (Lean Production 3.0): Elimina todo el código fuente y metadatos del workspace del runner, dejando solo `.env`, `docker-compose.yml`, `logs/` y `.git`
 
 ### Inconsistencias recurrentes y cómo evitarlas
 
@@ -80,6 +84,7 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 
 - Solo se activa en **push a `main`** (no en PRs ni feature branches)
 - Requiere que el job `lint` (CI) pase exitosamente
+- El deploy del frontend requiere que su job de validación (`lint` + `build`) pase antes de tocar el runner
 
 ---
 
@@ -127,8 +132,10 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 - [ ] Health check (`/health`) responde correctamente
 - [ ] GitHub Secrets de producción configurados (ver tabla arriba)
 - [ ] `APP_ENV=production` en Secrets
+- [ ] `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no`, `DB2_ENCRYPT=yes`, `DB2_TRUST_SERVER_CERT=no`
 - [ ] Tests unitarios pasan (CI automático)
 - [ ] `vendor/` se instala automáticamente por el entrypoint (no requiere paso manual)
+- [ ] `NEXT_PUBLIC_API_URL` configurado para el workflow del frontend
 
 ---
 
@@ -140,7 +147,13 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 | **Estructura** | Script custom | Validar directorios obligatorios |
 | **Secrets Scan** | `grep` | Detectar credenciales hardcodeadas |
 | **Unit Tests** | PHPUnit | Validar lógica core |
+| **Frontend Lint** | ESLint/Next | Validar calidad estática del frontend |
+| **Frontend Build** | Next.js | Verificar que el bundle de producción compila |
 
 ### Branches monitoreados
 - `main`, `develop`, `feature/*` (push)
 - `main`, `develop` (pull_request)
+
+## Riesgo diferido
+
+La autenticación/autorización de endpoints críticos permanece fuera de este sprint. Debe tratarse como trabajo P0/P1 del siguiente ciclo y no debe confundirse con una remediación ya implementada por este endurecimiento del pipeline.

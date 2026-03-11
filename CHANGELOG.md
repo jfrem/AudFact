@@ -1,3 +1,191 @@
+## [2026-03-11]
+
+### security
+- **Ámbito**: Hardening del pipeline de despliegue con GitHub Actions runner.
+  - Archivos modificados: `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `docker/Dockerfile`, `docker-compose.yml`, `docker-compose.ha.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: `SEC-002`, `ARCH-001`, `GOV-001`, `GOV-002`, `QUAL-001` (parcial)
+  - Impacto: el deploy de producción ahora exige TLS seguro para SQL Server principal y de lectura, el frontend pasa por `lint` y `build` antes de tocar el runner, y el healthcheck PHP usa una ruta persistente dentro de la imagen final.
+
+## [2026-03-10]
+
+### fix
+- **Ámbito**: Resolución robusta de `documentoFallido` para rechazos puntuales en auditoría.
+  - Archivos modificados: `app/Models/AuditStatusModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: rechazos omitidos por mismatch de nombre documental (exact match fallido)
+  - Impacto: `updateAuditResult` ahora intenta match exacto, normalizado y por alias canónico, con trazabilidad de estrategia aplicada en logs.
+
+### fix
+- **Ámbito**: Persistencia documental para casos `human_review` (TUTELA).
+  - Archivos modificados: `app/Services/Audit/AuditPreValidator.php`, `app/Services/Audit/AuditPersistenceService.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: auditorías `human_review` quedaban huérfanas en `/audit/documents-history`
+  - Impacto: `human_review` ahora se registra con `_errorOrigin=business` y deja trazabilidad en `AdjuntosDispensacion` para aparecer en historial documental.
+
+### fix
+- **Ámbito**: Corrección de filtros `facNro/facNitSec` en historial documental de auditoría.
+  - Archivos modificados: `app/Models/AttachmentsModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: consultas filtradas de `/audit/documents-history` devolvían vacío pese a existir registros
+  - Impacto: los filtros por factura y NIT vuelven a aplicar correctamente en `countAuditHistory` y `getAuditHistory`.
+
+### fix
+- **Ámbito**: Persistencia documental de errores de prevalidación por límite de páginas.
+  - Archivos modificados: `app/Services/Audit/AuditPreValidator.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: error de negocio con auditoría en `AudDispEst` sin reflejo en `/audit/documents-history`
+  - Impacto: cuando un adjunto excede el máximo de páginas permitido, el resultado incluye hallazgo por documento y se aplica rechazo puntual en `AdjuntosDispensacion`, quedando visible en historial documental.
+
+### fix
+- **Ámbito**: Unificación de `API_BASE` en frontend para evitar inconsistencias de endpoint.
+  - Archivos modificados: `frontend/src/lib/api.ts`, `frontend/src/components/document-viewer.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: QUAL-001
+  - Impacto: toda la UI consume una única base URL configurada por `NEXT_PUBLIC_API_URL` con fallback local consistente, eliminando hardcode de IP fija.
+
+### fix
+- **Ámbito**: Alineación de documentación de testing con el estado real del repositorio.
+  - Archivos modificados: `plans/testing-strategy.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: GOV-002
+  - Impacto: la estrategia de pruebas documenta PHPUnit activo, suite actual y comandos reales de ejecución en local/CI.
+
+### perf
+- **Ámbito**: Prefiltrado SQL de adjuntos requeridos para auditoría IA.
+  - Archivos modificados: `app/Models/AttachmentsModel.php`, `app/Services/Audit/AuditPreValidator.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: sobrecarga por filtrar opcionalidad únicamente en capa de aplicación
+  - Impacto: el pipeline de auditoría ahora consulta adjuntos con `AdjDisOpc='N'` antes de llegar a Gemini, reduciendo volumen procesado sin alterar el endpoint público de adjuntos.
+
+### fix
+- **Ámbito**: Normalización de severidad para errores de prevalidación.
+  - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: `EstadoDetallado=error` con `Severidad=ninguna`
+  - Impacto: cuando una auditoría termina en `error`, la severidad persistida ya no queda en `ninguna` (fallback a `alta`).
+
+### fix
+- **Ámbito**: Lectura consistente de resultados de auditoría tras persistencia.
+  - Archivos modificados: `app/Models/AuditStatusModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: desfase entre datos recién guardados y `/audit/results` por uso de conexión de lectura `db2`
+  - Impacto: `AuditStatusModel` ahora lee desde `default` (mismo origen de escritura), evitando valores atrasados en severidad/duración/documentos procesados.
+
+### fix
+- **Ámbito**: Persistencia de duración real en errores de prevalidación de auditoría.
+  - Archivos modificados: `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/AuditPreValidator.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: `DuracionProcesamientoMs` en `0` para errores de negocio pre-Gemini
+  - Impacto: los flujos de error temprano ahora incluyen `_meta.totalTimeMs` y documentos disponibles en `_meta.documentos`, permitiendo guardar duración y `DocumentosProcesados` coherentes en `AudDispEst`.
+
+### fix
+- **Ámbito**: Restauración de rechazo selectivo en auditoría por documentos faltantes.
+  - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `app/Models/AuditStatusModel.php`, `app/Models/AttachmentsModel.php`, `tests/Services/Audit/AuditPersistenceServiceTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: rechazo global incorrecto de soportes en faltantes parciales
+  - Impacto: cuando faltan adjuntos requeridos, solo se rechazan los documentos faltantes reportados; se elimina la reconciliación de lectura que forzaba estados `R` globales en historial.
+
+## [2026-03-09]
+
+### fix
+- **Ámbito**: Consistencia entre `/audit/results` y persistencia de soportes en errores globales sin hallazgos por documento.
+  - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `app/Models/AuditStatusModel.php`, `app/Models/AttachmentsModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: inconsistencia de estado C/R entre endpoints de auditoría
+  - Impacto: cuando la auditoría falla por documentos faltantes sin `data.items`, los adjuntos se marcan como rechazados de forma global y se expone una reconciliación de lectura para historial documental.
+
+### feat
+- **Ámbito**: Ajuste de `.gitignore` para artefactos locales de frontend y temporales de trabajo.
+  - Archivos modificados: `.gitignore`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: se excluyen del control de versiones caches/builds locales (`frontend/.next`, `frontend/.turbo`, `tmp`, `.agents`, etc.) para reducir ruido en commits.
+
+### feat
+- **Ámbito**: Pipeline y runtime de despliegue para frontend Next.js en runner self-hosted.
+  - Archivos modificados: `frontend/Dockerfile`, `frontend/.dockerignore`, `docker-compose.frontend.yml`, `.github/workflows/deploy-frontend.yml`, `.github/workflows/ci.yml`, `.env.example`, `README.md`, `AGENTS.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el frontend ahora cuenta con imagen Docker standalone y workflow de despliegue independiente con health check en `:3000`; backend preserva `docker-compose.frontend.yml` durante purge Zero-Source.
+
+### feat
+- **Ámbito**: Optimización de `.dockerignore` para reducir contexto de build y reforzar exclusión de secretos.
+  - Archivos modificados: `.dockerignore`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: se excluyen `.env` locales, artefactos de frontend/caches y carpetas de desarrollo no requeridas por imágenes Docker actuales, manteniendo `!.env.example`.
+
+### feat
+- **Ámbito**: Alineación de estados del dashboard con el contrato real de auditorías.
+  - Archivos modificados: `frontend/src/lib/audit-state.ts`, `frontend/src/app/dashboard/page.tsx`, `frontend/src/app/dashboard/_components/kpi-cards.tsx`, `frontend/src/app/dashboard/_components/recent-audits-table.tsx`, `frontend/src/app/dashboard/_components/status-distribution-chart.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: KPIs, tabla y gráfica de distribución ahora usan un único mapeo canónico (`resolveAuditState`) para estados `Pendiente`, `Procesada OK`, `Con Hallazgos`, `Error`, `Revisión humana` y `Desconocido`.
+
+### feat
+- **Ámbito**: Homologación visual del visor modal en `audit/batch` para alinearlo con la experiencia de `audit/single`.
+  - Archivos modificados: `frontend/src/app/audit/batch/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: se removieron capas `z-index` que interferían con la percepción del modal y se estandarizó el cierre/limpieza de estado del visor.
+
+### feat
+- **Ámbito**: Acción directa "Ver" en tabla de soportes documentales de `audit/single`.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `frontend/src/components/document-viewer.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: cada soporte ahora puede abrirse desde su propia fila en modal `iframe` y se elimina la opción de descarga para simplificar la revisión visual.
+
+### feat
+- **Ámbito**: Detalles de factura en `audit/single` con modo colapsable (resumen + detalle completo).
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la vista muestra un resumen inicial de contexto y permite expandir/contraer bloques completos para reducir carga visual sin perder información.
+
+### feat
+- **Ámbito**: Ampliación de "Detalles de la Factura" con más campos del endpoint `/dispensation/{id}`.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `frontend/src/lib/types.ts`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: ahora se visualizan bloques adicionales (administrativo, paciente, médico/diagnóstico y fechas) usando datos reales de la respuesta del backend.
+
+### feat
+- **Ámbito**: Ajuste de proporciones del header operativo en `audit/single` a distribución 60/40.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la columna del buscador gana prioridad visual frente al panel de acción, mejorando balance y legibilidad en desktop.
+
+### feat
+- **Ámbito**: Distribución superior en dos columnas para buscador y acción principal en `audit/single`.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el buscador queda en una columna y el botón de auditoría con sus KPIs en otra, mejorando claridad operativa al inicio del flujo.
+
+### feat
+- **Ámbito**: Reorganización de layout en `audit/single` para mejorar jerarquía visual y escaneo.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `frontend/src/components/audit/dispensation-lines-table.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la pantalla ahora usa distribución contenido+panel de ejecución sticky, KPI compactos y hallazgos en columna única dentro del modal para una lectura más clara.
+
+### fix
+- **Ámbito**: Optimización de descarga de adjuntos BLOB para evitar doble lectura temprana del binario
+  - Archivos modificados: `app/Models/AttachmentsModel.php`, `app/Controllers/AttachmentsController.php`
+  - Hallazgo resuelto: ninguno
+  - Impacto: el endpoint de descarga ahora consulta solo metadatos antes de abrir el stream del BLOB, reduciendo riesgo de timeout en adjuntos pesados
+
+## [2026-03-08]
+
+### Tipo (feat)
+- **Ambito**: Optimizacion de UI en auditoria individual con exposicion completa de la respuesta de dispensacion.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `frontend/src/components/audit/dispensation-lines-table.tsx`, `frontend/src/components/audit/audit-result-summary.tsx`, `frontend/src/components/document-viewer.tsx`, `frontend/src/lib/types.ts`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la vista `audit/single` ahora muestra las lineas completas de `/dispensation/{id}`, mejora jerarquia de resumen de resultados y agrega feedback explicito cuando un hallazgo no puede mapearse a un adjunto.
+
+### Tipo (feat)
+- **Ambito**: Priorizacion de hallazgos en batch por severidad.
+  - Archivos modificados: `frontend/src/app/audit/batch/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la tabla de hallazgos en auditoria masiva ahora ordena automaticamente por severidad (`alta`, `media`, `baja`) para acelerar la revision.
+
+### Tipo (feat)
+- **Ambito**: Visor de documentos extendido a resultados de auditoria masiva (batch).
+  - Archivos modificados: `frontend/src/app/audit/batch/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: los hallazgos del lote ahora incluyen accion `Ver` que resuelve el adjunto por factura+origen y abre el modal unificado tipo `iframe` con cache de resolucion.
+
+### Tipo (feat)
+- **Ambito**: Visor de documentos habilitado tambien en la vista de historial de auditorias.
+  - Archivos modificados: `frontend/src/app/audit/history/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: ahora cada fila del historial permite abrir el soporte con boton `Ver` en modal grande tipo `iframe`, reutilizando el visor unificado.
+
+### Tipo (feat)
+- **Ambito**: Visor de documentos dentro del modal de resultados en auditoría individual.
+  - Archivos modificados: `frontend/src/app/audit/single/page.tsx`, `frontend/src/components/document-viewer.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: cada hallazgo ahora permite abrir el soporte asociado con botón `Ver`, previsualizando PDF/imagen en un modal y ofreciendo descarga para MIME no renderizable.
+
 ## [2026-03-07]
 
 ### Tipo (feature)
@@ -346,3 +534,4 @@
   - Archivos modificados: `docker/nginx-ha.conf.template`
   - Hallazgo resuelto: ninguno
   - Impacto: `audfact-nginx` inicia correctamente y vuelve a publicar `:8080`.
+
