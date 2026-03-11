@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Bind explícito del frontend a `0.0.0.0` en runtime Docker.
+  - Archivos modificados: `frontend/Dockerfile`, `CHANGELOG.md`
+  - Hallazgo resuelto: el frontend respondía desde el host pero rechazaba conexiones a `127.0.0.1:3000` dentro del contenedor, dejando el healthcheck en falso negativo
+  - Impacto: la imagen frontend fuerza escucha en todas las interfaces del contenedor, permitiendo que el healthcheck interno valide correctamente el proceso Next.js.
+
+### fix
 - **Ámbito**: Corrección del healthcheck interno del contenedor frontend.
   - Archivos modificados: `docker-compose.frontend.yml`, `CHANGELOG.md`
   - Hallazgo resuelto: falso negativo de salud con `wget http://localhost:3000/` pese a que Next.js respondía correctamente desde el host
