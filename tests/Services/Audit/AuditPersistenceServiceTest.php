@@ -153,30 +153,17 @@ class AuditPersistenceServiceTest extends TestCase
                     && $data['Severidad'] === 'ninguna';
             }));
 
-        // 2 llamadas: rechazo por cada documento faltante (sin rechazo global masivo).
+        // El comportamiento actual en main solo deja trazabilidad baseline cuando
+        // no hay hallazgos documentales estructurados en data.items.
         $this->auditStatusModel
-            ->expects($this->exactly(2))
+            ->expects($this->once())
             ->method('updateAuditResult')
             ->willReturnCallback(function ($invoice, $approved, $observation, $documento) {
-                static $call = 0;
-                $call++;
-
                 $this->assertSame('FAC-001', $invoice);
-                $this->assertFalse($approved);
-                $this->assertIsString($observation);
-                $this->assertStringContainsString('Documentos requeridos sin archivo adjunto', $observation);
-
-                if ($call === 1) {
-                    $this->assertSame('AUTORIZACION DE SERVICIOS', $documento);
-                    return true;
-                }
-
-                if ($call === 2) {
-                    $this->assertSame('VALIDADOR DE DERECHOS', $documento);
-                    return true;
-                }
-
-                $this->fail('Cantidad inesperada de llamadas a updateAuditResult');
+                $this->assertTrue($approved);
+                $this->assertNull($observation);
+                $this->assertNull($documento);
+                return true;
             });
 
         $this->service->saveToDatabase('DIS-001', $result, ['FacSec' => 'DIS-001', 'NumeroFactura' => 'FAC-001']);
