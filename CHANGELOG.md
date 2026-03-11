@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Formalización del frontend como submódulo para CI/CD de GitHub Actions.
+  - Archivos modificados: `.gitmodules`, `.github/workflows/deploy-frontend.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: `actions/setup-node` no podía resolver `frontend/package-lock.json` porque el checkout del repo principal no materializaba el árbol del frontend
+  - Impacto: los jobs `validate-frontend` y `deploy-frontend` ahora inicializan el submódulo `frontend` antes de usar la caché npm o construir la imagen Docker.
+
+### fix
 - **Ámbito**: Corrección del estado persistido para guards de negocio y `human_review` en auditoría.
   - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `CHANGELOG.md`
   - Hallazgo resuelto: fallos de PHPUnit en persistencia de prevalidación y revisión humana
