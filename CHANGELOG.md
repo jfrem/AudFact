@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Corrección del healthcheck interno del contenedor frontend.
+  - Archivos modificados: `docker-compose.frontend.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: falso negativo de salud con `wget http://localhost:3000/` pese a que Next.js respondía correctamente desde el host
+  - Impacto: el healthcheck del frontend ahora valida contra `127.0.0.1`, reduciendo fallos por resolución interna de `localhost`.
+
+### fix
 - **Ámbito**: Preservación del contexto `frontend/` durante el purge Zero-Source del deploy backend.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
   - Hallazgo resuelto: el runner eliminaba `frontend/` y luego `docker-compose.frontend.yml` fallaba por contexto de build inexistente
