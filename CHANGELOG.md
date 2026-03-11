@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Preservación del contexto `frontend/` durante el purge Zero-Source del deploy backend.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: el runner eliminaba `frontend/` y luego `docker-compose.frontend.yml` fallaba por contexto de build inexistente
+  - Impacto: el workspace remoto conserva `./frontend` para permitir reconstrucciones posteriores del contenedor frontend sin perder el modelo actual de despliegue.
+
+### fix
 - **Ámbito**: Alineación del deploy backend en CI con el checkout recursivo de submódulos.
   - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
   - Hallazgo resuelto: ruido e inconsistencias del self-hosted runner al limpiar workspaces con `frontend` ya declarado en `.gitmodules`

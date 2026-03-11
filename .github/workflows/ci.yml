@@ -235,7 +235,8 @@ jobs:
             exit 1
           fi
           cd "$GITHUB_WORKSPACE"
-          # Delete everything except essentials (.env, logs, docker-compose.yml, .git, docker, public, _temp/_actions metadata)
+          # Delete everything except essentials (.env, logs, compose, git metadata,
+          # docker/public, frontend build context and _temp/_actions metadata)
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 \
             ! -name 'logs' \
             ! -name '.env' \
@@ -244,6 +245,7 @@ jobs:
             ! -name '.git' \
             ! -name 'docker' \
             ! -name 'public' \
+            ! -name 'frontend' \
             ! -name '_temp' \
             ! -name '_actions' \
             -print -exec rm -rf {} +
