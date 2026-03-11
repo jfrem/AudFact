@@ -37,17 +37,23 @@ class AuditController extends Controller
         $data = $this->validate([
             'facNitSec' => 'required|integer|min_value:1',
             'date' => 'required|date',
+            'dateTo' => 'optional|date',
             'limit' => "required|integer|min_value:1|max_value:{$batchMaxLimit}",
         ]);
+
+        if (isset($data['dateTo']) && $data['dateTo'] !== '' && $data['date'] > $data['dateTo']) {
+            Response::error('date no puede ser mayor que dateTo', 422);
+        }
 
         Logger::info("AuditController: Received request with parameters: " . json_encode($data));
 
         $facNitSec = (int)$data['facNitSec'];
         $date = (string)$data['date'];
+        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string)$data['dateTo'] : null;
         $limit = (int)$data['limit'];
 
-        $invoices = (new InvoicesModel())->getInvoices($facNitSec, $date, $limit);
-        Logger::info("AuditController: Retrieved " . count($invoices) . " invoices for facNitSec={$facNitSec}, date={$date}, limit={$limit}");
+        $invoices = (new InvoicesModel())->getInvoices($facNitSec, $date, $dateTo, $limit);
+        Logger::info("AuditController: Retrieved " . count($invoices) . " invoices for facNitSec={$facNitSec}, date={$date}, dateTo=" . ($dateTo ?? 'null') . ", limit={$limit}");
         if (empty($invoices)) {
             Response::success(['items' => []], 'No se encontraron facturas para los parámetros indicados.');
         }

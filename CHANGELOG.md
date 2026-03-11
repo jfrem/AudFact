@@ -1,5 +1,35 @@
 ## [2026-03-11]
 
+### refactor
+- **Ámbito**: Cobertura automatizada para rango de fechas en facturas y auditoría batch.
+  - Archivos modificados: `tests/Controllers/AuditControllerTest.php`, `tests/Controllers/InvoicesControllerTest.php`, `tests/Models/InvoicesModelTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la suite PHPUnit ahora protege la validación de `dateTo`, el rechazo de rangos inválidos y la construcción SQL del modelo de facturas antes de hacer commit y push.
+
+### fix
+- **Ámbito**: Corrección del breadcrumb inválido en navegación del frontend.
+  - Archivos modificados: `frontend/src/components/layout/navbar.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: navegación intermedia a `/audit` inexistente desde breadcrumbs
+  - Impacto: la UI deja de generar enlaces y prefetch hacia la ruta inexistente `/audit`, eliminando el `404` de consola al abrir vistas hijas como `audit/batch`.
+
+### feat
+- **Ámbito**: Exposición completa de parámetros del lote de auditoría en la UI batch.
+  - Archivos modificados: `frontend/src/app/audit/batch/page.tsx`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: la pantalla de auditoría masiva ahora permite enviar `facNitSec`, `date`, `dateTo` y `limit` al endpoint `POST /audit`, validando además el rango de fechas y el límite configurado por backend.
+
+### fix
+- **Ámbito**: Compatibilidad SQL Server del endpoint de facturas.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: `GET /invoices` fallaba con `SQLSTATE[07002]` por placeholders repetidos y `TOP` parametrizado en `pdo_sqlsrv`
+  - Impacto: la búsqueda de facturas vuelve a responder desde la API sin error 500 para filtros válidos por NIT y fecha/rango.
+
+### feat
+- **Ámbito**: Soporte de rango de fechas para endpoints de auditoría en lote y búsqueda de facturas.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `app/Controllers/AuditController.php`, `app/Controllers/InvoicesController.php`, `plans/api-endpoints.md`, `AGENTS.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: los endpoints `GET /invoices` y `POST /audit` ahora aceptan un parámetro opcional `dateTo` para consultar e iniciar procesos de auditoría sobre rangos de tiempo definidos en vez de una fecha única.
+
 ### fix
 - **Ámbito**: Desacople del rate limiter respecto al workspace del runner.
   - Archivos modificados: `core/RateLimit.php`, `docker/Dockerfile`, `docker/docker-entrypoint.sh`, `CHANGELOG.md`

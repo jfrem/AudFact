@@ -121,6 +121,129 @@ Obtiene un cliente por su NitSec.
 
 ### `GET /invoices`
 
+# API Endpoints — AudFact
+
+## Base URL
+
+```
+http://localhost:8080
+```
+
+> [!IMPORTANT]
+> Las rutas **NO** llevan prefijo `/api/`. Se acceden directamente desde la raíz (ej: `/clients`, `/audit/single`).
+
+---
+
+## Health Check
+
+### `GET /`
+
+Health check del sistema.
+
+**Parámetros**: Ninguno
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "message": "API is running",
+    "data": {
+        "version": "1.0",
+        "environment": "production"
+    }
+}
+```
+
+---
+
+## Configuración
+
+### `GET /config/public`
+
+Devuelve la configuración pública del sistema para uso del frontend.
+
+**Parámetros**: Ninguno
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "success": true,
+    "data": {
+        "auditBatchMaxLimit": 10
+    }
+}
+```
+
+---
+
+## Clientes
+
+### `GET /clients`
+
+Lista todos los clientes (EPS) activos.
+
+**Parámetros**: Ninguno
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "data": [
+        { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
+    ]
+}
+```
+
+---
+
+### `POST /clients`
+
+Busca clientes por filtros (lookup).
+
+**Request Body**:
+```json
+{
+    "NitSec": 123
+}
+```
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
+}
+```
+
+---
+
+### `GET /clients/{id}`
+
+Obtiene un cliente por su NitSec.
+
+**Parámetros**:
+
+| Nombre | Ubicación | Tipo | Requerido | Descripción |
+|---|---|---|---|---|
+| `id` | path | integer | ✅ | NitSec del cliente |
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
+}
+```
+
+**Errores**:
+- `404` — Cliente no encontrado
+
+---
+
+## Facturas
+
+### `GET /invoices`
+
 Busca facturas por cliente y fecha que no han sido auditadas.
 
 **Parámetros**:
@@ -128,7 +251,8 @@ Busca facturas por cliente y fecha que no han sido auditadas.
 | Nombre | Ubicación | Tipo | Requerido | Descripción |
 |---|---|---|---|---|
 | `facNitSec` | query | integer | ✅ | NitSec del cliente |
-| `date` | query | string | ✅ | Fecha (YYYY-MM-DD) |
+| `date` | query | string | ✅ | Fecha de inicio (YYYY-MM-DD) |
+| `dateTo` | query | string | ❌ | Fecha fin del rango (YYYY-MM-DD) |
 | `limit` | query | integer | ❌ | Máximo de resultados (1-1000, default: 100) |
 
 **Respuesta exitosa** (`200`):
@@ -263,94 +387,6 @@ Ejecuta auditoría IA para una factura individual de forma síncrona.
 
 **Request Body**:
 ```json
-{
-    "FacNro": "U88260100225"
-}
-```
-
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `FacNro` | string | ✅ | Número de factura / dispensación |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "success": true,
-    "message": "Auditoría individual completada",
-    "data": {
-        "response": "success | warning | error",
-        "severity": "ninguna | baja | media | alta",
-        "risk_score": 0,
-        "message": "Resumen técnico objetivo.",
-        "documento": "MULTIPLE",
-        "data": { "items": [] },
-        "metrics": {
-            "TotalCamposEvaluados": 24,
-            "TotalCoincidentes": 24,
-            "TotalDiscrepancias": 0,
-            "Altas": 0, "Medias": 0, "Bajas": 0
-        },
-        "config_used": { "weights": {}, "thresholds": {}, "max_score": 100 },
-        "_meta": {
-            "totalTimeMs": 14607,
-            "phases": { "dataFetchMs": 621, "filePrepMs": 4816, "geminiApiMs": 8960 },
-            "attempts": 1,
-            "factura": "U88260100225",
-            "documentos": ["ACTA DE ENTREGA", "FORMULA MEDICA", "VALIDADOR DE DERECHOS"],
-            "timestamp": "2026-02-27T02:00:21+00:00"
-        }
-    }
-}
-```
-
-#### Cómo probar con curl
-
-> [!CAUTION]
-> El shell afecta la sintaxis de escape del JSON. Usar la variante correcta.
-
-**PowerShell** (recomendado en Windows):
-```powershell
-$body = '{"FacNro":"U88260100225"}'
-curl.exe -s -X POST http://localhost:8080/audit/single -H "Content-Type: application/json" -d $body
-```
-
-**CMD** (Windows):
-```cmd
-curl.exe -X POST "http://localhost:8080/audit/single" -H "Content-Type: application/json" -d "{\"FacNro\":\"U88260100225\"}"
-```
-
-**Bash** (Linux/Mac/WSL):
-```bash
-curl -X POST http://localhost:8080/audit/single \
-  -H "Content-Type: application/json" \
-  -d '{"FacNro":"U88260100225"}'
-```
-
----
-
-### `POST /audit`
-
-Ejecuta auditoría IA para un lote de facturas.
-
-**Request Body**:
-```json
-{
-    "facNitSec": 1165,
-    "date": "2025-12-30",
-    "limit": 5
-}
-```
-
-| Campo | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `facNitSec` | integer | ✅ | NitSec del cliente (EPS) |
-| `date` | string | ✅ | Fecha de dispensación (YYYY-MM-DD) |
-| `limit` | integer | ✅ | Máximo de facturas a procesar (1–10) |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "success": true,
     "message": "Auditoría ejecutada",
     "data": {
         "items": [ { "invoice": {}, "result": {} } ],
