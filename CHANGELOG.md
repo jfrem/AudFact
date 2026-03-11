@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### fix
+- **Ámbito**: Alineación del deploy backend en CI con el checkout recursivo de submódulos.
+  - Archivos modificados: `.github/workflows/ci.yml`, `CHANGELOG.md`
+  - Hallazgo resuelto: ruido e inconsistencias del self-hosted runner al limpiar workspaces con `frontend` ya declarado en `.gitmodules`
+  - Impacto: el job `deploy` de `CI — AudFact` ahora hace checkout consistente del árbol Git completo antes de recrear contenedores.
+
+### fix
 - **Ámbito**: Formalización del frontend como submódulo para CI/CD de GitHub Actions.
   - Archivos modificados: `.gitmodules`, `.github/workflows/deploy-frontend.yml`, `CHANGELOG.md`
   - Hallazgo resuelto: `actions/setup-node` no podía resolver `frontend/package-lock.json` porque el checkout del repo principal no materializaba el árbol del frontend
