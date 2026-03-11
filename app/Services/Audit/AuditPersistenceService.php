@@ -69,22 +69,26 @@ class AuditPersistenceService
             $master = (isset($dispensation[0]) && is_array($dispensation[0])) ? $dispensation[0] : ($dispensation ?: []);
 
             $response = $result['response'] ?? 'error';
+            $errorOrigin = $result['_errorOrigin'] ?? 'infrastructure';
             $isSuccess = ($response === 'success');
-            // EstAud=1 significa "auditoría procesada por la IA" (independiente del resultado).
-            // Solo es 0 para registros que nunca han sido auditados.
-            $isProcessed = in_array($response, ['success', 'warning', 'error', 'human_review'], true);
+            // EstAud=1 solo cuando la IA alcanzó a procesar la auditoría o falló la infraestructura
+            // después de haberse iniciado el flujo técnico. Guards de negocio/prevalidación quedan en 0.
+            $isProcessed = in_array($response, ['success', 'warning'], true)
+                || ($response === 'error' && $errorOrigin === 'infrastructure');
             $findings = $result['data']['items'] ?? [];
             $severity = strtolower(trim((string) ($result['severity'] ?? '')));
             if ($severity === '') {
                 if ($isSuccess) {
                     $severity = 'ninguna';
-                } elseif ($response === 'warning' || $response === 'human_review') {
+                } elseif ($response === 'warning') {
                     $severity = 'media';
+                } elseif ($response === 'human_review' || $errorOrigin === 'business') {
+                    $severity = 'ninguna';
                 } else {
                     $severity = 'alta';
                 }
             }
-            if ($response === 'error' && $severity === 'ninguna') {
+            if ($response === 'error' && $severity === 'ninguna' && $errorOrigin !== 'business') {
                 $severity = 'alta';
             }
 
@@ -101,7 +105,9 @@ class AuditPersistenceService
                 'FacNro' => $master['NumeroFactura'] ?? ($result['_meta']['factura'] ?? $disDetNro),
                 'EstAud' => $isProcessed ? 1 : 0,
                 'EstadoDetallado' => substr(trim($response), 0, 50),
-                'RequiereRevisionHumana' => ($severity === 'alta' || $severity === 'media' || $response === 'warning' || $response === 'error') ? 1 : 0,
+                'RequiereRevisionHumana' => ($response === 'warning'
+                    || ($response === 'error' && $errorOrigin === 'infrastructure')
+                    || ($response !== 'human_review' && in_array($severity, ['alta', 'media'], true))) ? 1 : 0,
                 'Severidad' => substr($severity, 0, 20),
                 'Hallazgos' => !empty($findings) ? json_encode($findings, JSON_UNESCAPED_UNICODE) : null,
                 'DetalleError' => $result['message'] ?? null,
@@ -117,8 +123,6 @@ class AuditPersistenceService
             $this->auditStatusModel->upsertAuditResult($data);
 
             // Actualizar resultado en AdjuntosDispensacion excepto errores de infraestructura
-            $errorOrigin = $result['_errorOrigin'] ?? 'infrastructure';
-
             if ($errorOrigin !== 'infrastructure') {
                 $this->updateAuditResultIfNeeded($data['FacNro'], $isSuccess, $result);
             } else if (!$isSuccess) {

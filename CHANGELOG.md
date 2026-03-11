@@ -1,5 +1,11 @@
 ## [2026-03-11]
 
+### fix
+- **Ámbito**: Corrección del estado persistido para guards de negocio y `human_review` en auditoría.
+  - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: fallos de PHPUnit en persistencia de prevalidación y revisión humana
+  - Impacto: `AudDispEst` vuelve a distinguir entre auditorías realmente procesadas por IA y salidas tempranas de negocio, manteniendo `EstAud`, `Severidad` y `RequiereRevisionHumana` consistentes con el contrato esperado.
+
 ### security
 - **Ámbito**: Excepción operativa para despliegue con SQL Server sin TLS funcional.
   - Archivos modificados: `.github/workflows/ci.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
