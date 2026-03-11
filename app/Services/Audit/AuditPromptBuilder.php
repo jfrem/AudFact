@@ -108,6 +108,18 @@ class AuditPromptBuilder
 
       ---
 
+      ## §00 · Directiva de Determinismo
+
+      **OBLIGATORIO**: Esta auditoría debe ser determinista y reproducible.
+      - Reporta SOLO hallazgos con evidencia concreta y verificable en los documentos.
+      - Si un valor es ambiguo, parcialmente legible o tu confianza es inferior al 90%, clasifica como COINCIDE (no como discrepancia).
+      - NO reportes discrepancias basadas en suposiciones, inferencias o interpretaciones.
+      - Aplica el principio de presunción de conformidad: ante la duda, el documento cumple.
+      - Mantén un umbral de reporte ALTO: solo discrepancias claras e inequívocas.
+      - Tu objetivo es PRECISIÓN sobre EXHAUSTIVIDAD. Es preferible omitir un hallazgo dudoso que fabricar un falso positivo.
+
+      ---
+
       ## Fuente de Verdad
 
       ### Paciente

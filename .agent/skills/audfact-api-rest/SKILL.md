@@ -63,6 +63,61 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 4. **No hacer SQL en controladores** — delegar a modelos.
 5. **No retornar arrays crudos** con `echo`; usar `Response`.
 6. Router sanitiza params con `FILTER_SANITIZE_SPECIAL_CHARS` y limita a **255 caracteres**.
+7. **Patrón Uniforme**: Todo endpoint que retorne listas debe incluir metadatos de paginación y reflejar los filtros aplicados.
+
+## Patrón de Endpoint Estándar (Uniforme) 💎
+
+Para garantizar la coherencia, todo nuevo endpoint debe seguir esta estructura:
+
+### 1. Endpoints de Consulta (GET) con Filtros
+```php
+public function miMetodo(): void
+{
+    // 1. Validar Query Params (Patrón Uniforme)
+    $filters = $this->validateQuery([
+        'facNitSec' => 'optional|integer',
+        'facNro'    => 'optional|string',
+        'page'      => 'optional|integer|min_value:1',
+        'pageSize'  => 'optional|integer|min_value:1|max_value:100'
+    ]);
+
+    // 2. Valores por defecto (si no vienen en validation)
+    $page = (int) ($filters['page'] ?? 1);
+    $pageSize = (int) ($filters['pageSize'] ?? 20);
+
+    // 3. Consumo Estándar en Modelo (Pasar array $filters completo)
+    $total = $this->model->countSomething($filters);
+    $items = $this->model->getSomething($page, $pageSize, $filters);
+
+    // 4. Respuesta Estándar (Data Wrap)
+    \Core\Response::success([
+        'items'      => $items,
+        'total'      => $total,
+        'page'       => $page,
+        'pageSize'   => $pageSize,
+        'totalPages' => ceil($total / $pageSize),
+        'filters'    => $filters // Reflejar filtros aplicados
+    ], 'Mensaje descriptivo en español');
+}
+```
+
+### 2. Endpoints de Acción (POST/PUT)
+```php
+public function miAccion(): void
+{
+    // 1. Validar Body
+    $data = $this->validate([
+        'id'     => 'required|integer',
+        'status' => 'required|string'
+    ]);
+
+    // 2. Ejecutar lógica en Modelo
+    $result = $this->model->updateStatus($data['id'], $data['status']);
+
+    // 3. Respuesta
+    \Core\Response::success($result, 'Operación realizada con éxito');
+}
+```
 
 ## Anti-patterns ⚠️
 1. **No concatenar parámetros de ruta en SQL** — siempre parametrizar vía modelo.
@@ -70,6 +125,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 3. **No devolver excepciones al cliente en prod** — `index.php` ya maneja esto globalmente.
 4. **No olvidar agregar la ruta a `web.php`** — el Router solo despacha rutas registradas.
 5. **No usar `exit()` o `die()`** — usar `Response::error()` que lanza `HttpResponseException` (ya no hace exit).
+6. **No omitir el campo `filters` en respuestas de búsqueda** — es vital para que el frontend sepa qué criterios se procesaron.
 
 ## Cross-references
 - **`audfact-sqlsrv-models`**: Controladores consumen modelos para acceso a datos.

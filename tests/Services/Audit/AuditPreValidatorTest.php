@@ -69,6 +69,7 @@ class AuditPreValidatorTest extends TestCase
 
         $this->assertNotNull($result['result']);
         $this->assertEquals('human_review', $result['result']['response']);
+        $this->assertEquals('business', $result['result']['_errorOrigin']);
     }
 
     // ── 3. Campos MIPRES incompletos ──────────────────────
@@ -116,7 +117,7 @@ class AuditPreValidatorTest extends TestCase
             ->willReturn([$dispensation]);
 
         $this->attachmentsModel
-            ->method('getAttachmentsByInvoiceId')
+            ->method('getRequiredAttachmentsByInvoiceId')
             ->willReturn([['id' => 'att-1']]);
 
         $this->fileManager
@@ -156,7 +157,7 @@ class AuditPreValidatorTest extends TestCase
             ->willReturn([['Tipo' => 'PBS', 'NumeroFactura' => 'FAC-001', 'NitSec' => '123']]);
 
         $this->attachmentsModel
-            ->method('getAttachmentsByInvoiceId')
+            ->method('getRequiredAttachmentsByInvoiceId')
             ->willReturn([]);
 
         $result = $this->validator->validate('FAC-001', 'DIS-001');
@@ -174,18 +175,30 @@ class AuditPreValidatorTest extends TestCase
             ->willReturn([['Tipo' => 'PBS', 'NumeroFactura' => 'FAC-001', 'NitSec' => '123']]);
 
         $this->attachmentsModel
-            ->method('getAttachmentsByInvoiceId')
-            ->willReturn([['id' => 'att-1']]);
+            ->method('getRequiredAttachmentsByInvoiceId')
+            ->willReturn([
+                [
+                    'id' => 'att-1',
+                    'nombre_documento' => 'FORMULA MEDICA',
+                    'TipoAlmacenamiento' => 'BLOB',
+                ],
+                [
+                    'id' => 'att-2',
+                    'nombre_documento' => 'AUTORIZACION DE SERVICIOS',
+                    'TipoAlmacenamiento' => 'SIN_DOCUMENTOS',
+                ],
+            ]);
 
         $this->fileManager
             ->method('getMissingRequiredAttachments')
-            ->willReturn(['Fórmula médica']);
+            ->willReturn(['AUTORIZACION DE SERVICIOS']);
 
         $result = $this->validator->validate('FAC-001', 'DIS-001');
 
         $this->assertNotNull($result['result']);
         $this->assertStringContainsString('Documentos requeridos', $result['result']['message']);
-        $this->assertStringContainsString('Fórmula médica', $result['result']['message']);
+        $this->assertStringContainsString('AUTORIZACION DE SERVICIOS', $result['result']['message']);
+        $this->assertEquals(['FORMULA MEDICA'], $result['availableDocuments']);
     }
 
     // ── 7. Max pages excedido ─────────────────────────────
@@ -197,7 +210,7 @@ class AuditPreValidatorTest extends TestCase
             ->willReturn([['Tipo' => 'PBS', 'NumeroFactura' => 'FAC-001', 'NitSec' => '123']]);
 
         $this->attachmentsModel
-            ->method('getAttachmentsByInvoiceId')
+            ->method('getRequiredAttachmentsByInvoiceId')
             ->willReturn([['id' => 'att-1']]);
 
         $this->fileManager
@@ -216,6 +229,9 @@ class AuditPreValidatorTest extends TestCase
 
         $this->assertNotNull($result['result']);
         $this->assertStringContainsString('maximo de páginas', $result['result']['message']);
+        $this->assertCount(1, $result['result']['data']['items']);
+        $this->assertSame('factura', $result['result']['data']['items'][0]['documento']);
+        $this->assertSame('alta', $result['result']['data']['items'][0]['severidad']);
     }
 
     // ── Happy path ────────────────────────────────────────
@@ -233,7 +249,7 @@ class AuditPreValidatorTest extends TestCase
             ->willReturn([$dispensation]);
 
         $this->attachmentsModel
-            ->method('getAttachmentsByInvoiceId')
+            ->method('getRequiredAttachmentsByInvoiceId')
             ->willReturn([['id' => 'att-1']]);
 
         $this->fileManager

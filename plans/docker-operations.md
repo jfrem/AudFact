@@ -25,6 +25,11 @@ wsl docker compose exec php ps aux     # verificar PHP-FPM activo
 # El operador && dentro de PowerShell separa comandos: el primero corre en WSL y el segundo en PS.
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
+# Rebuild Frontend (Específico)
+# Requerido tras cambios visuales en /frontend ya que la imagen es inmutable.
+# Nota: requiere 'output: standalone' en frontend/next.config.ts
+wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose -f docker-compose.frontend.yml down && docker compose -f docker-compose.frontend.yml up -d --build"
+
 # Conflicto de nombre de contenedor (container name already in use)
 # Si `docker compose down` no elimina correctamente un contenedor:
 wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Desktop/AudFact && docker compose up -d"

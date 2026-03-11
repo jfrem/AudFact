@@ -18,6 +18,9 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `code-quality-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de mantenibilidad, complejidad, testabilidad y deuda técnica. |
 | `security-assessment` | Auditoría Técnica | Repositorio completo | Auditoría de seguridad (auth/authz, secretos, vulnerabilidades, hardening). |
 | `technical-governance-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de gobernanza técnica: ownership, code review, incidentes y roadmap. |
+| `next-best-practices` | Frontend Next.js | `frontend/*` | Prácticas y convenciones recomendadas para directorios, dependencias y Server Components. |
+| `next-cache-components` | Frontend Next.js | `frontend/*` | Guías sobre componentes de caché, PPR y estrategias de validación en Next.js 16+. |
+| `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
 
 ## Triggers Sugeridos por Skill
 

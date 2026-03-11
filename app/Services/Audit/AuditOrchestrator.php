@@ -59,11 +59,33 @@ class AuditOrchestrator
 
         if ($preValidation['result'] !== null) {
             $failResult = $preValidation['result'];
+            $dispensation = is_array($preValidation['dispensation'] ?? null) ? $preValidation['dispensation'] : [];
+            $dataFetchMs = (float) ($preValidation['dataFetchMs'] ?? 0.0);
+            $filePrepMs = (float) ($preValidation['filePrepMs'] ?? 0.0);
+            $availableDocuments = is_array($preValidation['availableDocuments'] ?? null) ? $preValidation['availableDocuments'] : [];
+            $metaFiles = array_map(
+                static fn(string $name): array => ['label' => $name],
+                array_values(array_filter($availableDocuments, static fn($name) => is_string($name) && trim($name) !== ''))
+            );
+            $totalMs = (hrtime(true) - $totalStart) / 1e6;
+
+            if (!isset($failResult['_meta']) || !is_array($failResult['_meta'])) {
+                $failResult['_meta'] = $this->telemetry->buildMeta(
+                    $dispensation,
+                    $metaFiles,
+                    $dataFetchMs,
+                    $filePrepMs,
+                    0.0,
+                    0,
+                    $totalMs
+                );
+            }
+
             $this->persistence->saveResponse($disDetNro, $failResult);
             $this->persistence->saveToDatabase(
                 $disDetNro,
                 $failResult,
-                $preValidation['dispensation'] ?? []
+                $dispensation
             );
             return $failResult;
         }
@@ -152,9 +174,7 @@ class AuditOrchestrator
                 'extraInstruction' => $multiDocInstruction,
             ],
             [
-                'overrides' => [
-                    'temperature' => 0,
-                ],
+                'overrides' => [],
                 'extraInstruction' => trim($multiDocInstruction . "\n" . 'IMPORTANTE: Responde con máximo ' . self::MAX_ITEMS_STRICT_MODE . ' items y detalles concisos (<=' . self::MAX_DETAIL_LENGTH_STRICT_MODE . ' caracteres).'),
             ],
         ];

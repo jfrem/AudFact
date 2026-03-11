@@ -46,7 +46,7 @@ class AttachmentsController extends Controller
             Response::error('Adjunto no encontrado', 404);
         }
 
-        $rawName = $attachment['AdjDisNom'] ?? ($attachment['AdjDisDocNom'] ?? 'adjunto');
+        $rawName = $attachment['AdjDisNom'] ?? 'adjunto';
         $nombre = $this->sanitizeFilename($rawName);
         $mimeForName = null;
 
@@ -96,7 +96,7 @@ class AttachmentsController extends Controller
                 if ($data === false) {
                     Response::error('No se pudo leer el adjunto', 500);
                 }
-                $name = (string)($attachment['AdjDisNom'] ?? ($attachment['AdjDisDocNom'] ?? ''));
+                $name = (string)($attachment['AdjDisNom'] ?? '');
                 $mime = $this->mimeFromName($name) ?: $this->detectMimeFromContent($data) ?: 'application/octet-stream';
                 Response::json(['mime' => $mime, 'data' => base64_encode($data)]);
                 return;
@@ -238,3 +238,5 @@ class AttachmentsController extends Controller
         return null;
     }
 }
+
+

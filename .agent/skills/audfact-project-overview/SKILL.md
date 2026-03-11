@@ -29,11 +29,12 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 
 ```
 AudFact/
+├── frontend/           # Aplicación Next.js (Dashboard + Gestión)
 ├── app/
-│   ├── Controllers/     # 8 controladores REST
+│   ├── Controllers/     # 10 controladores REST
 │   ├── Models/          # 6 modelos SQL Server
 │   ├── Services/        # GoogleDrive + Audit/ (10 servicios)
-│   ├── Routes/web.php   # 15 endpoints
+│   ├── Routes/web.php   # 20 endpoints
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch

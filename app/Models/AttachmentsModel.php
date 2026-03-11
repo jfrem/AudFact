@@ -12,8 +12,8 @@ class AttachmentsModel extends Model
 
     /**
      * Summary of getAttachmentsByInvoiceId
-     * @param string $invoiceId (DisDetNro) 
-     * @param string $nitSec
+     * @param string $invoiceId (DisDetNro) X18251205308
+     * @param string $nitSec 1165
      * @return array
      * Este método obtiene los documentos adjuntos relacionados con una factura específica,
      * validando que se cumplan los requisitos de documentos necesarios para la dispensación.
@@ -57,9 +57,56 @@ class AttachmentsModel extends Model
     }
 
     /**
+     * Obtiene únicamente adjuntos marcados como requeridos para el pipeline de auditoría IA.
+     *
+     * Regla SQL: AdjDisOpc='N' (no opcional).
+     * Este método se usa solo en prevalidación de auditoría y no afecta el endpoint público
+     * de listado completo de adjuntos.
+     *
+     * @param string $invoiceId DisDetNro / factura
+     * @param string $nitSec NIT del cliente
+     * @return array
+     */
+    public function getRequiredAttachmentsByInvoiceId(string $invoiceId, string $nitSec): array
+    {
+        $sql = "SELECT
+                a.DisId AS [dispiensa],
+                d.DisDetNro AS [factura],
+                n.NitSec AS [cliente],
+                NitMedDocId AS [id_documento],
+                NitMedDocNom AS [nombre_documento],
+                NitMedDocCodAlt AS [nombre_alternativo],
+                AdjDisDocUrl AS [almacenamiento_remoto],
+                CASE
+                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
+                    WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
+                ELSE 'SIN_DOCUMENTOS'
+                END AS TipoAlmacenamiento
+                FROM AdjuntosDispensacion a WITH (NOLOCK)
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
+                WHERE n.NitSec = :nitSec
+                  AND d.DisDetNro = :invoiceId
+                  AND a.AdjDisOpc = 'N'";
+
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
+        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
+        $stmt->execute();
+        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Logger::info("Documentos adjuntos requeridos obtenidos", [
+            'invoiceId' => $invoiceId,
+            'resultCount' => count($result)
+        ]);
+
+        return $result;
+    }
+
+    /**
      * Obtiene un documento adjunto por ID para dispensas
-     * @param string $attachmentId ID del tipo de documento
-     * @param string $invoiceId Identificador de la dispensa
+     * @param string $attachmentId ID del tipo de documento (NitMedDocId - 1)
+     * @param string $invoiceId Identificador de la dispensa (DisDetNro - X18251205308)
      * @return array|false
      */
     public function getAttachmentByIdForDispensation(string $attachmentId, string $invoiceId): array|false
@@ -67,11 +114,10 @@ class AttachmentsModel extends Model
         $sql = "SELECT
                     a.AdjDisId,
                     a.AdjDisNom,
-                    a.AdjDisDoc,
                     a.AdjDisDocUrl,
                     CASE
-                        WHEN a.AdjDisDoc IS NOT NULL THEN 'BLOB'
-                        WHEN a.AdjDisDocUrl IS NOT NULL THEN 'URL'
+                        WHEN a.AdjDisDocUrl IS NOT NULL AND a.AdjDisDocUrl <> '' THEN 'URL'
+                        WHEN a.AdjDisDoc IS NOT NULL AND DATALENGTH(a.AdjDisDoc) > 0 THEN 'BLOB'
                         ELSE 'SIN_DOCUMENTOS'
                     END AS TipoAlmacenamiento,
                     DATALENGTH(a.AdjDisDoc) AS BlobSize
@@ -94,8 +140,8 @@ class AttachmentsModel extends Model
 
     /**
      * Obtiene el stream del BLOB de un documento adjunto para dispensas
-     * @param string $attachmentId ID del tipo de documento
-     * @param string $invoiceId Identificador de la dispensa (DisDetNro)
+     * @param string $attachmentId ID del tipo de documento (NitMedDocId - 1)
+     * @param string $invoiceId Identificador de la dispensa (DisDetNro - X18251205308)
      * @return array Array con 'stream' y función 'close'
      */
     public function getAttachmentBlobStreamByIdForDispensation(string $attachmentId, string $invoiceId): array
@@ -146,12 +192,12 @@ class AttachmentsModel extends Model
 
         if (!empty($filters['facNro'])) {
             $where .= " AND v.Dispensa = :facNro";
-            $params['facNro'] = $filters['facNro'];
+            $params[':facNro'] = $filters['facNro'];
         }
 
         if (!empty($filters['facNitSec'])) {
             $where .= " AND v.FacNitSec = :facNitSec";
-            $params['facNitSec'] = $filters['facNitSec'];
+            $params[':facNitSec'] = $filters['facNitSec'];
         }
 
         $sql = "SELECT COUNT(*) as total FROM (
@@ -182,12 +228,12 @@ class AttachmentsModel extends Model
 
         if (!empty($filters['facNro'])) {
             $where .= " AND v.Dispensa = :facNro";
-            $params['facNro'] = $filters['facNro'];
+            $params[':facNro'] = $filters['facNro'];
         }
 
         if (!empty($filters['facNitSec'])) {
             $where .= " AND v.FacNitSec = :facNitSec";
-            $params['facNitSec'] = $filters['facNitSec'];
+            $params[':facNitSec'] = $filters['facNitSec'];
         }
 
         $offset = ($page - 1) * $pageSize;
@@ -240,3 +286,4 @@ class AttachmentsModel extends Model
         return $result;
     }
 }
+

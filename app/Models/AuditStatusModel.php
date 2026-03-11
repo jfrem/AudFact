@@ -18,6 +18,26 @@ use Core\Logger;
 class AuditStatusModel extends Model
 {
     /**
+     * Alias controlados para resolver variaciones comunes de nombres documentales.
+     *
+     * @var array<string, string>
+     */
+    private const DOCUMENT_ALIAS_MAP = [
+        'ACTA ENTREGA' => 'ACTA DE ENTREGA',
+        'AUTORIZACION SERVICIOS' => 'AUTORIZACION DE SERVICIOS',
+        'VALIDADOR DERECHOS' => 'VALIDADOR DE DERECHOS',
+        'FORMULA' => 'FORMULA MEDICA',
+    ];
+
+    /**
+     * Auditorías requieren consistencia fuerte de lectura después de escritura.
+     * Este modelo lee del mismo origen de escritura (default) para evitar desfase con db2.
+     *
+     * @var string
+     */
+    protected string $readConnectionName = 'default';
+
+    /**
      * Busca un registro de auditoría por FacSec (PK).
      * @param string $facSec Secuencia única de la factura
      * @return array|false
@@ -297,67 +317,61 @@ class AuditStatusModel extends Model
                     'rowsAffected' => $stmt->rowCount(),
                 ]);
             } else {
-                // 2b. RECHAZADA: resolver AdjDisId por nombre (case-insensitive)
+                // 2b. RECHAZADA: resolver AdjDisId por nombre (exacto -> normalizado -> alias)
                 if ($documentoFallido !== null) {
-                    $sqlAdj = "SELECT TOP 1 a.AdjDisId
-                        FROM AdjuntosDispensacion a WITH (NOLOCK)
-                        WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-                          AND UPPER(a.AdjDisNom) = UPPER(:documentoFallido)
-                        ORDER BY a.AdjDisId ASC";
+                    $adjuntos = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
+                    $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentoFallido);
 
-                    $stmtAdj = $writeDb->prepare($sqlAdj);
-                    $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
-                    $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                    $stmtAdj->bindParam(':documentoFallido', $documentoFallido, PDO::PARAM_STR);
-                } else {
-                    // Sin documentoFallido → primer adjunto de la dispensación
-                    $sqlAdj = "SELECT TOP 1 a.AdjDisId
-                        FROM AdjuntosDispensacion a WITH (NOLOCK)
-                        WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-                        ORDER BY a.AdjDisId ASC";
+                    if ($match === null) {
+                        Logger::warning('updateAuditResult: no se encontró AdjuntosDispensacion para rechazo', [
+                            'DisId' => $disId,
+                            'DisDetId' => $disDetId,
+                            'DocumentoFallido' => $documentoFallido,
+                            'availableDocuments' => array_values(array_map(
+                                static fn(array $a) => (string)($a['AdjDisNom'] ?? ''),
+                                $adjuntos
+                            )),
+                        ]);
+                        return false;
+                    }
 
-                    $stmtAdj = $writeDb->prepare($sqlAdj);
-                    $stmtAdj->bindParam(':disId', $disId, PDO::PARAM_STR);
-                    $stmtAdj->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                }
-                $stmtAdj->execute();
-                $adjunto = $stmtAdj->fetch(PDO::FETCH_ASSOC);
+                    $adjDisId = $match['AdjDisId'];
 
-                if (!$adjunto) {
-                    Logger::warning('updateAuditResult: no se encontró AdjuntosDispensacion para rechazo', [
+                    $sql = "UPDATE AdjuntosDispensacion SET
+                                AdjDisObsRec  = :observation,
+                                RecConSopCod  = 30,
+                                AdjDisEstSop  = 'R',
+                                AdjDisRec     = 'S',
+                                AdjDisUsuRec  = 'Z-IA',
+                                AdjDisFecRec  = GETDATE(),
+                                AdjDisUsuAudi = 'Z-IA',
+                                AdJDisFecAudi = GETDATE()
+                            WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
+
+                    $stmt = $writeDb->prepare($sql);
+                    $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+                    $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+                    $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
+                    $stmt->bindParam(':observation', $observation, PDO::PARAM_STR);
+                    $stmt->execute();
+
+                    Logger::info('updateAuditResult: adjunto rechazado', [
                         'DisId' => $disId,
                         'DisDetId' => $disDetId,
-                        'DocumentoFallido' => $documentoFallido,
+                        'AdjDisId' => $adjDisId,
+                        'MatchStrategy' => $match['strategy'],
+                        'DocumentoEntrada' => $documentoFallido,
+                        'DocumentoResuelto' => $match['AdjDisNom'],
+                        'FacNro' => $facNro,
+                    ]);
+                } else {
+                    Logger::warning('updateAuditResult: rechazo omitido por documento no especificado', [
+                        'DisId' => $disId,
+                        'DisDetId' => $disDetId,
+                        'FacNro' => $facNro,
                     ]);
                     return false;
                 }
-
-                $adjDisId = $adjunto['AdjDisId'];
-
-                $sql = "UPDATE AdjuntosDispensacion SET
-                            AdjDisObsRec  = :observation,
-                            RecConSopCod  = 30,
-                            AdjDisEstSop  = 'R',
-                            AdjDisRec     = 'S',
-                            AdjDisUsuRec  = 'Z-IA',
-                            AdjDisFecRec  = GETDATE(),
-                            AdjDisUsuAudi = 'Z-IA',
-                            AdJDisFecAudi = GETDATE()
-                        WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
-
-                $stmt = $writeDb->prepare($sql);
-                $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                $stmt->bindParam(':observation', $observation, PDO::PARAM_STR);
-                $stmt->execute();
-
-                Logger::info('updateAuditResult: adjunto rechazado', [
-                    'DisId' => $disId,
-                    'DisDetId' => $disDetId,
-                    'AdjDisId' => $adjDisId,
-                    'FacNro' => $facNro,
-                ]);
             }
 
             return true;
@@ -394,5 +408,115 @@ class AuditStatusModel extends Model
         $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Obtiene los adjuntos de una dispensación para resolver rechazos por documento.
+     *
+     * @param PDO $connection Conexión de escritura activa
+     * @param string $disId ID de dispensación
+     * @param int $disDetId ID de detalle de dispensación
+     * @return array<int, array{AdjDisId:string|int,AdjDisNom:string}>
+     */
+    private function getDispensationAttachments(PDO $connection, string $disId, int $disDetId): array
+    {
+        $sql = "SELECT a.AdjDisId, a.AdjDisNom
+                FROM AdjuntosDispensacion a WITH (NOLOCK)
+                WHERE a.DisId = :disId AND a.DisDetId = :disDetId
+                ORDER BY a.AdjDisId ASC";
+
+        $stmt = $connection->prepare($sql);
+        $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * Resuelve un adjunto por nombre con fallback de normalización y alias.
+     *
+     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
+     * @param string $documentoFallido Nombre proveniente del pipeline
+     * @return array{AdjDisId:string|int,AdjDisNom:string,strategy:string}|null
+     */
+    private function resolveAttachmentByDocumentName(array $adjuntos, string $documentoFallido): ?array
+    {
+        $input = trim($documentoFallido);
+        if ($input === '') {
+            return null;
+        }
+
+        // Estrategia 1: match exacto case-insensitive.
+        foreach ($adjuntos as $adjunto) {
+            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
+            if ($name !== '' && strtoupper($name) === strtoupper($input)) {
+                return [
+                    'AdjDisId' => $adjunto['AdjDisId'],
+                    'AdjDisNom' => $name,
+                    'strategy' => 'exact_ci',
+                ];
+            }
+        }
+
+        // Estrategia 2: match por normalización de texto.
+        $normalizedInput = $this->normalizeDocumentName($input);
+        foreach ($adjuntos as $adjunto) {
+            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
+            if ($name !== '' && $this->normalizeDocumentName($name) === $normalizedInput) {
+                return [
+                    'AdjDisId' => $adjunto['AdjDisId'],
+                    'AdjDisNom' => $name,
+                    'strategy' => 'normalized',
+                ];
+            }
+        }
+
+        // Estrategia 3: alias controlado (bidireccional mediante canónico).
+        $canonicalInput = $this->canonicalDocumentName($input);
+        foreach ($adjuntos as $adjunto) {
+            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
+            if ($name !== '' && $this->canonicalDocumentName($name) === $canonicalInput) {
+                return [
+                    'AdjDisId' => $adjunto['AdjDisId'],
+                    'AdjDisNom' => $name,
+                    'strategy' => 'alias_canonical',
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Normaliza texto documental para comparación robusta.
+     */
+    private function normalizeDocumentName(string $value): string
+    {
+        $value = trim(strtoupper($value));
+
+        // Quitar extensión común (ejemplo: ".PDF").
+        $value = preg_replace('/\.[A-Z0-9]{2,5}$/', '', $value) ?? $value;
+
+        // Eliminar acentos de forma portable.
+        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+        if ($ascii !== false) {
+            $value = $ascii;
+        }
+
+        // Mantener solo alfanumérico y espacios.
+        $value = preg_replace('/[^A-Z0-9]+/', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/', ' ', trim($value)) ?? trim($value);
+
+        return $value;
+    }
+
+    /**
+     * Lleva el nombre documental a una forma canónica usando alias controlados.
+     */
+    private function canonicalDocumentName(string $value): string
+    {
+        $normalized = $this->normalizeDocumentName($value);
+        return self::DOCUMENT_ALIAS_MAP[$normalized] ?? $normalized;
     }
 }

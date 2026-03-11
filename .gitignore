@@ -1,6 +1,7 @@
 # Dependencias
 /vendor/
 /node_modules/
+/frontend/node_modules/
 composer.lock
 
 # Variables de Entorno y Configuración
@@ -14,6 +15,11 @@ composer.lock
 /logs/ratelimit.lock
 .phpunit.cache
 /responseIA/
+/tmp/
+/frontend/.next/
+/frontend/.turbo/
+/frontend/out/
+/.cache/
 
 # IDE, Herramientas y OS
 .vscode/
@@ -22,6 +28,7 @@ composer.lock
 Thumbs.db
 
 # Agentes de IA
+/.agents/
 /.agent/skills/ui-ux-pro-max/
 /.agent/skills/ui-ux-pro-max-skill/
 CLAUDE.md

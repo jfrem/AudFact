@@ -54,7 +54,7 @@ AuditOrchestrator
 
 ### Flujo Normal
 1. `orchestrate()` recibe `invoiceId`, `dispensationData`, `attachments`.
-2. Pre-validar datos → `AuditPreValidator`.
+2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos con prefiltrado SQL `AdjDisOpc='N'`).
 3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
 4. Construir prompt → `AuditPromptBuilder` (v3.0 con Axiomas A1-A4).
 5. Enviar a Gemini → `GeminiGateway` (exponential backoff).
@@ -73,8 +73,10 @@ Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con p
 | `GEMINI_API_KEY` | API key para Google Gemini |
 | `GEMINI_MODEL` | Modelo a usar (ej: gemini-2.0-flash) |
 | `GEMINI_MAX_RETRIES` | Intentos máximos por request |
-| `GEMINI_TEMPERATURE` | Temperatura de generación |
-| `GEMINI_TOP_P` | Top-P sampling |
+| `GEMINI_TEMPERATURE` | Temperatura de generación (0.0 = determinista) |
+| `GEMINI_TOP_P` | Top-P sampling (1.0 = greedy con temp 0) |
+| `GEMINI_TOP_K` | Top-K sampling (1 = solo token más probable) |
+| `GEMINI_SEED` | Seed para reproducibilidad (dev: 42, prod: opcional) |
 | `GDRIVE_*` | Credenciales JWT de Google Drive |
 
 ## Reglas de implementación

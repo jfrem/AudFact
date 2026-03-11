@@ -17,7 +17,7 @@
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
-- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`
+- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.frontend.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
 - **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
@@ -166,6 +166,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 |---|---|---|---|
 | `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
 | `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | ⚠️ Solo Frontend | `frontend` — URL pública base consumida por la app Next.js en build/deploy |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
 | `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |

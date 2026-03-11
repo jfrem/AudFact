@@ -79,6 +79,7 @@ class AuditPreValidator
                 'documento' => $dispensation['NumeroFactura'] ?? '',
                 'DisDetNro' => $disDetNro,
                 'data' => ['items' => []],
+                '_errorOrigin' => 'business',
             ];
 
             $this->persistence->saveResponse($disDetNro, $result);
@@ -108,7 +109,7 @@ class AuditPreValidator
         }
 
         // 5. Adjuntos existen
-        $attachments = $this->attachmentsModel->getAttachmentsByInvoiceId(
+        $attachments = $this->attachmentsModel->getRequiredAttachmentsByInvoiceId(
             $resolvedInvoiceId,
             (string) ($dispensation['NitSec'] ?? '')
         );
@@ -116,6 +117,8 @@ class AuditPreValidator
         if (empty($attachments)) {
             return $this->fail($disDetNro, self::ERROR_ATTACHMENT_NOT_FOUND, $dispensation, $dataFetchStart);
         }
+
+        $availableDocuments = $this->extractAvailableDocuments($attachments);
 
         // 6. Documentos requeridos presentes
         $missingFiles = $this->fileManager->getMissingRequiredAttachments($attachments, $dispensationData);
@@ -126,7 +129,7 @@ class AuditPreValidator
                 'missingDocuments' => $missingFiles,
                 'totalDocuments' => count($attachments),
             ]);
-            return $this->fail($disDetNro, $errorMsg, $dispensation, $dataFetchStart);
+            return $this->fail($disDetNro, $errorMsg, $dispensation, $dataFetchStart, null, $availableDocuments);
         }
 
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
@@ -150,7 +153,23 @@ class AuditPreValidator
                         $this->fileManager->cleanup($preparedFile);
                     }
 
-                    return $this->fail($disDetNro, self::ERROR_ATTACHMENT_MAX_PAGES_EXCEEDED, $dispensation, $dataFetchStart, $filePrepStart);
+                    $failedDocument = (string) ($file['label'] ?? '');
+                    $items = [[
+                        'item' => 'Cantidad de páginas',
+                        'hallazgo' => self::ERROR_ATTACHMENT_MAX_PAGES_EXCEEDED,
+                        'severidad' => 'alta',
+                        'documento' => $failedDocument !== '' ? $failedDocument : AuditResponseSchema::DOCUMENTO_MULTIPLE,
+                    ]];
+
+                    return $this->fail(
+                        $disDetNro,
+                        self::ERROR_ATTACHMENT_MAX_PAGES_EXCEEDED,
+                        $dispensation,
+                        $dataFetchStart,
+                        $filePrepStart,
+                        $availableDocuments,
+                        $items
+                    );
                 }
             }
         } catch (\Exception $e) {
@@ -163,7 +182,8 @@ class AuditPreValidator
                 self::ERROR_PREPARING_ATTACHMENT . ': ' . $e->getMessage(),
                 $dispensation,
                 $dataFetchStart,
-                $filePrepStart
+                $filePrepStart,
+                $availableDocuments
             );
         }
 
@@ -211,7 +231,9 @@ class AuditPreValidator
         string $message,
         ?array $dispensation,
         float $dataFetchStart,
-        ?float $filePrepStart = null
+        ?float $filePrepStart = null,
+        array $availableDocuments = [],
+        array $items = []
     ): array {
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
         $filePrepMs = $filePrepStart !== null ? (hrtime(true) - $filePrepStart) / 1e6 : 0.0;
@@ -221,7 +243,7 @@ class AuditPreValidator
             'message' => $message,
             'documento' => $dispensation['NumeroFactura'] ?? '',
             'DisDetNro' => $disDetNro,
-            'data' => ['items' => []],
+            'data' => ['items' => $items],
             '_errorOrigin' => 'business',
         ];
 
@@ -230,6 +252,7 @@ class AuditPreValidator
             'dispensationData' => $dispensation !== null ? [$dispensation] : [],
             'dispensation' => $dispensation,
             'files' => [],
+            'availableDocuments' => $availableDocuments,
             'dataFetchMs' => $dataFetchMs,
             'filePrepMs' => $filePrepMs,
         ];
@@ -251,8 +274,34 @@ class AuditPreValidator
             'dispensationData' => $dispensationData,
             'dispensation' => $dispensationData[0] ?? null,
             'files' => $files,
+            'availableDocuments' => [],
             'dataFetchMs' => $dataFetchMs,
             'filePrepMs' => 0.0,
         ];
+    }
+
+    /**
+     * Obtiene nombres de documentos que sí tienen soporte disponible (BLOB o URL).
+     *
+     * @param array $attachments Adjuntos provenientes del modelo
+     * @return array<string>
+     */
+    private function extractAvailableDocuments(array $attachments): array
+    {
+        $documents = [];
+
+        foreach ($attachments as $attachment) {
+            $storageType = strtoupper(trim((string) ($attachment['TipoAlmacenamiento'] ?? 'SIN_DOCUMENTOS')));
+            if ($storageType === 'SIN_DOCUMENTOS') {
+                continue;
+            }
+
+            $name = trim((string) ($attachment['nombre_documento'] ?? ''));
+            if ($name !== '') {
+                $documents[] = $name;
+            }
+        }
+
+        return array_values(array_unique($documents));
     }
 }

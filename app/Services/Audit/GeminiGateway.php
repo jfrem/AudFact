@@ -23,6 +23,7 @@ class GeminiGateway
     private string $responseMimeType;
     private ?string $mediaResolution;
     private ?int $thinkingBudget;
+    private ?int $seed;
 
     public function __construct(
         Client $http,
@@ -34,7 +35,8 @@ class GeminiGateway
         int $maxOutputTokens,
         string $responseMimeType,
         ?string $mediaResolution,
-        ?int $thinkingBudget
+        ?int $thinkingBudget,
+        ?int $seed = null
     ) {
         $this->http = $http;
         $this->apiKey = $apiKey;
@@ -46,6 +48,7 @@ class GeminiGateway
         $this->responseMimeType = $responseMimeType;
         $this->mediaResolution = $mediaResolution;
         $this->thinkingBudget = $thinkingBudget;
+        $this->seed = $seed;
     }
 
     /**
@@ -188,6 +191,7 @@ class GeminiGateway
             'topK' => $this->topK,
             'maxOutputTokens' => $this->maxOutputTokens,
             'responseMimeType' => $this->responseMimeType,
+            'seed' => $this->seed,
         ], fn($value) => $value !== null);
 
         if (!empty($generationOverrides)) {

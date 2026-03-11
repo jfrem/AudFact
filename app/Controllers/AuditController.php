@@ -205,6 +205,7 @@ class AuditController extends Controller
         $topP = \Core\Env::get('GEMINI_TOP_P');
         $topK = \Core\Env::get('GEMINI_TOP_K');
         $thinkingBudget = \Core\Env::get('GEMINI_THINKING_BUDGET');
+        $seed = \Core\Env::get('GEMINI_SEED');
 
         $gateway = new GeminiGateway(
             $httpClient,
@@ -216,7 +217,8 @@ class AuditController extends Controller
             $maxOutputTokens,
             $responseMimeType,
             \Core\Env::get('GEMINI_MEDIA_RESOLUTION') ?: null,
-            ($thinkingBudget !== null && $thinkingBudget !== '') ? (int) $thinkingBudget : null
+            ($thinkingBudget !== null && $thinkingBudget !== '') ? (int) $thinkingBudget : null,
+            ($seed !== null && $seed !== '') ? (int) $seed : null
         );
 
         $dispensationModel = new DispensationModel();

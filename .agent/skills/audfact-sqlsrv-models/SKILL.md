@@ -20,7 +20,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `app/Models/ClientsModel.php` | 1.6 KB | Búsqueda/lookup de clientes |
 | `app/Models/InvoicesModel.php` | 1.1 KB | Búsqueda de facturas por facNitSec/fecha |
 | `app/Models/DispensationModel.php` | 3.4 KB | Source of truth: datos de dispensación |
-| `app/Models/AttachmentsModel.php` | 5.3 KB | Resolución de adjuntos (URL Drive o BLOB con stream optimizado) |
+| `app/Models/AttachmentsModel.php` | 5.3 KB | Resolución de adjuntos (URL Drive o BLOB con stream optimizado) y consulta optimizada de requeridos (`AdjDisOpc='N'`) para pipeline IA |
 | `app/Models/AuditStatusModel.php` | 17 KB | Persistencia de auditoría: `AudDispEst` (upsert MERGE) + `AdjuntosDispensacion` (updateAuditResult: aprobada masiva / rechazada puntual) |
 
 ## Modelos y tablas
@@ -30,7 +30,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
 | `InvoicesModel` | `vw_discolnet_dispensas` | Facturas de dispensación por NIT, fecha, límite (LEFT JOIN `AdjDisOpc='N'` + `aud.c<aud.ca`) |
 | `DispensationModel` | Dispensación | Datos de referencia (source of truth) |
-| `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (consumido como stream para procesamiento en memoria) |
+| `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByInvoiceId` para prefiltrado en auditoría IA |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
 
@@ -78,7 +78,71 @@ class MiModel extends Model
 3. Preservar shape de columnas consumidas por controladores/servicios.
 4. **En streams BLOB, cerrar cursor y recurso siempre**.
 5. No mover lógica de negocio al SQL si rompe mantenibilidad.
-6. Usar `Database::transaction()` para operaciones multi-statement.
+6. **Estandarización de Modelos**: Los métodos de búsqueda deben aceptar un array `$filters` (proveniente de `validateQuery` del controlador) para construir cláusulas `WHERE` dinámicas.
+7. Usar `Database::transaction()` para operaciones multi-statement.
+
+## Patrón de Consumo de Datos y Filtrado 💎
+
+Para asegurar que los modelos consuman información de forma uniforme, los métodos de consulta deben seguir este esquema:
+
+### 1. Construcción Dinámica de WHERE
+```php
+public function getItems(int $page, int $pageSize, array $filters = []): array
+{
+    $offset = ($page - 1) * $pageSize;
+    $where = ["1=1"]; // Base para concatenar AND
+    $params = [];
+
+    // Mapeo uniforme de filtros (deben coincidir con nombres en validateQuery)
+    if (!empty($filters['facNro'])) {
+        $where[] = "v.Dispensa = :facNro";
+        $params['facNro'] = $filters['facNro'];
+    }
+
+    if (!empty($filters['facNitSec'])) {
+        $where[] = "a.FacNitSec = :facNitSec";
+        $params['facNitSec'] = $filters['facNitSec'];
+    }
+
+    $whereSql = implode(" AND ", $where);
+
+    $sql = "SELECT v.Dispensa as NroFactura, a.*
+            FROM {$this->table} a WITH (NOLOCK)
+            INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
+            WHERE {$whereSql}
+            ORDER BY a.AdJDisFecAudi DESC
+            OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
+
+    $params['offset'] = $offset;
+    $params['limit'] = $pageSize;
+
+    return $this->db->query($sql, $params)->fetchAll();
+}
+```
+
+### 2. Conteo Uniforme
+Todo método `getItems` debe tener su pareja `countItems` que reciba el mismo array `$filters`.
+```php
+public function countItems(array $filters = []): int
+{
+    $where = ["1=1"];
+    $params = [];
+
+    if (!empty($filters['facNro'])) {
+        $where[] = "v.Dispensa = :facNro";
+        $params['facNro'] = $filters['facNro'];
+    }
+    // ... repetir misma lógica de filtros que en getItems
+
+    $whereSql = implode(" AND ", $where);
+    $sql = "SELECT COUNT(*) as total FROM {$this->table} a
+            INNER JOIN vw_discolnet_dispensas v ON a.DisId = v.FacSec
+            WHERE {$whereSql}";
+
+    $row = $this->db->query($sql, $params)->fetch();
+    return (int) ($row['total'] ?? 0);
+}
+```
 
 ## Anti-patterns ⚠️
 1. **No usar `Database::getConnection()` en controladores** — acceder siempre vía modelo.
@@ -86,6 +150,7 @@ class MiModel extends Model
 3. **No crear conexiones nombradas sin documentarlas** — agregar prefix `{NAME}_DB_*` en `.env.example`.
 4. **No ignorar `TrustServerCertificate=yes`** — requerido para SQL Server con certificados auto-firmados.
 5. **No dejar conexiones abiertas innecesariamente** — el Singleton las cache pero `closeConnection()` existe.
+6. **No hardcodear valores de filtros** — usar siempre el array `$filters` inyectado desde el controlador.
 
 ## Cross-references
 - **`audfact-audit-gemini`**: `DispensationModel` y `AttachmentsModel` son consumidos por el Worker.

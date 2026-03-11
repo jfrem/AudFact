@@ -70,8 +70,23 @@ class AuditPersistenceService
 
             $response = $result['response'] ?? 'error';
             $isSuccess = ($response === 'success');
+            // EstAud=1 significa "auditoría procesada por la IA" (independiente del resultado).
+            // Solo es 0 para registros que nunca han sido auditados.
+            $isProcessed = in_array($response, ['success', 'warning', 'error', 'human_review'], true);
             $findings = $result['data']['items'] ?? [];
-            $severity = $result['severity'] ?? 'ninguna';
+            $severity = strtolower(trim((string) ($result['severity'] ?? '')));
+            if ($severity === '') {
+                if ($isSuccess) {
+                    $severity = 'ninguna';
+                } elseif ($response === 'warning' || $response === 'human_review') {
+                    $severity = 'media';
+                } else {
+                    $severity = 'alta';
+                }
+            }
+            if ($response === 'error' && $severity === 'ninguna') {
+                $severity = 'alta';
+            }
 
             $failedDoc = null;
             foreach ($findings as $finding) {
@@ -84,7 +99,7 @@ class AuditPersistenceService
             $data = [
                 'FacSec' => $master['FacSec'] ?? $disDetNro,
                 'FacNro' => $master['NumeroFactura'] ?? ($result['_meta']['factura'] ?? $disDetNro),
-                'EstAud' => $isSuccess ? 1 : 0,
+                'EstAud' => $isProcessed ? 1 : 0,
                 'EstadoDetallado' => substr(trim($response), 0, 50),
                 'RequiereRevisionHumana' => ($severity === 'alta' || $severity === 'media' || $response === 'warning' || $response === 'error') ? 1 : 0,
                 'Severidad' => substr($severity, 0, 20),
@@ -137,10 +152,18 @@ class AuditPersistenceService
     private function updateAuditResultIfNeeded(string $facNro, bool $isSuccess, array $result): void
     {
         try {
-            // Paso 1: Aprobar TODOS los adjuntos como baseline
-            $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
+            if (($result['response'] ?? '') === 'human_review') {
+                // Trazabilidad documental: marcar auditoría IA sin rechazo puntual.
+                $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
+                Logger::info('Resultado human_review: adjuntos marcados para trazabilidad', [
+                    'FacNro' => $facNro,
+                ]);
+                return;
+            }
 
             if ($isSuccess) {
+                // Auditoría aprobada: todos los adjuntos conformes.
+                $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
                 Logger::info('Resultado de auditoría: todos los adjuntos aprobados', [
                     'FacNro' => $facNro,
                 ]);
@@ -158,14 +181,42 @@ class AuditPersistenceService
             }
 
             if (empty($findingsByDoc)) {
-                Logger::warning('Auditoría con hallazgos pero sin documento asociado', [
+                // Faltantes prevalidación: rechazar solo documentos listados en el mensaje.
+                $missingDocuments = $this->extractMissingDocumentsFromMessage((string) ($result['message'] ?? ''));
+
+                if (empty($missingDocuments)) {
+                    Logger::warning('Auditoría con error sin mapeo documental; no se aplica rechazo masivo', [
+                        'FacNro' => $facNro,
+                        'findingsCount' => count($findings),
+                    ]);
+                    return;
+                }
+
+                $rejectedCount = 0;
+                $globalObservation = mb_substr(trim((string) ($result['message'] ?? '')), 0, 4000);
+                foreach ($missingDocuments as $docName) {
+                    $updated = $this->auditStatusModel->updateAuditResult(
+                        $facNro,
+                        false,
+                        $globalObservation,
+                        $docName
+                    );
+                    if ($updated) {
+                        $rejectedCount++;
+                    }
+                }
+
+                Logger::warning('Auditoría por faltantes: rechazo puntual aplicado', [
                     'FacNro' => $facNro,
-                    'findingsCount' => count($findings),
+                    'missingDocuments' => $missingDocuments,
+                    'rejectedCount' => $rejectedCount,
                 ]);
                 return;
             }
 
-            // Paso 3: Rechazar individualmente cada documento con hallazgos
+            // Paso 3: baseline de aprobados + rechazos puntuales por documento.
+            $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
+
             $rejectedCount = 0;
             foreach ($findingsByDoc as $docName => $docFindings) {
                 $parts = [];
@@ -208,5 +259,34 @@ class AuditPersistenceService
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Extrae nombres de documentos faltantes desde el mensaje de prevalidación.
+     *
+     * Ejemplo:
+     * "Documentos requeridos sin archivo adjunto: AUTORIZACION DE SERVICIOS, VALIDADOR DE DERECHOS"
+     *
+     * @param string $message Mensaje de error
+     * @return array<string> Nombres de documentos normalizados
+     */
+    private function extractMissingDocumentsFromMessage(string $message): array
+    {
+        $prefix = 'Documentos requeridos sin archivo adjunto:';
+        $position = mb_stripos($message, $prefix);
+
+        if ($position === false) {
+            return [];
+        }
+
+        $docsRaw = trim(mb_substr($message, $position + mb_strlen($prefix)));
+        if ($docsRaw === '') {
+            return [];
+        }
+
+        $parts = array_map(static fn($item) => trim($item), explode(',', $docsRaw));
+        $parts = array_values(array_filter($parts, static fn($item) => $item !== ''));
+
+        return array_values(array_unique($parts));
     }
 }

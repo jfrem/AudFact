@@ -256,6 +256,11 @@ Descarga o previsualiza un documento adjunto específico. Soporta dos modos seg�
 
 Ejecuta auditoría IA para una factura individual de forma síncrona.
 
+> [!NOTE]
+> En prevalidación, el pipeline consulta adjuntos requeridos con filtro SQL `AdjDisOpc='N'`
+> para optimizar la entrada a Gemini. Esto no modifica el contrato del endpoint público
+> `GET /dispensation/{invoiceId}/attachments/{nitSec}`, que sigue devolviendo el listado completo.
+
 **Request Body**:
 ```json
 {

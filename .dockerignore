@@ -2,15 +2,28 @@
 .git
 .gitignore
 
+# Secretos locales (NO deben entrar al contexto de build)
+.env
+.env.*
+!.env.example
+
 # Dependencias locales (dev)
 node_modules
 vendor
+frontend/node_modules
+frontend/.next
+frontend/.turbo
 
 # Logs y Temporales
 logs
 tmp
+*.log
 public/mcp/node_modules
 public/mcp/build
+coverage
+.nyc_output
+dist
+build
 
 # Herramientas de Desarrollo y Testing
 tests/
@@ -23,8 +36,13 @@ phpunit.xml
 plans/
 *.md
 .agent/
+.agents/
+skills-lock.json
 
 # IDEs y Entornos
 .vscode/
 .devcontainer/
 .roo/
+
+# Frontend no participa en build de imágenes backend actuales
+frontend/
