@@ -28,14 +28,14 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 | `DB_USER` | ✅ | Usuario BD escritura |
 | `DB_PASS` | ✅ | Contraseña BD escritura |
 | `DB_ENCRYPT` | ✅ en prod | Cifrado TLS conexión principal (`yes`) |
-| `DB_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión principal (`no`) |
+| `DB_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión principal (`yes` temporal sin certificado válido; objetivo futuro: `no`) |
 | `DB2_HOST` | ✅ | Host SQL Server lectura (ej: `169.46.6.55\SQL2022_REPLICA`) |
 | `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
 | `DB2_NAME` | ✅ | Nombre de BD lectura |
 | `DB2_USER` | ✅ | Usuario BD lectura |
 | `DB2_PASS` | ✅ | Contraseña BD lectura |
 | `DB2_ENCRYPT` | ✅ en prod | Cifrado TLS conexión lectura (`yes`) |
-| `DB2_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión lectura (`no`) |
+| `DB2_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión lectura (`yes` temporal sin certificado válido; objetivo futuro: `no`) |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | — | Email de service account de Google Drive |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
 | `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
@@ -51,7 +51,7 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 2. **CI Frontend (GitHub-hosted)**: `npm ci`, `npm run lint`, `npm run build`
 3. **CD (Self-hosted runner)**: Fix de permisos Docker + Checkout del código (`clean: true`)
 4. Genera `.env` dinámicamente desde GitHub Secrets (con validación de secrets requeridos)
-5. En `APP_ENV=production`, el workflow falla si `DB_ENCRYPT/DB2_ENCRYPT != yes` o `DB_TRUST_SERVER_CERT/DB2_TRUST_SERVER_CERT != no`
+5. En `APP_ENV=production`, el workflow exige `DB_ENCRYPT=yes` y `DB2_ENCRYPT=yes`. Mientras no exista certificado SQL Server válido, también exige `DB_TRUST_SERVER_CERT=yes` y `DB2_TRUST_SERVER_CERT=yes` como excepción temporal documentada.
 6. `docker compose down` → `docker compose up --build -d`
 7. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
 8. Health check con **retry loop** (3 intentos, 10s entre cada uno)
@@ -132,7 +132,8 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 - [ ] Health check (`/health`) responde correctamente
 - [ ] GitHub Secrets de producción configurados (ver tabla arriba)
 - [ ] `APP_ENV=production` en Secrets
-- [ ] `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no`, `DB2_ENCRYPT=yes`, `DB2_TRUST_SERVER_CERT=no`
+- [ ] `DB_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=yes`, `DB2_TRUST_SERVER_CERT=yes`
+- [ ] Existe plan para migrar a `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` al disponer de certificado válido
 - [ ] Tests unitarios pasan (CI automático)
 - [ ] `vendor/` se instala automáticamente por el entrypoint (no requiere paso manual)
 - [ ] `NEXT_PUBLIC_API_URL` configurado para el workflow del frontend
@@ -157,3 +158,4 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 ## Riesgo diferido
 
 La autenticación/autorización de endpoints críticos permanece fuera de este sprint. Debe tratarse como trabajo P0/P1 del siguiente ciclo y no debe confundirse con una remediación ya implementada por este endurecimiento del pipeline.
+La validación completa del certificado SQL Server también queda diferida temporalmente. El despliegue mantiene cifrado TLS, pero opera con `TrustServerCertificate=yes` hasta que infraestructura emita o instale certificados verificables.

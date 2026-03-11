@@ -1,6 +1,12 @@
 ## [2026-03-11]
 
 ### security
+- **Ámbito**: Ajuste temporal del gate TLS para despliegue productivo sin certificado SQL Server válido.
+  - Archivos modificados: `.github/workflows/ci.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: desbloqueo operativo del deploy con TLS activo y trust temporal del certificado del servidor
+  - Impacto: el pipeline sigue exigiendo `Encrypt=yes` para SQL Server principal y de lectura, pero acepta `TrustServerCertificate=yes` hasta completar la instalación de certificados válidos en infraestructura.
+
+### security
 - **Ámbito**: Hardening del pipeline de despliegue con GitHub Actions runner.
   - Archivos modificados: `.github/workflows/ci.yml`, `.github/workflows/deploy-frontend.yml`, `docker/Dockerfile`, `docker-compose.yml`, `docker-compose.ha.yml`, `.env.example`, `README.md`, `plans/deployment-and-ci.md`, `CHANGELOG.md`
   - Hallazgo resuelto: `SEC-002`, `ARCH-001`, `GOV-001`, `GOV-002`, `QUAL-001` (parcial)

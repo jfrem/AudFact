@@ -130,13 +130,13 @@ jobs:
           done
 
           if [ "$APP_ENV" = "production" ]; then
-            if [ "${DB_ENCRYPT}" != "yes" ] || [ "${DB_TRUST_SERVER_CERT}" != "no" ]; then
-              echo "Production deploy requires DB_ENCRYPT=yes and DB_TRUST_SERVER_CERT=no"
+            if [ "${DB_ENCRYPT}" != "yes" ] || [ "${DB_TRUST_SERVER_CERT}" != "yes" ]; then
+              echo "Production deploy currently requires DB_ENCRYPT=yes and DB_TRUST_SERVER_CERT=yes until SQL Server certificates are available"
               exit 1
             fi
 
-            if [ "${DB2_ENCRYPT}" != "yes" ] || [ "${DB2_TRUST_SERVER_CERT}" != "no" ]; then
-              echo "Production deploy requires DB2_ENCRYPT=yes and DB2_TRUST_SERVER_CERT=no"
+            if [ "${DB2_ENCRYPT}" != "yes" ] || [ "${DB2_TRUST_SERVER_CERT}" != "yes" ]; then
+              echo "Production deploy currently requires DB2_ENCRYPT=yes and DB2_TRUST_SERVER_CERT=yes until SQL Server certificates are available"
               exit 1
             fi
           fi
@@ -165,9 +165,9 @@ jobs:
 
           DB_POOLING=1
           DB_ENCRYPT=${DB_ENCRYPT:-yes}
-          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-no}
+          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-yes}
           DB2_ENCRYPT=${DB2_ENCRYPT:-yes}
-          DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-no}
+          DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-yes}
 
           GOOGLE_DRIVE_CLIENT_EMAIL=${GOOGLE_DRIVE_CLIENT_EMAIL}
           GOOGLE_DRIVE_PRIVATE_KEY="${GOOGLE_DRIVE_PRIVATE_KEY}"
