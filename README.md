@@ -2,7 +2,7 @@
 
 Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, utilizando **Google Gemini Flash** como motor de análisis multimodal (IA + OCR).
 
-## Stack Tecnológico
+## Stack Tecnológico.
 
 | Capa | Tecnología |
 |---|---|
@@ -15,7 +15,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Frontend | Next.js 16 (React 19) + Tailwind CSS + shadcn/ui |
 | Dependencias | Guzzle 7.x, firebase/php-jwt 7.x |
 
-## Estructura del Proyecto
+## Estructura del Proyecto.
 
 ```
 AudFact/
