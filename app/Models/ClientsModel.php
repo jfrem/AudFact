@@ -41,6 +41,7 @@ class ClientsModel extends Model
                 n.NitCom
             FROM NIT n
             INNER JOIN Clientes c WITH (NOLOCK) ON c.NitSec = n.NitSec
+            inner join ParametricaEps p with(nolock) on p.ParNitSec=c.NitSec and p.ParCliSec=c.CliSec
             WHERE c.ParEpsSec > 0
             and c.PerCliCod = '2'
             and c.CliEst = 'A'

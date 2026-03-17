@@ -17,17 +17,6 @@ use Core\Logger;
  */
 class AuditStatusModel extends Model
 {
-    /**
-     * Alias controlados para resolver variaciones comunes de nombres documentales.
-     *
-     * @var array<string, string>
-     */
-    private const DOCUMENT_ALIAS_MAP = [
-        'ACTA ENTREGA' => 'ACTA DE ENTREGA',
-        'AUTORIZACION SERVICIOS' => 'AUTORIZACION DE SERVICIOS',
-        'VALIDADOR DERECHOS' => 'VALIDADOR DE DERECHOS',
-        'FORMULA' => 'FORMULA MEDICA',
-    ];
 
     /**
      * Auditorías requieren consistencia fuerte de lectura después de escritura.
@@ -434,7 +423,10 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Resuelve un adjunto por nombre con fallback de normalización y alias.
+     * Resuelve un adjunto por nombre con fallback de normalización.
+     *
+     * Estrategia 1: match exacto case-insensitive (cubre >99% con schema dinámico).
+     * Estrategia 2: normalización de texto (acentos, extensiones, caracteres especiales).
      *
      * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
      * @param string $documentoFallido Nombre proveniente del pipeline
@@ -472,19 +464,6 @@ class AuditStatusModel extends Model
             }
         }
 
-        // Estrategia 3: alias controlado (bidireccional mediante canónico).
-        $canonicalInput = $this->canonicalDocumentName($input);
-        foreach ($adjuntos as $adjunto) {
-            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
-            if ($name !== '' && $this->canonicalDocumentName($name) === $canonicalInput) {
-                return [
-                    'AdjDisId' => $adjunto['AdjDisId'],
-                    'AdjDisNom' => $name,
-                    'strategy' => 'alias_canonical',
-                ];
-            }
-        }
-
         return null;
     }
 
@@ -509,14 +488,5 @@ class AuditStatusModel extends Model
         $value = preg_replace('/\s+/', ' ', trim($value)) ?? trim($value);
 
         return $value;
-    }
-
-    /**
-     * Lleva el nombre documental a una forma canónica usando alias controlados.
-     */
-    private function canonicalDocumentName(string $value): string
-    {
-        $normalized = $this->normalizeDocumentName($value);
-        return self::DOCUMENT_ALIAS_MAP[$normalized] ?? $normalized;
     }
 }

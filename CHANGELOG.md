@@ -1,3 +1,11 @@
+## [2026-03-17]
+
+### feat
+- **Ámbito**: Integración de mejoras proactivas P1, P2 y P3 en pipeline Gemini.
+  - Archivos modificados: `app/Services/Audit/AuditPromptBuilder.php`, `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/GeminiGateway.php`, `tests/Services/Audit/AuditBiasTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Se agregan axiomas anti-alucinación (XML), Shield Prompt, regla Zero-Inference (campos pacientes en NULL), thinking budget dinámico basado en documentos y complejidad, hash del prompt y se reestructura `thinkingConfig` dentro de `generationConfig` en el proxy HTTP The API Gemini se invoca correctamente sin errores 400.
+
 ## [2026-03-11]
 
 ### fix

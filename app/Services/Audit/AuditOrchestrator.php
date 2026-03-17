@@ -98,9 +98,10 @@ class AuditOrchestrator
 
         // ── Fase 2: Ejecutar auditoría con Gemini ──
         $geminiStart = hrtime(true);
+        $promptHash = '';
 
         try {
-            [$result, $attempts] = $this->executeAuditFlow($dispensationData, $files);
+            [$result, $attempts, $promptHash] = $this->executeAuditFlow($dispensationData, $files);
             $result['_errorOrigin'] = 'gemini';
         } catch (\Exception $e) {
             $errorMsg = $e->getMessage();
@@ -130,7 +131,8 @@ class AuditOrchestrator
             $filePrepMs,
             $geminiApiMs,
             $attempts,
-            $totalMs
+            $totalMs,
+            $promptHash
         );
 
         Logger::info('Auditoría completada', [
@@ -152,6 +154,19 @@ class AuditOrchestrator
     {
         $systemInstruction = $this->promptBuilder->getSystemInstruction($dispensationData);
 
+        // P3.2: Hash de trazabilidad del prompt (primeros 12 chars para log)
+        $promptHash = hash('sha256', $systemInstruction);
+        Logger::info('Prompt hash generado', [
+            'promptHash' => substr($promptHash, 0, 12),
+        ]);
+
+        // P3.1: Thinking budget dinámico según complejidad
+        $complexity = $this->promptBuilder->estimateComplexity($dispensationData);
+        Logger::info('Complejidad estimada', [
+            'level' => $complexity['level'],
+            'thinkingBudget' => $complexity['thinkingBudget'],
+        ]);
+
         $multiDocInstruction = '';
         $fileCount = count($files);
 
@@ -170,11 +185,14 @@ class AuditOrchestrator
 
         $attempts = [
             [
-                'overrides' => [],
+                'overrides' => ['thinkingBudget' => $complexity['thinkingBudget']],
                 'extraInstruction' => $multiDocInstruction,
             ],
             [
-                'overrides' => [],
+                'overrides' => [
+                    'maxOutputTokens' => (int) ceil($this->gateway->getMaxOutputTokens() * 2),
+                    'thinkingBudget' => $complexity['thinkingBudget'],
+                ],
                 'extraInstruction' => trim($multiDocInstruction . "\n" . 'IMPORTANTE: Responde con máximo ' . self::MAX_ITEMS_STRICT_MODE . ' items y detalles concisos (<=' . self::MAX_DETAIL_LENGTH_STRICT_MODE . ' caracteres).'),
             ],
         ];
@@ -192,7 +210,8 @@ class AuditOrchestrator
                 $prompt,
                 $files,
                 $systemInstruction,
-                $cfg['overrides']
+                $cfg['overrides'],
+                $pdfList
             );
 
             $finishReason = $result['candidates'][0]['finishReason'] ?? null;
@@ -221,7 +240,7 @@ class AuditOrchestrator
                     'responseType' => $parsed['response'] ?? null,
                 ]);
             } else {
-                return [$parsed, $index + 1];
+                return [$parsed, $index + 1, $promptHash];
             }
 
             if ($finishReason === 'MAX_TOKENS') {
@@ -232,7 +251,7 @@ class AuditOrchestrator
             $lastError = self::ERROR_INVALID_RESPONSE;
         }
 
-        throw new \Exception($lastError, count($attempts));
+        throw new \Exception($lastError . '|hash:' . substr($promptHash, 0, 12), count($attempts));
     }
 
     private function errorResponse(string $message, array $data = []): array
@@ -247,6 +266,8 @@ class AuditOrchestrator
                 'items' => $data['items'] ?? [],
                 'details' => $data['raw'] ?? null,
             ],
+            'metrics' => AuditResponseSchema::getEmptyMetrics(),
+            'config_used' => AuditResponseSchema::getEmptyConfig(),
         ];
     }
 }

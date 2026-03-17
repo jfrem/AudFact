@@ -18,7 +18,7 @@ class AuditTelemetryService
      * @param float $totalMs Duración total
      * @return array Metadatos listos para respuesta
      */
-    public function buildMeta(array $dispensation, array $files, float $dataFetchMs, float $filePrepMs, float $geminiApiMs, int $attempts, float $totalMs): array
+    public function buildMeta(array $dispensation, array $files, float $dataFetchMs, float $filePrepMs, float $geminiApiMs, int $attempts, float $totalMs, string $promptHash = ''): array
     {
         return [
             'totalTimeMs' => round($totalMs),
@@ -31,6 +31,7 @@ class AuditTelemetryService
             'factura' => $dispensation['NumeroFactura'] ?? '',
             'FacSec' => $dispensation['FacSec'] ?? '',
             'documentos' => array_values(array_unique(array_map(fn($f) => $f['label'] ?? 'N/A', $files))),
+            'promptHash' => $promptHash !== '' ? substr($promptHash, 0, 12) : '',
             'timestamp' => date('c'),
         ];
     }

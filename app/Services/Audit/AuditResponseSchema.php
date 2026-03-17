@@ -6,18 +6,14 @@ namespace App\Services\Audit;
  * Schema formal para respuestas de auditoría con IA.
  * Define la estructura esperada del JSON generado por Gemini AI.
  * 
- * @version 1.0
- * @date 2026-02-09
+ * @version 2.0
+ * @date 2026-03-17
  */
 class AuditResponseSchema
 {
     /**
-     * Tipos de documento válidos
+     * Valor especial para auditorías que cubren múltiples documentos.
      */
-    public const DOCUMENTO_ACTA_ENTREGA = 'ACTA_ENTREGA';
-    public const DOCUMENTO_FORMULA_MEDICA = 'FORMULA_MEDICA';
-    public const DOCUMENTO_AUTORIZACION = 'AUTORIZACION';
-    public const DOCUMENTO_VALIDADOR = 'VALIDADOR';
     public const DOCUMENTO_MULTIPLE = 'MULTIPLE';
 
     /**
@@ -26,153 +22,59 @@ class AuditResponseSchema
     public const RESPONSE_SUCCESS = 'success';
     public const RESPONSE_WARNING = 'warning';
     public const RESPONSE_ERROR = 'error';
+    public const RESPONSE_HUMAN_REVIEW = 'human_review';
 
     /**
-     * Retorna el schema JSON completo siguiendo JSON Schema Draft 7
-     * Para documentación y validación interna.
+     * Retorna métricas nulas para payloads que no pasaron por la IA.
+     * Garantiza conformidad del schema en rampas de escape (errores, human_review).
      *
      * @return array
      */
-    public static function getSchema(): array
+    public static function getEmptyMetrics(): array
     {
         return [
-            '$schema' => 'http://json-schema.org/draft-07/schema#',
-            'title' => 'AuditResponse',
-            'description' => 'Estructura de respuesta para auditoría de documentos farmacéuticos con IA',
-            'type' => 'object',
-            'required' => ['response', 'severity', 'message', 'documento', 'data', 'metrics', 'config_used'],
-            'properties' => [
-                'response' => [
-                    'type' => 'string',
-                    'enum' => [
-                        self::RESPONSE_SUCCESS,
-                        self::RESPONSE_WARNING,
-                        self::RESPONSE_ERROR
-                    ],
-                    'description' => 'Estado general de la auditoría'
-                ],
-                'severity' => [
-                    'type' => 'string',
-                    'enum' => ['alta', 'media', 'baja', 'ninguna'],
-                    'description' => 'Nivel de severidad general del hallazgo'
-                ],
-                'message' => [
-                    'type' => 'string',
-                    'minLength' => 1,
-                    'maxLength' => 500,
-                    'description' => 'Descripción breve del resultado general'
-                ],
-                'documento' => [
-                    'type' => 'string',
-                    'enum' => [
-                        self::DOCUMENTO_ACTA_ENTREGA,
-                        self::DOCUMENTO_FORMULA_MEDICA,
-                        self::DOCUMENTO_AUTORIZACION,
-                        self::DOCUMENTO_VALIDADOR,
-                        self::DOCUMENTO_MULTIPLE
-                    ],
-                    'description' => 'Tipo principal de documento auditado'
-                ],
-                'data' => [
-                    'type' => 'object',
-                    'required' => ['items'],
-                    'properties' => [
-                        'items' => [
-                            'type' => 'array',
-                            'description' => 'Lista de discrepancias encontradas (vacío si todo es válido)',
-                            'items' => [
-                                'type' => 'object',
-                                'required' => ['item', 'detalle', 'documento'],
-                                'properties' => [
-                                    'item' => [
-                                        'type' => 'string',
-                                        'minLength' => 1,
-                                        'maxLength' => 200,
-                                        'description' => 'Nombre del campo validado'
-                                    ],
-                                    'detalle' => [
-                                        'type' => 'string',
-                                        'minLength' => 1,
-                                        'maxLength' => 200,
-                                        'description' => 'Descripción de la discrepancia encontrada'
-                                    ],
-                                    'documento' => [
-                                        'type' => 'string',
-                                        'minLength' => 1,
-                                        'description' => 'Documento específico donde se encontró la discrepancia'
-                                    ],
-                                    'severidad' => [
-                                        'type' => 'string',
-                                        'enum' => ['alta', 'media', 'baja'],
-                                        'description' => 'Severidad de este ítem específico'
-                                    ]
-                                ],
-                                'additionalProperties' => false
-                            ]
-                        ]
-                    ],
-                    'additionalProperties' => false
-                ],
-                'metrics' => [
-                    'type' => 'object',
-                    'required' => [
-                        'TotalCamposEvaluados',
-                        'TotalCoincidentes',
-                        'TotalDiscrepancias',
-                        'Altas',
-                        'Medias',
-                        'Bajas'
-                    ],
-                    'properties' => [
-                        'TotalCamposEvaluados' => ['type' => 'integer', 'minimum' => 0],
-                        'TotalCoincidentes' => ['type' => 'integer', 'minimum' => 0],
-                        'TotalDiscrepancias' => ['type' => 'integer', 'minimum' => 0],
-                        'Altas' => ['type' => 'integer', 'minimum' => 0],
-                        'Medias' => ['type' => 'integer', 'minimum' => 0],
-                        'Bajas' => ['type' => 'integer', 'minimum' => 0]
-                    ],
-                    'additionalProperties' => false
-                ],
-                'config_used' => [
-                    'type' => 'object',
-                    'required' => ['weights', 'thresholds', 'max_score'],
-                    'properties' => [
-                        'weights' => [
-                            'type' => 'object',
-                            'required' => ['alta', 'media', 'baja'],
-                            'properties' => [
-                                'alta' => ['type' => 'integer', 'minimum' => 0],
-                                'media' => ['type' => 'integer', 'minimum' => 0],
-                                'baja' => ['type' => 'integer', 'minimum' => 0],
-                            ],
-                            'additionalProperties' => false
-                        ],
-                        'thresholds' => [
-                            'type' => 'object',
-                            'required' => ['warning', 'error'],
-                            'properties' => [
-                                'warning' => ['type' => 'integer', 'minimum' => 0],
-                                'error' => ['type' => 'integer', 'minimum' => 0],
-                            ],
-                            'additionalProperties' => false
-                        ],
-                        'max_score' => ['type' => 'integer', 'minimum' => 0],
-                    ],
-                    'additionalProperties' => false
-                ]
-            ],
-            'additionalProperties' => false
+            'TotalCamposEvaluados' => 0,
+            'TotalCoincidentes' => 0,
+            'TotalDiscrepancias' => 0,
+            'Altas' => 0,
+            'Medias' => 0,
+            'Bajas' => 0,
+        ];
+    }
+
+    /**
+     * Retorna config vacía para payloads que no pasaron por la IA.
+     * Garantiza conformidad del schema en rampas de escape (errores, human_review).
+     *
+     * @return array
+     */
+    public static function getEmptyConfig(): array
+    {
+        return [
+            'weights' => ['alta' => 0, 'media' => 0, 'baja' => 0],
+            'thresholds' => ['warning' => 0, 'error' => 0],
+            'max_score' => 0,
         ];
     }
 
     /**
      * Retorna schema simplificado compatible con Gemini AI API.
-     * Solo incluye propiedades soportadas por la API de Gemini.
+     * El enum 'documento' se construye dinámicamente con los nombres
+     * reales de adjuntos desde la BD.
      *
+     * @param array<string> $documentNames Nombres reales de adjuntos desde BD.
      * @return array
      */
-    public static function getGeminiSchema(): array
+    public static function getGeminiSchema(array $documentNames = []): array
     {
+        if (empty($documentNames)) {
+            throw new \InvalidArgumentException('getGeminiSchema requires non-empty $documentNames from DB attachments');
+        }
+
+        $docEnum = array_values(array_unique(
+            array_merge($documentNames, [self::DOCUMENTO_MULTIPLE])
+        ));
+
         return [
             'type' => 'object',
             'properties' => [
@@ -193,13 +95,7 @@ class AuditResponseSchema
                 ],
                 'documento' => [
                     'type' => 'string',
-                    'enum' => [
-                        self::DOCUMENTO_ACTA_ENTREGA,
-                        self::DOCUMENTO_FORMULA_MEDICA,
-                        self::DOCUMENTO_AUTORIZACION,
-                        self::DOCUMENTO_VALIDADOR,
-                        self::DOCUMENTO_MULTIPLE
-                    ]
+                    'enum' => $docEnum
                 ],
                 'data' => [
                     'type' => 'object',
@@ -302,8 +198,15 @@ class AuditResponseSchema
         }
 
         // Validar 'response'
-        if (!in_array($data['response'], [self::RESPONSE_SUCCESS, self::RESPONSE_WARNING, self::RESPONSE_ERROR], true)) {
-            $errors[] = "Field 'response' must be one of: success, warning, error. Got: " . $data['response'];
+        $validResponses = [self::RESPONSE_SUCCESS, self::RESPONSE_WARNING, self::RESPONSE_ERROR, self::RESPONSE_HUMAN_REVIEW];
+        if (!in_array($data['response'], $validResponses, true)) {
+            $errors[] = "Field 'response' must be one of: " . implode(', ', $validResponses) . ". Got: " . $data['response'];
+        }
+
+        // Validar 'severity' como enum
+        $validSeverities = ['alta', 'media', 'baja', 'ninguna'];
+        if (!is_string($data['severity']) || !in_array($data['severity'], $validSeverities, true)) {
+            $errors[] = "Field 'severity' must be one of: " . implode(', ', $validSeverities) . ". Got: " . var_export($data['severity'] ?? null, true);
         }
 
         // Validar 'message'
@@ -313,16 +216,9 @@ class AuditResponseSchema
             $errors[] = "Field 'message' exceeds maximum length of 500 characters";
         }
 
-        // Validar 'documento'
-        $validDocumentos = [
-            self::DOCUMENTO_ACTA_ENTREGA,
-            self::DOCUMENTO_FORMULA_MEDICA,
-            self::DOCUMENTO_AUTORIZACION,
-            self::DOCUMENTO_VALIDADOR,
-            self::DOCUMENTO_MULTIPLE
-        ];
-        if (!in_array($data['documento'], $validDocumentos, true)) {
-            $errors[] = "Field 'documento' must be one of: " . implode(', ', $validDocumentos) . ". Got: " . $data['documento'];
+        // Validar 'documento' — debe ser string no vacío (valores dinámicos desde BD).
+        if (!is_string($data['documento']) || trim($data['documento']) === '') {
+            $errors[] = "Field 'documento' must be a non-empty string. Got: " . var_export($data['documento'] ?? null, true);
         }
 
         // Validar 'data'
@@ -339,10 +235,18 @@ class AuditResponseSchema
                 }
 
                 // Validar campos requeridos en item
-                $itemRequiredFields = ['item', 'detalle', 'documento'];
+                $itemRequiredFields = ['item', 'detalle', 'documento', 'severidad'];
                 foreach ($itemRequiredFields as $field) {
                     if (!isset($item[$field])) {
                         $errors[] = "Item at index {$index}: missing required field '{$field}'";
+                    }
+                }
+
+                // Validar 'severidad' como enum
+                if (isset($item['severidad'])) {
+                    $validItemSeverities = ['alta', 'media', 'baja'];
+                    if (!in_array($item['severidad'], $validItemSeverities, true)) {
+                        $errors[] = "Item at index {$index}: field 'severidad' must be one of: " . implode(', ', $validItemSeverities) . ". Got: " . var_export($item['severidad'], true);
                     }
                 }
 
@@ -438,68 +342,4 @@ class AuditResponseSchema
         ];
     }
 
-    /**
-     * Retorna un ejemplo de respuesta válida
-     * 
-     * @return array
-     */
-    public static function getExample(): array
-    {
-        return [
-            'response' => self::RESPONSE_WARNING,
-            'severity' => 'media',
-            'message' => 'Se encontraron 2 discrepancias en la validación del Acta de Entrega',
-            'documento' => self::DOCUMENTO_ACTA_ENTREGA,
-            'data' => [
-                'items' => [
-                    [
-                        'item' => 'IPS (Institución Prestadora de Salud)',
-                        'detalle' => 'El Reference JSON indica "e.s.e hospital regional de moniquira". El Acta de Entrega indica "SALUD VITAL".',
-                        'documento' => 'ACTA_ENTREGA'
-                    ],
-                    [
-                        'item' => 'Número de Autorización',
-                        'detalle' => 'El Reference JSON indica que el campo está vacío (""). El Acta de Entrega registra el número D19251005204.',
-                        'documento' => 'ACTA_ENTREGA'
-                    ]
-                ]
-            ],
-            'metrics' => [
-                'TotalCamposEvaluados' => 10,
-                'TotalCoincidentes' => 8,
-                'TotalDiscrepancias' => 2,
-                'Altas' => 1,
-                'Medias' => 1,
-                'Bajas' => 0
-            ],
-            'config_used' => [
-                'weights' => [
-                    'alta' => 10,
-                    'media' => 5,
-                    'baja' => 1
-                ],
-                'thresholds' => [
-                    'warning' => 5,
-                    'error' => 10
-                ],
-                'max_score' => 100
-            ]
-        ];
-    }
-
-    /**
-     * Retorna descripción legible de los tipos de documento
-     * 
-     * @return array
-     */
-    public static function getDocumentTypeDescriptions(): array
-    {
-        return [
-            self::DOCUMENTO_ACTA_ENTREGA => 'Acta de Entrega de Medicamentos',
-            self::DOCUMENTO_FORMULA_MEDICA => 'Fórmula Médica o Prescripción',
-            self::DOCUMENTO_AUTORIZACION => 'Autorización de Dispensación',
-            self::DOCUMENTO_VALIDADOR => 'Validador de Derechos',
-            self::DOCUMENTO_MULTIPLE => 'Múltiples documentos analizados'
-        ];
-    }
 }

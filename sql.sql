@@ -1,0 +1,16 @@
+SELECT *
+FROM [Discolnet].[dbo].[AudDispEst]
+WHERE (FacSec ='87736124' AND FacNro ='X32250702305')
+    OR (FacSec ='87736125' AND FacNro ='X32250702306')
+    OR (FacSec ='87736570' AND FacNro ='D92250700430')
+    OR (FacSec ='87736687' AND FacNro ='D63250713983')
+    OR (FacSec ='87736702' AND FacNro ='D92250700431')
+    OR (FacSec ='87736703' AND FacNro ='D92250700432')
+    OR (FacSec ='87735502' AND FacNro ='U89250700519')
+    OR (FacSec ='87735503' AND FacNro ='U89250700520')
+    OR (FacSec ='87735582' AND FacNro ='D65250710212')
+    OR (FacSec ='87736123' AND FacNro ='X32250702304');
+
+
+DELETE FROM [Discolnet].[dbo].[AudDispEst]
+

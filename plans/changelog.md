@@ -1,5 +1,13 @@
 # Changelog AudFact
 
+## [2026-03-17]
+
+### Feature (Pipeline IA)
+- **Ámbito**: Implementación de Schema Dinámico para Gemini
+  - Archivos modificados: `AuditResponseSchema.php`, `GeminiGateway.php`, `AuditOrchestrator.php`, `AuditPromptBuilder.php`
+  - Detalles: El pipeline de auditoría ahora extrae dinámicamente los nombres de los documentos (ej. `DISPENSA`, `FORMULA MEDICA`) directamente de la base de datos `AdjuntosDispensacion` y los inyecta en el JSON Schema de Gemini. Esto fuerza a la IA a responder con nomenclatura 100% idéntica a la BD, eliminando los fallos de conciliación en el modelo `AuditStatusModel` por el uso de nomenclatura SNAKE_CASE impuesta previamente.
+  - Hito: Sincronización de skills P2.5 (Schema Dinámico).
+
 ## [2026-03-10]
 
 ### Rediseño Visual Premium (Dashboard)

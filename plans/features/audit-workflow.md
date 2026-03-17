@@ -155,3 +155,4 @@ curl.exe -s -X POST http://localhost:8080/audit -H "Content-Type: application/js
 - **Dual Storage**: El sistema maneja transparentemente documentos almacenados como BLOB en BD o como URLs en Google Drive.
 - **Persistencia en Error**: El método `terminate()` propaga `$dispensation` a `saveToDatabase()` para que el `FacSec` real se persista correctamente incluso en flujos de error.
 - **Validación MIPRES**: `GeminiAuditService` valida campos obligatorios MIPRES (`Mipres`, `IdPrincipal`, `IdDirec`, `IdProg`, `IdEntr`, `IdRepEnt`) antes de enviar a Gemini. `IdFact` fue excluido de la lista obligatoria.
+- **Schema Dinámico de Documentos**: `AuditResponseSchema::getGeminiSchema()` acepta pasarse dinámicamente los nombres reales de la BD, limitando las respuestas en el campo `documento` a una variante de un enum específico exacto extraído de `AdjuntosDispensacion`, mejorando radicalmente la conciliación en `AuditStatusModel`.

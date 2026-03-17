@@ -84,7 +84,7 @@ Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con p
 2. **No omitir limpieza de temporales en `finally`**.
 3. Tratar errores de API con mensaje corto y código HTTP cuando exista.
 4. Limitar cambios de prompt a reglas de negocio verificables siguiendo los **Axiomas (A1-A4)**. §08 contiene 14 items de auto-auditoría incluyendo reconfirmación de hallazgos y verificación visual de firma.
-5. **No romper compatibilidad con `AuditResponseSchema`**.
+5. **No romper compatibilidad con `AuditResponseSchema`**. Tener en cuenta que el `documento` base ahora opera sobre un **Schema Dinámico** que inyecta nombres exactos desde la BD al enum de Gemini para garantizar conciliación exacta.
 6. Evaluar hallazgos bajo el **Protocolo de 6 Dimensiones** (Identidad, Cuantitativa, Temporal, Descriptiva, Integridad, Forense).
 7. Inyección de dependencias: constructor acepta todas como parámetros opcionales.
 8. Resultados se persisten triple: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert) + BD adjuntos (`AdjuntosDispensacion` via `updateAuditResult` con estrategia baseline+rechazo individual).

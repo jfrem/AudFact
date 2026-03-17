@@ -34,7 +34,11 @@ class DispensationModel extends Model
                 Paciente_doct AS TipoDocumentoPaciente,
                 Paciente_doc AS DocumentoPaciente,
                 Fecha_nac AS FechaNacimiento,
-                Regimen AS RegimenPaciente,
+                CASE 
+                    WHEN Regimen = 'Subsidiado' THEN 'Subsidiado'
+                    WHEN Regimen = 'Contributivo' THEN 'Contributivo'
+                    ELSE 'ARL'
+                END AS RegimenPaciente,
                 
                 -- Médico
                 Medico,
@@ -72,7 +76,7 @@ class DispensationModel extends Model
                 IdFact,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
-            WHERE Dispensa = :DisDetNro --AND Tipo_servicio in ('POS','MIPRES')
+            WHERE Dispensa = :DisDetNro
             GROUP BY
                 facsec, Dispensa, Cliente, Nit, NitSec, Copago, IPS, IPS_nit,
                 Paciente, Paciente_doct, Paciente_doc, Fecha_nac, Regimen,

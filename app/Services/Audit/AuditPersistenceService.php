@@ -76,18 +76,8 @@ class AuditPersistenceService
             $isProcessed = in_array($response, ['success', 'warning'], true)
                 || ($response === 'error' && $errorOrigin === 'infrastructure');
             $findings = $result['data']['items'] ?? [];
-            $severity = strtolower(trim((string) ($result['severity'] ?? '')));
-            if ($severity === '') {
-                if ($isSuccess) {
-                    $severity = 'ninguna';
-                } elseif ($response === 'warning') {
-                    $severity = 'media';
-                } elseif ($response === 'human_review' || $errorOrigin === 'business') {
-                    $severity = 'ninguna';
-                } else {
-                    $severity = 'alta';
-                }
-            }
+            $severity = strtolower(trim((string) ($result['severity'] ?? 'ninguna')));
+            // Safety guard: infrastructure errors should never have 'ninguna' severity
             if ($response === 'error' && $severity === 'ninguna' && $errorOrigin !== 'business') {
                 $severity = 'alta';
             }
@@ -226,7 +216,7 @@ class AuditPersistenceService
                 $parts = [];
                 foreach ($docFindings as $finding) {
                     $item = $finding['item'] ?? '';
-                    $detail = $finding['hallazgo'] ?? $finding['detalle'] ?? '';
+                    $detail = $finding['detalle'] ?? '';
                     if (!empty($detail)) {
                         $parts[] = "{$item}: {$detail}";
                     }

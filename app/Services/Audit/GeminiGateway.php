@@ -58,20 +58,22 @@ class GeminiGateway
      * @param array $files Archivos preparados
      * @param string $systemInstruction Instrucciones del sistema
      * @param array $generationOverrides Overrides de generación
+     * @param array<string> $documentNames Nombres reales de adjuntos para enum dinámico del schema
      * @return array Respuesta de Gemini decodificada
      */
     public function sendWithRetry(
         string $prompt,
         array $files,
         string $systemInstruction,
-        array $generationOverrides = []
+        array $generationOverrides = [],
+        array $documentNames = []
     ): array {
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent";
         $lastException = null;
 
         for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
             try {
-                return $this->send($url, $prompt, $files, $systemInstruction, $generationOverrides);
+                return $this->send($url, $prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
             } catch (\RuntimeException $e) {
                 $lastException = $e;
                 $httpCode = (int) $e->getCode();
@@ -132,14 +134,20 @@ class GeminiGateway
         return null;
     }
 
+    public function getMaxOutputTokens(): int
+    {
+        return $this->maxOutputTokens;
+    }
+
     private function send(
         string $url,
         string $prompt,
         array $files,
         string $systemInstruction,
-        array $generationOverrides = []
+        array $generationOverrides = [],
+        array $documentNames = []
     ): array {
-        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $generationOverrides);
+        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
 
         try {
             $res = $this->http->post($url, [
@@ -181,9 +189,10 @@ class GeminiGateway
         string $prompt,
         array $files,
         string $systemInstruction,
-        array $generationOverrides = []
+        array $generationOverrides = [],
+        array $documentNames = []
     ): array {
-        $auditSchema = AuditResponseSchema::getGeminiSchema();
+        $auditSchema = AuditResponseSchema::getGeminiSchema($documentNames);
 
         $generationConfig = array_filter([
             'temperature' => $this->temperature,
@@ -193,6 +202,9 @@ class GeminiGateway
             'responseMimeType' => $this->responseMimeType,
             'seed' => $this->seed,
         ], fn($value) => $value !== null);
+
+        $overrideThinkingBudget = $generationOverrides['thinkingBudget'] ?? null;
+        unset($generationOverrides['thinkingBudget']);
 
         if (!empty($generationOverrides)) {
             $generationConfig = array_merge($generationConfig, $generationOverrides);
@@ -216,6 +228,11 @@ class GeminiGateway
             ]];
         }
 
+        $effectiveBudget = $overrideThinkingBudget ?? $this->thinkingBudget;
+        if ($effectiveBudget !== null) {
+            $generationConfig['thinkingConfig'] = ['thinkingBudget' => (int) $effectiveBudget];
+        }
+
         $payload = [
             'systemInstruction' => [
                 'parts' => [
@@ -229,14 +246,6 @@ class GeminiGateway
             'generationConfig' => $generationConfig,
             'safetySettings' => $this->getSafetySettings(),
         ];
-
-        if ($this->mediaResolution !== null) {
-            $payload['mediaResolution'] = $this->mediaResolution;
-        }
-
-        if ($this->thinkingBudget !== null) {
-            $payload['thinkingConfig'] = ['thinkingBudget' => $this->thinkingBudget];
-        }
 
         return $payload;
     }

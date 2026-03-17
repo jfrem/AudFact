@@ -73,12 +73,15 @@ class AuditPreValidator
             ]);
 
             $result = [
-                'response' => 'human_review',
+                'response' => AuditResponseSchema::RESPONSE_HUMAN_REVIEW,
+                'severity' => 'ninguna',
                 'message' => self::ERROR_HUMAN_REVIEW_REQUIRED,
                 'tipoServicio' => $tipoServicio,
                 'documento' => $dispensation['NumeroFactura'] ?? '',
                 'DisDetNro' => $disDetNro,
                 'data' => ['items' => []],
+                'metrics' => AuditResponseSchema::getEmptyMetrics(),
+                'config_used' => AuditResponseSchema::getEmptyConfig(),
                 '_errorOrigin' => 'business',
             ];
 
@@ -156,7 +159,7 @@ class AuditPreValidator
                     $failedDocument = (string) ($file['label'] ?? '');
                     $items = [[
                         'item' => 'Cantidad de páginas',
-                        'hallazgo' => self::ERROR_ATTACHMENT_MAX_PAGES_EXCEEDED,
+                        'detalle' => self::ERROR_ATTACHMENT_MAX_PAGES_EXCEEDED,
                         'severidad' => 'alta',
                         'documento' => $failedDocument !== '' ? $failedDocument : AuditResponseSchema::DOCUMENTO_MULTIPLE,
                     ]];
@@ -238,12 +241,24 @@ class AuditPreValidator
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
         $filePrepMs = $filePrepStart !== null ? (hrtime(true) - $filePrepStart) / 1e6 : 0.0;
 
+        // Inferir severity de items (si existen) para alinear con schema requerido
+        $severity = 'ninguna';
+        foreach ($items as $item) {
+            if (($item['severidad'] ?? '') === 'alta') {
+                $severity = 'alta';
+                break;
+            }
+        }
+
         $result = [
             'response' => 'error',
+            'severity' => $severity,
             'message' => $message,
             'documento' => $dispensation['NumeroFactura'] ?? '',
             'DisDetNro' => $disDetNro,
             'data' => ['items' => $items],
+            'metrics' => AuditResponseSchema::getEmptyMetrics(),
+            'config_used' => AuditResponseSchema::getEmptyConfig(),
             '_errorOrigin' => 'business',
         ];
 

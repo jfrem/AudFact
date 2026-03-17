@@ -207,8 +207,6 @@ class AuditFileManager
     /**
      * O3: Procesa BLOB directamente en memoria sin pasar por disco.
      * Flujo optimizado: SQL stream → memoria → detectMime → base64
-     *
-     * FIX #5: Usa nombre_documento como fallback para detección MIME.
      */
     private function handleBlobDirect(array $attachment): array
     {
