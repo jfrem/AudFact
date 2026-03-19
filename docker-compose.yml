@@ -30,6 +30,25 @@ services:
       retries: 3
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    container_name: audfact-redis
+    volumes:
+      - redis_data:/data
+    # CICD-007: Redis authentication required
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000 --requirepass ${REDIS_PASSWORD:-audfact_dev_default}
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
   nginx:
     build:
       context: .
@@ -37,9 +56,13 @@ services:
     container_name: audfact-nginx
     depends_on:
       - php
+      - redis
     ports:
       - "8080:80"
     environment:
       # Solo sustituir variables que empiecen con AUDIT_
       NGINX_ENVSUBST_FILTER: "AUDIT_"
       AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}
+
+volumes:
+  redis_data:
