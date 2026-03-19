@@ -1,6 +1,180 @@
 # Changelog AudFact
 
+## [2026-03-19] — Correcciones Persistencia e Idempotencia (Audit)
+
+### 🔴 Critical Fixes
+- **AUDIT-004 / C-01**: Corrupción de datos por truncado en Caché → `AuditPersistenceService` guarda `severity`, `_errorOrigin` y metadata completa.
+- **AUDIT-004 / C-02**: Mapeo inválido de PK al re-persistir desde Caché → `AuditController::run` reconstruido para forzar `FacNro` genuino.
+- **AUDIT-004 / Idempotencia**: Controlador usaba prefijo quemado (`audit:result:`) → sincronizado con `REDIS_PREFIX` de Env.
+
+### 🟠 High Priority Fixes
+- **AUDIT-004 / H-01**: DB Fallback sin validación estricta → `AuditStatusModel` devuelve int/false; el caching se aborta ante falla.
+
+### 🟡 Medium / Low Priority
+- **AUDIT-004 / M-02 / L-02**: Pre-validaciones abortaban sin array pre-formateado → inyección de `$items` de fallos documentales y MIPRES a `fail()`.
+
+### Archivos modificados
+`app/Services/Audit/AuditPersistenceService.php`, `app/Controllers/AuditController.php`, `app/Services/Audit/AuditPreValidator.php`, `app/Models/AuditStatusModel.php`
+
+## [2026-03-18] — Correcciones Auditoría Independiente (19 hallazgos)
+
+### 🔴 Critical Fixes
+- **AUDIT-003 / C-01**: SQL Injection en `$limit` de `InvoicesModel` → cast `(int)` defensivo
+- **AUDIT-003 / C-03**: `Response::success()`/`error()` lanzaban excepciones sin documentar → `#[NoReturn]` + `@return never`
+- **AUDIT-003 / C-04**: Comparación de fechas con operadores string → `DateTime` objects (4 sitios en InvoicesController + AuditController)
+- **AUDIT-003 / C-05**: Fecha asimétrica en subquery de `InvoicesModel` → condición simétrica con igualdad
+- **AUDIT-003 / C-06**: `set_time_limit(120)` en `AuditOrchestrator` anulaba timeout del controller → eliminado
+
+### 🟠 High Priority Fixes
+- **AUDIT-003 / H-01**: Regla `optional` en `Validator` funcionaba por accidente → implementación explícita
+- **AUDIT-003 / H-02**: Regla `min_length:` ignorada silenciosamente → implementada en `Validator`
+- **AUDIT-003 / H-03**: Cache key en `AuditController::results()` no invalidable → prefijo `facNitSec`
+- **AUDIT-003 / H-04**: `count($attempts)` como código de excepción (daba 2) → HTTP 500 con attempts en mensaje
+- **AUDIT-003 / H-05**: Sin sanitización post-validación en `Controller` → `sanitizeData()` con `trim()` + `strip_tags()`
+
+### 🟡 Medium Priority Fixes
+- **AUDIT-003 / M-01**: `GROUP BY` 20+ columnas sin agregación en `DispensationModel` → `SELECT DISTINCT`
+- **AUDIT-003 / M-03**: Rate limiting con `REMOTE_ADDR` (IP del proxy Docker) → `RateLimit::getClientIp()` proxy-aware
+- **AUDIT-003 / M-04**: Uso dual de `DisDetNro` en `AuditController::single()` → documentado con comentario
+- **AUDIT-003 / M-05**: PK hardcodeada `id` en `Model` base → `$primaryKey` configurable
+
+### 🔵 Low Priority Fixes
+- **AUDIT-003 / L-01**: Fuga de `facNitSec` en logs de `InvoicesModel` → enmascaramiento `***` + últimos 3 dígitos
+- **AUDIT-003 / L-02**: SQL completo en logs de error de `Database` → `[REDACTED]`
+- **AUDIT-003 / L-03**: Regex de `Router` no aceptaba puntos en parámetros → `[\w.\-]+`
+- **AUDIT-003 / L-04**: `declare(strict_types=1)` añadido en `Database`, `Validator`, `RateLimit`
+
+### Descartado
+- **C-02 (Autenticación API)**: Postergado a sprint futuro por decisión del usuario
+
+### Archivos modificados (13)
+`app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php`, `app/Models/Model.php`, `core/Database.php`, `core/Validator.php`, `app/Controllers/Controller.php`, `app/Controllers/InvoicesController.php`, `app/Controllers/AuditController.php`, `app/Services/Audit/AuditOrchestrator.php`, `core/Response.php`, `core/Router.php`, `core/RateLimit.php`, `public/index.php`
+
+## [2026-03-18] — Fix Inyección Exhaustiva de Medicamentos (Auditoría IA)
+
+### Fix (Prompt)
+- **AUDIT-001**: `AuditPromptBuilder.php` generaba el XML de `<medication>` utilizando únicamente la primera línea de la dispensación, causando falsos positivos y omisiones al auditar múltiples ítems. Se refactorizó la interpolación simple por un `foreach` que inyecta todos los ítems de dispensación correspondientes en el XML final.
+  - Archivos modificados: `app/Services/Audit/AuditPromptBuilder.php`
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Actualizada skill `audfact-audit-gemini` (v3.0→v3.1 con iteración multi-medicamento). Corregido drift significativo acumulado en `plans/features/audit-workflow.md`: tabla de archivos obsoleta (`GeminiAuditService` → `AuditOrchestrator`), endpoints faltantes (async, jobStatus, results, documents-history), parámetro `FacNro`→`DisDetNro`, versión de prompt (v6.0→v3.1), sección multi-línea→multi-medicamento con XML iterado, y notas técnicas sobre filtrado de adjuntos.
+  - Archivos actualizados: `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/features/audit-workflow.md`
+
+### Refactor (Post-Audit Quality)
+- **AUDIT-002**: Correcciones robustas post-auditoría independiente (6 hallazgos):
+  - **H-01**: §08.7 restaurado con guard rail concreto (`{$totalLineas}` ítems + verificación individual)
+  - **M-01**: Supuesto de metadatos comunes (`$ref = $dispensationData[0]`) documentado
+  - **M-02**: `FirmaActaEntrega` hardcodeada como 'Obligatorio' documentada como decisión de negocio
+  - **M-03**: Nodos `<medication>` envueltos en tag contenedor `<medications total="N">`
+  - **L-01**: Helper `isMultiItem()` extraído (DRY, 4 instancias reemplazadas)
+  - **L-02**: DocBlock actualizado `@version 2.1` → `@version 3.1`
+  - Archivos modificados: `app/Services/Audit/AuditPromptBuilder.php`, `app/Models/DispensationModel.php`
+
+## [2026-03-18] — Correcciones CI/CD Pipeline (14 hallazgos)
+
+### 🔴 Critical Fixes
+- **CICD-001**: Deploy separado build de restart — build failure ya no causa downtime
+  - `docker compose build` (containers siguen corriendo) → `docker compose up -d --force-recreate`
+  - Archivos: `.github/workflows/ci.yml`
+- **CICD-002**: Composer installer reemplazado por `COPY --from=composer:2` (supply chain safe)
+  - Archivos: `docker/Dockerfile`
+- **CICD-003**: Agregado `permissions: contents: read` a ambos workflows (least privilege)
+  - Archivos: `ci.yml`, `deploy-frontend.yml`
+
+### 🟠 High Priority Fixes
+- **CICD-004**: `timeout-minutes` agregado a 4 jobs (15min lint, 30min deploy)
+- **CICD-005**: Eliminado `echo` de `NEXT_PUBLIC_API_URL` en logs del workflow
+- **CICD-006**: `.env` en contenedor cambiado de `chmod 644` a `chmod 640`
+  - Archivos: `docker/docker-entrypoint.sh`
+- **CICD-007**: Redis `--requirepass` agregado con default `audfact_dev_default`
+  - Archivos: `docker-compose.yml`, `ci.yml` (.env generation)
+
+### 🟡 Medium Priority Fixes
+- **CICD-008**: TODO comment para pin de `shivammathur/setup-php` a SHA
+- **CICD-010**: Secret scan cambiado de `::warning::` a `exit 1` (blocking)
+
+### 🔵 Low Priority
+- **CICD-013**: Warning comment en `docker-compose.ha.yml` sobre source mount
+- **CICD-014**: Zero-source purge agregado a `deploy-frontend.yml`
+
+### No aplica
+- **CICD-011**: Limitación intencional de Next.js (API URL baked at build)
+- **CICD-012**: Falso positivo — YAML `|` strip indentation correctamente
+
+## [2026-03-18] — Correcciones Auditoría Independiente (5 hallazgos)
+
+### Breaking Change
+- **ARCH-001**: `POST /audit/single` — Parámetro renombrado de `FacNro` a `DisDetNro` para reflejar semántica real
+  - Archivos modificados: `app/Controllers/AuditController.php`, `AGENTS.md`
+
+### Fix
+- **QUAL-001**: Test `AuditPersistenceServiceTest` usaba campo `hallazgo` (inexistente en schema Gemini) en vez de `detalle`
+  - Archivos modificados: `tests/Services/Audit/AuditPersistenceServiceTest.php`
+- **SEC-004**: `Logger::write()` sanitizaba contexto ANTES de serializar excepciones, dejando `trace` sin redactar
+  - Archivos modificados: `core/Logger.php`
+- **QUAL-002**: `saveToDatabase()` silenciaba errores de persistencia (void). Ahora retorna `bool`, Orchestrator loguea fallos
+  - Archivos modificados: `app/Services/Audit/AuditPersistenceService.php`, `app/Services/Audit/AuditOrchestrator.php`
+- **DOC-001**: README.md decía "Rate limiting por IP (archivo)" en vez de "(APCu con fallback a archivo)"
+  - Archivos modificados: `README.md`
+
+### Diferido
+- SEC-001, SEC-002, SEC-003: Diferidos a sprint futuro por decisión del usuario
+- GOV-001: Cobertura de tests — registrado como TODO
+
+## [2026-03-17] — Auditoría Independiente Fase 3 (Correcciones)
+
+### Fix (Async Queue — 3 Críticos + 4 Altos/Medios)
+- **C01**: `POST /audit/async` retornaba HTTP 200 en vez de 202. `Response::success()` ahora recibe `code=202`
+  - Archivos modificados: `app/Controllers/AuditController.php`
+- **C02**: Redis `allkeys-lru` podía evictar metadata de jobs activos. Cambiado a `volatile-lru`
+  - Archivos modificados: `docker-compose.yml`
+- **C03**: `read_write_timeout=2s` < `brpop timeout=5s` causaba crash del worker en cada iteración
+  - Archivos modificados: `core/RedisClient.php`
+- **A01**: Worker no verificaba idempotencia antes de re-auditar facturas. Agregado `getIdempotentResult()`
+  - Archivos modificados: `bin/audit-worker.php`
+- **A02**: Shutdown parcial marcaba job como COMPLETED. Agregado estado `STATUS_INTERRUPTED`
+  - Archivos modificados: `bin/audit-worker.php`, `app/Services/Audit/AuditQueueService.php`
+- **M03**: Eliminados `return` muertos después de `Response::error()`
+  - Archivos modificados: `app/Controllers/AuditController.php`
+- **M04**: `buildOrchestrator()` se reconstruía por cada job. Ahora usa lazy-init reutilizable
+  - Archivos modificados: `bin/audit-worker.php`
+- **A03**: `buildOrchestrator()` duplicada entre controller y worker. Creada `AuditOrchestratorFactory`
+  - Archivos creados: `app/Services/Audit/AuditOrchestratorFactory.php`
+  - Archivos modificados: `app/Controllers/AuditController.php`, `bin/audit-worker.php`
+- **M01**: `updateJob()` no era atómico (GET+SET). Ahora usa script Lua Redis con fallback
+  - Archivos modificados: `app/Services/Audit/AuditQueueService.php`, `core/RedisClient.php`
+- **M02**: Índice SQL referenciaba tabla inexistente `AdjuntosDispensacionDetalle`. Corregido a `AdjuntosDispensacion`
+  - Archivos modificados: `database/migrations/optimize_audit_indexes.sql`
+- **B01**: Validación `jobId` hardcodeada a 32 chars. Ahora regex flexible `[a-f0-9]{32,64}`
+  - Archivos modificados: `app/Controllers/AuditController.php`
+- **B02**: Log de `$data` en `async()` exponía `facNitSec`. Sanitizado a `***` + 3 últimos dígitos
+  - Archivos modificados: `app/Controllers/AuditController.php`
+- **C-NEW-02**: El worker también logueaba `params` exponiendo `facNitSec` en cleartext. Sanitizado con enmascaramiento.
+  - Archivos modificados: `bin/audit-worker.php`
+
+### Fix (Auditoría v2 — 2 Medios + 2 Bajos)
+- **M-NEW-01**: `run()` y `single()` logueaban `json_encode($data)` y `facNitSec` en cleartext. Sanitizado con enmascaramiento `***`+3 últimos dígitos, alineado con `async()`
+  - Archivos modificados: `app/Controllers/AuditController.php`
+- **M-NEW-02**: `queueDepth()` retornaba `0` por error Redis (indistinguible de "cola vacía"). Ahora retorna `null` si Redis no disponible
+  - Archivos modificados: `app/Services/Audit/AuditQueueService.php`
+- **B-NEW-01**: `AuditOrchestratorFactory` no validaba formato de `GEMINI_MODEL`. Agregada validación que verifica `gemini` + segmentos con guión
+  - Archivos modificados: `app/Services/Audit/AuditOrchestratorFactory.php`
+- **B-NEW-02**: Worker `$auditor` no se reseteaba tras `Throwable` irrecuperable. Agregado `$auditor = null` en catch para forzar re-creación limpia
+  - Archivos modificados: `bin/audit-worker.php`
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Actualizado `AGENTS.md` con 3 endpoints faltantes (`/audit/async`, `/audit/jobs/{jobId}`, `/audit/documents-history`), secciones Redis y Auditoría Async en catálogo de env vars, variable `GEMINI_SEED`, y nota expandida de sanitización de logs
+  - Archivos modificados: `AGENTS.md`
+  - Verificado: `CATALOG.md`, `architecture.md`, `api-endpoints.md`, `README.md`, skills `audfact-audit-gemini` y `audfact-security-guardrails` — ya al día
+
 ## [2026-03-17]
+
+### Feature (Escalabilidad Async)
+- **Ámbito**: Sistema asíncrono de colas para auditoría IA (Fase 3)
+  - Archivos modificados: `core/RedisClient.php`, `app/Services/Audit/AuditQueueService.php`, `bin/audit-worker.php`, `app/Controllers/AuditController.php`, `app/Routes/web.php`, `database/migrations/optimize_audit_indexes.sql`
+  - Detalles: Se implementaron colas utilizando listas de Redis (`lpush`, `brpop`, `llen`). El nuevo modelo permite encolar la auditoría desde un backend y procesar hasta de forma concurrente desde el Worker CLI de PHP evitando el time-out HTTP al orquestar con Gemini.
+  - Hito: Sincronización de skills P3 (Colas y Rate Limiting)
+
 
 ### Feature (Pipeline IA)
 - **Ámbito**: Implementación de Schema Dinámico para Gemini

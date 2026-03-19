@@ -49,7 +49,8 @@ fi
 # ── 3. Fix runtime permissions ────────────────────────────────────
 # Asegurar que www-data pueda leer .env.
 if [ -f /var/www/html/.env ]; then
-  chmod 644 /var/www/html/.env 2>/dev/null || true
+  # CICD-006: 640 = owner rw + group r (not world-readable)
+  chmod 640 /var/www/html/.env 2>/dev/null || true
 fi
 
 RATE_LIMIT_RUNTIME_DIR="/tmp/audfact-runtime/ratelimit"
@@ -77,5 +78,9 @@ else
   echo "[entrypoint] ⚠️ rate limit runtime is not writable for www-data (${RATE_LIMIT_RUNTIME_DIR})"
 fi
 
-# ── 4. Launch PHP-FPM ─────────────────────────────────────────────
-exec docker-php-entrypoint php-fpm
+# ── 4. Launch Command or PHP-FPM ─────────────────────────────────────────────
+if [ $# -gt 0 ]; then
+  exec docker-php-entrypoint "$@"
+else
+  exec docker-php-entrypoint php-fpm
+fi

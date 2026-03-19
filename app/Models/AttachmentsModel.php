@@ -40,7 +40,7 @@ class AttachmentsModel extends Model
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
-                WHERE n.NitSec = :nitSec AND d.DisDetNro = :invoiceId";
+                WHERE n.NitMedDocOpc = 'N' AND n.NitSec = :nitSec AND d.DisDetNro = :invoiceId";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
@@ -87,7 +87,7 @@ class AttachmentsModel extends Model
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
                 WHERE n.NitSec = :nitSec
                   AND d.DisDetNro = :invoiceId
-                  AND a.AdjDisOpc = 'N'";
+                  AND n.NitMedDocOpc = 'N'";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);

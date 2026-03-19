@@ -5,7 +5,7 @@ namespace App\Services\Audit;
 /**
  * Framework de auditoría documental con contexto dinámico optimizado.
  *
- * @version 2.1 — Socratic Hardening + Pharmacological Equivalence
+ * @version 3.1 — Multi-medication XML iteration + Socratic Hardening
  * - Secciones principales envueltas en etiquetas XML (reducción de ambigüedad)
  * - Constitución Anti-Alucinación formal (axiomas A1-A5)
  * - Zero-Inference Rule: prohibición de inferencia demográfica
@@ -29,7 +29,10 @@ class AuditPromptBuilder
    */
   public function getSystemInstruction(array $dispensationData): string
   {
-    $ref = (isset($dispensationData[0]) && is_array($dispensationData[0]))
+    // SUPUESTO: Los metadatos comunes (paciente, médico, fechas, factura)
+    // son idénticos en todas las filas de la dispensación (vw_discolnet_dispensas).
+    // Solo los campos de medicamento (NombreArticulo, CUM, Lote, etc.) varían entre filas.
+    $ref = $this->isMultiItem($dispensationData)
       ? $dispensationData[0]
       : $dispensationData;
 
@@ -56,13 +59,6 @@ class AuditPromptBuilder
     $fechaAuth          = trim((string)($ref['FechaAutorizacion']    ?? 'N/D'));
     $cliente            = trim((string)($ref['Cliente']              ?? 'N/D'));
     $ips                = trim((string)($ref['IPS']                  ?? 'N/D'));
-    $nombreArticulo     = trim((string)($ref['NombreArticulo']       ?? 'N/D'));
-    $cum                = trim((string)($ref['CUM']                  ?? 'N/D'));
-    $lote               = trim((string)($ref['Lote']                 ?? 'N/D'));
-    $laboratorio        = trim((string)($ref['Laboratorio']          ?? 'N/D'));
-    $fechaVenc          = trim((string)($ref['FechaVencimiento']     ?? 'N/D'));
-    $cantEntregada      = trim((string)($ref['CantidadEntregada']    ?? 'N/D'));
-    $cantPrescrita      = trim((string)($ref['CantidadPrescrita']    ?? 'N/D'));
     $firmaActa          = trim((string)($ref['FirmaActaEntrega']     ?? 'N/D'));
 
     // — IPS limpia (sin prefijo de régimen) —
@@ -72,26 +68,33 @@ class AuditPromptBuilder
     $clienteEntidad = $cliente; // El nombre del cliente se toma tal cual
     $regimenPaciente = strtoupper(trim((string)($ref['RegimenPaciente'] ?? 'N/D')));
 
-    // — Multi-línea de despacho —
-    $totalLineas = 1;
-    $itemsTable  = '';
-    if (isset($dispensationData[0]) && count($dispensationData) > 1) {
-      $totalLineas = count($dispensationData);
-      $lines = [];
-      foreach ($dispensationData as $i => $row) {
+    // — Multi-línea de despacho (XML Exhaustivo) —
+    $medicationsXml = '';
+    $totalLineas = $this->isMultiItem($dispensationData) ? count($dispensationData) : 1;
+    
+    // Si no está indexado, lo envolvemos para poder iterarlo
+    $items = $this->isMultiItem($dispensationData) ? $dispensationData : [$dispensationData];
+    
+    $medList = [];
+    foreach ($items as $i => $row) {
         $n = $i + 1;
-        $lines[] = sprintf(
-          '      Línea %d: %s | Lote: %s | Entregada: %s | Prescrita: %s | CUM: %s',
-          $n,
-          trim((string)($row['NombreArticulo']    ?? 'N/D')),
-          trim((string)($row['Lote']              ?? 'N/D')),
-          trim((string)($row['CantidadEntregada'] ?? 'N/D')),
-          trim((string)($row['CantidadPrescrita'] ?? 'N/D')),
-          trim((string)($row['CUM']               ?? 'N/D'))
-        );
-      }
-      $itemsTable = implode("\n", $lines);
+        $nombreArt   = trim((string)($row['NombreArticulo']    ?? 'N/D'));
+        $cumArt      = trim((string)($row['CUM']               ?? 'N/D'));
+        $loteArt     = trim((string)($row['Lote']              ?? 'N/D'));
+        $labArt      = trim((string)($row['Laboratorio']       ?? 'N/D'));
+        $vencArt     = trim((string)($row['FechaVencimiento']  ?? 'N/D'));
+        $cantPresc   = trim((string)($row['CantidadPrescrita'] ?? 'N/D'));
+        $cantEntreg  = trim((string)($row['CantidadEntregada'] ?? 'N/D'));
+        
+        $medList[] = <<<XML
+      <medication item="{$n}">
+      Nombre: {$nombreArt} · CUM: {$cumArt} · Lote: {$loteArt}
+      Laboratorio: {$labArt} · Vencimiento: {$vencArt}
+      Cantidad prescrita: {$cantPresc} · Cantidad entregada: {$cantEntreg}
+      </medication>
+XML;
     }
+    $medicationsXml = implode("\n", $medList);
 
     return <<<SYSTEM
 
@@ -168,14 +171,13 @@ class AuditPromptBuilder
       IPS: {$ipsLimpia}
       </institutions>
 
-      <medication>
-      Nombre: {$nombreArticulo} · CUM: {$cum} · Lote: {$lote}
-      Laboratorio: {$laboratorio} · Vencimiento: {$fechaVenc}
-      Cantidad prescrita: {$cantPrescrita} · Cantidad entregada: {$cantEntregada}
-      Firma acta entrega: {$firmaActa}
+      <medications total="{$totalLineas}">
+      {$medicationsXml}
+      </medications>
+      <delivery_info>
+      Firma acta entrega (Aplica general): {$firmaActa}
       Total líneas de despacho: {$totalLineas}
-      {$itemsTable}
-      </medication>
+      </delivery_info>
       </source_of_truth>
 
       <valid_documents>
@@ -360,7 +362,7 @@ class AuditPromptBuilder
       4. ¿VALOR_DISTINTO vs NO_ENCONTRADO vs ILEGIBLE usados correctamente?
       5. ¿IPS comparada con nombre limpio y coincidencia parcial aceptada?
       6. ¡¡¡VERIFICACIÓN OBLIGATORIA DE RÉGIMEN!!! El Régimen de la Fuente de Verdad es "{$regimenPaciente}". Si es "ARL" o "N/D": ¿hay CERO items de "Cliente.Regimen" en data.items? Si incluiste alguno → ELIMINARLO INMEDIATAMENTE del resultado antes de entregar. Si el régimen es SUBSIDIADO o CONTRIBUTIVO: ¿se aplicó auditoría estricta?
-      7. ¿CantidadEntregada {$cantEntregada} ≤ CantidadPrescrita {$cantPrescrita} tratada como COINCIDE?
+      7. ¿Para cada uno de los {$totalLineas} ítems de medicamento listados en <medications>, CantidadEntregada ≤ CantidadPrescrita tratada como COINCIDE? Verificar cada ítem individualmente, no en agregado.
       8. Si el Cliente (EPS) {$cliente} contiene "POSITIVA", ¿se aplicó la excepción de §05 que permite CantidadEntregada hasta 5 unidades por encima de CantidadPrescrita en lugar de la regla general?
       9. ¿NombreArticulo validado por tokens (principio activo incluye equivalencia genérico/marca)?
       10. ¿FechaNacimiento con severidad ALTA?
@@ -484,11 +486,11 @@ class AuditPromptBuilder
    */
   public function estimateComplexity(array $dispensationData): array
   {
-    $totalLineas = (isset($dispensationData[0]) && is_array($dispensationData[0]))
+    $totalLineas = $this->isMultiItem($dispensationData)
       ? count($dispensationData)
       : 1;
 
-    $ref = (isset($dispensationData[0]) && is_array($dispensationData[0]))
+    $ref = $this->isMultiItem($dispensationData)
       ? $dispensationData[0]
       : $dispensationData;
 
@@ -507,5 +509,13 @@ class AuditPromptBuilder
 
     // Caso simple: 1 línea, POS/PBS
     return ['level' => 'simple', 'thinkingBudget' => 1024];
+  }
+
+  /**
+   * Determina si $dispensationData es un array indexado de múltiples ítems.
+   */
+  private function isMultiItem(array $data): bool
+  {
+    return isset($data[0]) && is_array($data[0]);
   }
 }

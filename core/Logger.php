@@ -92,8 +92,8 @@ class Logger
         ];
 
         if (!empty($context)) {
-            $context = self::sanitizeContext($context);
-
+            // SEC-004: Serializar excepción ANTES de sanitizar
+            // para que 'trace' sea redactado por sanitizeContext()
             if (isset($context['exception']) && $context['exception'] instanceof \Throwable) {
                 $e = $context['exception'];
                 $context['exception'] = [
@@ -103,6 +103,8 @@ class Logger
                     'trace' => $e->getTraceAsString(),
                 ];
             }
+
+            $context = self::sanitizeContext($context);
             $entry['context'] = $context;
         }
 

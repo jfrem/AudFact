@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Core;
 
 class Validator
@@ -13,6 +15,11 @@ class Validator
 
             foreach ($rulesArray as $rule) {
                 if ($rule === 'nullable' && (!isset($data[$field]) || $data[$field] === '' || $data[$field] === null)) {
+                    continue 2;
+                }
+
+                // Implementar 'optional' explícitamente — si el campo no existe o está vacío, saltar validación
+                if ($rule === 'optional' && (!isset($data[$field]) || $data[$field] === '' || $data[$field] === null)) {
                     continue 2;
                 }
 
@@ -30,6 +37,14 @@ class Validator
                 if (str_starts_with($rule, 'min:') && isset($data[$field])) {
                     $min = (int)substr($rule, 4);
                     if (strlen($data[$field]) < $min) {
+                        $errors[$field][] = "El campo {$field} debe tener al menos {$min} caracteres";
+                    }
+                }
+
+                // Implementar 'min_length:' que era ignorada silenciosamente
+                if (str_starts_with($rule, 'min_length:') && isset($data[$field])) {
+                    $min = (int)substr($rule, 11);
+                    if (strlen((string)$data[$field]) < $min) {
                         $errors[$field][] = "El campo {$field} debe tener al menos {$min} caracteres";
                     }
                 }

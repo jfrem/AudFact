@@ -65,8 +65,9 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose.yml`, `docker/*` | `audfact-runtime-docker` |
 | `.env*` | `audfact-runtime-docker` |
+| `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `public/index.php` | `audfact-runtime-docker` + `audfact-security-guardrails` |
-| `core/RateLimit.php` | `audfact-security-guardrails` |
+| `core/RateLimit.php`, `core/RedisClient.php` | `audfact-security-guardrails` |
 | `core/Logger.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |

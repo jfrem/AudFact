@@ -1,0 +1,156 @@
+<?php
+
+namespace Tests\Core;
+
+use PHPUnit\Framework\TestCase;
+use Core\RedisClient;
+use Core\RedisUnavailableException;
+
+/**
+ * Tests unitarios para RedisClient — correcciones de auditoría Redis.
+ *
+ * Valida: REDIS-003 (excepción tipada en get), REDIS-004 (setnx),
+ * REDIS-005 (incrWithExpire), comportamiento del singleton.
+ *
+ * NOTA: Estos tests requieren una instancia Redis activa (integración),
+ * o deben ejecutarse dentro del stack Docker.
+ */
+class RedisClientTest extends TestCase
+{
+    private RedisClient $redis;
+
+    protected function setUp(): void
+    {
+        $this->redis = RedisClient::getInstance();
+
+        if (!$this->redis->isAvailable()) {
+            $this->markTestSkipped('Redis no disponible — tests de integración requieren stack Docker');
+        }
+    }
+
+    // ── REDIS-003: get() lanza excepción tipada ──
+
+    public function testGetReturnsNullForNonExistentKey(): void
+    {
+        $uniqueKey = 'test:nonexistent:' . uniqid();
+        $result = $this->redis->get($uniqueKey);
+        $this->assertNull($result, 'get() debe retornar null para keys que no existen');
+    }
+
+    public function testGetReturnsStoredValue(): void
+    {
+        $key = 'test:stored:' . uniqid();
+        $this->redis->set($key, 'test_value', 10);
+
+        $result = $this->redis->get($key);
+        $this->assertSame('test_value', $result);
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    public function testRedisUnavailableExceptionIsThrowable(): void
+    {
+        $exception = new RedisUnavailableException('test message');
+        $this->assertInstanceOf(\RuntimeException::class, $exception);
+        $this->assertSame('test message', $exception->getMessage());
+    }
+
+    // ── REDIS-004: setnx() ──
+
+    public function testSetnxAcquiresLockOnNewKey(): void
+    {
+        $key = 'test:lock:' . uniqid();
+
+        $acquired = $this->redis->setnx($key, '1', 5);
+        $this->assertTrue($acquired, 'setnx debe adquirir lock en key nueva');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    public function testSetnxFailsOnExistingKey(): void
+    {
+        $key = 'test:lock:' . uniqid();
+
+        // Adquirir lock
+        $first = $this->redis->setnx($key, '1', 5);
+        $this->assertTrue($first);
+
+        // Segundo intento debe fallar
+        $second = $this->redis->setnx($key, '2', 5);
+        $this->assertFalse($second, 'setnx NO debe adquirir lock si la key ya existe');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    public function testSetnxAutoExpiresAfterTtl(): void
+    {
+        $key = 'test:lock:expire:' . uniqid();
+
+        $this->redis->setnx($key, '1', 1); // TTL de 1 segundo
+        sleep(2); // Esperar a que expire
+
+        // Ahora debe poder adquirir de nuevo
+        $acquired = $this->redis->setnx($key, '2', 5);
+        $this->assertTrue($acquired, 'setnx debe poder adquirir después de que expire el TTL');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    // ── REDIS-005: incrWithExpire() ──
+
+    public function testIncrWithExpireIncrementsAtomically(): void
+    {
+        $key = 'test:incr:' . uniqid();
+
+        $first = $this->redis->incrWithExpire($key, 10);
+        $this->assertSame(1, $first, 'Primer INCR debe retornar 1');
+
+        $second = $this->redis->incrWithExpire($key, 10);
+        $this->assertSame(2, $second, 'Segundo INCR debe retornar 2');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    public function testIncrWithExpireSetsExpirationOnFirstCall(): void
+    {
+        $key = 'test:incr:ttl:' . uniqid();
+
+        $this->redis->incrWithExpire($key, 30);
+
+        $ttl = $this->redis->ttl($key);
+        $this->assertGreaterThan(0, $ttl, 'Key debe tener TTL > 0 después de incrWithExpire');
+        $this->assertLessThanOrEqual(30, $ttl, 'TTL no debe exceder el valor configurado');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    public function testIncrDelegatesToIncrWithExpireWhenTtlProvided(): void
+    {
+        $key = 'test:incr:delegate:' . uniqid();
+
+        // incr() con TTL debe comportarse igual que incrWithExpire()
+        $result = $this->redis->incr($key, 15);
+        $this->assertSame(1, $result);
+
+        $ttl = $this->redis->ttl($key);
+        $this->assertGreaterThan(0, $ttl, 'incr(key, ttl) debe delegar a incrWithExpire y setear TTL');
+
+        // Cleanup
+        $this->redis->del($key);
+    }
+
+    // ── Singleton ──
+
+    public function testGetInstanceReturnsSameObject(): void
+    {
+        $a = RedisClient::getInstance();
+        $b = RedisClient::getInstance();
+        $this->assertSame($a, $b, 'getInstance debe retornar la misma instancia (singleton)');
+    }
+}

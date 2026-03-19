@@ -261,8 +261,8 @@ class AuditPersistenceServiceTest extends TestCase
             '_errorOrigin' => 'gemini',
             '_meta' => ['factura' => 'FAC-001', 'documentos' => [], 'totalTimeMs' => 3000],
             'data' => ['items' => [
-                ['severidad' => 'alta', 'item' => 'Regimen', 'hallazgo' => 'Discrepancia régimen', 'documento' => 'VALIDADOR DE DERECHOS'],
-                ['severidad' => 'media', 'item' => 'Firma', 'hallazgo' => 'Falta firma', 'documento' => 'ACTA DE ENTREGA'],
+                ['severidad' => 'alta', 'item' => 'Regimen', 'detalle' => 'Discrepancia régimen', 'documento' => 'VALIDADOR DE DERECHOS'],
+                ['severidad' => 'media', 'item' => 'Firma', 'detalle' => 'Falta firma', 'documento' => 'ACTA DE ENTREGA'],
             ]],
             'severity' => 'alta',
         ];

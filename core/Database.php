@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Core;
 
 use PDO;
@@ -181,7 +183,7 @@ class Database
             $stmt->execute($params);
             return $stmt;
         } catch (PDOException $e) {
-            Logger::error("Error ejecutando query: " . $e->getMessage() . " | SQL: {$sql}");
+            Logger::error("Error ejecutando query: " . $e->getMessage() . " | SQL: [REDACTED]");
             throw new \RuntimeException('Error ejecutando consulta SQL', 500, $e);
         }
     }

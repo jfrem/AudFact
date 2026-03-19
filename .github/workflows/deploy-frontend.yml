@@ -5,10 +5,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# CICD-003: Principle of least privilege
+permissions:
+  contents: read
+
 jobs:
   validate-frontend:
     name: Validate Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # CICD-004
 
     steps:
       - name: Checkout code
@@ -46,6 +51,7 @@ jobs:
     name: Deploy Frontend to Production
     needs: validate-frontend
     runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30  # CICD-004
     concurrency:
       group: deploy-production-frontend-main
       cancel-in-progress: false
@@ -70,9 +76,9 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
         run: |
-          echo "Deploying frontend with NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL"
-          docker compose -f docker-compose.frontend.yml down
-          docker compose -f docker-compose.frontend.yml up --build -d
+          echo "Deploying frontend..."
+          docker compose -f docker-compose.frontend.yml build
+          docker compose -f docker-compose.frontend.yml up -d --force-recreate
 
       - name: Frontend health check
         run: |
@@ -90,3 +96,11 @@ jobs:
           docker ps --format "table {{.Names}}\t{{.Status}}"
           docker compose -f docker-compose.frontend.yml logs --tail=120 frontend
           exit 1
+
+      # CICD-014: Zero-source purge for frontend
+      - name: 🧹 Clean frontend source from host
+        if: success()
+        run: |
+          echo "Cleaning frontend source from deployment host..."
+          rm -rf "$GITHUB_WORKSPACE/frontend/src" "$GITHUB_WORKSPACE/frontend/node_modules" 2>/dev/null || true
+          echo "Frontend source cleaned."

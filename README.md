@@ -23,11 +23,12 @@ AudFact/
 ├── app/
 │   ├── Controllers/       # 8 controladores REST
 │   ├── Models/            # 6 modelos SQL Server
-│   ├── Services/          # Google Drive + 10 servicios de auditoría IA
+│   ├── Services/          # Google Drive + 11 servicios de auditoría IA
 │   ├── Services/Audit/    # AuditOrchestrator (orquestador IA)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
-├── core/                  # Framework: Router, DB, Validator, Response, Logger...
+├── bin/                   # Workers CLI (audit-worker.php)
+├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient...
 ├── public/                # Entry point (index.php API)
 ├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck
 ├── logs/                  # Logs rotados por fecha
@@ -116,6 +117,8 @@ Base URL: `http://localhost:8080`
 | `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
 | `POST` | `/audit` | Auditoría en lote |
 | `POST` | `/audit/single` | Auditoría individual |
+| `POST` | `/audit/async` | Auditoría en lote asíncrona |
+| `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
 | `GET` | `/audit/results` | Resultados persistidos de auditoría |
 | `GET` | `/audit/documents-history` | Historial de documentos auditados (alineado) |
 | `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
@@ -206,7 +209,7 @@ Documentación completa disponible en `plans/`:
 
 ## Seguridad
 
-- Rate limiting por IP (archivo).
+- Rate limiting por IP (APCu con fallback a archivo).
 - Validación de entrada vía `Validator`.
 - Prepared statements (PDO) — Sin SQL injection.
 - CORS configurable.

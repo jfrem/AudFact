@@ -14,6 +14,13 @@ class Response
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     }
 
+    /**
+     * Este método SIEMPRE lanza HttpResponseException y nunca retorna.
+     * Cualquier código después de una llamada a Response::success() es inalcanzable.
+     *
+     * @return never
+     */
+    #[\NoReturn]
     public static function success(mixed $data = [], string $message = 'Operación exitosa', int $code = 200): void
     {
         $response = [
@@ -24,6 +31,12 @@ class Response
         throw new HttpResponseException($response, $code);
     }
 
+    /**
+     * Este método SIEMPRE lanza HttpResponseException y nunca retorna.
+     *
+     * @return never
+     */
+    #[\NoReturn]
     public static function error(string $message, int $code = 400, mixed $errors = null): void
     {
         $response = ['success' => false, 'message' => $message];
@@ -32,13 +45,12 @@ class Response
     }
 
     /**
-     * Respuesta paginada estandarizada
-     * @param array $data Datos de la página actual
-     * @param int $page Página actual
-     * @param int $perPage Elementos por página
-     * @param int $total Total de elementos
-     * @param string $message Mensaje opcional
+     * Respuesta paginada estandarizada.
+     * Este método SIEMPRE lanza HttpResponseException y nunca retorna.
+     *
+     * @return never
      */
+    #[\NoReturn]
     public static function paginated(array $data, int $page, int $perPage, int $total, string $message = 'Operación exitosa'): void
     {
         $totalPages = (int)ceil($total / $perPage);

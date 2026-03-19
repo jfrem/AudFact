@@ -3,6 +3,7 @@
 namespace App\Services\Audit;
 
 use Core\Logger;
+use Core\RedisClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
@@ -12,6 +13,13 @@ class GeminiGateway
     private const MAX_API_RETRIES = 3;
     private const BASE_RETRY_DELAY_MS = 1000;
     private const RETRYABLE_HTTP_CODES = [429, 503, 500, 502, 504];
+
+    // Circuit Breaker keys en Redis
+    private const CB_KEY_STATE = 'cb:gemini:state';
+    private const CB_KEY_FAILS = 'cb:gemini:fails';
+    private const CB_STATE_CLOSED = 'closed';
+    private const CB_STATE_OPEN = 'open';
+    private const CB_STATE_HALF_OPEN = 'half-open';
 
     private Client $http;
     private string $apiKey;
@@ -68,12 +76,20 @@ class GeminiGateway
         array $generationOverrides = [],
         array $documentNames = []
     ): array {
+        // Circuit Breaker: verificar estado ANTES de intentar
+        $this->checkCircuitBreaker();
+
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent";
         $lastException = null;
 
         for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
             try {
-                return $this->send($url, $prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
+                $result = $this->send($url, $prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
+
+                // Éxito: resetear Circuit Breaker
+                $this->recordCircuitSuccess();
+
+                return $result;
             } catch (\RuntimeException $e) {
                 $lastException = $e;
                 $httpCode = (int) $e->getCode();
@@ -95,6 +111,9 @@ class GeminiGateway
                     continue;
                 }
 
+                // Fallo definitivo: registrar en Circuit Breaker
+                $this->recordCircuitFailure($httpCode);
+
                 Logger::error('API error no retryable o último intento fallido', [
                     'httpCode' => $httpCode,
                     'attempt' => $attempt + 1,
@@ -105,6 +124,9 @@ class GeminiGateway
                 throw $e;
             }
         }
+
+        // Todos los reintentos agotados: registrar fallo
+        $this->recordCircuitFailure(0);
 
         throw $lastException ?? new \RuntimeException('Error desconocido en API Gemini');
     }
@@ -174,6 +196,9 @@ class GeminiGateway
 
             throw new \RuntimeException('Error HTTP Gemini: ' . $errorMessage, $httpCode, $e);
         }
+
+        // Fase 1.3: Monitoreo de cuotas API Gemini
+        $this->logApiQuotaHeaders($res);
 
         $bodyStr = (string) $res->getBody();
         $body = json_decode($bodyStr, true);
@@ -270,5 +295,149 @@ class GeminiGateway
                 'threshold' => 'BLOCK_NONE',
             ],
         ];
+    }
+
+    // ── Circuit Breaker (Redis-backed) ────────────────────────────
+
+    /**
+     * Verifica el estado del Circuit Breaker antes de llamar a la API.
+     * Si está abierto, lanza excepción inmediatamente sin consumir cuota.
+     *
+     * @throws \RuntimeException Si el circuito está abierto
+     */
+    private function checkCircuitBreaker(): void
+    {
+        $redis = RedisClient::getInstance();
+        if (!$redis->isAvailable()) {
+            return; // Degradación: sin Redis, CB siempre cerrado
+        }
+
+        try {
+            $state = $redis->get(self::CB_KEY_STATE) ?? self::CB_STATE_CLOSED;
+        } catch (\Core\RedisUnavailableException $e) {
+            // Redis fallo durante GET: degradar a circuito cerrado
+            return;
+        }
+
+        if ($state === self::CB_STATE_OPEN) {
+            $ttl = $redis->ttl(self::CB_KEY_STATE);
+            Logger::warning('Circuit Breaker ABIERTO — request rechazado sin llamar API', [
+                'cooldownRestante' => $ttl,
+            ]);
+            throw new \RuntimeException(
+                'Circuit Breaker abierto: API Gemini temporalmente no disponible. Reintentar en ' . max($ttl, 0) . 's',
+                503
+            );
+        }
+
+        // Half-Open: permitir 1 request de prueba (no bloquear)
+        if ($state === self::CB_STATE_HALF_OPEN) {
+            Logger::info('Circuit Breaker HALF-OPEN — permitiendo request de prueba');
+        }
+    }
+
+    /**
+     * Registra un éxito en el Circuit Breaker.
+     * Resetea contadores y cierra el circuito.
+     */
+    private function recordCircuitSuccess(): void
+    {
+        $redis = RedisClient::getInstance();
+        if (!$redis->isAvailable()) {
+            return;
+        }
+
+        try {
+            $state = $redis->get(self::CB_KEY_STATE);
+            if ($state === self::CB_STATE_HALF_OPEN) {
+                Logger::info('Circuit Breaker: Half-Open → Closed (request exitoso)');
+            }
+        } catch (\Core\RedisUnavailableException $e) {
+            // Ignorar — no es crítico para el flujo de éxito
+        }
+
+        $redis->del(self::CB_KEY_STATE);
+        $redis->del(self::CB_KEY_FAILS);
+    }
+
+    /**
+     * Registra un fallo en el Circuit Breaker.
+     * Si se supera el umbral, abre el circuito con TTL de enfriamiento.
+     */
+    private function recordCircuitFailure(int $httpCode): void
+    {
+        $redis = RedisClient::getInstance();
+        if (!$redis->isAvailable()) {
+            return;
+        }
+
+        $threshold = (int) \Core\Env::get('CB_GEMINI_THRESHOLD', 3);
+        $cooldown = (int) \Core\Env::get('CB_GEMINI_COOLDOWN', 60);
+
+        // Incrementar contador de fallos (con TTL del doble del cooldown como safety)
+        $fails = $redis->incr(self::CB_KEY_FAILS, $cooldown * 2);
+
+        if ($fails !== null && $fails >= $threshold) {
+            // Abrir circuito con TTL de enfriamiento
+            $redis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
+            // Cuando el TTL expire, Redis borra la key → checkCircuitBreaker ve null → closed
+            // Pero primero transicionamos a half-open instalando un callback via TTL escalonado
+            // Simplificación: usamos el TTL directo. Al expirar la key 'open', el próximo check ve
+            // estado null (= closed). El primer request exitoso resetea todo.
+
+            Logger::warning('Circuit Breaker ABIERTO', [
+                'fallosConsecutivos' => $fails,
+                'threshold' => $threshold,
+                'cooldownSeconds' => $cooldown,
+                'httpCode' => $httpCode,
+            ]);
+        } else {
+            Logger::info('Circuit Breaker: fallo registrado', [
+                'fallosActuales' => $fails,
+                'threshold' => $threshold,
+                'httpCode' => $httpCode,
+            ]);
+        }
+    }
+
+    // ── Monitoreo de Cuotas API (Fase 1.3) ───────────────────────
+
+    /**
+     * Extrae y loguea headers de rate limit de la respuesta de Gemini.
+     * Warning automático cuando remaining < 20% del limit.
+     *
+     * @param \Psr\Http\Message\ResponseInterface $response
+     */
+    private function logApiQuotaHeaders($response): void
+    {
+        $headers = [
+            'remaining' => $response->getHeaderLine('x-ratelimit-remaining'),
+            'limit'     => $response->getHeaderLine('x-ratelimit-limit'),
+            'reset'     => $response->getHeaderLine('x-ratelimit-reset'),
+        ];
+
+        // Solo loguear si hay headers de cuota presentes
+        $hasQuotaHeaders = array_filter($headers, fn($v) => $v !== '');
+        if (empty($hasQuotaHeaders)) {
+            return;
+        }
+
+        $remaining = (int) ($headers['remaining'] ?: 0);
+        $limit = (int) ($headers['limit'] ?: 1);
+        $threshold = max(1, (int) ($limit * 0.2));
+
+        if ($remaining > 0 && $remaining <= $threshold) {
+            Logger::warning('Gemini API: cuota baja', [
+                'remaining' => $remaining,
+                'limit'     => $limit,
+                'reset'     => $headers['reset'],
+                'umbral20pct' => $threshold,
+            ]);
+        } else {
+            Logger::info('Gemini API: cuota', [
+                'remaining' => $headers['remaining'],
+                'limit'     => $headers['limit'],
+            ]);
+        }
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Audit;
 
 use App\Models\AuditStatusModel;
 use Core\Logger;
+use Core\RedisClient;
 
 class AuditPersistenceService
 {
@@ -61,9 +62,9 @@ class AuditPersistenceService
      * @param string $disDetNro Identificador de dispensación/factura
      * @param array $result Resultado final de auditoría
      * @param array|null $dispensation Datos de dispensación base
-     * @return void
+     * @return bool true si persistió correctamente, false si hubo error
      */
-    public function saveToDatabase(string $disDetNro, array $result, ?array $dispensation = null): void
+    public function saveToDatabase(string $disDetNro, array $result, ?array $dispensation = null): bool
     {
         try {
             $master = (isset($dispensation[0]) && is_array($dispensation[0])) ? $dispensation[0] : ($dispensation ?: []);
@@ -83,11 +84,20 @@ class AuditPersistenceService
             }
 
             $failedDoc = null;
+            $fallbackDoc = null;
             foreach ($findings as $finding) {
-                if (strtolower((string) ($finding['severidad'] ?? '')) === 'alta') {
-                    $failedDoc = $finding['documento'] ?? $finding['item'] ?? null;
+                $sev = strtolower((string) ($finding['severidad'] ?? ''));
+                $doc = $finding['documento'] ?? $finding['item'] ?? null;
+                if ($sev === 'alta') {
+                    $failedDoc = $doc;
                     break;
                 }
+                if ($fallbackDoc === null && $doc !== null) {
+                    $fallbackDoc = $doc;
+                }
+            }
+            if ($failedDoc === null && $fallbackDoc !== null) {
+                $failedDoc = $fallbackDoc;
             }
 
             $data = [
@@ -103,14 +113,21 @@ class AuditPersistenceService
                 'DetalleError' => $result['message'] ?? null,
                 'DocumentosProcesados' => count($result['_meta']['documentos'] ?? []),
                 'FacNitSec' => $master['NitSec'] ?? null,
-                'VlrCobrado' => (float) ($master['VlrCobrado'] ?? 0),
                 'DuracionProcesamientoMs' => (int) ($result['_meta']['totalTimeMs'] ?? 0),
-                'IPS_NIT' => $master['IPS_NIT'] ?? null,
                 'DocumentoFallido' => $failedDoc ? substr((string) $failedDoc, 0, 255) : null,
             ];
 
             Logger::info('Persistiendo auditoría en BD', ['FacSec' => $disDetNro, 'EstAud' => $data['EstAud']]);
-            $this->auditStatusModel->upsertAuditResult($data);
+            $affected = $this->auditStatusModel->upsertAuditResult($data);
+            if ($affected === false) {
+                Logger::error('Fallo en upsertAuditResult: no se pudo guardar registro auditado', ['FacSec' => $data['FacSec']]);
+                return false;
+            }
+
+            // Fase 1.2: Cachear resultado exitoso en Redis para idempotencia
+            if ($isProcessed && (int) $data['EstAud'] === 1) {
+                $this->cacheAuditResult($data['FacSec'], $result);
+            }
 
             // Actualizar resultado en AdjuntosDispensacion excepto errores de infraestructura
             if ($errorOrigin !== 'infrastructure') {
@@ -121,12 +138,15 @@ class AuditPersistenceService
                     'message' => $result['message'] ?? 'N/A',
                 ]);
             }
+
+            return true;
         } catch (\Exception $e) {
             Logger::error('Error persistiendo auditoría en BD', [
                 'DisDetNro' => $disDetNro,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+            return false;
         }
     }
 
@@ -282,5 +302,37 @@ class AuditPersistenceService
         $parts = array_values(array_filter($parts, static fn($item) => $item !== ''));
 
         return array_values(array_unique($parts));
+    }
+
+    /**
+     * Cachea un resultado de auditoría exitoso en Redis.
+     * Usado para alimentar la capa 1 de idempotencia.
+     *
+     * @param string $facSec PK de la factura
+     * @param array $result Resultado de auditoría
+     */
+    private function cacheAuditResult(string $facSec, array $result): void
+    {
+        try {
+            $redis = RedisClient::getInstance();
+            if (!$redis->isAvailable()) {
+                return;
+            }
+
+            $cacheTTL = (int) \Core\Env::get('AUDIT_CACHE_TTL', 86400);
+            $cacheKey = 'audit:result:' . $facSec;
+
+            // Guardamos el resultado completo sin truncar para la re-persistencia (C-01)
+            $payload = $result;
+            $payload['message'] = 'Resultado reutilizado (idempotencia)';
+
+            $redis->set($cacheKey, json_encode($payload, JSON_UNESCAPED_UNICODE), $cacheTTL);
+        } catch (\Exception $e) {
+            // No interrumpir flujo principal si Redis falla
+            Logger::warning('Error cacheando resultado de auditoría en Redis', [
+                'FacSec' => $facSec,
+                'error'  => $e->getMessage(),
+            ]);
+        }
     }
 }

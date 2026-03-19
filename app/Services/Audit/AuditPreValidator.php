@@ -94,14 +94,22 @@ class AuditPreValidator
         if (strtoupper($tipoServicio) === 'MIPRES') {
             $missingFields = $this->getMissingMipresFields($dispensation);
             if (!empty($missingFields)) {
+                $fieldList = implode(', ', $missingFields);
                 Logger::warning('Auditoría abortada por campos MIPRES incompletos', [
                     'DisDetNro' => $disDetNro,
                     'tipoServicio' => $tipoServicio,
                     'missingFields' => $missingFields,
                 ]);
 
-                $errorMessage = self::ERROR_MIPRES_INCOMPLETE . ': ' . implode(', ', $missingFields);
-                return $this->fail($disDetNro, $errorMessage, $dispensation, $dataFetchStart);
+                $errorMessage = self::ERROR_MIPRES_INCOMPLETE . ': ' . $fieldList;
+                
+                $items = [[
+                    'item' => 'Campos MIPRES Completos',
+                    'detalle' => 'Faltan los siguientes campos: ' . $fieldList,
+                    'severidad' => 'alta',
+                    'documento' => 'Dispensación'
+                ]];
+                return $this->fail($disDetNro, $errorMessage, $dispensation, $dataFetchStart, null, [], $items);
             }
         }
 
@@ -123,16 +131,24 @@ class AuditPreValidator
 
         $availableDocuments = $this->extractAvailableDocuments($attachments);
 
-        // 6. Documentos requeridos presentes
         $missingFiles = $this->fileManager->getMissingRequiredAttachments($attachments, $dispensationData);
         if (!empty($missingFiles)) {
-            $errorMsg = self::ERROR_MISSING_ATTACHMENTS . ': ' . implode(', ', $missingFiles);
+            $missingList = implode(', ', $missingFiles);
+            $errorMsg = self::ERROR_MISSING_ATTACHMENTS . ': ' . $missingList;
             Logger::warning('Auditoría abortada por documentos faltantes', [
                 'DisDetNro' => $disDetNro,
                 'missingDocuments' => $missingFiles,
                 'totalDocuments' => count($attachments),
             ]);
-            return $this->fail($disDetNro, $errorMsg, $dispensation, $dataFetchStart, null, $availableDocuments);
+
+            $items = [[
+                'item' => 'Documentos Obligatorios Presentes',
+                'detalle' => 'Faltan los siguientes documentos: ' . $missingList,
+                'severidad' => 'alta',
+                'documento' => 'Múltiples'
+            ]];
+
+            return $this->fail($disDetNro, $errorMsg, $dispensation, $dataFetchStart, null, $availableDocuments, $items);
         }
 
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
@@ -176,17 +192,27 @@ class AuditPreValidator
                 }
             }
         } catch (\Exception $e) {
-            Logger::error('Error preparando adjunto', ['error' => $e->getMessage()]);
+            $errorDetail = $e->getMessage();
+            Logger::error('Error preparando adjunto', ['error' => $errorDetail]);
             foreach ($files as $preparedFile) {
                 $this->fileManager->cleanup($preparedFile);
             }
+
+            $items = [[
+                'item' => 'Preparación de Documentos',
+                'detalle' => $errorDetail,
+                'severidad' => 'alta',
+                'documento' => AuditResponseSchema::DOCUMENTO_MULTIPLE,
+            ]];
+
             return $this->fail(
                 $disDetNro,
-                self::ERROR_PREPARING_ATTACHMENT . ': ' . $e->getMessage(),
+                self::ERROR_PREPARING_ATTACHMENT . ': ' . $errorDetail,
                 $dispensation,
                 $dataFetchStart,
                 $filePrepStart,
-                $availableDocuments
+                $availableDocuments,
+                $items
             );
         }
 

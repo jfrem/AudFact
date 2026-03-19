@@ -12,9 +12,9 @@ $router->post('/clients', 'ClientsController', 'lookup');
 $router->get('/invoices', 'InvoicesController', 'index');
 $router->post('/invoices', 'InvoicesController', 'search');
 
-// Attachments
-$router->get('/dispensation/{invoiceId}/attachments/{nitSec}', 'AttachmentsController', 'showByDispensation');
+// Attachments (download route MUST come first — {nitSec} wildcard matches 'download')
 $router->get('/dispensation/{invoiceId}/attachments/download/{attachmentId}', 'AttachmentsController', 'downloadByDispensation');
+$router->get('/dispensation/{invoiceId}/attachments/{nitSec}', 'AttachmentsController', 'showByDispensation');
 
 
 // Dispensation
@@ -25,5 +25,7 @@ $router->post('/dispensation', 'DispensationController', 'lookup');
 // TODO: FIX #3 PENDIENTE — Aplicar ->middleware('auth') cuando se implemente AuthMiddleware + JWT
 $router->get('/audit/results', 'AuditController', 'results'); // Historial persistido
 $router->get('/audit/documents-history', 'AuditController', 'documentsHistory'); // Nuevo: historial facturas/documentos
-$router->post('/audit', 'AuditController', 'run'); // Batch
+$router->post('/audit', 'AuditController', 'run'); // Batch (síncrono)
 $router->post('/audit/single', 'AuditController', 'single'); // Individual HA
+$router->post('/audit/async', 'AuditController', 'async'); // Batch async (Fase 3)
+$router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus'); // Estado de job async

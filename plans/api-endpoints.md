@@ -403,6 +403,64 @@ Ejecuta auditoría IA para una factura individual de forma síncrona.
 - `500` — Error del pipeline de auditoría
 - `503` — Modelo Gemini no disponible
 
+### `POST /audit/async`
+
+Ejecuta auditoría IA en lote de forma asíncrona.
+
+**Parámetros**:
+
+| Nombre | Ubicación | Tipo | Requerido | Descripción |
+|---|---|---|---|---|
+| `facNitSec` | query | integer | ✅ | NitSec del cliente |
+| `date` | query | string | ✅ | Fecha de inicio (YYYY-MM-DD) |
+| `dateTo` | query | string | ❌ | Fecha fin del rango (YYYY-MM-DD) |
+| `limit` | query | integer | ❌ | Máximo de resultados |
+
+**Respuesta exitosa** (`202 Accepted`):
+```json
+{
+    "status": "success",
+    "message": "Auditoría encolada para procesamiento asíncrono",
+    "data": {
+        "jobId": "a1b2c3d4e5f6...",
+        "status": "pending",
+        "statusUrl": "/audit/jobs/a1b2c3d4e5f6...",
+        "queueDepth": 1
+    }
+}
+```
+
+---
+
+### `GET /audit/jobs/{jobId}`
+
+Consulta el estado de una auditoría asíncrona.
+
+**Parámetros**:
+
+| Nombre | Ubicación | Tipo | Requerido | Descripción |
+|---|---|---|---|---|
+| `jobId` | path | string | ✅ | ID del job asíncrono |
+
+**Respuesta exitosa** (`200`):
+```json
+{
+    "status": "success",
+    "message": "Estado del job de auditoría",
+    "data": {
+        "id": "a1b2c3d... ",
+        "status": "processing",
+        "createdAt": "2026-03-17T12:00:00+00:00",
+        "progress": {
+            "total": 50,
+            "processed": 10,
+            "succeeded": 8,
+            "failed": 2
+        }
+    }
+}
+```
+
 ---
 
 ### `GET /audit/results`

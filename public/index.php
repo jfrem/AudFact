@@ -54,8 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 try {
-    // Rate limiting
-    $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    // Rate limiting — usar IP real detrás de proxy
+    $clientIp = RateLimit::getClientIp();
     RateLimit::check($clientIp);
 
     // Registrar middlewares

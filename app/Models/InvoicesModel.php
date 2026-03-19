@@ -35,23 +35,20 @@ class InvoicesModel extends Model
             ? "d.Fecha_solicitud >= :dateFromD AND d.Fecha_solicitud <= :dateToD"
             : "d.Fecha_solicitud = :dateFromD";
 
-        $dateConditionF = $dateTo
-            ? "f.Fecha >= :dateFromF AND f.Fecha <= :dateToF"
-            : "f.Fecha >= :dateFromF";
-
-        $sql = "SELECT TOP ({$limit})
+        $safeLimit = (int) $limit;
+        $sql = "SELECT TOP ({$safeLimit})
                     d.NitSec,
                     d.FacSec,
                     d.Dispensa
                 FROM vw_discolnet_dispensas d
                 LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = d.FacSec
-                left join (select f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where {$dateConditionF}
-                    group by f.DisId,f.DisdetId,f.artsec,f.Documento
+                LEFT JOIN (SELECT f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where f.Fecha >= :dateFromF
+                    GROUP BY f.DisId,f.DisdetId,f.artsec,f.Documento
                 )f on f.DisId=d.facsec and f.DisdetId=d.DisDetId and f.artsec=d.artsec
-                left join(
-                    select DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
-                    where AdjDisOpc='N'
-                    group by DisId,DisDetId
+                LEFT JOIN(
+                    SELECT DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
+                    WHERE AdjDisOpc='N'
+                    GROUP BY DisId,DisDetId
                 )aud on aud.DisId=d.facsec and aud.DisDetId=d.DisDetId
                 WHERE {$dateConditionD}
                     AND d.NitSec = :facNitSec
@@ -69,13 +66,13 @@ class InvoicesModel extends Model
         $stmt->bindParam(':dateFromF', $dateFrom);
         if ($dateTo) {
             $stmt->bindParam(':dateToD', $dateTo);
-            $stmt->bindParam(':dateToF', $dateTo);
         }
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $maskedNitSec = '***' . substr((string) $facNitSec, -3);
         Logger::info("Executed SQL: ", [
-            'facNitSec' => $facNitSec,
+            'facNitSec' => $maskedNitSec,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
             'limit' => $limit,

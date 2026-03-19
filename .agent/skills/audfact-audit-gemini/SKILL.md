@@ -16,7 +16,7 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | Archivo | Rol |
 |---|---|
 | `app/Services/Audit/AuditOrchestrator.php` | ⭐ Orquestador principal — coordina todo el flujo de auditoría |
-| `app/Services/Audit/AuditPromptBuilder.php` | Prompt v3.0: 4 capas con axiomas deterministas, motor de 6 dimensiones y protocolo de reconfirmación anti-alucinación (§08 items 13-14) |
+| `app/Services/Audit/AuditPromptBuilder.php` | Prompt v3.1: 4 capas con axiomas deterministas, motor de 6 dimensiones, protocolo de reconfirmación anti-alucinación (§08 items 13-14), e **iteración multi-medicamento** (foreach → nodos `<medication item="N">` XML por cada ítem de dispensación) |
 | `app/Services/Audit/AuditResponseSchema.php` | Schema JSON esperado de Gemini |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado, sin disco), URL → Drive |
 | `app/Services/Audit/AuditResultValidator.php` | Valida que la respuesta cumpla el schema |
@@ -25,6 +25,9 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE baseline C + rechazo R individual) |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
+| `app/Services/Audit/AuditQueueService.php` | Orquesta colas de auditoría Redis, encolamiento y estados (Jobs) |
+| `app/Services/Audit/AuditOrchestratorFactory.php` | Patrón Factory para orquestar la construcción y reutilización de todos los servicios asociados a la IA de manera eficiente. |
+| `bin/audit-worker.php` | Consumidor CLI de cola Redis que orquesta las llamadas al pipeline AI de manera concurrente |
 | `app/Services/GoogleDriveAuthService.php` | JWT auth y streaming desde Google Drive |
 | `app/Services/GoogleDriveServiceInterface.php` | Interfaz Strategy para el servicio de Drive |
 | `app/Models/DispensationModel.php` | Source of truth (datos de dispensación) |
@@ -52,16 +55,23 @@ AuditOrchestrator
 
 ## Flujo técnico
 
-### Flujo Normal
+### Flujo Normal (Síncrono `POST /audit`)
 1. `orchestrate()` recibe `invoiceId`, `dispensationData`, `attachments`.
 2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos con prefiltrado SQL `AdjDisOpc='N'`).
 3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
-4. Construir prompt → `AuditPromptBuilder` (v3.0 con Axiomas A1-A4).
+4. Construir prompt → `AuditPromptBuilder` (v3.1 con Axiomas A1-A4 + iteración multi-medicamento).
 5. Enviar a Gemini → `GeminiGateway` (exponential backoff).
 6. Parsear respuesta → `JsonResponseParser`.
 7. Validar schema → `AuditResultValidator`.
 8. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
 9. Registrar telemetría → `AuditTelemetryService`.
+
+### Flujo Asíncrono (Colas `POST /audit/async` + `bin/audit-worker.php`)
+1. `POST /audit/async` -> Valida límites y llama a `AuditQueueService::enqueue()`.
+2. Encola ID de factura en Redis Lists y crea llave Hash de seguimiento.
+3. El proceso CLI long-running `bin/audit-worker.php` detiene la cola via `brpop`.
+4. El worker desempaqueta, llama a `AuditOrchestrator::orchestrate()` internamente.
+5. El worker intercepta éxito/error y actualiza los hashes de seguimiento.
 
 ### Flujo Estricto (reintento)
 Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con parámetros de generación más restrictivos para obtener JSON válido.

@@ -74,10 +74,23 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditPersistenceService.php` | Persistencia de resultados de auditoría en `AudDispEst` y observaciones |
 | `AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
+| `AuditQueueService.php` | Gestión de colas asíncronas de auditoría con Redis Lists y persistencia de estado de jobs |
+| `AuditOrchestratorFactory.php` | Patrón Factory para construir instancias lazy y reutilizables de AuditOrchestrator y sus dependencias |
 | `GoogleDriveAuthService.php` | Autenticación JWT para acceso a archivos en Google Drive |
 
-**Dependencias**: Guzzle HTTP, `core/Logger`.
-**Interfaz**: Invocados por `AuditOrchestrator`.
+**Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`.
+**Interfaz**: Invocados por `AuditOrchestrator` o directamente desde Controladores/Workers.
+
+---
+
+### Workers (`bin/`)
+
+| Worker | Responsabilidad |
+|---|---|
+| `audit-worker.php` | Proceso CLI long-running que consume colas de Redis (`BRPOP`), orquesta la auditoría asíncrona y actualiza el estado del job vía `AuditQueueService`. |
+
+**Dependencias**: Todo el stack de IA, base de datos y Redis.
+**Interfaz**: Invocado vía CLI (`php bin/audit-worker.php --max-jobs=...`).
 
 ---
 

@@ -51,7 +51,6 @@ class AuditOrchestrator
      */
     public function auditInvoice(string $invoiceId, string $disDetNro, ?string $attachmentId = null): array
     {
-        set_time_limit(120);
         $totalStart = hrtime(true);
         $attempts = 0;
 
@@ -145,7 +144,13 @@ class AuditOrchestrator
         ]);
 
         $this->persistence->saveResponse($disDetNro, $result);
-        $this->persistence->saveToDatabase($disDetNro, $result, $dispensation);
+        $persisted = $this->persistence->saveToDatabase($disDetNro, $result, $dispensation);
+
+        if (!$persisted) {
+            Logger::warning('Persistencia en BD falló — el resultado de auditoría NO fue guardado', [
+                'DisDetNro' => $disDetNro,
+            ]);
+        }
 
         return $result;
     }
@@ -251,7 +256,10 @@ class AuditOrchestrator
             $lastError = self::ERROR_INVALID_RESPONSE;
         }
 
-        throw new \Exception($lastError . '|hash:' . substr($promptHash, 0, 12), count($attempts));
+        throw new \Exception(
+            $lastError . '|hash:' . substr($promptHash, 0, 12) . '|attempts:' . count($attempts),
+            500
+        );
     }
 
     private function errorResponse(string $message, array $data = []): array

@@ -16,7 +16,7 @@ class DispensationModel extends Model
      */
     public function getDispensationData(string $DisDetNro): array
     {
-        $sql = "SELECT
+        $sql = "SELECT DISTINCT
                 -- Identificación de la dispensación
                 facsec AS FacSec,
                 Dispensa AS NumeroFactura,
@@ -62,7 +62,10 @@ class DispensationModel extends Model
                 Codigo_aut AS CodigoProducto,
                 Producto AS NombreArticulo,
                 Laboratorio,
-                Cum AS CUM,
+                CASE 
+                    WHEN NitSec IN ('3080','2426','1163','33527','1181') THEN Codigo_aut
+                    ELSE Cum
+                END AS CUM,
                 Lot AS Lote,
                 LotFec AS FechaVencimiento,
                 Unidades_entr AS CantidadEntregada,
@@ -76,17 +79,7 @@ class DispensationModel extends Model
                 IdFact,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
-            WHERE Dispensa = :DisDetNro
-            GROUP BY
-                facsec, Dispensa, Cliente, Nit, NitSec, Copago, IPS, IPS_nit,
-                Paciente, Paciente_doct, Paciente_doc, Fecha_nac, Regimen,
-                Medico, Medico_DocT, Medico_Doc,
-                Cie, CieNom,
-                Fecha_solicitud, Fecha_formula, Fecha_autorizacion,
-                Autorizacion, Tipo_servicio,
-                Codigo, Codigo_aut, Producto, Laboratorio, Cum, Lot, LotFec,
-                Unidades_entr, Unidades_pres, Mipres,
-                IdPrincipal, IdDirec, IdProg, IdEntr, IdRepEnt, IdFact";
+            WHERE Dispensa = :DisDetNro";
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':DisDetNro', $DisDetNro, PDO::PARAM_STR);
         $stmt->execute();

@@ -1,21 +1,48 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Core;
 
+/**
+ * RateLimit — Rate limiting distribuido con Redis (primario) y APCu/file (fallback).
+ *
+ * Implementa Sliding Window Counter con Redis INCR + EXPIRE.
+ * Cuando Redis no está disponible, degrada a APCu (per-proceso) o archivo.
+ *
+ * @since 3.0
+ */
 class RateLimit
 {
     private const DEFAULT_STORAGE_DIR = '/tmp/audfact-runtime/ratelimit';
 
+    /**
+     * Verificar rate limit para una IP.
+     *
+     * @param string $ip     IP del cliente
+     * @param int    $limit  Máximo de requests permitidos por ventana
+     * @param int    $window Ventana de tiempo en segundos
+     * @return bool true si el request está dentro del límite
+     */
     public static function check(string $ip, int $limit = 100, int $window = 60): bool
     {
         try {
+            // Backend primario: Redis (distribuido entre réplicas)
+            $redis = RedisClient::getInstance();
+            if ($redis->isAvailable()) {
+                return self::redisCheck($redis, $ip, $limit, $window);
+            }
+
+            // Fallback 1: APCu (per-proceso, no distribuido)
             if (function_exists('\apcu_inc')) {
                 return self::apcuCheck($ip, $limit, $window);
             }
+
+            // Fallback 2: Archivo (lento pero funcional)
             return self::fileCheck($ip, $limit, $window);
         } catch (\Exception $e) {
             Logger::error('Rate limiting failed/backend unavailable: ' . $e->getMessage());
-            
+
             // En caso de fallo del backend de Rate Limit, aplicamos Fail-Closed para protección
             if (Env::get('APP_ENV') === 'development') {
                 throw $e;
@@ -27,6 +54,45 @@ class RateLimit
         }
     }
 
+    /**
+     * Rate limiting distribuido con Redis — Sliding Window Counter.
+     *
+     * Usa INCR atómico con EXPIRE para conteo preciso entre réplicas PHP-FPM.
+     */
+    private static function redisCheck(RedisClient $redis, string $ip, int $limit, int $window): bool
+    {
+        $key = "rl:{$ip}:{$window}";
+        $current = $redis->incr($key, $window);
+
+        // Si Redis falló durante INCR, degradar a APCu/file
+        if ($current === null) {
+            Logger::warning('Redis INCR falló para rate limit, degradando a fallback');
+            if (function_exists('\apcu_inc')) {
+                return self::apcuCheck($ip, $limit, $window);
+            }
+            return self::fileCheck($ip, $limit, $window);
+        }
+
+        if ($current > $limit) {
+            $retryAfter = $redis->ttl($key);
+            $retryAfter = $retryAfter > 0 ? $retryAfter : $window;
+
+            Logger::warning("Rate limit excedido para IP (Redis): {$ip}", [
+                'current' => $current,
+                'limit'   => $limit,
+                'window'  => $window,
+            ]);
+
+            header("Retry-After: {$retryAfter}");
+            Response::error('Demasiadas peticiones. Intenta de nuevo más tarde.', 429);
+        }
+
+        return true;
+    }
+
+    /**
+     * Rate limiting con APCu (fallback per-proceso).
+     */
     private static function apcuCheck(string $ip, int $limit, int $window): bool
     {
         $key = "rl_{$ip}";
@@ -41,12 +107,16 @@ class RateLimit
 
         if ($current > $limit) {
             Logger::warning("Rate limit excedido para IP (APCu): {$ip}");
+            header("Retry-After: {$window}");
             Response::error('Demasiadas peticiones. Intenta de nuevo más tarde.', 429);
         }
 
         return true;
     }
 
+    /**
+     * Rate limiting con archivo (fallback último recurso).
+     */
     private static function fileCheck(string $ip, int $limit, int $window): bool
     {
         return self::withLock(function () use ($ip, $limit, $window) {
@@ -69,6 +139,8 @@ class RateLimit
 
             if ($entry['blocked_until'] > $now) {
                 Logger::warning("IP bloqueada por rate limit: {$ip}");
+                $retryAfter = $entry['blocked_until'] - $now;
+                header("Retry-After: {$retryAfter}");
                 Response::error('Demasiadas peticiones. Intenta de nuevo más tarde.', 429);
             }
 
@@ -81,6 +153,7 @@ class RateLimit
                 $entry['blocked_until'] = $now + $window;
                 self::saveStorage($storage);
                 Logger::warning("Rate limit excedido para IP: {$ip}");
+                header("Retry-After: {$window}");
                 Response::error('Demasiadas peticiones. Intenta de nuevo más tarde.', 429);
             }
 
@@ -220,5 +293,36 @@ class RateLimit
     private static function getLockFilePath(): string
     {
         return self::getStorageDirectory() . '/ratelimit.lock';
+    }
+
+    /**
+     * Obtener IP real del cliente detrás de proxy (Nginx).
+     * Prioriza X-Forwarded-For cuando el request viene del proxy confiable (Docker network).
+     */
+    public static function getClientIp(): string
+    {
+        // Solo confiar en X-Forwarded-For si REMOTE_ADDR es un proxy conocido (loopback o Docker)
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $trustedProxies = ['127.0.0.1', '::1', '172.', '10.', '192.168.'];
+
+        $isTrustedProxy = false;
+        foreach ($trustedProxies as $prefix) {
+            if (str_starts_with($remoteAddr, $prefix)) {
+                $isTrustedProxy = true;
+                break;
+            }
+        }
+
+        if ($isTrustedProxy && !empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            // Tomar la primera IP (cliente original) de la cadena
+            $forwarded = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+            $clientIp = trim($forwarded[0]);
+            // Validar que sea una IP válida
+            if (filter_var($clientIp, FILTER_VALIDATE_IP)) {
+                return $clientIp;
+            }
+        }
+
+        return $remoteAddr;
     }
 }

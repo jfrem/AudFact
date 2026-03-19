@@ -22,6 +22,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `app/Models/DispensationModel.php` | 3.4 KB | Source of truth: datos de dispensación |
 | `app/Models/AttachmentsModel.php` | 5.3 KB | Resolución de adjuntos (URL Drive o BLOB con stream optimizado) y consulta optimizada de requeridos (`AdjDisOpc='N'`) para pipeline IA |
 | `app/Models/AuditStatusModel.php` | 17 KB | Persistencia de auditoría: `AudDispEst` (upsert MERGE) + `AdjuntosDispensacion` (updateAuditResult: aprobada masiva / rechazada puntual) |
+| `database/migrations/optimize_audit_indexes.sql` | 1 KB | Contiene índices non-clustered esenciales para el rendimiento del Query en InvoicesController limitando timeouts (`FacNitSec`, `FacFec`, `DisId` cubriendo colas) |
 
 ## Modelos y tablas
 

@@ -11,6 +11,8 @@ services:
         WWWGROUP_ID: ${WWWGROUP_ID:-33}
     env_file:
       - .env
+    # ⚠️ CICD-013: Este mount expone source code en el host.
+    # NO usar en producción (viola principio Zero-Source). Solo para desarrollo/HA testing.
     volumes:
       - ./:/var/www/html
     expose:

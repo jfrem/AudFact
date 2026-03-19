@@ -24,7 +24,11 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertSame([['FacSec' => '1']], $result);
         $this->assertStringContainsString('d.Fecha_solicitud = :dateFromD', $pdo->preparedSql);
-        $this->assertStringContainsString('f.Fecha >= :dateFromF', $pdo->preparedSql);
+        $this->assertStringContainsString('f.Fecha = :dateFromF', $pdo->preparedSql);
+        $this->assertStringNotContainsString('f.Fecha >= :dateFromF', $pdo->preparedSql);
+        $this->assertStringContainsString('NOT EXISTS (', $pdo->preparedSql);
+        $this->assertStringContainsString('EXISTS (', $pdo->preparedSql);
+        $this->assertStringNotContainsString('having sum(isnull(f.KarUni,0))=0', $pdo->preparedSql);
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
         $this->assertArrayHasKey(':dateFromF', $pdo->statement->boundValues);
         $this->assertArrayNotHasKey(':dateToD', $pdo->statement->boundValues);
@@ -40,12 +44,12 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertStringContainsString('d.Fecha_solicitud >= :dateFromD AND d.Fecha_solicitud <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('f.Fecha >= :dateFromF AND f.Fecha <= :dateToF', $pdo->preparedSql);
+        $this->assertStringContainsString('SELECT DISTINCT TOP (900)', $pdo->preparedSql);
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromF']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToF']);
-        $this->assertStringContainsString('SELECT TOP (900)', $pdo->preparedSql);
     }
 
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel

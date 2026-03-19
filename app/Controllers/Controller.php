@@ -66,7 +66,7 @@ class Controller
             Response::error('Errores de validación', 422, $errors);
         }
         
-        return $data;
+        return $this->sanitizeData($data);
     }
 
     /**
@@ -77,6 +77,20 @@ class Controller
         $errors = Validator::validate($data, $rules);
         if (!empty($errors)) {
             Response::error('Errores de validación', 422, $errors);
+        }
+        return $this->sanitizeData($data);
+    }
+
+    /**
+     * Sanitización básica de datos validados.
+     * Aplica trim y strip_tags a strings para prevenir XSS y datos malformados.
+     */
+    protected function sanitizeData(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if (is_string($value)) {
+                $data[$key] = trim(strip_tags($value));
+            }
         }
         return $data;
     }

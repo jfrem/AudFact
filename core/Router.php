@@ -51,8 +51,9 @@ class Router
                 $compiledRoute = preg_replace_callback(
                     '#\{(\w+)(\?)?\}#',
                     static function (array $matches): string {
+                        // Aceptar puntos en parámetros (ej: archivos como X123.pdf)
                         $isOptional = isset($matches[2]) && $matches[2] === '?';
-                        return $isOptional ? '([\w-]*)' : '([\w-]+)';
+                        return $isOptional ? '([\\w.\\-]*)' : '([\\w.\\-]+)';
                     },
                     rtrim($route, '/')
                 );

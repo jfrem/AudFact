@@ -13,6 +13,7 @@ class Model
     protected \PDO $readDb;
     protected ?\PDO $writeDb = null;
     protected string $table = '';
+    protected string $primaryKey = 'id';
     protected string $readConnectionName = 'db2';
     protected string $writeConnectionName = 'default';
 
@@ -118,7 +119,8 @@ class Model
     public function find(int|string $id): array|false
     {
         $table = $this->getQuotedTable();
-        $stmt = $this->readDb->prepare("SELECT * FROM {$table} WHERE id = ?");
+        $pk = $this->escapeIdentifier($this->primaryKey);
+        $stmt = $this->readDb->prepare("SELECT * FROM {$table} WHERE {$pk} = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
@@ -179,7 +181,8 @@ class Model
             array_keys($data)
         ));
 
-        $stmt = $this->getWriteDb()->prepare("UPDATE {$table} SET {$sets} WHERE id = ?");
+        $pk = $this->escapeIdentifier($this->primaryKey);
+        $stmt = $this->getWriteDb()->prepare("UPDATE {$table} SET {$sets} WHERE {$pk} = ?");
         $stmt->execute([...array_values($data), $id]);
 
         return $this->findByConnection($this->getWriteDb(), $id);
@@ -194,14 +197,16 @@ class Model
     public function delete(int|string $id): bool
     {
         $table = $this->getQuotedTable();
-        $stmt = $this->getWriteDb()->prepare("DELETE FROM {$table} WHERE id = ?");
+        $pk = $this->escapeIdentifier($this->primaryKey);
+        $stmt = $this->getWriteDb()->prepare("DELETE FROM {$table} WHERE {$pk} = ?");
         return $stmt->execute([$id]);
     }
 
     protected function findByConnection(PDO $connection, int|string $id): array|false
     {
         $table = $this->getQuotedTable();
-        $stmt = $connection->prepare("SELECT * FROM {$table} WHERE id = ?");
+        $pk = $this->escapeIdentifier($this->primaryKey);
+        $stmt = $connection->prepare("SELECT * FROM {$table} WHERE {$pk} = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }

@@ -6,17 +6,22 @@ on:
   pull_request:
     branches: [main, develop]
 
+# CICD-003: Principle of least privilege for GITHUB_TOKEN
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: PHP Lint & Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # CICD-004
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@v2  # TODO(CICD-008): pin to full commit SHA
         with:
           php-version: '8.2'
           extensions: pdo, pdo_sqlsrv
@@ -45,17 +50,17 @@ jobs:
           done
           echo "Project structure is valid"
 
+      # CICD-010: Secret scan now BLOCKS the build instead of warning
       - name: Check for secrets in code
         run: |
           echo "Scanning for hardcoded secrets..."
           ISSUES=$(grep -rn --include="*.php" -E "(password|secret|api_key)\s*=\s*['\"][^'\"]+['\"]" --exclude-dir=vendor . || true)
           if [ -n "$ISSUES" ]; then
-            echo "Possible hardcoded secrets found:"
+            echo "::error::Hardcoded secrets detected in source files"
             echo "$ISSUES"
-            echo "::warning::Potential hardcoded secrets detected in source files"
-          else
-            echo "No hardcoded secrets found"
+            exit 1
           fi
+          echo "No hardcoded secrets found"
 
       - name: Run PHPUnit Tests
         run: |
@@ -67,6 +72,7 @@ jobs:
     name: Deploy to Production
     needs: lint
     runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30  # CICD-004
     concurrency:
       group: deploy-production-main
       cancel-in-progress: false
@@ -84,16 +90,12 @@ jobs:
           clean: true
           submodules: recursive
 
-      - name: Debug workspace
+      - name: Validate workspace
         run: |
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          pwd
-          ls -la
           if [ -z "$GITHUB_WORKSPACE" ] || [ ! -d "$GITHUB_WORKSPACE" ]; then
-            echo "Workspace path is invalid"
+            echo "::error::Workspace path is invalid"
             exit 1
           fi
-          ls -la "$GITHUB_WORKSPACE"
 
       - name: Create .env from GitHub Secrets
         env:
@@ -119,13 +121,14 @@ jobs:
           MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
           AUDIT_NGINX_READ_TIMEOUT: ${{ secrets.AUDIT_NGINX_READ_TIMEOUT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         run: |
           echo "Generating .env from GitHub Secrets..."
 
           required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY)
           for key in "${required[@]}"; do
             if [ -z "${!key}" ]; then
-              echo "Missing required GitHub secret: $key"
+              echo "::error::Missing required GitHub secret: $key"
               exit 1
             fi
           done
@@ -196,24 +199,37 @@ jobs:
           AUDIT_BATCH_TIMEOUT=3600
           AUDIT_NGINX_READ_TIMEOUT=${AUDIT_NGINX_READ_TIMEOUT:-3600}
           AUDIT_FPM_TERMINATE_TIMEOUT=3600
+
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${REDIS_PASSWORD:-}
+          REDIS_PREFIX=audfact:
+          AUDIT_CACHE_TTL=86400
           EOF
 
           chmod 600 .env
           echo "Generated .env successfully"
 
-      - name: Rebuild and Restart Containers
+      # CICD-001: Build BEFORE stopping — build failure is non-destructive
+      - name: Build new images (containers stay running)
         run: |
           set -euo pipefail
-          echo "Rebuilding containers locally on self-hosted runner..."
+          echo "Building new images while current containers run..."
           mkdir -p logs
-          docker compose down
-          if docker compose up --build -d; then
-            echo "Initial rebuild completed successfully"
+          docker compose build
+          echo "New images built successfully"
+
+      - name: Deploy new containers
+        run: |
+          set -euo pipefail
+          echo "Recreating containers with new images..."
+          if docker compose up -d --force-recreate --remove-orphans; then
+            echo "Containers recreated successfully"
           else
-            echo "Initial rebuild failed. Pruning Docker builder cache and retrying once..."
+            echo "Recreation failed. Pruning cache and retrying..."
             docker builder prune -af || true
             docker image prune -f || true
-            docker compose up --build -d
+            docker compose up --build -d --force-recreate
           fi
 
       - name: Health Check
@@ -229,7 +245,7 @@ jobs:
             echo "Attempt $i/$RETRIES failed, waiting 10s..."
             sleep 10
           done
-          echo "Health check failed after $RETRIES attempts"
+          echo "::error::Health check failed after $RETRIES attempts"
           docker ps --format "table {{.Names}}\t{{.Status}}"
           docker compose logs --tail=120 php nginx
           exit 1
@@ -243,8 +259,6 @@ jobs:
             exit 1
           fi
           cd "$GITHUB_WORKSPACE"
-          # Delete everything except essentials (.env, logs, compose, git metadata,
-          # docker/public, frontend build context and _temp/_actions metadata)
           find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 \
             ! -name 'logs' \
             ! -name '.env' \

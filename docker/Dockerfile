@@ -32,13 +32,11 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-custom.sh \
     && chmod +x /usr/local/bin/docker-entrypoint-custom.sh \
     && if [ "$ENABLE_XDEBUG" != "1" ]; then rm -f /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini; fi
 
-# Composer
+# CICD-002: Composer via multi-stage COPY (supply chain safe)
+COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY composer.json composer.lock* ./
 COPY .env.example ./
-RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
-    && php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
-    && rm composer-setup.php \
-    && composer install --no-interaction --no-scripts --no-progress --prefer-dist
+RUN composer install --no-interaction --no-scripts --no-progress --prefer-dist
 
 COPY . .
 

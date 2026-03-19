@@ -1,3 +1,19 @@
+## [2026-03-19]
+
+### fix
+- **Ámbito**: Reducción de latencia en la búsqueda de facturas por rango de fechas.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `app/Models/migration/invoices.sql`, `tests/Models/InvoicesModelTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: rango abierto sobre `vw_discolnet_facturas` que disparaba la latencia de `GET /invoices`
+  - Impacto: `GET /invoices` ahora limita la agregación de movimientos al rango exacto solicitado, reduciendo el volumen leído por SQL Server y evitando escaneos hacia fechas futuras.
+
+## [2026-03-18]
+
+### fix
+- **Ámbito**: Normalización de `facNitSec` como cadena en endpoints de auditoría batch.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `tests/Controllers/AuditControllerTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: error `substr(): Argument #1 ($string) must be of type string, int given` en `POST /audit`
+  - Impacto: `POST /audit` y `POST /audit/async` aceptan `facNitSec` como texto, enmascaran el valor sin romper el logging y preservan el dato como cadena hasta la frontera con el modelo SQL.
+
 ## [2026-03-17]
 
 ### feat

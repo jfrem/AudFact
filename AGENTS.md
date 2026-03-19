@@ -65,8 +65,11 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | Descargar BLOB de adjunto |
 | `GET` | `/audit/results` | `AuditController` | `results` | Historial persistido de auditorías |
-| `POST` | `/audit` | `AuditController` | `run` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote, máx 10) |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual HA (Punto Dispensación) |
+| `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
+| `POST` | `/audit` | `AuditController` | `run` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote síncrono) |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisDetNro (Punto Dispensación) |
+| `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
+| `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 
 ---
 
@@ -148,7 +151,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`.
 - **Payload máximo**: `MAX_JSON_SIZE` (1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB).
 - **Timeouts**: `AUDIT_NGINX_READ_TIMEOUT` (Nginx) y `AUDIT_FPM_TERMINATE_TIMEOUT` (PHP) sincronizados (default 3600s).
-- **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente.
+- **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente. Controllers y Workers enmascaran `facNitSec` en logs (`***` + 3 últimos dígitos).
 - **TLS saliente**: `GoogleDriveAuthService` valida certificados HTTPS por defecto.
 - Nunca loguear valores de API keys, passwords, o datos de pacientes
 - Nunca exponer stack traces o rutas internas en respuestas de error de producción
@@ -229,6 +232,26 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de la respuesta |
 | `GEMINI_MEDIA_RESOLUTION` | *(vacío)* | ❌ | Resolución de imágenes enviadas |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
+| `GEMINI_SEED` | *(vacío)* | ❌ | Semilla para reproducibilidad (opcional) |
+
+### Redis
+
+| Variable | Default | Requerida | Módulo / Uso |
+|---|---|---|---|
+| `REDIS_HOST` | `redis` | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis |
+| `REDIS_PORT` | `6379` | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis |
+| `REDIS_PASSWORD` | *(vacío)* | ❌ | `Core\RedisClient` — contraseña (vacío si sin auth) |
+| `REDIS_PREFIX` | `audfact:` | ❌ | `Core\RedisClient` — prefijo para keys (namespace) |
+
+### Auditoría Async
+
+| Variable | Default | Requerida | Módulo / Uso |
+|---|---|---|---|
+| `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | `AuditController::run` — timeout en segundos para batch síncrono (circuit breaker) |
+| `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController` — máximo de facturas por batch (sync y async) |
+| `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
+| `AUDIT_NGINX_READ_TIMEOUT` | `3600` | ❌ | Timeout de lectura Nginx para endpoints de auditoría |
+| `AUDIT_FPM_TERMINATE_TIMEOUT` | `3600` | ❌ | Timeout de terminación PHP-FPM para procesos de auditoría |
 
 ### Leyenda
 
