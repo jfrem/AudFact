@@ -6,22 +6,65 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\MockObject\MockObject;
 use App\Services\Audit\AuditPersistenceService;
 use App\Models\AuditStatusModel;
+use Core\Database;
 
 /**
  * Tests unitarios para AuditPersistenceService.
  *
- * Valida guards de persistencia: _errorOrigin, flujo aprobada/rechazada
- * y construcción de observaciones.
+ * Valida guards de persistencia: _errorOrigin, flujo aprobada/rechazada,
+ * integridad transaccional y construcción de observaciones.
  */
 class AuditPersistenceServiceTest extends TestCase
 {
     private MockObject&AuditStatusModel $auditStatusModel;
     private AuditPersistenceService $service;
+    private MockObject $mockPdo;
 
     protected function setUp(): void
     {
         $this->auditStatusModel = $this->createMock(AuditStatusModel::class);
         $this->service = new AuditPersistenceService($this->auditStatusModel);
+
+        // Mock PDO para transacciones (beginTransaction/commit/rollBack)
+        $this->mockPdo = $this->createMock(\PDO::class);
+        $this->mockPdo->method('beginTransaction')->willReturn(true);
+        $this->mockPdo->method('commit')->willReturn(true);
+        $this->mockPdo->method('rollBack')->willReturn(true);
+        $this->mockPdo->method('inTransaction')->willReturn(true);
+
+        // Inyectar mock PDO en Database usando el cache key real.
+        // Database::getConnection() computa: resolveConnectionConfig → buildCacheKey → lookup.
+        // Usamos reflexión para invocar los métodos privados y obtener el key correcto.
+        $ref = new \ReflectionClass(Database::class);
+
+        $resolveMethod = $ref->getMethod('resolveConnectionConfig');
+        $resolveMethod->setAccessible(true);
+        $config = $resolveMethod->invoke(null, 'default');
+
+        $buildKeyMethod = $ref->getMethod('buildCacheKey');
+        $buildKeyMethod->setAccessible(true);
+        $cacheKey = $buildKeyMethod->invoke(null, $config);
+
+        $connProp = $ref->getProperty('connections');
+        $connProp->setAccessible(true);
+        $connProp->setValue(null, [$cacheKey => $this->mockPdo]);
+
+        $aliasProp = $ref->getProperty('connectionAliases');
+        $aliasProp->setAccessible(true);
+        $aliasProp->setValue(null, ['default' => $cacheKey]);
+    }
+
+    protected function tearDown(): void
+    {
+        // Limpiar estado estático de Database
+        $ref = new \ReflectionClass(Database::class);
+        $connProp = $ref->getProperty('connections');
+        $connProp->setAccessible(true);
+        $connProp->setValue(null, []);
+
+        $aliasProp = $ref->getProperty('connectionAliases');
+        $aliasProp->setAccessible(true);
+        $aliasProp->setValue(null, []);
     }
 
     // ── Guard: _errorOrigin infrastructure no actualiza AdjuntosDispensacion ──
@@ -64,7 +107,8 @@ class AuditPersistenceServiceTest extends TestCase
 
         $this->auditStatusModel
             ->expects($this->once())
-            ->method('upsertAuditResult');
+            ->method('upsertAuditResult')
+            ->willReturn([]);
 
         // Solo 1 llamada: baseline approved (marca todos como C)
         $this->auditStatusModel
@@ -98,7 +142,8 @@ class AuditPersistenceServiceTest extends TestCase
 
         $this->auditStatusModel
             ->expects($this->once())
-            ->method('upsertAuditResult');
+            ->method('upsertAuditResult')
+            ->willReturn([]);
 
         // 2 llamadas: 1 baseline (approved) + 1 rechazo (factura.pdf)
         $this->auditStatusModel
@@ -151,10 +196,9 @@ class AuditPersistenceServiceTest extends TestCase
                 return $data['EstAud'] === 0
                     && $data['EstadoDetallado'] === 'error'
                     && $data['Severidad'] === 'ninguna';
-            }));
+            }))
+            ->willReturn([]);
 
-        // El comportamiento actual en main solo deja trazabilidad baseline cuando
-        // no hay hallazgos documentales estructurados en data.items.
         $this->auditStatusModel
             ->expects($this->once())
             ->method('updateAuditResult')
@@ -189,7 +233,8 @@ class AuditPersistenceServiceTest extends TestCase
 
         $this->auditStatusModel
             ->expects($this->once())
-            ->method('upsertAuditResult');
+            ->method('upsertAuditResult')
+            ->willReturn([]);
 
         // 2 llamadas: baseline aprobado + rechazo puntual del documento con hallazgo.
         $this->auditStatusModel
@@ -240,7 +285,8 @@ class AuditPersistenceServiceTest extends TestCase
                     && $data['Severidad'] === 'ninguna'
                     && $data['EstAud'] === 0
                     && $data['RequiereRevisionHumana'] === 0;
-            }));
+            }))
+            ->willReturn([]);
 
         $this->auditStatusModel
             ->expects($this->once())
@@ -269,7 +315,8 @@ class AuditPersistenceServiceTest extends TestCase
 
         $this->auditStatusModel
             ->expects($this->once())
-            ->method('upsertAuditResult');
+            ->method('upsertAuditResult')
+            ->willReturn([]);
 
         // 3 llamadas: 1 baseline (approved=true) + 2 rechazos (uno por documento)
         $this->auditStatusModel
@@ -319,8 +366,6 @@ class AuditPersistenceServiceTest extends TestCase
             'FacSec' => 'SEC-100',
             'NumeroFactura' => 'FAC-200',
             'NitSec' => '999',
-            'IPS_NIT' => '800',
-            'VlrCobrado' => 150000,
         ];
 
         $result = [
@@ -344,10 +389,9 @@ class AuditPersistenceServiceTest extends TestCase
                     && $data['FacNro'] === 'FAC-200'
                     && $data['EstAud'] === 1
                     && $data['FacNitSec'] === '999'
-                    && $data['IPS_NIT'] === '800'
-                    && $data['VlrCobrado'] === 150000.0
                     && $data['DocumentosProcesados'] === 1;
-            }));
+            }))
+            ->willReturn([]);
 
         $this->service->saveToDatabase('DIS-001', $result, $dispensation);
     }

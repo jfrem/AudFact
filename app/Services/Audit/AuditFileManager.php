@@ -171,10 +171,7 @@ class AuditFileManager
         if ($fileId === '') {
             throw new \RuntimeException('Adjunto URL inválido (ID vacío)');
         }
-
-        // Caché de descargas con invalidación si el archivo ya fue eliminado.
-        // Nota: en PHP-FPM (un proceso por request) no hay race condition.
-        // Si se migra a contexto async/fibers, considerar mutex.
+        // Evitar descargas duplicadas
         if (isset($this->downloadCache[$fileId])) {
             $cached = $this->downloadCache[$fileId];
             if (file_exists($cached['path'])) {
@@ -188,7 +185,7 @@ class AuditFileManager
             unset($this->downloadCache[$fileId]);
         }
 
-        // FIX #6: Métricas de rendimiento para descargas URL
+        // Métricas de rendimiento para descargas URL
         $startTime = hrtime(true);
         $mime = $this->driveService->downloadFile($fileId, $destPath);
         $elapsed = round((hrtime(true) - $startTime) / 1e6);

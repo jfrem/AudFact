@@ -50,6 +50,13 @@ class InvoicesModel extends Model
                     WHERE AdjDisOpc='N'
                     GROUP BY DisId,DisDetId
                 )aud on aud.DisId=d.facsec and aud.DisDetId=d.DisDetId
+                left join (
+                SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 then 1 else 0 end)adj,sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
+                from AdjuntosDispensacion a with(nolock)
+                left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
+                left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
+                GROUP BY a.DisId,a.DisDetId
+                )docadj on docadj.DisId=d.facsec and docadj.DisDetId=d.DisDetId
                 WHERE {$dateConditionD}
                     AND d.NitSec = :facNitSec
                     AND d.Tipo_servicio in ('POS','MIPRES')
@@ -57,6 +64,7 @@ class InvoicesModel extends Model
                     AND d.estadodisp = 'A'
                     AND (a.EstAud IS NULL)
                     AND aud.c<aud.ca
+                    AND docadj.adj>=docadj.adjobl
                 GROUP BY d.NitSec, d.FacSec, d.Dispensa,aud.c,aud.ca
                 having sum(isnull(f.KarUni,0))=0";
 

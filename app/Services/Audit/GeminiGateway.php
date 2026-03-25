@@ -197,7 +197,7 @@ class GeminiGateway
             throw new \RuntimeException('Error HTTP Gemini: ' . $errorMessage, $httpCode, $e);
         }
 
-        // Fase 1.3: Monitoreo de cuotas API Gemini
+        // Monitoreo de cuotas API Gemini
         $this->logApiQuotaHeaders($res);
 
         $bodyStr = (string) $res->getBody();

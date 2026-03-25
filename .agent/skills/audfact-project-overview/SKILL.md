@@ -9,7 +9,7 @@ description: >
 # AudFact — Project Overview
 
 ## ¿Qué es AudFact?
-Sistema de auditoría documental automatizada que compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, usando **Google Gemini Flash** como motor de análisis multimodal.
+Sistema de auditoría documental automatizada que compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, usando **Google Gemini API** como motor de análisis multimodal.
 
 > [!NOTE]
 > Para una visión más profunda, consulta [overview.md](/plans/overview.md) y [architecture.md](/plans/architecture.md).
@@ -20,7 +20,7 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 |---|---|
 | Backend | PHP 8.2-FPM — Framework MVC custom |
 | Base de datos | SQL Server (PDO `sqlsrv`) |
-| IA | Google Gemini Flash API (Guzzle HTTP) |
+| IA | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 (vía Docker) |
 | Contenedores | Docker Compose (php + nginx) |
@@ -31,10 +31,10 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 AudFact/
 ├── frontend/           # Aplicación Next.js (Dashboard + Gestión)
 ├── app/
-│   ├── Controllers/     # 10 controladores REST
+│   ├── Controllers/     # 8 controladores HTTP (incluye base)
 │   ├── Models/          # 6 modelos SQL Server
-│   ├── Services/        # GoogleDrive + Audit/ (10 servicios)
-│   ├── Routes/web.php   # 20 endpoints
+│   ├── Services/        # GoogleDrive + Audit/ (11 servicios) + prompts
+│   ├── Routes/web.php   # 17 endpoints
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
@@ -45,7 +45,7 @@ AudFact/
 └── logs/                # Logs rotativos
 ```
 
-## Endpoints REST (15)
+## Endpoints REST (17)
 
 | Método | URI | Controlador |
 |---|---|---|
@@ -62,14 +62,17 @@ AudFact/
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
+| GET | `/audit/documents-history` | AuditController::documentsHistory |
 | POST | `/audit` | AuditController::run |
 | POST | `/audit/single` | AuditController::single |
+| POST | `/audit/async` | AuditController::async |
+| GET | `/audit/jobs/{jobId}` | AuditController::jobStatus |
 
 ## Flujo principal — Auditoría IA
 
 ```
 1. POST /audit → AuditController
-2. → AuditOrchestrator.orchestrate()
+2. → AuditOrchestrator.auditInvoice()
 3.   → DispensationModel (source of truth)
 4.   → AttachmentsModel → AuditFileManager (BLOB a memoria | Drive URL descarga)
 5.   → AuditPromptBuilder (Prompt v3.0 con 4 capas y axiomas)

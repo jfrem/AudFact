@@ -169,4 +169,39 @@ class AuditBiasTest extends TestCase
 
         $this->assertNotSame($hashSub, $hashCon, 'Datos distintos deben producir hashes distintos');
     }
+
+    /**
+     * Verifica que el hash compuesto (systemInstruction + userPrompt)
+     * es determinista: mismos datos y misma lista de documentos
+     * producen siempre el mismo hash.
+     *
+     * Este test refleja la lógica de AuditOrchestrator::executeAuditFlow()
+     * que calcula: hash('sha256', $systemInstruction . '||' . $baseUserPrompt)
+     */
+    public function testCompositePromptHashIsDeterministic(): void
+    {
+        $data = [
+            'Tipo'              => 'PBS',
+            'NumeroFactura'     => 'FAC-COMP',
+            'Regimen'           => 'SUBSIDIADO',
+            'Cliente'           => 'EPS TEST',
+            'NitSec'            => '555',
+            'FacSec'            => '8770COMP',
+            'NombrePaciente'    => 'Test Paciente',
+        ];
+
+        $pdfList = ['DISPENSA', 'AUTORIZACION', 'FORMULA MEDICA'];
+
+        $system1 = $this->builder->getSystemInstruction($data);
+        $user1 = $this->builder->buildUserPrompt($data, $pdfList);
+        $composite1 = hash('sha256', $system1 . '||' . $user1);
+
+        $system2 = $this->builder->getSystemInstruction($data);
+        $user2 = $this->builder->buildUserPrompt($data, $pdfList);
+        $composite2 = hash('sha256', $system2 . '||' . $user2);
+
+        $this->assertSame($composite1, $composite2, 'Hash compuesto debe ser determinista con mismos inputs');
+        $this->assertSame($system1, $system2, 'SystemInstruction debe ser idéntico');
+        $this->assertSame($user1, $user2, 'UserPrompt debe ser idéntico');
+    }
 }

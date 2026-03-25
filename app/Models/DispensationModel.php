@@ -35,6 +35,7 @@ class DispensationModel extends Model
                 Paciente_doc AS DocumentoPaciente,
                 Fecha_nac AS FechaNacimiento,
                 CASE 
+                    WHEN NitSec IN ('1045', '80455','2426') THEN NULL
                     WHEN Regimen = 'Subsidiado' THEN 'Subsidiado'
                     WHEN Regimen = 'Contributivo' THEN 'Contributivo'
                     ELSE 'ARL'

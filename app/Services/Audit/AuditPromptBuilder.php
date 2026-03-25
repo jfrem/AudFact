@@ -5,18 +5,7 @@ namespace App\Services\Audit;
 /**
  * Framework de auditoría documental con contexto dinámico optimizado.
  *
- * @version 3.1 — Multi-medication XML iteration + Socratic Hardening
- * - Secciones principales envueltas en etiquetas XML (reducción de ambigüedad)
- * - Constitución Anti-Alucinación formal (axiomas A1-A5)
- * - Zero-Inference Rule: prohibición de inferencia demográfica
- * - Shield Prompt: defensa contra inyección en PDFs adjuntos
- * - Balanceo anti-sicofancia en §00
- * - Contexto dinámico: valores inyectados una sola vez en system prompt
- * - Sin duplicación: las reglas referencian los valores, no los repiten
- * - Documentos judiciales excluidos como fuente
- * - Mapa de documentos autoritativos por campo
- * - Reglas de comparación explícitas por tipo de campo
- * - Workflow de razonamiento pre-estructurado
+ * @version 1.0
  */
 class AuditPromptBuilder
 {
@@ -29,9 +18,6 @@ class AuditPromptBuilder
    */
   public function getSystemInstruction(array $dispensationData): string
   {
-    // SUPUESTO: Los metadatos comunes (paciente, médico, fechas, factura)
-    // son idénticos en todas las filas de la dispensación (vw_discolnet_dispensas).
-    // Solo los campos de medicamento (NombreArticulo, CUM, Lote, etc.) varían entre filas.
     $ref = $this->isMultiItem($dispensationData)
       ? $dispensationData[0]
       : $dispensationData;
@@ -71,22 +57,22 @@ class AuditPromptBuilder
     // — Multi-línea de despacho (XML Exhaustivo) —
     $medicationsXml = '';
     $totalLineas = $this->isMultiItem($dispensationData) ? count($dispensationData) : 1;
-    
+
     // Si no está indexado, lo envolvemos para poder iterarlo
     $items = $this->isMultiItem($dispensationData) ? $dispensationData : [$dispensationData];
-    
+
     $medList = [];
     foreach ($items as $i => $row) {
-        $n = $i + 1;
-        $nombreArt   = trim((string)($row['NombreArticulo']    ?? 'N/D'));
-        $cumArt      = trim((string)($row['CUM']               ?? 'N/D'));
-        $loteArt     = trim((string)($row['Lote']              ?? 'N/D'));
-        $labArt      = trim((string)($row['Laboratorio']       ?? 'N/D'));
-        $vencArt     = trim((string)($row['FechaVencimiento']  ?? 'N/D'));
-        $cantPresc   = trim((string)($row['CantidadPrescrita'] ?? 'N/D'));
-        $cantEntreg  = trim((string)($row['CantidadEntregada'] ?? 'N/D'));
-        
-        $medList[] = <<<XML
+      $n = $i + 1;
+      $nombreArt   = trim((string)($row['NombreArticulo']    ?? 'N/D'));
+      $cumArt      = trim((string)($row['CUM']               ?? 'N/D'));
+      $loteArt     = trim((string)($row['Lote']              ?? 'N/D'));
+      $labArt      = trim((string)($row['Laboratorio']       ?? 'N/D'));
+      $vencArt     = trim((string)($row['FechaVencimiento']  ?? 'N/D'));
+      $cantPresc   = trim((string)($row['CantidadPrescrita'] ?? 'N/D'));
+      $cantEntreg  = trim((string)($row['CantidadEntregada'] ?? 'N/D'));
+
+      $medList[] = <<<XML
       <medication item="{$n}">
       Nombre: {$nombreArt} · CUM: {$cumArt} · Lote: {$loteArt}
       Laboratorio: {$labArt} · Vencimiento: {$vencArt}
@@ -225,7 +211,9 @@ XML;
       Aplicar a: NumeroFactura, NITCliente, DocumentoPaciente, TipoDocumentoPaciente,
       DocumentoMedico, TipoDocumentoMedico, NumeroAutorizacion, CodigoDiagnostico,
       CodigoArticulo, CodigoProducto, CUM, Lote, Tipo, FechaNacimiento, FechaEntrega,
-      FechaFormula, FechaAutorizacion, FechaVencimiento, CantidadEntregada, CantidadPrescrita.
+      FechaFormula, FechaAutorizacion, FechaVencimiento.
+
+      CantidadEntregada y CantidadPrescrita: NO usar comparación exacta. Seguir reglas especiales de cantidades en §05.
 
       Normalización:
       - Identificadores: eliminar puntos, guiones, espacios
@@ -248,16 +236,18 @@ XML;
       Cliente — validación en dos partes:
       Entidad ({$clienteEntidad}): comparación por tokens críticos · minúsculas sin tildes · severidad baja si discrepa.
       - Si el nombre del cliente en la Fuente de Verdad puede contener sufijos como "- SUBSIDIADO", "- CONTRIBUTIVO", etc., ignorar esos sufijos al comparar el nombre de la entidad.
+      
+      [!] TENER EN CUENTA LA REGLA GLOBAL ARL EXPLICADA ANTERIORMENTE. Si aplica la excepción ARL Global, NO reportar discrepancia de Cliente.Entidad aunque la EPS difiera.
 
       Régimen ({$regimenPaciente}): comparación semántica · severidad ALTA si discrepa.
+      
+      [!] TENER EN CUENTA LA REGLA GLOBAL ARL. Si CUALQUIER documento muestra un ARL coincidente con FdV, ESTÁ ESTRICTAMENTE PROHIBIDO reportar discrepancias en Cliente.Regimen.
 
-      ¡¡¡REGLA ABSOLUTA DE RÉGIMEN — CUMPLIMIENTO OBLIGATORIO!!!
+      REGLA ABSOLUTA DE RÉGIMEN (FdV ARL/ND):
       SI el valor de Régimen en la Fuente de Verdad es exactamente "ARL" o "N/D":
         → PROHIBIDO incluir CUALQUIER hallazgo sobre Cliente.Regimen en data.items.
-        → NO comparar, NO evaluar, NO reportar discrepancia de régimen, ni siquiera si los documentos mencionan un régimen diferente o si hay cruces de información entre múltiples documentos.
-        → Razón: ARL = Administradora de Riesgos Laborales. No opera bajo régimen de salud (Subsidiado/Contributivo). El valor en documentos es irrelevante.
-        → VERIFICACIÓN: El valor actual de Régimen en esta auditoría es "{$regimenPaciente}". Si es "ARL" o "N/D", esta regla APLICA INDEFECTIBLEMENTE.
-      FIN DE REGLA ABSOLUTA.
+        → Razón: ARL = Administradora de Riesgos Laborales.
+        → VERIFICACIÓN: El valor actual es "{$regimenPaciente}". Si es "ARL" o "N/D", esta regla APLICA INDEFECTIBLEMENTE.
 
       Para los demás valores (Subsidiado, Contributivo, etc.), auditoría ESTRICTA:
         - Equivalencias semánticas válidas (no marcar discrepancia entre estas):
@@ -305,6 +295,14 @@ XML;
       - Si CantidadEntregada − CantidadPrescrita > 5 → VALOR_DISTINTO · alta.
       - Esta excepción prevalece sobre la regla general de cantidades.
 
+      Cantidades — comparación contra documentos (entregas parciales):
+      - Los documentos (Fórmula Médica, Autorización) muestran la cantidad TOTAL prescrita/autorizada.
+      - La Fuente de Verdad puede reflejar una entrega PARCIAL del total prescrito/autorizado.
+      - Si FdV CantidadPrescrita ≤ Documento CantidadPrescrita → COINCIDE (entrega parcial permitida).
+      - Si FdV CantidadEntregada ≤ Documento CantidadPrescrita → COINCIDE (entrega parcial permitida).
+      - Solo reportar VALOR_DISTINTO · alta si FdV CantidadEntregada > Documento CantidadPrescrita (se entregó más de lo total prescrito/autorizado en el documento).
+      - Esta regla prevalece sobre la comparación exacta de §03 para campos de cantidad.
+
       Fechas — orden lógico:
       - Verificar: FechaFormula ≤ FechaAutorizacion ≤ FechaEntrega.
       - Si el orden es incorrecto → reportar como discrepancia · media.
@@ -320,11 +318,28 @@ XML;
 
       Firma Acta de Entrega:
       - Si FirmaActaEntrega es "Obligatorio" ({$firmaActa}):
-        1. Localizar la sección inferior de ACTA_DE_ENTREGA, cerca de "Nombre quien recibe" o campo de recepción equivalente.
-        2. Evidencia válida: firma manuscrita (trazos de tinta), huella dactilar, rúbrica o marca del paciente/tercero autorizado.
-        3. La firma puede ser parcial, superpuesta a texto impreso, o de difícil lectura. Cualquier trazo manuscrito no impreso en la zona de recepción ES evidencia válida.
-        4. Solo reportar si la zona de firma/recepción está completamente vacía, sin ningún trazo manual.
-      - Severidad: alta (únicamente si la zona está absolutamente vacía).
+        1. Localizar la sección inferior de ACTA_DE_ENTREGA. Buscar cualquiera de estas
+          etiquetas o sus equivalentes: "Nombre quien recibe", "Acuse de recibido",
+          "Recibido por", "Firma del paciente", "Firma del beneficiario", "Entregado a".
+        2. Evidencia válida — basta con que UNA de las siguientes esté presente:
+          a) Firma manuscrita (cualquier trazo de tinta sobre papel, aunque sea ilegible).
+          b) Nombre escrito a mano (letra manuscrita que identifique al receptor).
+          c) Número de documento escrito a mano.
+          d) Teléfono o dato de contacto escrito a mano.
+          e) Huella dactilar.
+          f) Rúbrica o marca del paciente o de un tercero autorizado.
+          g) Sello de recibido (húmedo, seco o digital).
+          h) Cualquier anotación manuscrita en la zona de recepción que indique
+              que una persona tomó posesión del medicamento.
+        3. Umbral de reporte: SOLO reportar discrepancia si la zona de recepción
+          está COMPLETAMENTE vacía — sin nombre, sin número, sin trazo, sin sello.
+          Si hay CUALQUIER elemento manuscrito o de sello → COINCIDE.
+        4. La legibilidad del texto manuscrito es IRRELEVANTE. Un nombre escrito
+          a mano — aunque esté cursiva, abreviado o superpuesto a texto impreso —
+          ES evidencia válida de recepción.
+        5. NO requerir firma + huella simultáneamente. Una sola forma de evidencia
+          es suficiente.
+      - Severidad: alta (únicamente si la zona está absolutamente vacía, sin excepción).
       </business_rules>
 
       <classification>
@@ -353,7 +368,7 @@ XML;
       </risk_calculation>
 
       <self_audit>
-      §08 · Auto-Auditoría
+      §09 · Auto-Auditoría
 
       Antes de entregar, verificar:
       1. ¿Se excluyeron documentos judiciales?
@@ -361,8 +376,8 @@ XML;
       3. ¿Si el autoritativo coincide, se omitieron los alternativos?
       4. ¿VALOR_DISTINTO vs NO_ENCONTRADO vs ILEGIBLE usados correctamente?
       5. ¿IPS comparada con nombre limpio y coincidencia parcial aceptada?
-      6. ¡¡¡VERIFICACIÓN OBLIGATORIA DE RÉGIMEN!!! El Régimen de la Fuente de Verdad es "{$regimenPaciente}". Si es "ARL" o "N/D": ¿hay CERO items de "Cliente.Regimen" en data.items? Si incluiste alguno → ELIMINARLO INMEDIATAMENTE del resultado antes de entregar. Si el régimen es SUBSIDIADO o CONTRIBUTIVO: ¿se aplicó auditoría estricta?
-      7. ¿Para cada uno de los {$totalLineas} ítems de medicamento listados en <medications>, CantidadEntregada ≤ CantidadPrescrita tratada como COINCIDE? Verificar cada ítem individualmente, no en agregado.
+      6. ¡¡¡VERIFICACIÓN OBLIGATORIA DE RÉGIMEN!!! El Régimen de la Fuente de Verdad es "{$regimenPaciente}". Si es "ARL" o "N/D": ¿hay CERO items de "Cliente.Regimen" en data.items? Si incluiste alguno → ELIMINARLO INMEDIATAMENTE. ADEMÁS: Si algún documento muestra un campo ARL que coincide con la entidad de la FdV ({$clienteEntidad}), ¿hay CERO items de "Cliente.Regimen" y "Cliente.Entidad" relacionados con la diferencia EPS vs ARL? Si incluiste alguno → ELIMINARLO INMEDIATAMENTE. Si ninguna excepción ARL aplica y el régimen es SUBSIDIADO o CONTRIBUTIVO: ¿se aplicó auditoría estricta?
+      7. ¿Para cada uno de los {$totalLineas} ítems de medicamento listados en <medications>, CantidadEntregada ≤ CantidadPrescrita tratada como COINCIDE? Verificar cada ítem individualmente, no en agregado. ¿Se aplicó la regla de entregas parciales de §05? Si la cantidad en la Fuente de Verdad es menor o igual a la cantidad en el documento → NO es discrepancia.
       8. Si el Cliente (EPS) {$cliente} contiene "POSITIVA", ¿se aplicó la excepción de §05 que permite CantidadEntregada hasta 5 unidades por encima de CantidadPrescrita en lugar de la regla general?
       9. ¿NombreArticulo validado por tokens (principio activo incluye equivalencia genérico/marca)?
       10. ¿FechaNacimiento con severidad ALTA?
@@ -370,7 +385,14 @@ XML;
       12. ¿"Días de tratamiento" NO se comparó con cantidades?
       13. ¿Firma del acta verificada si es obligatoria?
       14. RECONFIRMACIÓN DE HALLAZGOS: Para CADA item que incluirás en "data.items", re-verificar: (a) ¿El valor comparado es exactamente el de la Fuente de Verdad? (b) ¿Consulté el documento autoritativo correcto de §02? (c) ¿Apliqué la normalización correcta de §03? (d) ¿La severidad corresponde a §04? Si alguna respuesta es NO → ELIMINAR el hallazgo del resultado final.
-      15. FIRMA ACTA: Si marcaste FirmaActaEntrega como discrepancia, re-inspeccionar la zona inferior del Acta, junto a "Nombre quien recibe". Si hay CUALQUIER trazo manuscrito, rúbrica o marca de huella → ELIMINAR el hallazgo. Solo mantenerlo si la zona está completamente vacía.
+      15. FIRMA ACTA — RECONFIRMACIÓN OBLIGATORIA:
+        Si marcaste FirmaActaEntrega como discrepancia, ejecutar este checklist antes de incluirlo en el output:
+        [ ] ¿Revisé la sección "Acuse de recibido" o "Nombre quien recibe"?
+        [ ] ¿Hay un nombre manuscrito en esa zona? → Si SÍ → ELIMINAR hallazgo.
+        [ ] ¿Hay un número de documento o teléfono escrito a mano? → Si SÍ → ELIMINAR.
+        [ ] ¿Hay cualquier trazo de tinta no impreso? → Si SÍ → ELIMINAR.
+        [ ] ¿Hay un texto que describa la entrega ("entregado a satisfacción" + datos)? → Si SÍ → ELIMINAR.
+        Solo mantener el hallazgo si TODAS las anteriores son negativas (zona vacía total).
       16. ZERO-INFERENCE: ¿Se utilizó algún dato demográfico del paciente (nombre, régimen, tipo de documento) para contextualizar o personalizar la evaluación en lugar de solo comparar valores? Si es así → ELIMINAR cualquier hallazgo influenciado por inferencia demográfica.
       </self_audit>
 

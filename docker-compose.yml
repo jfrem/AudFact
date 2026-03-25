@@ -72,7 +72,7 @@ services:
         ENABLE_XDEBUG: "0"
         WWWUSER_ID: ${WWWUSER_ID:-33}
         WWWGROUP_ID: ${WWWGROUP_ID:-33}
-    container_name: audfact-worker
+    # container_name has been REMOVED by AI to allow multiple replicas
     env_file:
       - .env
     volumes:
@@ -83,6 +83,7 @@ services:
     command: php bin/audit-worker.php --poll-timeout=5
     restart: on-failure
     deploy:
+      replicas: 3
       resources:
         limits:
           memory: 1G

@@ -1,8 +1,58 @@
 # Changelog AudFact
 
-## [2026-03-19] — Correcciones Persistencia e Idempotencia (Audit)
+## [2026-03-24] — Corrección Interfaz MCP (GetInvoices)
 
 ### 🔴 Critical Fixes
+- **AUDIT-008**: Se solucionó un desajuste de parámetros en la tool `GetInvoices` (`app/wrap/core/tools/GetInvoices.php`). La interfaz MCP recibe el parámetro `date`, pero el cliente HTTP local no lo parseaba a `dateFrom` como lo espera `InvoicesController::index()`, resultando en validaciones HTTP 422 permanentes (bloqueando a los agentes IA de obtener facturas).
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Validada la skill `audfact-mcp-wrap`. No requiere cambios ya que el contrato externo MCP se mantuvo estricto, sólo cambió el mapeo interno.
+  - Archivos actualizados: `plans/changelog.md`
+
+
+## [2026-03-24] — Exclusión de RegimenPaciente en Fuente de Verdad (Auditoría IA)
+
+### 🟢 Quality of Life / Business Logic
+- **AUDIT-007**: Se modificó la consulta en `DispensationModel` para excluir el campo `RegimenPaciente` y forzar su valor a `NULL` para clientes específicos que no lo reportan consistentemente (NitSec `1045` Positiva, `80455` Suramericana, `2426` Colsanitas).
+  - Esto activa la "Regla Absoluta de Régimen" del `AuditPromptBuilder` (fallback a `N/D`), eliminando falsos positivos en discrepancias donde el régimen de los documentos no coincide con la BD.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada la skill `audfact-audit-gemini` para documentar la regla explícita de exclusión para clientes particulares en conjunto con la regla de fallback del prompt.
+  - Archivos actualizados: `plans/changelog.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+
+## [2026-03-24] — Implementación de Regla de Entregas Parciales (Audit Prompt)
+
+### 🟢 Quality of Life / Business Logic
+- **AUDIT-006**: Implementada la regla de **entregas parciales** en `AuditPromptBuilder`. Gemini ahora permite que la cantidad en la Fuente de Verdad sea menor o igual a lo prescrito/autorizado sin reportar discrepancias. Solo se marca como `VALOR_DISTINTO` si el entregado excede el autorizado.
+  - Modificado §03 para excluir cantidades de comparación exacta.
+  - Agregada sub-regla en §05 con lógica de validación dirigida.
+  - Actualizado §08 (Auto-auditoría) para forzar verificación de parciales.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada la documentación en `plans/features/audit-workflow.md` y la skill `audfact-audit-gemini` para reflejar la nueva capacidad de auditoría cuantitativa.
+  - Archivos actualizados: `plans/changelog.md`, `plans/features/audit-workflow.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+
+## [2026-03-20] — Robustecimiento de Transacciones, Parseo JSON y Resiliencia Redis (Pipeline Audit)
+
+### 🔴 Critical Fixes
+- **AUDIT-005 / C-01**: Inconsistencia transaccional en `AuditPersistenceService` → Ahora envuelve `upsertAuditResult` y actualización de adjuntos en una transacción PDO; si falla, revierte todo para mantener integridad y pospone la actualización en la caché de Redis (`lrem`).
+- **AUDIT-005 / C-02**: Respuestas JSON de Gemini truncadas, malformadas o con llaves sin cerrar → Integrado `JsonRepairHelper` como fallback en `JsonResponseParser` para reparar comas sueltas, strings incompletos y corchetes desbalanceados antes de fallar.
+
+### 🟠 High Priority Fixes
+- **AUDIT-005 / H-01**: Pérdida silenciosa de scripts Lua (`NOSCRIPT`) por reinicios de servidor Redis en Workers → Agregado try/catch en `AuditQueueService::updateJob()` para atrapar el error `NOSCRIPT` y reintentar instantáneamente recargando y ejecutando el script en crudo con `EVAL`.
+
+### Refactor (Testing)
+- **TEST-001**: 100% de la suite de pruebas unitarias sincronizada con los cambios operacionales. El servicio de persistencia implementa ahora Mocks de PDO con Reflexión para verificar commits/rollbacks sin necesitar DB viva.
+- **TEST-002**: Solución de colisiones de namespace (`FakeInvoicesModel`) entre Tests.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Actualizada skill `audfact-audit-gemini` (incorporando la sección Resiliencia vs Errores Formato y el uso del Helper).
+  - Archivos actualizados: `plans/changelog.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+
+### Archivos modificados
+`app/Services/Audit/AuditPersistenceService.php`, `app/Services/Audit/AuditQueueService.php`, `app/Services/Audit/JsonResponseParser.php`, `app/Services/Audit/JsonRepairHelper.php` (nuevo), `tests/Services/Audit/*`, `tests/Controllers/InvoicesControllerTest.php`, `tests/Models/InvoicesModelTest.php`
+
+## [2026-03-19] — Correcciones Persistencia e Idempotencia (Audit)
 - **AUDIT-004 / C-01**: Corrupción de datos por truncado en Caché → `AuditPersistenceService` guarda `severity`, `_errorOrigin` y metadata completa.
 - **AUDIT-004 / C-02**: Mapeo inválido de PK al re-persistir desde Caché → `AuditController::run` reconstruido para forzar `FacNro` genuino.
 - **AUDIT-004 / Idempotencia**: Controlador usaba prefijo quemado (`audit:result:`) → sincronizado con `REDIS_PREFIX` de Env.
@@ -53,8 +103,10 @@
 ## [2026-03-18] — Fix Inyección Exhaustiva de Medicamentos (Auditoría IA)
 
 ### Fix (Prompt)
-- **AUDIT-001**: `AuditPromptBuilder.php` generaba el XML de `<medication>` utilizando únicamente la primera línea de la dispensación, causando falsos positivos y omisiones al auditar múltiples ítems. Se refactorizó la interpolación simple por un `foreach` que inyecta todos los ítems de dispensación correspondientes en el XML final.
+- **Iteración Multi-Medicamento**: `AuditPromptBuilder` itera sobre todos los ítems de `$dispensationData` generando nodos `<medication item="N">` XML individuales, asegurando que la IA valide todos los medicamentos de una dispensación multi-línea.
+- **Entregas Parciales (v3.2)**: El sistema permite que la Fuente de Verdad registre cantidades menores o iguales a las prescritas/autorizadas, clasificándolas como `COINCIDE` para evitar falsos positivos en dispensaciones fragmentadas.
   - Archivos modificados: `app/Services/Audit/AuditPromptBuilder.php`
+  - Prompt v3.2: 4 capas con axiomas deterministas, motor de 6 dimensiones, protocolo de reconfirmación anti-alucinación, e **iteración multi-medicamento**. Incluye regla de **entregas parciales** (FdV ≤ Doc OK).
 
 ### Docs Sync (Post-Implementación)
 - **DOCS-SYNC**: Actualizada skill `audfact-audit-gemini` (v3.0→v3.1 con iteración multi-medicamento). Corregido drift significativo acumulado en `plans/features/audit-workflow.md`: tabla de archivos obsoleta (`GeminiAuditService` → `AuditOrchestrator`), endpoints faltantes (async, jobStatus, results, documents-history), parámetro `FacNro`→`DisDetNro`, versión de prompt (v6.0→v3.1), sección multi-línea→multi-medicamento con XML iterado, y notas técnicas sobre filtrado de adjuntos.

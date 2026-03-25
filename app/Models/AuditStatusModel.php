@@ -280,6 +280,7 @@ class AuditStatusModel extends Model
 
             $disId = $dispensacion['DisId'];
             $disDetId = $dispensacion['DisDetId'];
+            $adjDisId = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
 
             if ($approved) {
                 // 2a. APROBADA: actualizar TODOS los adjuntos de la dispensación
@@ -292,11 +293,12 @@ class AuditStatusModel extends Model
                             AdjDisRec     = 'N',
                             AdjDisUsuRec  = NULL,
                             AdjDisFecRec  = NULL
-                        WHERE DisId = :disId AND DisDetId = :disDetId";
+                        WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
 
                 $stmt = $writeDb->prepare($sql);
                 $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
                 $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+                $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
                 $stmt->execute();
 
                 Logger::info('updateAuditResult: todos los adjuntos aprobados', [

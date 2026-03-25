@@ -2,578 +2,252 @@
 
 ## Base URL
 
-```
+```text
 http://localhost:8080
 ```
 
-> [!IMPORTANT]
-> Las rutas **NO** llevan prefijo `/api/`. Se acceden directamente desde la raíz (ej: `/clients`, `/audit/single`).
+Las rutas no usan prefijo `/api`.
 
----
+## Convención de respuesta
 
-## Health Check
+Las respuestas HTTP siguen la forma emitida por `Core\Response`:
+
+```json
+{
+  "success": true,
+  "message": "Operación exitosa",
+  "data": {}
+}
+```
+
+En error:
+
+```json
+{
+  "success": false,
+  "message": "Errores de validación",
+  "errors": {
+    "campo": ["detalle"]
+  }
+}
+```
+
+## Endpoints
 
 ### `GET /`
 
-Health check del sistema.
+Estado base del API.
 
-**Parámetros**: Ninguno
+### `GET /health`
 
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "message": "API is running",
-    "data": {
-        "version": "1.0",
-        "environment": "production"
-    }
-}
-```
-
----
-
-## Configuración
+Health check funcional del backend. Devuelve estado global y detalle de base de datos, disco y memoria.
 
 ### `GET /config/public`
 
-Devuelve la configuración pública del sistema para uso del frontend.
+Configuración pública para el frontend.
 
-**Parámetros**: Ninguno
+Respuesta típica:
 
-**Respuesta exitosa** (`200`):
 ```json
 {
-    "success": true,
-    "data": {
-        "auditBatchMaxLimit": 10
-    }
+  "success": true,
+  "message": "Operación exitosa",
+  "data": {
+    "auditBatchMaxLimit": 100,
+    "auditBatchTimeoutMs": 3600000
+  }
 }
 ```
-
----
-
-## Clientes
 
 ### `GET /clients`
 
-Lista todos los clientes (EPS) activos.
+Lista clientes activos.
 
-**Parámetros**: Ninguno
+### `GET /clients/{clientId}`
 
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": [
-        { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-    ]
-}
-```
+Consulta un cliente por identificador.
 
----
+Validación:
+- `clientId`: entero `>= 1`
 
 ### `POST /clients`
 
-Busca clientes por filtros (lookup).
+Busca un cliente por body JSON.
 
-**Request Body**:
 ```json
 {
-    "NitSec": 123
+  "clientId": 1165
 }
 ```
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-}
-```
-
----
-
-### `GET /clients/{id}`
-
-Obtiene un cliente por su NitSec.
-
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `id` | path | integer | ✅ | NitSec del cliente |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-}
-```
-
-**Errores**:
-- `404` — Cliente no encontrado
-
----
-
-## Facturas
 
 ### `GET /invoices`
 
-# API Endpoints — AudFact
+Busca facturas por query params.
 
-## Base URL
+Parámetros:
+- `facNitSec` requerido
+- `dateFrom` requerido, `YYYY-MM-DD`
+- `dateTo` opcional, `YYYY-MM-DD`
+- `limit` opcional, entero `1..1000`
 
-```
-http://localhost:8080
-```
+### `POST /invoices`
 
-> [!IMPORTANT]
-> Las rutas **NO** llevan prefijo `/api/`. Se acceden directamente desde la raíz (ej: `/clients`, `/audit/single`).
+Busca facturas por body JSON.
 
----
-
-## Health Check
-
-### `GET /`
-
-Health check del sistema.
-
-**Parámetros**: Ninguno
-
-**Respuesta exitosa** (`200`):
 ```json
 {
-    "status": "success",
-    "message": "API is running",
-    "data": {
-        "version": "1.0",
-        "environment": "production"
-    }
+  "facNitSec": 1165,
+  "dateFrom": "2025-07-01",
+  "dateTo": "2025-11-30",
+  "limit": 10
 }
 ```
-
----
-
-## Configuración
-
-### `GET /config/public`
-
-Devuelve la configuración pública del sistema para uso del frontend.
-
-**Parámetros**: Ninguno
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "success": true,
-    "data": {
-        "auditBatchMaxLimit": 10
-    }
-}
-```
-
----
-
-## Clientes
-
-### `GET /clients`
-
-Lista todos los clientes (EPS) activos.
-
-**Parámetros**: Ninguno
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": [
-        { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-    ]
-}
-```
-
----
-
-### `POST /clients`
-
-Busca clientes por filtros (lookup).
-
-**Request Body**:
-```json
-{
-    "NitSec": 123
-}
-```
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-}
-```
-
----
-
-### `GET /clients/{id}`
-
-Obtiene un cliente por su NitSec.
-
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `id` | path | integer | ✅ | NitSec del cliente |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": { "NitSec": 123, "NitCom": "EPS SALUD TOTAL" }
-}
-```
-
-**Errores**:
-- `404` — Cliente no encontrado
-
----
-
-## Facturas
-
-### `GET /invoices`
-
-Busca facturas por cliente y fecha que no han sido auditadas.
-
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `facNitSec` | query | integer | ✅ | NitSec del cliente |
-| `date` | query | string | ✅ | Fecha de inicio (YYYY-MM-DD) |
-| `dateTo` | query | string | ❌ | Fecha fin del rango (YYYY-MM-DD) |
-| `limit` | query | integer | ❌ | Máximo de resultados (1-1000, default: 100) |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": [
-        { "NitSec": "1165", "FacSec": "90648778", "Dispensa": "T38251201552" }
-    ]
-}
-```
-
-**Errores**:
-- `400` — Parámetros `facNitSec` o `date` faltantes/inválidos
-
----
-
-## Dispensación
 
 ### `GET /dispensation/{DisDetNro}`
 
-Obtiene los datos completos de dispensación para una factura.
+Obtiene detalle técnico de una dispensación.
 
-**Parámetros**:
+### `POST /dispensation`
 
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `DisDetNro` | path | string | ✅ | Número de dispensación (factura) |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": [
-        {
-            "FacSec": 456,
-            "NumeroFactura": "D-001",
-            "Cliente": "EPS SALUD TOTAL",
-            "NITCliente": "900123456",
-            "NombrePaciente": "JUAN PÉREZ",
-            "DocumentoPaciente": "12345678",
-            "CodigoArticulo": "ART-001",
-            "NombreArticulo": "Medicamento X",
-            "CantidadEntregada": 30,
-            "CantidadPrescrita": 30
-        }
-    ]
-}
-```
-
-**Errores**:
-- `404` — No se encontraron datos de dispensación
-
----
-
-## Documentos Adjuntos
+Busca una dispensación por body JSON.
 
 ### `GET /dispensation/{invoiceId}/attachments/{nitSec}`
 
-Lista los documentos adjuntos de una factura.
-
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `invoiceId` | path | string | ✅ | DisDetNro de la factura |
-| `nitSec` | query | string | ✅ | NitSec del cliente |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "data": [
-        {
-            "dispiensa": "D-001",
-            "factura": "F-001",
-            "cliente": 123,
-            "id_documento": "DOC-001",
-            "nombre_documento": "Acta de Entrega",
-            "almacenamiento_remoto": "https://drive.google.com/...",
-            "TipoAlmacenamiento": "URL"
-        }
-    ]
-}
-```
-
----
+Lista metadatos de adjuntos para una dispensación.
 
 ### `GET /dispensation/{invoiceId}/attachments/download/{attachmentId}`
 
-Descarga o previsualiza un documento adjunto específico. Soporta dos modos según el header `Accept`.
+Descarga o previsualiza un adjunto.
 
-**Parámetros**:
+Comportamiento:
+- con `Accept: application/json`, responde `{ mime, data }` con `data` base64
+- en cualquier otro caso hace streaming binario
 
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `invoiceId` | path | string | ✅ | DisDetNro de la factura |
-| `attachmentId` | path | string | ✅ | ID del tipo de documento |
+### `POST /audit`
 
-**Modo Streaming** (default):
-- Content-Type: `application/pdf` o `image/*`
-- Body: Archivo binario (streaming)
+Ejecuta auditoría batch síncrona.
 
-**Modo JSON** (`Accept: application/json`):
 ```json
 {
-    "mime": "application/pdf",
-    "data": "JVBERi0xLjQK..."
+  "facNitSec": 1165,
+  "date": "2025-07-01",
+  "dateTo": "2025-11-30",
+  "limit": 10
 }
 ```
-- `mime`: Tipo MIME detectado (extensión → magic bytes → `application/octet-stream`)
-- `data`: Contenido del archivo codificado en base64
 
-**Detección MIME (magic bytes)**: Cuando el archivo no tiene extensión, se detecta el tipo real por los primeros bytes del contenido: PDF (`%PDF`), JPEG (`FFD8FF`), PNG (`89504E47`), GIF (`47494638`), WEBP (`RIFF..WEBP`), TIFF (`4949`/`4D4D`), ZIP (`504B`).
+Validación:
+- `facNitSec`: entero `>= 1`
+- `date`: fecha requerida
+- `dateTo`: fecha opcional
+- `limit`: entero requerido con máximo definido por `AUDIT_BATCH_MAX_LIMIT`
 
-**Errores**:
-- `404` — Documento no encontrado
-- `500` — Error de lectura del BLOB
-
----
-
-## Auditoría IA
+Respuesta:
+- si no hay facturas: `data.items = []`
+- si hay facturas: `data.items`, `stoppedEarly`, `totalRequested`, `totalProcessed`
 
 ### `POST /audit/single`
 
-Ejecuta auditoría IA para una factura individual de forma síncrona.
+Ejecuta auditoría síncrona sobre una sola dispensación.
 
-> [!NOTE]
-> En prevalidación, el pipeline consulta adjuntos requeridos con filtro SQL `AdjDisOpc='N'`
-> para optimizar la entrada a Gemini. Esto no modifica el contrato del endpoint público
-> `GET /dispensation/{invoiceId}/attachments/{nitSec}`, que sigue devolviendo el listado completo.
-
-**Request Body**:
 ```json
-    "message": "Auditoría ejecutada",
-    "data": {
-        "items": [ { "invoice": {}, "result": {} } ],
-        "stoppedEarly": false,
-        "totalRequested": 5,
-        "totalProcessed": 5
-    }
+{
+  "DisDetNro": "T38251201552"
 }
 ```
-
-**Errores**:
-- `400` — Datos de entrada inválidos
-- `429` — Rate limit o quota Gemini excedida
-- `500` — Error del pipeline de auditoría
-- `503` — Modelo Gemini no disponible
 
 ### `POST /audit/async`
 
-Ejecuta auditoría IA en lote de forma asíncrona.
+Encola una auditoría batch asíncrona.
 
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `facNitSec` | query | integer | ✅ | NitSec del cliente |
-| `date` | query | string | ✅ | Fecha de inicio (YYYY-MM-DD) |
-| `dateTo` | query | string | ❌ | Fecha fin del rango (YYYY-MM-DD) |
-| `limit` | query | integer | ❌ | Máximo de resultados |
-
-**Respuesta exitosa** (`202 Accepted`):
 ```json
 {
-    "status": "success",
-    "message": "Auditoría encolada para procesamiento asíncrono",
-    "data": {
-        "jobId": "a1b2c3d4e5f6...",
-        "status": "pending",
-        "statusUrl": "/audit/jobs/a1b2c3d4e5f6...",
-        "queueDepth": 1
-    }
+  "facNitSec": 1165,
+  "date": "2025-07-01",
+  "dateTo": "2025-11-30",
+  "limit": 10
 }
 ```
 
----
+Respuesta exitosa: HTTP `202`.
+
+Campos principales:
+- `jobId`
+- `status`
+- `statusUrl`
+- `queueDepth`
 
 ### `GET /audit/jobs/{jobId}`
 
-Consulta el estado de una auditoría asíncrona.
+Consulta el estado de un job async.
 
-**Parámetros**:
-
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `jobId` | path | string | ✅ | ID del job asíncrono |
-
-**Respuesta exitosa** (`200`):
-```json
-{
-    "status": "success",
-    "message": "Estado del job de auditoría",
-    "data": {
-        "id": "a1b2c3d... ",
-        "status": "processing",
-        "createdAt": "2026-03-17T12:00:00+00:00",
-        "progress": {
-            "total": 50,
-            "processed": 10,
-            "succeeded": 8,
-            "failed": 2
-        }
-    }
-}
-```
-
----
+Validación:
+- `jobId`: hexadecimal de 32 a 64 caracteres
 
 ### `GET /audit/results`
 
-Devuelve los resultados persistidos de auditorías IA. Soporta filtros por cliente y fecha.
+Consulta auditorías persistidas con filtros y paginación.
 
-**Parámetros**:
+Parámetros opcionales:
+- `facNitSec`
+- `facNro`
+- `dateFrom`
+- `dateTo`
+- `page`
+- `pageSize`
 
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `facNitSec` | query | integer | ❌ | NitSec del cliente |
-| `date` | query | string | ❌ | Fecha (YYYY-MM-DD) |
+Respuesta:
 
-**Respuesta exitosa** (`200`):
 ```json
 {
-    "success": true,
-    "data": [
-        {
-            "FacNro": "U88260100225",
-            "Estado": "AUD",
-            "Resultado": "success",
-            "Severidad": "baja",
-            "RiskScore": 15,
-            "FechaAuditoria": "2026-02-27T02:00:21+00:00"
-        }
-    ]
+  "success": true,
+  "message": "Resultados de auditorías",
+  "data": {
+    "items": [],
+    "total": 0,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 0,
+    "filters": {}
+  }
 }
 ```
-
----
 
 ### `GET /audit/documents-history`
 
-Devuelve el historial detallado de documentos individuales auditados por Gemini IA integrando la vista de facturas. Este endpoint está alineado con `/audit/results`.
+Consulta historial documental auditado con paginación.
 
-**Parámetros**:
+Parámetros opcionales:
+- `facNitSec`
+- `facNro`
+- `page`
+- `pageSize`
 
-| Nombre | Ubicación | Tipo | Requerido | Descripción |
-|---|---|---|---|---|
-| `facNitSec` | query | integer | ❌ | NitSec del cliente |
-| `facNro` | query | string | ❌ | Número de factura (Dispensa) |
-| `page` | query | integer | ❌ | Número de página (Default: 1) |
-| `pageSize` | query | integer | ❌ | Tamaño de página (Default: 20, Max: 100) |
+Respuesta:
 
-**Respuesta exitosa** (`200`):
 ```json
 {
-    "success": true,
-    "message": "Historial de auditorías de documentos",
-    "data": {
-        "items": [
-            {
-                "NroFactura": "T38251201552",
-                "DispensacionID": "90648778",
-                "DetalleID": "555123",
-                "AdjuntoID": "1",
-                "NombreDocumento": "Fórmula",
-                "EstadoSoporte": "C",
-                "ObservacionRechazo": null,
-                "UsuarioAuditor": "Z-IA",
-                "FechaAuditoria": "2026-03-07T12:00:00.000",
-                "UsuarioRechazo": null
-            }
-        ],
-        "total": 150,
-        "page": 1,
-        "pageSize": 20,
-        "totalPages": 8,
-        "filters": {
-            "facNro": "T38251201552"
-        }
-    }
+  "success": true,
+  "message": "Historial de auditorías de documentos",
+  "data": {
+    "items": [],
+    "total": 0,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 0,
+    "filters": {}
+  }
 }
 ```
 
----
+## MCP
 
-## MCP (Model Context Protocol)
+### `POST /app/wrap/webhook.php`
 
-### `POST /wrap/webhook.php` (ruta directa, no pasa por Router)
+Webhook MCP autenticado por `X-API-KEY` contra `MCP_WEBHOOK_SECRET`.
 
-Endpoint MCP para asistentes de IA.
-
-**Request Body** (JSON-RPC 2.0):
-```json
-{
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-        "name": "get_clients",
-        "arguments": {}
-    },
-    "id": 1
-}
-```
-
-**Tools disponibles**:
-
-| Tool | Descripción | Argumentos |
-|---|---|---|
-| `get_clients` | Lista clientes activos | Ninguno |
-| `get_invoices` | Busca facturas | `{ facNitSec, date, limit? }` |
-| `get_dispensation` | Datos de dispensación | `{ DisDetNro }` |
-| `get_attachments` | Lista adjuntos | `{ invoiceId, nitSec }` |
-
-**Respuesta exitosa**:
-```json
-{
-    "jsonrpc": "2.0",
-    "result": {
-        "content": [{ "type": "text", "text": "..." }]
-    },
-    "id": 1
-}
-```
+Tools publicadas por `capabilities.php`:
+- `get_clients`
+- `get_invoices`
+- `get_dispensation`
+- `get_attachments`

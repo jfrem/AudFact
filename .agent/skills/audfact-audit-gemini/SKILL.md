@@ -20,12 +20,13 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | `app/Services/Audit/AuditResponseSchema.php` | Schema JSON esperado de Gemini |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado, sin disco), URL → Drive |
 | `app/Services/Audit/AuditResultValidator.php` | Valida que la respuesta cumpla el schema |
-| `app/Services/Audit/JsonResponseParser.php` | Extrae y repara JSON de la respuesta de Gemini |
+| `app/Services/Audit/JsonResponseParser.php` | Extrae y repara JSON de la respuesta de Gemini (integra `JsonRepairHelper`) |
+| `app/Services/Audit/JsonRepairHelper.php` | 🛠️ Helper de bajo nivel — repara llaves, corchetes, comas colgantes y strings truncados en respuestas crudas |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y backoff |
-| `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE baseline C + rechazo R individual) |
+| `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados con **Transacciones PDO**: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE) — revierte completo si algo falla |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
-| `app/Services/Audit/AuditQueueService.php` | Orquesta colas de auditoría Redis, encolamiento y estados (Jobs) |
+| `app/Services/Audit/AuditQueueService.php` | Orquesta colas de auditoría Redis, encolamiento y estados (Jobs) — Resiliente a reinicios (`NOSCRIPT` fallback) |
 | `app/Services/Audit/AuditOrchestratorFactory.php` | Patrón Factory para orquestar la construcción y reutilización de todos los servicios asociados a la IA de manera eficiente. |
 | `bin/audit-worker.php` | Consumidor CLI de cola Redis que orquesta las llamadas al pipeline AI de manera concurrente |
 | `app/Services/GoogleDriveAuthService.php` | JWT auth y streaming desde Google Drive |
@@ -45,7 +46,8 @@ AuditOrchestrator
 │   └── GoogleDriveAuthService (descarga)
 ├── AuditPromptBuilder (prompts)
 ├── GeminiGateway (HTTP → Gemini API)
-├── JsonResponseParser (parseo + reparación)
+├── JsonResponseParser (parseo)
+│   └── JsonRepairHelper (reparación de truncamientos)
 ├── AuditResultValidator (validación schema)
 ├── AuditPersistenceService (BD: AudDispEst + AdjuntosDispensacion)
 ├── AuditTelemetryService (métricas)
@@ -61,7 +63,7 @@ AuditOrchestrator
 3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
 4. Construir prompt → `AuditPromptBuilder` (v3.1 con Axiomas A1-A4 + iteración multi-medicamento).
 5. Enviar a Gemini → `GeminiGateway` (exponential backoff).
-6. Parsear respuesta → `JsonResponseParser`.
+6. Parsear respuesta → `JsonResponseParser` (aplica `JsonRepairHelper` automáticamente como fallback si el JSON está malformado/truncado).
 7. Validar schema → `AuditResultValidator`.
 8. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
 9. Registrar telemetría → `AuditTelemetryService`.
@@ -98,9 +100,10 @@ Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con p
 6. Evaluar hallazgos bajo el **Protocolo de 6 Dimensiones** (Identidad, Cuantitativa, Temporal, Descriptiva, Integridad, Forense).
 7. Inyección de dependencias: constructor acepta todas como parámetros opcionales.
 8. Resultados se persisten triple: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert) + BD adjuntos (`AdjuntosDispensacion` via `updateAuditResult` con estrategia baseline+rechazo individual).
+9. **Exclusión de Régimen**: Para clientes que no suministran datos fiables de régimen (ej. NitSec `1045`, `80455`, `2426`), `DispensationModel` inyecta `NULL` en la consulta, transformándose en `N/D` por el prompt builder. La IA **tiene estrictamente prohibido** reportar discrepancias si la Fuente de Verdad para `Cliente.Regimen` es `N/D` o `ARL`.
 
 ## Anti-patterns ⚠️
-1. **No truncar JSON manualmente** — `JsonResponseParser` incluye reparación automática.
+1. **No truncar JSON manualmente** — `JsonResponseParser` delega en `JsonRepairHelper` para reparación automática realista.
 2. **No omitir safety settings** — documentos médicos requieren `BLOCK_NONE`.
 3. **No ignorar HTTP 429** (quota) ni **503** (model unavailable) — el retry con backoff los maneja.
 4. **No hardcodear el modelo Gemini** — leer de `GEMINI_MODEL` env var.

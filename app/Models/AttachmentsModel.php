@@ -33,9 +33,9 @@ class AttachmentsModel extends Model
                 NitMedDocCodAlt AS [nombre_alternativo],
                 AdjDisDocUrl AS [almacenamiento_remoto],
                 CASE
-                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
                     WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
-                ELSE 'SIN_DOCUMENTOS'
+                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
+                    ELSE 'SIN_DOCUMENTOS'
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
@@ -78,9 +78,9 @@ class AttachmentsModel extends Model
                 NitMedDocCodAlt AS [nombre_alternativo],
                 AdjDisDocUrl AS [almacenamiento_remoto],
                 CASE
-                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
                     WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
-                ELSE 'SIN_DOCUMENTOS'
+                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
+                    ELSE 'SIN_DOCUMENTOS'
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
@@ -116,8 +116,8 @@ class AttachmentsModel extends Model
                     a.AdjDisNom,
                     a.AdjDisDocUrl,
                     CASE
-                        WHEN a.AdjDisDocUrl IS NOT NULL AND a.AdjDisDocUrl <> '' THEN 'URL'
-                        WHEN a.AdjDisDoc IS NOT NULL AND DATALENGTH(a.AdjDisDoc) > 0 THEN 'BLOB'
+                        WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
+                        WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
                         ELSE 'SIN_DOCUMENTOS'
                     END AS TipoAlmacenamiento,
                     DATALENGTH(a.AdjDisDoc) AS BlobSize

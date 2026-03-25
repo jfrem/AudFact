@@ -69,6 +69,47 @@ final class AuditControllerTest extends TestCase
         $this->assertSame('2426', $queueService->lastPayload['facNitSec']);
     }
 
+    public function testRunAcceptsFacNitSecAsInteger(): void
+    {
+        $controller = new TestableAuditController(
+            [
+                'facNitSec' => 2426,
+                'date' => '2025-07-01',
+                'dateTo' => '2025-07-30',
+                'limit' => 10,
+            ],
+            new FakeInvoicesModel()
+        );
+
+        $response = $this->captureHttpResponse(static fn() => $controller->run());
+
+        $this->assertSame(200, $response->getCode());
+        $this->assertTrue($response->getData()['success']);
+        $this->assertSame('No se encontraron facturas para los parámetros indicados.', $response->getData()['message']);
+    }
+
+    public function testAsyncAcceptsFacNitSecAsInteger(): void
+    {
+        $queueService = new FakeAuditQueueService('job-456');
+        $controller = new TestableAuditController(
+            [
+                'facNitSec' => 2426,
+                'date' => '2025-07-01',
+                'dateTo' => '2025-07-30',
+                'limit' => 10,
+            ],
+            new FakeInvoicesModel(),
+            $queueService
+        );
+
+        $response = $this->captureHttpResponse(static fn() => $controller->async());
+
+        $this->assertSame(202, $response->getCode());
+        $this->assertTrue($response->getData()['success']);
+        $this->assertSame('Auditoría encolada para procesamiento asíncrono', $response->getData()['message']);
+        $this->assertSame(2426, $queueService->lastPayload['facNitSec']);
+    }
+
     private function captureHttpResponse(callable $callback): HttpResponseException
     {
         try {

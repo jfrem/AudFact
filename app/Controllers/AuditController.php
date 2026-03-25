@@ -44,7 +44,7 @@ class AuditController extends Controller
         ini_set('memory_limit', '1024M');
 
         $data = $this->validate([
-            'facNitSec' => 'required|string|min:1|numeric',
+            'facNitSec' => 'required|integer|min_value:1',
             'date' => 'required|date',
             'dateTo' => 'optional|date',
             'limit' => "required|integer|min_value:1|max_value:{$batchMaxLimit}",
@@ -267,8 +267,6 @@ class AuditController extends Controller
     private function getIdempotentResult(string $facSec): ?array
     {
         $cacheTTL = (int) \Core\Env::get('AUDIT_CACHE_TTL', 86400);
-        // CRIT-01 FIX: Usar mismo key pattern que AuditPersistenceService::cacheAuditResult()
-        // RedisClient ya antepone REDIS_PREFIX internamente, no duplicar aquí
         $cacheKey = 'audit:result:' . $facSec;
 
         // Capa 1: Redis
@@ -373,7 +371,7 @@ class AuditController extends Controller
         $batchMaxLimit = (int) \Core\Env::get('AUDIT_BATCH_MAX_LIMIT', 100);
 
         $data = $this->validate([
-            'facNitSec' => 'required|string|min:1|numeric',
+            'facNitSec' => 'required|integer|min_value:1',
             'date' => 'required|date',
             'dateTo' => 'optional|date',
             'limit' => "required|integer|min_value:1|max_value:{$batchMaxLimit}",

@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega) contra datos de dispensación almacenados en SQL Server, utilizando **Google Gemini Flash** como motor de análisis multimodal (IA + OCR).
+Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega) contra datos de dispensación almacenados en SQL Server, utilizando **Google Gemini API** como motor de análisis multimodal (IA + OCR), con modelo configurable desde entorno.
 
 ## Alcance
 
@@ -18,11 +18,11 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 |---|---|
 | **Backend** | PHP 8.2-FPM — Framework MVC custom |
 | **Base de datos** | SQL Server (PDO `sqlsrv`) |
-| **IA** | Google Gemini Flash API (Guzzle HTTP) |
+| **IA** | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | **Almacenamiento** | Google Drive (JWT) + BLOB en BD |
 | **Web Server** | Nginx 1.25 → PHP-FPM (FastCGI `:9000`) |
-| **Contenedores** | Docker Compose (2 servicios: `audfact-php` + `audfact-nginx`) |
-| **Frontend** | HTML estático + JS (`AuditBatch.html`, `admin.html`) |
+| **Contenedores** | Docker Compose (backend, worker, redis y frontend en compose separado) |
+| **Frontend** | Next.js 16 (App Router) + React 19 |
 | **Dependencias** | Guzzle 7.x, firebase/php-jwt 7.x |
 
 ## Directorios Clave
@@ -30,14 +30,15 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 ```
 AudFact/
 ├── app/
-│   ├── Controllers/       # 7 controladores REST
-│   ├── Models/            # 5 modelos SQL Server
-│   ├── Services/          # Google Drive + 6 servicios de auditoría IA
-│   ├── worker/            # GeminiAuditService (orquestador)
-│   ├── Routes/            # web.php (12 endpoints)
+│   ├── Controllers/       # 8 controladores HTTP (incluye base)
+│   ├── Models/            # 6 modelos SQL Server (incluye base)
+│   ├── Services/          # Google Drive + 11 servicios de auditoría IA + prompts
+│   ├── Routes/            # web.php (17 endpoints)
 │   └── wrap/              # MCP (webhook + 4 tools)
+├── frontend/              # Frontend Next.js
+├── bin/                   # Worker CLI (audit-worker.php)
 ├── core/                  # 9 módulos framework (Router, DB, Validator...)
-├── public/                # index.php (entry point) + frontend HTML
+├── public/                # index.php (entry point API)
 ├── docker/                # Dockerfile + nginx.conf
 ├── logs/                  # Logs rotados por fecha
 └── plans/                 # Documentación del proyecto
@@ -62,16 +63,23 @@ cp .env.example .env
 # 2. Instalar dependencias
 composer install
 
-# 3. Levantar con Docker
-docker-compose up -d
+# 3. Levantar backend con Docker
+docker compose up -d
+
+# 4. Levantar frontend
+docker compose -f docker-compose.frontend.yml up -d
 ```
 
 ### Ejecución Local
 
 ```bash
-# Con Docker (recomendado)
-docker-compose up -d
+# Con Docker (backend)
+docker compose up -d
 # API disponible en http://localhost:8080
+
+# Frontend
+docker compose -f docker-compose.frontend.yml up -d
+# Frontend disponible en http://localhost:3000
 
 # Sin Docker (desarrollo)
 php -S localhost:8000 -t public/

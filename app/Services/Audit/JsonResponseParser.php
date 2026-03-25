@@ -20,8 +20,15 @@ class JsonResponseParser
 
         // 2. Extraer el primer objeto JSON balanceando llaves.
         $jsonString = $this->extractFirstJsonObject($normalized);
+
+        // 2b. Fallback: si no se encontró un objeto JSON balanceado,
+        //     intentar reparar el JSON truncado antes de rendirse.
         if ($jsonString === null) {
-            return null;
+            $repaired = (new JsonRepairHelper())->repair($normalized);
+            $jsonString = $this->extractFirstJsonObject($repaired);
+            if ($jsonString === null) {
+                return null;
+            }
         }
 
         // 3. Limpieza simple de comas finales (común en LLMs).

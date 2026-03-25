@@ -45,7 +45,7 @@
 | Término | Significado |
 |---|---|
 | **Auditoría batch** | Proceso que analiza múltiples facturas en una sola solicitud |
-| **GeminiAuditService** | Servicio PHP que orquesta la comunicación con Google Gemini API |
+| **AuditOrchestrator** | Servicio PHP que orquesta la comunicación con Google Gemini API y coordina el pipeline de auditoría |
 | **AuditPromptBuilder** | Clase que construye los prompts y schemas para la API de Gemini |
 | **JsonResponseParser** | Parsea las respuestas JSON de Gemini (pueden venir malformadas) |
 | **JsonRepairHelper** | Intenta reparar JSON truncado o malformado de Gemini |

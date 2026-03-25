@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit;
 
 use Core\Env;
+use Core\Logger;
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
 use App\Models\DispensationModel;
@@ -62,6 +63,11 @@ class AuditOrchestratorFactory
         $topK = Env::get('GEMINI_TOP_K');
         $thinkingBudget = Env::get('GEMINI_THINKING_BUDGET');
         $seed = Env::get('GEMINI_SEED');
+
+        // Alerta de determinismo: sin seed, el modelo no intenta reproducibilidad
+        if ($seed === null || $seed === '') {
+            Logger::warning('GEMINI_SEED no configurada — el pipeline de auditoría opera SIN reproducibilidad. Configurar GEMINI_SEED=42 en .env para determinismo.');
+        }
 
         $gateway = new GeminiGateway(
             $httpClient,

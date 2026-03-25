@@ -3,6 +3,7 @@
 namespace App\Services\Audit;
 
 use App\Models\AuditStatusModel;
+use Core\Database;
 use Core\Logger;
 use Core\RedisClient;
 
@@ -66,6 +67,7 @@ class AuditPersistenceService
      */
     public function saveToDatabase(string $disDetNro, array $result, ?array $dispensation = null): bool
     {
+        $writeDb = null;
         try {
             $master = (isset($dispensation[0]) && is_array($dispensation[0])) ? $dispensation[0] : ($dispensation ?: []);
 
@@ -117,16 +119,17 @@ class AuditPersistenceService
                 'DocumentoFallido' => $failedDoc ? substr((string) $failedDoc, 0, 255) : null,
             ];
 
+            // ── Transacción atómica: upsert + actualización de adjuntos ──
+            // Previene corrupción silenciosa si la conexión cae entre upsert y update.
+            $writeDb = Database::getConnection('default');
+            $writeDb->beginTransaction();
+
             Logger::info('Persistiendo auditoría en BD', ['FacSec' => $disDetNro, 'EstAud' => $data['EstAud']]);
             $affected = $this->auditStatusModel->upsertAuditResult($data);
             if ($affected === false) {
+                $writeDb->rollBack();
                 Logger::error('Fallo en upsertAuditResult: no se pudo guardar registro auditado', ['FacSec' => $data['FacSec']]);
                 return false;
-            }
-
-            // Fase 1.2: Cachear resultado exitoso en Redis para idempotencia
-            if ($isProcessed && (int) $data['EstAud'] === 1) {
-                $this->cacheAuditResult($data['FacSec'], $result);
             }
 
             // Actualizar resultado en AdjuntosDispensacion excepto errores de infraestructura
@@ -139,8 +142,18 @@ class AuditPersistenceService
                 ]);
             }
 
+            $writeDb->commit();
+
+            // Cachear en Redis DESPUÉS del commit exitoso (fuera de transacción SQL)
+            if ($isProcessed && (int) $data['EstAud'] === 1) {
+                $this->cacheAuditResult($data['FacSec'], $result);
+            }
+
             return true;
         } catch (\Exception $e) {
+            if ($writeDb !== null && $writeDb->inTransaction()) {
+                $writeDb->rollBack();
+            }
             Logger::error('Error persistiendo auditoría en BD', [
                 'DisDetNro' => $disDetNro,
                 'error' => $e->getMessage(),

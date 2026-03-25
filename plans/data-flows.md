@@ -55,7 +55,7 @@ Pipeline completo de auditoría: recibe lote de facturas, obtiene datos de dispe
 sequenceDiagram
     participant U as Frontend
     participant AC as AuditController
-    participant GAS as GeminiAuditService
+    participant AO as AuditOrchestrator
     participant DM as DispensationModel
     participant AM as AttachmentsModel
     participant AFM as AuditFileManager
@@ -70,16 +70,16 @@ sequenceDiagram
     AC->>AC: Validar input
 
     loop Para cada factura
-        AC->>GAS: auditInvoice(invoice)
-        GAS->>DM: getDispensationData(DisDetNro)
+        AC->>AO: auditInvoice(invoice)
+        AO->>DM: getDispensationData(DisDetNro)
         DM->>DB: SELECT FROM vw_discolnet_dispensas
         DB-->>DM: Datos de dispensación
 
-        GAS->>AM: getAttachmentsByInvoiceId(invoiceId, nitSec)
+        AO->>AM: getAttachmentsByInvoiceId(invoiceId, nitSec)
         AM->>DB: SELECT FROM AdjuntosDispensacion...
         DB-->>AM: Lista de adjuntos
 
-        GAS->>AFM: resolveFiles(attachments)
+        AO->>AFM: resolveFiles(attachments)
         alt TipoAlmacenamiento = URL
             AFM->>GD: Download via JWT
             GD-->>AFM: Binary (temp file)
@@ -90,20 +90,20 @@ sequenceDiagram
             AFM->>AFM: base64(memory)
         end
 
-        GAS->>APB: buildPrompt(dispensationData, files)
-        APB-->>GAS: Prompt estructurado
+        AO->>APB: buildPrompt(dispensationData, files)
+        APB-->>AO: Prompt estructurado
 
-        GAS->>G: POST generateContent (prompt + archivos)
-        G-->>GAS: Respuesta JSON (puede estar truncada)
+        AO->>G: POST generateContent (prompt + archivos)
+        G-->>AO: Respuesta JSON (puede estar truncada)
 
-        GAS->>JRP: parse(rawResponse)
+        AO->>JRP: parse(rawResponse)
         JRP->>JRP: repair() si JSON malformado
-        JRP-->>GAS: Resultado parseado
+        JRP-->>AO: Resultado parseado
 
-        GAS->>ARV: validate(result, schema)
-        ARV-->>GAS: ValidationResult
+        AO->>ARV: validate(result, schema)
+        ARV-->>AO: ValidationResult
 
-        GAS-->>AC: AuditResult por factura
+        AO-->>AC: AuditResult por factura
     end
 
     AC-->>U: 200 JSON {results: [...]}
@@ -157,15 +157,15 @@ sequenceDiagram
     participant U as Frontend (Punto Disp.)
     participant N as Nginx Load Balancer
     participant P as PHP-FPM Réplica (1..N)
-    participant GAS as GeminiAuditService
+    participant AO as AuditOrchestrator
     participant G as Gemini Flash API
 
     U->>N: POST /audit/single {FacNro}
     N->>P: Balanceo (least_conn)
-    P->>GAS: auditInvoice(FacNro)
-    GAS->>G: generateContent()
-    G-->>GAS: JSON
-    GAS-->>P: AuditResult
+    P->>AO: auditInvoice(DisDetNro)
+    AO->>G: generateContent()
+    G-->>AO: JSON
+    AO-->>P: AuditResult
     P-->>N: 200 JSON
     N-->>U: Respuesta Síncrona
 ```

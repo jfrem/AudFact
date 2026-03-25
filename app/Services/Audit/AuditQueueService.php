@@ -191,9 +191,27 @@ LUA;
             // Job no existe en Redis
             return false;
         } catch (\Exception $e) {
-            // REDIS-002: No degradar a fallback no-atómico (race condition).
-            // Propagar excepción para que el worker la maneje explícitamente.
-            Logger::error('AuditQueueService: eval Lua falló — sin fallback (REDIS-002)', [
+            // REDIS-002 + NOSCRIPT resilience:
+            // Si Redis se reinició, los scripts Lua cacheados se borran.
+            // Detectar NOSCRIPT y reintentar con EVAL directo (re-carga automática).
+            if (stripos($e->getMessage(), 'NOSCRIPT') !== false) {
+                Logger::warning('AuditQueueService: NOSCRIPT detectado — reintentando con EVAL directo', [
+                    'jobId' => $jobId,
+                ]);
+                try {
+                    $retryResult = $this->redis->eval($lua, [$key], [$patch, $ttl]);
+                    return $retryResult === 1;
+                } catch (\Exception $retryEx) {
+                    Logger::error('AuditQueueService: retry post-NOSCRIPT también falló', [
+                        'jobId' => $jobId,
+                        'error' => $retryEx->getMessage(),
+                    ]);
+                    throw $retryEx;
+                }
+            }
+
+            // Error no-NOSCRIPT: propagar sin fallback no-atómico (REDIS-002).
+            Logger::error('AuditQueueService: eval Lua falló (no es NOSCRIPT)', [
                 'jobId' => $jobId,
                 'error' => $e->getMessage(),
             ]);

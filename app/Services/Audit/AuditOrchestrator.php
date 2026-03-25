@@ -159,18 +159,8 @@ class AuditOrchestrator
     {
         $systemInstruction = $this->promptBuilder->getSystemInstruction($dispensationData);
 
-        // P3.2: Hash de trazabilidad del prompt (primeros 12 chars para log)
-        $promptHash = hash('sha256', $systemInstruction);
-        Logger::info('Prompt hash generado', [
-            'promptHash' => substr($promptHash, 0, 12),
-        ]);
-
         // P3.1: Thinking budget dinámico según complejidad
         $complexity = $this->promptBuilder->estimateComplexity($dispensationData);
-        Logger::info('Complejidad estimada', [
-            'level' => $complexity['level'],
-            'thinkingBudget' => $complexity['thinkingBudget'],
-        ]);
 
         $multiDocInstruction = '';
         $fileCount = count($files);
@@ -188,6 +178,22 @@ class AuditOrchestrator
             );
         }
 
+        // Construir pdfList y userPrompt base antes del loop para hash compuesto
+        $pdfList = array_values(array_unique(array_map(fn($f) => $f['label'] ?? 'Documento Adjunto', $files)));
+        $baseUserPrompt = $this->promptBuilder->buildUserPrompt($dispensationData, $pdfList);
+
+        // P3.2: Hash compuesto de trazabilidad (system + user prompt)
+        // Permite detectar si el payload completo a Gemini es idéntico entre llamadas
+        $promptHash = hash('sha256', $systemInstruction . '||' . $baseUserPrompt);
+
+        Logger::info('Auditoría: fingerprint del prompt', [
+            'promptHash' => substr($promptHash, 0, 12),
+            'complexity' => $complexity['level'],
+            'thinkingBudget' => $complexity['thinkingBudget'],
+            'fileCount' => $fileCount,
+            'docLabels' => $pdfList,
+        ]);
+
         $attempts = [
             [
                 'overrides' => ['thinkingBudget' => $complexity['thinkingBudget']],
@@ -203,10 +209,9 @@ class AuditOrchestrator
         ];
 
         $lastError = self::ERROR_INVALID_RESPONSE;
-        $pdfList = array_values(array_unique(array_map(fn($f) => $f['label'] ?? 'Documento Adjunto', $files)));
 
         foreach ($attempts as $index => $cfg) {
-            $prompt = $this->promptBuilder->buildUserPrompt($dispensationData, $pdfList);
+            $prompt = $baseUserPrompt;
             if ($cfg['extraInstruction'] !== '') {
                 $prompt .= "\n" . $cfg['extraInstruction'];
             }

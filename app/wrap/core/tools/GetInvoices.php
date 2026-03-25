@@ -20,7 +20,7 @@ class GetInvoices
 
         $query = [
             'facNitSec' => $facNitSec,
-            'date' => $date
+            'dateFrom' => $date
         ];
         if ($limit !== null) {
             $query['limit'] = $limit;

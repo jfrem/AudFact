@@ -170,7 +170,7 @@ exec docker-php-entrypoint php-fpm
 
 ### 4.1 Retry con Exponential Backoff (Gemini API)
 
-Implementado en [GeminiAuditService.php](file:///c:/Users/USER/Desktop/AudFact/app/worker/GeminiAuditService.php#L395-L454):
+Implementado actualmente en `app/Services/Audit/GeminiGateway.php`:
 
 ```
 Intento 1 → fallo retryable → espera 1s
@@ -186,7 +186,7 @@ Intento 3 → fallo → throw RuntimeException
 
 ### 4.2 Flujo "Estricto" (2 estrategias)
 
-El método [executeAuditFlow](file:///c:/Users/USER/Desktop/AudFact/app/worker/GeminiAuditService.php#L276-L368) ejecuta **2 intentos con estrategias distintas**:
+El flujo actual del pipeline ejecutado por `AuditOrchestrator` y `GeminiGateway` contempla reintentos y endurecimiento de estrategia cuando la respuesta no cumple el contrato esperado:
 
 1. **Normal**: Parámetros estándar del `.env`
 2. **Estricto**: `temperature=0`, output limitado a 20 items con detalle ≤200 chars

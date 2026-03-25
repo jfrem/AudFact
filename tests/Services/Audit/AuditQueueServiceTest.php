@@ -45,10 +45,10 @@ class AuditQueueServiceTest extends TestCase
         $this->mockRedis
             ->expects($this->once())
             ->method('eval')
-            ->willThrowException(new \RuntimeException('NOSCRIPT No matching script'));
+            ->willThrowException(new \RuntimeException('GENERAL ERROR'));
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('NOSCRIPT');
+        $this->expectExceptionMessage('GENERAL ERROR');
 
         $this->service->updateJob('job-123', 'processing', ['processed' => 1]);
     }
@@ -118,5 +118,44 @@ class AuditQueueServiceTest extends TestCase
 
         $result = $this->service->getJobStatus('nonexistent');
         $this->assertNull($result);
+    }
+
+    // ── NOSCRIPT resilience: auto-recuperación tras reinicio de Redis ──
+
+    public function testUpdateJobRecoverFromNoscriptOnRetry(): void
+    {
+        $this->mockRedis
+            ->method('isAvailable')
+            ->willReturn(true);
+
+        // Primera llamada: falla con NOSCRIPT (Redis reiniciado)
+        // Segunda llamada (retry): éxito
+        $this->mockRedis
+            ->expects($this->exactly(2))
+            ->method('eval')
+            ->willReturnOnConsecutiveCalls(
+                $this->throwException(new \RuntimeException('NOSCRIPT No matching script')),
+                1
+            );
+
+        $result = $this->service->updateJob('job-789', 'completed', ['processed' => 5]);
+        $this->assertTrue($result, 'Debe recuperarse automáticamente de NOSCRIPT en el retry');
+    }
+
+    public function testUpdateJobPropagatesNonNoscriptExceptions(): void
+    {
+        $this->mockRedis
+            ->method('isAvailable')
+            ->willReturn(true);
+
+        $this->mockRedis
+            ->expects($this->once())
+            ->method('eval')
+            ->willThrowException(new \RuntimeException('ERR unknown command'));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('ERR unknown command');
+
+        $this->service->updateJob('job-999', 'processing');
     }
 }

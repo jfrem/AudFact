@@ -1,6 +1,6 @@
 # AudFact — Sistema de Auditoría Documental Automatizada
 
-Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, utilizando **Google Gemini Flash** como motor de análisis multimodal (IA + OCR).
+Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, utilizando **Google Gemini API** como motor de análisis multimodal (IA + OCR) con modelo configurable por entorno.
 
 ## Stack Tecnológico.
 
@@ -8,7 +8,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 |---|---|
 | Backend | PHP 8.2-FPM — Framework MVC custom |
 | Base de datos | SQL Server (PDO `sqlsrv`) |
-| IA | Google Gemini Flash API |
+| IA | Google Gemini API (`GEMINI_MODEL`) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 → PHP-FPM |
 | Contenedores | Docker Compose |
@@ -21,9 +21,9 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 AudFact/
 ├── frontend/              # Frontend SPA en Next.js (App Router)
 ├── app/
-│   ├── Controllers/       # 8 controladores REST
-│   ├── Models/            # 6 modelos SQL Server
-│   ├── Services/          # Google Drive + 11 servicios de auditoría IA
+│   ├── Controllers/       # 8 controladores HTTP (incluye base)
+│   ├── Models/            # 6 modelos SQL Server (incluye base)
+│   ├── Services/          # Google Drive + 11 servicios de auditoría IA + prompts
 │   ├── Services/Audit/    # AuditOrchestrator (orquestador IA)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
@@ -63,8 +63,11 @@ cp .env.example .env
 # 2. Instalar dependencias
 composer install
 
-# 3. Levantar con Docker
-docker-compose up -d
+# 3. Levantar backend con Docker
+docker compose up -d
+
+# 4. Levantar frontend
+docker compose -f docker-compose.frontend.yml up -d
 ```
 
 ### Variables de Entorno
@@ -106,15 +109,18 @@ Base URL: `http://localhost:8080`
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `GET` | `/` | Health check |
+| `GET` | `/` | Estado base del API |
 | `GET` | `/health` | Estado de salud del backend |
+| `GET` | `/config/public` | Configuración pública del frontend |
 | `GET` | `/clients` | Listar clientes |
 | `GET` | `/clients/{clientId}` | Obtener cliente |
+| `POST` | `/clients` | Buscar cliente por `clientId` |
 | `GET` | `/invoices` | Buscar facturas |
 | `POST` | `/invoices` | Buscar facturas por body JSON |
 | `GET` | `/dispensation/{DisDetNro}` | Datos de dispensación |
 | `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | Listar adjuntos |
 | `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
+| `POST` | `/dispensation` | Buscar dispensación por body JSON |
 | `POST` | `/audit` | Auditoría en lote |
 | `POST` | `/audit/single` | Auditoría individual |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona |

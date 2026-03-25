@@ -31,12 +31,12 @@ final class InvoicesControllerTest extends TestCase
     {
         $_GET = [
             'facNitSec' => '2426',
-            'date' => '2025-07-01',
+            'dateFrom' => '2025-07-01',
             'dateTo' => '2025-07-30',
             'limit' => '900',
         ];
 
-        $model = new FakeInvoicesModel();
+        $model = new InvoicesControllerFakeModel();
         $model->returnValue = [['FacSec' => '87172329', 'Dispensa' => 'X24250700021']];
         $controller = new TestableInvoicesController($model);
 
@@ -52,26 +52,26 @@ final class InvoicesControllerTest extends TestCase
     {
         $_GET = [
             'facNitSec' => '2426',
-            'date' => '2025-07-30',
+            'dateFrom' => '2025-07-30',
             'dateTo' => '2025-07-01',
             'limit' => '10',
         ];
 
-        $controller = new TestableInvoicesController(new FakeInvoicesModel());
+        $controller = new TestableInvoicesController(new InvoicesControllerFakeModel());
 
         $response = $this->captureHttpResponse(static fn() => $controller->index());
 
         $this->assertSame(422, $response->getCode());
         $this->assertFalse($response->getData()['success']);
-        $this->assertSame('date no puede ser mayor que dateTo', $response->getData()['message']);
+        $this->assertSame('dateFrom no puede ser mayor que dateTo', $response->getData()['message']);
     }
 
     public function testSearchOmitsMissingDateToAsNull(): void
     {
-        $model = new FakeInvoicesModel();
+        $model = new InvoicesControllerFakeModel();
         $controller = new TestableInvoicesController($model, [
             'facNitSec' => 2426,
-            'date' => '2025-07-01',
+            'dateFrom' => '2025-07-01',
             'limit' => 100,
         ]);
 
@@ -96,7 +96,7 @@ final class InvoicesControllerTest extends TestCase
 
 final class TestableInvoicesController extends InvoicesController
 {
-    public function __construct(private readonly FakeInvoicesModel $fakeModel, private array $body = [])
+    public function __construct(private readonly InvoicesControllerFakeModel $fakeModel, private array $body = [])
     {
         $this->model = $this->fakeModel;
     }
@@ -107,7 +107,7 @@ final class TestableInvoicesController extends InvoicesController
     }
 }
 
-final class FakeInvoicesModel
+final class InvoicesControllerFakeModel
 {
     public array $returnValue = [];
     public array $lastCall = [];

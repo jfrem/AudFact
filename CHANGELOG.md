@@ -1,3 +1,11 @@
+## [2026-03-20]
+
+### fix
+- **Ámbito**: Tolerancia de tipo para `facNitSec` en auditoría batch.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `frontend/src/app/audit/batch/page.tsx`, `tests/Controllers/AuditControllerTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: rechazo de `POST /audit` cuando el frontend enviaba `facNitSec` como número JSON
+  - Impacto: `POST /audit` y `POST /audit/async` ahora aceptan `facNitSec` como entero o texto numérico, mientras el frontend normaliza el payload a cadena antes de enviarlo.
+
 ## [2026-03-19]
 
 ### fix

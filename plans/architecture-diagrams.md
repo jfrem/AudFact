@@ -6,13 +6,13 @@
 C4Context
     title AudFact — Contexto del Sistema
 
-    Person(auditor, "Auditor / Frontend", "Interactúa vía AuditBatch.html o admin.html")
+    Person(auditor, "Auditor / Frontend", "Interactúa vía frontend Next.js")
     Person(aiAssistant, "Asistente IA", "Interactúa vía protocolo MCP")
 
     System(audfact, "AudFact", "Sistema de auditoría documental automatizada para el sector salud")
 
     System_Ext(sqlserver, "SQL Server", "Base de datos de dispensación farmacéutica")
-    System_Ext(gemini, "Google Gemini Flash API", "Motor de análisis multimodal IA + OCR")
+    System_Ext(gemini, "Google Gemini API", "Motor de análisis multimodal IA + OCR con modelo configurable")
     System_Ext(gdrive, "Google Drive", "Almacenamiento de documentos escaneados")
 
     Rel(auditor, audfact, "Solicita auditorías", "HTTPS/REST")
@@ -61,9 +61,9 @@ C4Component
     Container_Boundary(phpfpm, "PHP 8.2-FPM (Pool N Replicas + static)") {
         Component(router, "Router + Route", "core/", "Despacho de rutas HTTP con middleware pipeline")
         Component(middleware, "Middleware Pipeline", "core/", "Rate limit, CORS, validación")
-        Component(controllers, "Controllers", "app/Controllers/", "7 controladores REST: Health, Clients, Invoices, Attachments, Dispensation, Audit")
-        Component(models, "Models", "app/Models/", "5 modelos PDO: Clients, Invoices, Attachments, Dispensation + Base")
-        Component(auditWorker, "GeminiAuditService", "app/worker/", "Orquestador del pipeline de auditoría IA")
+        Component(controllers, "Controllers", "app/Controllers/", "8 controladores HTTP: base, health, config, clients, invoices, attachments, dispensation, audit")
+        Component(models, "Models", "app/Models/", "6 modelos PDO: base, clients, invoices, attachments, dispensation, audit status")
+        Component(auditWorker, "AuditOrchestrator", "app/Services/Audit/", "Orquestador del pipeline de auditoría IA")
         Component(auditServices, "Audit Services", "app/Services/Audit/", "FileManager, PromptBuilder, ResponseSchema, ResultValidator, JsonRepair, JsonParser")
         Component(driveService, "GoogleDriveAuthService", "app/Services/", "Autenticación JWT + streaming de archivos")
         Component(mcpServer, "MCP Server", "app/wrap/", "Servidor JSON-RPC con 4 tools")
@@ -100,7 +100,7 @@ classDiagram
         -validateBatchInput(data) array
     }
 
-    class GeminiAuditService {
+    class AuditOrchestrator {
         -fileManager: AuditFileManager
         -promptBuilder: AuditPromptBuilder
         -responseSchema: AuditResponseSchema
@@ -140,11 +140,11 @@ classDiagram
         +fixTruncation(json) string
     }
 
-    AuditController --> GeminiAuditService : invoca
-    GeminiAuditService --> AuditFileManager : resuelve archivos
-    GeminiAuditService --> AuditPromptBuilder : construye prompt
-    GeminiAuditService --> AuditResponseSchema : define schema
-    GeminiAuditService --> AuditResultValidator : valida resultado
-    GeminiAuditService --> JsonResponseParser : parsea respuesta
+    AuditController --> AuditOrchestrator : invoca
+    AuditOrchestrator --> AuditFileManager : resuelve archivos
+    AuditOrchestrator --> AuditPromptBuilder : construye prompt
+    AuditOrchestrator --> AuditResponseSchema : define schema
+    AuditOrchestrator --> AuditResultValidator : valida resultado
+    AuditOrchestrator --> JsonResponseParser : parsea respuesta
     JsonResponseParser --> JsonRepairHelper : repara JSON
 ```
