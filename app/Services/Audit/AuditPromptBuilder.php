@@ -195,6 +195,13 @@ XML;
       | FechaNacimiento | VALIDADOR_DE_DERECHOS | FORMULA_MEDICA, AUTORIZACION_DE_SERVICIOS |
       | DocumentoMedico, TipoDocumentoMedico, Medico | FORMULA_MEDICA | — |
       | CodigoDiagnostico | FORMULA_MEDICA | AUTORIZACION_DE_SERVICIOS, ACTA_DE_ENTREGA |
+
+      REGLA DE DIAGNÓSTICO (CodigoDiagnostico):
+      [ ] Comparar ÚNICAMENTE contra el campo "Diagnóstico:" o "Diagnóstico Principal:" del autoritativo (FORMULA_MEDICA).
+      [ ] Los diagnósticos "relacionados", "secundarios" o "asociados" en AUTORIZACION_DE_SERVICIOS NO son el diagnóstico principal.
+      [ ] Si FORMULA_MEDICA tiene un código CIE-10 distinto al de la FdV ({$codigoDx}), reportar VALOR_DISTINTO · alta.
+      [ ] NO buscar el código de la FdV en otros campos del documento alternativo para justificar COINCIDE.
+
       | NumeroAutorizacion, FechaAutorizacion | AUTORIZACION_DE_SERVICIOS | ACTA_DE_ENTREGA |
       | CodigoArticulo, CodigoProducto, NombreArticulo | ACTA_DE_ENTREGA | FORMULA_MEDICA |
       | Laboratorio, CUM, Lote, FechaVencimiento | ACTA_DE_ENTREGA | — |
@@ -394,6 +401,7 @@ XML;
         [ ] ¿Hay un texto que describa la entrega ("entregado a satisfacción" + datos)? → Si SÍ → ELIMINAR.
         Solo mantener el hallazgo si TODAS las anteriores son negativas (zona vacía total).
       16. ZERO-INFERENCE: ¿Se utilizó algún dato demográfico del paciente (nombre, régimen, tipo de documento) para contextualizar o personalizar la evaluación en lugar de solo comparar valores? Si es así → ELIMINAR cualquier hallazgo influenciado por inferencia demográfica.
+      17. DIAGNÓSTICO PRINCIPAL: ¿Se comparó CodigoDiagnostico ({$codigoDx}) contra el diagnóstico PRINCIPAL de FORMULA_MEDICA? [ ] ¿Se ignoraron diagnósticos secundarios/relacionados de AUTORIZACION_DE_SERVICIOS? [ ] Si el código en FORMULA_MEDICA difiere de {$codigoDx}, ¿se reportó como VALOR_DISTINTO · alta?
       </self_audit>
 
       <output_format>
@@ -530,7 +538,7 @@ XML;
     }
 
     // Caso simple: 1 línea, POS/PBS
-    return ['level' => 'simple', 'thinkingBudget' => 1024];
+    return ['level' => 'simple', 'thinkingBudget' => 2048];
   }
 
   /**

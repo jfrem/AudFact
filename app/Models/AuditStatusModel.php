@@ -280,10 +280,10 @@ class AuditStatusModel extends Model
 
             $disId = $dispensacion['DisId'];
             $disDetId = $dispensacion['DisDetId'];
-            $adjDisId = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
+            $adjuntos = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
 
             if ($approved) {
-                // 2a. APROBADA: actualizar TODOS los adjuntos de la dispensación
+                // 2a. APROBADA: actualizar TODOS los adjuntos de la dispensación explícitamente por AdjDisId
                 $sql = "UPDATE AdjuntosDispensacion SET
                             AdjDisObsRec  = NULL,
                             RecConSopCod  = NULL,
@@ -296,21 +296,25 @@ class AuditStatusModel extends Model
                         WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
 
                 $stmt = $writeDb->prepare($sql);
-                $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
-                $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                $stmt->execute();
+                $rowsAffected = 0;
+
+                foreach ($adjuntos as $adjunto) {
+                    $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
+                    $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
+                    $stmt->bindValue(':adjDisId', $adjunto['AdjDisId'], PDO::PARAM_INT);
+                    $stmt->execute();
+                    $rowsAffected += $stmt->rowCount();
+                }
 
                 Logger::info('updateAuditResult: todos los adjuntos aprobados', [
                     'DisId' => $disId,
                     'DisDetId' => $disDetId,
                     'FacNro' => $facNro,
-                    'rowsAffected' => $stmt->rowCount(),
+                    'rowsAffected' => $rowsAffected,
                 ]);
             } else {
                 // 2b. RECHAZADA: resolver AdjDisId por nombre (exacto -> normalizado -> alias)
                 if ($documentoFallido !== null) {
-                    $adjuntos = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
                     $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentoFallido);
 
                     if ($match === null) {

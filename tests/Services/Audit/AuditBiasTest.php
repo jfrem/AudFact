@@ -30,7 +30,7 @@ class AuditBiasTest extends TestCase
         $result = $this->builder->estimateComplexity($data);
 
         $this->assertSame('simple', $result['level']);
-        $this->assertSame(1024, $result['thinkingBudget']);
+        $this->assertSame(2048, $result['thinkingBudget']);
     }
 
     public function testNormalComplexityForMIPRES(): void

@@ -152,6 +152,7 @@ public function countItems(array $filters = []): int
 4. **No ignorar `TrustServerCertificate=yes`** — requerido para SQL Server con certificados auto-firmados.
 5. **No dejar conexiones abiertas innecesariamente** — el Singleton las cache pero `closeConnection()` existe.
 6. **No hardcodear valores de filtros** — usar siempre el array `$filters` inyectado desde el controlador.
+7. **No bindear arrays directamente a parámetros PDO** — El driver SQLSRV lo interpreta como *Table-Valued Parameter* y lanza error `SQLSTATE[IMSSP]`. Itera el array y mapea variables escalares con `bindValue`.
 
 ## Cross-references
 - **`audfact-audit-gemini`**: `DispensationModel` y `AttachmentsModel` son consumidos por el Worker.
