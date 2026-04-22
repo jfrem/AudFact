@@ -522,7 +522,6 @@ class RuleEngine
                 return null;
             }
 
-            // Si todos los valores son idénticos, devolver uno solo
             $unique = array_unique($values);
             if (count($unique) === 1) {
                 return $unique[0];
@@ -541,12 +540,10 @@ class RuleEngine
 
     private function extractRowValue(array $row, string $field, ?string $column): ?string
     {
-        // Buscar por nombre directo del campo
         if (isset($row[$field]) && $this->isNonEmpty($row[$field])) {
             return (string) $row[$field];
         }
 
-        // Buscar por mapeo de columna SQL
         if ($column !== null && $column !== $field && isset($row[$column]) && $this->isNonEmpty($row[$column])) {
             return (string) $row[$column];
         }
