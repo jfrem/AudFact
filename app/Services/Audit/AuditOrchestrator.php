@@ -340,49 +340,9 @@ class AuditOrchestrator
 
     private function resolveFdvValue(string $field, array $data): ?string
     {
-        // Mapeo: FieldClassifier → SQL column alias (sincronizado con RuleEngine::getFdvValue)
-        static $fieldToColumn = [
-            'NumeroFactura'        => 'NumeroFactura',
-            'NumeroFormula'        => 'NumeroFormula',
-            'Autorizacion'         => 'NumeroAutorizacion',
-            'TipoIdentificacion'   => 'TipoDocumentoPaciente',
-            'NumeroIdentificacion' => 'DocumentoPaciente',
-            'FechaFormula'         => 'FechaFormula',
-            'FechaAutorizacion'    => 'FechaAutorizacion',
-            'FechaEntrega'         => 'FechaEntrega',
-            'FechaVencimiento'     => 'FechaVencimiento',
-            'VlrCobrado'           => 'VlrCobrado',
-            'Mipres'               => 'Mipres',
-            'IdPrincipal'          => 'IdPrincipal',
-            'IdDirec'              => 'IdDirec',
-            'IdProg'               => 'IdProg',
-            'IdEntr'               => 'IdEntr',
-            'IdRepEnt'             => 'IdRepEnt',
-            'Lote'                 => 'Lote',
-            'NombrePaciente'       => 'NombrePaciente',
-            'NombreArticulo'       => 'NombreArticulo',
-            'Medico'               => 'Medico',
-            'Laboratorio'          => 'Laboratorio',
-            'IPS'                  => 'IPS',
-            'NITCliente'           => 'NITCliente',
-            'TipoDocumentoMedico'  => 'TipoDocumentoMedico',
-            'DocumentoMedico'      => 'DocumentoMedico',
-            'CodigoDiagnostico'    => 'CodigoDiagnostico',
-            'CodigoArticulo'       => 'CodigoArticulo',
-            'CodigoProducto'       => 'CodigoProducto',
-            'CUM'                  => 'CUM',
-            'Cliente.Entidad'      => 'Cliente',
-            'Cliente.Regimen'      => 'RegimenPaciente',
-            'FirmaActaEntrega'     => 'FirmaActaEntrega',
-            'SelloRecepcion'       => null,
-            'CantidadEntregada'    => 'CantidadEntregada',
-            'CantidadPrescrita'    => 'CantidadPrescrita',
-        ];
-
-        $column = $fieldToColumn[$field] ?? $field;
+        $column = $this->classifier->getSqlColumn($field);
         $isMultiRow = isset($data[0]) && is_array($data[0]);
 
-        // Per-item field: agregar valores de todas las rows
         if ($isMultiRow && count($data) > 1 && in_array($field, RuleEngine::PER_ITEM_FIELDS, true)) {
             $values = [];
             foreach ($data as $row) {
@@ -404,7 +364,6 @@ class AuditOrchestrator
             return implode(', ', $values);
         }
 
-        // Campo compartido: usar row[0]
         $row = $isMultiRow ? ($data[0] ?? null) : $data;
         if ($row === null || !is_array($row)) {
             return null;
