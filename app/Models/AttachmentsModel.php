@@ -40,7 +40,7 @@ class AttachmentsModel extends Model
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
-                WHERE n.NitMedDocOpc = 'N' AND n.NitSec = :nitSec AND d.DisDetNro = :invoiceId";
+                WHERE d.DisDetNro = :invoiceId AND n.NitSec = :nitSec";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
@@ -73,7 +73,7 @@ class AttachmentsModel extends Model
                 a.DisId AS [dispiensa],
                 d.DisDetNro AS [factura],
                 n.NitSec AS [cliente],
-                NitMedDocId AS [id_documento],
+                a.AdjDisId AS [id_documento],
                 NitMedDocNom AS [nombre_documento],
                 NitMedDocCodAlt AS [nombre_alternativo],
                 AdjDisDocUrl AS [almacenamiento_remoto],
@@ -84,10 +84,10 @@ class AttachmentsModel extends Model
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
-                WHERE n.NitSec = :nitSec
-                  AND d.DisDetNro = :invoiceId
-                  AND n.NitMedDocOpc = 'N'";
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
+                WHERE d.DisDetNro = :invoiceId
+                  AND n.NitMedDocOpc = 'N'
+                ORDER BY n.NitMedDocId ASC, a.AdjDisId ASC";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);

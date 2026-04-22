@@ -57,4 +57,26 @@ class ClientsModel extends Model
         ]);
         return $results;
     }
+
+    public function getDocumentsByClient(int $clientId): array
+    {
+        $sql = "SELECT
+                NitSec,
+                NitMedDocId,
+                NitMedDocCodAlt,
+                NitMedDocNom
+            FROM NitDocumentos WITH (NOLOCK)
+            WHERE NitSec = :clientId
+            AND NitMedDocOpc = 'N'
+            ORDER BY NitMedDocId ASC";
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->bindParam(':clientId', $clientId, PDO::PARAM_INT);
+        $stmt->execute();
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        Logger::info("Executed SQL to fetch documents by client", [
+            'clientId' => $clientId,
+            'resultCount' => count($results)
+        ]);
+        return $results;
+    }
 }

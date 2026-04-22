@@ -12,12 +12,12 @@ use App\Models\DispensationModel;
 use GuzzleHttp\Client;
 
 /**
- * Factory centralizada para construir AuditOrchestrator.
+ * Factory centralizada para construir AuditOrchestrator v4.
  *
- * Elimina la duplicación entre AuditController y bin/audit-worker.php (hallazgo A03).
- * Ambos consumen esta factory para garantizar configuración idéntica.
+ * Inyecta tanto los servicios del pipeline determinista (v4)
+ * como los legacy (nullable) para transición gradual.
  *
- * @since 3.0.1
+ * @version 4.0
  */
 class AuditOrchestratorFactory
 {
@@ -37,7 +37,6 @@ class AuditOrchestratorFactory
         if ($model === '') {
             throw new \RuntimeException('GEMINI_MODEL no está configurada en .env');
         }
-        // B-NEW-01: Validación básica de formato (debe contener 'gemini' y segmentos)
         if (stripos($model, 'gemini') === false || substr_count($model, '-') < 1) {
             throw new \RuntimeException("GEMINI_MODEL '{$model}' no tiene un formato válido (ej: gemini-2.5-flash-preview-05-20)");
         }
@@ -53,10 +52,7 @@ class AuditOrchestratorFactory
             throw new \RuntimeException('GEMINI_MAX_OUTPUT_TOKENS no está configurada o es inválida en .env');
         }
 
-        $responseMimeType = (string) Env::get('GEMINI_RESPONSE_MIME', '');
-        if ($responseMimeType === '') {
-            throw new \RuntimeException('GEMINI_RESPONSE_MIME no está configurada en .env');
-        }
+        $responseMimeType = (string) Env::get('GEMINI_RESPONSE_MIME', 'application/json');
 
         $temperature = Env::get('GEMINI_TEMPERATURE');
         $topP = Env::get('GEMINI_TOP_P');
@@ -64,11 +60,11 @@ class AuditOrchestratorFactory
         $thinkingBudget = Env::get('GEMINI_THINKING_BUDGET');
         $seed = Env::get('GEMINI_SEED');
 
-        // Alerta de determinismo: sin seed, el modelo no intenta reproducibilidad
         if ($seed === null || $seed === '') {
-            Logger::warning('GEMINI_SEED no configurada — el pipeline de auditoría opera SIN reproducibilidad. Configurar GEMINI_SEED=42 en .env para determinismo.');
+            Logger::warning('GEMINI_SEED no configurada — pipeline opera SIN reproducibilidad.');
         }
 
+        // ── GeminiGateway (compartido por legacy y v4) ──
         $gateway = new GeminiGateway(
             $httpClient,
             $apiKey,
@@ -83,10 +79,12 @@ class AuditOrchestratorFactory
             ($seed !== null && $seed !== '') ? (int) $seed : null
         );
 
+        // ── Modelos y servicios base ──
         $dispensationModel = new DispensationModel();
         $attachmentsModel = new AttachmentsModel();
         $fileManager = new AuditFileManager();
         $persistence = new AuditPersistenceService(new AuditStatusModel());
+        $telemetry = new AuditTelemetryService();
 
         $preValidator = new AuditPreValidator(
             $dispensationModel,
@@ -95,15 +93,31 @@ class AuditOrchestratorFactory
             $persistence
         );
 
+        // ── v4: Nuevos servicios del pipeline determinista ──
+        $extractionPrompt = new ExtractionPromptBuilder();
+        $classifier = new FieldClassifier();
+        $ruleEngine = new RuleEngine();
+        $comparator = new SemanticComparator();
+
+        $embeddingModel = (string) Env::get('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001');
+        $embeddingGateway = new EmbeddingGateway($httpClient, $apiKey, $embeddingModel);
+
+        // ── Construir orquestador v4 ──
         return new AuditOrchestrator(
             $fileManager,
-            new AuditPromptBuilder(),
-            new AuditResultValidator(),
-            new JsonResponseParser(),
             $gateway,
             $persistence,
-            new AuditTelemetryService(),
-            $preValidator
+            $telemetry,
+            $preValidator,
+            $extractionPrompt,
+            $embeddingGateway,
+            $comparator,
+            $classifier,
+            $ruleEngine,
+            // Legacy (nullable)
+            new AuditPromptBuilder(),
+            new AuditResultValidator(),
+            new JsonResponseParser()
         );
     }
 }

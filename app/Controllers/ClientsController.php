@@ -47,4 +47,18 @@ class ClientsController extends Controller
 
         Response::success($client);
     }
+
+    public function documents(string $clientId): void
+    {
+        $this->validateArray(['clientId' => $clientId], [
+            'clientId' => 'required|integer|min_value:1'
+        ]);
+
+        $documents = $this->model->getDocumentsByClient((int)$clientId);
+        if (empty($documents)) {
+            Response::error('No se encontraron documentos para este cliente', 404);
+        }
+
+        Response::success($documents);
+    }
 }

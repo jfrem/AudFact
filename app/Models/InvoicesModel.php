@@ -51,7 +51,7 @@ class InvoicesModel extends Model
                     GROUP BY DisId,DisDetId
                 )aud on aud.DisId=d.facsec and aud.DisDetId=d.DisDetId
                 left join (
-                SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 then 1 else 0 end)adj,sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
+                SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 OR DATALENGTH(a.AdjDisDoc) > 0 then 1 else 0 end)adj,sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
                 from AdjuntosDispensacion a with(nolock)
                 left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
                 left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'

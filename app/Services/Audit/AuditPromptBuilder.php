@@ -78,7 +78,7 @@ class AuditPromptBuilder
       Laboratorio: {$labArt} · Vencimiento: {$vencArt}
       Cantidad prescrita: {$cantPresc} · Cantidad entregada: {$cantEntreg}
       </medication>
-XML;
+      XML;
     }
     $medicationsXml = implode("\n", $medList);
 

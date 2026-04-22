@@ -80,7 +80,8 @@ class DispensationModel extends Model
                 IdFact,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
-            WHERE Dispensa = :DisDetNro";
+            WHERE Dispensa = :DisDetNro
+            ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':DisDetNro', $DisDetNro, PDO::PARAM_STR);
         $stmt->execute();

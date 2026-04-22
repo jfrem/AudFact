@@ -30,7 +30,10 @@ class AuditTelemetryService
             'attempts' => $attempts,
             'factura' => $dispensation['NumeroFactura'] ?? '',
             'FacSec' => $dispensation['FacSec'] ?? '',
-            'documentos' => array_values(array_unique(array_map(fn($f) => $f['label'] ?? 'N/A', $files))),
+            'documentos' => array_values(array_unique(array_map(
+                fn($f) => ExtractionResponseSchema::normalizeDocType($f['label'] ?? 'N/A'),
+                $files
+            ))),
             'promptHash' => $promptHash !== '' ? substr($promptHash, 0, 12) : '',
             'timestamp' => date('c'),
         ];

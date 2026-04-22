@@ -161,6 +161,177 @@ class GeminiGateway
         return $this->maxOutputTokens;
     }
 
+    /**
+     * Envía request con Function Calling (tools + toolConfig).
+     *
+     * Usa el mismo retry + circuit breaker que sendWithRetry,
+     * pero construye el payload con tools en vez de responseSchema.
+     *
+     * @param string $prompt Prompt del usuario
+     * @param array $files Archivos preparados (base64)
+     * @param string $systemInstruction System instruction
+     * @param array $tools Bloque tools con functionDeclarations
+     * @param array $toolConfig Bloque toolConfig (mode ANY)
+     * @param array $generationOverrides Overrides opcionales
+     * @return array Respuesta completa de Gemini
+     */
+    public function sendWithFunctionCalling(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $tools,
+        array $toolConfig,
+        array $generationOverrides = []
+    ): array {
+        $this->checkCircuitBreaker();
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent";
+        $payload = $this->buildFunctionCallingPayload(
+            $prompt,
+            $files,
+            $systemInstruction,
+            $tools,
+            $toolConfig,
+            $generationOverrides
+        );
+
+        $lastException = null;
+
+        for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
+            try {
+                $res = $this->http->post($url, [
+                    'headers' => [
+                        'Content-Type' => 'application/json',
+                        'x-goog-api-key' => $this->apiKey,
+                    ],
+                    'json' => $payload,
+                ]);
+
+                $this->logApiQuotaHeaders($res);
+                $this->recordCircuitSuccess();
+
+                $bodyStr = (string) $res->getBody();
+                $body = json_decode($bodyStr, true);
+
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    throw new \RuntimeException(
+                        'Respuesta no JSON de Gemini FC: ' . json_last_error_msg(),
+                        0
+                    );
+                }
+
+                return $body ?? [];
+            } catch (\RuntimeException $e) {
+                $lastException = $e;
+                $httpCode = (int) $e->getCode();
+                $isRetryable = in_array($httpCode, self::RETRYABLE_HTTP_CODES, true);
+                $isLastAttempt = $attempt === self::MAX_API_RETRIES - 1;
+
+                if ($isRetryable && !$isLastAttempt) {
+                    $delayMs = self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
+                    Logger::warning('FC API error retryable', [
+                        'httpCode' => $httpCode,
+                        'attempt' => $attempt + 1,
+                        'delayMs' => $delayMs,
+                    ]);
+                    usleep($delayMs * 1000);
+                    continue;
+                }
+
+                $this->recordCircuitFailure($httpCode);
+                throw $e;
+            } catch (GuzzleException $e) {
+                $lastException = $e;
+                $httpCode = 0;
+                $errorMessage = $e->getMessage();
+
+                if ($e instanceof RequestException && $e->hasResponse()) {
+                    $httpCode = $e->getResponse()->getStatusCode();
+                    $errorBody = json_decode((string) $e->getResponse()->getBody(), true);
+                    if (isset($errorBody['error']['message'])) {
+                        $errorMessage = $errorBody['error']['message'];
+                    }
+                }
+
+                $isRetryable = in_array($httpCode, self::RETRYABLE_HTTP_CODES, true);
+                $isLastAttempt = $attempt === self::MAX_API_RETRIES - 1;
+
+                if ($isRetryable && !$isLastAttempt) {
+                    $delayMs = self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
+                    usleep($delayMs * 1000);
+                    continue;
+                }
+
+                $this->recordCircuitFailure($httpCode);
+                throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
+            }
+        }
+
+        $this->recordCircuitFailure(0);
+        throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
+    }
+
+    /**
+     * Construye payload para Function Calling.
+     * Sin responseSchema ni responseMimeType — usa tools + toolConfig.
+     */
+    private function buildFunctionCallingPayload(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $tools,
+        array $toolConfig,
+        array $generationOverrides = []
+    ): array {
+        $generationConfig = array_filter([
+            'temperature' => $this->temperature ?? 0.0,
+            'topP' => $this->topP,
+            'topK' => $this->topK,
+            'maxOutputTokens' => $this->maxOutputTokens,
+            'seed' => $this->seed,
+        ], fn($value) => $value !== null);
+
+        if (!empty($generationOverrides)) {
+            $thinkingBudget = $generationOverrides['thinkingBudget'] ?? null;
+            unset($generationOverrides['thinkingBudget']);
+            $generationConfig = array_merge($generationConfig, $generationOverrides);
+
+            if ($thinkingBudget !== null) {
+                $generationConfig['thinkingConfig'] = ['thinkingBudget' => (int) $thinkingBudget];
+            }
+        } elseif ($this->thinkingBudget !== null) {
+            $generationConfig['thinkingConfig'] = ['thinkingBudget' => $this->thinkingBudget];
+        }
+
+        // Parts: prompt text + archivos inline
+        $parts = [['text' => $prompt]];
+
+        foreach ($files as $index => $file) {
+            $label = (string) ($file['label'] ?? '');
+            if ($label !== '') {
+                $parts[] = ['text' => 'DOCUMENTO ' . ($index + 1) . ': ' . $label];
+            }
+            $parts[] = ['inlineData' => [
+                'mimeType' => $file['mime'],
+                'data' => $file['data'],
+            ]];
+        }
+
+        return [
+            'systemInstruction' => [
+                'parts' => [['text' => $systemInstruction]],
+            ],
+            'contents' => [[
+                'role' => 'user',
+                'parts' => $parts,
+            ]],
+            'tools' => $tools,
+            'toolConfig' => $toolConfig,
+            'generationConfig' => $generationConfig,
+            'safetySettings' => $this->getSafetySettings(),
+        ];
+    }
+
     private function send(
         string $url,
         string $prompt,

@@ -14,6 +14,7 @@ services:
     # Ya NO vinculamos ./:/var/www/html para mantener el entorno de producción inmutable y limpio.
     volumes:
       - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
     expose:
       - "9000"
     deploy:
@@ -77,6 +78,7 @@ services:
       - .env
     volumes:
       - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
     depends_on:
       - redis
       - php

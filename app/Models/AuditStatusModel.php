@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use PDO;
+use PDOStatement;
 use Core\Logger;
 
 /**
@@ -17,14 +18,36 @@ use Core\Logger;
  */
 class AuditStatusModel extends Model
 {
+    private const AUDIT_USER = 'Z-IA';
+    private const ATTACHMENT_STATUS_APPROVED = 'C';
+    private const ATTACHMENT_STATUS_REJECTED = 'R';
+    private const ATTACHMENT_REJECTED_FLAG = 'S';
+    private const ATTACHMENT_APPROVED_FLAG = 'N';
+    private const REJECTION_SUPPORT_CODE = 30;
 
     /**
-     * Auditorías requieren consistencia fuerte de lectura después de escritura.
-     * Este modelo lee del mismo origen de escritura (default) para evitar desfase con db2.
+     * Auditorías prefieren consistencia fuerte de lectura después de escritura.
+     * Si `default` no está disponible, degrada a `db2` para no romper el histórico.
      *
      * @var string
      */
     protected string $readConnectionName = 'default';
+
+    public function __construct()
+    {
+        try {
+            $this->readDb = \Core\Database::getConnection($this->readConnectionName);
+        } catch (\RuntimeException $e) {
+            Logger::warning('AuditStatusModel: fallback de lectura hacia db2', [
+                'preferredConnection' => $this->readConnectionName,
+                'fallbackConnection' => 'db2',
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->readConnectionName = 'db2';
+            $this->readDb = \Core\Database::getConnection($this->readConnectionName);
+        }
+    }
 
     /**
      * Busca un registro de auditoría por FacSec (PK).
@@ -59,7 +82,12 @@ class AuditStatusModel extends Model
             'facSec' => $facSec
         ]);
 
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false || !is_array($row)) {
+            return false;
+        }
+
+        return $this->normalizeAuditRecord($row);
     }
 
     /**
@@ -124,7 +152,9 @@ class AuditStatusModel extends Model
             'results' => $stmt->rowCount()
         ]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return array_map(fn(array $row): array => $this->normalizeAuditRecord($row), $rows ?: []);
     }
 
     /**
@@ -175,6 +205,89 @@ class AuditStatusModel extends Model
         }
         $writeDb = $this->getWriteDb();
 
+        return $this->upsertAuditResultInConnection($writeDb, $data);
+    }
+
+    /**
+     * Persiste el resumen global y actualiza el estado documental por adjunto
+     * en una única transacción.
+     *
+     * @param array<string,mixed> $auditResultData
+     * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
+     */
+    public function persistAuditResultWithAttachments(
+        array $auditResultData,
+        array $documentDecisions
+    ): array|false {
+        if (empty($auditResultData['FacSec']) || empty($auditResultData['FacNro'])) {
+            throw new \InvalidArgumentException('FacSec y FacNro son obligatorios para persistir la auditoría.');
+        }
+
+        if ($documentDecisions === []) {
+            throw new \InvalidArgumentException('La auditoría no produjo decisiones documentales para persistencia.');
+        }
+
+        $writeDb = $this->getWriteDb();
+
+        try {
+            $writeDb->beginTransaction();
+
+            $record = $this->upsertAuditResultInConnection($writeDb, $auditResultData);
+            $this->updateAttachmentAuditResultsInConnection(
+                $writeDb,
+                (string) $auditResultData['FacNro'],
+                $documentDecisions,
+            );
+
+            $writeDb->commit();
+
+            return $record;
+        } catch (\Throwable $e) {
+            if ($writeDb->inTransaction()) {
+                $writeDb->rollBack();
+            }
+
+            Logger::error('persistAuditResultWithAttachments: transacción revertida', [
+                'FacSec' => $auditResultData['FacSec'],
+                'FacNro' => $auditResultData['FacNro'],
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Busca una auditoría ya persistida para la misma tarea lógica.
+     *
+     * @return array{finalStatus:string,facSec:string,error:?string}|null
+     */
+    public function findTaskOutcome(string $facSec, string $taskId): ?array
+    {
+        $record = $this->getByFacSecFromConnection($this->getWriteDb(), $facSec);
+        if ($record === false) {
+            return null;
+        }
+
+        $payloadMeta = is_array($record['_meta'] ?? null) ? $record['_meta'] : [];
+        if (($payloadMeta['taskId'] ?? null) !== $taskId) {
+            return null;
+        }
+
+        $status = strtoupper(trim((string) ($record['EstadoDetallado'] ?? '')));
+
+        return [
+            'finalStatus' => $status === 'FAILED' ? 'failed' : 'completed',
+            'facSec' => trim((string) ($record['FacSec'] ?? $facSec)),
+            'error' => isset($record['DetalleError']) ? trim((string) $record['DetalleError']) ?: null : null,
+        ];
+    }
+
+    /**
+     * @param \PDO $writeDb
+     * @param array<string,mixed> $data
+     */
+    private function upsertAuditResultInConnection(\PDO $writeDb, array $data): array|false
+    {
         $sql = "MERGE Discolnet.dbo.AudDispEst AS target
                 USING (SELECT
                     :FacSec AS [FacSec],
@@ -242,141 +355,166 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Actualiza el resultado de auditoría IA en AdjuntosDispensacion.
+     * Actualiza el estado documental por cada adjunto auditado de la dispensación.
      *
-     * Resuelve la cadena de PKs: FacNro → (DisId, DisDetId) → AdjDisId → UPDATE.
-     * Dos escenarios:
-     *   - Aprobada: EstSop='C', Rec='N', campos de recobro NULL.
-     *   - Rechazada: EstSop='R', Rec='S', observación textual, RecConSopCod=30.
-     *
-     * @param string $facNro Número de factura (ej: 'D03251203452')
-     * @param bool $approved true si la auditoría aprobó el documento
-     * @param string|null $observation Observación textual (solo para rechazadas)
-     * @param string|null $documentoFallido Nombre del documento fallido (ej: 'FORMULA MEDICA')
-     * @return bool true si el UPDATE fue exitoso
+     * @param \PDO $connection
+     * @param string $facNro
+     * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
      */
-    public function updateAuditResult(string $facNro, bool $approved, ?string $observation, ?string $documentoFallido): bool
-    {
-        $writeDb = $this->getWriteDb();
+    private function updateAttachmentAuditResultsInConnection(
+        PDO $connection,
+        string $facNro,
+        array $documentDecisions
+    ): void {
+        $dispensation = $this->resolveDispensationIdentity($connection, $facNro);
+        $disId = (string) $dispensation['DisId'];
+        $disDetId = (int) $dispensation['DisDetId'];
+        $adjuntos = $this->getDispensationAttachments($connection, $disId, $disDetId);
 
-        try {
-            // 1. Resolver DisId y DisDetId
-            $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
-                FROM DispensacionDetalleServicio d WITH (NOLOCK)
-                WHERE d.DisDetNro = :facNro
-                ORDER BY d.DisDetId ASC";
+        if ($adjuntos === []) {
+            throw new \RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
+        }
 
-            $stmtResolve = $writeDb->prepare($sqlResolve);
-            $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-            $stmtResolve->execute();
-            $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
+        ['approve' => $approveStmt, 'reject' => $rejectStmt] = $this->buildAttachmentUpdateStatements($connection);
 
-            if (!$dispensacion) {
-                Logger::warning('updateAuditResult: no se encontró DispensacionDetalleServicio', [
-                    'FacNro' => $facNro,
-                ]);
-                return false;
+        foreach ($documentDecisions as $decision) {
+            ['documentName' => $documentName, 'approved' => $approved, 'observation' => $observation] =
+                $this->normalizeDocumentDecision($decision, $facNro);
+            $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentName);
+            if ($match === null) {
+                throw new \RuntimeException(sprintf(
+                    'No se encontró AdjuntosDispensacion para el documento "%s" de la dispensación %s.',
+                    $documentName,
+                    $facNro
+                ));
             }
 
-            $disId = $dispensacion['DisId'];
-            $disDetId = $dispensacion['DisDetId'];
-            $adjuntos = $this->getDispensationAttachments($writeDb, (string)$disId, (int)$disDetId);
+            $adjDisId = (int) $match['AdjDisId'];
 
             if ($approved) {
-                // 2a. APROBADA: actualizar TODOS los adjuntos de la dispensación explícitamente por AdjDisId
-                $sql = "UPDATE AdjuntosDispensacion SET
+                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
+                continue;
+            }
+
+            $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $observation);
+        }
+    }
+
+    /**
+     * @return array{DisId:string|int,DisDetId:string|int}
+     */
+    private function resolveDispensationIdentity(PDO $connection, string $facNro): array
+    {
+        $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
+            FROM DispensacionDetalleServicio d WITH (NOLOCK)
+            WHERE d.DisDetNro = :facNro
+            ORDER BY d.DisDetId ASC";
+
+        $stmtResolve = $connection->prepare($sqlResolve);
+        $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
+        $stmtResolve->execute();
+        $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
+
+        if (!$dispensacion) {
+            throw new \RuntimeException("No se encontró DispensacionDetalleServicio para {$facNro}.");
+        }
+
+        return $dispensacion;
+    }
+
+    /**
+     * @return array{approve:PDOStatement,reject:PDOStatement}
+     */
+    private function buildAttachmentUpdateStatements(PDO $connection): array
+    {
+        $approveSql = "UPDATE AdjuntosDispensacion SET
                             AdjDisObsRec  = NULL,
                             RecConSopCod  = NULL,
-                            AdjDisEstSop  = 'C',
-                            AdjDisUsuAudi = 'Z-IA',
+                            AdjDisEstSop  = :approvedStatus,
+                            AdjDisUsuAudi = :auditUser,
                             AdJDisFecAudi = GETDATE(),
-                            AdjDisRec     = 'N',
+                            AdjDisRec     = :approvedFlag,
                             AdjDisUsuRec  = NULL,
                             AdjDisFecRec  = NULL
                         WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
 
-                $stmt = $writeDb->prepare($sql);
-                $rowsAffected = 0;
+        $rejectSql = "UPDATE AdjuntosDispensacion SET
+                            AdjDisObsRec  = :observation,
+                            RecConSopCod  = :supportCode,
+                            AdjDisEstSop  = :rejectedStatus,
+                            AdjDisRec     = :rejectedFlag,
+                            AdjDisUsuRec  = :rejectedBy,
+                            AdjDisFecRec  = GETDATE(),
+                            AdjDisUsuAudi = :auditedBy,
+                            AdJDisFecAudi = GETDATE()
+                       WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
 
-                foreach ($adjuntos as $adjunto) {
-                    $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
-                    $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
-                    $stmt->bindValue(':adjDisId', $adjunto['AdjDisId'], PDO::PARAM_INT);
-                    $stmt->execute();
-                    $rowsAffected += $stmt->rowCount();
-                }
+        return [
+            'approve' => $connection->prepare($approveSql),
+            'reject' => $connection->prepare($rejectSql),
+        ];
+    }
 
-                Logger::info('updateAuditResult: todos los adjuntos aprobados', [
-                    'DisId' => $disId,
-                    'DisDetId' => $disDetId,
-                    'FacNro' => $facNro,
-                    'rowsAffected' => $rowsAffected,
-                ]);
-            } else {
-                // 2b. RECHAZADA: resolver AdjDisId por nombre (exacto -> normalizado -> alias)
-                if ($documentoFallido !== null) {
-                    $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentoFallido);
-
-                    if ($match === null) {
-                        Logger::warning('updateAuditResult: no se encontró AdjuntosDispensacion para rechazo', [
-                            'DisId' => $disId,
-                            'DisDetId' => $disDetId,
-                            'DocumentoFallido' => $documentoFallido,
-                            'availableDocuments' => array_values(array_map(
-                                static fn(array $a) => (string)($a['AdjDisNom'] ?? ''),
-                                $adjuntos
-                            )),
-                        ]);
-                        return false;
-                    }
-
-                    $adjDisId = $match['AdjDisId'];
-
-                    $sql = "UPDATE AdjuntosDispensacion SET
-                                AdjDisObsRec  = :observation,
-                                RecConSopCod  = 30,
-                                AdjDisEstSop  = 'R',
-                                AdjDisRec     = 'S',
-                                AdjDisUsuRec  = 'Z-IA',
-                                AdjDisFecRec  = GETDATE(),
-                                AdjDisUsuAudi = 'Z-IA',
-                                AdJDisFecAudi = GETDATE()
-                            WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
-
-                    $stmt = $writeDb->prepare($sql);
-                    $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
-                    $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
-                    $stmt->bindParam(':adjDisId', $adjDisId, PDO::PARAM_INT);
-                    $stmt->bindParam(':observation', $observation, PDO::PARAM_STR);
-                    $stmt->execute();
-
-                    Logger::info('updateAuditResult: adjunto rechazado', [
-                        'DisId' => $disId,
-                        'DisDetId' => $disDetId,
-                        'AdjDisId' => $adjDisId,
-                        'MatchStrategy' => $match['strategy'],
-                        'DocumentoEntrada' => $documentoFallido,
-                        'DocumentoResuelto' => $match['AdjDisNom'],
-                        'FacNro' => $facNro,
-                    ]);
-                } else {
-                    Logger::warning('updateAuditResult: rechazo omitido por documento no especificado', [
-                        'DisId' => $disId,
-                        'DisDetId' => $disDetId,
-                        'FacNro' => $facNro,
-                    ]);
-                    return false;
-                }
-            }
-
-            return true;
-        } catch (\PDOException $e) {
-            Logger::error('updateAuditResult: error en UPDATE', [
-                'FacNro' => $facNro,
-                'error' => $e->getMessage(),
-            ]);
-            return false;
+    /**
+     * @param array<string,mixed> $decision
+     * @return array{documentName:string,approved:bool,observation:?string}
+     */
+    private function normalizeDocumentDecision(array $decision, string $facNro): array
+    {
+        $documentName = trim((string) ($decision['documentName'] ?? ''));
+        if ($documentName === '') {
+            throw new \InvalidArgumentException("La decisión documental de {$facNro} no tiene documentName.");
         }
+
+        $approved = (bool) ($decision['approved'] ?? false);
+        $observation = trim((string) ($decision['observation'] ?? ''));
+
+        if (!$approved && $observation === '') {
+            throw new \InvalidArgumentException(sprintf(
+                'El documento "%s" de la dispensación %s requiere observación de rechazo.',
+                $documentName,
+                $facNro
+            ));
+        }
+
+        return [
+            'documentName' => $documentName,
+            'approved' => $approved,
+            'observation' => $observation === '' ? null : $observation,
+        ];
+    }
+
+    private function applyApprovedAttachmentDecision(PDOStatement $statement, string $disId, int $disDetId, int $adjDisId): void
+    {
+        $this->bindAttachmentIdentifiers($statement, $disId, $disDetId, $adjDisId);
+        $statement->bindValue(':approvedStatus', self::ATTACHMENT_STATUS_APPROVED, PDO::PARAM_STR);
+        $statement->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
+        $statement->bindValue(':approvedFlag', self::ATTACHMENT_APPROVED_FLAG, PDO::PARAM_STR);
+        $statement->execute();
+    }
+
+    private function applyRejectedAttachmentDecision(
+        PDOStatement $statement,
+        string $disId,
+        int $disDetId,
+        int $adjDisId,
+        ?string $observation
+    ): void {
+        $this->bindAttachmentIdentifiers($statement, $disId, $disDetId, $adjDisId);
+        $statement->bindValue(':observation', $observation, PDO::PARAM_STR);
+        $statement->bindValue(':supportCode', self::REJECTION_SUPPORT_CODE, PDO::PARAM_INT);
+        $statement->bindValue(':rejectedStatus', self::ATTACHMENT_STATUS_REJECTED, PDO::PARAM_STR);
+        $statement->bindValue(':rejectedFlag', self::ATTACHMENT_REJECTED_FLAG, PDO::PARAM_STR);
+        $statement->bindValue(':rejectedBy', self::AUDIT_USER, PDO::PARAM_STR);
+        $statement->bindValue(':auditedBy', self::AUDIT_USER, PDO::PARAM_STR);
+        $statement->execute();
+    }
+
+    private function bindAttachmentIdentifiers(PDOStatement $statement, string $disId, int $disDetId, int $adjDisId): void
+    {
+        $statement->bindValue(':disId', $disId, PDO::PARAM_STR);
+        $statement->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
+        $statement->bindValue(':adjDisId', $adjDisId, PDO::PARAM_INT);
     }
 
     private function getByFacSecFromConnection(PDO $connection, string $facSec): array|false
@@ -402,7 +540,101 @@ class AuditStatusModel extends Model
         $stmt = $connection->prepare($sql);
         $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
         $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false || !is_array($row)) {
+            return false;
+        }
+
+        return $this->normalizeAuditRecord($row);
+    }
+
+    /**
+     * Normaliza el payload persistido para preservar compatibilidad del campo Hallazgos.
+     *
+     * Mantiene `Hallazgos` como JSON array legacy de items cuando sea posible y expone
+     * además `HallazgosRaw`, `HallazgosItems` y `CriticalFieldDecisions`.
+     *
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>
+     */
+    private function normalizeAuditRecord(array $row): array
+    {
+        $raw = isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null;
+        [$items, $criticalFieldDecisions, $affectedDocuments, $payloadMeta] = $this->decodeFindingsPayload($raw);
+
+        $row['HallazgosRaw'] = $raw;
+        $row['HallazgosItems'] = $items;
+        $row['CriticalFieldDecisions'] = $criticalFieldDecisions;
+        $row['AffectedDocuments'] = $affectedDocuments;
+
+        if ($raw !== null) {
+            $row['Hallazgos'] = json_encode($items, JSON_UNESCAPED_UNICODE) ?: '[]';
+        }
+
+        $row['_meta'] = array_merge([
+            'source' => 'AudDispEst',
+            'totalTimeMs' => (int) ($row['DuracionProcesamientoMs'] ?? 0),
+            'documentsProcessed' => (int) ($row['DocumentosProcesados'] ?? 0),
+            'createdAt' => $row['FechaCreacion'] ?? null,
+            'updatedAt' => $row['FechaActualizacion'] ?? null,
+            'auditExecuted' => ((int) ($row['EstAud'] ?? 0)) === 1,
+        ], $payloadMeta);
+
+        return $row;
+    }
+
+    /**
+     * @return array{0:array<int,mixed>,1:array<int,mixed>,2:array<int,mixed>,3:array<string,mixed>}
+     */
+    private function decodeFindingsPayload(?string $raw): array
+    {
+        if ($raw === null || trim($raw) === '') {
+            return [[], [], [], []];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [[], [], [], []];
+        }
+
+        if (array_is_list($decoded)) {
+            return [$decoded, [], [], []];
+        }
+
+        $items = is_array($decoded['items'] ?? null) ? $decoded['items'] : [];
+        $criticalFieldDecisions = is_array($decoded['critical_field_decisions'] ?? null)
+            ? $decoded['critical_field_decisions']
+            : $items;
+        $affectedDocuments = is_array($decoded['affected_documents'] ?? null)
+            ? array_values($decoded['affected_documents'])
+            : [];
+        $meta = [];
+
+        if (is_array($decoded['metrics'] ?? null)) {
+            $meta['metrics'] = $decoded['metrics'];
+        }
+
+        if (is_array($decoded['_meta'] ?? null)) {
+            $meta = array_merge($meta, $decoded['_meta']);
+        }
+
+        if (is_array($decoded['documents'] ?? null)) {
+            $meta['documents'] = $decoded['documents'];
+        }
+
+        if (isset($decoded['status'])) {
+            $meta['status'] = $decoded['status'];
+        }
+
+        if (isset($decoded['severity'])) {
+            $meta['severity'] = $decoded['severity'];
+        }
+
+        if (isset($decoded['message'])) {
+            $meta['message'] = $decoded['message'];
+        }
+
+        return [$items, $criticalFieldDecisions, $affectedDocuments, $meta];
     }
 
     /**
@@ -445,32 +677,63 @@ class AuditStatusModel extends Model
             return null;
         }
 
-        // Estrategia 1: match exacto case-insensitive.
-        foreach ($adjuntos as $adjunto) {
-            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
-            if ($name !== '' && strtoupper($name) === strtoupper($input)) {
-                return [
-                    'AdjDisId' => $adjunto['AdjDisId'],
-                    'AdjDisNom' => $name,
-                    'strategy' => 'exact_ci',
-                ];
-            }
+        $exactMatches = $this->findAttachmentMatches(
+            $adjuntos,
+            static fn(string $name) => strtoupper($name) === strtoupper($input),
+            'exact_ci'
+        );
+        if (count($exactMatches) > 1) {
+            throw new \RuntimeException(sprintf(
+                'El documento "%s" coincide con múltiples adjuntos exactos en AdjuntosDispensacion.',
+                $documentoFallido
+            ));
+        }
+        if ($exactMatches !== []) {
+            return $exactMatches[0];
         }
 
-        // Estrategia 2: match por normalización de texto.
         $normalizedInput = $this->normalizeDocumentName($input);
-        foreach ($adjuntos as $adjunto) {
-            $name = trim((string)($adjunto['AdjDisNom'] ?? ''));
-            if ($name !== '' && $this->normalizeDocumentName($name) === $normalizedInput) {
-                return [
-                    'AdjDisId' => $adjunto['AdjDisId'],
-                    'AdjDisNom' => $name,
-                    'strategy' => 'normalized',
-                ];
-            }
+        $normalizedMatches = $this->findAttachmentMatches(
+            $adjuntos,
+            fn(string $name) => $this->normalizeDocumentName($name) === $normalizedInput,
+            'normalized'
+        );
+        if (count($normalizedMatches) > 1) {
+            throw new \RuntimeException(sprintf(
+                'El documento "%s" coincide con múltiples adjuntos normalizados en AdjuntosDispensacion.',
+                $documentoFallido
+            ));
+        }
+        if ($normalizedMatches !== []) {
+            return $normalizedMatches[0];
         }
 
         return null;
+    }
+
+    /**
+     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
+     * @param callable(string):bool $matcher
+     * @return array<int,array{AdjDisId:string|int,AdjDisNom:string,strategy:string}>
+     */
+    private function findAttachmentMatches(array $adjuntos, callable $matcher, string $strategy): array
+    {
+        $matches = [];
+
+        foreach ($adjuntos as $adjunto) {
+            $name = trim((string) ($adjunto['AdjDisNom'] ?? ''));
+            if ($name === '' || !$matcher($name)) {
+                continue;
+            }
+
+            $matches[] = [
+                'AdjDisId' => $adjunto['AdjDisId'],
+                'AdjDisNom' => $name,
+                'strategy' => $strategy,
+            ];
+        }
+
+        return $matches;
     }
 
     /**

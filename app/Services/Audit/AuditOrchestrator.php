@@ -4,89 +4,84 @@ namespace App\Services\Audit;
 
 use Core\Logger;
 
+/**
+ * Orquestador principal del pipeline de auditoría v4.
+ *
+ * Flujo determinista de 3 fases:
+ *   Fase 1: Extracción (Gemini Vision + Function Calling)
+ *   Fase 2: Comparación Semántica (Embedding API)
+ *   Fase 3: Evaluación Determinista (RuleEngine PHP)
+ *
+ * @version 4.0
+ */
 class AuditOrchestrator
 {
-    private const ERROR_MAX_TOKENS = 'Respuesta truncada del modelo (MAX_TOKENS)';
-    private const ERROR_INVALID_RESPONSE = 'Respuesta inválida del modelo IA';
-
-    private const MAX_ITEMS_STRICT_MODE = 20;
-    private const MAX_DETAIL_LENGTH_STRICT_MODE = 200;
-
     private AuditFileManager $fileManager;
-    private AuditPromptBuilder $promptBuilder;
-    private AuditResultValidator $validator;
-    private JsonResponseParser $parser;
     private GeminiGateway $gateway;
     private AuditPersistenceService $persistence;
     private AuditTelemetryService $telemetry;
     private AuditPreValidator $preValidator;
 
+    // v4 — nuevos servicios
+    private ExtractionPromptBuilder $extractionPrompt;
+    private EmbeddingGateway $embeddingGateway;
+    private SemanticComparator $comparator;
+    private FieldClassifier $classifier;
+    private RuleEngine $ruleEngine;
+
+    // Legacy — mantenidos para backward compat durante transición
+    private ?AuditPromptBuilder $promptBuilder;
+    private ?AuditResultValidator $validator;
+    private ?JsonResponseParser $parser;
+
     public function __construct(
         AuditFileManager $fileManager,
-        AuditPromptBuilder $promptBuilder,
-        AuditResultValidator $validator,
-        JsonResponseParser $parser,
         GeminiGateway $gateway,
         AuditPersistenceService $persistence,
         AuditTelemetryService $telemetry,
-        AuditPreValidator $preValidator
+        AuditPreValidator $preValidator,
+        ExtractionPromptBuilder $extractionPrompt,
+        EmbeddingGateway $embeddingGateway,
+        SemanticComparator $comparator,
+        FieldClassifier $classifier,
+        RuleEngine $ruleEngine,
+        // Legacy (nullable para clean rebuild)
+        ?AuditPromptBuilder $promptBuilder = null,
+        ?AuditResultValidator $validator = null,
+        ?JsonResponseParser $parser = null
     ) {
         $this->fileManager = $fileManager;
-        $this->promptBuilder = $promptBuilder;
-        $this->validator = $validator;
-        $this->parser = $parser;
         $this->gateway = $gateway;
         $this->persistence = $persistence;
         $this->telemetry = $telemetry;
         $this->preValidator = $preValidator;
+        $this->extractionPrompt = $extractionPrompt;
+        $this->embeddingGateway = $embeddingGateway;
+        $this->comparator = $comparator;
+        $this->classifier = $classifier;
+        $this->ruleEngine = $ruleEngine;
+        $this->promptBuilder = $promptBuilder;
+        $this->validator = $validator;
+        $this->parser = $parser;
     }
 
     /**
-     * Audita un adjunto contra la dispensación (fuente de verdad).
+     * Audita una dispensación completa con el pipeline v4.
      *
      * @param string $invoiceId ID de la factura
-     * @param string $disDetNro Identificador de dispensación/factura
+     * @param string $disDetNro Identificador de dispensación
      * @param string|null $attachmentId ID opcional de adjunto específico
      * @return array Resultado estructurado de auditoría
      */
     public function auditInvoice(string $invoiceId, string $disDetNro, ?string $attachmentId = null): array
     {
         $totalStart = hrtime(true);
-        $attempts = 0;
 
+        // ── Pre-validación ──
         $preValidation = $this->preValidator->validate($invoiceId, $disDetNro);
 
         if ($preValidation['result'] !== null) {
-            $failResult = $preValidation['result'];
-            $dispensation = is_array($preValidation['dispensation'] ?? null) ? $preValidation['dispensation'] : [];
-            $dataFetchMs = (float) ($preValidation['dataFetchMs'] ?? 0.0);
-            $filePrepMs = (float) ($preValidation['filePrepMs'] ?? 0.0);
-            $availableDocuments = is_array($preValidation['availableDocuments'] ?? null) ? $preValidation['availableDocuments'] : [];
-            $metaFiles = array_map(
-                static fn(string $name): array => ['label' => $name],
-                array_values(array_filter($availableDocuments, static fn($name) => is_string($name) && trim($name) !== ''))
-            );
-            $totalMs = (hrtime(true) - $totalStart) / 1e6;
-
-            if (!isset($failResult['_meta']) || !is_array($failResult['_meta'])) {
-                $failResult['_meta'] = $this->telemetry->buildMeta(
-                    $dispensation,
-                    $metaFiles,
-                    $dataFetchMs,
-                    $filePrepMs,
-                    0.0,
-                    0,
-                    $totalMs
-                );
-            }
-
-            $this->persistence->saveResponse($disDetNro, $failResult);
-            $this->persistence->saveToDatabase(
-                $disDetNro,
-                $failResult,
-                $dispensation
-            );
-            return $failResult;
+            return $this->handlePreValidationFailure($preValidation, $disDetNro, $totalStart);
         }
 
         $dispensationData = $preValidation['dispensationData'];
@@ -94,177 +89,400 @@ class AuditOrchestrator
         $files = $preValidation['files'];
         $dataFetchMs = $preValidation['dataFetchMs'];
         $filePrepMs = $preValidation['filePrepMs'];
+        $auditConfig = $preValidation['auditConfig'] ?? [];
 
-        // ── Fase 2: Ejecutar auditoría con Gemini ──
-        $geminiStart = hrtime(true);
-        $promptHash = '';
+        $phaseTimes = ['extraction' => 0.0, 'embedding' => 0.0, 'rules' => 0.0];
 
         try {
-            [$result, $attempts, $promptHash] = $this->executeAuditFlow($dispensationData, $files);
-            $result['_errorOrigin'] = 'gemini';
-        } catch (\Exception $e) {
-            $errorMsg = $e->getMessage();
-            $httpCode = (int) $e->getCode();
+            // ══════════════════════════════════════════════
+            // FASE 1: Extracción (Gemini Vision + FC)
+            // ══════════════════════════════════════════════
+            $phase1Start = hrtime(true);
 
-            Logger::error('Error crítico en flujo Gemini', [
-                'error' => $errorMsg,
-                'httpCode' => $httpCode,
+            $extractionResult = $this->executeExtraction(
+                $dispensationData,
+                $files,
+                $auditConfig
+            );
+
+            $phaseTimes['extraction'] = (hrtime(true) - $phase1Start) / 1e6;
+
+            Logger::info('Fase 1 completada: extracción', [
+                'DisDetNro' => $disDetNro,
+                'documentsExtracted' => count($extractionResult['documents'] ?? []),
+                'timeMs' => round($phaseTimes['extraction']),
             ]);
 
-            $shortMsg = $this->telemetry->formatErrorMessage($httpCode, $errorMsg, $disDetNro);
-            $result = $this->errorResponse($shortMsg, ['raw' => $errorMsg]);
+            // ══════════════════════════════════════════════
+            // FASE 2: Comparación Semántica (Embedding API)
+            // ══════════════════════════════════════════════
+            $phase2Start = hrtime(true);
+
+            $semanticResults = $this->executeSemanticComparison(
+                $dispensationData,
+                $extractionResult
+            );
+
+            $phaseTimes['embedding'] = (hrtime(true) - $phase2Start) / 1e6;
+
+            Logger::info('Fase 2 completada: embedding', [
+                'DisDetNro' => $disDetNro,
+                'pairsCompared' => count($semanticResults),
+                'timeMs' => round($phaseTimes['embedding']),
+            ]);
+
+            // ══════════════════════════════════════════════
+            // FASE 3: Evaluación Determinista (RuleEngine)
+            // ══════════════════════════════════════════════
+            $phase3Start = hrtime(true);
+
+            $result = $this->ruleEngine->evaluate(
+                $dispensationData,
+                $extractionResult['documents'] ?? [],
+                $extractionResult['visualChecks'] ?? [],
+                $semanticResults,
+                $auditConfig,
+                $this->classifier
+            );
+
+            $phaseTimes['rules'] = (hrtime(true) - $phase3Start) / 1e6;
+
+            Logger::info('Fase 3 completada: reglas', [
+                'DisDetNro' => $disDetNro,
+                'response' => $result['response'] ?? 'unknown',
+                'discrepancies' => $result['metrics']['TotalDiscrepancias'] ?? 0,
+                'timeMs' => round($phaseTimes['rules']),
+            ]);
+        } catch (\Exception $e) {
+            Logger::error('Error en pipeline v4', [
+                'DisDetNro' => $disDetNro,
+                'error' => $e->getMessage(),
+                'httpCode' => (int) $e->getCode(),
+                'phaseTimes' => $phaseTimes,
+            ]);
+
+            $shortMsg = $this->telemetry->formatErrorMessage(
+                (int) $e->getCode(),
+                $e->getMessage(),
+                $disDetNro
+            );
+            $result = $this->errorResponse($shortMsg, ['raw' => $e->getMessage()]);
         } finally {
             foreach ($files as $file) {
                 $this->fileManager->cleanup($file);
             }
         }
 
-        $geminiApiMs = (hrtime(true) - $geminiStart) / 1e6;
+        // ── Telemetría y persistencia ──
         $totalMs = (hrtime(true) - $totalStart) / 1e6;
+        $geminiApiMs = $phaseTimes['extraction'] + $phaseTimes['embedding'];
 
-        // ── Fase 3: Telemetría y persistencia ──
         $result['_meta'] = $this->telemetry->buildMeta(
             $dispensation,
             $files,
             $dataFetchMs,
             $filePrepMs,
             $geminiApiMs,
-            $attempts,
-            $totalMs,
-            $promptHash
+            1, // single-pass (no retry loop)
+            $totalMs
         );
 
-        Logger::info('Auditoría completada', [
+        // Agregar telemetría de fases v4
+        $result['_meta']['v4_phases'] = [
+            'extractionMs' => round($phaseTimes['extraction']),
+            'embeddingMs' => round($phaseTimes['embedding']),
+            'rulesMs' => round($phaseTimes['rules']),
+        ];
+
+        Logger::info('Auditoría v4 completada', [
             'DisDetNro' => $disDetNro,
             'totalTimeMs' => round($totalMs),
-            'dataFetchMs' => round($dataFetchMs),
-            'filePrepMs' => round($filePrepMs),
-            'geminiApiMs' => round($geminiApiMs),
-            'attempts' => $attempts,
+            'phases' => $result['_meta']['v4_phases'],
         ]);
 
         $this->persistence->saveResponse($disDetNro, $result);
         $persisted = $this->persistence->saveToDatabase($disDetNro, $result, $dispensation);
 
         if (!$persisted) {
-            Logger::warning('Persistencia en BD falló — el resultado de auditoría NO fue guardado', [
-                'DisDetNro' => $disDetNro,
-            ]);
+            Logger::warning('Persistencia en BD falló', ['DisDetNro' => $disDetNro]);
         }
 
         return $result;
     }
 
-    private function executeAuditFlow(array $dispensationData, array $files): array
+    // ══════════════════════════════════════════════════════════════
+    // Fase 1: Extracción
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Ejecuta la extracción de campos usando Gemini Vision + Function Calling.
+     *
+     * @param array $dispensationData Datos FDV de dispensación
+     * @param array $files Archivos preparados (base64)
+     * @param array $auditConfig Configuración de auditoría del cliente
+     * @return array Campos extraídos y visual checks
+     */
+    private function executeExtraction(array $dispensationData, array $files, array $auditConfig): array
     {
-        $systemInstruction = $this->promptBuilder->getSystemInstruction($dispensationData);
+        // System instruction (prompt corto, solo extracción)
+        $systemInstruction = $this->extractionPrompt->getSystemInstruction();
 
-        // P3.1: Thinking budget dinámico según complejidad
-        $complexity = $this->promptBuilder->estimateComplexity($dispensationData);
+        // Document labels
+        $documentLabels = array_map(
+            fn(array $f): string => $f['label'] ?? 'Documento',
+            $files
+        );
 
-        $multiDocInstruction = '';
-        $fileCount = count($files);
+        // User prompt con campos a extraer y hints
+        $userPrompt = $this->extractionPrompt->buildUserPrompt(
+            $auditConfig,
+            $dispensationData,
+            $documentLabels
+        );
 
-        if ($fileCount > 1) {
-            $docList = [];
-            foreach ($files as $index => $file) {
-                $label = $file['label'] ?? 'Documento';
-                $docList[] = 'Documento ' . ($index + 1) . ': ' . $label;
-            }
-            $multiDocInstruction = sprintf(
-                'Se adjuntan %d documentos (%s). Analiza todos los documentos y valida coherencia entre ellos.',
-                $fileCount,
-                implode(', ', $docList)
-            );
-        }
+        // Campos y visual checks desde audit-config
+        $fieldsToExtract = $this->extractionPrompt->resolveFieldsFromConfig($auditConfig);
+        $visualChecks = $this->extractionPrompt->resolveVisualChecksFromConfig($auditConfig);
 
-        // Construir pdfList y userPrompt base antes del loop para hash compuesto
-        $pdfList = array_values(array_unique(array_map(fn($f) => $f['label'] ?? 'Documento Adjunto', $files)));
-        $baseUserPrompt = $this->promptBuilder->buildUserPrompt($dispensationData, $pdfList);
+        // Tipos de documento esperados — normalizar nombres de BD a canónicos del pipeline
+        $docTypes = array_values(array_unique(array_map(
+            [ExtractionResponseSchema::class, 'normalizeDocType'],
+            $documentLabels
+        )));
 
-        // P3.2: Hash compuesto de trazabilidad (system + user prompt)
-        // Permite detectar si el payload completo a Gemini es idéntico entre llamadas
-        $promptHash = hash('sha256', $systemInstruction . '||' . $baseUserPrompt);
+        // Function Calling schema
+        $tools = ExtractionResponseSchema::getToolsBlock($fieldsToExtract, $visualChecks, $docTypes);
+        $toolConfig = ExtractionResponseSchema::getToolConfig();
 
-        Logger::info('Auditoría: fingerprint del prompt', [
-            'promptHash' => substr($promptHash, 0, 12),
-            'complexity' => $complexity['level'],
-            'thinkingBudget' => $complexity['thinkingBudget'],
-            'fileCount' => $fileCount,
-            'docLabels' => $pdfList,
+        Logger::info('Fase 1: enviando a Gemini FC', [
+            'fieldsToExtract' => count($fieldsToExtract),
+            'visualChecks' => count($visualChecks),
+            'filesCount' => count($files),
+            'promptLength' => strlen($userPrompt),
         ]);
 
-        $attempts = [
-            [
-                'overrides' => ['thinkingBudget' => $complexity['thinkingBudget']],
-                'extraInstruction' => $multiDocInstruction,
-            ],
-            [
-                'overrides' => [
-                    'maxOutputTokens' => (int) ceil($this->gateway->getMaxOutputTokens() * 2),
-                    'thinkingBudget' => $complexity['thinkingBudget'],
-                ],
-                'extraInstruction' => trim($multiDocInstruction . "\n" . 'IMPORTANTE: Responde con máximo ' . self::MAX_ITEMS_STRICT_MODE . ' items y detalles concisos (<=' . self::MAX_DETAIL_LENGTH_STRICT_MODE . ' caracteres).'),
-            ],
-        ];
+        // Enviar a Gemini con Function Calling
+        $geminiResponse = $this->gateway->sendWithFunctionCalling(
+            $userPrompt,
+            $files,
+            $systemInstruction,
+            $tools,
+            $toolConfig
+        );
 
-        $lastError = self::ERROR_INVALID_RESPONSE;
+        // Parsear la function call response
+        $extracted = ExtractionResponseSchema::parseExtractionResponse($geminiResponse);
 
-        foreach ($attempts as $index => $cfg) {
-            $prompt = $baseUserPrompt;
-            if ($cfg['extraInstruction'] !== '') {
-                $prompt .= "\n" . $cfg['extraInstruction'];
-            }
-
-            $result = $this->gateway->sendWithRetry(
-                $prompt,
-                $files,
-                $systemInstruction,
-                $cfg['overrides'],
-                $pdfList
-            );
-
-            $finishReason = $result['candidates'][0]['finishReason'] ?? null;
-            Logger::info('Gemini finish reason', ['finishReason' => $finishReason, 'attempt' => $index + 1]);
-
-            $rawText = $this->gateway->extractResponseText($result);
-            Logger::info('Respuesta de Gemini recibida', [
-                'attempt' => $index + 1,
-                'finishReason' => $finishReason,
-                'responseTextLength' => $rawText !== null ? strlen($rawText) : 0,
+        if ($extracted === null) {
+            Logger::error('Fase 1: Gemini no invocó report_extraction', [
+                'finishReason' => $geminiResponse['candidates'][0]['finishReason'] ?? 'unknown',
             ]);
+            throw new \RuntimeException('Gemini no invocó report_extraction — function calling falló');
+        }
 
-            $parsed = $rawText !== null ? $this->parser->parse($rawText) : null;
+        return $extracted;
+    }
 
-            if ($parsed === null) {
-                Logger::error('Parser falló al procesar respuesta', [
-                    'attempt' => $index + 1,
-                    'finishReason' => $finishReason,
-                    'responseTextLength' => $rawText !== null ? strlen($rawText) : 0,
-                ]);
-            } elseif (!$this->validator->isValid($parsed)) {
-                Logger::error('Validación falló para respuesta parseada', [
-                    'attempt' => $index + 1,
-                    'finishReason' => $finishReason,
-                    'itemsCount' => count($parsed['data']['items'] ?? []),
-                    'responseType' => $parsed['response'] ?? null,
-                ]);
-            } else {
-                return [$parsed, $index + 1, $promptHash];
+    // ══════════════════════════════════════════════════════════════
+    // Fase 2: Comparación Semántica
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Ejecuta comparación semántica para campos tipo 'semantic'.
+     *
+     * @param array $dispensationData Datos FDV
+     * @param array $extractionResult Resultado de Fase 1
+     * @return array Resultados de similitud
+     */
+    private function executeSemanticComparison(array $dispensationData, array $extractionResult): array
+    {
+        $semanticFields = $this->classifier->getFieldsByType(FieldClassifier::TYPE_SEMANTIC);
+
+        if (empty($semanticFields)) {
+            return [];
+        }
+
+        // Indexar campos extraídos POR TIPO de documento (sincronizado con RuleEngine::getDocValue)
+        $extractedByDoc = [];
+        foreach ($extractionResult['documents'] ?? [] as $doc) {
+            $rawType = $doc['type'] ?? 'UNKNOWN';
+            $type = ExtractionResponseSchema::normalizeDocType($rawType);
+            $fields = $doc['fields'] ?? [];
+            foreach ($fields as $key => $value) {
+                if ($value !== null && trim($value) !== '') {
+                    $extractedByDoc[$type][$key] = $value;
+                }
             }
+        }
 
-            if ($finishReason === 'MAX_TOKENS') {
-                $lastError = self::ERROR_MAX_TOKENS;
+        // Construir pares para comparación
+        $pairs = [];
+        foreach ($semanticFields as $field) {
+            $fdvValue = $this->resolveFdvValue($field, $dispensationData);
+            $docValue = $this->resolveDocValueByPriority($field, $extractedByDoc);
+
+            if ($fdvValue === null || $docValue === null) {
                 continue;
             }
 
-            $lastError = self::ERROR_INVALID_RESPONSE;
+            if (trim($fdvValue) === '' || trim($docValue) === '') {
+                continue;
+            }
+
+            $pairs[] = [
+                'field' => $field,
+                'fdvValue' => $fdvValue,
+                'docValue' => $docValue,
+            ];
         }
 
-        throw new \Exception(
-            $lastError . '|hash:' . substr($promptHash, 0, 12) . '|attempts:' . count($attempts),
-            500
+        if (empty($pairs)) {
+            Logger::info('Fase 2: sin pares semánticos para comparar');
+            return [];
+        }
+
+        Logger::info('Fase 2: pares semánticos a comparar', [
+            'count' => count($pairs),
+            'pairs' => array_map(
+                static fn(array $p): array => [
+                    'field' => $p['field'],
+                    'fdv' => mb_substr($p['fdvValue'], 0, 60),
+                    'doc' => mb_substr($p['docValue'], 0, 60),
+                ],
+                $pairs
+            ),
+        ]);
+
+        return $this->comparator->compareBatch($pairs, $this->embeddingGateway);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Helpers
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Resuelve el valor FDV para Fase 2 (semántica).
+     *
+     * Para campos per-item (NombreArticulo, Laboratorio, etc.), concatena
+     * valores de todas las rows SQL — sincronizado con RuleEngine::getFdvValue.
+     */
+    private function resolveFdvValue(string $field, array $data): ?string
+    {
+        // Mapeo: FieldClassifier → SQL column alias (sincronizado con RuleEngine::getFdvValue)
+        static $fieldToColumn = [
+            'NumeroFactura'        => 'NumeroFactura',
+            'NumeroFormula'        => 'NumeroFormula',
+            'Autorizacion'         => 'NumeroAutorizacion',
+            'TipoIdentificacion'   => 'TipoDocumentoPaciente',
+            'NumeroIdentificacion' => 'DocumentoPaciente',
+            'FechaFormula'         => 'FechaFormula',
+            'FechaAutorizacion'    => 'FechaAutorizacion',
+            'FechaEntrega'         => 'FechaEntrega',
+            'VlrCobrado'           => 'VlrCobrado',
+            'Mipres'               => 'Mipres',
+            'IdPrincipal'          => 'IdPrincipal',
+            'IdDirec'              => 'IdDirec',
+            'IdProg'               => 'IdProg',
+            'IdEntr'               => 'IdEntr',
+            'IdRepEnt'             => 'IdRepEnt',
+            'Lote'                 => 'Lote',
+            'NombrePaciente'       => 'NombrePaciente',
+            'NombreArticulo'       => 'NombreArticulo',
+            'Medico'               => 'Medico',
+            'Laboratorio'          => 'Laboratorio',
+            'IPS'                  => 'IPS',
+            'Cliente.Entidad'      => 'Cliente',
+            'Cliente.Regimen'      => 'RegimenPaciente',
+            'FirmaActaEntrega'     => 'FirmaActaEntrega',
+            'SelloRecepcion'       => null,
+            'CantidadEntregada'    => 'CantidadEntregada',
+            'CantidadPrescrita'    => 'CantidadPrescrita',
+        ];
+
+        $column = $fieldToColumn[$field] ?? $field;
+        $isMultiRow = isset($data[0]) && is_array($data[0]);
+
+        // Per-item field: agregar valores de todas las rows
+        if ($isMultiRow && count($data) > 1 && in_array($field, RuleEngine::PER_ITEM_FIELDS, true)) {
+            $values = [];
+            foreach ($data as $row) {
+                $val = $this->extractRowValueSimple($row, $field, $column);
+                if ($val !== null) {
+                    $values[] = $val;
+                }
+            }
+
+            if (empty($values)) {
+                return null;
+            }
+
+            $unique = array_unique($values);
+            if (count($unique) === 1) {
+                return $unique[0];
+            }
+
+            return implode(', ', $values);
+        }
+
+        // Campo compartido: usar row[0]
+        $row = $isMultiRow ? ($data[0] ?? null) : $data;
+        if ($row === null || !is_array($row)) {
+            return null;
+        }
+
+        return $this->extractRowValueSimple($row, $field, $column);
+    }
+
+    /**
+     * Extrae un valor de una row SQL individual.
+     */
+    private function extractRowValueSimple(array $row, string $field, ?string $column): ?string
+    {
+        if (isset($row[$field]) && is_string($row[$field]) && trim($row[$field]) !== '') {
+            return $row[$field];
+        }
+
+        if ($column !== null && $column !== $field && isset($row[$column]) && trim((string) $row[$column]) !== '') {
+            return (string) $row[$column];
+        }
+
+        return null;
+    }
+
+    /**
+     * Maneja fallos de pre-validación con telemetría y persistencia.
+     */
+    private function handlePreValidationFailure(array $preValidation, string $disDetNro, int $totalStart): array
+    {
+        $failResult = $preValidation['result'];
+        $dispensation = is_array($preValidation['dispensation'] ?? null) ? $preValidation['dispensation'] : [];
+        $dataFetchMs = (float) ($preValidation['dataFetchMs'] ?? 0.0);
+        $filePrepMs = (float) ($preValidation['filePrepMs'] ?? 0.0);
+        $availableDocuments = is_array($preValidation['availableDocuments'] ?? null) ? $preValidation['availableDocuments'] : [];
+
+        $metaFiles = array_map(
+            static fn(string $name): array => ['label' => $name],
+            array_values(array_filter($availableDocuments, static fn($name) => is_string($name) && trim($name) !== ''))
         );
+
+        $totalMs = (hrtime(true) - $totalStart) / 1e6;
+
+        if (!isset($failResult['_meta']) || !is_array($failResult['_meta'])) {
+            $failResult['_meta'] = $this->telemetry->buildMeta(
+                $dispensation,
+                $metaFiles,
+                $dataFetchMs,
+                $filePrepMs,
+                0.0,
+                0,
+                $totalMs
+            );
+        }
+
+        $this->persistence->saveResponse($disDetNro, $failResult);
+        $this->persistence->saveToDatabase($disDetNro, $failResult, $dispensation);
+
+        return $failResult;
     }
 
     private function errorResponse(string $message, array $data = []): array
@@ -282,5 +500,45 @@ class AuditOrchestrator
             'metrics' => AuditResponseSchema::getEmptyMetrics(),
             'config_used' => AuditResponseSchema::getEmptyConfig(),
         ];
+    }
+    /**
+     * Resuelve el valor de un campo extraído con la misma prioridad que
+     * RuleEngine::getDocValue:
+     *   1. Documento autoritativo
+     *   2. Documentos alternativos
+     *   3. Cualquier documento (fallback)
+     */
+    private function resolveDocValueByPriority(string $field, array $extractedByDoc): ?string
+    {
+        // 1. Documento autoritativo
+        $authDoc = $this->classifier->getAuthoritativeDoc($field);
+        if ($authDoc !== null && isset($extractedByDoc[$authDoc][$field])) {
+            $val = $extractedByDoc[$authDoc][$field];
+            if (is_string($val) && trim($val) !== '') {
+                return $val;
+            }
+        }
+
+        // 2. Documentos alternativos
+        foreach ($this->classifier->getAlternativeDocs($field) as $altDoc) {
+            if (isset($extractedByDoc[$altDoc][$field])) {
+                $val = $extractedByDoc[$altDoc][$field];
+                if (is_string($val) && trim($val) !== '') {
+                    return $val;
+                }
+            }
+        }
+
+        // 3. Cualquier documento
+        foreach ($extractedByDoc as $fields) {
+            if (isset($fields[$field])) {
+                $val = $fields[$field];
+                if (is_string($val) && trim($val) !== '') {
+                    return $val;
+                }
+            }
+        }
+
+        return null;
     }
 }

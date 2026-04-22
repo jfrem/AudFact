@@ -6,7 +6,12 @@ $router->get('/config/public', 'ConfigController', 'publicConfig');
 // Clients
 $router->get('/clients', 'ClientsController', 'index');
 $router->get('/clients/{clientId}', 'ClientsController', 'show');
+$router->get('/clients/{clientId}/documents', 'ClientsController', 'documents');
 $router->post('/clients', 'ClientsController', 'lookup');
+
+// Audit Config (Sample-Driven Configuration)
+$router->get('/clients/{clientId}/audit-config', 'AuditConfigController', 'show');
+$router->post('/clients/{clientId}/audit-config', 'AuditConfigController', 'save');
 
 // Invoices
 $router->get('/invoices', 'InvoicesController', 'index');
@@ -24,8 +29,7 @@ $router->post('/dispensation', 'DispensationController', 'lookup');
 // Audit
 // TODO: FIX #3 PENDIENTE — Aplicar ->middleware('auth') cuando se implemente AuthMiddleware + JWT
 $router->get('/audit/results', 'AuditController', 'results'); // Historial persistido
-$router->get('/audit/documents-history', 'AuditController', 'documentsHistory'); // Nuevo: historial facturas/documentos
-$router->post('/audit', 'AuditController', 'run'); // Batch (síncrono)
-$router->post('/audit/single', 'AuditController', 'single'); // Individual HA
-$router->post('/audit/async', 'AuditController', 'async'); // Batch async (Fase 3)
-$router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus'); // Estado de job async
+$router->get('/audit/documents-history', 'AuditController', 'documentsHistory');
+$router->post('/audit/single', 'AuditController', 'single');
+$router->post('/audit/async', 'AuditController', 'async');
+$router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus');
