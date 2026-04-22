@@ -8,7 +8,6 @@ use Core\Logger;
 
 class AuditFileManager
 {
-    // Constantes de Tipos MIME aceptados
     private const ALLOWED_MIME_TYPES = [
         'application/pdf',
         'image/jpeg',
@@ -19,13 +18,11 @@ class AuditFileManager
         'image/heif'
     ];
 
-    // C04: Límite de tamaño sugerido por la API y para evitar Out Of Memory processing base64 (~15MB limit)
     private const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 
     private string $tmpDir;
     private GoogleDriveAuthService $driveService;
     private AttachmentsModel $attachmentsModel;
-    /** @var array<string, array{path: string, mime: ?string}> Caché de archivos descargados por FileID */
     private array $downloadCache = [];
 
     public function __construct()
@@ -40,13 +37,6 @@ class AuditFileManager
         $this->attachmentsModel = new AttachmentsModel();
     }
 
-    /**
-     * Prepara un archivo adjunto para su procesamiento.
-     *
-     * @param array $attachment Datos del adjunto
-     * @return array Estructura ['mime', 'data', 'tmp', 'pages']
-     * @throws \RuntimeException Si falla la obtención del archivo
-     */
     public function prepareAttachment(array $attachment): array
     {
         $storageType = $attachment['TipoAlmacenamiento'] ?? 'SIN_DOCUMENTOS';
@@ -72,13 +62,6 @@ class AuditFileManager
         }
     }
 
-    /**
-     * Prepara todos los adjuntos requeridos.
-     * @param array $attachments Lista de adjuntos
-     * @param array $dispensationData Datos de la dispensación
-     * @return array Lista de archivos preparados
-     * @throws \RuntimeException Si un adjunto requerido no puede prepararse o tiene MIME inválido
-     */
     public function prepareAttachments(array $attachments, array $dispensationData): array
     {
         $files = [];
@@ -114,14 +97,6 @@ class AuditFileManager
         return $files;
     }
 
-    /**
-     * Devuelve la lista de documentos faltantes requeridos.
-     * Regla: Si NumeroAutorizacion está vacío en los registros, no se requiere autorización.
-     *
-     * @param array $attachments Lista de adjuntos
-     * @param array $dispensationData Datos de la dispensación
-     * @return array Lista de nombres de documentos faltantes
-     */
     public function getMissingRequiredAttachments(array $attachments, array $dispensationData): array
     {
         $missingDocuments = [];
@@ -143,19 +118,12 @@ class AuditFileManager
         return $missingDocuments;
     }
 
-    /**
-     * Elimina el archivo temporal si existe.
-     * Puede recibir un path string o el array de resultado de prepareAttachment.
-     */
     public function cleanup($file): void
     {
         $path = is_array($file) ? ($file['tmp'] ?? null) : $file;
         $this->cleanupPath($path);
     }
 
-    /**
-     * Elimina un archivo temporal por path.
-     */
     private function cleanupPath(?string $path): void
     {
         if ($path !== null && $path !== '' && is_file($path)) {
@@ -171,7 +139,6 @@ class AuditFileManager
         if ($fileId === '') {
             throw new \RuntimeException('Adjunto URL inválido (ID vacío)');
         }
-        // Evitar descargas duplicadas
         if (isset($this->downloadCache[$fileId])) {
             $cached = $this->downloadCache[$fileId];
             if (file_exists($cached['path'])) {
@@ -181,11 +148,9 @@ class AuditFileManager
                 ]);
                 return $cached['mime'];
             }
-            // Path ya no existe, invalidar entrada del caché
             unset($this->downloadCache[$fileId]);
         }
 
-        // Métricas de rendimiento para descargas URL
         $startTime = hrtime(true);
         $mime = $this->driveService->downloadFile($fileId, $destPath);
         $elapsed = round((hrtime(true) - $startTime) / 1e6);
@@ -201,10 +166,6 @@ class AuditFileManager
         return $mime;
     }
 
-    /**
-     * O3: Procesa BLOB directamente en memoria sin pasar por disco.
-     * Flujo optimizado: SQL stream → memoria → detectMime → base64
-     */
     private function handleBlobDirect(array $attachment): array
     {
         $attachmentId = (string)($attachment['id_documento'] ?? '');
@@ -224,7 +185,6 @@ class AuditFileManager
             throw new \RuntimeException('No se pudo obtener stream BLOB de base de datos');
         }
 
-        // O3: leer stream directamente a memoria (sin archivo temporal)
         $binaryContent = stream_get_contents($stream);
         if (isset($blob['close']) && is_callable($blob['close'])) {
             $blob['close']();
@@ -236,7 +196,6 @@ class AuditFileManager
             throw new \RuntimeException('BLOB vacío o no leído correctamente');
         }
 
-        // C04: Control de tamaño base64
         if (strlen($binaryContent) > self::MAX_FILE_SIZE_BYTES) {
             throw new \RuntimeException(sprintf('Archivo %s excede el límite máximo (15MB)', $documentName));
         }
@@ -247,7 +206,6 @@ class AuditFileManager
             'elapsedMs' => $elapsed
         ]);
 
-        // FIX #4: Detección MIME unificada (magic numbers + finfo + extensión fallback)
         $mime = $this->detectMimeFromBinary($binaryContent, $documentName);
 
         return [
@@ -258,16 +216,7 @@ class AuditFileManager
         ];
     }
 
-    /**
-     * Método centralizado para detección MIME por magic numbers (header bytes).
-     * Reutilizado por detectMimeFromBinary() y detectMime().
-     *
-     * Nota: HEIC/HEIF no se detecta aquí porque su firma 'ftyp' está en bytes 4-7,
-     * no al inicio del archivo. Para HEIC se depende de finfo o fallback por extensión.
-     *
-     * @param string $header Primeros 16 bytes del contenido
-     * @return string|null MIME detectado o null si no se reconoce
-     */
+    // HEIC/HEIF no se detecta aquí: su firma 'ftyp' está en bytes 4-7, no al inicio.
     private function detectMimeFromHeader(string $header): ?string
     {
         if (strpos($header, '%PDF-') === 0) {
@@ -286,24 +235,14 @@ class AuditFileManager
         return null;
     }
 
-    /**
-     * Detecta MIME type a partir del contenido binario en memoria.
-     * FIX #4: Usa detectMimeFromHeader() centralizado.
-     * FIX #5: Acepta nombre de documento para fallback por extensión.
-     *
-     * @param string $content Contenido binario completo
-     * @param string $documentName Nombre del documento (para fallback por extensión)
-     */
     private function detectMimeFromBinary(string $content, string $documentName = ''): string
     {
-        // 1. Magic numbers
         $header = substr($content, 0, 16);
         $mime = $this->detectMimeFromHeader($header);
         if ($mime !== null) {
             return $mime;
         }
 
-        // 2. finfo en memoria
         if (class_exists('finfo')) {
             $finfo = new \finfo(FILEINFO_MIME_TYPE);
             $detected = $finfo->buffer($content);
@@ -312,7 +251,6 @@ class AuditFileManager
             }
         }
 
-        // 3. FIX #5: Fallback por extensión del nombre del documento
         if ($documentName !== '') {
             $fallback = $this->detectMimeFromExtension($documentName);
             if ($fallback !== null) {
@@ -323,10 +261,6 @@ class AuditFileManager
         return 'application/octet-stream';
     }
 
-    /**
-     * Fallback MIME por extensión de archivo.
-     * FIX #5: Extraído para reutilizar en flujo BLOB y URL.
-     */
     private function detectMimeFromExtension(string $filename): ?string
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
@@ -360,9 +294,6 @@ class AuditFileManager
         return true;
     }
 
-    /**
-     * Determina si la dispensación requiere documento de autorización.
-     */
     private function dispensationRequiresAuthorization(array $dispensationData): bool
     {
         foreach ($dispensationData as $row) {
@@ -383,7 +314,6 @@ class AuditFileManager
 
         $mime = $mimeOverride ?: $this->detectMime($path, $originalName);
 
-        // C04: Control de tamaño base64 previo a readFile
         $size = filesize($path);
         if ($size > self::MAX_FILE_SIZE_BYTES) {
             throw new \RuntimeException(sprintf('Archivo %s excede el límite máximo (15MB)', $originalName));
@@ -405,10 +335,6 @@ class AuditFileManager
         ];
     }
 
-    /**
-     * Cuenta páginas del adjunto según MIME.
-     * Para imágenes retorna 1; para PDF estima por objetos /Type /Page.
-     */
     private function countPagesByMime(string $binaryContent, string $mime): int
     {
         if ($mime !== 'application/pdf') {
@@ -423,10 +349,6 @@ class AuditFileManager
         return $matches;
     }
 
-    /**
-     * Detecta MIME de un archivo en disco.
-     * FIX #4: Usa detectMimeFromHeader() centralizado para magic numbers.
-     */
     private function detectMime(string $path, string $originalName = ''): string
     {
         $mime = 'application/octet-stream';
@@ -444,7 +366,6 @@ class AuditFileManager
             $mime = \mime_content_type($path) ?: 'application/octet-stream';
         }
 
-        // FIX #4: Magic numbers centralizados
         if (($mime === 'application/octet-stream' || $mime === 'text/plain') && is_readable($path)) {
             $handle = @fopen($path, 'rb');
             if ($handle) {
@@ -459,7 +380,6 @@ class AuditFileManager
             }
         }
 
-        // Fallback por extensión
         if ($mime === 'application/octet-stream' && $originalName !== '') {
             $fallback = $this->detectMimeFromExtension($originalName);
             if ($fallback !== null) {

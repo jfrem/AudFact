@@ -6,18 +6,6 @@ use Core\Logger;
 
 class AuditTelemetryService
 {
-    /**
-     * Construye el bloque de metadatos de rendimiento de la auditoría.
-     *
-     * @param array $dispensation Datos maestros de dispensación
-     * @param array $files Archivos procesados
-     * @param float $dataFetchMs Duración de lectura de datos
-     * @param float $filePrepMs Duración de preparación de archivos
-     * @param float $geminiApiMs Duración de llamada a Gemini
-     * @param int $attempts Número de intentos realizados
-     * @param float $totalMs Duración total
-     * @return array Metadatos listos para respuesta
-     */
     public function buildMeta(array $dispensation, array $files, float $dataFetchMs, float $filePrepMs, float $geminiApiMs, int $attempts, float $totalMs, string $promptHash = ''): array
     {
         return [
@@ -39,14 +27,6 @@ class AuditTelemetryService
         ];
     }
 
-    /**
-     * Mapea errores técnicos a mensajes de negocio legibles.
-     *
-     * @param int $httpCode Código HTTP de error
-     * @param string $errorMsg Mensaje técnico
-     * @param string $disDetNro Identificador de dispensación/factura
-     * @return string Mensaje corto para respuesta al cliente
-     */
     public function formatErrorMessage(int $httpCode, string $errorMsg, string $disDetNro): string
     {
         $httpPrefix = $httpCode > 0 ? "[HTTP {$httpCode}] " : '';

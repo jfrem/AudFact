@@ -22,7 +22,6 @@ class FieldClassifier
     ];
 
     private const FIELD_TYPES = [
-        // ── Campos exactos ──
         'NumeroFactura'       => self::TYPE_EXACT,
         'NumeroFormula'       => self::TYPE_EXACT,
         'Autorizacion'        => self::TYPE_EXACT,
@@ -49,7 +48,6 @@ class FieldClassifier
         'CUM'                 => self::TYPE_EXACT,
         'Tipo'                => self::TYPE_EXACT,
 
-        // ── Campos semánticos ──
         'NombrePaciente'      => self::TYPE_SEMANTIC,
         'NombreArticulo'      => self::TYPE_SEMANTIC,
         'Medico'              => self::TYPE_SEMANTIC,
@@ -57,12 +55,10 @@ class FieldClassifier
         'IPS'                 => self::TYPE_SEMANTIC,
         'Cliente.Entidad'     => self::TYPE_SEMANTIC,
 
-        // ── Campos visuales ──
         'FirmaActaEntrega'    => self::TYPE_VISUAL,
         'SelloRecepcion'      => self::TYPE_VISUAL,
         'FirmaPrescriptor'    => self::TYPE_VISUAL,
 
-        // ── Campos de negocio ──
         'CantidadEntregada'   => self::TYPE_BUSINESS,
         'CantidadPrescrita'   => self::TYPE_BUSINESS,
         'Cliente.Regimen'     => self::TYPE_BUSINESS,
@@ -159,8 +155,6 @@ class FieldClassifier
         'Medico'               => ['AUTORIZACION'],
     ];
 
-    // Mapeo canónico → columna SQL de DispensationModel.
-    // Mantener sincronizado con app/Models/DispensationModel.php
     private const FIELD_SQL_COLUMNS = [
         'NumeroFactura'        => 'NumeroFactura',
         'NumeroFormula'        => null,                 // No existe en SQL, solo en docs

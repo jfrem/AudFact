@@ -6,14 +6,6 @@ use Core\Logger;
 
 class SemanticComparator
 {
-    /**
-     * Umbrales de similitud coseno por campo.
-     *
-     * Valores calibrados para el dominio farmacéutico/médico colombiano.
-     * Un match por debajo del umbral se reporta como discrepancia.
-     *
-     * Calibración pendiente: ajustar con 20+ dispensaciones reales.
-     */
     private const THRESHOLDS = [
         'NombrePaciente'  => 0.88,
         'Medico'          => 0.88,
@@ -57,7 +49,6 @@ class SemanticComparator
             return [];
         }
 
-        // Batch embedding (una sola llamada API)
         $embeddings = $gateway->embedBatch($textsToEmbed);
 
         $vectorMap = [];

@@ -48,10 +48,7 @@ class RuleEngine
         $metrics = $this->initializeMetrics();
         $semanticMap = $this->indexSemanticResults($semanticResults);
 
-        // Indexar extracted fields por tipo de documento
         $docFieldsMap = $this->indexExtractedFields($extractedDocs);
-
-        // Evaluar cada campo configurado
         $fieldsToEvaluate = $this->resolveFields($auditConfig, $classifier);
 
         foreach ($fieldsToEvaluate as $fieldConfig) {
@@ -99,7 +96,6 @@ class RuleEngine
             $this->updateMetrics($metrics, $classification, $severity);
         }
 
-        // Risk score (§07)
         $riskScore = $this->calculateRiskScore($metrics);
         $response = $this->classifyResponse($riskScore);
 
@@ -128,7 +124,6 @@ class RuleEngine
             return $this->evaluateVisual($field, $visualChecks, $document);
         }
 
-        // Campo no encontrado en documento
         if ($docValue === null || trim($docValue) === '') {
             if ($fdvValue === null || trim($fdvValue) === '') {
                 return ['classification' => self::SKIPPED, 'detail' => 'Ambos valores vacíos'];
@@ -136,7 +131,6 @@ class RuleEngine
             return ['classification' => self::NOT_FOUND, 'detail' => 'No encontrado en documento'];
         }
 
-        // FDV vacía → no aplica
         if ($fdvValue === null || trim($fdvValue) === '') {
             return ['classification' => self::NOT_APPLICABLE, 'detail' => 'Sin valor en Fuente de Verdad'];
         }
@@ -218,9 +212,6 @@ class RuleEngine
         ];
     }
 
-    /**
-     * Construye una llave estable para resultados por documento + campo.
-     */
     private function buildDocumentFieldKey(string $field, ?string $document): string
     {
         return ($document ?? self::ANY_DOCUMENT_KEY) . self::DOCUMENT_FIELD_KEY_SEPARATOR . $field;
@@ -244,12 +235,10 @@ class RuleEngine
             return $this->evaluateExact('cantidad', $fdvValue, $docValue);
         }
 
-        // Exacto
         if ($fdvQty === $docQty) {
             return ['classification' => self::MATCH];
         }
 
-        // Entrega parcial (doc ≤ fdv)
         if ($docQty <= $fdvQty) {
             return [
                 'classification' => self::MATCH,
@@ -257,7 +246,6 @@ class RuleEngine
             ];
         }
 
-        // Exceso dentro de tolerancia POSITIVA
         $excess = $docQty - $fdvQty;
         if ($excess <= self::QUANTITY_EXCESS_TOLERANCE) {
             return [
@@ -276,7 +264,6 @@ class RuleEngine
     {
         $normalizedFdv = strtoupper(trim($fdvValue));
 
-        // Skip para regímenes excluidos
         if (in_array($normalizedFdv, self::REGIME_SKIP_VALUES, true)) {
             return [
                 'classification' => self::SKIPPED,
@@ -290,7 +277,6 @@ class RuleEngine
             return ['classification' => self::MATCH];
         }
 
-        // Equivalencias conocidas
         $equivalences = [
             'SUBSIDIADO' => 'S',
             'CONTRIBUTIVO' => 'C',
@@ -329,21 +315,14 @@ class RuleEngine
             return $this->normalizeZeroValue($value);
         }
 
-        // Default: lowercase + trim
         return mb_strtolower($value, 'UTF-8');
     }
 
-    /**
-     * Normaliza identificadores: elimina puntos, guiones, espacios.
-     */
     private function normalizeIdentifier(string $value): string
     {
         return preg_replace('/[\.\-\s]/', '', $value);
     }
 
-    /**
-     * Normaliza fechas simples o listas de fechas a formato canónico.
-     */
     private function normalizeDateValue(string $value): string
     {
         $value = trim($value);
@@ -368,9 +347,6 @@ class RuleEngine
         return implode(', ', $normalized);
     }
 
-    /**
-     * Normaliza listas de valores exactos donde el separador no es semántico.
-     */
     private function normalizeListValue(string $value): string
     {
         $parts = $this->splitListValue($value);
@@ -381,9 +357,6 @@ class RuleEngine
         return mb_strtolower(implode(', ', $parts), 'UTF-8');
     }
 
-    /**
-     * Divide listas usando separadores visibles entre valores, no dentro de fechas.
-     */
     private function splitListValue(string $value): array
     {
         $parts = preg_split('/\s*(?:,|;|\s\/\s)\s*/', trim($value));
@@ -397,9 +370,6 @@ class RuleEngine
         ));
     }
 
-    /**
-     * Normaliza una fecha individual a formato Y-m-d.
-     */
     private function normalizeDate(string $value): string
     {
         $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'd/m/y'];
@@ -414,9 +384,6 @@ class RuleEngine
         return trim($value);
     }
 
-    /**
-     * Normaliza valores cero: $0, 0.00, .00 → "0"
-     */
     private function normalizeZeroValue(string $value): string
     {
         $clean = preg_replace('/[^\d\.]/', '', $value);
@@ -508,7 +475,6 @@ class RuleEngine
         $column = $classifier->getSqlColumn($field);
         $isMultiRow = isset($fdvItems[0]) && is_array($fdvItems[0]);
 
-        // ── Per-item field: agregar valores de todas las rows ──
         if ($isMultiRow && count($fdvItems) > 1 && in_array($field, self::PER_ITEM_FIELDS, true)) {
             $values = [];
             foreach ($fdvItems as $row) {

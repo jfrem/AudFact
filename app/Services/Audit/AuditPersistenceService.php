@@ -18,14 +18,6 @@ class AuditPersistenceService
         $this->auditStatusModel = $auditStatusModel;
     }
 
-    /**
-     * Persiste la respuesta de auditoría en disco para trazabilidad (solo en dev/test).
-     * En producción se omite para evitar acumulación de archivos JSON en disco.
-     *
-     * @param string $disDetNro Identificador de dispensación/factura
-     * @param array $result Resultado final de auditoría
-     * @return void
-     */
     public function saveResponse(string $disDetNro, array $result): void
     {
         $env = strtolower(trim($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production'));
@@ -56,15 +48,6 @@ class AuditPersistenceService
         }
     }
 
-    /**
-     * Persiste el estado de auditoría en la tabla AudDispEst y actualiza
-     * el resultado en AdjuntosDispensacion.
-     *
-     * @param string $disDetNro Identificador de dispensación/factura
-     * @param array $result Resultado final de auditoría
-     * @param array|null $dispensation Datos de dispensación base
-     * @return bool true si persistió correctamente, false si hubo error
-     */
     public function saveToDatabase(string $disDetNro, array $result, ?array $dispensation = null): bool
     {
         $writeDb = null;
@@ -119,8 +102,6 @@ class AuditPersistenceService
                 'DocumentoFallido' => $failedDoc ? substr((string) $failedDoc, 0, 255) : null,
             ];
 
-            // ── Transacción atómica: upsert + actualización de adjuntos ──
-            // Previene corrupción silenciosa si la conexión cae entre upsert y update.
             $writeDb = Database::getConnection('default');
             $writeDb->beginTransaction();
 
@@ -132,7 +113,6 @@ class AuditPersistenceService
                 return false;
             }
 
-            // Actualizar resultado en AdjuntosDispensacion excepto errores de infraestructura
             if ($errorOrigin !== 'infrastructure') {
                 $this->updateAuditResultIfNeeded($data['FacNro'], $isSuccess, $result);
             } else if (!$isSuccess) {
@@ -163,24 +143,10 @@ class AuditPersistenceService
         }
     }
 
-    /**
-     * Actualiza AdjuntosDispensacion según los hallazgos de la auditoría.
-     *
-     * Estrategia:
-     * - Auditoría aprobada (sin hallazgos): marca TODOS los adjuntos como conformes (C).
-     * - Auditoría con hallazgos: primero marca TODOS como conformes (baseline),
-     *   luego rechaza individualmente cada documento que tenga hallazgos.
-     *
-     * @param string $facNro Número de factura
-     * @param bool $isSuccess true si auditoría aprobada globalmente
-     * @param array $result Resultado de auditoría completo
-     * @return void
-     */
     private function updateAuditResultIfNeeded(string $facNro, bool $isSuccess, array $result): void
     {
         try {
             if (($result['response'] ?? '') === 'human_review') {
-                // Trazabilidad documental: marcar auditoría IA sin rechazo puntual.
                 $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
                 Logger::info('Resultado human_review: adjuntos marcados para trazabilidad', [
                     'FacNro' => $facNro,
@@ -197,7 +163,6 @@ class AuditPersistenceService
                 return;
             }
 
-            // Paso 2: Agrupar hallazgos por documento
             $findings = $result['data']['items'] ?? [];
             $findingsByDoc = [];
             foreach ($findings as $finding) {
@@ -208,7 +173,6 @@ class AuditPersistenceService
             }
 
             if (empty($findingsByDoc)) {
-                // Faltantes prevalidación: rechazar solo documentos listados en el mensaje.
                 $missingDocuments = $this->extractMissingDocumentsFromMessage((string) ($result['message'] ?? ''));
 
                 if (empty($missingDocuments)) {
@@ -241,7 +205,6 @@ class AuditPersistenceService
                 return;
             }
 
-            // Paso 3: baseline de aprobados + rechazos puntuales por documento.
             $this->auditStatusModel->updateAuditResult($facNro, true, null, null);
 
             $rejectedCount = 0;
@@ -288,15 +251,6 @@ class AuditPersistenceService
         }
     }
 
-    /**
-     * Extrae nombres de documentos faltantes desde el mensaje de prevalidación.
-     *
-     * Ejemplo:
-     * "Documentos requeridos sin archivo adjunto: AUTORIZACION DE SERVICIOS, VALIDADOR DE DERECHOS"
-     *
-     * @param string $message Mensaje de error
-     * @return array<string> Nombres de documentos normalizados
-     */
     private function extractMissingDocumentsFromMessage(string $message): array
     {
         $prefix = 'Documentos requeridos sin archivo adjunto:';
@@ -317,13 +271,6 @@ class AuditPersistenceService
         return array_values(array_unique($parts));
     }
 
-    /**
-     * Cachea un resultado de auditoría exitoso en Redis.
-     * Usado para alimentar la capa 1 de idempotencia.
-     *
-     * @param string $facSec PK de la factura
-     * @param array $result Resultado de auditoría
-     */
     private function cacheAuditResult(string $facSec, array $result): void
     {
         try {
@@ -335,7 +282,6 @@ class AuditPersistenceService
             $cacheTTL = (int) \Core\Env::get('AUDIT_CACHE_TTL', 86400);
             $cacheKey = 'audit:result:' . $facSec;
 
-            // Guardamos el resultado completo sin truncar para la re-persistencia (C-01)
             $payload = $result;
             $payload['message'] = 'Resultado reutilizado (idempotencia)';
 

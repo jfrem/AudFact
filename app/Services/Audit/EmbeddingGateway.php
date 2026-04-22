@@ -7,14 +7,6 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 
-/**
- * Cliente HTTP para la Gemini Embedding API.
- *
- * Vectoriza textos usando el modelo gemini-embedding-001 para
- * comparaciones semánticas en la Fase 2 del pipeline determinista.
- *
- * @version 4.0
- */
 class EmbeddingGateway
 {
     private const ENDPOINT_TEMPLATE = 'https://generativelanguage.googleapis.com/v1beta/models/%s:embedContent';
@@ -24,9 +16,6 @@ class EmbeddingGateway
     private const BASE_RETRY_DELAY_MS = 500;
     private const RETRYABLE_HTTP_CODES = [429, 503, 500, 502, 504];
 
-    /**
-     * Máximo de textos por llamada batch (límite de la API).
-     */
     private const MAX_BATCH_SIZE = 100;
 
     private Client $http;
@@ -40,13 +29,6 @@ class EmbeddingGateway
         $this->model = $model ?? 'gemini-embedding-001';
     }
 
-    /**
-     * Vectoriza un texto individual.
-     *
-     * @param string $text Texto a vectorizar
-     * @return array<float> Vector de embedding
-     * @throws \RuntimeException Si la API falla después de reintentos
-     */
     public function embed(string $text): array
     {
         $url = sprintf(self::ENDPOINT_TEMPLATE, $this->model);
@@ -70,16 +52,6 @@ class EmbeddingGateway
         return $values;
     }
 
-    /**
-     * Vectoriza múltiples textos en una sola llamada batch.
-     *
-     * Respeta el límite de MAX_BATCH_SIZE textos por llamada.
-     * Si hay más textos, los divide en chunks y concatena resultados.
-     *
-     * @param array<string> $texts Lista de textos a vectorizar
-     * @return array<array{text: string, vector: array<float>}> Textos con sus vectores
-     * @throws \RuntimeException Si la API falla
-     */
     public function embedBatch(array $texts): array
     {
         if (empty($texts)) {
@@ -134,7 +106,7 @@ class EmbeddingGateway
             }
         }
 
-        // Reconstruir resultado en el orden original (incluyendo duplicados)
+        // Preservar orden original incluyendo duplicados
         $result = [];
         foreach ($texts as $text) {
             $vector = $vectorMap[$text] ?? null;
@@ -146,14 +118,6 @@ class EmbeddingGateway
         return $result;
     }
 
-    /**
-     * Envía request con reintentos y backoff exponencial.
-     *
-     * @param string $url URL del endpoint
-     * @param array $payload Cuerpo JSON
-     * @return array Respuesta decodificada
-     * @throws \RuntimeException Si agota reintentos
-     */
     private function sendWithRetry(string $url, array $payload): array
     {
         $lastException = null;

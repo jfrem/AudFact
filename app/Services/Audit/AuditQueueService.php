@@ -7,23 +7,12 @@ namespace App\Services\Audit;
 use Core\RedisClient;
 use Core\Logger;
 
-/**
- * AuditQueueService — Cola de auditorías asíncronas con Redis Lists.
- *
- * Flujo:
- *   1. POST /audit/async → enqueue() → LPUSH audit:queue → 202 + jobId
- *   2. Worker CLI: dequeue() → BRPOP audit:queue → procesar → resultado a Redis + SQL
- *   3. GET /audit/jobs/{jobId} → getJobStatus() → estado actual
- *
- * @since 3.0
- */
 class AuditQueueService
 {
     private const QUEUE_KEY = 'audit:queue';
     private const JOB_PREFIX = 'audit:job:';
-    private const JOB_TTL = 86400; // 24 horas
+    private const JOB_TTL = 86400;
 
-    /** Estados del job */
     public const STATUS_PENDING     = 'pending';
     public const STATUS_PROCESSING  = 'processing';
     public const STATUS_COMPLETED   = 'completed';
@@ -37,12 +26,6 @@ class AuditQueueService
         $this->redis = RedisClient::getInstance();
     }
 
-    /**
-     * Encola un batch de auditoría para procesamiento async.
-     *
-     * @param array $params Parámetros del batch: facNitSec, date, dateTo, limit
-     * @return string|null jobId generado o null si Redis no disponible
-     */
     public function enqueue(array $params): ?string
     {
         if (!$this->redis->isAvailable()) {
@@ -67,14 +50,12 @@ class AuditQueueService
             ],
         ];
 
-        // Guardar metadata del job
         $this->redis->set(
             self::JOB_PREFIX . $jobId,
             json_encode($job, JSON_UNESCAPED_UNICODE),
             self::JOB_TTL
         );
 
-        // Encolar para el worker
         $pushed = $this->redis->lpush(self::QUEUE_KEY, json_encode([
             'jobId'  => $jobId,
             'params' => $params,
@@ -94,12 +75,6 @@ class AuditQueueService
         return $jobId;
     }
 
-    /**
-     * Desencola el siguiente job (blocking con timeout).
-     *
-     * @param int $timeout Segundos de espera
-     * @return array|null Datos del job o null si timeout
-     */
     public function dequeue(int $timeout = 5): ?array
     {
         $raw = $this->redis->brpop(self::QUEUE_KEY, $timeout);
@@ -116,9 +91,6 @@ class AuditQueueService
         return $data;
     }
 
-    /**
-     * Obtiene el estado de un job.
-     */
     public function getJobStatus(string $jobId): ?array
     {
         try {
@@ -138,18 +110,11 @@ class AuditQueueService
         return json_decode($raw, true);
     }
 
-    /**
-     * Actualiza el estado y progreso de un job de forma atómica.
-     *
-     * Usa un script Lua Redis para evitar race conditions GET+SET (hallazgo M01).
-     * Si el eval falla, recurre al fallback no-atómico con warning.
-     */
     public function updateJob(string $jobId, string $status, array $progress = [], ?array $result = null, ?string $error = null): bool
     {
         $key = self::JOB_PREFIX . $jobId;
         $ttl = self::JOB_TTL;
 
-        // Payload parcial de actualización
         $patch = ['status' => $status, 'updatedAt' => date('c')];
         if (!empty($progress)) {
             $patch['progress'] = $progress;
@@ -188,7 +153,6 @@ LUA;
             if ($evalResult === 1) {
                 return true;
             }
-            // Job no existe en Redis
             return false;
         } catch (\Exception $e) {
             // REDIS-002 + NOSCRIPT resilience:
@@ -210,7 +174,6 @@ LUA;
                 }
             }
 
-            // Error no-NOSCRIPT: propagar sin fallback no-atómico (REDIS-002).
             Logger::error('AuditQueueService: eval Lua falló (no es NOSCRIPT)', [
                 'jobId' => $jobId,
                 'error' => $e->getMessage(),
@@ -220,11 +183,6 @@ LUA;
     }
 
 
-    /**
-     * Profundidad actual de la cola.
-     *
-     * @return int|null Número de jobs en espera, o null si Redis no disponible
-     */
     public function queueDepth(): ?int
     {
         if (!$this->redis->isAvailable()) {
@@ -233,9 +191,6 @@ LUA;
         return $this->redis->llen(self::QUEUE_KEY);
     }
 
-    /**
-     * Genera un jobId único.
-     */
     private function generateJobId(): string
     {
         return bin2hex(random_bytes(16));
