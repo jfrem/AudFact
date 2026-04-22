@@ -59,84 +59,6 @@ class GeminiGateway
         $this->seed = $seed;
     }
 
-    /**
-     * Envía la solicitud a Gemini con reintentos y backoff exponencial.
-     *
-     * @param string $prompt Prompt del usuario
-     * @param array $files Archivos preparados
-     * @param string $systemInstruction Instrucciones del sistema
-     * @param array $generationOverrides Overrides de generación
-     * @param array<string> $documentNames Nombres reales de adjuntos para enum dinámico del schema
-     * @return array Respuesta de Gemini decodificada
-     */
-    public function sendWithRetry(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $generationOverrides = [],
-        array $documentNames = []
-    ): array {
-        // Circuit Breaker: verificar estado ANTES de intentar
-        $this->checkCircuitBreaker();
-
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent";
-        $lastException = null;
-
-        for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
-            try {
-                $result = $this->send($url, $prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
-
-                // Éxito: resetear Circuit Breaker
-                $this->recordCircuitSuccess();
-
-                return $result;
-            } catch (\RuntimeException $e) {
-                $lastException = $e;
-                $httpCode = (int) $e->getCode();
-                $isRetryable = in_array($httpCode, self::RETRYABLE_HTTP_CODES, true);
-                $isLastAttempt = $attempt === self::MAX_API_RETRIES - 1;
-
-                if ($isRetryable && !$isLastAttempt) {
-                    $delayMs = self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
-
-                    Logger::warning('API error retryable, esperando antes de reintentar', [
-                        'httpCode' => $httpCode,
-                        'attempt' => $attempt + 1,
-                        'maxRetries' => self::MAX_API_RETRIES,
-                        'delayMs' => $delayMs,
-                        'error' => $e->getMessage(),
-                    ]);
-
-                    usleep($delayMs * 1000);
-                    continue;
-                }
-
-                // Fallo definitivo: registrar en Circuit Breaker
-                $this->recordCircuitFailure($httpCode);
-
-                Logger::error('API error no retryable o último intento fallido', [
-                    'httpCode' => $httpCode,
-                    'attempt' => $attempt + 1,
-                    'isRetryable' => $isRetryable,
-                    'error' => $e->getMessage(),
-                ]);
-
-                throw $e;
-            }
-        }
-
-        // Todos los reintentos agotados: registrar fallo
-        $this->recordCircuitFailure(0);
-
-        throw $lastException ?? new \RuntimeException('Error desconocido en API Gemini');
-    }
-
-    /**
-     * Extrae el texto principal de la respuesta candidata de Gemini.
-     *
-     * @param array $result Payload de respuesta de Gemini
-     * @return string|null Texto extraído o null si no existe
-     */
     public function extractResponseText(array $result): ?string
     {
         $part = $result['candidates'][0]['content']['parts'][0] ?? null;
@@ -161,20 +83,6 @@ class GeminiGateway
         return $this->maxOutputTokens;
     }
 
-    /**
-     * Envía request con Function Calling (tools + toolConfig).
-     *
-     * Usa el mismo retry + circuit breaker que sendWithRetry,
-     * pero construye el payload con tools en vez de responseSchema.
-     *
-     * @param string $prompt Prompt del usuario
-     * @param array $files Archivos preparados (base64)
-     * @param string $systemInstruction System instruction
-     * @param array $tools Bloque tools con functionDeclarations
-     * @param array $toolConfig Bloque toolConfig (mode ANY)
-     * @param array $generationOverrides Overrides opcionales
-     * @return array Respuesta completa de Gemini
-     */
     public function sendWithFunctionCalling(
         string $prompt,
         array $files,
@@ -271,10 +179,6 @@ class GeminiGateway
         throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
     }
 
-    /**
-     * Construye payload para Function Calling.
-     * Sin responseSchema ni responseMimeType — usa tools + toolConfig.
-     */
     private function buildFunctionCallingPayload(
         string $prompt,
         array $files,
@@ -332,120 +236,6 @@ class GeminiGateway
         ];
     }
 
-    private function send(
-        string $url,
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $generationOverrides = [],
-        array $documentNames = []
-    ): array {
-        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $generationOverrides, $documentNames);
-
-        try {
-            $res = $this->http->post($url, [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'x-goog-api-key' => $this->apiKey,
-                ],
-                'json' => $payload,
-            ]);
-        } catch (GuzzleException $e) {
-            $httpCode = 0;
-            $errorMessage = $e->getMessage();
-
-            if ($e instanceof RequestException && $e->hasResponse()) {
-                $response = $e->getResponse();
-                $httpCode = $response->getStatusCode();
-                $bodyContent = (string) $response->getBody();
-                $errorBody = json_decode($bodyContent, true);
-
-                if (isset($errorBody['error']['message'])) {
-                    $errorMessage = $errorBody['error']['message'];
-                }
-            }
-
-            throw new \RuntimeException('Error HTTP Gemini: ' . $errorMessage, $httpCode, $e);
-        }
-
-        // Monitoreo de cuotas API Gemini
-        $this->logApiQuotaHeaders($res);
-
-        $bodyStr = (string) $res->getBody();
-        $body = json_decode($bodyStr, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \RuntimeException('Respuesta no JSON de Gemini: ' . json_last_error_msg(), 0);
-        }
-
-        return $body ?? [];
-    }
-
-    private function buildPayload(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $generationOverrides = [],
-        array $documentNames = []
-    ): array {
-        $auditSchema = AuditResponseSchema::getGeminiSchema($documentNames);
-
-        $generationConfig = array_filter([
-            'temperature' => $this->temperature,
-            'topP' => $this->topP,
-            'topK' => $this->topK,
-            'maxOutputTokens' => $this->maxOutputTokens,
-            'responseMimeType' => $this->responseMimeType,
-            'seed' => $this->seed,
-        ], fn($value) => $value !== null);
-
-        $overrideThinkingBudget = $generationOverrides['thinkingBudget'] ?? null;
-        unset($generationOverrides['thinkingBudget']);
-
-        if (!empty($generationOverrides)) {
-            $generationConfig = array_merge($generationConfig, $generationOverrides);
-        }
-
-        $generationConfig['responseSchema'] = $auditSchema;
-
-        $parts = [
-            ['text' => $prompt],
-        ];
-
-        foreach ($files as $index => $file) {
-            $label = (string) ($file['label'] ?? '');
-            if ($label !== '') {
-                $parts[] = ['text' => 'DOCUMENTO ' . ($index + 1) . ': ' . $label];
-            }
-
-            $parts[] = ['inlineData' => [
-                'mimeType' => $file['mime'],
-                'data' => $file['data'],
-            ]];
-        }
-
-        $effectiveBudget = $overrideThinkingBudget ?? $this->thinkingBudget;
-        if ($effectiveBudget !== null) {
-            $generationConfig['thinkingConfig'] = ['thinkingBudget' => (int) $effectiveBudget];
-        }
-
-        $payload = [
-            'systemInstruction' => [
-                'parts' => [
-                    ['text' => $systemInstruction],
-                ],
-            ],
-            'contents' => [[
-                'role' => 'user',
-                'parts' => $parts,
-            ]],
-            'generationConfig' => $generationConfig,
-            'safetySettings' => $this->getSafetySettings(),
-        ];
-
-        return $payload;
-    }
-
     private function getSafetySettings(): array
     {
         return [
@@ -468,14 +258,6 @@ class GeminiGateway
         ];
     }
 
-    // ── Circuit Breaker (Redis-backed) ────────────────────────────
-
-    /**
-     * Verifica el estado del Circuit Breaker antes de llamar a la API.
-     * Si está abierto, lanza excepción inmediatamente sin consumir cuota.
-     *
-     * @throws \RuntimeException Si el circuito está abierto
-     */
     private function checkCircuitBreaker(): void
     {
         $redis = RedisClient::getInstance();
@@ -507,10 +289,6 @@ class GeminiGateway
         }
     }
 
-    /**
-     * Registra un éxito en el Circuit Breaker.
-     * Resetea contadores y cierra el circuito.
-     */
     private function recordCircuitSuccess(): void
     {
         $redis = RedisClient::getInstance();
@@ -531,10 +309,6 @@ class GeminiGateway
         $redis->del(self::CB_KEY_FAILS);
     }
 
-    /**
-     * Registra un fallo en el Circuit Breaker.
-     * Si se supera el umbral, abre el circuito con TTL de enfriamiento.
-     */
     private function recordCircuitFailure(int $httpCode): void
     {
         $redis = RedisClient::getInstance();
@@ -571,14 +345,6 @@ class GeminiGateway
         }
     }
 
-    // ── Monitoreo de Cuotas API (Fase 1.3) ───────────────────────
-
-    /**
-     * Extrae y loguea headers de rate limit de la respuesta de Gemini.
-     * Warning automático cuando remaining < 20% del limit.
-     *
-     * @param \Psr\Http\Message\ResponseInterface $response
-     */
     private function logApiQuotaHeaders($response): void
     {
         $headers = [
