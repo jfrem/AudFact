@@ -4,15 +4,6 @@ namespace App\Services\Audit;
 
 use Core\Logger;
 
-/**
- * Comparador semántico basado en cosine similarity de embeddings.
- *
- * Compara campos extraídos de documentos contra la fuente de verdad (BD)
- * usando vectores de la Gemini Embedding API, con umbrales calibrados
- * por campo.
- *
- * @version 4.0
- */
 class SemanticComparator
 {
     /**
@@ -32,9 +23,6 @@ class SemanticComparator
         'Cliente.Entidad' => 0.85,
     ];
 
-    /**
-     * Umbral por defecto para campos no configurados explícitamente.
-     */
     private float $defaultThreshold;
 
     public function __construct(?float $defaultThreshold = null)
@@ -43,24 +31,12 @@ class SemanticComparator
             ?? (float) (\Core\Env::get('SEMANTIC_THRESHOLD_DEFAULT', '0.85'));
     }
 
-    /**
-     * Compara un batch de pares (fdv vs doc) usando embeddings.
-     *
-     * Cada par genera dos textos a vectorizar. Se envían todos los textos
-     * únicos en una sola llamada batch al EmbeddingGateway, y se calculan
-     * las similitudes localmente en PHP.
-     *
-     * @param array<array{field: string, document?: ?string, fdvValue: string, docValue: string}> $pairs
-     * @param EmbeddingGateway $gateway
-     * @return array<array{field: string, document: ?string, fdvValue: string, docValue: string, similarity: float, threshold: float, match: bool}>
-     */
     public function compareBatch(array $pairs, EmbeddingGateway $gateway): array
     {
         if (empty($pairs)) {
             return [];
         }
 
-        // Recopilar todos los textos únicos a vectorizar
         $textsToEmbed = [];
         foreach ($pairs as $pair) {
             $normalizedFdv = $this->preNormalize($pair['fdvValue']);
@@ -84,7 +60,6 @@ class SemanticComparator
         // Batch embedding (una sola llamada API)
         $embeddings = $gateway->embedBatch($textsToEmbed);
 
-        // Indexar vectores por texto normalizado
         $vectorMap = [];
         foreach ($embeddings as $item) {
             $vectorMap[$item['text']] = $item['vector'];
@@ -96,7 +71,6 @@ class SemanticComparator
             'pairsToCompare' => count($pairs),
         ]);
 
-        // Calcular similitudes
         $results = [];
         foreach ($pairs as $pair) {
             $field = $pair['field'];
@@ -121,7 +95,6 @@ class SemanticComparator
             $vectorA = $vectorMap[$normalizedFdv] ?? null;
             $vectorB = $vectorMap[$normalizedDoc] ?? null;
 
-            // Si no hay vector para alguno de los dos, no hay match
             if ($vectorA === null || $vectorB === null) {
                 $results[] = [
                     'field' => $field,
@@ -139,7 +112,6 @@ class SemanticComparator
             $similarity = self::cosineSimilarity($vectorA, $vectorB);
             $threshold = $this->getThreshold($field);
 
-            // Diagnóstico: similarity sospechosamente alta para textos diferentes
             if ($similarity >= 0.99 && $normalizedFdv !== $normalizedDoc) {
                 Logger::warning('SemanticComparator: similarity ≥0.99 para textos distintos', [
                     'field' => $field,
@@ -165,13 +137,6 @@ class SemanticComparator
         return $results;
     }
 
-    /**
-     * Calcula la similitud coseno entre dos vectores.
-     *
-     * @param array<float> $a Vector A
-     * @param array<float> $b Vector B
-     * @return float Similitud entre -1.0 y 1.0
-     */
     public static function cosineSimilarity(array $a, array $b): float
     {
         $len = min(count($a), count($b));
@@ -198,28 +163,11 @@ class SemanticComparator
         return $dotProduct / $denominator;
     }
 
-    /**
-     * Retorna el umbral de similitud para un campo.
-     *
-     * @param string $field Nombre del campo
-     * @return float Umbral de similitud
-     */
     public function getThreshold(string $field): float
     {
         return self::THRESHOLDS[$field] ?? $this->defaultThreshold;
     }
 
-    /**
-     * Pre-normaliza texto antes de vectorizar.
-     *
-     * - Lowercase
-     * - Elimina acentos/diacríticos
-     * - Elimina puntuación excesiva
-     * - Normaliza espacios
-     *
-     * @param string $text Texto original
-     * @return string Texto normalizado
-     */
     private function preNormalize(string $text): string
     {
         $text = trim($text);
@@ -227,27 +175,14 @@ class SemanticComparator
             return '';
         }
 
-        // Lowercase
         $text = mb_strtolower($text, 'UTF-8');
-
-        // Eliminar acentos (transliterate)
         $text = $this->removeAccents($text);
-
-        // Eliminar puntuación excepto letras, números y espacios
         $text = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $text);
-
-        // Normalizar espacios múltiples
         $text = preg_replace('/\s+/', ' ', $text);
 
         return trim($text);
     }
 
-    /**
-     * Elimina acentos y diacríticos de un texto.
-     *
-     * @param string $text Texto con posibles acentos
-     * @return string Texto sin acentos
-     */
     private function removeAccents(string $text): string
     {
         $map = [

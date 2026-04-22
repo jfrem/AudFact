@@ -2,45 +2,28 @@
 
 namespace App\Services\Audit;
 
-/**
- * Motor de reglas determinista para auditoría (Fase 3).
- *
- * Evalúa campos extraídos (Fase 1) y similitudes semánticas (Fase 2)
- * contra la Fuente de Verdad (BD) usando lógica PHP pura.
- *
- * Implementación en código PHP de las reglas de auditoría.
- * Garantiza 100% reproducibilidad entre corridas.
- *
- * @version 4.0
- */
 class RuleEngine
 {
-    // ── Clasificaciones de resultado ──
     public const MATCH = 'COINCIDE';
     public const MISMATCH = 'VALOR_DISTINTO';
     public const NOT_FOUND = 'NO_ENCONTRADO';
     public const NOT_APPLICABLE = 'NO_APLICA';
     public const SKIPPED = 'OMITIDO';
 
-    // ── Risk score weights (§07) ──
     private const WEIGHT_HIGH = 10;
     private const WEIGHT_MEDIUM = 5;
     private const WEIGHT_LOW = 1;
 
-    // ── Risk thresholds ──
     private const THRESHOLD_WARNING = 15;
     private const THRESHOLD_ERROR = 30;
 
-    // ── Quantity tolerance (§05 excepción POSITIVA) ──
     private const QUANTITY_EXCESS_TOLERANCE = 5;
     private const DOCUMENT_FIELD_KEY_SEPARATOR = '|';
     private const ANY_DOCUMENT_KEY = '*';
 
-    // ── Regímenes que omiten validación (§ Exclusión de Régimen) ──
     private const REGIME_SKIP_VALUES = ['N/D', 'ARL', 'ND', ''];
 
-    // ── Campos per-item: varían por línea de dispensación (multi-row SQL) ──
-    // Para estos campos, getFdvValue concatena valores de TODAS las rows.
+    // Per-item: getFdvValue concatena todas las rows SQL para estos campos.
     public const PER_ITEM_FIELDS = [
         'CantidadEntregada',
         'CantidadPrescrita',
@@ -53,17 +36,6 @@ class RuleEngine
         'CodigoProducto',
     ];
 
-    /**
-     * Evalúa una dispensación completa y genera el resultado de auditoría.
-     *
-     * @param array $fdvItems Items de la Fuente de Verdad (dispensación BD)
-     * @param array $extractedDocs Documentos extraídos (Fase 1)
-     * @param array $visualChecks Verificaciones visuales (Fase 1)
-     * @param array $semanticResults Resultados de embedding (Fase 2)
-     * @param array $auditConfig Configuración del cliente
-     * @param FieldClassifier $classifier Clasificador de campos
-     * @return array Resultado compatible con AuditResponseSchema
-     */
     public function evaluate(
         array $fdvItems,
         array $extractedDocs,
@@ -143,8 +115,6 @@ class RuleEngine
         ];
     }
 
-    // ── Evaluación por campo ──
-
     private function evaluateField(
         string $field,
         string $type,
@@ -179,8 +149,6 @@ class RuleEngine
         };
     }
 
-    // ── Comparación exacta (§03) ──
-
     private function evaluateExact(string $field, string $fdvValue, string $docValue): array
     {
         $normalizedFdv = $this->normalizeForComparison($field, $fdvValue);
@@ -195,8 +163,6 @@ class RuleEngine
             'detail' => "FDV: '{$fdvValue}' ≠ Doc: '{$docValue}'",
         ];
     }
-
-    // ── Comparación semántica (Fase 2) ──
 
     private function evaluateSemantic(string $field, array $semanticMap, ?string $document): array
     {
@@ -226,8 +192,6 @@ class RuleEngine
             'similarity' => $sr['similarity'],
         ];
     }
-
-    // ── Verificación visual (Fase 1) ──
 
     private function evaluateVisual(string $field, array $visualChecks, ?string $document): array
     {
@@ -262,8 +226,6 @@ class RuleEngine
         return ($document ?? self::ANY_DOCUMENT_KEY) . self::DOCUMENT_FIELD_KEY_SEPARATOR . $field;
     }
 
-    // ── Reglas de negocio (§05) ──
-
     private function evaluateBusiness(string $field, string $fdvValue, string $docValue): array
     {
         return match ($field) {
@@ -273,12 +235,6 @@ class RuleEngine
         };
     }
 
-    /**
-     * Evalúa cantidades (§05).
-     * - entregada ≤ prescrita → OK (entrega parcial permitida)
-     * - exceso ≤ 5 → OK (excepción POSITIVA)
-     * - exceso > 5 → discrepancia
-     */
     private function evaluateQuantities(string $fdvValue, string $docValue): array
     {
         $fdvQty = $this->parseQuantity($fdvValue);
@@ -316,11 +272,6 @@ class RuleEngine
         ];
     }
 
-    /**
-     * Evalúa régimen (§03/§05 Exclusión).
-     * - ARL/ND/N/D → skip
-     * - S ≠ C → discrepancia alta
-     */
     private function evaluateRegimen(string $fdvValue, string $docValue): array
     {
         $normalizedFdv = strtoupper(trim($fdvValue));
@@ -358,13 +309,10 @@ class RuleEngine
         ];
     }
 
-    // ── Normalización (§03) ──
-
     private function normalizeForComparison(string $field, string $value): string
     {
         $value = trim($value);
 
-        // Normalización por tipo de campo
         if (in_array($field, ['NumeroIdentificacion', 'NumeroFactura', 'NumeroFormula', 'Autorizacion'], true)) {
             return $this->normalizeIdentifier($value);
         }
@@ -454,7 +402,6 @@ class RuleEngine
      */
     private function normalizeDate(string $value): string
     {
-        // Intentar parsear diferentes formatos
         $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'd/m/y'];
 
         foreach ($formats as $format) {
@@ -464,7 +411,6 @@ class RuleEngine
             }
         }
 
-        // Fallback: devolver limpio
         return trim($value);
     }
 
@@ -480,13 +426,6 @@ class RuleEngine
         return $value;
     }
 
-    /**
-     * Parsea un valor de cantidad. Soporta valores simples y delimitados
-     * por coma para dispensaciones multi-item (ej: "20, 30" → [20, 30] → suma 50).
-     *
-     * @param string $value Valor crudo (ej: "20", "20, 30")
-     * @return int|null Cantidad total o null si no parseable
-     */
     private function parseQuantity(string $value): ?int
     {
         $value = trim($value);
@@ -494,7 +433,7 @@ class RuleEngine
             return null;
         }
 
-        // Multi-valor: "20, 30" → sumar componentes (solo si no parece texto descriptivo)
+        // sum comma-separated quantities; reject if value looks like descriptive text
         if (str_contains($value, ',') && !preg_match('/[a-zA-Z]{3,}/', $value)) {
             $parts = array_map('trim', explode(',', $value));
             $total = 0;
@@ -511,13 +450,10 @@ class RuleEngine
             return $validParts > 0 ? $total : null;
         }
 
-        // Detectar si es posología (múltiples números separados por texto)
-        // Ej: "1 TABLETA CADA 12 HORAS"
         if (preg_match_all('/\b(\d+)\b/', $value, $matches)) {
             $numbers = $matches[1];
 
-            // Si hay múltiples números y también letras, probablemente es posología o texto complejo.
-            // Rechazamos el parseo numérico para evitar "excesos matemáticos falsos".
+            // reject posology like "1 TABLETA CADA 12 HORAS" to avoid math artifacts
             if (count($numbers) > 1 && preg_match('/[a-zA-Z]/', $value)) {
                 return null;
             }
@@ -527,7 +463,6 @@ class RuleEngine
             }
         }
 
-        // Single value agresivo solo si no tiene letras que indiquen posología
         if (!preg_match('/[a-zA-Z]{3,}/', $value)) {
             $clean = preg_replace('/[^\d]/', '', $value);
             if ($clean !== '') {
@@ -537,8 +472,6 @@ class RuleEngine
 
         return null;
     }
-
-    // ── Helpers para extracción de valores ──
 
     private function initializeMetrics(): array
     {
@@ -570,17 +503,6 @@ class RuleEngine
         return $semanticMap;
     }
 
-    /**
-     * Obtiene el valor de un campo desde la Fuente de Verdad (dispensationData).
-     *
-     * Para campos per-item (cantidades, lote, artículo, CUM, laboratorio),
-     * concatena valores de TODAS las rows SQL separados por coma.
-     * Para campos compartidos (paciente, médico, fechas), usa row[0].
-     *
-     * @param string $field Nombre del campo (FieldClassifier key)
-     * @param array $fdvItems Dispensation data (array of SQL rows)
-     * @return string|null Valor o null si no existe
-     */
     private function getFdvValue(string $field, array $fdvItems): ?string
     {
         // Mapeo: FieldClassifier field name → SQL column alias de DispensationModel
@@ -657,7 +579,6 @@ class RuleEngine
             return implode(', ', $values);
         }
 
-        // ── Campo compartido: usar row[0] ──
         $row = $isMultiRow ? ($fdvItems[0] ?? null) : $fdvItems;
         if ($row === null) {
             return null;
@@ -666,9 +587,6 @@ class RuleEngine
         return $this->extractRowValue($row, $field, $column);
     }
 
-    /**
-     * Extrae un valor de una row SQL individual.
-     */
     private function extractRowValue(array $row, string $field, ?string $column): ?string
     {
         // Buscar por nombre directo del campo
@@ -684,9 +602,6 @@ class RuleEngine
         return null;
     }
 
-    /**
-     * Verifica que un valor no sea vacío ni solo espacios.
-     */
     private function isNonEmpty(mixed $value): bool
     {
         if ($value === null) {
@@ -826,17 +741,11 @@ class RuleEngine
         $seen[$key] = true;
     }
 
-    /**
-     * Extrae un campo configurado desde strings o arreglos.
-     */
     private function extractConfiguredFieldName(mixed $field): ?string
     {
         return $this->extractConfiguredName($field, ['field', 'name', 'campoNombre']);
     }
 
-    /**
-     * Extrae un visual check configurado desde strings o arreglos.
-     */
     private function extractConfiguredVisualCheckName(mixed $check): ?string
     {
         return $this->extractConfiguredName($check, ['check', 'field', 'name']);
@@ -863,9 +772,6 @@ class RuleEngine
         return null;
     }
 
-    /**
-     * Resuelve severidades externas de audit-config al vocabulario del motor.
-     */
     private function resolveConfiguredSeverity(mixed $config, string $fallback): string
     {
         if (!is_array($config)) {
@@ -880,9 +786,6 @@ class RuleEngine
         return $this->normalizeSeverity($raw) ?? $fallback;
     }
 
-    /**
-     * Normaliza severidades de BD/API al vocabulario esperado por scoring.
-     */
     private function normalizeSeverity(string $severity): ?string
     {
         $normalized = strtoupper(trim($severity));
@@ -895,9 +798,6 @@ class RuleEngine
         };
     }
 
-    /**
-     * Resume la configuración realmente usada sin exponer datos sensibles.
-     */
     private function summarizeAuditConfig(array $auditConfig): array
     {
         $documents = is_array($auditConfig['documents'] ?? null) ? $auditConfig['documents'] : [];
@@ -927,8 +827,6 @@ class RuleEngine
             'config_hash' => is_string($encoded) ? hash('sha256', $encoded) : null,
         ];
     }
-
-    // ── Risk Score y clasificación (§07) ──
 
     private function buildConfigUsed(array $metrics, array $auditConfig): array
     {

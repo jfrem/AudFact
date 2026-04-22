@@ -7,12 +7,6 @@ use App\Models\AuditConfigModel;
 use App\Models\DispensationModel;
 use Core\Logger;
 
-/**
- * Validaciones pre-IA para el flujo de auditoría.
- *
- * Extraído de AuditOrchestrator::auditInvoice() para reducir complejidad
- * y facilitar testing unitario.
- */
 class AuditPreValidator
 {
     private const HUMAN_REVIEW_SERVICE_TYPES = ['TUTELA'];
@@ -33,15 +27,6 @@ class AuditPreValidator
     private AuditFileManager $fileManager;
     private AuditPersistenceService $persistence;
 
-    /**
-     * Inicializa las dependencias de prevalidación del pipeline de auditoría.
-     *
-     * @param DispensationModel $dispensationModel Modelo de dispensación
-     * @param AttachmentsModel $attachmentsModel Modelo de adjuntos
-     * @param AuditConfigModel $auditConfigModel Modelo de configuración dinámica
-     * @param AuditFileManager $fileManager Preparador de archivos
-     * @param AuditPersistenceService $persistence Persistencia de resultados
-     */
     public function __construct(
         DispensationModel $dispensationModel,
         AttachmentsModel $attachmentsModel,
@@ -56,18 +41,10 @@ class AuditPreValidator
         $this->persistence = $persistence;
     }
 
-    /**
-     * Ejecuta todas las validaciones pre-IA.
-     *
-     * @param string $invoiceId ID de la factura
-     * @param string $disDetNro Identificador de dispensación
-     * @return array{result: null|array, dispensation: array|null, files: array, dataFetchMs: float, filePrepMs: float, auditConfig: array}
-     */
     public function validate(string $invoiceId, string $disDetNro): array
     {
         $dataFetchStart = hrtime(true);
 
-        // 1. Dispensación existe
         $dispensationData = $this->dispensationModel->getDispensationData($disDetNro);
         Logger::info('Dispensación encontrada', ['DisDetNro' => $disDetNro]);
 
@@ -79,7 +56,6 @@ class AuditPreValidator
         $tipoServicio = trim((string) ($dispensation['Tipo'] ?? ''));
         $auditConfig = $this->loadAuditConfig((string) ($dispensation['NitSec'] ?? ''));
 
-        // 2. Tipo de servicio que requiere revisión humana
         if (in_array(strtoupper($tipoServicio), self::HUMAN_REVIEW_SERVICE_TYPES, true)) {
             Logger::info('Auditoría omitida — requiere revisión humana', [
                 'DisDetNro' => $disDetNro,
@@ -104,7 +80,6 @@ class AuditPreValidator
             return $this->output($result, $dispensationData, [], $dataFetchStart, $auditConfig);
         }
 
-        // 3. Campos MIPRES completos
         if (strtoupper($tipoServicio) === 'MIPRES') {
             $missingFields = $this->getMissingMipresFields($dispensation);
             if (!empty($missingFields)) {
@@ -127,13 +102,11 @@ class AuditPreValidator
             }
         }
 
-        // 4. Invoice ID válido
         $resolvedInvoiceId = (string) ($dispensation['NumeroFactura'] ?? $invoiceId);
         if ($resolvedInvoiceId === '') {
             return $this->fail($disDetNro, self::ERROR_ATTACHMENT_NOT_FOUND, $dispensation, $dataFetchStart);
         }
 
-        // 5. Adjuntos existen
         $attachments = $this->attachmentsModel->getRequiredAttachmentsByInvoiceId(
             $resolvedInvoiceId,
             (string) ($dispensation['NitSec'] ?? '')
@@ -167,7 +140,6 @@ class AuditPreValidator
 
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
 
-        // 7. Preparar archivos y validar páginas
         $filePrepStart = hrtime(true);
         $files = [];
 
@@ -238,7 +210,6 @@ class AuditPreValidator
             'documentTypes' => array_map(fn($f) => $f['label'] ?? 'N/A', $files),
         ]);
 
-        // Todas las validaciones pasaron
         return [
             'result' => null,
             'dispensationData' => $dispensationData,
@@ -250,12 +221,6 @@ class AuditPreValidator
         ];
     }
 
-    /**
-     * Carga la configuración dinámica de auditoría para el cliente.
-     *
-     * @param string $nitSec Identificador del cliente
-     * @return array Configuración o arreglo vacío si no existe
-     */
     private function loadAuditConfig(string $nitSec): array
     {
         if (trim($nitSec) === '') {
@@ -286,9 +251,6 @@ class AuditPreValidator
         }
     }
 
-    /**
-     * Valida campos MIPRES requeridos.
-     */
     private function getMissingMipresFields(array $dispensation): array
     {
         $missing = [];
@@ -303,9 +265,6 @@ class AuditPreValidator
         return $missing;
     }
 
-    /**
-     * Genera resultado de fallo (terminate) con timings.
-     */
     private function fail(
         string $disDetNro,
         string $message,
@@ -318,7 +277,6 @@ class AuditPreValidator
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
         $filePrepMs = $filePrepStart !== null ? (hrtime(true) - $filePrepStart) / 1e6 : 0.0;
 
-        // Inferir severity de items (si existen) para alinear con schema requerido
         $severity = 'ninguna';
         foreach ($items as $item) {
             if (($item['severidad'] ?? '') === 'alta') {
@@ -351,9 +309,6 @@ class AuditPreValidator
         ];
     }
 
-    /**
-     * Genera estructura de salida estándar.
-     */
     private function output(
         array $result,
         array $dispensationData,
@@ -375,12 +330,6 @@ class AuditPreValidator
         ];
     }
 
-    /**
-     * Obtiene nombres de documentos que sí tienen soporte disponible (BLOB o URL).
-     *
-     * @param array $attachments Adjuntos provenientes del modelo
-     * @return array<string>
-     */
     private function extractAvailableDocuments(array $attachments): array
     {
         $documents = [];

@@ -12,20 +12,8 @@ use App\Models\AuditStatusModel;
 use App\Models\DispensationModel;
 use GuzzleHttp\Client;
 
-/**
- * Factory centralizada para construir AuditOrchestrator v4.
- *
- * Inyecta los servicios del pipeline determinista (v4).
- *
- * @version 4.1
- */
 class AuditOrchestratorFactory
 {
-    /**
-     * Construye un AuditOrchestrator completamente configurado desde .env.
-     *
-     * @throws \RuntimeException Si faltan variables de entorno requeridas
-     */
     public static function create(): AuditOrchestrator
     {
         $apiKey = (string) Env::get('GEMINI_API_KEY', '');
@@ -64,7 +52,6 @@ class AuditOrchestratorFactory
             Logger::warning('GEMINI_SEED no configurada — pipeline opera SIN reproducibilidad.');
         }
 
-        // ── GeminiGateway ──
         $gateway = new GeminiGateway(
             $httpClient,
             $apiKey,
@@ -79,7 +66,6 @@ class AuditOrchestratorFactory
             ($seed !== null && $seed !== '') ? (int) $seed : null
         );
 
-        // ── Modelos y servicios base ──
         $dispensationModel = new DispensationModel();
         $attachmentsModel = new AttachmentsModel();
         $auditConfigModel = new AuditConfigModel();
@@ -95,7 +81,6 @@ class AuditOrchestratorFactory
             $persistence
         );
 
-        // ── v4: Nuevos servicios del pipeline determinista ──
         $extractionPrompt = new ExtractionPromptBuilder();
         $classifier = new FieldClassifier();
         $ruleEngine = new RuleEngine();
@@ -104,7 +89,6 @@ class AuditOrchestratorFactory
         $embeddingModel = (string) Env::get('GEMINI_EMBEDDING_MODEL', 'gemini-embedding-001');
         $embeddingGateway = new EmbeddingGateway($httpClient, $apiKey, $embeddingModel);
 
-        // ── Construir orquestador v4 ──
         return new AuditOrchestrator(
             $fileManager,
             $gateway,

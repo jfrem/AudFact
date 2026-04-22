@@ -4,16 +4,6 @@ namespace App\Services\Audit;
 
 use Core\Logger;
 
-/**
- * Orquestador principal del pipeline de auditoría v4.
- *
- * Flujo determinista de 3 fases:
- *   Fase 1: Extracción (Gemini Vision + Function Calling)
- *   Fase 2: Comparación Semántica (Embedding API)
- *   Fase 3: Evaluación Determinista (RuleEngine PHP)
- *
- * @version 4.0
- */
 class AuditOrchestrator
 {
     private AuditFileManager $fileManager;
@@ -22,7 +12,6 @@ class AuditOrchestrator
     private AuditTelemetryService $telemetry;
     private AuditPreValidator $preValidator;
 
-    // v4 — servicios del pipeline determinista
     private ExtractionPromptBuilder $extractionPrompt;
     private EmbeddingGateway $embeddingGateway;
     private SemanticComparator $comparator;
@@ -53,19 +42,10 @@ class AuditOrchestrator
         $this->ruleEngine = $ruleEngine;
     }
 
-    /**
-     * Audita una dispensación completa con el pipeline v4.
-     *
-     * @param string $invoiceId ID de la factura
-     * @param string $disDetNro Identificador de dispensación
-     * @param string|null $attachmentId ID opcional de adjunto específico
-     * @return array Resultado estructurado de auditoría
-     */
     public function auditInvoice(string $invoiceId, string $disDetNro, ?string $attachmentId = null): array
     {
         $totalStart = hrtime(true);
 
-        // ── Pre-validación ──
         $preValidation = $this->preValidator->validate($invoiceId, $disDetNro);
 
         if ($preValidation['result'] !== null) {
@@ -82,9 +62,6 @@ class AuditOrchestrator
         $phaseTimes = ['extraction' => 0.0, 'embedding' => 0.0, 'rules' => 0.0];
 
         try {
-            // ══════════════════════════════════════════════
-            // FASE 1: Extracción (Gemini Vision + FC)
-            // ══════════════════════════════════════════════
             $phase1Start = hrtime(true);
 
             $extractionResult = $this->executeExtraction(
@@ -101,9 +78,6 @@ class AuditOrchestrator
                 'timeMs' => round($phaseTimes['extraction']),
             ]);
 
-            // ══════════════════════════════════════════════
-            // FASE 2: Comparación Semántica (Embedding API)
-            // ══════════════════════════════════════════════
             $phase2Start = hrtime(true);
 
             $semanticResults = $this->executeSemanticComparison(
@@ -120,9 +94,6 @@ class AuditOrchestrator
                 'timeMs' => round($phaseTimes['embedding']),
             ]);
 
-            // ══════════════════════════════════════════════
-            // FASE 3: Evaluación Determinista (RuleEngine)
-            // ══════════════════════════════════════════════
             $phase3Start = hrtime(true);
 
             $result = $this->ruleEngine->evaluate(
@@ -162,7 +133,6 @@ class AuditOrchestrator
             }
         }
 
-        // ── Telemetría y persistencia ──
         $totalMs = (hrtime(true) - $totalStart) / 1e6;
         $geminiApiMs = $phaseTimes['extraction'] + $phaseTimes['embedding'];
 
@@ -177,7 +147,6 @@ class AuditOrchestrator
             $extractionResult['promptHash'] ?? ''
         );
 
-        // Agregar telemetría de fases v4
         $result['_meta']['v4_phases'] = [
             'extractionMs' => round($phaseTimes['extraction']),
             'embeddingMs' => round($phaseTimes['embedding']),
@@ -200,47 +169,29 @@ class AuditOrchestrator
         return $result;
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Fase 1: Extracción
-    // ══════════════════════════════════════════════════════════════
-
-    /**
-     * Ejecuta la extracción de campos usando Gemini Vision + Function Calling.
-     *
-     * @param array $dispensationData Datos FDV de dispensación
-     * @param array $files Archivos preparados (base64)
-     * @param array $auditConfig Configuración de auditoría del cliente
-     * @return array Campos extraídos y visual checks
-     */
     private function executeExtraction(array $dispensationData, array $files, array $auditConfig): array
     {
-        // System instruction (prompt corto, solo extracción)
         $systemInstruction = $this->extractionPrompt->getSystemInstruction();
 
-        // Document labels
         $documentLabels = array_map(
             fn(array $f): string => $f['label'] ?? 'Documento',
             $files
         );
 
-        // User prompt con campos a extraer y hints
         $userPrompt = $this->extractionPrompt->buildUserPrompt(
             $auditConfig,
             $dispensationData,
             $documentLabels
         );
 
-        // Campos y visual checks desde audit-config
         $fieldsToExtract = $this->extractionPrompt->resolveFieldsFromConfig($auditConfig);
         $visualChecks = $this->extractionPrompt->resolveVisualChecksFromConfig($auditConfig);
 
-        // Tipos de documento esperados — normalizar nombres de BD a canónicos del pipeline
         $docTypes = array_values(array_unique(array_map(
             [ExtractionResponseSchema::class, 'normalizeDocType'],
             $documentLabels
         )));
 
-        // Function Calling schema
         $tools = ExtractionResponseSchema::getToolsBlock($fieldsToExtract, $visualChecks, $docTypes);
         $toolConfig = ExtractionResponseSchema::getToolConfig();
 
@@ -251,7 +202,6 @@ class AuditOrchestrator
             'promptLength' => strlen($userPrompt),
         ]);
 
-        // Enviar a Gemini con Function Calling
         $geminiResponse = $this->gateway->sendWithFunctionCalling(
             $userPrompt,
             $files,
@@ -260,7 +210,6 @@ class AuditOrchestrator
             $toolConfig
         );
 
-        // Parsear la function call response
         $extracted = ExtractionResponseSchema::parseExtractionResponse($geminiResponse);
 
         if ($extracted === null) {
@@ -275,18 +224,6 @@ class AuditOrchestrator
         return $extracted;
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Fase 2: Comparación Semántica
-    // ══════════════════════════════════════════════════════════════
-
-    /**
-     * Ejecuta comparación semántica para campos tipo 'semantic'.
-     *
-     * @param array $dispensationData Datos FDV
-     * @param array $extractionResult Resultado de Fase 1
-     * @param array $auditConfig Configuración de auditoría del cliente
-     * @return array Resultados de similitud
-     */
     private function executeSemanticComparison(
         array $dispensationData,
         array $extractionResult,
@@ -299,7 +236,6 @@ class AuditOrchestrator
             return [];
         }
 
-        // Indexar campos extraídos POR TIPO de documento (sincronizado con RuleEngine::getDocValue)
         $extractedByDoc = [];
         foreach ($extractionResult['documents'] ?? [] as $doc) {
             $rawType = $doc['type'] ?? 'UNKNOWN';
@@ -312,7 +248,6 @@ class AuditOrchestrator
             }
         }
 
-        // Construir pares para comparación
         $pairs = [];
         foreach ($semanticFields as $fieldConfig) {
             $field = $fieldConfig['field'];
@@ -359,12 +294,6 @@ class AuditOrchestrator
         return $this->comparator->compareBatch($pairs, $this->embeddingGateway);
     }
 
-    /**
-     * Resuelve campos semánticos desde audit-config o fallback del clasificador.
-     *
-     * @param array $auditConfig Configuración de auditoría
-     * @return array<array{field: string, document: ?string}> Campos semánticos canónicos
-     */
     private function resolveSemanticFields(array $auditConfig): array
     {
         $documents = $auditConfig['documents'] ?? [];
@@ -409,16 +338,6 @@ class AuditOrchestrator
         return $fields;
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // Helpers
-    // ══════════════════════════════════════════════════════════════
-
-    /**
-     * Resuelve el valor FDV para Fase 2 (semántica).
-     *
-     * Para campos per-item (NombreArticulo, Laboratorio, etc.), concatena
-     * valores de todas las rows SQL — sincronizado con RuleEngine::getFdvValue.
-     */
     private function resolveFdvValue(string $field, array $data): ?string
     {
         // Mapeo: FieldClassifier → SQL column alias (sincronizado con RuleEngine::getFdvValue)
@@ -494,9 +413,6 @@ class AuditOrchestrator
         return $this->extractRowValueSimple($row, $field, $column);
     }
 
-    /**
-     * Extrae un valor de una row SQL individual.
-     */
     private function extractRowValueSimple(array $row, string $field, ?string $column): ?string
     {
         if (isset($row[$field]) && is_string($row[$field]) && trim($row[$field]) !== '') {
@@ -510,9 +426,6 @@ class AuditOrchestrator
         return null;
     }
 
-    /**
-     * Maneja fallos de pre-validación con telemetría y persistencia.
-     */
     private function handlePreValidationFailure(array $preValidation, string $disDetNro, int $totalStart): array
     {
         $failResult = $preValidation['result'];
@@ -562,16 +475,9 @@ class AuditOrchestrator
             'config_used' => AuditResponseSchema::getEmptyConfig(),
         ];
     }
-    /**
-     * Resuelve el valor de un campo extraído con la misma prioridad que
-     * RuleEngine::getDocValue:
-     *   1. Documento autoritativo
-     *   2. Documentos alternativos
-     *   3. Cualquier documento (fallback)
-     */
+
     private function resolveDocValueByPriority(string $field, array $extractedByDoc): ?string
     {
-        // 1. Documento autoritativo
         $authDoc = $this->classifier->getAuthoritativeDoc($field);
         if ($authDoc !== null && isset($extractedByDoc[$authDoc][$field])) {
             $val = $extractedByDoc[$authDoc][$field];
@@ -580,7 +486,6 @@ class AuditOrchestrator
             }
         }
 
-        // 2. Documentos alternativos
         foreach ($this->classifier->getAlternativeDocs($field) as $altDoc) {
             if (isset($extractedByDoc[$altDoc][$field])) {
                 $val = $extractedByDoc[$altDoc][$field];
@@ -590,7 +495,6 @@ class AuditOrchestrator
             }
         }
 
-        // 3. Cualquier documento
         foreach ($extractedByDoc as $fields) {
             if (isset($fields[$field])) {
                 $val = $fields[$field];

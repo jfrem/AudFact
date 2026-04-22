@@ -2,34 +2,17 @@
 
 namespace App\Services\Audit;
 
-/**
- * Clasifica campos de auditoría en categorías de comparación y define
- * sus severidades y documentos autoritativos.
- *
- * Fuente de verdad: documentos autoritativos y severidades de negocio.
- *
- * @version 4.0
- */
 class FieldClassifier
 {
-    /**
-     * Tipos de comparación soportados.
-     */
     public const TYPE_EXACT = 'exact';
     public const TYPE_SEMANTIC = 'semantic';
     public const TYPE_VISUAL = 'visual';
     public const TYPE_BUSINESS = 'business';
 
-    /**
-     * Severidades de discrepancia.
-     */
     public const SEVERITY_HIGH = 'alta';
     public const SEVERITY_MEDIUM = 'media';
     public const SEVERITY_LOW = 'baja';
 
-    /**
-     * Alias externos/SQL → nombres canónicos usados por el pipeline.
-     */
     private const FIELD_ALIASES = [
         'DocumentoPaciente' => 'NumeroIdentificacion',
         'TipoDocumentoPaciente' => 'TipoIdentificacion',
@@ -38,14 +21,6 @@ class FieldClassifier
         'RegimenPaciente' => 'Cliente.Regimen',
     ];
 
-    /**
-     * Mapa de campos → tipo de comparación.
-     *
-     * - exact:    Comparación normalizada de strings (IDs, fechas, números)
-     * - semantic: Comparación vía cosine similarity de embeddings
-     * - visual:   Verificación visual por Gemini Vision (presencia de firma, sello)
-     * - business: Lógica de negocio codificada en PHP (cantidades, reglas MIPRES)
-     */
     private const FIELD_TYPES = [
         // ── Campos exactos ──
         'NumeroFactura'       => self::TYPE_EXACT,
@@ -93,10 +68,6 @@ class FieldClassifier
         'Cliente.Regimen'     => self::TYPE_BUSINESS,
     ];
 
-    /**
-     * Mapa de campos → severidad de discrepancia.
-     * Reglas de severidad de negocio.
-     */
     private const FIELD_SEVERITIES = [
         // Alta
         'NumeroFactura'        => self::SEVERITY_HIGH,
@@ -142,13 +113,6 @@ class FieldClassifier
         'SelloRecepcion'       => self::SEVERITY_LOW,
     ];
 
-    /**
-     * Documento autoritativo primario para cada campo.
-     * Define cuál documento adjunto es la fuente más confiable
-     * para extraer el valor del campo.
-     *
-     * Definición de documentos autoritativos.
-     */
     private const AUTHORITATIVE_DOCS = [
         'NumeroFactura'        => 'FACTURA',
         'NumeroFormula'        => 'FORMULA_MEDICA',
@@ -184,10 +148,6 @@ class FieldClassifier
         'SelloRecepcion'       => 'ACTA_DE_ENTREGA',
     ];
 
-    /**
-     * Documentos alternativos donde el campo puede encontrarse
-     * si no está en el autoritativo primario.
-     */
     private const ALTERNATIVE_DOCS = [
         'NombrePaciente'       => ['ACTA_DE_ENTREGA', 'AUTORIZACION'],
         'NumeroIdentificacion' => ['ACTA_DE_ENTREGA', 'AUTORIZACION'],
@@ -199,71 +159,35 @@ class FieldClassifier
         'Medico'               => ['AUTORIZACION'],
     ];
 
-    /**
-     * Normaliza un nombre de campo externo al nombre canónico del pipeline.
-     *
-     * @param string $field Nombre de campo recibido desde configuración o BD
-     * @return string Nombre canónico
-     */
     public function normalizeField(string $field): string
     {
         return self::FIELD_ALIASES[$field] ?? $field;
     }
 
-    /**
-     * Clasifica un campo según su tipo de comparación.
-     *
-     * @param string $field Nombre del campo
-     * @return string Tipo: 'exact'|'semantic'|'visual'|'business'
-     */
     public function classify(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::FIELD_TYPES[$field] ?? self::TYPE_EXACT;
     }
 
-    /**
-     * Retorna la severidad de discrepancia para un campo.
-     *
-     * @param string $field Nombre del campo
-     * @return string Severidad: 'alta'|'media'|'baja'
-     */
     public function getSeverity(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::FIELD_SEVERITIES[$field] ?? self::SEVERITY_MEDIUM;
     }
 
-    /**
-     * Retorna el documento autoritativo primario para un campo.
-     *
-     * @param string $field Nombre del campo
-     * @return string Tipo de documento autoritativo
-     */
     public function getAuthoritativeDoc(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::AUTHORITATIVE_DOCS[$field] ?? 'MULTIPLE';
     }
 
-    /**
-     * Retorna documentos alternativos donde buscar un campo.
-     *
-     * @param string $field Nombre del campo
-     * @return array<string> Lista de tipos de documento alternativos
-     */
     public function getAlternativeDocs(string $field): array
     {
         $field = $this->normalizeField($field);
         return self::ALTERNATIVE_DOCS[$field] ?? [];
     }
 
-    /**
-     * Retorna todos los campos de un tipo específico.
-     *
-     * @param string $type Tipo de comparación
-     * @return array<string> Lista de campos
-     */
     public function getFieldsByType(string $type): array
     {
         return array_keys(array_filter(
@@ -272,11 +196,6 @@ class FieldClassifier
         ));
     }
 
-    /**
-     * Retorna todos los campos conocidos con su tipo y severidad.
-     *
-     * @return array<string, array{type: string, severity: string}>
-     */
     public function getAllFields(): array
     {
         $result = [];
