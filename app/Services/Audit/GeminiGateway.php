@@ -111,6 +111,26 @@ class GeminiGateway
     }
 
     /**
+     * Devuelve la configuración efectiva no sensible usada para llamadas Gemini.
+     *
+     * @return array<string, mixed> Parámetros de generación seguros para debug.
+     */
+    public function getDebugConfig(): array
+    {
+        return [
+            'model' => $this->model,
+            'temperature' => $this->temperature ?? 0.0,
+            'topP' => $this->topP,
+            'topK' => $this->topK,
+            'maxOutputTokens' => $this->maxOutputTokens,
+            'responseMimeType' => $this->responseMimeType,
+            'mediaResolution' => $this->mediaResolution,
+            'thinkingBudget' => $this->thinkingBudget,
+            'seed' => $this->seed,
+        ];
+    }
+
+    /**
      * Envía documentos y prompt a Gemini obligando Function Calling.
      *
      * @param  string $prompt  Prompt de usuario para extracción.

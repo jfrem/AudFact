@@ -22,6 +22,8 @@ class AuditResponseSchema
             'TotalCamposEvaluados' => 0,
             'TotalCoincidentes' => 0,
             'TotalDiscrepancias' => 0,
+            'TotalOmitidos' => 0,
+            'TotalExtraccionIncompleta' => 0,
             'Altas' => 0,
             'Medias' => 0,
             'Bajas' => 0,

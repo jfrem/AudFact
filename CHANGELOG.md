@@ -1,5 +1,16 @@
 ## [2026-04-22]
 
+### feat
+- **Ámbito**: Contrato dinámico de extracción por documento para auditoría Gemini.
+  - Archivos modificados: `app/Services/Audit/ExtractionPromptBuilder.php`, `app/Services/Audit/ExtractionResponseSchema.php`, `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/RuleEngine.php`, `app/Services/Audit/AuditResponseSchema.php`, `tests/Services/Audit/ExtractionContractTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: drift de extracción en campos configurados por documento
+  - Impacto: la extracción conserva el alcance documento→campos del `audit-config`, registra `_meta.extractionQuality`, distingue `EXTRACCION_INCOMPLETA` de `NO_ENCONTRADO` y evita contar `OMITIDO` como coincidencia.
+
+- **Ámbito**: Metadata de configuración efectiva de Gemini en respuestas de auditoría.
+  - Archivos modificados: `app/Services/Audit/GeminiGateway.php`, `app/Services/Audit/EmbeddingGateway.php`, `app/Services/Audit/AuditOrchestrator.php`, `.env.example`, `CHANGELOG.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: las respuestas persistidas en `responseIA` incluyen `_meta.modelConfig` con parámetros no sensibles realmente aplicados para extracción y embeddings, facilitando el debug de drift entre corridas.
+
 ### refactor
 - **Ámbito**: Limpieza de contrato MCP y documentación del pipeline de auditoría v4.
   - Archivos modificados: `app/wrap/core/tools/GetDispensation.php`, `app/wrap/capabilities.php`, `app/Services/Audit/AuditPreValidator.php`, `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/AuditOrchestratorFactory.php`, `app/Services/Audit/ExtractionPromptBuilder.php`, `app/Services/Audit/FieldClassifier.php`, `app/Services/Audit/RuleEngine.php`, `app/Services/Audit/SemanticComparator.php`, `tests/wrap/core/tools/GetDispensationTest.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `tests/Services/Audit/AuditBiasTest.php`, `tests/Services/Audit/RuleEngineConfigTest.php`, `.agent/skills/audfact-mcp-wrap/SKILL.md`, `.agent/skills/audfact-project-overview/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/architecture.md`, `plans/architecture-diagrams.md`, `plans/data-flows.md`, `plans/domain-glossary.md`, `plans/features/audit-workflow.md`, `CHANGELOG.md`

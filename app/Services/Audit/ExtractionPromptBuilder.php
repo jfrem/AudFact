@@ -71,13 +71,30 @@ class ExtractionPromptBuilder
 
         $fieldsToExtract = $this->resolveFieldsFromConfig($auditConfig);
         if (!empty($fieldsToExtract)) {
-            $parts[] = 'Extrae los siguientes campos de cada documento donde aparezcan:';
-            foreach ($fieldsToExtract as $field) {
-                $hint = $this->getFieldHint($field, $dispensationData);
-                if ($hint !== null) {
-                    $parts[] = "  - {$field} (busca algo similar a: \"{$hint}\")";
-                } else {
-                    $parts[] = "  - {$field}";
+            $documentRequirements = $this->resolveDocumentFieldRequirements($auditConfig);
+            if (!empty($documentRequirements)) {
+                $parts[] = 'Extrae SOLO los campos indicados para cada tipo de documento. No uses valores de un documento para completar otro.';
+                foreach ($documentRequirements as $documentType => $requirement) {
+                    $sourceLabel = $requirement['sourceLabel'] !== '' ? ' ("' . $requirement['sourceLabel'] . '")' : '';
+                    $parts[] = "Documento {$documentType}{$sourceLabel}:";
+                    foreach ($requirement['fields'] as $field) {
+                        $hint = $this->getFieldHint($field, $dispensationData);
+                        if ($hint !== null) {
+                            $parts[] = "  - {$field} (busca algo similar a: \"{$hint}\")";
+                        } else {
+                            $parts[] = "  - {$field}";
+                        }
+                    }
+                }
+            } else {
+                $parts[] = 'Extrae los siguientes campos de cada documento donde aparezcan:';
+                foreach ($fieldsToExtract as $field) {
+                    $hint = $this->getFieldHint($field, $dispensationData);
+                    if ($hint !== null) {
+                        $parts[] = "  - {$field} (busca algo similar a: \"{$hint}\")";
+                    } else {
+                        $parts[] = "  - {$field}";
+                    }
                 }
             }
             $parts[] = '';
@@ -134,6 +151,57 @@ class ExtractionPromptBuilder
         }
 
         return $fields;
+    }
+
+    /**
+     * Resuelve campos y verificaciones esperadas por tipo documental canónico.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<string, array{sourceLabel: string, fields: array<int, string>, visualChecks: array<int, string>}> Contrato por documento.
+     */
+    public function resolveDocumentFieldRequirements(array $auditConfig): array
+    {
+        $requirements = [];
+
+        foreach ($this->getConfiguredDocuments($auditConfig) as $doc) {
+            $sourceLabel = trim($doc['name']);
+            $documentType = ExtractionResponseSchema::normalizeDocType($sourceLabel);
+            if ($documentType === '') {
+                continue;
+            }
+
+            $requirements[$documentType] ??= [
+                'sourceLabel' => $sourceLabel,
+                'fields' => [],
+                'visualChecks' => [],
+            ];
+
+            foreach ($doc['fields'] as $field) {
+                $fieldName = $this->extractFieldName($field);
+                if ($fieldName === null) {
+                    continue;
+                }
+
+                $fieldName = $this->classifier->normalizeField($fieldName);
+                if (!in_array($fieldName, $requirements[$documentType]['fields'], true)) {
+                    $requirements[$documentType]['fields'][] = $fieldName;
+                }
+            }
+
+            foreach ($doc['visualChecks'] as $check) {
+                $checkName = $this->extractVisualCheckName($check);
+                if ($checkName === null) {
+                    continue;
+                }
+
+                $checkName = $this->classifier->normalizeField($checkName);
+                if (!in_array($checkName, $requirements[$documentType]['visualChecks'], true)) {
+                    $requirements[$documentType]['visualChecks'][] = $checkName;
+                }
+            }
+        }
+
+        return $requirements;
     }
 
     /**

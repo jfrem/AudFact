@@ -119,12 +119,15 @@ class AuditOrchestrator
 
             $phase3Start = hrtime(true);
 
+            $ruleAuditConfig = $auditConfig;
+            $ruleAuditConfig['_extractionQuality'] = $extractionResult['extractionQuality'] ?? [];
+
             $result = $this->ruleEngine->evaluate(
                 $dispensationData,
                 $extractionResult['documents'] ?? [],
                 $extractionResult['visualChecks'] ?? [],
                 $semanticResults,
-                $auditConfig,
+                $ruleAuditConfig,
                 $this->classifier
             );
 
@@ -175,6 +178,8 @@ class AuditOrchestrator
             'embeddingMs' => round($phaseTimes['embedding']),
             'rulesMs' => round($phaseTimes['rules']),
         ];
+        $result['_meta']['modelConfig'] = $this->buildModelDebugConfig();
+        $result['_meta']['extractionQuality'] = $extractionResult['extractionQuality'] ?? [];
 
         Logger::info('Auditoría v4 completada', [
             'DisDetNro' => $disDetNro,
@@ -218,13 +223,14 @@ class AuditOrchestrator
 
         $fieldsToExtract = $this->extractionPrompt->resolveFieldsFromConfig($auditConfig);
         $visualChecks = $this->extractionPrompt->resolveVisualChecksFromConfig($auditConfig);
+        $documentRequirements = $this->extractionPrompt->resolveDocumentFieldRequirements($auditConfig);
 
         $docTypes = array_values(array_unique(array_map(
             [ExtractionResponseSchema::class, 'normalizeDocType'],
             $documentLabels
         )));
 
-        $tools = ExtractionResponseSchema::getToolsBlock($fieldsToExtract, $visualChecks, $docTypes);
+        $tools = ExtractionResponseSchema::getToolsBlock($fieldsToExtract, $visualChecks, $docTypes, $documentRequirements);
         $toolConfig = ExtractionResponseSchema::getToolConfig();
 
         Logger::info('Fase 1: enviando a Gemini FC', [
@@ -252,6 +258,11 @@ class AuditOrchestrator
         }
 
         $extracted['promptHash'] = md5($systemInstruction . $userPrompt);
+        $extracted['documentRequirements'] = $documentRequirements;
+        $extracted['extractionQuality'] = $this->buildExtractionQuality(
+            is_array($extracted['documents'] ?? null) ? $extracted['documents'] : [],
+            $documentRequirements
+        );
 
         return $extracted;
     }
@@ -480,6 +491,7 @@ class AuditOrchestrator
                 $totalMs
             );
         }
+        $failResult['_meta']['modelConfig'] = $this->buildModelDebugConfig();
 
         $this->persistence->saveResponse($disDetNro, $failResult);
         $this->persistence->saveToDatabase($disDetNro, $failResult, $dispensation);
@@ -509,6 +521,67 @@ class AuditOrchestrator
             'metrics' => AuditResponseSchema::getEmptyMetrics(),
             'config_used' => AuditResponseSchema::getEmptyConfig(),
         ];
+    }
+
+    /**
+     * Consolida configuración efectiva no sensible de modelos IA para debug.
+     *
+     * @return array<string, mixed> Configuración segura de extracción y embeddings.
+     */
+    private function buildModelDebugConfig(): array
+    {
+        return [
+            'extraction' => $this->gateway->getDebugConfig(),
+            'embedding' => $this->embeddingGateway->getDebugConfig(),
+        ];
+    }
+
+    /**
+     * Resume calidad de extracción comparando llaves devueltas contra contrato esperado.
+     *
+     * @param  array<int, array<string, mixed>> $documents  Documentos extraídos por Gemini.
+     * @param  array<string, array{sourceLabel: string, fields: array<int, string>, visualChecks: array<int, string>}> $requirements  Contrato por documento.
+     * @return array<string, array<string, mixed>> Calidad por documento.
+     */
+    private function buildExtractionQuality(array $documents, array $requirements): array
+    {
+        $returnedByDoc = [];
+        foreach ($documents as $doc) {
+            $type = ExtractionResponseSchema::normalizeDocType((string) ($doc['type'] ?? 'UNKNOWN'));
+            $fields = is_array($doc['fields'] ?? null) ? $doc['fields'] : [];
+            $returnedByDoc[$type] = array_merge($returnedByDoc[$type] ?? [], $fields);
+        }
+
+        $quality = [];
+        foreach ($requirements as $documentType => $requirement) {
+            $expectedFields = $requirement['fields'];
+            $returnedFields = $returnedByDoc[$documentType] ?? [];
+            $returnedKeys = array_keys($returnedFields);
+            $missingKeys = [];
+            $nullFields = [];
+
+            foreach ($expectedFields as $field) {
+                if (!array_key_exists($field, $returnedFields)) {
+                    $missingKeys[] = $field;
+                    continue;
+                }
+
+                $value = $returnedFields[$field];
+                if ($value === null || (is_string($value) && trim($value) === '')) {
+                    $nullFields[] = $field;
+                }
+            }
+
+            $quality[$documentType] = [
+                'sourceLabel' => $requirement['sourceLabel'],
+                'expected' => count($expectedFields),
+                'returnedKeys' => count($returnedKeys),
+                'missingKeys' => $missingKeys,
+                'nullFields' => $nullFields,
+            ];
+        }
+
+        return $quality;
     }
 
     /**

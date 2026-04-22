@@ -38,6 +38,21 @@ class EmbeddingGateway
     }
 
     /**
+     * Devuelve configuración efectiva no sensible del servicio de embeddings.
+     *
+     * @return array<string, mixed> Parámetros seguros para debug.
+     */
+    public function getDebugConfig(): array
+    {
+        return [
+            'model' => $this->model,
+            'maxBatchSize' => self::MAX_BATCH_SIZE,
+            'maxRetries' => self::MAX_RETRIES,
+            'retryableHttpCodes' => self::RETRYABLE_HTTP_CODES,
+        ];
+    }
+
+    /**
      * Genera el vector de embedding para un texto individual.
      *
      * @param  string $text  Texto a vectorizar.

@@ -57,7 +57,8 @@ class ExtractionResponseSchema
     public static function getFunctionDeclaration(
         array $fieldsToExtract,
         array $visualChecks = [],
-        array $documentTypes = []
+        array $documentTypes = [],
+        array $documentRequirements = []
     ): array {
         $fieldProperties = [];
         foreach ($fieldsToExtract as $field) {
@@ -118,7 +119,7 @@ class ExtractionResponseSchema
                 'fields' => [
                     'type' => 'OBJECT',
                     'properties' => $fieldProperties,
-                    'description' => 'Campos extraídos del documento',
+                    'description' => self::buildFieldsDescription($documentRequirements),
                 ],
             ],
             'required' => ['type', 'fields'],
@@ -163,12 +164,13 @@ class ExtractionResponseSchema
     public static function getToolsBlock(
         array $fieldsToExtract,
         array $visualChecks = [],
-        array $documentTypes = []
+        array $documentTypes = [],
+        array $documentRequirements = []
     ): array {
         return [
             [
                 'functionDeclarations' => [
-                    self::getFunctionDeclaration($fieldsToExtract, $visualChecks, $documentTypes),
+                    self::getFunctionDeclaration($fieldsToExtract, $visualChecks, $documentTypes, $documentRequirements),
                 ],
             ],
         ];
@@ -215,5 +217,30 @@ class ExtractionResponseSchema
         }
 
         return null;
+    }
+
+    /**
+     * Construye una descripción compacta de campos esperados por documento.
+     *
+     * @param  array<string, array{fields?: array<int, string>}> $documentRequirements  Contrato por documento.
+     * @return string Descripción para Function Calling.
+     */
+    private static function buildFieldsDescription(array $documentRequirements): string
+    {
+        if (empty($documentRequirements)) {
+            return 'Campos extraídos del documento';
+        }
+
+        $parts = ['Campos extraídos del documento. Usa solo los campos configurados para el tipo documental identificado:'];
+        foreach ($documentRequirements as $documentType => $requirement) {
+            $fields = $requirement['fields'] ?? [];
+            if (empty($fields)) {
+                continue;
+            }
+
+            $parts[] = $documentType . ': ' . implode(', ', $fields);
+        }
+
+        return implode(' | ', $parts);
     }
 }

@@ -9,6 +9,7 @@ class RuleEngine
     public const NOT_FOUND = 'NO_ENCONTRADO';
     public const NOT_APPLICABLE = 'NO_APLICA';
     public const SKIPPED = 'OMITIDO';
+    public const EXTRACTION_INCOMPLETE = 'EXTRACCION_INCOMPLETA';
 
     private const WEIGHT_HIGH = 10;
     private const WEIGHT_MEDIUM = 5;
@@ -71,6 +72,7 @@ class RuleEngine
             // Obtener valores
             $fdvValue = $this->getFdvValue($field, $fdvItems, $classifier);
             $docValue = $this->getDocValue($field, $docFieldsMap, $classifier, $configuredDocument);
+            $extractionIncomplete = $this->isExtractionIncomplete($auditConfig, $configuredDocument, $field);
 
             $result = $this->evaluateField(
                 $field,
@@ -79,7 +81,8 @@ class RuleEngine
                 $docValue,
                 $semanticMap,
                 $visualChecks,
-                $configuredDocument
+                $configuredDocument,
+                $extractionIncomplete
             );
 
             $classification = $result['classification'];
@@ -108,7 +111,7 @@ class RuleEngine
         }
 
         $riskScore = $this->calculateRiskScore($metrics);
-        $response = $this->classifyResponse($riskScore);
+        $response = $this->classifyResponse($riskScore, $metrics);
 
         return [
             'response' => $response,
@@ -141,10 +144,15 @@ class RuleEngine
         ?string $docValue,
         array $semanticMap,
         array $visualChecks,
-        ?string $document = null
+        ?string $document = null,
+        bool $extractionIncomplete = false
     ): array {
         if ($type === FieldClassifier::TYPE_VISUAL) {
             return $this->evaluateVisual($field, $visualChecks, $document);
+        }
+
+        if ($extractionIncomplete) {
+            return ['classification' => self::EXTRACTION_INCOMPLETE, 'detail' => 'Campo esperado omitido por la extracción'];
         }
 
         if ($docValue === null || trim($docValue) === '') {
@@ -576,6 +584,8 @@ class RuleEngine
             'TotalCamposEvaluados' => 0,
             'TotalCoincidentes' => 0,
             'TotalDiscrepancias' => 0,
+            'TotalOmitidos' => 0,
+            'TotalExtraccionIncompleta' => 0,
             'Altas' => 0,
             'Medias' => 0,
             'Bajas' => 0,
@@ -1028,8 +1038,18 @@ class RuleEngine
     {
         $metrics['TotalCamposEvaluados']++;
 
-        if ($classification === self::MATCH || $classification === self::SKIPPED) {
+        if ($classification === self::MATCH) {
             $metrics['TotalCoincidentes']++;
+            return;
+        }
+
+        if ($classification === self::SKIPPED) {
+            $metrics['TotalOmitidos']++;
+            return;
+        }
+
+        if ($classification === self::EXTRACTION_INCOMPLETE) {
+            $metrics['TotalExtraccionIncompleta']++;
             return;
         }
 
@@ -1088,8 +1108,12 @@ class RuleEngine
      * @param  int $riskScore  Puntaje calculado.
      * @return string Estado final: success, warning o error.
      */
-    private function classifyResponse(int $riskScore): string
+    private function classifyResponse(int $riskScore, array $metrics = []): string
     {
+        if (($metrics['TotalExtraccionIncompleta'] ?? 0) > 0) {
+            return AuditResponseSchema::RESPONSE_ERROR;
+        }
+
         if ($riskScore === 0) {
             return AuditResponseSchema::RESPONSE_SUCCESS;
         }
@@ -1116,6 +1140,9 @@ class RuleEngine
         if ($metrics['Bajas'] > 0) {
             return FieldClassifier::SEVERITY_LOW;
         }
+        if (($metrics['TotalExtraccionIncompleta'] ?? 0) > 0) {
+            return FieldClassifier::SEVERITY_HIGH;
+        }
         return FieldClassifier::SEVERITY_LOW;
     }
 
@@ -1138,13 +1165,37 @@ class RuleEngine
         }
 
         return sprintf(
-            'Auditoría completada: %d campos evaluados, %d discrepancias (%d alta, %d media, %d baja). Risk score: %d',
+            'Auditoría completada: %d campos evaluados, %d discrepancias (%d alta, %d media, %d baja), %d con extracción incompleta. Risk score: %d',
             $metrics['TotalCamposEvaluados'],
             $metrics['TotalDiscrepancias'],
             $metrics['Altas'],
             $metrics['Medias'],
             $metrics['Bajas'],
+            $metrics['TotalExtraccionIncompleta'] ?? 0,
             $riskScore
         );
+    }
+
+    /**
+     * Determina si un campo esperado fue omitido por la extracción de Gemini.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración con metadata de extracción.
+     * @param  string|null $document  Documento configurado para el campo.
+     * @param  string $field  Campo canónico.
+     * @return bool True si el campo fue esperado pero no retornado como llave.
+     */
+    private function isExtractionIncomplete(array $auditConfig, ?string $document, string $field): bool
+    {
+        if ($document === null) {
+            return false;
+        }
+
+        $quality = $auditConfig['_extractionQuality'][$document] ?? null;
+        if (!is_array($quality)) {
+            return false;
+        }
+
+        $missingKeys = $quality['missingKeys'] ?? [];
+        return is_array($missingKeys) && in_array($field, $missingKeys, true);
     }
 }
