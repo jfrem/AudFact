@@ -15,19 +15,21 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 
 | Archivo | Rol |
 |---|---|
-| `app/Services/Audit/AuditOrchestrator.php` | ⭐ Orquestador principal — coordina todo el flujo de auditoría |
-| `app/Services/Audit/AuditPromptBuilder.php` | Prompt v3.1: 4 capas con axiomas deterministas, motor de 6 dimensiones, protocolo de reconfirmación anti-alucinación (§08 items 13-14), e **iteración multi-medicamento** (foreach → nodos `<medication item="N">` XML por cada ítem de dispensación) |
-| `app/Services/Audit/AuditResponseSchema.php` | Schema JSON esperado de Gemini |
+| `app/Services/Audit/AuditOrchestrator.php` | ⭐ Orquestador principal — coordina las 3 fases del pipeline v4 |
+| `app/Services/Audit/ExtractionPromptBuilder.php` | Prompt de extracción v4: minimalista, solo pide campos y visual checks. Sin lógica de negocio (delegada a RuleEngine) |
+| `app/Services/Audit/ExtractionResponseSchema.php` | Schema de Function Calling para Gemini: define `report_extraction` tool |
+| `app/Services/Audit/AuditResponseSchema.php` | Schema JSON de respuesta final del pipeline (métricas, config, items) |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado, sin disco), URL → Drive |
-| `app/Services/Audit/AuditResultValidator.php` | Valida que la respuesta cumpla el schema |
-| `app/Services/Audit/JsonResponseParser.php` | Extrae y repara JSON de la respuesta de Gemini (integra `JsonRepairHelper`) |
-| `app/Services/Audit/JsonRepairHelper.php` | 🛠️ Helper de bajo nivel — repara llaves, corchetes, comas colgantes y strings truncados en respuestas crudas |
-| `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y backoff |
+| `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, backoff y Function Calling |
+| `app/Services/Audit/EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API (Fase 2) |
+| `app/Services/Audit/SemanticComparator.php` | Compara campos FDV vs extraídos usando embeddings (Fase 2) |
+| `app/Services/Audit/FieldClassifier.php` | Clasifica campos por tipo (exact, semantic, visual, date, numeric) y doc autoritativo |
+| `app/Services/Audit/RuleEngine.php` | ⭐ Motor determinista PHP puro — evalúa discrepancias con pesos de riesgo (Fase 3) |
 | `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados con **Transacciones PDO**: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE) — revierte completo si algo falla |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
 | `app/Services/Audit/AuditQueueService.php` | Orquesta colas de auditoría Redis, encolamiento y estados (Jobs) — Resiliente a reinicios (`NOSCRIPT` fallback) |
-| `app/Services/Audit/AuditOrchestratorFactory.php` | Patrón Factory para orquestar la construcción y reutilización de todos los servicios asociados a la IA de manera eficiente. |
+| `app/Services/Audit/AuditOrchestratorFactory.php` | Patrón Factory para orquestar la construcción y reutilización de todos los servicios v4 |
 | `bin/audit-worker.php` | Consumidor CLI de cola Redis que orquesta las llamadas al pipeline AI de manera concurrente |
 | `app/Services/GoogleDriveAuthService.php` | JWT auth y streaming desde Google Drive |
 | `app/Services/GoogleDriveServiceInterface.php` | Interfaz Strategy para el servicio de Drive |
@@ -35,20 +37,22 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | `app/Models/AttachmentsModel.php` | Resolución de adjuntos BLOB/Drive |
 | `app/Models/AuditStatusModel.php` | Persistencia de resultados en `AudDispEst` (upsert) |
 
-## Mapa de dependencias del Worker
+## Mapa de dependencias del Orquestador
 
 ```
-AuditOrchestrator
+AuditOrchestrator (v4)
 ├── DispensationModel (source of truth)
 ├── AttachmentsModel (adjuntos)
 ├── AuditPreValidator (pre-validación)
 ├── AuditFileManager
 │   └── GoogleDriveAuthService (descarga)
-├── AuditPromptBuilder (prompts)
-├── GeminiGateway (HTTP → Gemini API)
-├── JsonResponseParser (parseo)
-│   └── JsonRepairHelper (reparación de truncamientos)
-├── AuditResultValidator (validación schema)
+├── ExtractionPromptBuilder (prompt de extracción, Fase 1)
+├── ExtractionResponseSchema (Function Calling schema, Fase 1)
+├── GeminiGateway (HTTP → Gemini API, Fase 1 + FC)
+├── EmbeddingGateway (HTTP → Gemini Embedding API, Fase 2)
+├── SemanticComparator (comparación semántica, Fase 2)
+├── FieldClassifier (clasificación de campos)
+├── RuleEngine (evaluación determinista, Fase 3)
 ├── AuditPersistenceService (BD: AudDispEst + AdjuntosDispensacion)
 ├── AuditTelemetryService (métricas)
 ├── AuditResponseSchema (schema ref)
@@ -57,26 +61,22 @@ AuditOrchestrator
 
 ## Flujo técnico
 
-### Flujo Normal (Síncrono `POST /audit`)
-1. `orchestrate()` recibe `invoiceId`, `dispensationData`, `attachments`.
+### Flujo Normal (Síncrono `POST /audit/single`)
+1. `auditInvoice()` recibe `invoiceId`, `disDetNro`, `attachmentId`.
 2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos con prefiltrado SQL `AdjDisOpc='N'`).
 3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
-4. Construir prompt → `AuditPromptBuilder` (v3.1 con Axiomas A1-A4 + iteración multi-medicamento).
-5. Enviar a Gemini → `GeminiGateway` (exponential backoff).
-6. Parsear respuesta → `JsonResponseParser` (aplica `JsonRepairHelper` automáticamente como fallback si el JSON está malformado/truncado).
-7. Validar schema → `AuditResultValidator`.
-8. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
-9. Registrar telemetría → `AuditTelemetryService`.
+4. **Fase 1 — Extracción**: `ExtractionPromptBuilder` + `GeminiGateway::sendWithFunctionCalling()` → `ExtractionResponseSchema::parseExtractionResponse()`. Gemini invoca `report_extraction` con JSON tipado.
+5. **Fase 2 — Embedding**: `SemanticComparator` + `EmbeddingGateway` → cosine similarity para campos tipo `semantic`.
+6. **Fase 3 — Reglas**: `RuleEngine::evaluate()` — lógica PHP determinista, pesos de riesgo, clasificación de hallazgos.
+7. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
+8. Registrar telemetría → `AuditTelemetryService`.
 
 ### Flujo Asíncrono (Colas `POST /audit/async` + `bin/audit-worker.php`)
 1. `POST /audit/async` -> Valida límites y llama a `AuditQueueService::enqueue()`.
 2. Encola ID de factura en Redis Lists y crea llave Hash de seguimiento.
 3. El proceso CLI long-running `bin/audit-worker.php` detiene la cola via `brpop`.
-4. El worker desempaqueta, llama a `AuditOrchestrator::orchestrate()` internamente.
+4. El worker desempaqueta, llama a `AuditOrchestrator::auditInvoice()` internamente.
 5. El worker intercepta éxito/error y actualiza los hashes de seguimiento.
-
-### Flujo Estricto (reintento)
-Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con parámetros de generación más restrictivos para obtener JSON válido.
 
 ## Variables de entorno relevantes
 
@@ -95,19 +95,19 @@ Si la respuesta normal no pasa validación, `executeAuditFlow()` reintenta con p
 1. Mantener respuesta final con campos `response`, `message`, `documento`, `data.items`.
 2. **No omitir limpieza de temporales en `finally`**.
 3. Tratar errores de API con mensaje corto y código HTTP cuando exista.
-4. Limitar cambios de prompt a reglas de negocio verificables siguiendo los **Axiomas (A1-A4)**. §08 contiene 14 items de auto-auditoría incluyendo reconfirmación de hallazgos y verificación visual de firma.
-5. **No romper compatibilidad con `AuditResponseSchema`**. Tener en cuenta que el `documento` base ahora opera sobre un **Schema Dinámico** que inyecta nombres exactos desde la BD al enum de Gemini para garantizar conciliación exacta.
-6. Evaluar hallazgos bajo el **Protocolo de 6 Dimensiones** (Identidad, Cuantitativa, Temporal, Descriptiva, Integridad, Forense).
-7. Inyección de dependencias: constructor acepta todas como parámetros opcionales.
-8. Resultados se persisten triple: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert) + BD adjuntos (`AdjuntosDispensacion` via `updateAuditResult` con estrategia baseline+rechazo individual).
-9. **Exclusión de Régimen**: Para clientes que no suministran datos fiables de régimen (ej. NitSec `1045`, `80455`, `2426`), `DispensationModel` inyecta `NULL` en la consulta, transformándose en `N/D` por el prompt builder. La IA **tiene estrictamente prohibido** reportar discrepancias si la Fuente de Verdad para `Cliente.Regimen` es `N/D` o `ARL`.
+4. El prompt de extracción (Fase 1) NO debe contener lógica de negocio — solo extracción de campos y visual checks.
+5. **No romper compatibilidad con `AuditResponseSchema`**. El schema de salida final debe ser consistente con el frontend.
+6. La evaluación de hallazgos (Fase 3) es **exclusivamente PHP determinista** en `RuleEngine` — nunca en el prompt de Gemini.
+7. Inyección de dependencias: constructor acepta 10 servicios tipados (sin nullable legacy).
+8. Resultados se persisten doble: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert + `AdjuntosDispensacion` via `updateAuditResult`).
+9. **Exclusión de Régimen**: Para clientes que no suministran datos fiables de régimen (ej. NitSec `1045`, `80455`, `2426`), `DispensationModel` inyecta `NULL` en la consulta, transformándose en `N/D` por el prompt builder. El `RuleEngine` **omite la evaluación** si la Fuente de Verdad para `Cliente.Regimen` es `N/D` o `ARL`.
 
 ## Anti-patterns ⚠️
-1. **No truncar JSON manualmente** — `JsonResponseParser` delega en `JsonRepairHelper` para reparación automática realista.
+1. **No inyectar lógica de negocio en el prompt de extracción** — eso es responsabilidad exclusiva del `RuleEngine` (Fase 3).
 2. **No omitir safety settings** — documentos médicos requieren `BLOCK_NONE`.
 3. **No ignorar HTTP 429** (quota) ni **503** (model unavailable) — el retry con backoff los maneja.
 4. **No hardcodear el modelo Gemini** — leer de `GEMINI_MODEL` env var.
-5. **No saltarse `AuditResultValidator`** — la respuesta de Gemini puede ser válida JSON pero schema incorrecto.
+5. **No parsear texto libre de Gemini** — usar Function Calling (`report_extraction`) para obtener JSON tipado directamente.
 6. **No guardar archivos temporales sin cleanup** — siempre usar `try/finally`.
 
 ## Cross-references

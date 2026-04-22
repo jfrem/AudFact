@@ -22,17 +22,12 @@ class AuditOrchestrator
     private AuditTelemetryService $telemetry;
     private AuditPreValidator $preValidator;
 
-    // v4 — nuevos servicios
+    // v4 — servicios del pipeline determinista
     private ExtractionPromptBuilder $extractionPrompt;
     private EmbeddingGateway $embeddingGateway;
     private SemanticComparator $comparator;
     private FieldClassifier $classifier;
     private RuleEngine $ruleEngine;
-
-    // Legacy — mantenidos para backward compat durante transición
-    private ?AuditPromptBuilder $promptBuilder;
-    private ?AuditResultValidator $validator;
-    private ?JsonResponseParser $parser;
 
     public function __construct(
         AuditFileManager $fileManager,
@@ -44,11 +39,7 @@ class AuditOrchestrator
         EmbeddingGateway $embeddingGateway,
         SemanticComparator $comparator,
         FieldClassifier $classifier,
-        RuleEngine $ruleEngine,
-        // Legacy (nullable para clean rebuild)
-        ?AuditPromptBuilder $promptBuilder = null,
-        ?AuditResultValidator $validator = null,
-        ?JsonResponseParser $parser = null
+        RuleEngine $ruleEngine
     ) {
         $this->fileManager = $fileManager;
         $this->gateway = $gateway;
@@ -60,9 +51,6 @@ class AuditOrchestrator
         $this->comparator = $comparator;
         $this->classifier = $classifier;
         $this->ruleEngine = $ruleEngine;
-        $this->promptBuilder = $promptBuilder;
-        $this->validator = $validator;
-        $this->parser = $parser;
     }
 
     /**
@@ -184,7 +172,8 @@ class AuditOrchestrator
             $filePrepMs,
             $geminiApiMs,
             1, // single-pass (no retry loop)
-            $totalMs
+            $totalMs,
+            $extractionResult['promptHash'] ?? ''
         );
 
         // Agregar telemetría de fases v4
@@ -279,6 +268,8 @@ class AuditOrchestrator
             ]);
             throw new \RuntimeException('Gemini no invocó report_extraction — function calling falló');
         }
+
+        $extracted['promptHash'] = md5($systemInstruction . $userPrompt);
 
         return $extracted;
     }

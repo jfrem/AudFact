@@ -6,8 +6,7 @@ namespace App\Services\Audit;
  * Clasifica campos de auditoría en categorías de comparación y define
  * sus severidades y documentos autoritativos.
  *
- * Fuente de verdad: migración directa de §02 (documentos autoritativos)
- * y §04 (severidades) del prompt v3.1.
+ * Fuente de verdad: documentos autoritativos y severidades de negocio.
  *
  * @version 4.0
  */
@@ -75,7 +74,7 @@ class FieldClassifier
 
     /**
      * Mapa de campos → severidad de discrepancia.
-     * Migración directa de §04 del prompt v3.1.
+     * Reglas de severidad de negocio.
      */
     private const FIELD_SEVERITIES = [
         // Alta
@@ -117,7 +116,7 @@ class FieldClassifier
      * Define cuál documento adjunto es la fuente más confiable
      * para extraer el valor del campo.
      *
-     * Migración directa de §02 del prompt v3.1.
+     * Definición de documentos autoritativos.
      */
     private const AUTHORITATIVE_DOCS = [
         'NumeroFactura'        => 'FACTURA',

@@ -3,205 +3,251 @@
 namespace Tests\Services\Audit;
 
 use PHPUnit\Framework\TestCase;
-use App\Services\Audit\AuditPromptBuilder;
+use App\Services\Audit\ExtractionPromptBuilder;
 
 /**
- * P3.3 — Test de sesgo representacional.
+ * P3.3 — Test de sesgo representacional y determinismo (v4).
  *
- * Valida que la Zero-Inference Rule funciona correctamente:
- * datos demográficos distintos NO deben alterar la estructura del prompt
- * ni las reglas de auditoría aplicadas.
+ * Valida que el ExtractionPromptBuilder produce prompts deterministas
+ * y que datos demográficos distintos NO alteran la estructura del prompt
+ * de extracción ni las reglas aplicadas.
+ *
+ * Migrado de AuditPromptBuilder (legacy v3) a ExtractionPromptBuilder (v4).
  */
 class AuditBiasTest extends TestCase
 {
-    private AuditPromptBuilder $builder;
+    private ExtractionPromptBuilder $builder;
 
     protected function setUp(): void
     {
-        $this->builder = new AuditPromptBuilder();
+        $this->builder = new ExtractionPromptBuilder();
     }
 
-    // ── estimateComplexity ────────────────────────────────
+    // ── System Instruction determinismo ─────────────────────
 
-    public function testSimpleComplexityForPBS(): void
+    /**
+     * Verifica que el system instruction es estático y determinista:
+     * múltiples invocaciones producen la misma salida.
+     */
+    public function testSystemInstructionIsDeterministic(): void
     {
-        $data = ['Tipo' => 'PBS', 'Mipres' => '', 'NumeroFactura' => 'F1'];
+        $instruction1 = $this->builder->getSystemInstruction();
+        $instruction2 = $this->builder->getSystemInstruction();
 
-        $result = $this->builder->estimateComplexity($data);
-
-        $this->assertSame('simple', $result['level']);
-        $this->assertSame(2048, $result['thinkingBudget']);
+        $this->assertSame($instruction1, $instruction2, 'System instruction debe ser idéntico entre invocaciones');
+        $this->assertSame(
+            hash('sha256', $instruction1),
+            hash('sha256', $instruction2),
+            'Hash del system instruction debe ser determinista'
+        );
     }
 
-    public function testNormalComplexityForMIPRES(): void
+    /**
+     * Verifica que el system instruction contiene protección contra
+     * inyección de instrucciones desde los documentos.
+     */
+    public function testSystemInstructionContainsInjectionProtection(): void
     {
-        $data = ['Tipo' => 'MIPRES', 'Mipres' => 'MP-100', 'NumeroFactura' => 'F2'];
+        $instruction = $this->builder->getSystemInstruction();
 
-        $result = $this->builder->estimateComplexity($data);
-
-        $this->assertSame('normal', $result['level']);
-        $this->assertSame(4096, $result['thinkingBudget']);
+        $this->assertStringContainsString(
+            'PROTECCIÓN',
+            $instruction,
+            'System instruction debe contener protección contra inyección'
+        );
     }
 
-    public function testNormalComplexityWithMipresFieldPresent(): void
+    /**
+     * Verifica que el system instruction NO contiene lógica de negocio
+     * (eso se delega al RuleEngine en Fase 3).
+     */
+    public function testSystemInstructionHasNoBusinessLogic(): void
     {
-        $data = ['Tipo' => 'PBS', 'Mipres' => 'MP-200', 'NumeroFactura' => 'F3'];
+        $instruction = $this->builder->getSystemInstruction();
 
-        $result = $this->builder->estimateComplexity($data);
-
-        $this->assertSame('normal', $result['level']);
+        $this->assertStringNotContainsString('discrepancia', strtolower($instruction));
+        $this->assertStringNotContainsString('risk', strtolower($instruction));
+        $this->assertStringNotContainsString('severidad', strtolower($instruction));
+        $this->assertStringNotContainsString('hallazgo', strtolower($instruction));
     }
 
-    public function testComplexForMultipleLines(): void
-    {
-        $data = [
-            ['Tipo' => 'PBS', 'Mipres' => '', 'NumeroFactura' => 'F4'],
-            ['Tipo' => 'PBS', 'Mipres' => '', 'NumeroFactura' => 'F4'],
-        ];
-
-        $result = $this->builder->estimateComplexity($data);
-
-        $this->assertSame('complex', $result['level']);
-        $this->assertSame(8192, $result['thinkingBudget']);
-    }
-
-    // ── Sesgo representacional (Zero-Inference) ──────────
+    // ── Sesgo representacional (Zero-Inference) ──────────────
 
     /**
      * Verifica que cambiar el régimen del paciente NO altera
-     * la estructura de reglas del system prompt.
+     * la estructura del user prompt cuando los campos a extraer son los mismos.
      *
-     * La Zero-Inference Rule dice: "El modelo NO debe inferir,
-     * deducir ni asumir información demográfica del paciente".
-     * Si el prompt contiene siempre la misma regla §00b,
-     * el modelo no puede sesgar por régimen.
+     * En v4, la Zero-Inference Rule se cumple por diseño: el prompt de
+     * extracción NO contiene reglas de negocio — solo pide extraer campos.
      */
-    public function testPromptStructureIdenticalAcrossRegimens(): void
+    public function testUserPromptStructureIdenticalAcrossRegimens(): void
     {
-        $baseData = [
-            'Tipo'              => 'PBS',
-            'NumeroFactura'     => 'FAC-999',
-            'NitSec'            => '123',
-            'FacSec'            => '87700001',
-            'NombrePaciente'    => 'Test Paciente',
-            'TipoDocumento'     => 'CC',
-            'NumeroDocumento'   => '1000000001',
-            'FechaNacimiento'   => '1990-01-01',
-            'Mipres'            => '',
-            'IdPrincipal'       => '',
-            'IdDirec'           => '',
-            'IdProg'            => '',
-            'IdEntr'            => '',
-            'IdRepEnt'          => '',
-            'TipoServicio'      => 'PBS',
-            'DiagPpal'          => 'J45',
-            'NombreArticulo'    => 'SALBUTAMOL',
-            'CantidadPrescrita' => '10',
-            'CantidadEntregada' => '10',
-            'CodSismed'         => 'A01',
-            'NombreIPS'         => 'IPS TEST',
-            'NombrePrestador'   => 'DR TEST',
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NombrePaciente'],
+                    ['field' => 'NumeroIdentificacion'],
+                    ['field' => 'NombreArticulo'],
+                ]],
+            ],
         ];
 
-        $subsidiado = array_merge($baseData, [
-            'Regimen' => 'SUBSIDIADO',
-            'Cliente' => 'EPS SUBSIDIADA',
-        ]);
+        $subsidiado = ['paciente' => 'JUAN PEREZ', 'regimen' => 'SUBSIDIADO'];
+        $contributivo = ['paciente' => 'JUAN PEREZ', 'regimen' => 'CONTRIBUTIVO'];
 
-        $contributivo = array_merge($baseData, [
-            'Regimen' => 'CONTRIBUTIVO',
-            'Cliente' => 'EPS CONTRIBUTIVA',
-        ]);
+        $promptSub = $this->builder->buildUserPrompt($auditConfig, $subsidiado);
+        $promptCon = $this->builder->buildUserPrompt($auditConfig, $contributivo);
 
-        $promptSubsidiado = $this->builder->getSystemInstruction($subsidiado);
-        $promptContributivo = $this->builder->getSystemInstruction($contributivo);
-
-        // Las secciones de REGLAS (§00 a §08) deben ser idénticas
-        // Solo deben diferir los datos dinámicos (Regimen, Cliente)
-        $this->assertStringContainsString('§00b', $promptSubsidiado, 'Zero-Inference Rule debe estar presente');
-        $this->assertStringContainsString('§00b', $promptContributivo, 'Zero-Inference Rule debe estar presente');
-        $this->assertStringContainsString('<zero_inference_rule>', $promptSubsidiado);
-        $this->assertStringContainsString('<zero_inference_rule>', $promptContributivo);
+        // Los prompts deben ser idénticos porque el régimen NO es un campo de extracción
+        $this->assertSame(
+            $promptSub,
+            $promptCon,
+            'User prompt debe ser idéntico para distintos regímenes con mismos campos'
+        );
     }
 
     /**
-     * Verifica que el hash del prompt es determinista:
-     * mismos datos producen mismo hash.
+     * Verifica que el hash del user prompt es determinista:
+     * mismos datos y config producen mismo hash.
      */
-    public function testPromptHashIsDeterministic(): void
+    public function testUserPromptHashIsDeterministic(): void
     {
-        $data = [
-            'Tipo'              => 'PBS',
-            'NumeroFactura'     => 'FAC-DET',
-            'Regimen'           => 'SUBSIDIADO',
-            'Cliente'           => 'EPS TEST',
-            'NitSec'            => '999',
-            'FacSec'            => '8770DET',
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NumeroFactura'],
+                    ['field' => 'NombrePaciente'],
+                ]],
+            ],
         ];
 
-        $prompt1 = $this->builder->getSystemInstruction($data);
-        $prompt2 = $this->builder->getSystemInstruction($data);
+        $data = ['paciente' => 'MARIA GARCIA', 'factura' => 'FAC-001'];
+        $labels = ['FORMULA MEDICA', 'ACTA DE ENTREGA'];
+
+        $prompt1 = $this->builder->buildUserPrompt($auditConfig, $data, $labels);
+        $prompt2 = $this->builder->buildUserPrompt($auditConfig, $data, $labels);
 
         $hash1 = hash('sha256', $prompt1);
         $hash2 = hash('sha256', $prompt2);
 
-        $this->assertSame($hash1, $hash2, 'Mismo input debe producir mismo hash');
-    }
-
-    /**
-     * Verifica que regímenes distintos producen hashes distintos
-     * (los datos dinámicos SÍ cambian, así que el hash debe diferir).
-     */
-    public function testDifferentRegimensProduceDifferentHashes(): void
-    {
-        $base = [
-            'Tipo'           => 'PBS',
-            'NumeroFactura'  => 'FAC-DIFF',
-            'NitSec'         => '111',
-            'FacSec'         => '8770DIFF',
-        ];
-
-        $sub = array_merge($base, ['Regimen' => 'SUBSIDIADO', 'Cliente' => 'EPS SUB']);
-        $con = array_merge($base, ['Regimen' => 'CONTRIBUTIVO', 'Cliente' => 'EPS CON']);
-
-        $hashSub = hash('sha256', $this->builder->getSystemInstruction($sub));
-        $hashCon = hash('sha256', $this->builder->getSystemInstruction($con));
-
-        $this->assertNotSame($hashSub, $hashCon, 'Datos distintos deben producir hashes distintos');
+        $this->assertSame($hash1, $hash2, 'Mismo input debe producir mismo hash de prompt');
     }
 
     /**
      * Verifica que el hash compuesto (systemInstruction + userPrompt)
-     * es determinista: mismos datos y misma lista de documentos
-     * producen siempre el mismo hash.
-     *
-     * Este test refleja la lógica de AuditOrchestrator::executeAuditFlow()
-     * que calcula: hash('sha256', $systemInstruction . '||' . $baseUserPrompt)
+     * es determinista con mismos inputs.
      */
     public function testCompositePromptHashIsDeterministic(): void
     {
-        $data = [
-            'Tipo'              => 'PBS',
-            'NumeroFactura'     => 'FAC-COMP',
-            'Regimen'           => 'SUBSIDIADO',
-            'Cliente'           => 'EPS TEST',
-            'NitSec'            => '555',
-            'FacSec'            => '8770COMP',
-            'NombrePaciente'    => 'Test Paciente',
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NumeroFactura'],
+                    ['field' => 'Autorizacion'],
+                ]],
+            ],
         ];
 
-        $pdfList = ['DISPENSA', 'AUTORIZACION', 'FORMULA MEDICA'];
+        $data = ['factura' => 'FAC-COMP', 'autorizacion' => 'AUT-123'];
+        $labels = ['DISPENSA', 'AUTORIZACION'];
 
-        $system1 = $this->builder->getSystemInstruction($data);
-        $user1 = $this->builder->buildUserPrompt($data, $pdfList);
+        $system1 = $this->builder->getSystemInstruction();
+        $user1 = $this->builder->buildUserPrompt($auditConfig, $data, $labels);
         $composite1 = hash('sha256', $system1 . '||' . $user1);
 
-        $system2 = $this->builder->getSystemInstruction($data);
-        $user2 = $this->builder->buildUserPrompt($data, $pdfList);
+        $system2 = $this->builder->getSystemInstruction();
+        $user2 = $this->builder->buildUserPrompt($auditConfig, $data, $labels);
         $composite2 = hash('sha256', $system2 . '||' . $user2);
 
-        $this->assertSame($composite1, $composite2, 'Hash compuesto debe ser determinista con mismos inputs');
+        $this->assertSame($composite1, $composite2, 'Hash compuesto debe ser determinista');
         $this->assertSame($system1, $system2, 'SystemInstruction debe ser idéntico');
         $this->assertSame($user1, $user2, 'UserPrompt debe ser idéntico');
+    }
+
+    /**
+     * Verifica que datos distintos producen hashes distintos.
+     */
+    public function testDifferentDataProducesDifferentHashes(): void
+    {
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NombrePaciente'],
+                    ['field' => 'NumeroFactura'],
+                ]],
+            ],
+        ];
+
+        $data1 = ['paciente' => 'PEDRO LOPEZ', 'factura' => 'FAC-001'];
+        $data2 = ['paciente' => 'ANA MARTINEZ', 'factura' => 'FAC-002'];
+
+        $hash1 = hash('sha256', $this->builder->buildUserPrompt($auditConfig, $data1));
+        $hash2 = hash('sha256', $this->builder->buildUserPrompt($auditConfig, $data2));
+
+        $this->assertNotSame($hash1, $hash2, 'Datos distintos deben producir hashes distintos');
+    }
+
+    // ── Resolución de campos ────────────────────────────────
+
+    /**
+     * Verifica que resolveFieldsFromConfig extrae campos correctamente.
+     */
+    public function testResolveFieldsFromConfig(): void
+    {
+        $config = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NumeroFactura'],
+                    ['field' => 'NombrePaciente'],
+                    ['field' => 'NombreArticulo'],
+                ]],
+            ],
+        ];
+
+        $fields = $this->builder->resolveFieldsFromConfig($config);
+
+        $this->assertContains('NumeroFactura', $fields);
+        $this->assertContains('NombrePaciente', $fields);
+        $this->assertContains('NombreArticulo', $fields);
+        $this->assertCount(3, $fields);
+    }
+
+    /**
+     * Verifica que config vacía retorna campos por defecto.
+     */
+    public function testEmptyConfigReturnsDefaultFields(): void
+    {
+        $fields = $this->builder->resolveFieldsFromConfig([]);
+
+        $this->assertNotEmpty($fields, 'Config vacía debe retornar campos por defecto');
+        $this->assertContains('NumeroFactura', $fields, 'Defaults deben incluir NumeroFactura');
+        $this->assertContains('NombrePaciente', $fields, 'Defaults deben incluir NombrePaciente');
+    }
+
+    /**
+     * Verifica que no hay campos duplicados en la resolución.
+     */
+    public function testNoDuplicateFieldsInResolution(): void
+    {
+        $config = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NumeroFactura'],
+                    ['field' => 'NombrePaciente'],
+                ]],
+                ['fields' => [
+                    ['field' => 'NumeroFactura'], // duplicado
+                    ['field' => 'Autorizacion'],
+                ]],
+            ],
+        ];
+
+        $fields = $this->builder->resolveFieldsFromConfig($config);
+
+        $this->assertCount(
+            count(array_unique($fields)),
+            $fields,
+            'No debe haber campos duplicados'
+        );
     }
 }

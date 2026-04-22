@@ -19,7 +19,7 @@ class ExtractionPromptBuilder
     /**
      * Genera las instrucciones del sistema (system instruction).
      *
-     * Prompt minimalista (~30 líneas vs 450 del v3.1).
+     * Prompt minimalista.
      * Solo pide extracción + visual checks. Sin lógica de negocio.
      *
      * @return string System instruction para Gemini

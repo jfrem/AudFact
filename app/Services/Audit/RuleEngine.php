@@ -10,7 +10,7 @@ use Core\Logger;
  * Evalúa campos extraídos (Fase 1) y similitudes semánticas (Fase 2)
  * contra la Fuente de Verdad (BD) usando lógica PHP pura.
  *
- * Migración directa de §03-§07 del prompt v3.1 a código PHP.
+ * Implementación en código PHP de las reglas de auditoría.
  * Garantiza 100% reproducibilidad entre corridas.
  *
  * @version 4.0
@@ -433,14 +433,11 @@ class RuleEngine
      */
     private function normalizeZeroValue(string $value): string
     {
-        $clean = preg_replace('/[$,\s]/', '', $value);
-        $numeric = (float) $clean;
-
-        if (abs($numeric) < 0.001) {
-            return '0';
+        $clean = preg_replace('/[^\d\.]/', '', $value);
+        if (is_numeric($clean) && (float)$clean === 0.0) {
+            return "0";
         }
-
-        return (string) $numeric;
+        return $value;
     }
 
     /**
@@ -457,8 +454,8 @@ class RuleEngine
             return null;
         }
 
-        // Multi-valor: "20, 30" → sumar componentes
-        if (str_contains($value, ',')) {
+        // Multi-valor: "20, 30" → sumar componentes (solo si no parece texto descriptivo)
+        if (str_contains($value, ',') && !preg_match('/[a-zA-Z]{3,}/', $value)) {
             $parts = array_map('trim', explode(',', $value));
             $total = 0;
             $validParts = 0;
@@ -474,13 +471,32 @@ class RuleEngine
             return $validParts > 0 ? $total : null;
         }
 
-        // Single value
-        $clean = preg_replace('/[^\d]/', '', $value);
-        if ($clean === '') {
-            return null;
+        // Detectar si es posología (múltiples números separados por texto)
+        // Ej: "1 TABLETA CADA 12 HORAS"
+        if (preg_match_all('/\b(\d+)\b/', $value, $matches)) {
+            $numbers = $matches[1];
+            
+            // Si hay múltiples números y también letras, probablemente es posología o texto complejo.
+            // Rechazamos el parseo numérico para evitar "excesos matemáticos falsos".
+            if (count($numbers) > 1 && preg_match('/[a-zA-Z]/', $value)) {
+                return null; 
+            }
+            
+            if (count($numbers) > 0) {
+                return (int) $numbers[0];
+            }
         }
-        return (int) $clean;
-    }
+
+        // Single value agresivo solo si no tiene letras que indiquen posología
+        if (!preg_match('/[a-zA-Z]{3,}/', $value)) {
+            $clean = preg_replace('/[^\d]/', '', $value);
+            if ($clean !== '') {
+                return (int) $clean;
+            }
+        }
+
+        return null;
+   }
 
     // ── Helpers para extracción de valores ──
 

@@ -14,10 +14,9 @@ use GuzzleHttp\Client;
 /**
  * Factory centralizada para construir AuditOrchestrator v4.
  *
- * Inyecta tanto los servicios del pipeline determinista (v4)
- * como los legacy (nullable) para transición gradual.
+ * Inyecta los servicios del pipeline determinista (v4).
  *
- * @version 4.0
+ * @version 4.1
  */
 class AuditOrchestratorFactory
 {
@@ -64,7 +63,7 @@ class AuditOrchestratorFactory
             Logger::warning('GEMINI_SEED no configurada — pipeline opera SIN reproducibilidad.');
         }
 
-        // ── GeminiGateway (compartido por legacy y v4) ──
+        // ── GeminiGateway ──
         $gateway = new GeminiGateway(
             $httpClient,
             $apiKey,
@@ -113,11 +112,7 @@ class AuditOrchestratorFactory
             $embeddingGateway,
             $comparator,
             $classifier,
-            $ruleEngine,
-            // Legacy (nullable)
-            new AuditPromptBuilder(),
-            new AuditResultValidator(),
-            new JsonResponseParser()
+            $ruleEngine
         );
     }
 }
