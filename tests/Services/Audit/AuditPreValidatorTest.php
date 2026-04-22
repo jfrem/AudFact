@@ -8,6 +8,7 @@ use App\Services\Audit\AuditPreValidator;
 use App\Services\Audit\AuditFileManager;
 use App\Services\Audit\AuditPersistenceService;
 use App\Models\AttachmentsModel;
+use App\Models\AuditConfigModel;
 use App\Models\DispensationModel;
 
 /**
@@ -19,6 +20,7 @@ class AuditPreValidatorTest extends TestCase
 {
     private MockObject&DispensationModel $dispensationModel;
     private MockObject&AttachmentsModel $attachmentsModel;
+    private MockObject&AuditConfigModel $auditConfigModel;
     private MockObject&AuditFileManager $fileManager;
     private MockObject&AuditPersistenceService $persistence;
     private AuditPreValidator $validator;
@@ -27,12 +29,14 @@ class AuditPreValidatorTest extends TestCase
     {
         $this->dispensationModel = $this->createMock(DispensationModel::class);
         $this->attachmentsModel = $this->createMock(AttachmentsModel::class);
+        $this->auditConfigModel = $this->createMock(AuditConfigModel::class);
         $this->fileManager = $this->createMock(AuditFileManager::class);
         $this->persistence = $this->createMock(AuditPersistenceService::class);
 
         $this->validator = new AuditPreValidator(
             $this->dispensationModel,
             $this->attachmentsModel,
+            $this->auditConfigModel,
             $this->fileManager,
             $this->persistence
         );
@@ -271,6 +275,54 @@ class AuditPreValidatorTest extends TestCase
         $this->assertEquals($dispensation, $result['dispensation']);
         $this->assertIsFloat($result['dataFetchMs']);
         $this->assertIsFloat($result['filePrepMs']);
+    }
+
+    public function testLoadsAuditConfigByClientNitSec(): void
+    {
+        $dispensation = [
+            'Tipo' => 'PBS',
+            'NumeroFactura' => 'FAC-001',
+            'NitSec' => '2426',
+        ];
+
+        $config = [
+            'nitSec' => '2426',
+            'activo' => true,
+            'documents' => [
+                'FORMULA MEDICA' => [
+                    'docId' => 3,
+                    'fields' => ['DocumentoPaciente'],
+                    'visualChecks' => [],
+                ],
+            ],
+        ];
+
+        $this->dispensationModel
+            ->method('getDispensationData')
+            ->willReturn([$dispensation]);
+
+        $this->auditConfigModel
+            ->expects($this->once())
+            ->method('getConfig')
+            ->with('2426')
+            ->willReturn($config);
+
+        $this->attachmentsModel
+            ->method('getRequiredAttachmentsByInvoiceId')
+            ->willReturn([['id' => 'att-1']]);
+
+        $this->fileManager
+            ->method('getMissingRequiredAttachments')
+            ->willReturn([]);
+
+        $this->fileManager
+            ->method('prepareAttachments')
+            ->willReturn([['label' => 'FORMULA MEDICA', 'pages' => 1]]);
+
+        $result = $this->validator->validate('FAC-001', 'DIS-001');
+
+        $this->assertNull($result['result']);
+        $this->assertSame($config, $result['auditConfig']);
     }
 
     // ── Error origin ──────────────────────────────────────

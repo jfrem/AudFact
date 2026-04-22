@@ -7,6 +7,7 @@ namespace App\Services\Audit;
 use Core\Env;
 use Core\Logger;
 use App\Models\AttachmentsModel;
+use App\Models\AuditConfigModel;
 use App\Models\AuditStatusModel;
 use App\Models\DispensationModel;
 use GuzzleHttp\Client;
@@ -81,6 +82,7 @@ class AuditOrchestratorFactory
         // ── Modelos y servicios base ──
         $dispensationModel = new DispensationModel();
         $attachmentsModel = new AttachmentsModel();
+        $auditConfigModel = new AuditConfigModel();
         $fileManager = new AuditFileManager();
         $persistence = new AuditPersistenceService(new AuditStatusModel());
         $telemetry = new AuditTelemetryService();
@@ -88,6 +90,7 @@ class AuditOrchestratorFactory
         $preValidator = new AuditPreValidator(
             $dispensationModel,
             $attachmentsModel,
+            $auditConfigModel,
             $fileManager,
             $persistence
         );

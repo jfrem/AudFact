@@ -8,13 +8,12 @@ class GetDispensation
 {
     public function execute(array $params): array
     {
-        $client = new ApiClient();
-
-        // Compatibilidad: aceptar invoiceId (preferido) y alias legacy.
-        $invoiceId = $params['invoiceId'] ?? $params['DisDetNro'] ?? $params['facSec'] ?? null;
+        $invoiceId = $params['invoiceId'] ?? null;
         if ($invoiceId === null || trim((string)$invoiceId) === '') {
             return ['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido'];
         }
+
+        $client = new ApiClient();
 
         return $client->get('/dispensation/' . urlencode((string)$invoiceId));
     }

@@ -60,10 +60,12 @@ sequenceDiagram
     participant AM as AttachmentsModel
     participant AFM as AuditFileManager
     participant GD as Google Drive
-    participant APB as AuditPromptBuilder
+    participant EPB as ExtractionPromptBuilder
     participant G as Gemini Flash API
-    participant JRP as JsonResponseParser
-    participant ARV as AuditResultValidator
+    participant ERS as ExtractionResponseSchema
+    participant EG as EmbeddingGateway
+    participant SC as SemanticComparator
+    participant REG as RuleEngine
     participant DB as SQL Server
 
     U->>AC: POST /audit {facNitSec, date, limit}
@@ -90,18 +92,22 @@ sequenceDiagram
             AFM->>AFM: base64(memory)
         end
 
-        AO->>APB: buildPrompt(dispensationData, files)
-        APB-->>AO: Prompt estructurado
+        AO->>EPB: buildUserPrompt(auditConfig, dispensationData, documents)
+        EPB-->>AO: Prompt de extracción
 
-        AO->>G: POST generateContent (prompt + archivos)
-        G-->>AO: Respuesta JSON (puede estar truncada)
+        AO->>G: POST generateContent (Function Calling + archivos)
+        G-->>AO: Function call report_extraction
 
-        AO->>JRP: parse(rawResponse)
-        JRP->>JRP: repair() si JSON malformado
-        JRP-->>AO: Resultado parseado
+        AO->>ERS: parseExtractionResponse(geminiResponse)
+        ERS-->>AO: Campos extraídos por documento
 
-        AO->>ARV: validate(result, schema)
-        ARV-->>AO: ValidationResult
+        AO->>SC: compareBatch(pairs, EmbeddingGateway)
+        SC->>EG: batchEmbedContents
+        EG-->>SC: Vectores semánticos
+        SC-->>AO: Similitudes por campo
+
+        AO->>REG: evaluate(fdv, documents, visualChecks, semanticResults)
+        REG-->>AO: AuditResult final
 
         AO-->>AC: AuditResult por factura
     end
@@ -140,7 +146,7 @@ sequenceDiagram
 ### Manejo de Errores
 - `429` — Gemini API quota excedida (reintento con backoff)
 - `503` — Modelo no disponible
-- JSON truncado — `JsonRepairHelper` intenta reparar
+- Function Calling inválido — se registra y se marca como fallo de extracción
 - Validación fallida — Se registra y se marca como `failed`
 
 ---

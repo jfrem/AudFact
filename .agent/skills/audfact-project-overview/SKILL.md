@@ -75,11 +75,12 @@ AudFact/
 2. → AuditOrchestrator.auditInvoice()
 3.   → DispensationModel (source of truth)
 4.   → AttachmentsModel → AuditFileManager (BLOB a memoria | Drive URL descarga)
-5.   → AuditPromptBuilder (Prompt v3.0 con 4 capas y axiomas)
+5.   → ExtractionPromptBuilder + ExtractionResponseSchema (Function Calling)
 6.   → GeminiGateway (retry + backoff)
-7.   → JsonResponseParser → AuditResultValidator
-8.   → AuditPersistenceService → AudDispEst (upsert)
-9.   → AuditTelemetryService (métricas)
+7.   → EmbeddingGateway + SemanticComparator
+8.   → RuleEngine (evaluación determinista)
+9.   → AuditPersistenceService → AudDispEst (upsert)
+10.  → AuditTelemetryService (métricas)
 ```
 
 ## Skills disponibles
@@ -97,7 +98,7 @@ AudFact/
 
 - **Singleton**: `Database::getConnection()` — pool de conexiones PDO.
 - **Strategy**: `GoogleDriveServiceInterface`.
-- **Builder**: `AuditPromptBuilder`.
+- **Builder**: `ExtractionPromptBuilder`.
 - **Chain of Responsibility**: Middleware pipeline.
 - **Facade**: `Response::success()` / `Response::error()`.
 - **Retry with Backoff**: `sendGeminiRequestWithRetry()`.

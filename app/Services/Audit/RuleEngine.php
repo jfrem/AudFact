@@ -2,8 +2,6 @@
 
 namespace App\Services\Audit;
 
-use Core\Logger;
-
 /**
  * Motor de reglas determinista para auditoría (Fase 3).
  *
@@ -35,6 +33,8 @@ class RuleEngine
 
     // ── Quantity tolerance (§05 excepción POSITIVA) ──
     private const QUANTITY_EXCESS_TOLERANCE = 5;
+    private const DOCUMENT_FIELD_KEY_SEPARATOR = '|';
+    private const ANY_DOCUMENT_KEY = '*';
 
     // ── Regímenes que omiten validación (§ Exclusión de Régimen) ──
     private const REGIME_SKIP_VALUES = ['N/D', 'ARL', 'ND', ''];
@@ -45,6 +45,7 @@ class RuleEngine
         'CantidadEntregada',
         'CantidadPrescrita',
         'Lote',
+        'FechaVencimiento',
         'NombreArticulo',
         'CUM',
         'Laboratorio',
@@ -72,20 +73,8 @@ class RuleEngine
         FieldClassifier $classifier
     ): array {
         $items = [];
-        $metrics = [
-            'TotalCamposEvaluados' => 0,
-            'TotalCoincidentes' => 0,
-            'TotalDiscrepancias' => 0,
-            'Altas' => 0,
-            'Medias' => 0,
-            'Bajas' => 0,
-        ];
-
-        // Indexar semantic results por campo
-        $semanticMap = [];
-        foreach ($semanticResults as $sr) {
-            $semanticMap[$sr['field']] = $sr;
-        }
+        $metrics = $this->initializeMetrics();
+        $semanticMap = $this->indexSemanticResults($semanticResults);
 
         // Indexar extracted fields por tipo de documento
         $docFieldsMap = $this->indexExtractedFields($extractedDocs);
@@ -95,12 +84,13 @@ class RuleEngine
 
         foreach ($fieldsToEvaluate as $fieldConfig) {
             $field = $fieldConfig['field'];
-            $severity = $classifier->getSeverity($field);
+            $severity = $fieldConfig['severity'] ?? $classifier->getSeverity($field);
             $type = $classifier->classify($field);
+            $configuredDocument = $fieldConfig['document'] ?? null;
 
             // Obtener valores
             $fdvValue = $this->getFdvValue($field, $fdvItems);
-            $docValue = $this->getDocValue($field, $docFieldsMap, $classifier);
+            $docValue = $this->getDocValue($field, $docFieldsMap, $classifier, $configuredDocument);
 
             $result = $this->evaluateField(
                 $field,
@@ -108,7 +98,8 @@ class RuleEngine
                 $fdvValue,
                 $docValue,
                 $semanticMap,
-                $visualChecks
+                $visualChecks,
+                $configuredDocument
             );
 
             $classification = $result['classification'];
@@ -121,7 +112,7 @@ class RuleEngine
                 'valorDocumento' => $docValue,
                 'resultado' => $classification,
                 'severidad' => $severity,
-                'documento' => $classifier->getAuthoritativeDoc($field),
+                'documento' => $configuredDocument ?? $classifier->getAuthoritativeDoc($field),
             ];
 
             if ($detail !== null) {
@@ -133,39 +124,12 @@ class RuleEngine
             }
 
             $items[] = $item;
-
-            // Métricas
-            $metrics['TotalCamposEvaluados']++;
-            if ($classification === self::MATCH || $classification === self::SKIPPED) {
-                $metrics['TotalCoincidentes']++;
-            } elseif ($classification === self::MISMATCH) {
-                $metrics['TotalDiscrepancias']++;
-                match ($severity) {
-                    FieldClassifier::SEVERITY_HIGH => $metrics['Altas']++,
-                    FieldClassifier::SEVERITY_MEDIUM => $metrics['Medias']++,
-                    FieldClassifier::SEVERITY_LOW => $metrics['Bajas']++,
-                    default => null,
-                };
-            }
+            $this->updateMetrics($metrics, $classification, $severity);
         }
 
         // Risk score (§07)
         $riskScore = $this->calculateRiskScore($metrics);
         $response = $this->classifyResponse($riskScore);
-
-        // Config used
-        $configUsed = [
-            'weights' => [
-                'alta' => self::WEIGHT_HIGH,
-                'media' => self::WEIGHT_MEDIUM,
-                'baja' => self::WEIGHT_LOW,
-            ],
-            'thresholds' => [
-                'warning' => self::THRESHOLD_WARNING,
-                'error' => self::THRESHOLD_ERROR,
-            ],
-            'max_score' => $metrics['TotalCamposEvaluados'] * self::WEIGHT_HIGH,
-        ];
 
         return [
             'response' => $response,
@@ -175,7 +139,7 @@ class RuleEngine
             'data' => ['items' => $items],
             'metrics' => $metrics,
             'risk_score' => $riskScore,
-            'config_used' => $configUsed,
+            'config_used' => $this->buildConfigUsed($metrics, $auditConfig),
         ];
     }
 
@@ -187,8 +151,13 @@ class RuleEngine
         ?string $fdvValue,
         ?string $docValue,
         array $semanticMap,
-        array $visualChecks
+        array $visualChecks,
+        ?string $document = null
     ): array {
+        if ($type === FieldClassifier::TYPE_VISUAL) {
+            return $this->evaluateVisual($field, $visualChecks, $document);
+        }
+
         // Campo no encontrado en documento
         if ($docValue === null || trim($docValue) === '') {
             if ($fdvValue === null || trim($fdvValue) === '') {
@@ -204,8 +173,7 @@ class RuleEngine
 
         return match ($type) {
             FieldClassifier::TYPE_EXACT => $this->evaluateExact($field, $fdvValue, $docValue),
-            FieldClassifier::TYPE_SEMANTIC => $this->evaluateSemantic($field, $semanticMap),
-            FieldClassifier::TYPE_VISUAL => $this->evaluateVisual($field, $visualChecks),
+            FieldClassifier::TYPE_SEMANTIC => $this->evaluateSemantic($field, $semanticMap, $document),
             FieldClassifier::TYPE_BUSINESS => $this->evaluateBusiness($field, $fdvValue, $docValue),
             default => $this->evaluateExact($field, $fdvValue, $docValue),
         };
@@ -230,9 +198,11 @@ class RuleEngine
 
     // ── Comparación semántica (Fase 2) ──
 
-    private function evaluateSemantic(string $field, array $semanticMap): array
+    private function evaluateSemantic(string $field, array $semanticMap, ?string $document): array
     {
-        $sr = $semanticMap[$field] ?? null;
+        $sr = $semanticMap[$this->buildDocumentFieldKey($field, $document)]
+            ?? $semanticMap[$this->buildDocumentFieldKey($field, null)]
+            ?? null;
         if ($sr === null) {
             return ['classification' => self::NOT_APPLICABLE, 'detail' => 'Sin resultado semántico'];
         }
@@ -259,9 +229,11 @@ class RuleEngine
 
     // ── Verificación visual (Fase 1) ──
 
-    private function evaluateVisual(string $field, array $visualChecks): array
+    private function evaluateVisual(string $field, array $visualChecks, ?string $document): array
     {
-        $check = $visualChecks[$field] ?? null;
+        $check = $visualChecks[$this->buildDocumentFieldKey($field, $document)]
+            ?? $visualChecks[$field]
+            ?? null;
         if ($check === null) {
             return ['classification' => self::NOT_FOUND, 'detail' => 'Check visual no ejecutado'];
         }
@@ -280,6 +252,14 @@ class RuleEngine
             'classification' => self::MISMATCH,
             'detail' => 'No detectado visualmente' . ($evidence ? ": {$evidence}" : ''),
         ];
+    }
+
+    /**
+     * Construye una llave estable para resultados por documento + campo.
+     */
+    private function buildDocumentFieldKey(string $field, ?string $document): string
+    {
+        return ($document ?? self::ANY_DOCUMENT_KEY) . self::DOCUMENT_FIELD_KEY_SEPARATOR . $field;
     }
 
     // ── Reglas de negocio (§05) ──
@@ -390,7 +370,11 @@ class RuleEngine
         }
 
         if (str_contains($field, 'Fecha')) {
-            return $this->normalizeDate($value);
+            return $this->normalizeDateValue($value);
+        }
+
+        if ($field === 'Lote') {
+            return $this->normalizeListValue($value);
         }
 
         if ($field === 'VlrCobrado') {
@@ -410,7 +394,63 @@ class RuleEngine
     }
 
     /**
-     * Normaliza fechas a formato Y-m-d.
+     * Normaliza fechas simples o listas de fechas a formato canónico.
+     */
+    private function normalizeDateValue(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $dates = $this->splitListValue($value);
+        if (count($dates) === 1) {
+            return $this->normalizeDate($value);
+        }
+
+        $normalized = [];
+        foreach ($dates as $date) {
+            if ($date === '') {
+                continue;
+            }
+
+            $normalized[] = $this->normalizeDate($date);
+        }
+
+        return implode(', ', $normalized);
+    }
+
+    /**
+     * Normaliza listas de valores exactos donde el separador no es semántico.
+     */
+    private function normalizeListValue(string $value): string
+    {
+        $parts = $this->splitListValue($value);
+        if (count($parts) === 1) {
+            return mb_strtolower(trim($value), 'UTF-8');
+        }
+
+        return mb_strtolower(implode(', ', $parts), 'UTF-8');
+    }
+
+    /**
+     * Divide listas usando separadores visibles entre valores, no dentro de fechas.
+     */
+    private function splitListValue(string $value): array
+    {
+        $parts = preg_split('/\s*(?:,|;|\s\/\s)\s*/', trim($value));
+        if ($parts === false) {
+            return [trim($value)];
+        }
+
+        return array_values(array_filter(
+            array_map('trim', $parts),
+            static fn(string $part): bool => $part !== ''
+        ));
+    }
+
+    /**
+     * Normaliza una fecha individual a formato Y-m-d.
      */
     private function normalizeDate(string $value): string
     {
@@ -475,13 +515,13 @@ class RuleEngine
         // Ej: "1 TABLETA CADA 12 HORAS"
         if (preg_match_all('/\b(\d+)\b/', $value, $matches)) {
             $numbers = $matches[1];
-            
+
             // Si hay múltiples números y también letras, probablemente es posología o texto complejo.
             // Rechazamos el parseo numérico para evitar "excesos matemáticos falsos".
             if (count($numbers) > 1 && preg_match('/[a-zA-Z]/', $value)) {
-                return null; 
+                return null;
             }
-            
+
             if (count($numbers) > 0) {
                 return (int) $numbers[0];
             }
@@ -496,9 +536,39 @@ class RuleEngine
         }
 
         return null;
-   }
+    }
 
     // ── Helpers para extracción de valores ──
+
+    private function initializeMetrics(): array
+    {
+        return [
+            'TotalCamposEvaluados' => 0,
+            'TotalCoincidentes' => 0,
+            'TotalDiscrepancias' => 0,
+            'Altas' => 0,
+            'Medias' => 0,
+            'Bajas' => 0,
+        ];
+    }
+
+    private function indexSemanticResults(array $semanticResults): array
+    {
+        $semanticMap = [];
+
+        foreach ($semanticResults as $semanticResult) {
+            if (!isset($semanticResult['field'])) {
+                continue;
+            }
+
+            $semanticMap[$this->buildDocumentFieldKey(
+                (string) $semanticResult['field'],
+                isset($semanticResult['document']) ? (string) $semanticResult['document'] : null
+            )] = $semanticResult;
+        }
+
+        return $semanticMap;
+    }
 
     /**
      * Obtiene el valor de un campo desde la Fuente de Verdad (dispensationData).
@@ -525,6 +595,7 @@ class RuleEngine
             'FechaFormula'         => 'FechaFormula',
             'FechaAutorizacion'    => 'FechaAutorizacion',
             'FechaEntrega'         => 'FechaEntrega',
+            'FechaVencimiento'     => 'FechaVencimiento',
             'VlrCobrado'           => 'VlrCobrado',
             'Mipres'               => 'Mipres',
             'IdPrincipal'          => 'IdPrincipal',
@@ -533,6 +604,14 @@ class RuleEngine
             'IdEntr'               => 'IdEntr',
             'IdRepEnt'             => 'IdRepEnt',
             'Lote'                 => 'Lote',
+            'NITCliente'           => 'NITCliente',
+            'TipoDocumentoMedico'  => 'TipoDocumentoMedico',
+            'DocumentoMedico'      => 'DocumentoMedico',
+            'CodigoDiagnostico'    => 'CodigoDiagnostico',
+            'CodigoArticulo'       => 'CodigoArticulo',
+            'CodigoProducto'       => 'CodigoProducto',
+            'CUM'                  => 'CUM',
+            'Tipo'                 => 'Tipo',
 
             // Semánticos
             'NombrePaciente'       => 'NombrePaciente',
@@ -619,38 +698,52 @@ class RuleEngine
         return true;
     }
 
-    private function getDocValue(string $field, array $docFieldsMap, FieldClassifier $classifier): ?string
+    private function getDocValue(
+        string $field,
+        array $docFieldsMap,
+        FieldClassifier $classifier,
+        ?string $preferredDocument = null
+    ): ?string
     {
-        // Buscar en documento autoritativo primero
-        $authDoc = $classifier->getAuthoritativeDoc($field);
-        if (isset($docFieldsMap[$authDoc][$field])) {
-            $val = $docFieldsMap[$authDoc][$field];
-            if (is_string($val) && trim($val) !== '') {
-                return $val;
-            }
+        $preferredValue = $this->getDocumentFieldValue($docFieldsMap, $preferredDocument, $field);
+        if ($preferredValue !== null) {
+            return $preferredValue;
         }
 
-        // Buscar en documentos alternativos
+        $authoritativeValue = $this->getDocumentFieldValue($docFieldsMap, $classifier->getAuthoritativeDoc($field), $field);
+        if ($authoritativeValue !== null) {
+            return $authoritativeValue;
+        }
+
         foreach ($classifier->getAlternativeDocs($field) as $altDoc) {
-            if (isset($docFieldsMap[$altDoc][$field])) {
-                $val = $docFieldsMap[$altDoc][$field];
-                if (is_string($val) && trim($val) !== '') {
-                    return $val;
-                }
+            $alternativeValue = $this->getDocumentFieldValue($docFieldsMap, $altDoc, $field);
+            if ($alternativeValue !== null) {
+                return $alternativeValue;
             }
         }
 
-        // Buscar en cualquier documento como último recurso
         foreach ($docFieldsMap as $fields) {
-            if (isset($fields[$field])) {
-                $val = $fields[$field];
-                if (is_string($val) && trim($val) !== '') {
-                    return $val;
-                }
+            $fallbackValue = $this->normalizeDocumentFieldValue($fields[$field] ?? null);
+            if ($fallbackValue !== null) {
+                return $fallbackValue;
             }
         }
 
         return null;
+    }
+
+    private function getDocumentFieldValue(array $docFieldsMap, ?string $document, string $field): ?string
+    {
+        if ($document === null) {
+            return null;
+        }
+
+        return $this->normalizeDocumentFieldValue($docFieldsMap[$document][$field] ?? null);
+    }
+
+    private function normalizeDocumentFieldValue(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
     private function indexExtractedFields(array $extractedDocs): array
@@ -659,7 +752,7 @@ class RuleEngine
         foreach ($extractedDocs as $doc) {
             $rawType = $doc['type'] ?? 'UNKNOWN';
             $type = ExtractionResponseSchema::normalizeDocType($rawType);
-            $fields = $doc['fields'] ?? [];
+            $fields = is_array($doc['fields'] ?? null) ? $doc['fields'] : [];
             $map[$type] = array_merge($map[$type] ?? [], $fields);
         }
         return $map;
@@ -668,15 +761,36 @@ class RuleEngine
     private function resolveFields(array $auditConfig, FieldClassifier $classifier): array
     {
         $fields = [];
+        $seen = [];
         $documents = $auditConfig['documents'] ?? [];
 
-        foreach ($documents as $doc) {
+        foreach ($documents as $docName => $doc) {
+            if (!is_array($doc)) {
+                continue;
+            }
+
+            $documentType = is_string($docName)
+                ? ExtractionResponseSchema::normalizeDocType($docName)
+                : null;
+
             $docFields = $doc['fields'] ?? [];
             foreach ($docFields as $field) {
-                $fieldName = $field['field'] ?? $field['name'] ?? null;
-                if ($fieldName !== null) {
-                    $fields[] = ['field' => $fieldName];
+                $fieldName = $this->extractConfiguredFieldName($field);
+                if ($fieldName === null) {
+                    continue;
                 }
+
+                $this->appendConfiguredField($fields, $seen, $fieldName, $documentType, $field, $classifier);
+            }
+
+            $visualChecks = $doc['visualChecks'] ?? [];
+            foreach ($visualChecks as $check) {
+                $fieldName = $this->extractConfiguredVisualCheckName($check);
+                if ($fieldName === null) {
+                    continue;
+                }
+
+                $this->appendConfiguredField($fields, $seen, $fieldName, $documentType, $check, $classifier);
             }
         }
 
@@ -689,13 +803,187 @@ class RuleEngine
         return $fields;
     }
 
+    private function appendConfiguredField(
+        array &$fields,
+        array &$seen,
+        string $fieldName,
+        ?string $documentType,
+        mixed $fieldConfig,
+        FieldClassifier $classifier
+    ): void {
+        $fieldName = $classifier->normalizeField($fieldName);
+        $key = $this->buildDocumentFieldKey($fieldName, $documentType);
+
+        if (isset($seen[$key])) {
+            return;
+        }
+
+        $fields[] = [
+            'field' => $fieldName,
+            'document' => $documentType,
+            'severity' => $this->resolveConfiguredSeverity($fieldConfig, $classifier->getSeverity($fieldName)),
+        ];
+        $seen[$key] = true;
+    }
+
+    /**
+     * Extrae un campo configurado desde strings o arreglos.
+     */
+    private function extractConfiguredFieldName(mixed $field): ?string
+    {
+        return $this->extractConfiguredName($field, ['field', 'name', 'campoNombre']);
+    }
+
+    /**
+     * Extrae un visual check configurado desde strings o arreglos.
+     */
+    private function extractConfiguredVisualCheckName(mixed $check): ?string
+    {
+        return $this->extractConfiguredName($check, ['check', 'field', 'name']);
+    }
+
+    private function extractConfiguredName(mixed $config, array $nameKeys): ?string
+    {
+        if (is_string($config)) {
+            $name = trim($config);
+            return $name !== '' ? $name : null;
+        }
+
+        if (!is_array($config)) {
+            return null;
+        }
+
+        foreach ($nameKeys as $key) {
+            $name = $config[$key] ?? null;
+            if (is_string($name) && trim($name) !== '') {
+                return trim($name);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resuelve severidades externas de audit-config al vocabulario del motor.
+     */
+    private function resolveConfiguredSeverity(mixed $config, string $fallback): string
+    {
+        if (!is_array($config)) {
+            return $fallback;
+        }
+
+        $raw = $config['severity'] ?? $config['SeveridadOverride'] ?? $config['severidad'] ?? null;
+        if (!is_string($raw) || trim($raw) === '') {
+            return $fallback;
+        }
+
+        return $this->normalizeSeverity($raw) ?? $fallback;
+    }
+
+    /**
+     * Normaliza severidades de BD/API al vocabulario esperado por scoring.
+     */
+    private function normalizeSeverity(string $severity): ?string
+    {
+        $normalized = strtoupper(trim($severity));
+
+        return match ($normalized) {
+            'ALTA', 'HIGH', 'CRITICO', 'CRITICA', 'CRITICAL' => FieldClassifier::SEVERITY_HIGH,
+            'MEDIA', 'MEDIUM', 'MODERADO', 'MODERADA' => FieldClassifier::SEVERITY_MEDIUM,
+            'BAJA', 'LOW', 'MENOR', 'MINOR' => FieldClassifier::SEVERITY_LOW,
+            default => null,
+        };
+    }
+
+    /**
+     * Resume la configuración realmente usada sin exponer datos sensibles.
+     */
+    private function summarizeAuditConfig(array $auditConfig): array
+    {
+        $documents = is_array($auditConfig['documents'] ?? null) ? $auditConfig['documents'] : [];
+        $fieldCount = 0;
+        $visualCheckCount = 0;
+        $documentNames = [];
+
+        foreach ($documents as $docName => $doc) {
+            if (!is_array($doc)) {
+                continue;
+            }
+
+            $documentNames[] = is_string($docName) ? $docName : (string) ($doc['name'] ?? '');
+            $fieldCount += count(is_array($doc['fields'] ?? null) ? $doc['fields'] : []);
+            $visualCheckCount += count(is_array($doc['visualChecks'] ?? null) ? $doc['visualChecks'] : []);
+        }
+
+        $encoded = json_encode($auditConfig, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return [
+            'source' => empty($documents) ? 'classifier_defaults' : 'client_audit_config',
+            'nitSec' => isset($auditConfig['nitSec']) ? (string) $auditConfig['nitSec'] : null,
+            'documents' => array_values(array_filter($documentNames, static fn(string $name): bool => trim($name) !== '')),
+            'document_count' => count($documents),
+            'field_count' => $fieldCount,
+            'visual_check_count' => $visualCheckCount,
+            'config_hash' => is_string($encoded) ? hash('sha256', $encoded) : null,
+        ];
+    }
+
     // ── Risk Score y clasificación (§07) ──
+
+    private function buildConfigUsed(array $metrics, array $auditConfig): array
+    {
+        return [
+            'weights' => [
+                'alta' => self::WEIGHT_HIGH,
+                'media' => self::WEIGHT_MEDIUM,
+                'baja' => self::WEIGHT_LOW,
+            ],
+            'thresholds' => [
+                'warning' => self::THRESHOLD_WARNING,
+                'error' => self::THRESHOLD_ERROR,
+            ],
+            'max_score' => $metrics['TotalCamposEvaluados'] * self::WEIGHT_HIGH,
+            'audit_config' => $this->summarizeAuditConfig($auditConfig),
+        ];
+    }
+
+    private function updateMetrics(array &$metrics, string $classification, string $severity): void
+    {
+        $metrics['TotalCamposEvaluados']++;
+
+        if ($classification === self::MATCH || $classification === self::SKIPPED) {
+            $metrics['TotalCoincidentes']++;
+            return;
+        }
+
+        if (!$this->isDiscrepancyClassification($classification)) {
+            return;
+        }
+
+        $metrics['TotalDiscrepancias']++;
+        $this->incrementSeverityMetric($metrics, $severity);
+    }
 
     private function calculateRiskScore(array $metrics): int
     {
         return ($metrics['Altas'] * self::WEIGHT_HIGH)
              + ($metrics['Medias'] * self::WEIGHT_MEDIUM)
              + ($metrics['Bajas'] * self::WEIGHT_LOW);
+    }
+
+    private function isDiscrepancyClassification(string $classification): bool
+    {
+        return in_array($classification, [self::MISMATCH, self::NOT_FOUND], true);
+    }
+
+    private function incrementSeverityMetric(array &$metrics, string $severity): void
+    {
+        match ($severity) {
+            FieldClassifier::SEVERITY_HIGH => $metrics['Altas']++,
+            FieldClassifier::SEVERITY_MEDIUM => $metrics['Medias']++,
+            FieldClassifier::SEVERITY_LOW => $metrics['Bajas']++,
+            default => null,
+        };
     }
 
     private function classifyResponse(int $riskScore): string

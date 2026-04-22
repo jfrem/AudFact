@@ -5,7 +5,7 @@ namespace App\Services\Audit;
 /**
  * Construye el prompt de extracción para Gemini Vision (Fase 1).
  *
- * Reemplaza el monolítico AuditPromptBuilder (552 líneas, 30KB)
+ * Reemplaza el prompt monolítico v3.
  * con un prompt corto y enfocado SOLO en extracción de campos
  * y verificaciones visuales.
  *
@@ -16,6 +16,31 @@ namespace App\Services\Audit;
  */
 class ExtractionPromptBuilder
 {
+    /**
+     * Columnas FDV usadas como hints para localizar campos en documentos.
+     *
+     * @var array<string, array<string>>
+     */
+    private const FIELD_HINT_COLUMNS = [
+        'NombrePaciente'       => ['NombrePaciente', 'paciente'],
+        'NumeroIdentificacion' => ['DocumentoPaciente', 'identificacion'],
+        'NombreArticulo'       => ['NombreArticulo', 'articulo'],
+        'Medico'               => ['Medico', 'medico'],
+        'IPS'                  => ['IPS', 'ips'],
+        'NumeroFactura'        => ['NumeroFactura', 'factura'],
+        'Autorizacion'         => ['NumeroAutorizacion', 'autorizacion'],
+    ];
+
+    private FieldClassifier $classifier;
+
+    /**
+     * Inicializa dependencias del builder de extracción.
+     */
+    public function __construct()
+    {
+        $this->classifier = new FieldClassifier();
+    }
+
     /**
      * Genera las instrucciones del sistema (system instruction).
      *
@@ -90,19 +115,19 @@ class ExtractionPromptBuilder
 
         // Visual checks (desde audit-config)
         $visualChecks = $this->resolveVisualChecksFromConfig($auditConfig);
+        $visualDescriptions = $this->getVisualCheckDescriptions($auditConfig);
         if (!empty($visualChecks)) {
             $parts[] = 'Verificaciones visuales:';
             foreach ($visualChecks as $check) {
-                $desc = $this->getVisualCheckDescription($check);
+                $desc = $visualDescriptions[$check] ?? $this->getVisualCheckDescription($check);
                 $parts[] = "  - {$check}: {$desc}";
             }
             $parts[] = '';
         }
 
-        // Información multi-item si hay varios medicamentos
-        $items = $dispensationData['items'] ?? [];
-        if (count($items) > 1) {
-            $parts[] = 'NOTA: Esta dispensación contiene ' . count($items) . ' medicamentos.';
+        $itemCount = $this->countDispensationItems($dispensationData);
+        if ($itemCount > 1) {
+            $parts[] = 'NOTA: Esta dispensación contiene ' . $itemCount . ' medicamentos.';
             $parts[] = 'Busca datos de CADA medicamento en los documentos adjuntos.';
             $parts[] = '';
         }
@@ -122,11 +147,13 @@ class ExtractionPromptBuilder
     {
         $fields = [];
 
-        $documents = $auditConfig['documents'] ?? [];
-        foreach ($documents as $doc) {
-            $docFields = $doc['fields'] ?? [];
-            foreach ($docFields as $field) {
-                $fieldName = $field['field'] ?? $field['name'] ?? null;
+        foreach ($this->getConfiguredDocuments($auditConfig) as $doc) {
+            foreach ($doc['fields'] as $field) {
+                $fieldName = $this->extractFieldName($field);
+                if ($fieldName !== null) {
+                    $fieldName = $this->classifier->normalizeField($fieldName);
+                }
+
                 if ($fieldName !== null && !in_array($fieldName, $fields, true)) {
                     $fields[] = $fieldName;
                 }
@@ -151,13 +178,25 @@ class ExtractionPromptBuilder
     {
         $checks = [];
 
-        $documents = $auditConfig['documents'] ?? [];
-        foreach ($documents as $doc) {
-            $docFields = $doc['fields'] ?? [];
-            foreach ($docFields as $field) {
-                $fieldName = $field['field'] ?? $field['name'] ?? null;
-                $classifier = new FieldClassifier();
-                if ($fieldName !== null && $classifier->classify($fieldName) === FieldClassifier::TYPE_VISUAL) {
+        foreach ($this->getConfiguredDocuments($auditConfig) as $doc) {
+            foreach ($doc['visualChecks'] as $check) {
+                $checkName = $this->extractVisualCheckName($check);
+                if ($checkName !== null) {
+                    $checkName = $this->classifier->normalizeField($checkName);
+                }
+
+                if ($checkName !== null && !in_array($checkName, $checks, true)) {
+                    $checks[] = $checkName;
+                }
+            }
+
+            foreach ($doc['fields'] as $field) {
+                $fieldName = $this->extractFieldName($field);
+                if ($fieldName !== null) {
+                    $fieldName = $this->classifier->normalizeField($fieldName);
+                }
+
+                if ($fieldName !== null && $this->classifier->classify($fieldName) === FieldClassifier::TYPE_VISUAL) {
                     if (!in_array($fieldName, $checks, true)) {
                         $checks[] = $fieldName;
                     }
@@ -185,29 +224,12 @@ class ExtractionPromptBuilder
      */
     private function getFieldHint(string $field, array $dispensationData): ?string
     {
-        // Mapeo directo campo → clave en dispensationData
-        $map = [
-            'NombrePaciente'       => 'paciente',
-            'NumeroIdentificacion' => 'identificacion',
-            'NombreArticulo'       => 'articulo',
-            'Medico'               => 'medico',
-            'IPS'                  => 'ips',
-            'NumeroFactura'        => 'factura',
-            'Autorizacion'         => 'autorizacion',
-        ];
-
-        $key = $map[$field] ?? null;
-        if ($key === null) {
+        $candidateKeys = self::FIELD_HINT_COLUMNS[$field] ?? null;
+        if ($candidateKeys === null) {
             return null;
         }
 
-        $value = $dispensationData[$key] ?? null;
-
-        // También buscar en items[0] para campos de medicamento
-        if ($value === null && isset($dispensationData['items'][0])) {
-            $item = $dispensationData['items'][0];
-            $value = $item[$key] ?? null;
-        }
+        $value = $this->resolveHintValue($candidateKeys, $dispensationData);
 
         if ($value === null || !is_string($value) || trim($value) === '') {
             return null;
@@ -223,6 +245,72 @@ class ExtractionPromptBuilder
     }
 
     /**
+     * Resuelve un valor de referencia desde datos FDV planos o multi-fila.
+     *
+     * @param array<string> $candidateKeys Claves posibles en la FDV
+     * @param array $dispensationData Datos de dispensación
+     * @return string|null Valor encontrado
+     */
+    private function resolveHintValue(array $candidateKeys, array $dispensationData): ?string
+    {
+        foreach ($candidateKeys as $key) {
+            if (isset($dispensationData[$key]) && is_scalar($dispensationData[$key])) {
+                $value = trim((string) $dispensationData[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        $rows = $this->getDispensationRows($dispensationData);
+        foreach ($rows as $row) {
+            foreach ($candidateKeys as $key) {
+                if (isset($row[$key]) && is_scalar($row[$key])) {
+                    $value = trim((string) $row[$key]);
+                    if ($value !== '') {
+                        return $value;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cuenta medicamentos en estructuras FDV soportadas.
+     *
+     * @param array $dispensationData Datos de dispensación
+     * @return int Número de ítems detectados
+     */
+    private function countDispensationItems(array $dispensationData): int
+    {
+        if (isset($dispensationData['items']) && is_array($dispensationData['items'])) {
+            return count($dispensationData['items']);
+        }
+
+        return count($this->getDispensationRows($dispensationData));
+    }
+
+    /**
+     * Obtiene filas de dispensación cuando la FDV llega como arreglo indexado.
+     *
+     * @param array $dispensationData Datos de dispensación
+     * @return array<array>
+     */
+    private function getDispensationRows(array $dispensationData): array
+    {
+        if (!isset($dispensationData[0]) || !is_array($dispensationData[0])) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $dispensationData,
+            static fn($row): bool => is_array($row)
+        ));
+    }
+
+    /**
      * Retorna una descripción legible de una verificación visual.
      *
      * @param string $check Nombre del check
@@ -232,10 +320,107 @@ class ExtractionPromptBuilder
     {
         $descriptions = [
             'FirmaActaEntrega' => 'Verifica si hay firma manuscrita o nombre del receptor en el acta de entrega',
+            'FirmaPrescriptor' => 'Verifica si hay firma del médico o profesional prescriptor',
             'SelloRecepcion' => 'Verifica si hay sello institucional de recepción',
         ];
 
         return $descriptions[$check] ?? 'Verificar presencia visual';
+    }
+
+    /**
+     * Extrae descripciones dinámicas de visual checks desde audit-config.
+     *
+     * @param array $auditConfig Configuración del cliente
+     * @return array<string, string> Descripciones por check canónico
+     */
+    private function getVisualCheckDescriptions(array $auditConfig): array
+    {
+        $descriptions = [];
+
+        foreach ($this->getConfiguredDocuments($auditConfig) as $doc) {
+            foreach ($doc['visualChecks'] as $check) {
+                $checkName = $this->extractVisualCheckName($check);
+                if ($checkName === null || !is_array($check)) {
+                    continue;
+                }
+
+                $description = $check['description'] ?? null;
+                if (is_string($description) && trim($description) !== '') {
+                    $descriptions[$this->classifier->normalizeField($checkName)] = trim($description);
+                }
+            }
+        }
+
+        return $descriptions;
+    }
+
+    /**
+     * Normaliza documentos de audit-config a una lista uniforme.
+     *
+     * @param array $auditConfig Configuración del cliente
+     * @return array<array{name: string, fields: array, visualChecks: array}>
+     */
+    private function getConfiguredDocuments(array $auditConfig): array
+    {
+        $documents = $auditConfig['documents'] ?? [];
+        if (!is_array($documents)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($documents as $name => $doc) {
+            if (!is_array($doc)) {
+                continue;
+            }
+
+            $normalized[] = [
+                'name' => is_string($name) ? $name : (string) ($doc['name'] ?? ''),
+                'fields' => is_array($doc['fields'] ?? null) ? $doc['fields'] : [],
+                'visualChecks' => is_array($doc['visualChecks'] ?? null) ? $doc['visualChecks'] : [],
+            ];
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Extrae el nombre de campo desde config moderna o formato histórico de tests.
+     *
+     * @param mixed $field Configuración de campo
+     * @return string|null Nombre de campo
+     */
+    private function extractFieldName(mixed $field): ?string
+    {
+        if (is_string($field) && trim($field) !== '') {
+            return trim($field);
+        }
+
+        if (!is_array($field)) {
+            return null;
+        }
+
+        $name = $field['field'] ?? $field['name'] ?? $field['campoNombre'] ?? null;
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
+    }
+
+    /**
+     * Extrae el nombre de un visual check desde audit-config.
+     *
+     * @param mixed $check Configuración visual
+     * @return string|null Nombre del check
+     */
+    private function extractVisualCheckName(mixed $check): ?string
+    {
+        if (is_string($check) && trim($check) !== '') {
+            return trim($check);
+        }
+
+        if (!is_array($check)) {
+            return null;
+        }
+
+        $name = $check['check'] ?? $check['field'] ?? $check['name'] ?? null;
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
     /**

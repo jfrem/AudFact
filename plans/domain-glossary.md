@@ -46,7 +46,7 @@
 |---|---|
 | **Auditoría batch** | Proceso que analiza múltiples facturas en una sola solicitud |
 | **AuditOrchestrator** | Servicio PHP que orquesta la comunicación con Google Gemini API y coordina el pipeline de auditoría |
-| **AuditPromptBuilder** | Clase que construye los prompts y schemas para la API de Gemini |
-| **JsonResponseParser** | Parsea las respuestas JSON de Gemini (pueden venir malformadas) |
-| **JsonRepairHelper** | Intenta reparar JSON truncado o malformado de Gemini |
+| **ExtractionPromptBuilder** | Clase que construye el prompt de extracción v4 sin reglas de negocio |
+| **ExtractionResponseSchema** | Schema de Function Calling usado para recibir `report_extraction` desde Gemini |
+| **RuleEngine** | Motor determinista PHP que evalúa discrepancias, severidades y risk score |
 | **EstAud** | Campo en `AudDispEst` que almacena el estado de la auditoría |

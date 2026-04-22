@@ -28,6 +28,17 @@ class FieldClassifier
     public const SEVERITY_LOW = 'baja';
 
     /**
+     * Alias externos/SQL → nombres canónicos usados por el pipeline.
+     */
+    private const FIELD_ALIASES = [
+        'DocumentoPaciente' => 'NumeroIdentificacion',
+        'TipoDocumentoPaciente' => 'TipoIdentificacion',
+        'NumeroAutorizacion' => 'Autorizacion',
+        'Cliente' => 'Cliente.Entidad',
+        'RegimenPaciente' => 'Cliente.Regimen',
+    ];
+
+    /**
      * Mapa de campos → tipo de comparación.
      *
      * - exact:    Comparación normalizada de strings (IDs, fechas, números)
@@ -45,6 +56,7 @@ class FieldClassifier
         'FechaFormula'        => self::TYPE_EXACT,
         'FechaAutorizacion'   => self::TYPE_EXACT,
         'FechaEntrega'        => self::TYPE_EXACT,
+        'FechaVencimiento'    => self::TYPE_EXACT,
         'VlrCobrado'          => self::TYPE_EXACT,
         'Mipres'              => self::TYPE_EXACT,
         'IdPrincipal'         => self::TYPE_EXACT,
@@ -53,6 +65,14 @@ class FieldClassifier
         'IdEntr'              => self::TYPE_EXACT,
         'IdRepEnt'            => self::TYPE_EXACT,
         'Lote'                => self::TYPE_EXACT,
+        'NITCliente'          => self::TYPE_EXACT,
+        'TipoDocumentoMedico' => self::TYPE_EXACT,
+        'DocumentoMedico'     => self::TYPE_EXACT,
+        'CodigoDiagnostico'   => self::TYPE_EXACT,
+        'CodigoArticulo'      => self::TYPE_EXACT,
+        'CodigoProducto'      => self::TYPE_EXACT,
+        'CUM'                 => self::TYPE_EXACT,
+        'Tipo'                => self::TYPE_EXACT,
 
         // ── Campos semánticos ──
         'NombrePaciente'      => self::TYPE_SEMANTIC,
@@ -65,6 +85,7 @@ class FieldClassifier
         // ── Campos visuales ──
         'FirmaActaEntrega'    => self::TYPE_VISUAL,
         'SelloRecepcion'      => self::TYPE_VISUAL,
+        'FirmaPrescriptor'    => self::TYPE_VISUAL,
 
         // ── Campos de negocio ──
         'CantidadEntregada'   => self::TYPE_BUSINESS,
@@ -88,6 +109,7 @@ class FieldClassifier
         'Autorizacion'         => self::SEVERITY_HIGH,
         'VlrCobrado'           => self::SEVERITY_HIGH,
         'FirmaActaEntrega'     => self::SEVERITY_HIGH,
+        'FirmaPrescriptor'     => self::SEVERITY_HIGH,
         'Cliente.Regimen'      => self::SEVERITY_HIGH,
 
         // Media
@@ -97,8 +119,17 @@ class FieldClassifier
         'FechaFormula'         => self::SEVERITY_MEDIUM,
         'FechaAutorizacion'    => self::SEVERITY_MEDIUM,
         'FechaEntrega'         => self::SEVERITY_MEDIUM,
+        'FechaVencimiento'     => self::SEVERITY_MEDIUM,
         'IPS'                  => self::SEVERITY_MEDIUM,
         'Cliente.Entidad'      => self::SEVERITY_MEDIUM,
+        'NITCliente'           => self::SEVERITY_MEDIUM,
+        'TipoDocumentoMedico'  => self::SEVERITY_MEDIUM,
+        'DocumentoMedico'      => self::SEVERITY_MEDIUM,
+        'CodigoDiagnostico'    => self::SEVERITY_MEDIUM,
+        'CodigoArticulo'       => self::SEVERITY_MEDIUM,
+        'CodigoProducto'       => self::SEVERITY_MEDIUM,
+        'CUM'                  => self::SEVERITY_MEDIUM,
+        'Tipo'                 => self::SEVERITY_MEDIUM,
 
         // Baja
         'Mipres'               => self::SEVERITY_LOW,
@@ -130,16 +161,26 @@ class FieldClassifier
         'FechaFormula'         => 'FORMULA_MEDICA',
         'CantidadEntregada'    => 'ACTA_DE_ENTREGA',
         'FirmaActaEntrega'     => 'ACTA_DE_ENTREGA',
+        'FirmaPrescriptor'     => 'FORMULA_MEDICA',
         'FechaEntrega'         => 'ACTA_DE_ENTREGA',
+        'FechaVencimiento'     => 'FACTURA',
         'Autorizacion'         => 'AUTORIZACION',
         'FechaAutorizacion'    => 'AUTORIZACION',
         'IPS'                  => 'AUTORIZACION',
         'Cliente.Entidad'      => 'AUTORIZACION',
         'Cliente.Regimen'      => 'AUTORIZACION',
+        'NITCliente'           => 'AUTORIZACION',
+        'TipoDocumentoMedico'  => 'FORMULA_MEDICA',
+        'DocumentoMedico'      => 'FORMULA_MEDICA',
+        'CodigoDiagnostico'    => 'FORMULA_MEDICA',
         'Laboratorio'          => 'FACTURA',
         'VlrCobrado'           => 'FACTURA',
         'Mipres'               => 'FORMULA_MEDICA',
         'Lote'                 => 'FACTURA',
+        'CodigoArticulo'       => 'FACTURA',
+        'CodigoProducto'       => 'FACTURA',
+        'CUM'                  => 'FACTURA',
+        'Tipo'                 => 'FACTURA',
         'SelloRecepcion'       => 'ACTA_DE_ENTREGA',
     ];
 
@@ -159,6 +200,17 @@ class FieldClassifier
     ];
 
     /**
+     * Normaliza un nombre de campo externo al nombre canónico del pipeline.
+     *
+     * @param string $field Nombre de campo recibido desde configuración o BD
+     * @return string Nombre canónico
+     */
+    public function normalizeField(string $field): string
+    {
+        return self::FIELD_ALIASES[$field] ?? $field;
+    }
+
+    /**
      * Clasifica un campo según su tipo de comparación.
      *
      * @param string $field Nombre del campo
@@ -166,6 +218,7 @@ class FieldClassifier
      */
     public function classify(string $field): string
     {
+        $field = $this->normalizeField($field);
         return self::FIELD_TYPES[$field] ?? self::TYPE_EXACT;
     }
 
@@ -177,6 +230,7 @@ class FieldClassifier
      */
     public function getSeverity(string $field): string
     {
+        $field = $this->normalizeField($field);
         return self::FIELD_SEVERITIES[$field] ?? self::SEVERITY_MEDIUM;
     }
 
@@ -188,6 +242,7 @@ class FieldClassifier
      */
     public function getAuthoritativeDoc(string $field): string
     {
+        $field = $this->normalizeField($field);
         return self::AUTHORITATIVE_DOCS[$field] ?? 'MULTIPLE';
     }
 
@@ -199,6 +254,7 @@ class FieldClassifier
      */
     public function getAlternativeDocs(string $field): array
     {
+        $field = $this->normalizeField($field);
         return self::ALTERNATIVE_DOCS[$field] ?? [];
     }
 

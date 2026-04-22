@@ -3,6 +3,7 @@
 namespace App\Services\Audit;
 
 use App\Models\AttachmentsModel;
+use App\Models\AuditConfigModel;
 use App\Models\DispensationModel;
 use Core\Logger;
 
@@ -28,17 +29,29 @@ class AuditPreValidator
 
     private DispensationModel $dispensationModel;
     private AttachmentsModel $attachmentsModel;
+    private AuditConfigModel $auditConfigModel;
     private AuditFileManager $fileManager;
     private AuditPersistenceService $persistence;
 
+    /**
+     * Inicializa las dependencias de prevalidación del pipeline de auditoría.
+     *
+     * @param DispensationModel $dispensationModel Modelo de dispensación
+     * @param AttachmentsModel $attachmentsModel Modelo de adjuntos
+     * @param AuditConfigModel $auditConfigModel Modelo de configuración dinámica
+     * @param AuditFileManager $fileManager Preparador de archivos
+     * @param AuditPersistenceService $persistence Persistencia de resultados
+     */
     public function __construct(
         DispensationModel $dispensationModel,
         AttachmentsModel $attachmentsModel,
+        AuditConfigModel $auditConfigModel,
         AuditFileManager $fileManager,
         AuditPersistenceService $persistence
     ) {
         $this->dispensationModel = $dispensationModel;
         $this->attachmentsModel = $attachmentsModel;
+        $this->auditConfigModel = $auditConfigModel;
         $this->fileManager = $fileManager;
         $this->persistence = $persistence;
     }
@@ -48,7 +61,7 @@ class AuditPreValidator
      *
      * @param string $invoiceId ID de la factura
      * @param string $disDetNro Identificador de dispensación
-     * @return array{result: null|array, dispensation: array|null, files: array, dataFetchMs: float, filePrepMs: float}
+     * @return array{result: null|array, dispensation: array|null, files: array, dataFetchMs: float, filePrepMs: float, auditConfig: array}
      */
     public function validate(string $invoiceId, string $disDetNro): array
     {
@@ -64,6 +77,7 @@ class AuditPreValidator
 
         $dispensation = $dispensationData[0];
         $tipoServicio = trim((string) ($dispensation['Tipo'] ?? ''));
+        $auditConfig = $this->loadAuditConfig((string) ($dispensation['NitSec'] ?? ''));
 
         // 2. Tipo de servicio que requiere revisión humana
         if (in_array(strtoupper($tipoServicio), self::HUMAN_REVIEW_SERVICE_TYPES, true)) {
@@ -87,7 +101,7 @@ class AuditPreValidator
 
             $this->persistence->saveResponse($disDetNro, $result);
 
-            return $this->output($result, $dispensationData, [], $dataFetchStart);
+            return $this->output($result, $dispensationData, [], $dataFetchStart, $auditConfig);
         }
 
         // 3. Campos MIPRES completos
@@ -232,7 +246,44 @@ class AuditPreValidator
             'files' => $files,
             'dataFetchMs' => $dataFetchMs,
             'filePrepMs' => $filePrepMs,
+            'auditConfig' => $auditConfig,
         ];
+    }
+
+    /**
+     * Carga la configuración dinámica de auditoría para el cliente.
+     *
+     * @param string $nitSec Identificador del cliente
+     * @return array Configuración o arreglo vacío si no existe
+     */
+    private function loadAuditConfig(string $nitSec): array
+    {
+        if (trim($nitSec) === '') {
+            return [];
+        }
+
+        try {
+            $config = $this->auditConfigModel->getConfig($nitSec);
+            if ($config === null || !($config['activo'] ?? false)) {
+                Logger::warning('Cliente sin configuración activa de auditoría; usando fallback', [
+                    'nitSec' => $nitSec,
+                ]);
+                return [];
+            }
+
+            Logger::info('Configuración dinámica de auditoría cargada', [
+                'nitSec' => $nitSec,
+                'documents' => count($config['documents'] ?? []),
+            ]);
+
+            return $config;
+        } catch (\Throwable $e) {
+            Logger::warning('No se pudo cargar configuración dinámica de auditoría; usando fallback', [
+                'nitSec' => $nitSec,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
     }
 
     /**
@@ -296,6 +347,7 @@ class AuditPreValidator
             'availableDocuments' => $availableDocuments,
             'dataFetchMs' => $dataFetchMs,
             'filePrepMs' => $filePrepMs,
+            'auditConfig' => [],
         ];
     }
 
@@ -306,7 +358,8 @@ class AuditPreValidator
         array $result,
         array $dispensationData,
         array $files,
-        float $dataFetchStart
+        float $dataFetchStart,
+        array $auditConfig = []
     ): array {
         $dataFetchMs = (hrtime(true) - $dataFetchStart) / 1e6;
 
@@ -318,6 +371,7 @@ class AuditPreValidator
             'availableDocuments' => [],
             'dataFetchMs' => $dataFetchMs,
             'filePrepMs' => 0.0,
+            'auditConfig' => $auditConfig,
         ];
     }
 

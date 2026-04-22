@@ -50,9 +50,9 @@ class SemanticComparator
      * únicos en una sola llamada batch al EmbeddingGateway, y se calculan
      * las similitudes localmente en PHP.
      *
-     * @param array<array{field: string, fdvValue: string, docValue: string}> $pairs
+     * @param array<array{field: string, document?: ?string, fdvValue: string, docValue: string}> $pairs
      * @param EmbeddingGateway $gateway
-     * @return array<array{field: string, fdvValue: string, docValue: string, similarity: float, threshold: float, match: bool}>
+     * @return array<array{field: string, document: ?string, fdvValue: string, docValue: string, similarity: float, threshold: float, match: bool}>
      */
     public function compareBatch(array $pairs, EmbeddingGateway $gateway): array
     {
@@ -107,6 +107,7 @@ class SemanticComparator
             if ($normalizedFdv === $normalizedDoc && $normalizedFdv !== '') {
                 $results[] = [
                     'field' => $field,
+                    'document' => $pair['document'] ?? null,
                     'fdvValue' => $pair['fdvValue'],
                     'docValue' => $pair['docValue'],
                     'similarity' => 1.0,
@@ -124,6 +125,7 @@ class SemanticComparator
             if ($vectorA === null || $vectorB === null) {
                 $results[] = [
                     'field' => $field,
+                    'document' => $pair['document'] ?? null,
                     'fdvValue' => $pair['fdvValue'],
                     'docValue' => $pair['docValue'],
                     'similarity' => 0.0,
@@ -151,6 +153,7 @@ class SemanticComparator
 
             $results[] = [
                 'field' => $field,
+                'document' => $pair['document'] ?? null,
                 'fdvValue' => $pair['fdvValue'],
                 'docValue' => $pair['docValue'],
                 'similarity' => round($similarity, 4),

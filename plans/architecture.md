@@ -66,11 +66,14 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Servicio | Responsabilidad |
 |---|---|
 | `AuditFileManager.php` | Resolución de archivos: BLOB → memoria (optimizado, sin disco), URL → download vía Drive |
-| `AuditPromptBuilder.php` | Ingeniería de prompts: Philosophy + System Instruction v3.0 (4 capas con axiomas deterministas) |
-| `AuditResponseSchema.php` | Definición del JSON schema esperado de Gemini |
-| `AuditResultValidator.php` | Validación de la respuesta contra el schema |
-| `JsonResponseParser.php` | Parseo robusto de respuestas Gemini (incluye reparación JSON) |
+| `ExtractionPromptBuilder.php` | Prompt de extracción v4: campos, visual checks y hints sin lógica de negocio |
+| `ExtractionResponseSchema.php` | Function Calling schema para `report_extraction` |
+| `AuditResponseSchema.php` | Definición del schema de respuesta final del pipeline |
 | `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y manejo de errores |
+| `EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API |
+| `SemanticComparator.php` | Comparación semántica de campos por embeddings |
+| `FieldClassifier.php` | Clasificación de campos y documento autoritativo |
+| `RuleEngine.php` | Evaluación determinista PHP de discrepancias y risk score |
 | `AuditPersistenceService.php` | Persistencia de resultados de auditoría en `AudDispEst` y observaciones |
 | `AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
 | `AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
@@ -101,10 +104,10 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 **Flujo**:
 1. Recibe factura + datos de dispensación
 2. Resuelve archivos adjuntos (BLOB/URL)
-3. Construye prompt con datos + archivos
-4. Envía a Gemini Flash API
-5. Parsea y valida respuesta JSON
-6. Retorna resultado estructurado
+3. Ejecuta extracción con Gemini Vision + Function Calling
+4. Compara campos semánticos con embeddings
+5. Evalúa discrepancias con `RuleEngine`
+6. Persiste y retorna resultado estructurado
 
 **Dependencias**: Todos los servicios de `Audit/`, Guzzle HTTP, `core/Logger`.
 

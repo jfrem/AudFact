@@ -1,3 +1,17 @@
+## [2026-04-22]
+
+### refactor
+- **Ámbito**: Limpieza de contrato MCP y documentación del pipeline de auditoría v4.
+  - Archivos modificados: `app/wrap/core/tools/GetDispensation.php`, `app/wrap/capabilities.php`, `app/Services/Audit/AuditPreValidator.php`, `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/AuditOrchestratorFactory.php`, `app/Services/Audit/ExtractionPromptBuilder.php`, `app/Services/Audit/FieldClassifier.php`, `app/Services/Audit/RuleEngine.php`, `app/Services/Audit/SemanticComparator.php`, `tests/wrap/core/tools/GetDispensationTest.php`, `tests/Services/Audit/AuditPreValidatorTest.php`, `tests/Services/Audit/AuditBiasTest.php`, `tests/Services/Audit/RuleEngineConfigTest.php`, `.agent/skills/audfact-mcp-wrap/SKILL.md`, `.agent/skills/audfact-project-overview/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/architecture.md`, `plans/architecture-diagrams.md`, `plans/data-flows.md`, `plans/domain-glossary.md`, `plans/features/audit-workflow.md`, `CHANGELOG.md`
+  - Hallazgo resuelto: QUAL-001
+  - Impacto: `GetDispensation` deja de aceptar aliases legacy; el pipeline carga `audit-config` por `NitSec`, normaliza aliases SQL a campos canónicos, usa campos y visual checks dinámicos, evalúa semántica por documento+campo, respeta severidad dinámica, agrega metadata de configuración en `config_used` y corrige campos por ítem como `FechaVencimiento`.
+
+### fix
+- **Ámbito**: Normalización de listas de fechas en el motor de reglas.
+  - Archivos modificados: `app/Services/Audit/RuleEngine.php`, `tests/Services/Audit/RuleEngineConfigTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: FP-001, MET-001
+  - Impacto: `FechaVencimiento` y `Lote` dejan de marcar discrepancia cuando la FDV y el documento contienen los mismos valores con formatos o separadores de lista distintos; los campos `NO_ENCONTRADO` ahora cuentan como discrepancia y aportan al risk score según su severidad configurada.
+
 ## [2026-03-20]
 
 ### fix

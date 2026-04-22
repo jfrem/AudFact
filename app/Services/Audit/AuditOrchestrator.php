@@ -108,7 +108,8 @@ class AuditOrchestrator
 
             $semanticResults = $this->executeSemanticComparison(
                 $dispensationData,
-                $extractionResult
+                $extractionResult,
+                $auditConfig
             );
 
             $phaseTimes['embedding'] = (hrtime(true) - $phase2Start) / 1e6;
@@ -283,11 +284,16 @@ class AuditOrchestrator
      *
      * @param array $dispensationData Datos FDV
      * @param array $extractionResult Resultado de Fase 1
+     * @param array $auditConfig Configuración de auditoría del cliente
      * @return array Resultados de similitud
      */
-    private function executeSemanticComparison(array $dispensationData, array $extractionResult): array
+    private function executeSemanticComparison(
+        array $dispensationData,
+        array $extractionResult,
+        array $auditConfig
+    ): array
     {
-        $semanticFields = $this->classifier->getFieldsByType(FieldClassifier::TYPE_SEMANTIC);
+        $semanticFields = $this->resolveSemanticFields($auditConfig);
 
         if (empty($semanticFields)) {
             return [];
@@ -308,9 +314,13 @@ class AuditOrchestrator
 
         // Construir pares para comparación
         $pairs = [];
-        foreach ($semanticFields as $field) {
+        foreach ($semanticFields as $fieldConfig) {
+            $field = $fieldConfig['field'];
+            $document = $fieldConfig['document'] ?? null;
             $fdvValue = $this->resolveFdvValue($field, $dispensationData);
-            $docValue = $this->resolveDocValueByPriority($field, $extractedByDoc);
+            $docValue = $document !== null
+                ? ($extractedByDoc[$document][$field] ?? null)
+                : $this->resolveDocValueByPriority($field, $extractedByDoc);
 
             if ($fdvValue === null || $docValue === null) {
                 continue;
@@ -322,6 +332,7 @@ class AuditOrchestrator
 
             $pairs[] = [
                 'field' => $field,
+                'document' => $document,
                 'fdvValue' => $fdvValue,
                 'docValue' => $docValue,
             ];
@@ -337,6 +348,7 @@ class AuditOrchestrator
             'pairs' => array_map(
                 static fn(array $p): array => [
                     'field' => $p['field'],
+                    'document' => $p['document'] ?? null,
                     'fdv' => mb_substr($p['fdvValue'], 0, 60),
                     'doc' => mb_substr($p['docValue'], 0, 60),
                 ],
@@ -345,6 +357,56 @@ class AuditOrchestrator
         ]);
 
         return $this->comparator->compareBatch($pairs, $this->embeddingGateway);
+    }
+
+    /**
+     * Resuelve campos semánticos desde audit-config o fallback del clasificador.
+     *
+     * @param array $auditConfig Configuración de auditoría
+     * @return array<array{field: string, document: ?string}> Campos semánticos canónicos
+     */
+    private function resolveSemanticFields(array $auditConfig): array
+    {
+        $documents = $auditConfig['documents'] ?? [];
+        if (!is_array($documents) || empty($documents)) {
+            return array_map(
+                static fn(string $field): array => ['field' => $field, 'document' => null],
+                $this->classifier->getFieldsByType(FieldClassifier::TYPE_SEMANTIC)
+            );
+        }
+
+        $fields = [];
+        $seen = [];
+        foreach ($documents as $docName => $doc) {
+            if (!is_array($doc)) {
+                continue;
+            }
+
+            $documentType = is_string($docName)
+                ? ExtractionResponseSchema::normalizeDocType($docName)
+                : null;
+
+            foreach (($doc['fields'] ?? []) as $field) {
+                $fieldName = is_string($field)
+                    ? trim($field)
+                    : (is_array($field) ? (string) ($field['field'] ?? $field['name'] ?? $field['campoNombre'] ?? '') : '');
+
+                if ($fieldName === '') {
+                    continue;
+                }
+
+                $fieldName = $this->classifier->normalizeField($fieldName);
+                if ($this->classifier->classify($fieldName) === FieldClassifier::TYPE_SEMANTIC) {
+                    $key = $fieldName . '|' . ($documentType ?? '');
+                    if (!isset($seen[$key])) {
+                        $fields[] = ['field' => $fieldName, 'document' => $documentType];
+                        $seen[$key] = true;
+                    }
+                }
+            }
+        }
+
+        return $fields;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -369,6 +431,7 @@ class AuditOrchestrator
             'FechaFormula'         => 'FechaFormula',
             'FechaAutorizacion'    => 'FechaAutorizacion',
             'FechaEntrega'         => 'FechaEntrega',
+            'FechaVencimiento'     => 'FechaVencimiento',
             'VlrCobrado'           => 'VlrCobrado',
             'Mipres'               => 'Mipres',
             'IdPrincipal'          => 'IdPrincipal',
@@ -382,6 +445,13 @@ class AuditOrchestrator
             'Medico'               => 'Medico',
             'Laboratorio'          => 'Laboratorio',
             'IPS'                  => 'IPS',
+            'NITCliente'           => 'NITCliente',
+            'TipoDocumentoMedico'  => 'TipoDocumentoMedico',
+            'DocumentoMedico'      => 'DocumentoMedico',
+            'CodigoDiagnostico'    => 'CodigoDiagnostico',
+            'CodigoArticulo'       => 'CodigoArticulo',
+            'CodigoProducto'       => 'CodigoProducto',
+            'CUM'                  => 'CUM',
             'Cliente.Entidad'      => 'Cliente',
             'Cliente.Regimen'      => 'RegimenPaciente',
             'FirmaActaEntrega'     => 'FirmaActaEntrega',

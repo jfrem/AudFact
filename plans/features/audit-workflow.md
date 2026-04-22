@@ -10,12 +10,14 @@ Pipeline automatizado que audita facturas de dispensación farmacéutica compara
 |---|---|
 | `app/Controllers/AuditController.php` | Orquestador HTTP (recibe batch/single/async, valida, despacha) |
 | `app/Services/Audit/AuditOrchestrator.php` | Orquestador principal — coordina todo el flujo de auditoría por factura |
-| `app/Services/Audit/AuditPromptBuilder.php` | Ingeniería de prompts: System Instruction v3.1 (§01–§09) con contexto dinámico e iteración multi-medicamento |
+| `app/Services/Audit/ExtractionPromptBuilder.php` | Prompt de extracción v4: campos, visual checks y hints sin lógica de negocio |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado), URL → Drive download |
-| `app/Services/Audit/AuditResponseSchema.php` | Define el JSON schema dinámico esperado de Gemini |
-| `app/Services/Audit/AuditResultValidator.php` | Valida respuesta contra schema |
-| `app/Services/Audit/JsonRepairHelper.php` | Repara JSON truncado o malformado |
-| `app/Services/Audit/JsonResponseParser.php` | Parseo robusto de respuestas Gemini (con sanitización XSS) |
+| `app/Services/Audit/ExtractionResponseSchema.php` | Function Calling schema para `report_extraction` |
+| `app/Services/Audit/EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API |
+| `app/Services/Audit/SemanticComparator.php` | Comparación semántica de campos extraídos vs Fuente de Verdad |
+| `app/Services/Audit/FieldClassifier.php` | Clasificación de campos por tipo y documento autoritativo |
+| `app/Services/Audit/RuleEngine.php` | Evaluación determinista de discrepancias, severidades y risk score |
+| `app/Services/Audit/AuditResponseSchema.php` | Define el schema de respuesta final del pipeline |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
 | `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE baseline + rechazo individual) |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline |
@@ -25,6 +27,7 @@ Pipeline automatizado que audita facturas de dispensación farmacéutica compara
 | `app/Services/GoogleDriveAuthService.php` | Autenticación JWT + streaming desde Drive |
 | `app/Models/DispensationModel.php` | Fuente de verdad (datos de dispensación desde `vw_discolnet_dispensas`) |
 | `app/Models/AttachmentsModel.php` | Documentos adjuntos (BLOB + URL, JOIN por `DisId` + `DisDetId`, filtro `AdjDisOpc='N'` para requeridos) |
+| `app/Models/AuditConfigModel.php` | Configuración dinámica por cliente (`NitSec`): documentos, campos y visual checks |
 | `app/Models/AuditStatusModel.php` | Persistencia de resultados en `AudDispEst` (upsert) |
 
 ## Endpoints
@@ -59,12 +62,14 @@ Pipeline automatizado que audita facturas de dispensación farmacéutica compara
 |---|---|
 | `app/Controllers/AuditController.php` | Orquestador HTTP (recibe batch/single/async, valida, despacha) |
 | `app/Services/Audit/AuditOrchestrator.php` | Orquestador principal — coordina todo el flujo de auditoría por factura |
-| `app/Services/Audit/AuditPromptBuilder.php` | Ingeniería de prompts: System Instruction v3.1 (§01–§09) con contexto dinámico e iteración multi-medicamento |
+| `app/Services/Audit/ExtractionPromptBuilder.php` | Prompt de extracción v4: campos, visual checks y hints sin lógica de negocio |
 | `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado), URL → Drive download |
-| `app/Services/Audit/AuditResponseSchema.php` | Define el JSON schema dinámico esperado de Gemini |
-| `app/Services/Audit/AuditResultValidator.php` | Valida respuesta contra schema |
-| `app/Services/Audit/JsonRepairHelper.php` | Repara JSON truncado o malformado |
-| `app/Services/Audit/JsonResponseParser.php` | Parseo robusto de respuestas Gemini (con sanitización XSS) |
+| `app/Services/Audit/ExtractionResponseSchema.php` | Function Calling schema para `report_extraction` |
+| `app/Services/Audit/EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API |
+| `app/Services/Audit/SemanticComparator.php` | Comparación semántica de campos extraídos vs Fuente de Verdad |
+| `app/Services/Audit/FieldClassifier.php` | Clasificación de campos por tipo y documento autoritativo |
+| `app/Services/Audit/RuleEngine.php` | Evaluación determinista de discrepancias, severidades y risk score |
+| `app/Services/Audit/AuditResponseSchema.php` | Define el schema de respuesta final del pipeline |
 | `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
 | `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE baseline + rechazo individual) |
 | `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline |
@@ -102,34 +107,27 @@ Pipeline automatizado que audita facturas de dispensación farmacéutica compara
      - **BLOB**: Lectura directa de stream SQL a memoria → base64 (sin disco)
      - **URL**: Descarga de Google Drive vía JWT → memoria → base64
    - Detección MIME: Magic numbers (PDF, JPEG, PNG, WEBP) + finfo buffer + fallback por extensión
-   - 4. Construir prompt → `AuditPromptBuilder` (v3.2 con Axiomas A1-A4 + iteración multi-medicamento + entregas parciales).
-   s los ítems de dispensación generando nodos `<medication item="N">` XML exhaustivos
-   - Envía a Gemini Flash API (`generateContent`) con documentos como inline_data
-   - Parsea respuesta JSON (con reparación si está truncado)
-   - Valida resultado contra schema esperado
+   - Carga configuración de auditoría por `NitSec` → `AuditConfigModel`
+   - Construye prompt de extracción dinámico → `ExtractionPromptBuilder`
+   - Envía a Gemini Flash API (`generateContent`) con Function Calling y documentos como `inlineData`
+   - Parsea la tool call `report_extraction` → `ExtractionResponseSchema`
+   - Compara campos semánticos → `SemanticComparator` + `EmbeddingGateway`
+   - Evalúa reglas deterministas → `RuleEngine`
 4. **Persistencia**: `AuditPersistenceService` persiste en tabla `AudDispEst` (upsert) + actualiza `AdjuntosDispensacion`
 5. **Respuesta**: Retorna resultado con métricas de auditoría y tiempos de procesamiento
 
-## Arquitectura del Prompt (v3.2)
+## Arquitectura del Pipeline v4
 
-`AuditPromptBuilder` utiliza un diseño determinista basado en inyección de contexto dinámico. Los datos de la dispensación se inyectan **una sola vez** en el System Prompt (no se duplican en el User Prompt), reduciendo tokens y latencia. Para dispensaciones multi-medicamento, se genera un nodo `<medication item="N">` por cada ítem con datos completos (nombre, CUM, lote, laboratorio, vencimiento, cantidades). Incluye soporte para **entregas parciales**.
+`ExtractionPromptBuilder` limita a Gemini a extraer campos y visual checks definidos por `audit-config`. La lógica de negocio vive en PHP: `SemanticComparator` calcula similitudes con embeddings solo para campos configurados y `RuleEngine` decide discrepancias, severidades y `risk_score`. Esto mantiene el resultado auditable y reduce el acoplamiento entre prompt y reglas.
 
 
-### Secciones del System Instruction
+### Fases del pipeline
 
-| Sección | Contenido |
+| Fase | Componente | Responsabilidad |
 |---|---|
-| **Rol** | Define el motor de validación y el workflow: Lee → Calibra → Compara → Auto-audita → Entrega |
-| **Fuente de Verdad** | ~24 campos dinámicos inyectados por PHP (paciente, médico, facturación, fechas, medicamento) |
-| **§01** | Documentos válidos: ACTA, AUTORIZACION, FORMULA, VALIDADOR. Exclusión de judiciales |
-| **§02** | Mapa autoritativo por campo (quién manda sobre qué) con fallback a alternativo |
-| **§03** | Reglas de comparación: exacta, tokens críticos, equivalencia de cero, semántica de régimen, IPS parcial, días de tratamiento |
-| **§04** | Severidades fijas por campo (alta/media/baja) |
-| **§05** | Reglas de negocio: cantidades (parcial OK, sobreentrega = fraude), orden de fechas, MIPRES, multi-línea, firma obligatoria |
-| **§06** | Clasificación: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / ILEGIBLE |
-| **§07** | Cálculo de risk_score con pesos configurables |
-| **§08** | Auto-auditoría: checklist de 12 puntos pre-entrega |
-| **§09** | Formato JSON de salida (items vacío en success, solo discrepancias en warning/error) |
+| **1. Extracción** | `ExtractionPromptBuilder`, `ExtractionResponseSchema`, `GeminiGateway` | Extraer campos y visual checks con Function Calling |
+| **2. Semántica** | `SemanticComparator`, `EmbeddingGateway`, `FieldClassifier` | Comparar campos semánticos con embeddings |
+| **3. Reglas** | `RuleEngine` | Evaluar discrepancias, severidad y score de riesgo |
 
 ### Extracción de datos clave en PHP
 
@@ -212,13 +210,13 @@ curl.exe -s -X POST http://localhost:8080/audit -H "Content-Type: application/js
 ## Notas Técnicas
 
 - **Rate Limiting**: Gemini impone límites de quota (HTTP 429). El sistema implementa reintentos con backoff exponencial.
-- **JSON Truncado**: Gemini puede truncar respuestas largas. `JsonRepairHelper` intenta cerrar estructuras JSON abiertas.
+- **Function Calling inválido**: si Gemini no invoca `report_extraction`, el pipeline registra el fallo y retorna error controlado.
 - **Modelo no disponible**: HTTP 503 de Gemini causa reintento automático.
 - **Dual Storage Optimizado**: El flujo BLOB ya no escribe archivos temporales en `/tmp`, procesando directamente en memoria para reducir I/O.
 - **Dual Storage**: El sistema maneja transparentemente documentos almacenados como BLOB en BD o como URLs en Google Drive.
 - **Persistencia en Error**: El método `terminate()` propaga `$dispensation` a `saveToDatabase()` para que el `FacSec` real se persista correctamente incluso en flujos de error.
 - **Validación MIPRES**: `AuditPreValidator` valida campos obligatorios MIPRES (`Mipres`, `IdPrincipal`, `IdDirec`, `IdProg`, `IdEntr`, `IdRepEnt`) antes de enviar a Gemini. `IdFact` fue excluido de la lista obligatoria.
-- **Schema Dinámico de Documentos**: `AuditResponseSchema::getGeminiSchema()` acepta pasarse dinámicamente los nombres reales de la BD, limitando las respuestas en el campo `documento` a una variante de un enum específico exacto extraído de `AdjuntosDispensacion`, mejorando radicalmente la conciliación en `AuditStatusModel`.
+- **Schema Dinámico de Documentos**: `ExtractionResponseSchema::getToolsBlock()` recibe los tipos documentales normalizados para restringir la extracción a documentos esperados.
 - **Filtrado de Adjuntos**: Solo se procesan documentos con `AdjDisOpc='N'` (requeridos). Documentos opcionales se excluyen intencionalmente por lógica de negocio.
-- **Iteración Multi-Medicamento**: `AuditPromptBuilder` itera sobre todos los ítems de `$dispensationData` generando nodos `<medication item="N">` XML individuales, asegurando que la IA valide todos los medicamentos de una dispensación multi-línea.
-- **Entregas Parciales (v3.2)**: El sistema permite que la Fuente de Verdad registre cantidades menores o iguales a las prescritas/autorizadas, clasificándolas como `COINCIDE` para evitar falsos positivos en dispensaciones fragmentadas.
+- **Multi-línea**: `RuleEngine` evalúa campos por ítem cuando aplica, usando la Fuente de Verdad completa de `$dispensationData`.
+- **Entregas Parciales**: `RuleEngine` permite que la Fuente de Verdad registre cantidades menores o iguales a las prescritas/autorizadas, clasificándolas como `COINCIDE` para evitar falsos positivos en dispensaciones fragmentadas.

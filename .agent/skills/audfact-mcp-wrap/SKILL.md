@@ -84,7 +84,7 @@ class GetDispensation
     public function execute(array $params): array
     {
         $client = new \App\wrap\core\ApiClient();
-        $invoiceId = $params['invoiceId'] ?? $params['DisDetNro'] ?? $params['facSec'] ?? null;
+        $invoiceId = $params['invoiceId'] ?? null;
         return $client->get('/dispensation/' . urlencode((string)$invoiceId));
     }
 }

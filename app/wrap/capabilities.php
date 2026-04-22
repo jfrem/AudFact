@@ -22,11 +22,9 @@ echo json_encode([
             ],
             [
                 "name" => "GetDispensation",
-                "description" => "Obtiene dispensación por invoiceId (acepta aliases legacy: DisDetNro/facSec).",
+                "description" => "Obtiene dispensación por invoiceId.",
                 "parameters" => [
-                    ["name" => "invoiceId", "type" => "string", "required" => true, "description" => "Identificador de factura/dispensación (DisDetNro/FacNro)."],
-                    ["name" => "DisDetNro", "type" => "string", "required" => false, "description" => "Alias legacy de invoiceId."],
-                    ["name" => "facSec", "type" => "string", "required" => false, "description" => "Alias legacy de invoiceId."]
+                    ["name" => "invoiceId", "type" => "string", "required" => true, "description" => "Identificador de factura/dispensación (DisDetNro/FacNro)."]
                 ]
             ],
             [

@@ -12,7 +12,7 @@ use App\Services\Audit\ExtractionPromptBuilder;
  * y que datos demográficos distintos NO alteran la estructura del prompt
  * de extracción ni las reglas aplicadas.
  *
- * Migrado de AuditPromptBuilder (legacy v3) a ExtractionPromptBuilder (v4).
+ * Migrado desde el prompt monolítico v3 a ExtractionPromptBuilder (v4).
  */
 class AuditBiasTest extends TestCase
 {
@@ -249,5 +249,91 @@ class AuditBiasTest extends TestCase
             $fields,
             'No debe haber campos duplicados'
         );
+    }
+
+    public function testPromptUsesSqlAliasHintsFromDispensationRows(): void
+    {
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NumeroFactura'],
+                    ['field' => 'NumeroIdentificacion'],
+                    ['field' => 'Autorizacion'],
+                ]],
+            ],
+        ];
+
+        $data = [[
+            'NumeroFactura' => 'T38250701547',
+            'DocumentoPaciente' => '12132213',
+            'NumeroAutorizacion' => '46338218',
+        ]];
+
+        $prompt = $this->builder->buildUserPrompt($auditConfig, $data);
+
+        $this->assertStringContainsString('T38250701547', $prompt);
+        $this->assertStringContainsString('12132213', $prompt);
+        $this->assertStringContainsString('46338218', $prompt);
+    }
+
+    public function testPromptDetectsMultiRowDispensation(): void
+    {
+        $auditConfig = [
+            'documents' => [
+                ['fields' => [
+                    ['field' => 'NombreArticulo'],
+                ]],
+            ],
+        ];
+
+        $data = [
+            ['NombreArticulo' => 'MEDICAMENTO A'],
+            ['NombreArticulo' => 'MEDICAMENTO B'],
+        ];
+
+        $prompt = $this->builder->buildUserPrompt($auditConfig, $data);
+
+        $this->assertStringContainsString('Esta dispensación contiene 2 medicamentos', $prompt);
+    }
+
+    public function testEndpointAuditConfigShapeResolvesFieldsAndVisualChecks(): void
+    {
+        $config = [
+            'documents' => [
+                'DISPENSA' => [
+                    'docId' => 1,
+                    'fields' => ['DocumentoPaciente', 'NumeroAutorizacion'],
+                    'visualChecks' => [
+                        [
+                            'check' => 'FirmaActaEntrega',
+                            'description' => 'Firma o sello de recibido del paciente/acudiente',
+                            'severity' => 'CRITICO',
+                        ],
+                    ],
+                ],
+                'FORMULA MEDICA' => [
+                    'docId' => 3,
+                    'fields' => ['NombreArticulo'],
+                    'visualChecks' => [
+                        [
+                            'check' => 'FirmaPrescriptor',
+                            'description' => 'Firma del médico/profesional que prescribe',
+                            'severity' => 'CRITICO',
+                        ],
+                    ],
+                ],
+            ],
+        ];
+
+        $fields = $this->builder->resolveFieldsFromConfig($config);
+        $visualChecks = $this->builder->resolveVisualChecksFromConfig($config);
+        $prompt = $this->builder->buildUserPrompt($config, []);
+
+        $this->assertContains('NumeroIdentificacion', $fields);
+        $this->assertContains('Autorizacion', $fields);
+        $this->assertContains('NombreArticulo', $fields);
+        $this->assertContains('FirmaActaEntrega', $visualChecks);
+        $this->assertContains('FirmaPrescriptor', $visualChecks);
+        $this->assertStringContainsString('Firma del médico/profesional que prescribe', $prompt);
     }
 }

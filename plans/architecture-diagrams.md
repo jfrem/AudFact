@@ -102,10 +102,11 @@ classDiagram
 
     class AuditOrchestrator {
         -fileManager: AuditFileManager
-        -promptBuilder: AuditPromptBuilder
-        -responseSchema: AuditResponseSchema
-        -resultValidator: AuditResultValidator
-        -jsonParser: JsonResponseParser
+        -extractionPrompt: ExtractionPromptBuilder
+        -embeddingGateway: EmbeddingGateway
+        -comparator: SemanticComparator
+        -classifier: FieldClassifier
+        -ruleEngine: RuleEngine
         +auditInvoice(invoiceData, dispensationData, attachments) AuditResult
     }
 
@@ -115,36 +116,36 @@ classDiagram
         +extractFromBlob(blobData) base64
     }
 
-    class AuditPromptBuilder {
-        +buildPrompt(dispensationData, fileDescriptions) string
-        +buildSystemInstruction() string
+    class ExtractionPromptBuilder {
+        +getSystemInstruction() string
+        +buildUserPrompt(auditConfig, dispensationData, documentLabels) string
+        +resolveFieldsFromConfig(auditConfig) array
     }
 
-    class AuditResponseSchema {
-        +getSchema() array
-        +getExpectedFields() array
+    class ExtractionResponseSchema {
+        +getToolsBlock(fields, visualChecks, docTypes) array
+        +getToolConfig() array
+        +parseExtractionResponse(response) array
     }
 
-    class AuditResultValidator {
-        +validate(result, schema) ValidationResult
-        +checkRequiredFields(result) bool
+    class SemanticComparator {
+        +compareBatch(pairs, embeddingGateway) array
     }
 
-    class JsonResponseParser {
-        -repairHelper: JsonRepairHelper
-        +parse(rawResponse) array
+    class RuleEngine {
+        +evaluate(fdv, documents, visualChecks, semanticResults, config, classifier) array
     }
 
-    class JsonRepairHelper {
-        +repair(malformedJson) string
-        +fixTruncation(json) string
+    class FieldClassifier {
+        +getFieldsByType(type) array
+        +getAuthoritativeDoc(field) string
     }
 
     AuditController --> AuditOrchestrator : invoca
     AuditOrchestrator --> AuditFileManager : resuelve archivos
-    AuditOrchestrator --> AuditPromptBuilder : construye prompt
-    AuditOrchestrator --> AuditResponseSchema : define schema
-    AuditOrchestrator --> AuditResultValidator : valida resultado
-    AuditOrchestrator --> JsonResponseParser : parsea respuesta
-    JsonResponseParser --> JsonRepairHelper : repara JSON
+    AuditOrchestrator --> ExtractionPromptBuilder : construye prompt
+    AuditOrchestrator --> ExtractionResponseSchema : define function call
+    AuditOrchestrator --> SemanticComparator : compara semántica
+    AuditOrchestrator --> RuleEngine : evalúa reglas
+    RuleEngine --> FieldClassifier : clasifica campos
 ```

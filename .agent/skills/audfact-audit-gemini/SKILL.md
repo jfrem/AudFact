@@ -35,6 +35,7 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 | `app/Services/GoogleDriveServiceInterface.php` | Interfaz Strategy para el servicio de Drive |
 | `app/Models/DispensationModel.php` | Source of truth (datos de dispensación) |
 | `app/Models/AttachmentsModel.php` | Resolución de adjuntos BLOB/Drive |
+| `app/Models/AuditConfigModel.php` | Configuración dinámica por cliente: campos, documentos y visual checks |
 | `app/Models/AuditStatusModel.php` | Persistencia de resultados en `AudDispEst` (upsert) |
 
 ## Mapa de dependencias del Orquestador
@@ -43,6 +44,7 @@ Mantener confiable el flujo de auditoría documental y su salida JSON validada.
 AuditOrchestrator (v4)
 ├── DispensationModel (source of truth)
 ├── AttachmentsModel (adjuntos)
+├── AuditConfigModel (configuración dinámica por NitSec)
 ├── AuditPreValidator (pre-validación)
 ├── AuditFileManager
 │   └── GoogleDriveAuthService (descarga)
@@ -63,11 +65,11 @@ AuditOrchestrator (v4)
 
 ### Flujo Normal (Síncrono `POST /audit/single`)
 1. `auditInvoice()` recibe `invoiceId`, `disDetNro`, `attachmentId`.
-2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos con prefiltrado SQL `AdjDisOpc='N'`).
+2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos y `audit-config` por `NitSec`).
 3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
-4. **Fase 1 — Extracción**: `ExtractionPromptBuilder` + `GeminiGateway::sendWithFunctionCalling()` → `ExtractionResponseSchema::parseExtractionResponse()`. Gemini invoca `report_extraction` con JSON tipado.
-5. **Fase 2 — Embedding**: `SemanticComparator` + `EmbeddingGateway` → cosine similarity para campos tipo `semantic`.
-6. **Fase 3 — Reglas**: `RuleEngine::evaluate()` — lógica PHP determinista, pesos de riesgo, clasificación de hallazgos.
+4. **Fase 1 — Extracción**: `ExtractionPromptBuilder` usa campos/visual checks de `audit-config` + `GeminiGateway::sendWithFunctionCalling()` → `ExtractionResponseSchema::parseExtractionResponse()`.
+5. **Fase 2 — Embedding**: `SemanticComparator` + `EmbeddingGateway` → cosine similarity solo para campos semánticos configurados.
+6. **Fase 3 — Reglas**: `RuleEngine::evaluate()` — evalúa campos configurados con lógica PHP determinista.
 7. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
 8. Registrar telemetría → `AuditTelemetryService`.
 
