@@ -21,11 +21,22 @@ class AuditQueueService
 
     private RedisClient $redis;
 
+    /**
+     * Inicializa el servicio usando la instancia compartida de Redis.
+     *
+     * @return void
+     */
     public function __construct()
     {
         $this->redis = RedisClient::getInstance();
     }
 
+    /**
+     * Crea un job de auditoría y lo inserta en la cola Redis.
+     *
+     * @param  array<string, mixed> $params  Parámetros originales de auditoría batch.
+     * @return string|null ID del job creado, o null si Redis no está disponible.
+     */
     public function enqueue(array $params): ?string
     {
         if (!$this->redis->isAvailable()) {
@@ -75,6 +86,12 @@ class AuditQueueService
         return $jobId;
     }
 
+    /**
+     * Toma el siguiente mensaje de la cola bloqueando hasta el timeout indicado.
+     *
+     * @param  int $timeout  Segundos máximos de espera en BRPOP.
+     * @return array<string, mixed>|null Mensaje de cola válido, o null si no hay trabajo.
+     */
     public function dequeue(int $timeout = 5): ?array
     {
         $raw = $this->redis->brpop(self::QUEUE_KEY, $timeout);
@@ -91,6 +108,12 @@ class AuditQueueService
         return $data;
     }
 
+    /**
+     * Consulta el estado persistido de un job de auditoría.
+     *
+     * @param  string $jobId  Identificador del job.
+     * @return array<string, mixed>|null Estado del job, o null si no existe/no hay Redis.
+     */
     public function getJobStatus(string $jobId): ?array
     {
         try {
@@ -110,6 +133,17 @@ class AuditQueueService
         return json_decode($raw, true);
     }
 
+    /**
+     * Actualiza de forma atómica estado, progreso, resultado o error de un job.
+     *
+     * @param  string $jobId  Identificador del job.
+     * @param  string $status  Nuevo estado del job.
+     * @param  array<string, mixed> $progress  Progreso parcial a mezclar.
+     * @param  array<string, mixed>|null $result  Resultado final cuando aplica.
+     * @param  string|null $error  Mensaje de error cuando aplica.
+     * @return bool True si el job existía y fue actualizado.
+     * @throws \Exception Si Redis falla durante el script Lua o su reintento.
+     */
     public function updateJob(string $jobId, string $status, array $progress = [], ?array $result = null, ?string $error = null): bool
     {
         $key = self::JOB_PREFIX . $jobId;
@@ -183,6 +217,11 @@ LUA;
     }
 
 
+    /**
+     * Obtiene la profundidad actual de la cola de auditoría.
+     *
+     * @return int|null Número de mensajes pendientes, o null si Redis no está disponible.
+     */
     public function queueDepth(): ?int
     {
         if (!$this->redis->isAvailable()) {
@@ -191,6 +230,12 @@ LUA;
         return $this->redis->llen(self::QUEUE_KEY);
     }
 
+    /**
+     * Genera un identificador criptográficamente aleatorio para un job.
+     *
+     * @return string ID hexadecimal de 32 caracteres.
+     * @throws \Random\RandomException Si no se puede obtener aleatoriedad segura.
+     */
     private function generateJobId(): string
     {
         return bin2hex(random_bytes(16));

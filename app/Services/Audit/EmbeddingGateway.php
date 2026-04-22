@@ -22,6 +22,14 @@ class EmbeddingGateway
     private string $apiKey;
     private string $model;
 
+    /**
+     * Configura el cliente HTTP y el modelo de embeddings de Gemini.
+     *
+     * @param  Client $http  Cliente HTTP compartido.
+     * @param  string $apiKey  API key de Gemini.
+     * @param  string|null $model  Modelo de embeddings; usa default si es null.
+     * @return void
+     */
     public function __construct(Client $http, string $apiKey, ?string $model = null)
     {
         $this->http = $http;
@@ -29,6 +37,13 @@ class EmbeddingGateway
         $this->model = $model ?? 'gemini-embedding-001';
     }
 
+    /**
+     * Genera el vector de embedding para un texto individual.
+     *
+     * @param  string $text  Texto a vectorizar.
+     * @return array<int, float|int> Vector numérico devuelto por Gemini.
+     * @throws \RuntimeException Si la API responde sin vector válido.
+     */
     public function embed(string $text): array
     {
         $url = sprintf(self::ENDPOINT_TEMPLATE, $this->model);
@@ -52,6 +67,13 @@ class EmbeddingGateway
         return $values;
     }
 
+    /**
+     * Genera embeddings en lote preservando el orden de los textos originales.
+     *
+     * @param  array<int, string> $texts  Textos a vectorizar.
+     * @return array<int, array{text: string, vector: array<int, float|int>}> Vectores por texto.
+     * @throws \RuntimeException Si la API falla luego de agotar reintentos.
+     */
     public function embedBatch(array $texts): array
     {
         if (empty($texts)) {
@@ -118,6 +140,14 @@ class EmbeddingGateway
         return $result;
     }
 
+    /**
+     * Envía un payload a Gemini Embedding API con reintentos exponenciales.
+     *
+     * @param  string $url  Endpoint específico del modelo.
+     * @param  array<string, mixed> $payload  Payload JSON para la API.
+     * @return array<string, mixed> Respuesta JSON decodificada.
+     * @throws \RuntimeException|\Throwable Si la API no responde correctamente.
+     */
     private function sendWithRetry(string $url, array $payload): array
     {
         $lastException = null;

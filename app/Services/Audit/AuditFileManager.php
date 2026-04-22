@@ -25,6 +25,11 @@ class AuditFileManager
     private AttachmentsModel $attachmentsModel;
     private array $downloadCache = [];
 
+    /**
+     * Prepara dependencias de archivos temporales, Google Drive y adjuntos SQL.
+     *
+     * @return void
+     */
     public function __construct()
     {
         $this->tmpDir = sys_get_temp_dir() . '/audfact';
@@ -37,6 +42,13 @@ class AuditFileManager
         $this->attachmentsModel = new AttachmentsModel();
     }
 
+    /**
+     * Convierte un adjunto individual a la estructura inlineData requerida por Gemini.
+     *
+     * @param  array<string, mixed> $attachment  Metadatos del adjunto desde base de datos.
+     * @return array<string, mixed> Archivo con mime, data base64, tmp y pages.
+     * @throws \RuntimeException Si el tipo de almacenamiento es inválido o el archivo no se puede leer.
+     */
     public function prepareAttachment(array $attachment): array
     {
         $storageType = $attachment['TipoAlmacenamiento'] ?? 'SIN_DOCUMENTOS';
@@ -62,6 +74,14 @@ class AuditFileManager
         }
     }
 
+    /**
+     * Prepara todos los adjuntos requeridos de una dispensación para enviarlos a Gemini.
+     *
+     * @param  array<int, array<string, mixed>> $attachments  Adjuntos candidatos de la factura.
+     * @param  array<int, array<string, mixed>> $dispensationData  Filas de la fuente de verdad.
+     * @return array<int, array<string, mixed>> Archivos preparados y etiquetados.
+     * @throws \Throwable Si un adjunto requerido falla o usa un MIME no permitido.
+     */
     public function prepareAttachments(array $attachments, array $dispensationData): array
     {
         $files = [];
@@ -97,6 +117,13 @@ class AuditFileManager
         return $files;
     }
 
+    /**
+     * Detecta documentos requeridos que están configurados pero no tienen archivo asociado.
+     *
+     * @param  array<int, array<string, mixed>> $attachments  Adjuntos esperados por la auditoría.
+     * @param  array<int, array<string, mixed>> $dispensationData  Datos de dispensación usados para reglas condicionales.
+     * @return array<int, string> Nombres de documentos requeridos faltantes.
+     */
     public function getMissingRequiredAttachments(array $attachments, array $dispensationData): array
     {
         $missingDocuments = [];
@@ -118,12 +145,24 @@ class AuditFileManager
         return $missingDocuments;
     }
 
+    /**
+     * Elimina el archivo temporal asociado a un adjunto preparado.
+     *
+     * @param  array<string, mixed>|string|null $file  Estructura de archivo o ruta temporal.
+     * @return void
+     */
     public function cleanup($file): void
     {
         $path = is_array($file) ? ($file['tmp'] ?? null) : $file;
         $this->cleanupPath($path);
     }
 
+    /**
+     * Elimina una ruta temporal si existe en disco.
+     *
+     * @param  string|null $path  Ruta temporal a eliminar.
+     * @return void
+     */
     private function cleanupPath(?string $path): void
     {
         if ($path !== null && $path !== '' && is_file($path)) {
@@ -133,6 +172,14 @@ class AuditFileManager
         }
     }
 
+    /**
+     * Descarga un archivo de Google Drive a una ruta temporal con caché por fileId.
+     *
+     * @param  array<string, mixed> $attachment  Metadatos con almacenamiento_remoto.
+     * @param  string $destPath  Ruta temporal destino.
+     * @return string|null MIME reportado por Drive, si está disponible.
+     * @throws \RuntimeException Si el adjunto URL no contiene ID remoto.
+     */
     private function handleUrlStorage(array $attachment, string $destPath): ?string
     {
         $fileId = (string)($attachment['almacenamiento_remoto'] ?? '');
@@ -166,6 +213,13 @@ class AuditFileManager
         return $mime;
     }
 
+    /**
+     * Lee un adjunto BLOB desde SQL Server directamente a memoria y lo codifica en base64.
+     *
+     * @param  array<string, mixed> $attachment  Metadatos necesarios para ubicar el BLOB.
+     * @return array<string, mixed> Archivo preparado sin ruta temporal.
+     * @throws \RuntimeException Si el BLOB no existe, está vacío o excede el tamaño permitido.
+     */
     private function handleBlobDirect(array $attachment): array
     {
         $attachmentId = (string)($attachment['id_documento'] ?? '');
@@ -217,6 +271,12 @@ class AuditFileManager
     }
 
     // HEIC/HEIF no se detecta aquí: su firma 'ftyp' está en bytes 4-7, no al inicio.
+    /**
+     * Detecta MIME por magic numbers ubicados al inicio del contenido binario.
+     *
+     * @param  string $header  Primeros bytes del archivo.
+     * @return string|null MIME reconocido, o null si el encabezado no coincide.
+     */
     private function detectMimeFromHeader(string $header): ?string
     {
         if (strpos($header, '%PDF-') === 0) {
@@ -235,6 +295,13 @@ class AuditFileManager
         return null;
     }
 
+    /**
+     * Determina el MIME de contenido binario usando magic numbers, finfo y extensión.
+     *
+     * @param  string $content  Contenido binario completo.
+     * @param  string $documentName  Nombre original usado como fallback.
+     * @return string MIME detectado o application/octet-stream.
+     */
     private function detectMimeFromBinary(string $content, string $documentName = ''): string
     {
         $header = substr($content, 0, 16);
@@ -261,6 +328,12 @@ class AuditFileManager
         return 'application/octet-stream';
     }
 
+    /**
+     * Resuelve el MIME esperado a partir de la extensión del nombre de archivo.
+     *
+     * @param  string $filename  Nombre del documento.
+     * @return string|null MIME conocido para la extensión, o null.
+     */
     private function detectMimeFromExtension(string $filename): ?string
     {
         $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
@@ -277,6 +350,13 @@ class AuditFileManager
         return $map[$ext] ?? null;
     }
 
+    /**
+     * Evalúa si un adjunto debe procesarse según reglas de negocio de la dispensación.
+     *
+     * @param  array<string, mixed> $attachment  Metadatos del adjunto.
+     * @param  array<int, array<string, mixed>> $dispensationData  Filas de dispensación.
+     * @return bool True si el adjunto debe enviarse a auditoría.
+     */
     private function isAttachmentRequired(array $attachment, array $dispensationData): bool
     {
         $documentName = (string)($attachment['nombre_documento'] ?? '');
@@ -294,6 +374,12 @@ class AuditFileManager
         return true;
     }
 
+    /**
+     * Determina si la dispensación contiene autorización y por tanto requiere ese documento.
+     *
+     * @param  array<int, array<string, mixed>> $dispensationData  Filas de dispensación.
+     * @return bool True si alguna fila contiene número de autorización.
+     */
     private function dispensationRequiresAuthorization(array $dispensationData): bool
     {
         foreach ($dispensationData as $row) {
@@ -306,6 +392,16 @@ class AuditFileManager
         return false;
     }
 
+    /**
+     * Lee un archivo local, valida tamaño y construye la estructura base64 para Gemini.
+     *
+     * @param  string $path  Ruta del archivo a procesar.
+     * @param  string|null $tmpPath  Ruta temporal que debe limpiarse al finalizar.
+     * @param  string $originalName  Nombre original para detección MIME.
+     * @param  string|null $mimeOverride  MIME ya conocido por el proveedor externo.
+     * @return array<string, mixed> Archivo con mime, data, tmp y pages.
+     * @throws \RuntimeException Si el archivo no existe, no se lee o excede tamaño máximo.
+     */
     private function fileToBase64(string $path, ?string $tmpPath = null, string $originalName = '', ?string $mimeOverride = null): array
     {
         if (!is_file($path)) {
@@ -335,6 +431,13 @@ class AuditFileManager
         ];
     }
 
+    /**
+     * Estima páginas de un archivo preparado para validar límites de auditoría.
+     *
+     * @param  string $binaryContent  Contenido binario del archivo.
+     * @param  string $mime  MIME detectado.
+     * @return int Número estimado de páginas; imágenes cuentan como una.
+     */
     private function countPagesByMime(string $binaryContent, string $mime): int
     {
         if ($mime !== 'application/pdf') {
@@ -349,6 +452,13 @@ class AuditFileManager
         return $matches;
     }
 
+    /**
+     * Detecta MIME de un archivo en disco con fallback por encabezado y extensión.
+     *
+     * @param  string $path  Ruta local a inspeccionar.
+     * @param  string $originalName  Nombre original para fallback.
+     * @return string MIME detectado o application/octet-stream.
+     */
     private function detectMime(string $path, string $originalName = ''): string
     {
         $mime = 'application/octet-stream';

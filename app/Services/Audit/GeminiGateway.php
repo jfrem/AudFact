@@ -33,6 +33,22 @@ class GeminiGateway
     private ?int $thinkingBudget;
     private ?int $seed;
 
+    /**
+     * Configura el gateway HTTP hacia Gemini y sus parámetros de generación.
+     *
+     * @param  Client $http  Cliente HTTP compartido.
+     * @param  string $apiKey  API key de Gemini.
+     * @param  string $model  Modelo generateContent configurado.
+     * @param  float|null $temperature  Temperatura de generación.
+     * @param  float|null $topP  Parámetro nucleus sampling.
+     * @param  int|null $topK  Parámetro top-k.
+     * @param  int $maxOutputTokens  Máximo de tokens de salida.
+     * @param  string $responseMimeType  MIME esperado de respuesta.
+     * @param  string|null $mediaResolution  Resolución de medios opcional.
+     * @param  int|null $thinkingBudget  Presupuesto de thinking cuando aplica.
+     * @param  int|null $seed  Semilla para reproducibilidad.
+     * @return void
+     */
     public function __construct(
         Client $http,
         string $apiKey,
@@ -59,6 +75,12 @@ class GeminiGateway
         $this->seed = $seed;
     }
 
+    /**
+     * Extrae texto plano de una respuesta Gemini legacy cuando no se usa Function Calling.
+     *
+     * @param  array<string, mixed> $result  Respuesta decodificada de Gemini.
+     * @return string|null Texto del primer part, si existe.
+     */
     public function extractResponseText(array $result): ?string
     {
         $part = $result['candidates'][0]['content']['parts'][0] ?? null;
@@ -78,11 +100,28 @@ class GeminiGateway
         return null;
     }
 
+    /**
+     * Devuelve el límite de tokens configurado para las respuestas de Gemini.
+     *
+     * @return int Máximo de tokens de salida.
+     */
     public function getMaxOutputTokens(): int
     {
         return $this->maxOutputTokens;
     }
 
+    /**
+     * Envía documentos y prompt a Gemini obligando Function Calling.
+     *
+     * @param  string $prompt  Prompt de usuario para extracción.
+     * @param  array<int, array<string, mixed>> $files  Archivos inlineData preparados.
+     * @param  string $systemInstruction  Instrucción de sistema.
+     * @param  array<int, array<string, mixed>> $tools  Declaraciones de funciones.
+     * @param  array<string, mixed> $toolConfig  Configuración de Function Calling.
+     * @param  array<string, mixed> $generationOverrides  Overrides puntuales de generación.
+     * @return array<string, mixed> Respuesta JSON de Gemini.
+     * @throws \RuntimeException Si el circuito está abierto, la respuesta no es JSON o Gemini falla.
+     */
     public function sendWithFunctionCalling(
         string $prompt,
         array $files,
@@ -179,6 +218,17 @@ class GeminiGateway
         throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
     }
 
+    /**
+     * Arma el payload multimodal de generateContent con prompt, documentos y tools.
+     *
+     * @param  string $prompt  Texto del usuario.
+     * @param  array<int, array<string, mixed>> $files  Archivos base64 con MIME.
+     * @param  string $systemInstruction  Instrucción de sistema.
+     * @param  array<int, array<string, mixed>> $tools  Tools disponibles para Gemini.
+     * @param  array<string, mixed> $toolConfig  Configuración de invocación de tools.
+     * @param  array<string, mixed> $generationOverrides  Ajustes temporales de generación.
+     * @return array<string, mixed> Payload serializable para la API.
+     */
     private function buildFunctionCallingPayload(
         string $prompt,
         array $files,
@@ -236,6 +286,11 @@ class GeminiGateway
         ];
     }
 
+    /**
+     * Define safety settings permisivos para documentos clínicos y administrativos.
+     *
+     * @return array<int, array<string, string>> Configuración de seguridad para Gemini.
+     */
     private function getSafetySettings(): array
     {
         return [
@@ -258,6 +313,12 @@ class GeminiGateway
         ];
     }
 
+    /**
+     * Revisa el estado del circuit breaker antes de llamar Gemini.
+     *
+     * @return void
+     * @throws \RuntimeException Si el circuito está abierto y debe rechazarse la llamada.
+     */
     private function checkCircuitBreaker(): void
     {
         $redis = RedisClient::getInstance();
@@ -289,6 +350,11 @@ class GeminiGateway
         }
     }
 
+    /**
+     * Limpia el estado del circuit breaker tras una llamada exitosa.
+     *
+     * @return void
+     */
     private function recordCircuitSuccess(): void
     {
         $redis = RedisClient::getInstance();
@@ -309,6 +375,12 @@ class GeminiGateway
         $redis->del(self::CB_KEY_FAILS);
     }
 
+    /**
+     * Registra un fallo de Gemini y abre el circuito si supera el umbral configurado.
+     *
+     * @param  int $httpCode  Código HTTP asociado al fallo.
+     * @return void
+     */
     private function recordCircuitFailure(int $httpCode): void
     {
         $redis = RedisClient::getInstance();
@@ -345,6 +417,12 @@ class GeminiGateway
         }
     }
 
+    /**
+     * Registra headers de cuota cuando Gemini los retorna.
+     *
+     * @param  mixed $response  Respuesta HTTP compatible con getHeaderLine().
+     * @return void
+     */
     private function logApiQuotaHeaders($response): void
     {
         $headers = [

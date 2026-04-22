@@ -11,6 +11,11 @@ class AuditResponseSchema
     public const RESPONSE_ERROR = 'error';
     public const RESPONSE_HUMAN_REVIEW = 'human_review';
 
+    /**
+     * Devuelve métricas vacías con la forma esperada por la respuesta de auditoría.
+     *
+     * @return array<string, int> Contadores iniciales de evaluación y severidad.
+     */
     public static function getEmptyMetrics(): array
     {
         return [
@@ -23,6 +28,11 @@ class AuditResponseSchema
         ];
     }
 
+    /**
+     * Devuelve la configuración vacía usada cuando no se ejecuta el motor de reglas.
+     *
+     * @return array<string, mixed> Pesos, umbrales y puntaje máximo inicializados en cero.
+     */
     public static function getEmptyConfig(): array
     {
         return [

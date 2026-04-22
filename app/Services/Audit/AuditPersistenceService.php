@@ -13,11 +13,24 @@ class AuditPersistenceService
 
     private AuditStatusModel $auditStatusModel;
 
+    /**
+     * Inicializa la persistencia con el modelo de estado de auditoría.
+     *
+     * @param  AuditStatusModel $auditStatusModel  Modelo de escritura en tablas de auditoría.
+     * @return void
+     */
     public function __construct(AuditStatusModel $auditStatusModel)
     {
         $this->auditStatusModel = $auditStatusModel;
     }
 
+    /**
+     * Guarda una copia JSON de la respuesta en disco solo para entornos no productivos.
+     *
+     * @param  string $disDetNro  Identificador de dispensación auditada.
+     * @param  array<string, mixed> $result  Resultado completo del pipeline.
+     * @return void
+     */
     public function saveResponse(string $disDetNro, array $result): void
     {
         $env = strtolower(trim($_ENV['APP_ENV'] ?? getenv('APP_ENV') ?: 'production'));
@@ -48,6 +61,14 @@ class AuditPersistenceService
         }
     }
 
+    /**
+     * Persiste el resultado de auditoría en BD y actualiza el estado documental asociado.
+     *
+     * @param  string $disDetNro  Identificador técnico de dispensación.
+     * @param  array<string, mixed> $result  Resultado normalizado del pipeline.
+     * @param  array<string, mixed>|array<int, array<string, mixed>>|null $dispensation  Datos FDV usados para poblar llaves.
+     * @return bool True si la transacción principal se completó correctamente.
+     */
     public function saveToDatabase(string $disDetNro, array $result, ?array $dispensation = null): bool
     {
         $writeDb = null;
@@ -124,7 +145,6 @@ class AuditPersistenceService
 
             $writeDb->commit();
 
-            // Cachear en Redis DESPUÉS del commit exitoso (fuera de transacción SQL)
             if ($isProcessed && (int) $data['EstAud'] === 1) {
                 $this->cacheAuditResult($data['FacSec'], $result);
             }
@@ -143,6 +163,14 @@ class AuditPersistenceService
         }
     }
 
+    /**
+     * Sincroniza el resultado por documento en AdjuntosDispensacion cuando aplica.
+     *
+     * @param  string $facNro  Número de factura usado para ubicar adjuntos.
+     * @param  bool $isSuccess  Indica si la auditoría terminó sin hallazgos.
+     * @param  array<string, mixed> $result  Resultado de auditoría con hallazgos.
+     * @return void
+     */
     private function updateAuditResultIfNeeded(string $facNro, bool $isSuccess, array $result): void
     {
         try {
@@ -243,7 +271,6 @@ class AuditPersistenceService
                 'documentosTotales' => count($findingsByDoc),
             ]);
         } catch (\Exception $e) {
-            // No debe fallar el flujo principal si esta actualización falla
             Logger::error('Error actualizando resultado de auditoría en AdjuntosDispensacion', [
                 'FacNro' => $facNro,
                 'error' => $e->getMessage(),
@@ -251,6 +278,12 @@ class AuditPersistenceService
         }
     }
 
+    /**
+     * Extrae nombres de documentos faltantes desde el mensaje de prevalidación.
+     *
+     * @param  string $message  Mensaje con prefijo de documentos requeridos faltantes.
+     * @return array<int, string> Nombres únicos de documentos identificados.
+     */
     private function extractMissingDocumentsFromMessage(string $message): array
     {
         $prefix = 'Documentos requeridos sin archivo adjunto:';
@@ -271,6 +304,13 @@ class AuditPersistenceService
         return array_values(array_unique($parts));
     }
 
+    /**
+     * Cachea un resultado exitosamente persistido para idempotencia de auditorías.
+     *
+     * @param  string $facSec  Identificador de factura en Fuente de Verdad.
+     * @param  array<string, mixed> $result  Resultado completo a reutilizar.
+     * @return void
+     */
     private function cacheAuditResult(string $facSec, array $result): void
     {
         try {
@@ -287,7 +327,6 @@ class AuditPersistenceService
 
             $redis->set($cacheKey, json_encode($payload, JSON_UNESCAPED_UNICODE), $cacheTTL);
         } catch (\Exception $e) {
-            // No interrumpir flujo principal si Redis falla
             Logger::warning('Error cacheando resultado de auditoría en Redis', [
                 'FacSec' => $facSec,
                 'error'  => $e->getMessage(),

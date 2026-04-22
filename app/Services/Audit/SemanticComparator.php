@@ -17,12 +17,25 @@ class SemanticComparator
 
     private float $defaultThreshold;
 
+    /**
+     * Inicializa los umbrales de similitud semántica.
+     *
+     * @param  float|null $defaultThreshold  Umbral global opcional para campos sin override.
+     * @return void
+     */
     public function __construct(?float $defaultThreshold = null)
     {
         $this->defaultThreshold = $defaultThreshold
             ?? (float) (\Core\Env::get('SEMANTIC_THRESHOLD_DEFAULT', '0.85'));
     }
 
+    /**
+     * Compara pares FDV/documento mediante embeddings y similitud coseno.
+     *
+     * @param  array<int, array<string, mixed>> $pairs  Pares con field, fdvValue, docValue y documento opcional.
+     * @param  EmbeddingGateway $gateway  Gateway usado para obtener embeddings.
+     * @return array<int, array<string, mixed>> Resultados semánticos por par.
+     */
     public function compareBatch(array $pairs, EmbeddingGateway $gateway): array
     {
         if (empty($pairs)) {
@@ -128,6 +141,13 @@ class SemanticComparator
         return $results;
     }
 
+    /**
+     * Calcula la similitud coseno entre dos vectores numéricos.
+     *
+     * @param  array<int, float|int> $a  Primer vector.
+     * @param  array<int, float|int> $b  Segundo vector.
+     * @return float Valor entre 0.0 y 1.0 cuando los vectores son válidos.
+     */
     public static function cosineSimilarity(array $a, array $b): float
     {
         $len = min(count($a), count($b));
@@ -154,11 +174,23 @@ class SemanticComparator
         return $dotProduct / $denominator;
     }
 
+    /**
+     * Obtiene el umbral semántico aplicable a un campo.
+     *
+     * @param  string $field  Campo semántico evaluado.
+     * @return float Umbral específico o default.
+     */
     public function getThreshold(string $field): float
     {
         return self::THRESHOLDS[$field] ?? $this->defaultThreshold;
     }
 
+    /**
+     * Normaliza texto antes de solicitar embeddings para reducir ruido superficial.
+     *
+     * @param  string $text  Texto original de FDV o documento.
+     * @return string Texto en minúscula, sin acentos ni puntuación relevante.
+     */
     private function preNormalize(string $text): string
     {
         $text = trim($text);
@@ -174,6 +206,12 @@ class SemanticComparator
         return trim($text);
     }
 
+    /**
+     * Reemplaza caracteres acentuados comunes por equivalentes ASCII.
+     *
+     * @param  string $text  Texto UTF-8 a normalizar.
+     * @return string Texto sin acentos comunes en español.
+     */
     private function removeAccents(string $text): string
     {
         $map = [

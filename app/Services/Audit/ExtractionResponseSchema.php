@@ -34,12 +34,26 @@ class ExtractionResponseSchema
         self::DOC_TYPE_FACTURA        => self::DOC_TYPE_FACTURA,
     ];
 
+    /**
+     * Convierte una etiqueta documental de BD o Gemini al tipo canónico del pipeline.
+     *
+     * @param  string $rawType  Tipo documental original.
+     * @return string Tipo documental canónico cuando existe alias, o valor original.
+     */
     public static function normalizeDocType(string $rawType): string
     {
         $upper = strtoupper(trim($rawType));
         return self::DOC_TYPE_ALIASES[$upper] ?? $rawType;
     }
 
+    /**
+     * Construye la declaración de Function Calling usada para la extracción documental.
+     *
+     * @param  array<int, string> $fieldsToExtract  Campos que Gemini debe extraer.
+     * @param  array<int, string> $visualChecks  Verificaciones visuales requeridas.
+     * @param  array<int, string> $documentTypes  Tipos documentales permitidos para la respuesta.
+     * @return array<string, mixed> Declaración de función compatible con Gemini.
+     */
     public static function getFunctionDeclaration(
         array $fieldsToExtract,
         array $visualChecks = [],
@@ -138,6 +152,14 @@ class ExtractionResponseSchema
         ];
     }
 
+    /**
+     * Envuelve la declaración de función en el bloque tools esperado por Gemini.
+     *
+     * @param  array<int, string> $fieldsToExtract  Campos que Gemini debe extraer.
+     * @param  array<int, string> $visualChecks  Verificaciones visuales requeridas.
+     * @param  array<int, string> $documentTypes  Tipos documentales permitidos.
+     * @return array<int, array<string, mixed>> Bloque tools para generateContent.
+     */
     public static function getToolsBlock(
         array $fieldsToExtract,
         array $visualChecks = [],
@@ -152,6 +174,11 @@ class ExtractionResponseSchema
         ];
     }
 
+    /**
+     * Define la configuración que obliga a Gemini a invocar report_extraction.
+     *
+     * @return array<string, mixed> Configuración de Function Calling.
+     */
     public static function getToolConfig(): array
     {
         return [
@@ -162,6 +189,12 @@ class ExtractionResponseSchema
         ];
     }
 
+    /**
+     * Extrae los argumentos de report_extraction desde una respuesta de Gemini.
+     *
+     * @param  array<string, mixed> $geminiResponse  Respuesta cruda de generateContent.
+     * @return array<string, mixed>|null Argumentos de la tool call, o null si no fue invocada.
+     */
     public static function parseExtractionResponse(array $geminiResponse): ?array
     {
         $candidates = $geminiResponse['candidates'] ?? [];

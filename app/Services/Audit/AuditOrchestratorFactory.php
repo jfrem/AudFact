@@ -14,6 +14,12 @@ use GuzzleHttp\Client;
 
 class AuditOrchestratorFactory
 {
+    /**
+     * Construye el orquestador de auditoría con sus gateways, modelos y servicios auxiliares.
+     *
+     * @return AuditOrchestrator Instancia lista para ejecutar el pipeline de auditoría.
+     * @throws \RuntimeException Si faltan variables críticas de configuración de Gemini.
+     */
     public static function create(): AuditOrchestrator
     {
         $apiKey = (string) Env::get('GEMINI_API_KEY', '');

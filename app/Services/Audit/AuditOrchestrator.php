@@ -18,6 +18,21 @@ class AuditOrchestrator
     private FieldClassifier $classifier;
     private RuleEngine $ruleEngine;
 
+    /**
+     * Recibe todas las dependencias necesarias para ejecutar el pipeline v4.
+     *
+     * @param  AuditFileManager $fileManager  Preparación y limpieza de adjuntos.
+     * @param  GeminiGateway $gateway  Cliente Gemini multimodal.
+     * @param  AuditPersistenceService $persistence  Persistencia en disco/BD/cache.
+     * @param  AuditTelemetryService $telemetry  Construcción de métricas técnicas.
+     * @param  AuditPreValidator $preValidator  Guardas previas al llamado IA.
+     * @param  ExtractionPromptBuilder $extractionPrompt  Prompt de extracción.
+     * @param  EmbeddingGateway $embeddingGateway  Cliente de embeddings.
+     * @param  SemanticComparator $comparator  Comparador semántico.
+     * @param  FieldClassifier $classifier  Catálogo y clasificación de campos.
+     * @param  RuleEngine $ruleEngine  Motor determinista de evaluación.
+     * @return void
+     */
     public function __construct(
         AuditFileManager $fileManager,
         GeminiGateway $gateway,
@@ -42,6 +57,14 @@ class AuditOrchestrator
         $this->ruleEngine = $ruleEngine;
     }
 
+    /**
+     * Ejecuta una auditoría completa para una dispensación: prevalidación, extracción, embeddings, reglas y persistencia.
+     *
+     * @param  string $invoiceId  Identificador de factura recibido como entrada.
+     * @param  string $disDetNro  Identificador de dispensación a auditar.
+     * @param  string|null $attachmentId  ID de adjunto específico; reservado para flujos selectivos.
+     * @return array<string, mixed> Resultado normalizado del pipeline.
+     */
     public function auditInvoice(string $invoiceId, string $disDetNro, ?string $attachmentId = null): array
     {
         $totalStart = hrtime(true);
@@ -169,6 +192,15 @@ class AuditOrchestrator
         return $result;
     }
 
+    /**
+     * Ejecuta la fase 1 de extracción documental con Function Calling.
+     *
+     * @param  array<int, array<string, mixed>> $dispensationData  Datos FDV de la dispensación.
+     * @param  array<int, array<string, mixed>> $files  Archivos preparados para Gemini.
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<string, mixed> Datos extraídos, visual checks y hash de prompt.
+     * @throws \RuntimeException Si Gemini no invoca la función report_extraction.
+     */
     private function executeExtraction(array $dispensationData, array $files, array $auditConfig): array
     {
         $systemInstruction = $this->extractionPrompt->getSystemInstruction();
@@ -224,6 +256,14 @@ class AuditOrchestrator
         return $extracted;
     }
 
+    /**
+     * Ejecuta la fase 2 comparando campos semánticos entre FDV y documentos.
+     *
+     * @param  array<int, array<string, mixed>> $dispensationData  Datos FDV.
+     * @param  array<string, mixed> $extractionResult  Resultado de la fase de extracción.
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<int, array<string, mixed>> Resultados semánticos por campo.
+     */
     private function executeSemanticComparison(
         array $dispensationData,
         array $extractionResult,
@@ -294,6 +334,12 @@ class AuditOrchestrator
         return $this->comparator->compareBatch($pairs, $this->embeddingGateway);
     }
 
+    /**
+     * Resuelve los campos semánticos configurados por documento o usa fallback del clasificador.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<int, array{field: string, document: string|null}> Campos semánticos a comparar.
+     */
     private function resolveSemanticFields(array $auditConfig): array
     {
         $documents = $auditConfig['documents'] ?? [];
@@ -338,6 +384,13 @@ class AuditOrchestrator
         return $fields;
     }
 
+    /**
+     * Obtiene el valor de Fuente de Verdad para un campo, agregando filas cuando es per-item.
+     *
+     * @param  string $field  Campo canónico a consultar.
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $data  Datos FDV.
+     * @return string|null Valor FDV normalizado a string, o null si no existe.
+     */
     private function resolveFdvValue(string $field, array $data): ?string
     {
         $column = $this->classifier->getSqlColumn($field);
@@ -372,6 +425,14 @@ class AuditOrchestrator
         return $this->extractRowValueSimple($row, $field, $column);
     }
 
+    /**
+     * Extrae un valor no vacío desde una fila usando campo canónico o columna SQL.
+     *
+     * @param  array<string, mixed> $row  Fila de FDV.
+     * @param  string $field  Campo canónico.
+     * @param  string|null $column  Columna SQL alternativa.
+     * @return string|null Valor encontrado.
+     */
     private function extractRowValueSimple(array $row, string $field, ?string $column): ?string
     {
         if (isset($row[$field]) && is_string($row[$field]) && trim($row[$field]) !== '') {
@@ -385,6 +446,14 @@ class AuditOrchestrator
         return null;
     }
 
+    /**
+     * Persiste y devuelve un resultado de prevalidación que aborta el flujo IA.
+     *
+     * @param  array<string, mixed> $preValidation  Salida temprana del prevalidator.
+     * @param  string $disDetNro  Identificador de dispensación.
+     * @param  int $totalStart  Marca hrtime inicial del pipeline.
+     * @return array<string, mixed> Resultado final ya persistido.
+     */
     private function handlePreValidationFailure(array $preValidation, string $disDetNro, int $totalStart): array
     {
         $failResult = $preValidation['result'];
@@ -418,6 +487,13 @@ class AuditOrchestrator
         return $failResult;
     }
 
+    /**
+     * Construye una respuesta de error compatible con el schema del frontend.
+     *
+     * @param  string $message  Mensaje público del error.
+     * @param  array<string, mixed> $data  Detalles opcionales para enriquecer la respuesta.
+     * @return array<string, mixed> Respuesta de error normalizada.
+     */
     private function errorResponse(string $message, array $data = []): array
     {
         return [
@@ -435,6 +511,13 @@ class AuditOrchestrator
         ];
     }
 
+    /**
+     * Selecciona el valor documental de un campo priorizando documento autoritativo y alternativos.
+     *
+     * @param  string $field  Campo canónico buscado.
+     * @param  array<string, array<string, mixed>> $extractedByDoc  Campos extraídos agrupados por tipo documental.
+     * @return string|null Valor documental encontrado.
+     */
     private function resolveDocValueByPriority(string $field, array $extractedByDoc): ?string
     {
         $authDoc = $this->classifier->getAuthoritativeDoc($field);

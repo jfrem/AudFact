@@ -36,6 +36,17 @@ class RuleEngine
         'CodigoProducto',
     ];
 
+    /**
+     * Evalúa documentos extraídos contra la Fuente de Verdad y produce el resultado final.
+     *
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $fdvItems  Datos de dispensación.
+     * @param  array<int, array<string, mixed>> $extractedDocs  Documentos y campos extraídos por Gemini.
+     * @param  array<string, mixed> $visualChecks  Verificaciones visuales extraídas.
+     * @param  array<int, array<string, mixed>> $semanticResults  Resultados de comparación semántica.
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica aplicada.
+     * @param  FieldClassifier $classifier  Clasificador de campos.
+     * @return array<string, mixed> Respuesta final con hallazgos, métricas, riesgo y configuración usada.
+     */
     public function evaluate(
         array $fdvItems,
         array $extractedDocs,
@@ -111,6 +122,18 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Evalúa un campo individual delegando según su tipo de comparación.
+     *
+     * @param  string $field  Campo canónico.
+     * @param  string $type  Tipo de evaluación del campo.
+     * @param  string|null $fdvValue  Valor en Fuente de Verdad.
+     * @param  string|null $docValue  Valor extraído del documento.
+     * @param  array<string, array<string, mixed>> $semanticMap  Resultados semánticos indexados.
+     * @param  array<string, mixed> $visualChecks  Checks visuales indexados.
+     * @param  string|null $document  Documento configurado para el campo.
+     * @return array<string, mixed> Clasificación y detalle opcional.
+     */
     private function evaluateField(
         string $field,
         string $type,
@@ -143,6 +166,14 @@ class RuleEngine
         };
     }
 
+    /**
+     * Compara valores exactos después de normalizarlos según el campo.
+     *
+     * @param  string $field  Campo evaluado.
+     * @param  string $fdvValue  Valor de Fuente de Verdad.
+     * @param  string $docValue  Valor documental.
+     * @return array<string, mixed> Resultado de coincidencia o discrepancia.
+     */
     private function evaluateExact(string $field, string $fdvValue, string $docValue): array
     {
         $normalizedFdv = $this->normalizeForComparison($field, $fdvValue);
@@ -158,6 +189,14 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Evalúa un campo semántico usando un resultado previamente calculado por embeddings.
+     *
+     * @param  string $field  Campo semántico.
+     * @param  array<string, array<string, mixed>> $semanticMap  Resultados indexados por documento/campo.
+     * @param  string|null $document  Documento esperado.
+     * @return array<string, mixed> Resultado de similitud semántica.
+     */
     private function evaluateSemantic(string $field, array $semanticMap, ?string $document): array
     {
         $sr = $semanticMap[$this->buildDocumentFieldKey($field, $document)]
@@ -187,6 +226,14 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Evalúa un check visual reportado por Gemini.
+     *
+     * @param  string $field  Check visual canónico.
+     * @param  array<string, mixed> $visualChecks  Checks visuales extraídos.
+     * @param  string|null $document  Documento esperado.
+     * @return array<string, mixed> Resultado visual.
+     */
     private function evaluateVisual(string $field, array $visualChecks, ?string $document): array
     {
         $check = $visualChecks[$this->buildDocumentFieldKey($field, $document)]
@@ -212,11 +259,26 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Construye la llave interna para valores dependientes de documento y campo.
+     *
+     * @param  string $field  Campo canónico.
+     * @param  string|null $document  Documento canónico o null para fallback global.
+     * @return string Llave compuesta.
+     */
     private function buildDocumentFieldKey(string $field, ?string $document): string
     {
         return ($document ?? self::ANY_DOCUMENT_KEY) . self::DOCUMENT_FIELD_KEY_SEPARATOR . $field;
     }
 
+    /**
+     * Evalúa campos con reglas de negocio específicas.
+     *
+     * @param  string $field  Campo evaluado.
+     * @param  string $fdvValue  Valor FDV.
+     * @param  string $docValue  Valor documental.
+     * @return array<string, mixed> Resultado de regla de negocio.
+     */
     private function evaluateBusiness(string $field, string $fdvValue, string $docValue): array
     {
         return match ($field) {
@@ -226,6 +288,13 @@ class RuleEngine
         };
     }
 
+    /**
+     * Evalúa cantidades permitiendo entregas parciales y una tolerancia menor de exceso.
+     *
+     * @param  string $fdvValue  Cantidad registrada en FDV.
+     * @param  string $docValue  Cantidad observada en documento.
+     * @return array<string, mixed> Resultado de comparación de cantidades.
+     */
     private function evaluateQuantities(string $fdvValue, string $docValue): array
     {
         $fdvQty = $this->parseQuantity($fdvValue);
@@ -260,6 +329,13 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Evalúa régimen del cliente con exclusiones y equivalencias de negocio.
+     *
+     * @param  string $fdvValue  Régimen de Fuente de Verdad.
+     * @param  string $docValue  Régimen extraído del documento.
+     * @return array<string, mixed> Resultado de comparación de régimen.
+     */
     private function evaluateRegimen(string $fdvValue, string $docValue): array
     {
         $normalizedFdv = strtoupper(trim($fdvValue));
@@ -295,6 +371,13 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Normaliza un valor para comparación exacta según reglas del campo.
+     *
+     * @param  string $field  Campo evaluado.
+     * @param  string $value  Valor original.
+     * @return string Valor normalizado.
+     */
     private function normalizeForComparison(string $field, string $value): string
     {
         $value = trim($value);
@@ -318,11 +401,23 @@ class RuleEngine
         return mb_strtolower($value, 'UTF-8');
     }
 
+    /**
+     * Normaliza identificadores removiendo separadores comunes.
+     *
+     * @param  string $value  Identificador original.
+     * @return string Identificador compacto.
+     */
     private function normalizeIdentifier(string $value): string
     {
         return preg_replace('/[\.\-\s]/', '', $value);
     }
 
+    /**
+     * Normaliza una fecha o lista de fechas a formato comparable.
+     *
+     * @param  string $value  Valor de fecha original.
+     * @return string Fecha normalizada o valor original si no parsea.
+     */
     private function normalizeDateValue(string $value): string
     {
         $value = trim($value);
@@ -347,6 +442,12 @@ class RuleEngine
         return implode(', ', $normalized);
     }
 
+    /**
+     * Normaliza listas textuales conservando orden de componentes.
+     *
+     * @param  string $value  Valor potencialmente separado por coma, punto y coma o slash.
+     * @return string Lista normalizada en minúscula.
+     */
     private function normalizeListValue(string $value): string
     {
         $parts = $this->splitListValue($value);
@@ -357,6 +458,12 @@ class RuleEngine
         return mb_strtolower(implode(', ', $parts), 'UTF-8');
     }
 
+    /**
+     * Divide valores compuestos por separadores controlados.
+     *
+     * @param  string $value  Valor a dividir.
+     * @return array<int, string> Partes limpias no vacías.
+     */
     private function splitListValue(string $value): array
     {
         $parts = preg_split('/\s*(?:,|;|\s\/\s)\s*/', trim($value));
@@ -370,6 +477,12 @@ class RuleEngine
         ));
     }
 
+    /**
+     * Convierte fechas conocidas al formato ISO Y-m-d.
+     *
+     * @param  string $value  Fecha textual.
+     * @return string Fecha ISO o valor limpio original si no coincide con formatos conocidos.
+     */
     private function normalizeDate(string $value): string
     {
         $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'd/m/y'];
@@ -384,6 +497,12 @@ class RuleEngine
         return trim($value);
     }
 
+    /**
+     * Normaliza valores monetarios cero ignorando símbolos y separadores.
+     *
+     * @param  string $value  Valor monetario original.
+     * @return string "0" para ceros detectados, o valor original.
+     */
     private function normalizeZeroValue(string $value): string
     {
         $clean = preg_replace('/[^\d\.]/', '', $value);
@@ -393,6 +512,12 @@ class RuleEngine
         return $value;
     }
 
+    /**
+     * Extrae una cantidad entera evitando interpretar posologías como cantidades auditables.
+     *
+     * @param  string $value  Texto con cantidad o descripción.
+     * @return int|null Cantidad parseada, o null si no es confiable.
+     */
     private function parseQuantity(string $value): ?int
     {
         $value = trim($value);
@@ -440,6 +565,11 @@ class RuleEngine
         return null;
     }
 
+    /**
+     * Inicializa contadores de métricas para una evaluación.
+     *
+     * @return array<string, int> Métricas en cero.
+     */
     private function initializeMetrics(): array
     {
         return [
@@ -452,6 +582,12 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Indexa resultados semánticos por llave documento/campo para acceso O(1).
+     *
+     * @param  array<int, array<string, mixed>> $semanticResults  Resultados de SemanticComparator.
+     * @return array<string, array<string, mixed>> Resultados indexados.
+     */
     private function indexSemanticResults(array $semanticResults): array
     {
         $semanticMap = [];
@@ -470,6 +606,14 @@ class RuleEngine
         return $semanticMap;
     }
 
+    /**
+     * Obtiene un valor FDV para campo simple o per-item.
+     *
+     * @param  string $field  Campo canónico.
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $fdvItems  Filas FDV.
+     * @param  FieldClassifier $classifier  Clasificador para resolver columna SQL.
+     * @return string|null Valor FDV encontrado.
+     */
     private function getFdvValue(string $field, array $fdvItems, FieldClassifier $classifier): ?string
     {
         $column = $classifier->getSqlColumn($field);
@@ -504,6 +648,14 @@ class RuleEngine
         return $this->extractRowValue($row, $field, $column);
     }
 
+    /**
+     * Extrae un valor no vacío desde una fila FDV.
+     *
+     * @param  array<string, mixed> $row  Fila FDV.
+     * @param  string $field  Campo canónico.
+     * @param  string|null $column  Columna SQL alternativa.
+     * @return string|null Valor como string, o null si está ausente.
+     */
     private function extractRowValue(array $row, string $field, ?string $column): ?string
     {
         if (isset($row[$field]) && $this->isNonEmpty($row[$field])) {
@@ -517,6 +669,12 @@ class RuleEngine
         return null;
     }
 
+    /**
+     * Determina si un valor FDV/documental debe considerarse presente.
+     *
+     * @param  mixed $value  Valor a evaluar.
+     * @return bool True si no es null ni string vacío.
+     */
     private function isNonEmpty(mixed $value): bool
     {
         if ($value === null) {
@@ -528,6 +686,15 @@ class RuleEngine
         return true;
     }
 
+    /**
+     * Resuelve el valor documental priorizando documento configurado, autoritativo y alternativos.
+     *
+     * @param  string $field  Campo canónico.
+     * @param  array<string, array<string, mixed>> $docFieldsMap  Campos extraídos por documento.
+     * @param  FieldClassifier $classifier  Clasificador para prioridades documentales.
+     * @param  string|null $preferredDocument  Documento definido por audit-config.
+     * @return string|null Valor documental encontrado.
+     */
     private function getDocValue(
         string $field,
         array $docFieldsMap,
@@ -568,6 +735,14 @@ class RuleEngine
         return null;
     }
 
+    /**
+     * Obtiene un campo desde un documento específico ya indexado.
+     *
+     * @param  array<string, array<string, mixed>> $docFieldsMap  Campos por documento.
+     * @param  string|null $document  Documento a consultar.
+     * @param  string $field  Campo canónico.
+     * @return string|null Valor documental no vacío.
+     */
     private function getDocumentFieldValue(array $docFieldsMap, ?string $document, string $field): ?string
     {
         if ($document === null) {
@@ -577,11 +752,23 @@ class RuleEngine
         return $this->normalizeDocumentFieldValue($docFieldsMap[$document][$field] ?? null);
     }
 
+    /**
+     * Normaliza un valor extraído de documento a string utilizable.
+     *
+     * @param  mixed $value  Valor retornado por Gemini.
+     * @return string|null Valor string no vacío.
+     */
     private function normalizeDocumentFieldValue(mixed $value): ?string
     {
         return is_string($value) && trim($value) !== '' ? $value : null;
     }
 
+    /**
+     * Agrupa campos extraídos por tipo documental canónico.
+     *
+     * @param  array<int, array<string, mixed>> $extractedDocs  Documentos devueltos por la extracción.
+     * @return array<string, array<string, mixed>> Campos indexados por documento.
+     */
     private function indexExtractedFields(array $extractedDocs): array
     {
         $map = [];
@@ -594,6 +781,13 @@ class RuleEngine
         return $map;
     }
 
+    /**
+     * Resuelve los campos a evaluar desde audit-config o desde el catálogo default.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @param  FieldClassifier $classifier  Clasificador de campos.
+     * @return array<int, array<string, mixed>> Campos con documento y severidad.
+     */
     private function resolveFields(array $auditConfig, FieldClassifier $classifier): array
     {
         $fields = [];
@@ -639,6 +833,17 @@ class RuleEngine
         return $fields;
     }
 
+    /**
+     * Agrega un campo configurado evitando duplicados por documento/campo.
+     *
+     * @param  array<int, array<string, mixed>> $fields  Lista acumulada de campos.
+     * @param  array<string, bool> $seen  Índice de campos ya agregados.
+     * @param  string $fieldName  Nombre de campo recibido desde configuración.
+     * @param  string|null $documentType  Documento canónico asociado.
+     * @param  mixed $fieldConfig  Configuración original del campo o check.
+     * @param  FieldClassifier $classifier  Clasificador para normalizar y resolver severidad.
+     * @return void
+     */
     private function appendConfiguredField(
         array &$fields,
         array &$seen,
@@ -662,16 +867,35 @@ class RuleEngine
         $seen[$key] = true;
     }
 
+    /**
+     * Extrae el nombre de campo desde configuración dinámica.
+     *
+     * @param  mixed $field  Entrada simple o estructurada.
+     * @return string|null Nombre de campo.
+     */
     private function extractConfiguredFieldName(mixed $field): ?string
     {
         return $this->extractConfiguredName($field, ['field', 'name', 'campoNombre']);
     }
 
+    /**
+     * Extrae el nombre de check visual desde configuración dinámica.
+     *
+     * @param  mixed $check  Entrada simple o estructurada.
+     * @return string|null Nombre de check.
+     */
     private function extractConfiguredVisualCheckName(mixed $check): ?string
     {
         return $this->extractConfiguredName($check, ['check', 'field', 'name']);
     }
 
+    /**
+     * Lee un nombre desde una entrada de configuración usando llaves candidatas.
+     *
+     * @param  mixed $config  String o arreglo de configuración.
+     * @param  array<int, string> $nameKeys  Llaves aceptadas para extraer nombre.
+     * @return string|null Nombre limpio.
+     */
     private function extractConfiguredName(mixed $config, array $nameKeys): ?string
     {
         if (is_string($config)) {
@@ -693,6 +917,13 @@ class RuleEngine
         return null;
     }
 
+    /**
+     * Resuelve override de severidad desde configuración, con fallback del clasificador.
+     *
+     * @param  mixed $config  Configuración del campo.
+     * @param  string $fallback  Severidad por defecto.
+     * @return string Severidad normalizada.
+     */
     private function resolveConfiguredSeverity(mixed $config, string $fallback): string
     {
         if (!is_array($config)) {
@@ -707,6 +938,12 @@ class RuleEngine
         return $this->normalizeSeverity($raw) ?? $fallback;
     }
 
+    /**
+     * Normaliza nombres de severidad en español/inglés al catálogo interno.
+     *
+     * @param  string $severity  Severidad textual.
+     * @return string|null Severidad interna o null si no es reconocida.
+     */
     private function normalizeSeverity(string $severity): ?string
     {
         $normalized = strtoupper(trim($severity));
@@ -719,6 +956,12 @@ class RuleEngine
         };
     }
 
+    /**
+     * Resume la configuración de auditoría aplicada sin exponer todo el payload.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica aplicada.
+     * @return array<string, mixed> Resumen con origen, conteos y hash.
+     */
     private function summarizeAuditConfig(array $auditConfig): array
     {
         $documents = is_array($auditConfig['documents'] ?? null) ? $auditConfig['documents'] : [];
@@ -749,6 +992,13 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Construye el bloque config_used que acompaña la respuesta final.
+     *
+     * @param  array<string, int> $metrics  Métricas finales de evaluación.
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica aplicada.
+     * @return array<string, mixed> Pesos, umbrales, score máximo y resumen de config.
+     */
     private function buildConfigUsed(array $metrics, array $auditConfig): array
     {
         return [
@@ -766,6 +1016,14 @@ class RuleEngine
         ];
     }
 
+    /**
+     * Actualiza métricas acumuladas con la clasificación de un campo.
+     *
+     * @param  array<string, int> $metrics  Métricas acumuladas por referencia.
+     * @param  string $classification  Clasificación del campo.
+     * @param  string $severity  Severidad del campo.
+     * @return void
+     */
     private function updateMetrics(array &$metrics, string $classification, string $severity): void
     {
         $metrics['TotalCamposEvaluados']++;
@@ -783,6 +1041,12 @@ class RuleEngine
         $this->incrementSeverityMetric($metrics, $severity);
     }
 
+    /**
+     * Calcula el puntaje de riesgo ponderando discrepancias por severidad.
+     *
+     * @param  array<string, int> $metrics  Métricas finales.
+     * @return int Puntaje de riesgo.
+     */
     private function calculateRiskScore(array $metrics): int
     {
         return ($metrics['Altas'] * self::WEIGHT_HIGH)
@@ -790,11 +1054,24 @@ class RuleEngine
              + ($metrics['Bajas'] * self::WEIGHT_LOW);
     }
 
+    /**
+     * Determina si una clasificación debe contar como discrepancia.
+     *
+     * @param  string $classification  Clasificación del campo.
+     * @return bool True si incrementa TotalDiscrepancias.
+     */
     private function isDiscrepancyClassification(string $classification): bool
     {
         return in_array($classification, [self::MISMATCH, self::NOT_FOUND], true);
     }
 
+    /**
+     * Incrementa el contador de severidad correspondiente.
+     *
+     * @param  array<string, int> $metrics  Métricas acumuladas por referencia.
+     * @param  string $severity  Severidad normalizada.
+     * @return void
+     */
     private function incrementSeverityMetric(array &$metrics, string $severity): void
     {
         match ($severity) {
@@ -805,6 +1082,12 @@ class RuleEngine
         };
     }
 
+    /**
+     * Clasifica la respuesta final a partir del puntaje de riesgo.
+     *
+     * @param  int $riskScore  Puntaje calculado.
+     * @return string Estado final: success, warning o error.
+     */
     private function classifyResponse(int $riskScore): string
     {
         if ($riskScore === 0) {
@@ -816,6 +1099,12 @@ class RuleEngine
         return AuditResponseSchema::RESPONSE_ERROR;
     }
 
+    /**
+     * Determina la severidad global más alta presente en las métricas.
+     *
+     * @param  array<string, int> $metrics  Métricas finales.
+     * @return string Severidad global.
+     */
     private function getOverallSeverity(array $metrics): string
     {
         if ($metrics['Altas'] > 0) {
@@ -830,6 +1119,14 @@ class RuleEngine
         return FieldClassifier::SEVERITY_LOW;
     }
 
+    /**
+     * Construye el mensaje resumido de auditoría para la respuesta final.
+     *
+     * @param  string $response  Estado final clasificado.
+     * @param  array<string, int> $metrics  Métricas finales.
+     * @param  int $riskScore  Puntaje de riesgo.
+     * @return string Mensaje de salida.
+     */
     private function buildMessage(string $response, array $metrics, int $riskScore): string
     {
         if ($response === AuditResponseSchema::RESPONSE_SUCCESS) {

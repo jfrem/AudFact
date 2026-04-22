@@ -6,11 +6,21 @@ class ExtractionPromptBuilder
 {
     private FieldClassifier $classifier;
 
+    /**
+     * Inicializa el builder con el clasificador de campos del pipeline.
+     *
+     * @return void
+     */
     public function __construct()
     {
         $this->classifier = new FieldClassifier();
     }
 
+    /**
+     * Devuelve la instrucción de sistema que restringe a Gemini a extracción documental.
+     *
+     * @return string Instrucción base para Function Calling.
+     */
     public function getSystemInstruction(): string
     {
         return implode("\n", [
@@ -35,6 +45,14 @@ class ExtractionPromptBuilder
         ]);
     }
 
+    /**
+     * Construye el prompt de usuario con documentos, campos y visual checks configurados.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $dispensationData  Datos FDV para hints.
+     * @param  array<int, string> $documentLabels  Etiquetas de documentos preparados.
+     * @return string Prompt final para la fase de extracción.
+     */
     public function buildUserPrompt(
         array $auditConfig,
         array $dispensationData,
@@ -88,6 +106,12 @@ class ExtractionPromptBuilder
         return implode("\n", $parts);
     }
 
+    /**
+     * Resuelve campos a extraer desde configuración dinámica o fallback del clasificador.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<int, string> Campos canónicos únicos a solicitar a Gemini.
+     */
     public function resolveFieldsFromConfig(array $auditConfig): array
     {
         $fields = [];
@@ -112,6 +136,12 @@ class ExtractionPromptBuilder
         return $fields;
     }
 
+    /**
+     * Resuelve verificaciones visuales requeridas desde configuración dinámica.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<int, string> Checks visuales canónicos únicos.
+     */
     public function resolveVisualChecksFromConfig(array $auditConfig): array
     {
         $checks = [];
@@ -150,6 +180,13 @@ class ExtractionPromptBuilder
         return $checks;
     }
 
+    /**
+     * Obtiene un valor guía de FDV para ayudar a ubicar campos exactos en documentos.
+     *
+     * @param  string $field  Campo canónico solicitado.
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $dispensationData  Datos FDV disponibles.
+     * @return string|null Valor corto de referencia, o null si no aplica.
+     */
     private function getFieldHint(string $field, array $dispensationData): ?string
     {
         // Solo campos exactos se benefician de hints; los semánticos Gemini los localiza por contexto.
@@ -182,6 +219,13 @@ class ExtractionPromptBuilder
         return $value;
     }
 
+    /**
+     * Busca el primer valor no vacío entre llaves candidatas y filas FDV.
+     *
+     * @param  array<int, string> $candidateKeys  Llaves canónicas o SQL a consultar.
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $dispensationData  Datos FDV.
+     * @return string|null Valor encontrado como hint.
+     */
     private function resolveHintValue(array $candidateKeys, array $dispensationData): ?string
     {
         foreach ($candidateKeys as $key) {
@@ -208,6 +252,12 @@ class ExtractionPromptBuilder
         return null;
     }
 
+    /**
+     * Cuenta ítems de dispensación para advertir a Gemini sobre documentos multi-medicamento.
+     *
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $dispensationData  Datos FDV.
+     * @return int Número de ítems detectados.
+     */
     private function countDispensationItems(array $dispensationData): int
     {
         if (isset($dispensationData['items']) && is_array($dispensationData['items'])) {
@@ -217,6 +267,12 @@ class ExtractionPromptBuilder
         return count($this->getDispensationRows($dispensationData));
     }
 
+    /**
+     * Normaliza datos FDV a una lista de filas cuando la consulta retorna múltiples líneas.
+     *
+     * @param  array<int, array<string, mixed>>|array<string, mixed> $dispensationData  Datos FDV.
+     * @return array<int, array<string, mixed>> Filas válidas de dispensación.
+     */
     private function getDispensationRows(array $dispensationData): array
     {
         if (!isset($dispensationData[0]) || !is_array($dispensationData[0])) {
@@ -229,6 +285,12 @@ class ExtractionPromptBuilder
         ));
     }
 
+    /**
+     * Devuelve una descripción humana para checks visuales conocidos.
+     *
+     * @param  string $check  Nombre canónico del check visual.
+     * @return string Descripción que se incluye en el prompt.
+     */
     private function getVisualCheckDescription(string $check): string
     {
         $descriptions = [
@@ -240,6 +302,12 @@ class ExtractionPromptBuilder
         return $descriptions[$check] ?? 'Verificar presencia visual';
     }
 
+    /**
+     * Extrae descripciones personalizadas de visual checks desde configuración dinámica.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<string, string> Descripciones indexadas por check canónico.
+     */
     private function getVisualCheckDescriptions(array $auditConfig): array
     {
         $descriptions = [];
@@ -261,6 +329,12 @@ class ExtractionPromptBuilder
         return $descriptions;
     }
 
+    /**
+     * Normaliza la sección documents de audit-config para consumo interno.
+     *
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica del cliente.
+     * @return array<int, array{name: string, fields: array<int, mixed>, visualChecks: array<int, mixed>}> Documentos normalizados.
+     */
     private function getConfiguredDocuments(array $auditConfig): array
     {
         $documents = $auditConfig['documents'] ?? [];
@@ -284,6 +358,12 @@ class ExtractionPromptBuilder
         return $normalized;
     }
 
+    /**
+     * Obtiene el nombre de campo desde una entrada simple o estructurada de configuración.
+     *
+     * @param  mixed $field  String o arreglo de configuración de campo.
+     * @return string|null Nombre de campo limpio.
+     */
     private function extractFieldName(mixed $field): ?string
     {
         if (is_string($field) && trim($field) !== '') {
@@ -298,6 +378,12 @@ class ExtractionPromptBuilder
         return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
+    /**
+     * Obtiene el nombre de check visual desde una entrada simple o estructurada.
+     *
+     * @param  mixed $check  String o arreglo de configuración de check.
+     * @return string|null Nombre de check limpio.
+     */
     private function extractVisualCheckName(mixed $check): ?string
     {
         if (is_string($check) && trim($check) !== '') {
@@ -312,6 +398,11 @@ class ExtractionPromptBuilder
         return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
+    /**
+     * Devuelve el conjunto de campos de extracción usado cuando no hay configuración activa.
+     *
+     * @return array<int, string> Campos default del pipeline.
+     */
     private function getDefaultFields(): array
     {
         return [

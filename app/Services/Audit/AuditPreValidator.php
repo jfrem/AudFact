@@ -27,6 +27,16 @@ class AuditPreValidator
     private AuditFileManager $fileManager;
     private AuditPersistenceService $persistence;
 
+    /**
+     * Inyecta modelos y servicios usados por la prevalidación del pipeline.
+     *
+     * @param  DispensationModel $dispensationModel  Modelo de fuente de verdad.
+     * @param  AttachmentsModel $attachmentsModel  Modelo de adjuntos documentales.
+     * @param  AuditConfigModel $auditConfigModel  Modelo de configuración dinámica.
+     * @param  AuditFileManager $fileManager  Preparador y validador de archivos.
+     * @param  AuditPersistenceService $persistence  Persistencia para respuestas tempranas.
+     * @return void
+     */
     public function __construct(
         DispensationModel $dispensationModel,
         AttachmentsModel $attachmentsModel,
@@ -41,6 +51,13 @@ class AuditPreValidator
         $this->persistence = $persistence;
     }
 
+    /**
+     * Ejecuta guardas previas: FDV, reglas de negocio, adjuntos, configuración y archivos.
+     *
+     * @param  string $invoiceId  Identificador de factura recibido por el controlador.
+     * @param  string $disDetNro  Identificador de dispensación a auditar.
+     * @return array<string, mixed> Resultado temprano o datos listos para continuar el pipeline.
+     */
     public function validate(string $invoiceId, string $disDetNro): array
     {
         $dataFetchStart = hrtime(true);
@@ -221,6 +238,12 @@ class AuditPreValidator
         ];
     }
 
+    /**
+     * Carga configuración dinámica de auditoría para el cliente.
+     *
+     * @param  string $nitSec  Identificador del cliente/EPS.
+     * @return array<string, mixed> Configuración activa o arreglo vacío como fallback.
+     */
     private function loadAuditConfig(string $nitSec): array
     {
         if (trim($nitSec) === '') {
@@ -251,6 +274,12 @@ class AuditPreValidator
         }
     }
 
+    /**
+     * Lista campos obligatorios MIPRES faltantes o con valor cero.
+     *
+     * @param  array<string, mixed> $dispensation  Fila principal de dispensación.
+     * @return array<int, string> Nombres de campos MIPRES incompletos.
+     */
     private function getMissingMipresFields(array $dispensation): array
     {
         $missing = [];
@@ -265,6 +294,18 @@ class AuditPreValidator
         return $missing;
     }
 
+    /**
+     * Construye una salida temprana de error de negocio con métricas vacías.
+     *
+     * @param  string $disDetNro  Identificador de dispensación.
+     * @param  string $message  Mensaje de fallo para la respuesta.
+     * @param  array<string, mixed>|null $dispensation  Fila principal si existe.
+     * @param  float $dataFetchStart  Marca hrtime inicial de consulta de datos.
+     * @param  float|null $filePrepStart  Marca hrtime inicial de preparación de archivos.
+     * @param  array<int, string> $availableDocuments  Documentos disponibles para metadatos.
+     * @param  array<int, array<string, mixed>> $items  Hallazgos de prevalidación.
+     * @return array<string, mixed> Salida compatible con AuditOrchestrator.
+     */
     private function fail(
         string $disDetNro,
         string $message,
@@ -309,6 +350,16 @@ class AuditPreValidator
         ];
     }
 
+    /**
+     * Envuelve una respuesta temprana no fallida con datos operativos del pipeline.
+     *
+     * @param  array<string, mixed> $result  Resultado listo para devolver.
+     * @param  array<int, array<string, mixed>> $dispensationData  Datos FDV consultados.
+     * @param  array<int, array<string, mixed>> $files  Archivos preparados, si aplica.
+     * @param  float $dataFetchStart  Marca hrtime inicial de consulta de datos.
+     * @param  array<string, mixed> $auditConfig  Configuración dinámica cargada.
+     * @return array<string, mixed> Salida compatible con AuditOrchestrator.
+     */
     private function output(
         array $result,
         array $dispensationData,
@@ -330,6 +381,12 @@ class AuditPreValidator
         ];
     }
 
+    /**
+     * Obtiene nombres de documentos con archivo disponible entre los adjuntos consultados.
+     *
+     * @param  array<int, array<string, mixed>> $attachments  Adjuntos requeridos por factura.
+     * @return array<int, string> Nombres únicos de documentos disponibles.
+     */
     private function extractAvailableDocuments(array $attachments): array
     {
         $documents = [];
