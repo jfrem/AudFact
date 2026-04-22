@@ -61,7 +61,7 @@ class RuleEngine
             $configuredDocument = $fieldConfig['document'] ?? null;
 
             // Obtener valores
-            $fdvValue = $this->getFdvValue($field, $fdvItems);
+            $fdvValue = $this->getFdvValue($field, $fdvItems, $classifier);
             $docValue = $this->getDocValue($field, $docFieldsMap, $classifier, $configuredDocument);
 
             $result = $this->evaluateField(
@@ -503,57 +503,9 @@ class RuleEngine
         return $semanticMap;
     }
 
-    private function getFdvValue(string $field, array $fdvItems): ?string
+    private function getFdvValue(string $field, array $fdvItems, FieldClassifier $classifier): ?string
     {
-        // Mapeo: FieldClassifier field name → SQL column alias de DispensationModel
-        // Mantener sincronizado con app/Models/DispensationModel.php
-        static $fieldToColumn = [
-            // Exactos — alias SQL directo
-            'NumeroFactura'        => 'NumeroFactura',
-            'NumeroFormula'        => 'NumeroFormula',       // No existe en SQL, solo en docs
-            'Autorizacion'         => 'NumeroAutorizacion',
-            'TipoIdentificacion'   => 'TipoDocumentoPaciente',
-            'NumeroIdentificacion' => 'DocumentoPaciente',
-            'FechaFormula'         => 'FechaFormula',
-            'FechaAutorizacion'    => 'FechaAutorizacion',
-            'FechaEntrega'         => 'FechaEntrega',
-            'FechaVencimiento'     => 'FechaVencimiento',
-            'VlrCobrado'           => 'VlrCobrado',
-            'Mipres'               => 'Mipres',
-            'IdPrincipal'          => 'IdPrincipal',
-            'IdDirec'              => 'IdDirec',
-            'IdProg'               => 'IdProg',
-            'IdEntr'               => 'IdEntr',
-            'IdRepEnt'             => 'IdRepEnt',
-            'Lote'                 => 'Lote',
-            'NITCliente'           => 'NITCliente',
-            'TipoDocumentoMedico'  => 'TipoDocumentoMedico',
-            'DocumentoMedico'      => 'DocumentoMedico',
-            'CodigoDiagnostico'    => 'CodigoDiagnostico',
-            'CodigoArticulo'       => 'CodigoArticulo',
-            'CodigoProducto'       => 'CodigoProducto',
-            'CUM'                  => 'CUM',
-            'Tipo'                 => 'Tipo',
-
-            // Semánticos
-            'NombrePaciente'       => 'NombrePaciente',
-            'NombreArticulo'       => 'NombreArticulo',
-            'Medico'               => 'Medico',
-            'Laboratorio'          => 'Laboratorio',
-            'IPS'                  => 'IPS',
-            'Cliente.Entidad'      => 'Cliente',
-            'Cliente.Regimen'      => 'RegimenPaciente',
-
-            // Visuales
-            'FirmaActaEntrega'     => 'FirmaActaEntrega',
-            'SelloRecepcion'       => null, // No existe en BD, solo verificación visual
-
-            // Negocio
-            'CantidadEntregada'    => 'CantidadEntregada',
-            'CantidadPrescrita'    => 'CantidadPrescrita',
-        ];
-
-        $column = $fieldToColumn[$field] ?? $field;
+        $column = $classifier->getSqlColumn($field);
         $isMultiRow = isset($fdvItems[0]) && is_array($fdvItems[0]);
 
         // ── Per-item field: agregar valores de todas las rows ──
@@ -623,6 +575,12 @@ class RuleEngine
         $preferredValue = $this->getDocumentFieldValue($docFieldsMap, $preferredDocument, $field);
         if ($preferredValue !== null) {
             return $preferredValue;
+        }
+
+        // Cuando el config especifica un documento, no buscar en otros docs —
+        // un campo ausente en el documento requerido es un hallazgo (NO_ENCONTRADO).
+        if ($preferredDocument !== null) {
+            return null;
         }
 
         $authoritativeValue = $this->getDocumentFieldValue($docFieldsMap, $classifier->getAuthoritativeDoc($field), $field);

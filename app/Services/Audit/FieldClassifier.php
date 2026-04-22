@@ -159,9 +159,60 @@ class FieldClassifier
         'Medico'               => ['AUTORIZACION'],
     ];
 
+    // Mapeo canónico → columna SQL de DispensationModel.
+    // Mantener sincronizado con app/Models/DispensationModel.php
+    private const FIELD_SQL_COLUMNS = [
+        'NumeroFactura'        => 'NumeroFactura',
+        'NumeroFormula'        => null,                 // No existe en SQL, solo en docs
+        'Autorizacion'         => 'NumeroAutorizacion',
+        'TipoIdentificacion'   => 'TipoDocumentoPaciente',
+        'NumeroIdentificacion' => 'DocumentoPaciente',
+        'FechaFormula'         => 'FechaFormula',
+        'FechaAutorizacion'    => 'FechaAutorizacion',
+        'FechaEntrega'         => 'FechaEntrega',
+        'FechaVencimiento'     => 'FechaVencimiento',
+        'VlrCobrado'           => 'VlrCobrado',
+        'Mipres'               => 'Mipres',
+        'IdPrincipal'          => 'IdPrincipal',
+        'IdDirec'              => 'IdDirec',
+        'IdProg'               => 'IdProg',
+        'IdEntr'               => 'IdEntr',
+        'IdRepEnt'             => 'IdRepEnt',
+        'Lote'                 => 'Lote',
+        'NITCliente'           => 'NITCliente',
+        'TipoDocumentoMedico'  => 'TipoDocumentoMedico',
+        'DocumentoMedico'      => 'DocumentoMedico',
+        'CodigoDiagnostico'    => 'CodigoDiagnostico',
+        'CodigoArticulo'       => 'CodigoArticulo',
+        'CodigoProducto'       => 'CodigoProducto',
+        'CUM'                  => 'CUM',
+        'Tipo'                 => 'Tipo',
+        'NombrePaciente'       => 'NombrePaciente',
+        'NombreArticulo'       => 'NombreArticulo',
+        'Medico'               => 'Medico',
+        'Laboratorio'          => 'Laboratorio',
+        'IPS'                  => 'IPS',
+        'Cliente.Entidad'      => 'Cliente',
+        'Cliente.Regimen'      => 'RegimenPaciente',
+        'FirmaActaEntrega'     => 'FirmaActaEntrega',
+        'SelloRecepcion'       => null,                 // No existe en BD, solo verificación visual
+        'FirmaPrescriptor'     => null,                 // No existe en BD, solo verificación visual
+        'CantidadEntregada'    => 'CantidadEntregada',
+        'CantidadPrescrita'    => 'CantidadPrescrita',
+    ];
+
     public function normalizeField(string $field): string
     {
         return self::FIELD_ALIASES[$field] ?? $field;
+    }
+
+    public function getSqlColumn(string $field): ?string
+    {
+        $field = $this->normalizeField($field);
+        if (array_key_exists($field, self::FIELD_SQL_COLUMNS)) {
+            return self::FIELD_SQL_COLUMNS[$field];
+        }
+        return null;
     }
 
     public function classify(string $field): string

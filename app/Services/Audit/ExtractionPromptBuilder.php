@@ -4,21 +4,6 @@ namespace App\Services\Audit;
 
 class ExtractionPromptBuilder
 {
-    /**
-     * Columnas FDV usadas como hints para localizar campos en documentos.
-     *
-     * @var array<string, array<string>>
-     */
-    private const FIELD_HINT_COLUMNS = [
-        'NombrePaciente'       => ['NombrePaciente', 'paciente'],
-        'NumeroIdentificacion' => ['DocumentoPaciente', 'identificacion'],
-        'NombreArticulo'       => ['NombreArticulo', 'articulo'],
-        'Medico'               => ['Medico', 'medico'],
-        'IPS'                  => ['IPS', 'ips'],
-        'NumeroFactura'        => ['NumeroFactura', 'factura'],
-        'Autorizacion'         => ['NumeroAutorizacion', 'autorizacion'],
-    ];
-
     private FieldClassifier $classifier;
 
     public function __construct()
@@ -167,12 +152,23 @@ class ExtractionPromptBuilder
 
     private function getFieldHint(string $field, array $dispensationData): ?string
     {
-        $candidateKeys = self::FIELD_HINT_COLUMNS[$field] ?? null;
-        if ($candidateKeys === null) {
+        // Solo campos exactos se benefician de hints; los semánticos Gemini los localiza por contexto.
+        if ($this->classifier->classify($field) !== FieldClassifier::TYPE_EXACT) {
             return null;
         }
 
-        $value = $this->resolveHintValue($candidateKeys, $dispensationData);
+        $sqlColumn = $this->classifier->getSqlColumn($field);
+
+        $candidates = array_values(array_unique(array_filter(
+            [$sqlColumn, $field],
+            static fn(?string $k): bool => $k !== null && $k !== ''
+        )));
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        $value = $this->resolveHintValue($candidates, $dispensationData);
 
         if ($value === null || !is_string($value) || trim($value) === '') {
             return null;
