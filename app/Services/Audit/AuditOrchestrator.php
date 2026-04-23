@@ -257,12 +257,9 @@ class AuditOrchestrator
             throw new \RuntimeException('Gemini no invocó report_extraction — function calling falló');
         }
 
+        $extracted = $this->normalizeExtractionContract($extracted, $documentRequirements);
         $extracted['promptHash'] = md5($systemInstruction . $userPrompt);
         $extracted['documentRequirements'] = $documentRequirements;
-        $extracted['extractionQuality'] = $this->buildExtractionQuality(
-            is_array($extracted['documents'] ?? null) ? $extracted['documents'] : [],
-            $documentRequirements
-        );
 
         return $extracted;
     }
@@ -537,51 +534,310 @@ class AuditOrchestrator
     }
 
     /**
-     * Resume calidad de extracción comparando llaves devueltas contra contrato esperado.
+     * Impone el contrato dinámico sobre la extracción cruda antes de evaluar reglas.
      *
-     * @param  array<int, array<string, mixed>> $documents  Documentos extraídos por Gemini.
+     * @param  array<string, mixed> $extracted  Respuesta parseada desde Function Calling.
      * @param  array<string, array{sourceLabel: string, fields: array<int, string>, visualChecks: array<int, string>}> $requirements  Contrato por documento.
-     * @return array<string, array<string, mixed>> Calidad por documento.
+     * @return array<string, mixed> Extracción normalizada con metadata de calidad.
      */
-    private function buildExtractionQuality(array $documents, array $requirements): array
+    private function normalizeExtractionContract(array $extracted, array $requirements): array
     {
-        $returnedByDoc = [];
-        foreach ($documents as $doc) {
-            $type = ExtractionResponseSchema::normalizeDocType((string) ($doc['type'] ?? 'UNKNOWN'));
-            $fields = is_array($doc['fields'] ?? null) ? $doc['fields'] : [];
-            $returnedByDoc[$type] = array_merge($returnedByDoc[$type] ?? [], $fields);
+        $documents = is_array($extracted['documents'] ?? null) ? array_values($extracted['documents']) : [];
+        $documentIndexes = [];
+        $fieldsByDocument = [];
+        $invalidFieldsByDocument = [];
+
+        foreach ($documents as $index => $document) {
+            if (!is_array($document)) {
+                continue;
+            }
+
+            $documentType = ExtractionResponseSchema::normalizeDocType((string) ($document['type'] ?? 'UNKNOWN'));
+            $documents[$index]['type'] = $documentType;
+            $documentIndexes[$documentType] = $index;
+
+            $fields = $document['fields'] ?? null;
+            $header = is_array($document['header'] ?? null) ? $document['header'] : [];
+            $items = is_array($document['items'] ?? null) ? $document['items'] : [];
+            $documents[$index]['header'] = $header;
+            $documents[$index]['items'] = array_values(array_filter($items, static fn($item): bool => is_array($item)));
+
+            $structuredFields = array_merge($header, $this->deriveFieldsFromItems($documents[$index]['items']));
+            if (is_array($fields)) {
+                $fieldsByDocument[$documentType] = array_merge(
+                    $fieldsByDocument[$documentType] ?? [],
+                    $fields,
+                    $structuredFields
+                );
+            } else {
+                $invalidFieldsByDocument[$documentType] = true;
+                if (!empty($structuredFields)) {
+                    $fieldsByDocument[$documentType] = array_merge(
+                        $fieldsByDocument[$documentType] ?? [],
+                        $structuredFields
+                    );
+                }
+            }
         }
 
         $quality = [];
         foreach ($requirements as $documentType => $requirement) {
             $expectedFields = $requirement['fields'];
-            $returnedFields = $returnedByDoc[$documentType] ?? [];
-            $returnedKeys = array_keys($returnedFields);
-            $missingKeys = [];
-            $nullFields = [];
+            $documentIndex = $documentIndexes[$documentType] ?? null;
 
+            if ($documentIndex === null) {
+                $quality[$documentType] = $this->buildMissingDocumentQuality($requirement);
+                continue;
+            }
+
+            if (($invalidFieldsByDocument[$documentType] ?? false) && !isset($fieldsByDocument[$documentType])) {
+                $documents[$documentIndex]['fields'] = [];
+                $quality[$documentType] = $this->buildInvalidFieldsQuality($requirement);
+                continue;
+            }
+
+            $rawFields = $fieldsByDocument[$documentType] ?? [];
+            $rawHeader = is_array($documents[$documentIndex]['header'] ?? null) ? $documents[$documentIndex]['header'] : [];
+            $rawItems = is_array($documents[$documentIndex]['items'] ?? null) ? $documents[$documentIndex]['items'] : [];
+            $rawReturnedKeys = array_values(array_filter(
+                $expectedFields,
+                fn(string $field): bool => $this->fieldExistsInStructuredExtraction($field, $rawHeader, $rawItems, $rawFields)
+            ));
+            $fields = [];
+            $header = [];
+            $items = $this->normalizeDocumentItems($rawItems, $expectedFields);
+            $missingKeysFilledWithNull = [];
             foreach ($expectedFields as $field) {
-                if (!array_key_exists($field, $returnedFields)) {
-                    $missingKeys[] = $field;
-                    continue;
-                }
+                if (in_array($field, RuleEngine::PER_ITEM_FIELDS, true)) {
+                    $value = $this->deriveFieldFromItems($field, $items);
+                    if ($value === null && array_key_exists($field, $rawFields)) {
+                        $value = $rawFields[$field];
+                    }
 
-                $value = $returnedFields[$field];
-                if ($value === null || (is_string($value) && trim($value) === '')) {
-                    $nullFields[] = $field;
+                    $fields[$field] = $value;
+                } elseif (array_key_exists($field, $rawHeader)) {
+                    $header[$field] = $rawHeader[$field];
+                    $fields[$field] = $rawHeader[$field];
+                } elseif (array_key_exists($field, $rawFields)) {
+                    $header[$field] = $rawFields[$field];
+                    $fields[$field] = $rawFields[$field];
+                } else {
+                    $header[$field] = null;
+                    $fields[$field] = null;
+                    $missingKeysFilledWithNull[] = $field;
                 }
             }
 
+            $documents[$documentIndex]['header'] = $header;
+            $documents[$documentIndex]['items'] = $items;
+            $documents[$documentIndex]['fields'] = $fields;
             $quality[$documentType] = [
                 'sourceLabel' => $requirement['sourceLabel'],
                 'expected' => count($expectedFields),
-                'returnedKeys' => count($returnedKeys),
-                'missingKeys' => $missingKeys,
-                'nullFields' => $nullFields,
+                'rawReturnedKeys' => count($rawReturnedKeys),
+                'normalizedReturnedKeys' => count($fields),
+                'returnedKeys' => count($fields),
+                'missingKeys' => [],
+                'missingKeysFilledWithNull' => $missingKeysFilledWithNull,
+                'nullFields' => $this->findNullExtractionFields($expectedFields, $fields),
+                'structuralErrors' => [],
             ];
         }
 
-        return $quality;
+        $extracted['documents'] = $documents;
+        $extracted['extractionQuality'] = $quality;
+
+        return $extracted;
+    }
+
+    /**
+     * Determina si un campo existe en header, items o fields legacy.
+     *
+     * @param  string $field  Campo esperado.
+     * @param  array<string, mixed> $header  Cabecera extraída.
+     * @param  array<int, mixed> $items  Items extraídos.
+     * @param  array<string, mixed> $fields  Fields legacy.
+     * @return bool True si el campo fue retornado por Gemini.
+     */
+    private function fieldExistsInStructuredExtraction(string $field, array $header, array $items, array $fields): bool
+    {
+        if (array_key_exists($field, $header) || array_key_exists($field, $fields)) {
+            return true;
+        }
+
+        foreach ($items as $item) {
+            if (is_array($item) && array_key_exists($field, $item)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Normaliza items documentales a filas con campos de línea esperados.
+     *
+     * @param  array<int, mixed> $items  Items crudos de Gemini.
+     * @param  array<int, string> $expectedFields  Campos esperados del documento.
+     * @return array<int, array<string, mixed>> Items normalizados.
+     */
+    private function normalizeDocumentItems(array $items, array $expectedFields): array
+    {
+        $itemFields = array_values(array_intersect($expectedFields, RuleEngine::PER_ITEM_FIELDS));
+        if (empty($itemFields)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $row = [];
+            foreach ($itemFields as $field) {
+                $row[$field] = $item[$field] ?? null;
+            }
+            $normalized[] = $row;
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Deriva fields legacy desde items normalizados.
+     *
+     * @param  array<int, mixed> $items  Items extraídos.
+     * @return array<string, mixed> Campos derivados desde items.
+     */
+    private function deriveFieldsFromItems(array $items): array
+    {
+        $fields = [];
+        foreach (RuleEngine::PER_ITEM_FIELDS as $field) {
+            $value = $this->deriveFieldFromItems($field, $items);
+            if ($value !== null) {
+                $fields[$field] = $value;
+            }
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Deriva un valor documental agregado desde las líneas de item.
+     *
+     * @param  string $field  Campo de línea.
+     * @param  array<int, mixed> $items  Items extraídos.
+     * @return string|null Valor agregado determinísticamente.
+     */
+    private function deriveFieldFromItems(string $field, array $items): ?string
+    {
+        $values = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $value = $item[$field] ?? null;
+            if ($value === null || (is_string($value) && trim($value) === '')) {
+                continue;
+            }
+
+            if (is_scalar($value)) {
+                $values[] = trim((string) $value);
+            }
+        }
+
+        if (empty($values)) {
+            return null;
+        }
+
+        if ($this->shouldDeduplicateItemField($field)) {
+            $values = array_values(array_unique($values));
+        }
+
+        return implode(', ', $values);
+    }
+
+    /**
+     * Indica si un campo de línea representa identidad repetible por varias filas.
+     *
+     * @param  string $field  Campo de línea.
+     * @return bool True si valores repetidos deben colapsarse.
+     */
+    private function shouldDeduplicateItemField(string $field): bool
+    {
+        return in_array($field, [
+            'CodigoArticulo',
+            'CodigoProducto',
+            'NombreArticulo',
+            'Laboratorio',
+            'CUM',
+            'Mipres',
+        ], true);
+    }
+
+    /**
+     * Construye metadata para documento esperado que no apareció en la extracción.
+     *
+     * @param  array{sourceLabel: string, fields: array<int, string>, visualChecks: array<int, string>} $requirement  Contrato documental.
+     * @return array<string, mixed> Metadata de calidad con error estructural.
+     */
+    private function buildMissingDocumentQuality(array $requirement): array
+    {
+        return [
+            'sourceLabel' => $requirement['sourceLabel'],
+            'expected' => count($requirement['fields']),
+            'rawReturnedKeys' => 0,
+            'normalizedReturnedKeys' => 0,
+            'returnedKeys' => 0,
+            'missingKeys' => $requirement['fields'],
+            'missingKeysFilledWithNull' => [],
+            'nullFields' => [],
+            'structuralErrors' => ['missing_document'],
+        ];
+    }
+
+    /**
+     * Construye metadata para documento cuyo bloque fields no es utilizable.
+     *
+     * @param  array{sourceLabel: string, fields: array<int, string>, visualChecks: array<int, string>} $requirement  Contrato documental.
+     * @return array<string, mixed> Metadata de calidad con error estructural.
+     */
+    private function buildInvalidFieldsQuality(array $requirement): array
+    {
+        return [
+            'sourceLabel' => $requirement['sourceLabel'],
+            'expected' => count($requirement['fields']),
+            'rawReturnedKeys' => 0,
+            'normalizedReturnedKeys' => 0,
+            'returnedKeys' => 0,
+            'missingKeys' => $requirement['fields'],
+            'missingKeysFilledWithNull' => [],
+            'nullFields' => [],
+            'structuralErrors' => ['invalid_fields'],
+        ];
+    }
+
+    /**
+     * Detecta campos esperados que quedaron sin valor luego de normalizar.
+     *
+     * @param  array<int, string> $expectedFields  Campos esperados por contrato.
+     * @param  array<string, mixed> $fields  Campos normalizados de extracción.
+     * @return array<int, string> Campos presentes con null o string vacío.
+     */
+    private function findNullExtractionFields(array $expectedFields, array $fields): array
+    {
+        $nullFields = [];
+
+        foreach ($expectedFields as $field) {
+            $value = $fields[$field] ?? null;
+            if ($value === null || (is_string($value) && trim($value) === '')) {
+                $nullFields[] = $field;
+            }
+        }
+
+        return $nullFields;
     }
 
     /**

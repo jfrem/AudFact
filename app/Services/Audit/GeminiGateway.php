@@ -417,10 +417,6 @@ class GeminiGateway
         if ($fails !== null && $fails >= $threshold) {
             // Abrir circuito con TTL de enfriamiento
             $redis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
-            // Cuando el TTL expire, Redis borra la key → checkCircuitBreaker ve null → closed
-            // Pero primero transicionamos a half-open instalando un callback via TTL escalonado
-            // Simplificación: usamos el TTL directo. Al expirar la key 'open', el próximo check ve
-            // estado null (= closed). El primer request exitoso resetea todo.
 
             Logger::warning('Circuit Breaker ABIERTO', [
                 'fallosConsecutivos' => $fails,

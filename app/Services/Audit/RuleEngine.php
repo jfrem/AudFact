@@ -1177,12 +1177,12 @@ class RuleEngine
     }
 
     /**
-     * Determina si un campo esperado fue omitido por la extracción de Gemini.
+     * Determina si un campo no puede evaluarse por error estructural de extracción.
      *
      * @param  array<string, mixed> $auditConfig  Configuración con metadata de extracción.
      * @param  string|null $document  Documento configurado para el campo.
      * @param  string $field  Campo canónico.
-     * @return bool True si el campo fue esperado pero no retornado como llave.
+     * @return bool True si el documento esperado no fue procesado con estructura válida.
      */
     private function isExtractionIncomplete(array $auditConfig, ?string $document, string $field): bool
     {
@@ -1195,7 +1195,7 @@ class RuleEngine
             return false;
         }
 
-        $missingKeys = $quality['missingKeys'] ?? [];
-        return is_array($missingKeys) && in_array($field, $missingKeys, true);
+        $structuralErrors = $quality['structuralErrors'] ?? [];
+        return is_array($structuralErrors) && !empty($structuralErrors);
     }
 }

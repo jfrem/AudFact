@@ -69,6 +69,19 @@ class ExtractionResponseSchema
             ];
         }
 
+        $itemFieldProperties = [];
+        foreach ($fieldsToExtract as $field) {
+            if (!in_array($field, RuleEngine::PER_ITEM_FIELDS, true)) {
+                continue;
+            }
+
+            $itemFieldProperties[$field] = [
+                'type' => 'STRING',
+                'description' => "Valor del campo de línea '{$field}'. Null si no aparece en esa línea.",
+                'nullable' => true,
+            ];
+        }
+
         $visualCheckProperties = [];
         foreach ($visualChecks as $check) {
             $visualCheckProperties[$check] = [
@@ -120,6 +133,19 @@ class ExtractionResponseSchema
                     'type' => 'OBJECT',
                     'properties' => $fieldProperties,
                     'description' => self::buildFieldsDescription($documentRequirements),
+                ],
+                'header' => [
+                    'type' => 'OBJECT',
+                    'properties' => $fieldProperties,
+                    'description' => 'Campos de cabecera del documento. No incluyas campos de líneas/items aquí.',
+                ],
+                'items' => [
+                    'type' => 'ARRAY',
+                    'description' => 'Líneas visibles del documento. Usa un objeto por cada fila de medicamento o insumo.',
+                    'items' => [
+                        'type' => 'OBJECT',
+                        'properties' => !empty($itemFieldProperties) ? $itemFieldProperties : $fieldProperties,
+                    ],
                 ],
             ],
             'required' => ['type', 'fields'],
@@ -228,10 +254,12 @@ class ExtractionResponseSchema
     private static function buildFieldsDescription(array $documentRequirements): string
     {
         if (empty($documentRequirements)) {
-            return 'Campos extraídos del documento';
+            return 'Campos extraídos del documento. Incluye cada campo solicitado; usa null si no es visible. Para campos de línea, llena items[] y deriva fields desde las líneas.';
         }
 
-        $parts = ['Campos extraídos del documento. Usa solo los campos configurados para el tipo documental identificado:'];
+        $parts = [
+            'Campos extraídos del documento. Para el tipo documental identificado incluye TODAS las llaves configuradas; usa null si el valor no es visible. Para campos de línea, usa items[] con una fila por medicamento/insumo:',
+        ];
         foreach ($documentRequirements as $documentType => $requirement) {
             $fields = $requirement['fields'] ?? [];
             if (empty($fields)) {

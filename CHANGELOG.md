@@ -1,6 +1,11 @@
 ## [2026-04-22]
 
 ### feat
+- **Ámbito**: Normalización contractual determinística de extracción Gemini.
+  - Archivos modificados: `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/ExtractionPromptBuilder.php`, `app/Services/Audit/ExtractionResponseSchema.php`, `app/Services/Audit/RuleEngine.php`, `tests/Services/Audit/ExtractionContractTest.php`, `CHANGELOG.md`
+  - Hallazgo resuelto: variación entre llaves omitidas y llaves `null`, y agregación inestable de campos de línea en documentos con múltiples items
+  - Impacto: el orquestador completa llaves esperadas ausentes con `null`, registra `missingKeysFilledWithNull`, soporta extracción `header` + `items`, deriva campos legacy desde líneas normalizadas y reserva `EXTRACCION_INCOMPLETA` para errores estructurales reales de extracción.
+
 - **Ámbito**: Contrato dinámico de extracción por documento para auditoría Gemini.
   - Archivos modificados: `app/Services/Audit/ExtractionPromptBuilder.php`, `app/Services/Audit/ExtractionResponseSchema.php`, `app/Services/Audit/AuditOrchestrator.php`, `app/Services/Audit/RuleEngine.php`, `app/Services/Audit/AuditResponseSchema.php`, `tests/Services/Audit/ExtractionContractTest.php`, `CHANGELOG.md`
   - Hallazgo resuelto: drift de extracción en campos configurados por documento

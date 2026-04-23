@@ -35,6 +35,8 @@ class ExtractionPromptBuilder
             '- Extrae los valores EXACTAMENTE como aparecen en el documento.',
             '- NO normalices, corrijas ni interpretes los valores extraídos.',
             '- Si un campo no es visible o legible, reporta null.',
+            '- Separa campos de cabecera en header y campos de medicamentos/insumos en items[].',
+            '- En items[], crea una fila por cada línea visible de medicamento o insumo.',
             '- Para verificaciones visuales, reporta si el elemento está presente y tu nivel de confianza.',
             '- Si el documento contiene múltiples páginas, revisa TODAS.',
             '',
@@ -74,6 +76,7 @@ class ExtractionPromptBuilder
             $documentRequirements = $this->resolveDocumentFieldRequirements($auditConfig);
             if (!empty($documentRequirements)) {
                 $parts[] = 'Extrae SOLO los campos indicados para cada tipo de documento. No uses valores de un documento para completar otro.';
+                $parts[] = 'Para campos de líneas de medicamento/insumo, llena items[] con una fila por línea visible. No agregues filas distintas en un único string.';
                 foreach ($documentRequirements as $documentType => $requirement) {
                     $sourceLabel = $requirement['sourceLabel'] !== '' ? ' ("' . $requirement['sourceLabel'] . '")' : '';
                     $parts[] = "Documento {$documentType}{$sourceLabel}:";
