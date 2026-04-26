@@ -1,5 +1,11 @@
 ## [2026-04-26]
 
+### fix
+- **Ámbito**: normalización canónica de fechas documentales en el Golden Case `T38250701547`
+  - Archivos modificados: `app/Services/Audit/Events/DocumentNormalizer.php`, `app/Services/Audit/Events/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentNormalizerTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`
+  - Hallazgo resuelto: ninguno
+  - Impacto: `FechaEntrega`, `FechaAutorizacion`, `FechaFormula` y `FechaVencimiento` se canonalizan a `YYYY-MM-DD` y la policy compara formatos documentales equivalentes como coincidencia, evitando falsos `VALOR_DISTINTO` por diferencias `DD/MM/YYYY` vs `YYYY-MM-DD`
+
 ### feat
 - **Ámbito**: evaluación semántica de productos mediante 'LLM as a Judge'
   - Archivos modificados: `app/Services/Audit/GeminiGatewayFactory.php`, `app/Services/Audit/SemanticMatchJudge.php`, `app/Services/Audit/Events/DocumentPolicyEngine.php`, `app/Services/Audit/Events/RulesEvaluationWorker.php`, `app/Services/Audit/Events/DocumentExtractionWorker.php`

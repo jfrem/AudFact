@@ -15,6 +15,13 @@ class DocumentNormalizer
         'ilegible',
     ];
 
+    private const DATE_FIELDS = [
+        'FechaFormula',
+        'FechaAutorizacion',
+        'FechaEntrega',
+        'FechaVencimiento',
+    ];
+
     private FieldClassifier $classifier;
 
     public function __construct(?FieldClassifier $classifier = null)
@@ -84,6 +91,8 @@ class DocumentNormalizer
             );
 
             [$normalizedValue, $operations] = $this->normalizeScalarWithOperations($value);
+            [$normalizedValue, $fieldOperations] = $this->normalizeFieldValueWithOperations($canonicalField, $normalizedValue);
+            $operations = array_merge($operations, $fieldOperations);
             foreach ($operations as $operation) {
                 $this->appendLog($normalizationLog, $operation, [
                     'field' => $canonicalField,
@@ -130,6 +139,8 @@ class DocumentNormalizer
                 );
 
                 [$normalizedValue, $operations] = $this->normalizeScalarWithOperations($value);
+                [$normalizedValue, $fieldOperations] = $this->normalizeFieldValueWithOperations($canonicalField, $normalizedValue);
+                $operations = array_merge($operations, $fieldOperations);
                 foreach ($operations as $operation) {
                     $this->appendLog($normalizationLog, $operation, [
                         'item_index' => $index,
@@ -330,6 +341,56 @@ class DocumentNormalizer
     {
         $normalized = strtoupper(trim((string) $value));
         return $normalized !== '' ? $normalized : 'CRITICO';
+    }
+
+    /**
+     * @return array{0:mixed,1:array<int,string>}
+     */
+    private function normalizeFieldValueWithOperations(string $field, mixed $value): array
+    {
+        if (!is_string($value)) {
+            return [$value, []];
+        }
+
+        if (in_array($field, self::DATE_FIELDS, true)) {
+            $normalizedDate = $this->normalizeDateString($value);
+            if ($normalizedDate !== null) {
+                $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];
+                return [$normalizedDate, $operations];
+            }
+        }
+
+        return [$value, []];
+    }
+
+    private function normalizeDateString(string $value): ?string
+    {
+        $candidate = trim($value);
+        if ($candidate === '') {
+            return null;
+        }
+
+        $datePortion = preg_split('/\s+/', $candidate, 2)[0] ?? $candidate;
+        if ($datePortion === '') {
+            return null;
+        }
+
+        $formats = [
+            'Y-m-d',
+            'Y/m/d',
+            'd/m/Y',
+            'd-m-Y',
+            'd.m.Y',
+        ];
+
+        foreach ($formats as $format) {
+            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
+            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
+                return $parsed->format('Y-m-d');
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -102,4 +102,33 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertContains('empty_item_row_dropped', array_column($result['normalization_log'], 'operation'));
         $this->assertContains('visual_check_defaulted', array_column($result['normalization_log'], 'operation'));
     }
+
+    public function testNormalizeCanonicalizesKnownDateFieldsToIsoFormat(): void
+    {
+        $normalizer = new DocumentNormalizer();
+
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'DISPENSA',
+            'visual_checks' => [],
+            'extraction_result' => [
+                'fields' => [
+                    'FechaEntrega' => '29/07/2025',
+                    'FechaAutorizacion' => '27/07/2025',
+                ],
+                'items' => [
+                    [
+                        'FechaVencimiento' => '30/03/2029',
+                    ],
+                ],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+            ],
+        ]);
+
+        $this->assertSame('2025-07-29', $result['fields_normalized']['FechaEntrega']);
+        $this->assertSame('2025-07-27', $result['fields_normalized']['FechaAutorizacion']);
+        $this->assertSame('2029-03-30', $result['items_normalized'][0]['FechaVencimiento']);
+        $this->assertContains('date_normalized_to_iso', array_column($result['normalization_log'], 'operation'));
+    }
 }

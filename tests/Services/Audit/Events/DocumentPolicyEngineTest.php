@@ -423,4 +423,72 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
         $this->assertTrue($result['document_decision']['approved']);
     }
+
+    public function testEvaluateMatchesDatesAcrossEquivalentDocumentFormats(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $authorizationResult = $engine->evaluate(
+            [
+                'tipo_documento' => 'AUTORIZACION',
+                'extraction_schema' => [
+                    'parameters' => [
+                        'properties' => [
+                            'fields' => [
+                                'properties' => [
+                                    'FechaAutorizacion' => ['type' => 'string'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'fuente_verdad' => [
+                    'header' => ['FechaAutorizacion' => '2025-07-27'],
+                    'items' => [],
+                ],
+            ],
+            [
+                'tipo_documento' => 'AUTORIZACION',
+                'fields_normalized' => [
+                    'FechaAutorizacion' => '27/07/2025',
+                ],
+                'items_normalized' => [],
+                'visual_checks_resultado' => [],
+                'document_quality' => 'legible',
+            ]
+        );
+
+        $dispensaResult = $engine->evaluate(
+            [
+                'tipo_documento' => 'DISPENSA',
+                'extraction_schema' => [
+                    'parameters' => [
+                        'properties' => [
+                            'fields' => [
+                                'properties' => [
+                                    'FechaEntrega' => ['type' => 'string'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+                'fuente_verdad' => [
+                    'header' => ['FechaEntrega' => '2025-07-29'],
+                    'items' => [],
+                ],
+            ],
+            [
+                'tipo_documento' => 'DISPENSA',
+                'fields_normalized' => [
+                    'FechaEntrega' => '29/07/2025',
+                ],
+                'items_normalized' => [],
+                'visual_checks_resultado' => [],
+                'document_quality' => 'legible',
+            ]
+        );
+
+        $this->assertSame('COINCIDE', $authorizationResult['hallazgos']['items'][0]['resultado']);
+        $this->assertSame('COINCIDE', $dispensaResult['hallazgos']['items'][0]['resultado']);
+    }
 }

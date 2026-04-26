@@ -49,6 +49,13 @@ class DocumentPolicyEngine
         'CUM',
     ];
 
+    private const DATE_FIELDS = [
+        'FechaFormula',
+        'FechaAutorizacion',
+        'FechaEntrega',
+        'FechaVencimiento',
+    ];
+
     private FieldClassifier $classifier;
     private AuditFindingRules $findingRules;
     private ?SemanticMatchJudge $semanticJudge;
@@ -694,12 +701,47 @@ class DocumentPolicyEngine
 
     private function normalizeForComparison(string $field, string $value): string
     {
+        if (in_array($field, self::DATE_FIELDS, true)) {
+            $normalizedDate = $this->normalizeDateForComparison($value);
+            return $normalizedDate ?? $this->normalizeText($value);
+        }
+
         if (in_array($field, ['CantidadEntregada', 'CantidadPrescrita', 'VlrCobrado'], true)) {
             $number = $this->parseNumber($value);
             return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
         }
 
         return $this->normalizeText($value);
+    }
+
+    private function normalizeDateForComparison(string $value): ?string
+    {
+        $candidate = trim($value);
+        if ($candidate === '') {
+            return null;
+        }
+
+        $datePortion = preg_split('/\s+/', $candidate, 2)[0] ?? $candidate;
+        if ($datePortion === '') {
+            return null;
+        }
+
+        $formats = [
+            'Y-m-d',
+            'Y/m/d',
+            'd/m/Y',
+            'd-m-Y',
+            'd.m.Y',
+        ];
+
+        foreach ($formats as $format) {
+            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
+            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
+                return $parsed->format('Y-m-d');
+            }
+        }
+
+        return null;
     }
 
     private function normalizeText(string $value): string
