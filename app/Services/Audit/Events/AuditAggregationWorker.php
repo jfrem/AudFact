@@ -30,12 +30,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
     }
 
-    /**
-     * Procesa un evento individual sin entrar al loop bloqueante del consumer.
-     *
-     * @param  AuditEvent $event Evento `rules_evaluated`.
-     * @return void
-     */
     public function processEvent(AuditEvent $event): void
     {
         $this->handle($event);
@@ -125,12 +119,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
-     * Cierra el estado técnico de la auditoría cuando falla la persistencia final y publica `audit_failed`.
-     *
-     * @param  AuditEvent $event
      * @param  array<string,mixed> $aggregate
-     * @param  \Throwable $error
-     * @return void
      */
     private function handleFinalFailure(AuditEvent $event, array $aggregate, \Throwable $error): void
     {
@@ -163,14 +152,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
     }
 
-    /**
-     * Publica el evento terminal del batch cuando el job llega a estado final.
-     *
-     * @param  string $jobId
-     * @param  string $auditId
-     * @param  string $parentEventId
-     * @return void
-     */
     private function publishBatchTerminalEventIfNeeded(string $jobId, string $auditId, string $parentEventId): void
     {
         $job = $this->stateStore->getJob($jobId);

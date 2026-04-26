@@ -15,7 +15,6 @@ class GeminiGateway
     private const BASE_RETRY_DELAY_MS = 1000;
     private const RETRYABLE_HTTP_CODES = [429, 503, 500, 502, 504];
 
-    // Circuit Breaker keys en Redis
     private const CB_KEY_STATE = 'cb:gemini:state';
     private const CB_KEY_FAILS = 'cb:gemini:fails';
     private const CB_STATE_CLOSED = 'closed';
@@ -39,23 +38,6 @@ class GeminiGateway
     private ?int $seed;
     private ResponseIADiskStore $responseIADiskStore;
 
-    /**
-     * Configura el gateway HTTP hacia Gemini y sus parámetros de generación.
-     *
-     * @param  Client $http  Cliente HTTP compartido.
-     * @param  string $apiKey  API key de Gemini.
-     * @param  string $model  Modelo generateContent configurado.
-     * @param  float|null $temperature  Temperatura de generación.
-     * @param  float|null $topP  Parámetro nucleus sampling.
-     * @param  int|null $topK  Parámetro top-k.
-     * @param  int $maxOutputTokens  Máximo de tokens de salida.
-     * @param  string $responseMimeType  MIME esperado de respuesta.
-     * @param  string|null $mediaResolution  Resolución de medios opcional.
-     * @param  int|null $thinkingBudget  Presupuesto de thinking cuando aplica.
-     * @param  int|null $seed  Semilla para reproducibilidad.
-     * @param  ResponseIADiskStore|null $responseIADiskStore  Persistencia de snapshots request/response.
-     * @return void
-     */
     public function __construct(
         Client $http,
         string $apiKey,
@@ -85,10 +67,7 @@ class GeminiGateway
     }
 
     /**
-     * Extrae texto plano de una respuesta Gemini legacy cuando no se usa Function Calling.
-     *
-     * @param  array<string, mixed> $result  Respuesta decodificada de Gemini.
-     * @return string|null Texto del primer part, si existe.
+     * @param  array<string, mixed> $result
      */
     public function extractResponseText(array $result): ?string
     {
@@ -109,20 +88,13 @@ class GeminiGateway
         return null;
     }
 
-    /**
-     * Devuelve el límite de tokens configurado para las respuestas de Gemini.
-     *
-     * @return int Máximo de tokens de salida.
-     */
     public function getMaxOutputTokens(): int
     {
         return $this->maxOutputTokens;
     }
 
     /**
-     * Devuelve la configuración efectiva no sensible usada para llamadas Gemini.
-     *
-     * @return array<string, mixed> Parámetros de generación seguros para debug.
+     * @return array<string, mixed>
      */
     public function getDebugConfig(): array
     {
@@ -140,16 +112,11 @@ class GeminiGateway
     }
 
     /**
-     * Envía documentos y prompt a Gemini obligando Function Calling.
-     *
-     * @param  string $prompt  Prompt de usuario para extracción.
-     * @param  array<int, array<string, mixed>> $files  Archivos inlineData preparados.
-     * @param  string $systemInstruction  Instrucción de sistema.
-     * @param  array<int, array<string, mixed>> $tools  Declaraciones de funciones.
-     * @param  array<string, mixed> $toolConfig  Configuración de Function Calling.
-     * @param  array<string, mixed> $generationOverrides  Overrides puntuales de generación.
-     * @return array<string, mixed> Respuesta JSON de Gemini.
-     * @throws \RuntimeException Si el circuito está abierto, la respuesta no es JSON o Gemini falla.
+     * @param  array<int, array<string, mixed>> $files
+     * @param  array<int, array<string, mixed>> $tools
+     * @param  array<string, mixed> $toolConfig
+     * @param  array<string, mixed> $generationOverrides
+     * @return array<string, mixed>
      */
     public function sendWithFunctionCalling(
         string $prompt,
@@ -206,45 +173,29 @@ class GeminiGateway
             } catch (\RuntimeException $e) {
                 $lastException = $e;
                 $httpCode = (int) $e->getCode();
-                $isRetryable = in_array($httpCode, self::RETRYABLE_HTTP_CODES, true);
-                $isLastAttempt = $attempt === self::MAX_API_RETRIES - 1;
 
-                if ($isRetryable && !$isLastAttempt) {
-                    $delayMs = self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
+                if ($this->shouldRetry($httpCode, $attempt)) {
                     Logger::warning('FC API error retryable', [
                         'httpCode' => $httpCode,
                         'attempt' => $attempt + 1,
-                        'delayMs' => $delayMs,
+                        'delayMs' => $this->retryDelayMs($attempt),
                     ]);
-                    usleep($delayMs * 1000);
+                    $this->applyRetryDelay($attempt);
                     continue;
                 }
-                
+
                 $this->saveDebugLogWithStatus($payload, ['error' => $e->getMessage()], $debugContext, 'runtime_error');
                 $this->recordCircuitFailure($httpCode);
                 throw $e;
             } catch (GuzzleException $e) {
                 $lastException = $e;
-                $httpCode = 0;
-                $errorMessage = $e->getMessage();
+                [$httpCode, $errorMessage] = $this->extractGuzzleError($e);
 
-                if ($e instanceof RequestException && $e->hasResponse()) {
-                    $httpCode = $e->getResponse()->getStatusCode();
-                    $errorBody = json_decode((string) $e->getResponse()->getBody(), true);
-                    if (isset($errorBody['error']['message'])) {
-                        $errorMessage = $errorBody['error']['message'];
-                    }
-                }
-
-                $isRetryable = in_array($httpCode, self::RETRYABLE_HTTP_CODES, true);
-                $isLastAttempt = $attempt === self::MAX_API_RETRIES - 1;
-
-                if ($isRetryable && !$isLastAttempt) {
-                    $delayMs = self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
-                    usleep($delayMs * 1000);
+                if ($this->shouldRetry($httpCode, $attempt)) {
+                    $this->applyRetryDelay($attempt);
                     continue;
                 }
-                
+
                 $this->saveDebugLogWithStatus($payload, ['error' => $errorMessage], $debugContext, 'http_error');
                 $this->recordCircuitFailure($httpCode);
                 throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
@@ -256,11 +207,44 @@ class GeminiGateway
         throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
     }
 
+    private function shouldRetry(int $httpCode, int $attempt): bool
+    {
+        return in_array($httpCode, self::RETRYABLE_HTTP_CODES, true)
+            && $attempt < self::MAX_API_RETRIES - 1;
+    }
+
+    private function retryDelayMs(int $attempt): int
+    {
+        return self::BASE_RETRY_DELAY_MS * (2 ** $attempt);
+    }
+
+    private function applyRetryDelay(int $attempt): void
+    {
+        usleep($this->retryDelayMs($attempt) * 1000);
+    }
+
     /**
-     * Extrae y limpia claves de contexto debug de los overrides de generación.
-     *
-     * @param  array<string, mixed> $generationOverrides  Overrides de generación mutables.
-     * @return array<string, mixed> Contexto depurado para persistencia debug.
+     * @return array{0:int,1:string}
+     */
+    private function extractGuzzleError(GuzzleException $e): array
+    {
+        $httpCode = 0;
+        $errorMessage = $e->getMessage();
+
+        if ($e instanceof RequestException && $e->hasResponse()) {
+            $httpCode = $e->getResponse()->getStatusCode();
+            $errorBody = json_decode((string) $e->getResponse()->getBody(), true);
+            if (isset($errorBody['error']['message'])) {
+                $errorMessage = $errorBody['error']['message'];
+            }
+        }
+
+        return [$httpCode, $errorMessage];
+    }
+
+    /**
+     * @param  array<string, mixed> $generationOverrides
+     * @return array<string, mixed>
      */
     private function extractDebugContext(array &$generationOverrides): array
     {
@@ -280,13 +264,9 @@ class GeminiGateway
     }
 
     /**
-     * Persiste snapshot debug agregando estado de la ejecución.
-     *
-     * @param  array<string, mixed> $requestPayload  Payload request a Gemini.
-     * @param  array<string, mixed> $responseBody  Respuesta o error serializable.
-     * @param  array<string, mixed> $context  Contexto de auditoría/documento.
-     * @param  string $status  Estado operativo del intento.
-     * @return void
+     * @param  array<string, mixed> $requestPayload
+     * @param  array<string, mixed> $responseBody
+     * @param  array<string, mixed> $context
      */
     private function saveDebugLogWithStatus(array $requestPayload, array $responseBody, array $context, string $status): void
     {
@@ -294,12 +274,9 @@ class GeminiGateway
     }
 
     /**
-     * Guarda el request/response en `responseIA` si `APP_ENV=development`.
-     *
-     * @param  array<string, mixed> $requestPayload  Payload enviado a Gemini.
-     * @param  array<string, mixed> $responseBody  Respuesta de Gemini.
-     * @param  array<string, mixed> $context  Contexto de auditoría/documento.
-     * @return void
+     * @param  array<string, mixed> $requestPayload
+     * @param  array<string, mixed> $responseBody
+     * @param  array<string, mixed> $context
      */
     private function saveDebugLog(array $requestPayload, array $responseBody, array $context): void
     {
@@ -314,15 +291,11 @@ class GeminiGateway
     }
 
     /**
-     * Arma el payload multimodal de generateContent con prompt, documentos y tools.
-     *
-     * @param  string $prompt  Texto del usuario.
-     * @param  array<int, array<string, mixed>> $files  Archivos base64 con MIME.
-     * @param  string $systemInstruction  Instrucción de sistema.
-     * @param  array<int, array<string, mixed>> $tools  Tools disponibles para Gemini.
-     * @param  array<string, mixed> $toolConfig  Configuración de invocación de tools.
-     * @param  array<string, mixed> $generationOverrides  Ajustes temporales de generación.
-     * @return array<string, mixed> Payload serializable para la API.
+     * @param  array<int, array<string, mixed>> $files
+     * @param  array<int, array<string, mixed>> $tools
+     * @param  array<string, mixed> $toolConfig
+     * @param  array<string, mixed> $generationOverrides
+     * @return array<string, mixed>
      */
     private function buildFunctionCallingPayload(
         string $prompt,
@@ -352,7 +325,6 @@ class GeminiGateway
             $generationConfig['thinkingConfig'] = ['thinkingBudget' => $this->thinkingBudget];
         }
 
-        // Parts: prompt text + archivos inline
         $parts = [['text' => $prompt]];
 
         foreach ($files as $index => $file) {
@@ -382,9 +354,7 @@ class GeminiGateway
     }
 
     /**
-     * Define safety settings permisivos para documentos clínicos y administrativos.
-     *
-     * @return array<int, array<string, string>> Configuración de seguridad para Gemini.
+     * @return array<int, array<string, string>>
      */
     private function getSafetySettings(): array
     {
@@ -408,12 +378,6 @@ class GeminiGateway
         ];
     }
 
-    /**
-     * Revisa el estado del circuit breaker antes de llamar Gemini.
-     *
-     * @return void
-     * @throws \RuntimeException Si el circuito está abierto y debe rechazarse la llamada.
-     */
     private function checkCircuitBreaker(): void
     {
         $redis = RedisClient::getInstance();
@@ -445,11 +409,6 @@ class GeminiGateway
         }
     }
 
-    /**
-     * Limpia el estado del circuit breaker tras una llamada exitosa.
-     *
-     * @return void
-     */
     private function recordCircuitSuccess(): void
     {
         $redis = RedisClient::getInstance();
@@ -470,12 +429,6 @@ class GeminiGateway
         $redis->del(self::CB_KEY_FAILS);
     }
 
-    /**
-     * Registra un fallo de Gemini y abre el circuito si supera el umbral configurado.
-     *
-     * @param  int $httpCode  Código HTTP asociado al fallo.
-     * @return void
-     */
     private function recordCircuitFailure(int $httpCode): void
     {
         $redis = RedisClient::getInstance();
@@ -486,11 +439,9 @@ class GeminiGateway
         $threshold = (int) \Core\Env::get('CB_GEMINI_THRESHOLD', 3);
         $cooldown = (int) \Core\Env::get('CB_GEMINI_COOLDOWN', 60);
 
-        // Incrementar contador de fallos (con TTL del doble del cooldown como safety)
         $fails = $redis->incr(self::CB_KEY_FAILS, $cooldown * 2);
 
         if ($fails !== null && $fails >= $threshold) {
-            // Abrir circuito con TTL de enfriamiento
             $redis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
 
             Logger::warning('Circuit Breaker ABIERTO', [
@@ -508,12 +459,6 @@ class GeminiGateway
         }
     }
 
-    /**
-     * Registra headers de cuota cuando Gemini los retorna.
-     *
-     * @param  mixed $response  Respuesta HTTP compatible con getHeaderLine().
-     * @return void
-     */
     private function logApiQuotaHeaders($response): void
     {
         $headers = [
@@ -522,7 +467,6 @@ class GeminiGateway
             'reset'     => $response->getHeaderLine('x-ratelimit-reset'),
         ];
 
-        // Solo loguear si hay headers de cuota presentes
         $hasQuotaHeaders = array_filter($headers, fn($v) => $v !== '');
         if (empty($hasQuotaHeaders)) {
             return;

@@ -88,21 +88,13 @@ class AuditStateStore
     {
         $patch['updated_at'] = gmdate('Y-m-d\TH:i:s\Z');
 
-        try {
-            $result = $this->redis->eval(
-                self::MERGE_LUA,
-                [self::auditKey($auditId)],
-                [$patch, self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: patchAudit falló', [
-                'audit_id' => $auditId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar la auditoría en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::MERGE_LUA,
+            [self::auditKey($auditId)],
+            [$patch, self::AUDIT_TTL_SECONDS],
+            'No se pudo actualizar la auditoría en Redis',
+            ['audit_id' => $auditId]
+        );
     }
 
     public function setAuditDocumentsTotal(string $auditId, int $total): bool
@@ -115,317 +107,91 @@ class AuditStateStore
 
     public function registerDocument(string $auditId, string $documentId, array $documentState): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local documentState = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(audit['documents']) ~= 'table' then
-    audit['documents'] = {}
-end
-
-audit['documents'][documentId] = documentState
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$documentId, $documentState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: registerDocument falló', [
-                'audit_id' => $auditId,
-                'document_id' => $documentId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo registrar el documento en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::REGISTER_DOCUMENT_LUA,
+            [self::auditKey($auditId)],
+            [$documentId, $documentState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            'No se pudo registrar el documento en Redis',
+            ['audit_id' => $auditId, 'document_id' => $documentId]
+        );
     }
 
     public function markDocumentExtracted(string $auditId, string $documentId, array $extractionState): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local patch = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
-    return 0
-end
-
-local document = audit['documents'][documentId]
-local previousStatus = tostring(document['status'] or '')
-
-for k, v in pairs(patch) do
-    document[k] = v
-end
-
-document['updated_at'] = now
-audit['documents'][documentId] = document
-
-if previousStatus ~= 'extracted' then
-    audit['docs_extracted'] = (tonumber(audit['docs_extracted']) or 0) + 1
-end
-
-audit['status'] = 'processing'
-
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$documentId, $extractionState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: markDocumentExtracted falló', [
-                'audit_id' => $auditId,
-                'document_id' => $documentId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar la extracción del documento en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->markDocumentTransition(
+            $auditId,
+            $documentId,
+            $extractionState,
+            'docs_extracted',
+            'extracted',
+            'No se pudo actualizar la extracción del documento en Redis'
+        );
     }
 
     public function markDocumentNormalized(string $auditId, string $documentId, array $normalizedState): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local patch = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
-    return 0
-end
-
-local document = audit['documents'][documentId]
-local previousStatus = tostring(document['status'] or '')
-
-for k, v in pairs(patch) do
-    document[k] = v
-end
-
-document['updated_at'] = now
-audit['documents'][documentId] = document
-
-if previousStatus ~= 'normalized' then
-    audit['docs_done'] = (tonumber(audit['docs_done']) or 0) + 1
-end
-
-audit['status'] = 'processing'
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$documentId, $normalizedState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: markDocumentNormalized falló', [
-                'audit_id' => $auditId,
-                'document_id' => $documentId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar la normalización del documento en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->markDocumentTransition(
+            $auditId,
+            $documentId,
+            $normalizedState,
+            'docs_done',
+            'normalized',
+            'No se pudo actualizar la normalización del documento en Redis'
+        );
     }
 
-    /**
-     * Persiste la evaluación de policy de un documento y actualiza el contador agregado.
-     *
-     * @param  string $auditId
-     * @param  string $documentId
-     * @param  array<string,mixed> $policyState
-     * @return bool
-     */
     public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local patch = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
-    return 0
-end
-
-local document = audit['documents'][documentId]
-local previousStatus = tostring(document['status'] or '')
-
-for k, v in pairs(patch) do
-    document[k] = v
-end
-
-document['updated_at'] = now
-audit['documents'][documentId] = document
-
-if previousStatus ~= 'evaluated' then
-    audit['docs_evaluated'] = (tonumber(audit['docs_evaluated']) or 0) + 1
-end
-
-audit['status'] = 'processing'
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$documentId, $policyState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: markDocumentEvaluated falló', [
-                'audit_id' => $auditId,
-                'document_id' => $documentId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar la evaluación del documento en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->markDocumentTransition(
+            $auditId,
+            $documentId,
+            $policyState,
+            'docs_evaluated',
+            'evaluated',
+            'No se pudo actualizar la evaluación del documento en Redis'
+        );
     }
 
     /**
-     * Guarda el resultado agregado de `rules_evaluated` una sola vez por auditoría.
-     *
-     * @param  string $auditId
-     * @param  array<string,mixed> $rulesEvaluation
-     * @return bool
+     * @param  array<string,mixed> $patch
      */
+    private function markDocumentTransition(
+        string $auditId,
+        string $documentId,
+        array $patch,
+        string $counterField,
+        string $expectedStatus,
+        string $errorMessage
+    ): bool {
+        return $this->runScript(
+            self::DOCUMENT_TRANSITION_LUA,
+            [self::auditKey($auditId)],
+            [$documentId, $patch, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS, $counterField, $expectedStatus],
+            $errorMessage,
+            ['audit_id' => $auditId, 'document_id' => $documentId]
+        );
+    }
+
     public function storeRulesEvaluation(string $auditId, array $rulesEvaluation): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-if type(audit['rules_evaluated_result']) == 'table' then
-    return 2
-end
-
-local payload = cjson.decode(ARGV[1])
-local now = ARGV[2]
-local ttl = tonumber(ARGV[3])
-
-audit['rules_evaluated_result'] = payload
-audit['rules_evaluated_at'] = now
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$rulesEvaluation, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: storeRulesEvaluation falló', [
-                'audit_id' => $auditId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo persistir rules_evaluated en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::STORE_RULES_EVALUATION_LUA,
+            [self::auditKey($auditId)],
+            [$rulesEvaluation, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            'No se pudo persistir rules_evaluated en Redis',
+            ['audit_id' => $auditId]
+        );
     }
 
-    /**
-     * Marca una auditoría como cerrada con su estado final y resultado agregado.
-     *
-     * @param  string $auditId
-     * @param  array<string,mixed> $completionState
-     * @return bool
-     */
     public function completeAudit(string $auditId, array $completionState): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local audit = cjson.decode(raw)
-if tostring(audit['status'] or '') == 'completed'
-or tostring(audit['status'] or '') == 'manual_review'
-or tostring(audit['status'] or '') == 'error'
-or tostring(audit['status'] or '') == 'failed' then
-    return 2
-end
-
-local patch = cjson.decode(ARGV[1])
-local now = ARGV[2]
-local ttl = tonumber(ARGV[3])
-
-for k, v in pairs(patch) do
-    audit[k] = v
-end
-
-audit['completed_at'] = now
-audit['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::auditKey($auditId)],
-                [$completionState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: completeAudit falló', [
-                'audit_id' => $auditId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo completar la auditoría en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::COMPLETE_AUDIT_LUA,
+            [self::auditKey($auditId)],
+            [$completionState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            'No se pudo completar la auditoría en Redis',
+            ['audit_id' => $auditId]
+        );
     }
 
     public function initJob(
@@ -467,42 +233,13 @@ LUA;
 
     public function registerAuditInJob(string $jobId, string $auditId, string $disDetNro): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-local job = cjson.decode(raw)
-local auditId = ARGV[1]
-local disDetNro = ARGV[2]
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(job['audits']) ~= 'table' then
-    job['audits'] = {}
-end
-job['audits'][auditId] = { dis_det_nro = disDetNro, status = 'pending' }
-job['total'] = (tonumber(job['total']) or 0) + 1
-job['updated_at'] = now
-
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::jobKey($jobId)],
-                [$auditId, $disDetNro, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: registerAuditInJob falló', [
-                'job_id' => $jobId,
-                'audit_id' => $auditId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo registrar auditoría en el job', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::REGISTER_AUDIT_IN_JOB_LUA,
+            [self::jobKey($jobId)],
+            [$auditId, $disDetNro, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS],
+            'No se pudo registrar auditoría en el job',
+            ['job_id' => $jobId, 'audit_id' => $auditId]
+        );
     }
 
     public function updateJobStatus(string $jobId, string $status): bool
@@ -519,139 +256,35 @@ LUA;
     {
         $patch['updated_at'] = gmdate('Y-m-d\TH:i:s\Z');
 
-        try {
-            $result = $this->redis->eval(
-                self::MERGE_LUA,
-                [self::jobKey($jobId)],
-                [$patch, self::JOB_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: patchJob falló', [
-                'job_id' => $jobId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar el job en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::MERGE_LUA,
+            [self::jobKey($jobId)],
+            [$patch, self::JOB_TTL_SECONDS],
+            'No se pudo actualizar el job en Redis',
+            ['job_id' => $jobId]
+        );
     }
 
-    /**
-     * Actualiza el progreso de un job batch cuando una auditoría termina.
-     *
-     * @param  string $jobId
-     * @param  string $auditId
-     * @param  string $auditStatus
-     * @return bool
-     */
     public function markAuditCompletedInJob(string $jobId, string $auditId, string $auditStatus): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local job = cjson.decode(raw)
-local auditId = ARGV[1]
-local auditStatus = ARGV[2]
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-
-if type(job['audits']) ~= 'table' or type(job['audits'][auditId]) ~= 'table' then
-    return 0
-end
-
-local auditState = job['audits'][auditId]
-local previousStatus = tostring(auditState['status'] or '')
-
-auditState['status'] = auditStatus
-auditState['completed_at'] = now
-job['audits'][auditId] = auditState
-
-if previousStatus ~= 'completed' and previousStatus ~= 'manual_review'
-and previousStatus ~= 'error' and previousStatus ~= 'failed' then
-    if auditStatus == 'failed' then
-        job['failed'] = (tonumber(job['failed']) or 0) + 1
-    else
-        job['done'] = (tonumber(job['done']) or 0) + 1
-    end
-end
-
-local processed = (tonumber(job['done']) or 0) + (tonumber(job['failed']) or 0)
-local total = tonumber(job['total']) or 0
-
-if processed >= total and total > 0 then
-    if (tonumber(job['failed']) or 0) > 0 then
-        job['status'] = 'completed_with_errors'
-    else
-        job['status'] = 'completed'
-    end
-else
-    job['status'] = 'processing'
-end
-
-job['updated_at'] = now
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::jobKey($jobId)],
-                [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: markAuditCompletedInJob falló', [
-                'job_id' => $jobId,
-                'audit_id' => $auditId,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo actualizar el progreso del job en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
+            [self::jobKey($jobId)],
+            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS],
+            'No se pudo actualizar el progreso del job en Redis',
+            ['job_id' => $jobId, 'audit_id' => $auditId]
+        );
     }
 
-    /**
-     * Marca en el job que el evento terminal de batch ya fue publicado para evitar duplicados.
-     *
-     * @param  string $jobId
-     * @param  string $eventType
-     * @return bool
-     */
     public function claimBatchTerminalEvent(string $jobId, string $eventType): bool
     {
-        $lua = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local job = cjson.decode(raw)
-if tostring(job['batch_event_published'] or '') ~= '' then
-    return 2
-end
-
-job['batch_event_published'] = ARGV[1]
-job['updated_at'] = ARGV[2]
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', tonumber(ARGV[3]))
-return 1
-LUA;
-
-        try {
-            $result = $this->redis->eval(
-                $lua,
-                [self::jobKey($jobId)],
-                [$eventType, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS]
-            );
-        } catch (\Exception $e) {
-            Logger::error('AuditStateStore: claimBatchTerminalEvent falló', [
-                'job_id' => $jobId,
-                'event_type' => $eventType,
-                'error' => $e->getMessage(),
-            ]);
-            throw new RuntimeException('No se pudo reclamar el evento terminal del batch en Redis', 0, $e);
-        }
-
-        return (int) $result === 1;
+        return $this->runScript(
+            self::CLAIM_BATCH_TERMINAL_EVENT_LUA,
+            [self::jobKey($jobId)],
+            [$eventType, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS],
+            'No se pudo reclamar el evento terminal del batch en Redis',
+            ['job_id' => $jobId, 'event_type' => $eventType]
+        );
     }
 
     public function claimBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo, string $jobId): bool
@@ -711,6 +344,23 @@ LUA;
         return $data;
     }
 
+    /**
+     * @param  array<int,string> $keys
+     * @param  array<int,mixed> $args
+     * @param  array<string,mixed> $logContext
+     */
+    private function runScript(string $lua, array $keys, array $args, string $errorMessage, array $logContext): bool
+    {
+        try {
+            $result = $this->redis->eval($lua, $keys, $args);
+        } catch (\Exception $e) {
+            Logger::error($errorMessage, array_merge($logContext, ['error' => $e->getMessage()]));
+            throw new RuntimeException($errorMessage, 0, $e);
+        }
+
+        return (int) $result === 1;
+    }
+
     private const MERGE_LUA = <<<'LUA'
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 0 end
@@ -723,6 +373,195 @@ for k, v in pairs(patch) do
 end
 
 redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[2]))
+return 1
+LUA;
+
+    private const REGISTER_DOCUMENT_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local audit = cjson.decode(raw)
+local documentId = ARGV[1]
+local documentState = cjson.decode(ARGV[2])
+local now = ARGV[3]
+local ttl = tonumber(ARGV[4])
+
+if type(audit['documents']) ~= 'table' then
+    audit['documents'] = {}
+end
+
+audit['documents'][documentId] = documentState
+audit['updated_at'] = now
+
+redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+return 1
+LUA;
+
+    private const DOCUMENT_TRANSITION_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local audit = cjson.decode(raw)
+local documentId = ARGV[1]
+local patch = cjson.decode(ARGV[2])
+local now = ARGV[3]
+local ttl = tonumber(ARGV[4])
+local counterField = ARGV[5]
+local expectedStatus = ARGV[6]
+
+if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
+    return 0
+end
+
+local document = audit['documents'][documentId]
+local previousStatus = tostring(document['status'] or '')
+
+for k, v in pairs(patch) do
+    document[k] = v
+end
+
+document['updated_at'] = now
+audit['documents'][documentId] = document
+
+if previousStatus ~= expectedStatus then
+    audit[counterField] = (tonumber(audit[counterField]) or 0) + 1
+end
+
+audit['status'] = 'processing'
+audit['updated_at'] = now
+
+redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+return 1
+LUA;
+
+    private const STORE_RULES_EVALUATION_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local audit = cjson.decode(raw)
+if type(audit['rules_evaluated_result']) == 'table' then
+    return 2
+end
+
+local payload = cjson.decode(ARGV[1])
+local now = ARGV[2]
+local ttl = tonumber(ARGV[3])
+
+audit['rules_evaluated_result'] = payload
+audit['rules_evaluated_at'] = now
+audit['updated_at'] = now
+
+redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+return 1
+LUA;
+
+    private const COMPLETE_AUDIT_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local audit = cjson.decode(raw)
+if tostring(audit['status'] or '') == 'completed'
+or tostring(audit['status'] or '') == 'manual_review'
+or tostring(audit['status'] or '') == 'error'
+or tostring(audit['status'] or '') == 'failed' then
+    return 2
+end
+
+local patch = cjson.decode(ARGV[1])
+local now = ARGV[2]
+local ttl = tonumber(ARGV[3])
+
+for k, v in pairs(patch) do
+    audit[k] = v
+end
+
+audit['completed_at'] = now
+audit['updated_at'] = now
+
+redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+return 1
+LUA;
+
+    private const REGISTER_AUDIT_IN_JOB_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local job = cjson.decode(raw)
+local auditId = ARGV[1]
+local disDetNro = ARGV[2]
+local now = ARGV[3]
+local ttl = tonumber(ARGV[4])
+
+if type(job['audits']) ~= 'table' then
+    job['audits'] = {}
+end
+job['audits'][auditId] = { dis_det_nro = disDetNro, status = 'pending' }
+job['total'] = (tonumber(job['total']) or 0) + 1
+job['updated_at'] = now
+
+redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
+return 1
+LUA;
+
+    private const MARK_AUDIT_COMPLETED_IN_JOB_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local job = cjson.decode(raw)
+local auditId = ARGV[1]
+local auditStatus = ARGV[2]
+local now = ARGV[3]
+local ttl = tonumber(ARGV[4])
+
+if type(job['audits']) ~= 'table' or type(job['audits'][auditId]) ~= 'table' then
+    return 0
+end
+
+local auditState = job['audits'][auditId]
+local previousStatus = tostring(auditState['status'] or '')
+
+auditState['status'] = auditStatus
+auditState['completed_at'] = now
+job['audits'][auditId] = auditState
+
+if previousStatus ~= 'completed' and previousStatus ~= 'manual_review'
+and previousStatus ~= 'error' and previousStatus ~= 'failed' then
+    if auditStatus == 'failed' then
+        job['failed'] = (tonumber(job['failed']) or 0) + 1
+    else
+        job['done'] = (tonumber(job['done']) or 0) + 1
+    end
+end
+
+local processed = (tonumber(job['done']) or 0) + (tonumber(job['failed']) or 0)
+local total = tonumber(job['total']) or 0
+
+if processed >= total and total > 0 then
+    if (tonumber(job['failed']) or 0) > 0 then
+        job['status'] = 'completed_with_errors'
+    else
+        job['status'] = 'completed'
+    end
+else
+    job['status'] = 'processing'
+end
+
+job['updated_at'] = now
+redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
+return 1
+LUA;
+
+    private const CLAIM_BATCH_TERMINAL_EVENT_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+local job = cjson.decode(raw)
+if tostring(job['batch_event_published'] or '') ~= '' then
+    return 2
+end
+
+job['batch_event_published'] = ARGV[1]
+job['updated_at'] = ARGV[2]
+redis.call('SET', KEYS[1], cjson.encode(job), 'EX', tonumber(ARGV[3]))
 return 1
 LUA;
 }

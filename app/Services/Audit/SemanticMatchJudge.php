@@ -22,8 +22,6 @@ final class SemanticMatchJudge
     }
 
     /**
-     * @param string $expected
-     * @param string $actual
      * @param array<string,mixed> $context
      * @return array{is_match: bool, reasoning: string}
      */
@@ -42,7 +40,6 @@ final class SemanticMatchJudge
         }
 
         $result = $this->callGemini($expected, $actual, $context);
-        
         $this->putInCache($hash, $result);
 
         return $result;
@@ -99,15 +96,13 @@ final class SemanticMatchJudge
     }
 
     /**
-     * @param string $expected
-     * @param string $actual
      * @param array<string,mixed> $context
      * @return array{is_match: bool, reasoning: string}
      */
     private function callGemini(string $expected, string $actual, array $context): array
     {
         $prompt = "Producto Esperado (Fuente de Verdad): \"{$expected}\"\nProducto Entregado (Documento): \"{$actual}\"";
-        
+
         $systemInstruction = "Eres un auditor experto de salud en Colombia. Determina si el Producto Esperado y el Producto Entregado son comercial o clínicamente intercambiables (ej. genérico vs marca, diferente gramaje si la dosis es adaptable). Responde is_match=true SOLO si tienes una confianza determinística absoluta en la homologación. Debes proveer un reasoning breve (max 100 caracteres) de tu decisión.";
 
         $schema = [

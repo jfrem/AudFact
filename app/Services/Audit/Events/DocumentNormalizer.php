@@ -61,7 +61,6 @@ class DocumentNormalizer
     }
 
     /**
-     * @param mixed $fields
      * @param array<int,array<string,mixed>> $normalizationLog
      * @return array<string,mixed>
      */
@@ -101,7 +100,6 @@ class DocumentNormalizer
     }
 
     /**
-     * @param mixed $items
      * @param array<int,array<string,mixed>> $normalizationLog
      * @return array<int,array<string,mixed>>
      */
@@ -157,8 +155,6 @@ class DocumentNormalizer
     }
 
     /**
-     * @param mixed $configuredChecks
-     * @param mixed $extractedChecks
      * @param array<int,array<string,mixed>> $normalizationLog
      * @return array<int,array{check:string,presente:bool,detalle:?string,severidad:string}>
      */
@@ -253,7 +249,6 @@ class DocumentNormalizer
     }
 
     /**
-     * @param mixed $notes
      * @param array<int,array<string,mixed>> $normalizationLog
      * @return array<int,string>
      */

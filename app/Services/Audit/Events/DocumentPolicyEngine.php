@@ -63,8 +63,6 @@ class DocumentPolicyEngine
     }
 
     /**
-     * Evalúa un documento normalizado contra la fuente de verdad de la auditoría.
-     *
      * @param  array<string,mixed> $documentState
      * @param  array<string,mixed> $normalizedPayload
      * @return array<string,mixed>
@@ -157,7 +155,6 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @param  mixed $value
      * @return array<string,mixed>
      */
     private function normalizeAssociative(mixed $value): array
@@ -166,7 +163,6 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @param  mixed $value
      * @return array<int,array<string,mixed>>
      */
     private function normalizeRows(mixed $value): array
@@ -186,7 +182,6 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @param  mixed $value
      * @return array<string,array{check:string,presente:bool,detalle:?string,severidad:string}>
      */
     private function normalizeVisualCheckResults(mixed $value): array
@@ -219,7 +214,6 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @param  mixed $schema
      * @return array<int,string>
      */
     private function extractExpectedFields(mixed $schema): array
@@ -564,47 +558,56 @@ class DocumentPolicyEngine
             $severity = $this->normalizeVisualSeverity($checkExpected['severity'] ?? null);
 
             if ($documentQuality !== 'legible') {
-                $findings[] = [
-                    'valorFuenteVerdad' => 'OBLIGATORIO',
-                    'valorDocumento' => 'NO_EVALUADO',
-                    'resultado' => self::RESULT_INCONCLUSIVE,
-                    'detalle' => 'La calidad documental no permite concluir la validación visual.',
-                    'campo' => $displayField,
-                    'severidad' => $severity,
-                    'documento' => $documentType,
-                ];
+                $findings[] = $this->buildVisualFinding(
+                    $documentType, $displayField, $severity,
+                    'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
+                    'La calidad documental no permite concluir la validación visual.'
+                );
                 continue;
             }
 
             $foundResult = $results[$canonicalField] ?? null;
             if (!is_array($foundResult)) {
-                $findings[] = [
-                    'valorFuenteVerdad' => 'OBLIGATORIO',
-                    'valorDocumento' => 'NO_EVALUADO',
-                    'resultado' => self::RESULT_INCONCLUSIVE,
-                    'detalle' => 'Check visual esperado no fue evaluado por el modelo.',
-                    'campo' => $displayField,
-                    'severidad' => $severity,
-                    'documento' => $documentType,
-                ];
+                $findings[] = $this->buildVisualFinding(
+                    $documentType, $displayField, $severity,
+                    'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
+                    'Check visual esperado no fue evaluado por el modelo.'
+                );
                 continue;
             }
 
             $actualPresent = (bool) ($foundResult['presente'] ?? false);
-            $detail = $this->normalizeNullableString($foundResult['detalle'] ?? null);
-
-            $findings[] = [
-                'valorFuenteVerdad' => 'OBLIGATORIO',
-                'valorDocumento' => $actualPresent ? 'PRESENTE' : 'AUSENTE',
-                'resultado' => $actualPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
-                'detalle' => $detail,
-                'campo' => $displayField,
-                'severidad' => $severity,
-                'documento' => $documentType,
-            ];
+            $findings[] = $this->buildVisualFinding(
+                $documentType, $displayField, $severity,
+                $actualPresent ? 'PRESENTE' : 'AUSENTE',
+                $actualPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
+                $this->normalizeNullableString($foundResult['detalle'] ?? null)
+            );
         }
 
         return $findings;
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function buildVisualFinding(
+        string $documentType,
+        string $displayField,
+        string $severity,
+        string $valorDocumento,
+        string $resultado,
+        ?string $detalle
+    ): array {
+        return [
+            'valorFuenteVerdad' => 'OBLIGATORIO',
+            'valorDocumento' => $valorDocumento,
+            'resultado' => $resultado,
+            'detalle' => $detalle,
+            'campo' => $displayField,
+            'severidad' => $severity,
+            'documento' => $documentType,
+        ];
     }
 
     private function normalizeDocumentType(string $documentType): string

@@ -6,9 +6,7 @@ namespace App\Services\Audit\Events;
 
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\GeminiGatewayFactory;
-use Core\Env;
 use Core\Logger;
-use GuzzleHttp\Client;
 use RuntimeException;
 
 final class DocumentExtractionWorker extends AuditEventConsumer
@@ -248,8 +246,8 @@ TEXT;
 
     private function validateExtractionPayload(array $args): array
     {
-        $fields = $this->requireArrayPayload($args, 'fields', 'Gemini retornó extraction payload sin fields');
-        $visualChecks = $this->requireArrayPayload($args, 'visual_checks', 'Gemini retornó extraction payload sin visual_checks');
+        $fields = $this->requiredArray($args, 'fields', 'Gemini retornó extraction payload sin fields');
+        $visualChecks = $this->requiredArray($args, 'visual_checks', 'Gemini retornó extraction payload sin visual_checks');
         $documentQuality = $this->validateDocumentQuality($args['document_quality'] ?? null);
         $items = $this->normalizeOptionalArray($args['items'] ?? []);
         $qualityNotes = $this->normalizeOptionalArray($args['quality_notes'] ?? []);
@@ -277,11 +275,11 @@ TEXT;
         }
     }
 
-    private function requiredArray(array $payload, string $key): array
+    private function requiredArray(array $payload, string $key, ?string $errorMessage = null): array
     {
         $value = $payload[$key] ?? null;
         if (!is_array($value)) {
-            throw new RuntimeException("document_registered sin {$key}");
+            throw new RuntimeException($errorMessage ?? "document_registered sin {$key}");
         }
 
         return $value;
@@ -313,19 +311,6 @@ TEXT;
         $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
 
         return strtoupper(trim($documentType)) === 'DISPENSA' && count($sourceTruthItems) > 1;
-    }
-
-    /**
-     * @return array<int|string,mixed>
-     */
-    private function requireArrayPayload(array $payload, string $key, string $errorMessage): array
-    {
-        $value = $payload[$key] ?? null;
-        if (!is_array($value)) {
-            throw new RuntimeException($errorMessage);
-        }
-
-        return $value;
     }
 
     /**
@@ -370,5 +355,4 @@ TEXT;
             }
         }
     }
-
 }

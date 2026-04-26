@@ -12,9 +12,6 @@ class AuditResultAggregator
     private FieldClassifier $classifier;
     private AuditFindingRules $findingRules;
 
-    /**
-     * @param FieldClassifier|null $classifier Clasificador de campos/severidades del dominio.
-     */
     public function __construct(?FieldClassifier $classifier = null)
     {
         $this->classifier = $classifier ?? new FieldClassifier();
@@ -22,8 +19,6 @@ class AuditResultAggregator
     }
 
     /**
-     * Construye el contrato final persistible a partir de `rules_evaluated` y el estado de auditoría.
-     *
      * @param  array<string,mixed> $audit
      * @param  array<string,mixed> $rulesPayload
      * @return array{
@@ -106,7 +101,6 @@ class AuditResultAggregator
     }
 
     /**
-     * @param  mixed $findings
      * @return array<int,array<string,mixed>>
      */
     private function normalizeFindings(mixed $findings): array
@@ -127,7 +121,6 @@ class AuditResultAggregator
     }
 
     /**
-     * @param  mixed $metrics
      * @return array<string,int>
      */
     private function normalizeMetrics(mixed $metrics): array
@@ -153,7 +146,6 @@ class AuditResultAggregator
     }
 
     /**
-     * @param  mixed $decisions
      * @return array<int,array{documentName:string,approved:bool,observation:?string}>
      */
     private function normalizeDocumentDecisions(mixed $decisions): array

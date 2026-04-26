@@ -38,12 +38,6 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('policy-' . getmypid());
     }
 
-    /**
-     * Procesa un evento individual sin entrar al loop bloqueante del consumer.
-     *
-     * @param  AuditEvent $event Evento `document_normalized`.
-     * @return void
-     */
     public function processEvent(AuditEvent $event): void
     {
         $this->handle($event);
@@ -163,18 +157,9 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         return [
             'hallazgos' => [
                 'items' => $allFindings,
-                'metrics' => $this->aggregateMetrics($allFindings),
+                'metrics' => $this->findingRules->summarizeMetrics($allFindings),
             ],
             'document_decisions' => $documentDecisions,
         ];
-    }
-
-    /**
-     * @param  array<int,array<string,mixed>> $findings
-     * @return array<string,int>
-     */
-    private function aggregateMetrics(array $findings): array
-    {
-        return $this->findingRules->summarizeMetrics($findings);
     }
 }

@@ -199,35 +199,17 @@ class FieldClassifier
         'CantidadPrescrita'    => 'CantidadPrescrita',
     ];
 
-    /**
-     * Normaliza alias históricos o de base de datos al nombre canónico del campo.
-     *
-     * @param  string $field  Nombre recibido desde configuración, extracción o FDV.
-     * @return string Nombre canónico usado por el pipeline.
-     */
     public function normalizeField(string $field): string
     {
         return self::FIELD_ALIASES[$field] ?? $field;
     }
 
-    /**
-     * Devuelve el nombre visible/contractual de un campo canónico.
-     *
-     * @param  string $field
-     * @return string
-     */
     public function getDisplayField(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::DISPLAY_FIELD_NAMES[$field] ?? $field;
     }
 
-    /**
-     * Obtiene la columna SQL asociada a un campo canónico.
-     *
-     * @param  string $field  Nombre del campo a resolver.
-     * @return string|null Columna SQL correspondiente, o null si solo existe en documentos.
-     */
     public function getSqlColumn(string $field): ?string
     {
         $field = $this->normalizeField($field);
@@ -237,36 +219,18 @@ class FieldClassifier
         return null;
     }
 
-    /**
-     * Clasifica un campo por estrategia de evaluación.
-     *
-     * @param  string $field  Nombre del campo a clasificar.
-     * @return string Tipo de comparación: exact, semantic, visual o business.
-     */
     public function classify(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::FIELD_TYPES[$field] ?? self::TYPE_EXACT;
     }
 
-    /**
-     * Devuelve la severidad por defecto configurada para un campo.
-     *
-     * @param  string $field  Nombre del campo a evaluar.
-     * @return string Severidad normalizada: alta, media o baja.
-     */
     public function getSeverity(string $field): string
     {
         $field = $this->normalizeField($field);
         return self::FIELD_SEVERITIES[$field] ?? self::SEVERITY_MEDIUM;
     }
 
-    /**
-     * Identifica el documento autoritativo para validar un campo.
-     *
-     * @param  string $field  Nombre del campo a consultar.
-     * @return string Tipo documental canónico o MULTIPLE si no hay uno específico.
-     */
     public function getAuthoritativeDoc(string $field): string
     {
         $field = $this->normalizeField($field);
@@ -274,10 +238,7 @@ class FieldClassifier
     }
 
     /**
-     * Lista documentos alternativos aceptables para buscar un campo.
-     *
-     * @param  string $field  Nombre del campo a consultar.
-     * @return array<int, string> Tipos documentales alternativos en orden de prioridad.
+     * @return array<int, string>
      */
     public function getAlternativeDocs(string $field): array
     {
@@ -286,10 +247,7 @@ class FieldClassifier
     }
 
     /**
-     * Obtiene todos los campos clasificados con un tipo de evaluación específico.
-     *
-     * @param  string $type  Tipo de evaluación requerido.
-     * @return array<int, string> Nombres de campos que pertenecen al tipo solicitado.
+     * @return array<int, string>
      */
     public function getFieldsByType(string $type): array
     {
@@ -300,9 +258,7 @@ class FieldClassifier
     }
 
     /**
-     * Devuelve el catálogo completo de campos evaluables con tipo y severidad.
-     *
-     * @return array<string, array{type: string, severity: string}> Metadatos por campo.
+     * @return array<string, array{type: string, severity: string}>
      */
     public function getAllFields(): array
     {
