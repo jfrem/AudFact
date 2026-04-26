@@ -460,6 +460,304 @@ LUA;
         }
     }
 
+    public function xAdd(string $stream, array $fields): ?string
+    {
+        if (!$this->isAvailable()) {
+            return null;
+        }
+
+        if ($fields === []) {
+            throw new \InvalidArgumentException('xAdd requiere al menos un campo');
+        }
+
+        try {
+            $args = [$this->prefix . $stream, '*'];
+            foreach ($fields as $key => $value) {
+                $args[] = (string) $key;
+                $args[] = (string) $value;
+            }
+
+            $id = $this->client->executeRaw(array_merge(['XADD'], $args));
+            return is_string($id) ? $id : null;
+        } catch (\Exception $e) {
+            Logger::error('Redis XADD falló', ['stream' => $stream, 'error' => $e->getMessage()]);
+            throw new RedisUnavailableException("Redis XADD falló para stream: {$stream}", 0, $e);
+        }
+    }
+
+    public function xGroupCreate(string $stream, string $group, string $id = '$'): bool
+    {
+        if (!$this->isAvailable()) {
+            throw new RedisUnavailableException("Redis no disponible para XGROUP CREATE stream: {$stream}");
+        }
+
+        try {
+            $this->client->executeRaw([
+                'XGROUP', 'CREATE', $this->prefix . $stream, $group, $id, 'MKSTREAM',
+            ]);
+            return true;
+        } catch (\Exception $e) {
+            if (stripos($e->getMessage(), 'BUSYGROUP') !== false) {
+                return true;
+            }
+            throw new RedisUnavailableException(
+                "Redis XGROUP CREATE falló para stream '{$stream}', group '{$group}': {$e->getMessage()}",
+                0,
+                $e
+            );
+        }
+    }
+
+    public function xReadGroup(
+        string $group,
+        string $consumer,
+        string $stream,
+        int $count = 1,
+        int $blockMs = 5000
+    ): array {
+        if (!$this->isAvailable()) {
+            return [];
+        }
+
+        try {
+            $raw = $this->client->executeRaw([
+                'XREADGROUP',
+                'GROUP', $group, $consumer,
+                'COUNT', (string) $count,
+                'BLOCK', (string) $blockMs,
+                'STREAMS', $this->prefix . $stream, '>',
+            ]);
+
+            return $this->parseStreamsResponse($raw);
+        } catch (\Exception $e) {
+            if (stripos($e->getMessage(), 'NOGROUP') !== false) {
+                throw $e;
+            }
+            Logger::warning('Redis XREADGROUP falló', [
+                'stream' => $stream,
+                'group' => $group,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    public function xAck(string $stream, string $group, string $id): int
+    {
+        if (!$this->isAvailable()) {
+            return 0;
+        }
+
+        try {
+            $result = $this->client->executeRaw([
+                'XACK', $this->prefix . $stream, $group, $id,
+            ]);
+            return (int) $result;
+        } catch (\Exception $e) {
+            Logger::warning('Redis XACK falló', [
+                'stream' => $stream,
+                'group' => $group,
+                'id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
+
+    /**
+     * @return array{next: string, messages: array<int,array{id:string,fields:array<string,string>}>}
+     */
+    public function xAutoClaim(
+        string $stream,
+        string $group,
+        string $consumer,
+        int $minIdleMs,
+        string $start = '0-0',
+        int $count = 10
+    ): array {
+        $empty = ['next' => '0-0', 'messages' => []];
+
+        if (!$this->isAvailable()) {
+            return $empty;
+        }
+
+        try {
+            $raw = $this->client->executeRaw([
+                'XAUTOCLAIM',
+                $this->prefix . $stream,
+                $group, $consumer,
+                (string) $minIdleMs,
+                $start,
+                'COUNT', (string) $count,
+            ]);
+
+            $normalized = $this->normalizeRedisTree($raw);
+            // Redis 7 retorna [next-cursor, [[id, fields], ...], [deleted-ids]]
+            $next    = (isset($normalized[0]) && is_string($normalized[0])) ? $normalized[0] : '0-0';
+            $entries = (isset($normalized[1]) && is_array($normalized[1]))  ? $normalized[1] : [];
+
+            return ['next' => $next, 'messages' => $this->parseStreamEntriesResponse($entries)];
+        } catch (\Exception $e) {
+            Logger::warning('Redis XAUTOCLAIM falló', ['stream' => $stream, 'error' => $e->getMessage()]);
+            return $empty;
+        }
+    }
+
+    public function xLen(string $stream): int
+    {
+        if (!$this->isAvailable()) {
+            return 0;
+        }
+
+        try {
+            $result = $this->client->executeRaw(['XLEN', $this->prefix . $stream]);
+            return (int) $result;
+        } catch (\Exception $e) {
+            return 0;
+        }
+    }
+
+    /**
+     * XRANGE — Lee mensajes de un stream sin consumer group.
+     *
+     * @return array<int,array{id:string,fields:array<string,string>}>
+     */
+    public function xRange(
+        string $stream,
+        string $start = '-',
+        string $end = '+',
+        ?int $count = null
+    ): array {
+        if (!$this->isAvailable()) {
+            return [];
+        }
+
+        try {
+            $args = ['XRANGE', $this->prefix . $stream, $start, $end];
+            if ($count !== null && $count > 0) {
+                $args[] = 'COUNT';
+                $args[] = (string) $count;
+            }
+
+            $raw = $this->client->executeRaw($args);
+            return $this->parseStreamEntriesResponse($raw);
+        } catch (\Exception $e) {
+            Logger::warning('Redis XRANGE falló', [
+                'stream' => $stream,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    private function parseStreamsResponse(mixed $raw): array
+    {
+        $normalized = $this->normalizeRedisTree($raw);
+        if ($normalized === []) {
+            return [];
+        }
+
+        $messages = [];
+        foreach ($normalized as $streamBlock) {
+            if (!is_array($streamBlock) || !isset($streamBlock[1]) || !is_array($streamBlock[1])) {
+                continue;
+            }
+
+            foreach ($streamBlock[1] as $entry) {
+                if (!is_array($entry) || count($entry) < 2) {
+                    continue;
+                }
+
+                $id = (string) $entry[0];
+                $fieldsArray = is_array($entry[1]) ? $entry[1] : [];
+
+                $fields = [];
+                $count = count($fieldsArray);
+                for ($i = 0; $i + 1 < $count; $i += 2) {
+                    $fields[(string) $fieldsArray[$i]] = (string) $fieldsArray[$i + 1];
+                }
+
+                $messages[] = ['id' => $id, 'fields' => $fields];
+            }
+        }
+
+        return $messages;
+    }
+
+    private function parseStreamEntriesResponse(mixed $raw): array
+    {
+        $normalized = $this->normalizeRedisTree($raw);
+        if ($normalized === []) {
+            return [];
+        }
+
+        $messages = [];
+        foreach ($normalized as $entry) {
+            if (!is_array($entry) || count($entry) < 2) {
+                continue;
+            }
+
+            $messages[] = [
+                'id' => (string) $entry[0],
+                'fields' => $this->parseFieldPairs($entry[1] ?? []),
+            ];
+        }
+
+        return $messages;
+    }
+
+    /**
+     * Materializa por completo la respuesta de Redis para evitar perder datos
+     * cuando Predis devuelve iteradores MultiBulk no-rewindable.
+     *
+     * @return array<int,mixed>
+     */
+    private function normalizeRedisTree(mixed $raw): array
+    {
+        if ($raw === null || $raw === false || $raw === []) {
+            return [];
+        }
+
+        $normalized = $this->normalizeRedisValue($raw);
+        return is_array($normalized) ? $normalized : [];
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<string,string>
+     */
+    private function parseFieldPairs(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $fields = [];
+        $count = count($value);
+        for ($i = 0; $i + 1 < $count; $i += 2) {
+            $fields[(string) $value[$i]] = (string) $value[$i + 1];
+        }
+
+        return $fields;
+    }
+
+    private function normalizeRedisValue(mixed $value): mixed
+    {
+        if ($value instanceof \Traversable) {
+            $result = [];
+            foreach ($value as $item) {
+                $result[] = $this->normalizeRedisValue($item);
+            }
+            return $result;
+        }
+
+        if (is_array($value)) {
+            return array_map([$this, 'normalizeRedisValue'], $value);
+        }
+
+        return $value;
+    }
+
     /**
      * Previene clonación del singleton.
      */

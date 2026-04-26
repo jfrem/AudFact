@@ -41,7 +41,7 @@ services:
     expose:
       - "6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:-audfact_dev_default}\" ping"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -65,7 +65,11 @@ services:
       NGINX_ENVSUBST_FILTER: "AUDIT_"
       AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}
 
-  worker:
+  # ── Pipeline Event-Driven Workers ──
+  # Cada worker consume un stream/tipo de evento específico.
+  # Para escalar, usar: docker compose up -d --scale worker-extraction=3
+
+  worker-orchestrator:
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -73,7 +77,29 @@ services:
         ENABLE_XDEBUG: "0"
         WWWUSER_ID: ${WWWUSER_ID:-33}
         WWWGROUP_ID: ${WWWGROUP_ID:-33}
-    # container_name has been REMOVED by AI to allow multiple replicas
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+      - nginx
+    command: php bin/audit-orchestrator-worker.php
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  worker-extraction:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
     env_file:
       - .env
     volumes:
@@ -81,15 +107,81 @@ services:
       - ./responseIA:/var/www/html/responseIA
     depends_on:
       - redis
-      - php
-    command: php bin/audit-worker.php --poll-timeout=5
+      - nginx
+    command: php bin/audit-extraction-worker.php
     restart: on-failure
     deploy:
-      replicas: 3
       resources:
         limits:
           memory: 1G
           cpus: '0.8'
+
+  worker-normalizer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+    command: php bin/audit-normalizer-worker.php
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  worker-policy:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
+    depends_on:
+      - redis
+    command: php bin/audit-policy-worker.php
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  worker-aggregator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+    command: php bin/audit-aggregator-worker.php
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
 
 volumes:
   redis_data:

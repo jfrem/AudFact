@@ -23,11 +23,11 @@ AudFact/
 ├── app/
 │   ├── Controllers/       # 8 controladores HTTP (incluye base)
 │   ├── Models/            # 6 modelos SQL Server (incluye base)
-│   ├── Services/          # Google Drive + 11 servicios de auditoría IA + prompts
-│   ├── Services/Audit/    # AuditOrchestrator (orquestador IA)
+│   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
+│   ├── Services/Audit/    # Events/ (workers, policy, agregación y persistencia)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
-├── bin/                   # Workers CLI (audit-worker.php)
+├── bin/                   # Workers CLI event-driven
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient...
 ├── public/                # Entry point (index.php API)
 ├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck
@@ -121,10 +121,11 @@ Base URL: `http://localhost:8080`
 | `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | Listar adjuntos |
 | `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
-| `POST` | `/audit` | Auditoría en lote |
 | `POST` | `/audit/single` | Auditoría individual |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
+| `GET` | `/audit/dlq` | Listado de eventos fallidos definitivos |
+| `POST` | `/audit/dlq/reprocess` | Reproceso administrativo de un evento DLQ |
 | `GET` | `/audit/results` | Resultados persistidos de auditoría |
 | `GET` | `/audit/documents-history` | Historial de documentos auditados (alineado) |
 | `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
@@ -133,7 +134,7 @@ Base URL: `http://localhost:8080`
 
 ### Nota de Optimización (Pipeline IA)
 
-El pipeline de auditoría (`POST /audit` y `POST /audit/single`) aplica prefiltrado SQL
+El pipeline de auditoría (`POST /audit/single` y `POST /audit/async`) aplica prefiltrado SQL
 de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
 
 - Objetivo: reducir I/O y volumen de documentos procesados por la IA.

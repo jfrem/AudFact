@@ -233,5 +233,35 @@ class Cache
         self::forget("query:results:{$facNitSec}");
         // Invalidar también la caché general sin filtros
         self::forget('query:results:all');
+        
+        self::incrementQueryResultsVersion($facNitSec);
+        self::incrementQueryResultsVersion('all');
+    }
+
+    /**
+     * Obtiene la versión actual de los resultados cacheados para un scope.
+     *
+     * @param string $scope Identificador de alcance (ej. 'all' o un NIT)
+     * @return int Versión actual
+     */
+    public static function getQueryResultsVersion(string $scope): int
+    {
+        $v = self::get("query:results:version:{$scope}");
+        return $v !== null ? (int) $v : 0;
+    }
+
+    /**
+     * Incrementa la versión de los resultados para forzar re-cálculo en caché versionada.
+     *
+     * @param string $scope Identificador de alcance
+     * @return int Nueva versión
+     */
+    public static function incrementQueryResultsVersion(string $scope): int
+    {
+        try {
+            return (int) self::redis()->incr("query:results:version:{$scope}");
+        } catch (RedisUnavailableException $e) {
+            return 0;
+        }
     }
 }

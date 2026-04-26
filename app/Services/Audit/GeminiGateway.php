@@ -2,6 +2,7 @@
 
 namespace App\Services\Audit;
 
+use App\Services\Audit\Debug\ResponseIADiskStore;
 use Core\Logger;
 use Core\RedisClient;
 use GuzzleHttp\Client;
@@ -20,6 +21,10 @@ class GeminiGateway
     private const CB_STATE_CLOSED = 'closed';
     private const CB_STATE_OPEN = 'open';
     private const CB_STATE_HALF_OPEN = 'half-open';
+    private const CTX_DIS_DET_NRO = 'X-Audit-Context-DisDetNro';
+    private const CTX_AUDIT_ID = 'X-Audit-Context-AuditId';
+    private const CTX_DOCUMENT_ID = 'X-Audit-Context-DocumentId';
+    private const CTX_DOCUMENT_TYPE = 'X-Audit-Context-DocumentType';
 
     private Client $http;
     private string $apiKey;
@@ -32,6 +37,7 @@ class GeminiGateway
     private ?string $mediaResolution;
     private ?int $thinkingBudget;
     private ?int $seed;
+    private ResponseIADiskStore $responseIADiskStore;
 
     /**
      * Configura el gateway HTTP hacia Gemini y sus parámetros de generación.
@@ -47,6 +53,7 @@ class GeminiGateway
      * @param  string|null $mediaResolution  Resolución de medios opcional.
      * @param  int|null $thinkingBudget  Presupuesto de thinking cuando aplica.
      * @param  int|null $seed  Semilla para reproducibilidad.
+     * @param  ResponseIADiskStore|null $responseIADiskStore  Persistencia de snapshots request/response.
      * @return void
      */
     public function __construct(
@@ -60,7 +67,8 @@ class GeminiGateway
         string $responseMimeType,
         ?string $mediaResolution,
         ?int $thinkingBudget,
-        ?int $seed = null
+        ?int $seed = null,
+        ?ResponseIADiskStore $responseIADiskStore = null
     ) {
         $this->http = $http;
         $this->apiKey = $apiKey;
@@ -73,6 +81,7 @@ class GeminiGateway
         $this->mediaResolution = $mediaResolution;
         $this->thinkingBudget = $thinkingBudget;
         $this->seed = $seed;
+        $this->responseIADiskStore = $responseIADiskStore ?? new ResponseIADiskStore();
     }
 
     /**
@@ -150,6 +159,8 @@ class GeminiGateway
         array $toolConfig,
         array $generationOverrides = []
     ): array {
+        $debugContext = $this->extractDebugContext($generationOverrides);
+
         $this->checkCircuitBreaker();
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->model}:generateContent";
@@ -165,6 +176,7 @@ class GeminiGateway
         $lastException = null;
 
         for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
+            $startTime = microtime(true);
             try {
                 $res = $this->http->post($url, [
                     'headers' => [
@@ -186,7 +198,10 @@ class GeminiGateway
                         0
                     );
                 }
+                
+                $this->saveDebugLogWithStatus($payload, $body ?? ['error' => 'cuerpo_vacio'], $debugContext, 'success');
 
+                $body['X-Audit-Metrics'] = ['duration_ms' => (int) ((microtime(true) - $startTime) * 1000)];
                 return $body ?? [];
             } catch (\RuntimeException $e) {
                 $lastException = $e;
@@ -204,7 +219,8 @@ class GeminiGateway
                     usleep($delayMs * 1000);
                     continue;
                 }
-
+                
+                $this->saveDebugLogWithStatus($payload, ['error' => $e->getMessage()], $debugContext, 'runtime_error');
                 $this->recordCircuitFailure($httpCode);
                 throw $e;
             } catch (GuzzleException $e) {
@@ -228,14 +244,73 @@ class GeminiGateway
                     usleep($delayMs * 1000);
                     continue;
                 }
-
+                
+                $this->saveDebugLogWithStatus($payload, ['error' => $errorMessage], $debugContext, 'http_error');
                 $this->recordCircuitFailure($httpCode);
                 throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
             }
         }
 
+        $this->saveDebugLogWithStatus($payload, ['error' => 'Error desconocido en Gemini FC'], $debugContext, 'unknown_error');
         $this->recordCircuitFailure(0);
         throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
+    }
+
+    /**
+     * Extrae y limpia claves de contexto debug de los overrides de generación.
+     *
+     * @param  array<string, mixed> $generationOverrides  Overrides de generación mutables.
+     * @return array<string, mixed> Contexto depurado para persistencia debug.
+     */
+    private function extractDebugContext(array &$generationOverrides): array
+    {
+        $context = [
+            'dis_det_nro' => $generationOverrides[self::CTX_DIS_DET_NRO] ?? null,
+            'audit_id' => $generationOverrides[self::CTX_AUDIT_ID] ?? null,
+            'document_id' => $generationOverrides[self::CTX_DOCUMENT_ID] ?? null,
+            'document_type' => $generationOverrides[self::CTX_DOCUMENT_TYPE] ?? null,
+        ];
+
+        unset($generationOverrides[self::CTX_DIS_DET_NRO]);
+        unset($generationOverrides[self::CTX_AUDIT_ID]);
+        unset($generationOverrides[self::CTX_DOCUMENT_ID]);
+        unset($generationOverrides[self::CTX_DOCUMENT_TYPE]);
+
+        return $context;
+    }
+
+    /**
+     * Persiste snapshot debug agregando estado de la ejecución.
+     *
+     * @param  array<string, mixed> $requestPayload  Payload request a Gemini.
+     * @param  array<string, mixed> $responseBody  Respuesta o error serializable.
+     * @param  array<string, mixed> $context  Contexto de auditoría/documento.
+     * @param  string $status  Estado operativo del intento.
+     * @return void
+     */
+    private function saveDebugLogWithStatus(array $requestPayload, array $responseBody, array $context, string $status): void
+    {
+        $this->saveDebugLog($requestPayload, $responseBody, array_merge($context, ['status' => $status]));
+    }
+
+    /**
+     * Guarda el request/response en `responseIA` si `APP_ENV=development`.
+     *
+     * @param  array<string, mixed> $requestPayload  Payload enviado a Gemini.
+     * @param  array<string, mixed> $responseBody  Respuesta de Gemini.
+     * @param  array<string, mixed> $context  Contexto de auditoría/documento.
+     * @return void
+     */
+    private function saveDebugLog(array $requestPayload, array $responseBody, array $context): void
+    {
+        try {
+            $this->responseIADiskStore->persist($requestPayload, $responseBody, $context);
+        } catch (\Throwable $e) {
+            Logger::warning('Fallo inesperado al persistir responseIA', [
+                'error' => $e->getMessage(),
+                'disDetNro' => (string) ($context['dis_det_nro'] ?? ''),
+            ]);
+        }
     }
 
     /**

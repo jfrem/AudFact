@@ -21,6 +21,14 @@ class FieldClassifier
         'RegimenPaciente' => 'Cliente.Regimen',
     ];
 
+    private const DISPLAY_FIELD_NAMES = [
+        'NumeroIdentificacion' => 'DocumentoPaciente',
+        'TipoIdentificacion'   => 'TipoDocumentoPaciente',
+        'Autorizacion'         => 'NumeroAutorizacion',
+        'Cliente.Entidad'      => 'Cliente',
+        'Cliente.Regimen'      => 'RegimenPaciente',
+    ];
+
     private const FIELD_TYPES = [
         'NumeroFactura'       => self::TYPE_EXACT,
         'NumeroFormula'       => self::TYPE_EXACT,
@@ -92,7 +100,7 @@ class FieldClassifier
         'NITCliente'           => self::SEVERITY_MEDIUM,
         'TipoDocumentoMedico'  => self::SEVERITY_MEDIUM,
         'DocumentoMedico'      => self::SEVERITY_MEDIUM,
-        'CodigoDiagnostico'    => self::SEVERITY_MEDIUM,
+        'CodigoDiagnostico'    => self::SEVERITY_HIGH,
         'CodigoArticulo'       => self::SEVERITY_MEDIUM,
         'CodigoProducto'       => self::SEVERITY_MEDIUM,
         'CUM'                  => self::SEVERITY_MEDIUM,
@@ -115,14 +123,14 @@ class FieldClassifier
         'NombrePaciente'       => 'FORMULA_MEDICA',
         'NumeroIdentificacion' => 'FORMULA_MEDICA',
         'TipoIdentificacion'   => 'FORMULA_MEDICA',
-        'NombreArticulo'       => 'FORMULA_MEDICA',
+        'NombreArticulo'       => 'DISPENSA',
         'CantidadPrescrita'    => 'FORMULA_MEDICA',
         'Medico'               => 'FORMULA_MEDICA',
         'FechaFormula'         => 'FORMULA_MEDICA',
-        'CantidadEntregada'    => 'ACTA_DE_ENTREGA',
-        'FirmaActaEntrega'     => 'ACTA_DE_ENTREGA',
+        'CantidadEntregada'    => 'DISPENSA',
+        'FirmaActaEntrega'     => 'DISPENSA',
         'FirmaPrescriptor'     => 'FORMULA_MEDICA',
-        'FechaEntrega'         => 'ACTA_DE_ENTREGA',
+        'FechaEntrega'         => 'DISPENSA',
         'FechaVencimiento'     => 'FACTURA',
         'Autorizacion'         => 'AUTORIZACION',
         'FechaAutorizacion'    => 'AUTORIZACION',
@@ -141,18 +149,14 @@ class FieldClassifier
         'CodigoProducto'       => 'FACTURA',
         'CUM'                  => 'FACTURA',
         'Tipo'                 => 'FACTURA',
-        'SelloRecepcion'       => 'ACTA_DE_ENTREGA',
+        'SelloRecepcion'       => 'DISPENSA',
     ];
 
     private const ALTERNATIVE_DOCS = [
-        'NombrePaciente'       => ['ACTA_DE_ENTREGA', 'AUTORIZACION'],
-        'NumeroIdentificacion' => ['ACTA_DE_ENTREGA', 'AUTORIZACION'],
-        'NombreArticulo'       => ['FACTURA', 'ACTA_DE_ENTREGA'],
-        'CantidadEntregada'    => ['FACTURA'],
-        'NumeroFormula'        => ['FACTURA', 'AUTORIZACION'],
-        'FechaEntrega'         => ['FACTURA'],
-        'Autorizacion'         => ['FORMULA_MEDICA', 'FACTURA'],
-        'Medico'               => ['AUTORIZACION'],
+        'NumeroIdentificacion' => ['AUTORIZACION', 'DISPENSA'],
+        'CodigoDiagnostico'    => ['AUTORIZACION', 'DISPENSA'],
+        'Autorizacion'         => ['DISPENSA'],
+        'NombreArticulo'       => ['AUTORIZACION'],
     ];
 
     private const FIELD_SQL_COLUMNS = [
@@ -204,6 +208,18 @@ class FieldClassifier
     public function normalizeField(string $field): string
     {
         return self::FIELD_ALIASES[$field] ?? $field;
+    }
+
+    /**
+     * Devuelve el nombre visible/contractual de un campo canónico.
+     *
+     * @param  string $field
+     * @return string
+     */
+    public function getDisplayField(string $field): string
+    {
+        $field = $this->normalizeField($field);
+        return self::DISPLAY_FIELD_NAMES[$field] ?? $field;
     }
 
     /**

@@ -33,3 +33,5 @@ $router->get('/audit/documents-history', 'AuditController', 'documentsHistory');
 $router->post('/audit/single', 'AuditController', 'single');
 $router->post('/audit/async', 'AuditController', 'async');
 $router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus');
+$router->get('/audit/dlq', 'AuditDlqController', 'index');
+$router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess');

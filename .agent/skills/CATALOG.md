@@ -21,6 +21,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `next-best-practices` | Frontend Next.js | `frontend/*` | Prácticas y convenciones recomendadas para directorios, dependencias y Server Components. |
 | `next-cache-components` | Frontend Next.js | `frontend/*` | Guías sobre componentes de caché, PPR y estrategias de validación en Next.js 16+. |
 | `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
+| `clean-rebuild-policy` | Gobernanza Técnica | Repositorio completo | Política para proyectos en fase temprana: reconstrucción limpia, sin legacy, enfocada en MVP. |
 
 ## Triggers Sugeridos por Skill
 
@@ -40,6 +41,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `code-quality-assessment` | deuda técnica, mantenibilidad, complejidad, testabilidad, code quality |
 | `security-assessment` | vulnerabilidades, auth/authz, OWASP, exposición de secretos |
 | `technical-governance-assessment` | ownership, gobernanza, estándares, code review process, roadmap técnico |
+| `clean-rebuild-policy` | reconstrucción, clean rebuild, MVP, arquitectura desacoplada, eliminar legacy, desde cero |
 
 ## Bundles
 
@@ -71,6 +73,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `core/Logger.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
+| Todo código nuevo o modificado | `clean-rebuild-policy` |
 
 ---
 

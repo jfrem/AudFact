@@ -13,7 +13,7 @@
 - **Código fuente**: `core/` (framework), `app/` (aplicación MVC)
 - **Controladores**: `app/Controllers/` — Un controlador por recurso REST
 - **Modelos**: `app/Models/` — Acceso a datos vía PDO, queries embebidas
-- **Servicios**: `app/Services/` (audit pipeline y AuditOrchestrator)
+- **Servicios**: `app/Services/` (audit pipeline event-driven y servicios de dominio)
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
@@ -66,10 +66,11 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | Descargar BLOB de adjunto |
 | `GET` | `/audit/results` | `AuditController` | `results` | Historial persistido de auditorías |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit` | `AuditController` | `run` | **Pipeline IA**: Ejecutar auditoría Gemini (Lote síncrono) |
 | `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisDetNro (Punto Dispensación) |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
+| `GET` | `/audit/dlq` | `AuditDlqController` | `index` | Listado administrativo de eventos `dead_letter` |
+| `POST` | `/audit/dlq/reprocess` | `AuditDlqController` | `reprocess` | Reproceso administrativo de un evento DLQ |
 
 ---
 
@@ -97,7 +98,7 @@ El sistema sigue un pipeline secuencial para cada petición HTTP:
 
 ### 4. Controlador (`app/Controllers/*`)
 - **Validación**: Usa `Core\Validator` para limpiar y validar `$_POST`/`$_GET`.
-- **Negocio**: Llama a modelos o servicios (ej: `AuditOrchestrator`).
+- **Negocio**: Llama a modelos o servicios de dominio.
 - **Respuesta**: Llama a `Core\Response::success()` o `error()`.
 
 ### 5. Salida (`Core\Response`)
@@ -222,7 +223,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
-| `GEMINI_API_KEY` | *(vacío)* | ✅ | `AuditOrchestrator` — API key de Google AI |
+| `GEMINI_API_KEY` | *(vacío)* | ✅ | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI |
 | `GEMINI_MODEL` | `gemini-flash-latest` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
@@ -250,6 +251,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | `AuditController::run` — timeout en segundos para batch síncrono (circuit breaker) |
 | `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController` — máximo de facturas por batch (sync y async) |
 | `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
+| `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_NGINX_READ_TIMEOUT` | `3600` | ❌ | Timeout de lectura Nginx para endpoints de auditoría |
 | `AUDIT_FPM_TERMINATE_TIMEOUT` | `3600` | ❌ | Timeout de terminación PHP-FPM para procesos de auditoría |
 
@@ -430,7 +432,14 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Pipeline de auditoría IA
 
-- **Archivos críticos**: `app/Services/Audit/AuditOrchestrator.php` es el core del pipeline — cambios requieren review cuidadoso
+- **Archivos críticos**: `app/Services/Audit/Events/DocumentPolicyEngine.php` y `app/Services/Audit/Events/AuditAggregationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
+- **Pipeline event-driven actual**: `audit_created -> document_registered -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
+- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizationWorker`, `RulesEvaluationWorker`, `AuditAggregationWorker`
+- **Agregación final**: `AuditResultAggregator` transforma `rules_evaluated` + estado Redis a `auditResultData` y `documentDecisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
+- **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy) y `docs_evaluated`
+- **Cierre de auditoría**: solo el agregador final puede marcar `completed`, `manual_review`, `error` o `failed`; extracción y normalización nunca deben cerrar la auditoría
+- **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
+- **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
 - **Prompts**: definidos en `app/Services/Audit/AuditPromptBuilder.php` — cualquier cambio afecta la calidad de las auditorías
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño

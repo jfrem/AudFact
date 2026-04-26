@@ -6,60 +6,80 @@ namespace App\Controllers;
 
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
-use App\Services\Audit\AuditOrchestratorFactory;
-use App\Services\Audit\AuditQueueService;
+use App\Models\InvoicesModel;
+use App\Services\Audit\Events\AuditEvent;
+use App\Services\Audit\Events\AuditEventPublisher;
+use App\Services\Audit\Events\AuditStateStore;
+use Core\Exceptions\HttpResponseException;
 use Core\Cache;
 use Core\Response;
 use Core\Logger;
 use RuntimeException;
-use InvalidArgumentException;
-use OutOfBoundsException;
 
 class AuditController extends Controller
 {
-    /**
-     * POST /audit/single — Ejecuta una auditoría individual por DisDetNro.
-     *
-     * Pipeline v4 determinista (full PHP):
-     *   Fase 1: Extracción (Gemini Vision + Function Calling)
-     *   Fase 2: Comparación Semántica (Embedding API)
-     *   Fase 3: Evaluación Determinista (RuleEngine PHP)
-     */
     public function single(): void
     {
         $data = $this->validate([
             'DisDetNro' => 'required|string|max:255',
         ]);
 
-        $dispensationId = (string) $data['DisDetNro'];
-        $maskedId = '***' . substr($dispensationId, -3);
+        $disDetNro = trim((string) $data['DisDetNro']);
+        if ($disDetNro === '') {
+            Response::error('DisDetNro es requerido', 422);
+        }
+
+        $stateStore = $this->buildStateStore();
+        $publisher = $this->buildEventPublisher();
+
+        $auditId = AuditEvent::uuidV4();
+        $auditInitialized = false;
 
         try {
-            $orchestrator = AuditOrchestratorFactory::create();
-            $result = $orchestrator->auditInvoice($dispensationId, $dispensationId);
+            $initialized = $stateStore->initAudit($auditId, $disDetNro);
+            if (!$initialized) {
+                Logger::error('AuditController::single no se pudo inicializar estado', [
+                    'audit_id' => $auditId,
+                ]);
+                Response::error('No se pudo encolar la auditoría', 503);
+            }
+            $auditInitialized = true;
 
-            Response::success($result, 'Auditoría completada');
-        } catch (OutOfBoundsException $e) {
-            Response::error($e->getMessage(), 404);
-        } catch (InvalidArgumentException $e) {
-            Logger::warning('AuditController::single invalid input', [
-                'dispensationId' => $maskedId,
-                'error' => $e->getMessage(),
-            ]);
-            Response::error($e->getMessage(), 422);
+            $event = AuditEvent::create(
+                eventType: AuditEvent::TYPE_AUDIT_CREATED,
+                auditId: $auditId,
+                jobId: null,
+                documentId: null,
+                payload: [
+                    'dis_det_nro'  => $disDetNro,
+                    'fac_nit_sec'  => null,
+                    'source'       => 'single',
+                ],
+            );
+
+            $publisher->publish($event);
         } catch (RuntimeException $e) {
-            Logger::error('AuditController::single pipeline failed', [
-                'dispensationId' => $maskedId,
+            if ($auditInitialized) {
+                $stateStore->deleteAudit($auditId);
+            }
+            Logger::error('AuditController::single falló encolando', [
+                'audit_id' => $auditId,
                 'error' => $e->getMessage(),
             ]);
-            Response::error('Error en el pipeline de auditoría. Intente nuevamente.', 503);
+            Response::error('No se pudo encolar la auditoría', 503);
         }
+
+        Response::success(
+            [
+                'audit_id'    => $auditId,
+                'status'      => AuditStateStore::AUDIT_STATUS_PENDING,
+                'dis_det_nro' => $disDetNro,
+            ],
+            'Auditoría encolada',
+            202,
+        );
     }
 
-    /**
-     * GET /audit/results — Consulta auditorías persistidas con filtros opcionales y paginación.
-     * Query params: facNitSec, facNro, dateFrom, dateTo, page, pageSize
-     */
     public function results(): void
     {
         try {
@@ -137,9 +157,6 @@ class AuditController extends Controller
         }
     }
 
-    /**
-     * GET /audit/documents-history — Historial completo de documentos auditados.
-     */
     public function documentsHistory(): void
     {
         try {
@@ -185,84 +202,256 @@ class AuditController extends Controller
         }
     }
 
-    /**
-     * POST /audit/async — Encola un job batch para procesamiento asíncrono.
-     */
     public function async(): void
     {
         $data = $this->validate([
             'facNitSec' => 'required|integer|min_value:1',
             'date' => 'required|date',
             'dateTo' => 'optional|date',
-            'limit' => 'nullable|integer|min_value:1|max_value:1000',
+            'limit' => 'nullable|integer|min_value:1|max_value:100',
         ]);
 
-        if (isset($data['dateTo']) && $data['dateTo'] !== '') {
-            $dtFrom = \DateTime::createFromFormat('Y-m-d', (string) $data['date']);
-            $dtTo = \DateTime::createFromFormat('Y-m-d', (string) $data['dateTo']);
+        $dateFrom = (string) $data['date'];
+        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string) $data['dateTo'] : null;
+
+        if ($dateTo !== null) {
+            $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
+            $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
             if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
-                Response::error('date no puede ser mayor que dateTo', 422);
+                Response::error('dateTo debe ser mayor o igual a date', 422);
             }
         }
 
-        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string) $data['dateTo'] : null;
+        $facNitSec = (int) $data['facNitSec'];
         $limit = isset($data['limit']) ? (int) $data['limit'] : 100;
 
-        try {
-            $job = $this->buildAuditQueueService()->enqueueBatch(
-                facNitSec: (int) $data['facNitSec'],
-                dateFrom: (string) $data['date'],
-                dateTo: $dateTo,
-                limit: $limit,
-            );
+        $stateStore = $this->buildStateStore();
+        $publisher = $this->buildEventPublisher();
 
-            Response::success($job, 'Job encolado', 202);
-        } catch (\DomainException $e) {
-            Response::error($e->getMessage(), 409);
-        } catch (OutOfBoundsException $e) {
-            Response::error($e->getMessage(), 404);
-        } catch (InvalidArgumentException $e) {
-            Response::error($e->getMessage(), 422);
-        } catch (RuntimeException $e) {
-            Logger::error('AuditController::async queue failed', ['error' => $e->getMessage()]);
-            Response::error($e->getMessage(), 503);
-        }
-    }
-
-    /**
-     * GET /audit/jobs/{jobId} — Consulta el estado de un job async.
-     */
-    public function jobStatus(string $jobId): void
-    {
-        $this->validateArray(['jobId' => $jobId], [
-            'jobId' => 'required|string|max:64',
-        ]);
+        $jobId = AuditEvent::uuidV4();
+        $batchSlotClaimed = false;
+        $jobInitialized = false;
+        $createdAuditIds = [];
+        $total = 0;
+        $responseStatus = AuditStateStore::JOB_STATUS_PENDING;
 
         try {
-            $status = $this->buildAuditQueueService()->getJobStatus($jobId);
-            if ($status === null) {
-                Response::error('No se encontró el job solicitado o ya expiró.', 404);
+            $claimed = $stateStore->claimBatchSlot($facNitSec, $dateFrom, $dateTo, $jobId);
+            if (!$claimed) {
+                Response::error(
+                    'Ya existe un batch activo para el cliente y rango solicitado',
+                    409
+                );
+            }
+            $batchSlotClaimed = true;
+
+            $invoices = $this->getInvoicesModel()->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
+
+            if (!$stateStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit)) {
+                throw new RuntimeException('No se pudo inicializar el job');
+            }
+            $jobInitialized = true;
+
+            $publisher->publish(AuditEvent::create(
+                eventType: AuditEvent::TYPE_BATCH_CREATED,
+                auditId: null,
+                jobId: $jobId,
+                documentId: null,
+                payload: [
+                    'fac_nit_sec' => (string) $facNitSec,
+                    'date_from'   => $dateFrom,
+                    'date_to'     => $dateTo,
+                    'limit'       => $limit,
+                    'total'       => count($invoices),
+                ],
+            ));
+
+            foreach ($invoices as $invoice) {
+                $disDetNro = isset($invoice['Dispensa']) ? trim((string) $invoice['Dispensa']) : '';
+                $facSec = isset($invoice['FacSec']) ? trim((string) $invoice['FacSec']) : '';
+                if ($disDetNro === '' || $facSec === '') {
+                    Logger::warning('AuditController::async factura inválida, omitida', [
+                        'job_id' => $jobId,
+                        'invoice' => $invoice,
+                    ]);
+                    continue;
+                }
+
+                $auditId = AuditEvent::uuidV4();
+                if (!$stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $facSec)) {
+                    Logger::warning('AuditController::async no se pudo inicializar auditoría', [
+                        'job_id' => $jobId,
+                        'audit_id' => $auditId,
+                    ]);
+                    continue;
+                }
+
+                $createdAuditIds[] = $auditId;
+
+                if (!$stateStore->registerAuditInJob($jobId, $auditId, $disDetNro)) {
+                    throw new RuntimeException('No se pudo registrar la auditoría en el job');
+                }
+
+                $publisher->publish(AuditEvent::create(
+                    eventType: AuditEvent::TYPE_AUDIT_CREATED,
+                    auditId: $auditId,
+                    jobId: $jobId,
+                    documentId: null,
+                    payload: [
+                        'dis_det_nro' => $disDetNro,
+                        'fac_nit_sec' => (string) $facNitSec,
+                        'fac_sec'     => $facSec,
+                        'source'      => 'batch',
+                    ],
+                ));
+
+                $total++;
             }
 
-            Response::success($status, 'Estado del job');
+            if ($total === 0) {
+                $stateStore->patchJob($jobId, [
+                    'status' => AuditStateStore::JOB_STATUS_COMPLETED,
+                    'total'  => 0,
+                ]);
+                $responseStatus = AuditStateStore::JOB_STATUS_COMPLETED;
+            }
+        } catch (HttpResponseException $e) {
+            $this->cleanupAsyncEnqueueState(
+                $stateStore,
+                $facNitSec,
+                $dateFrom,
+                $dateTo,
+                $jobId,
+                $batchSlotClaimed,
+                $jobInitialized,
+                $createdAuditIds
+            );
+            throw $e;
         } catch (RuntimeException $e) {
-            Logger::error('AuditController::jobStatus failed', [
-                'jobId' => $jobId,
+            $this->cleanupAsyncEnqueueState(
+                $stateStore,
+                $facNitSec,
+                $dateFrom,
+                $dateTo,
+                $jobId,
+                $batchSlotClaimed,
+                $jobInitialized,
+                $createdAuditIds
+            );
+            Logger::error('AuditController::async falló encolando batch', [
+                'job_id' => $jobId,
                 'error' => $e->getMessage(),
             ]);
-            Response::error('No se pudo consultar el estado del job.', 503);
+            Response::error('No se pudo encolar el batch', 503);
         }
+
+        Response::success(
+            [
+                'job_id' => $jobId,
+                'status' => $responseStatus,
+                'total'  => $total,
+            ],
+            'Batch de auditoría encolado',
+            202,
+        );
     }
 
-    // ─── Factory Methods ─────────────────────────────────────────
+    public function jobStatus(string $jobId): void
+    {
+        if (!AuditEvent::isUuidV4($jobId)) {
+            Response::error('jobId inválido', 422);
+        }
+
+        try {
+            $state = $this->buildStateStore()->getJob($jobId);
+        } catch (RuntimeException $e) {
+            Logger::error('AuditController::jobStatus falló', [
+                'job_id' => $jobId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::error('No se pudo consultar el estado del job', 503);
+        }
+
+        if ($state === null) {
+            Response::error('No se encontró el job solicitado', 404);
+        }
+
+        Response::success(self::formatJobStatus($state), 'Estado del job');
+    }
+
+    private static function formatJobStatus(array $state): array
+    {
+        $total = (int) ($state['total'] ?? 0);
+        $done = (int) ($state['done'] ?? 0);
+        $failed = (int) ($state['failed'] ?? 0);
+        $pending = max(0, $total - $done - $failed);
+
+        $audits = [];
+        $auditsMap = is_array($state['audits'] ?? null) ? $state['audits'] : [];
+        foreach ($auditsMap as $auditId => $auditData) {
+            if (!is_string($auditId) || !is_array($auditData)) {
+                continue;
+            }
+            $audits[] = [
+                'audit_id'    => $auditId,
+                'dis_det_nro' => (string) ($auditData['dis_det_nro'] ?? ''),
+                'status'      => (string) ($auditData['status'] ?? AuditStateStore::AUDIT_STATUS_PENDING),
+            ];
+        }
+
+        return [
+            'job_id'     => (string) ($state['job_id'] ?? ''),
+            'status'     => (string) ($state['status'] ?? AuditStateStore::JOB_STATUS_PENDING),
+            'total'      => $total,
+            'done'       => $done,
+            'failed'     => $failed,
+            'pending'    => $pending,
+            'created_at' => (string) ($state['created_at'] ?? ''),
+            'updated_at' => (string) ($state['updated_at'] ?? ''),
+            'audits'     => $audits,
+        ];
+    }
+
+    private function cleanupAsyncEnqueueState(
+        AuditStateStore $stateStore,
+        int $facNitSec,
+        string $dateFrom,
+        ?string $dateTo,
+        string $jobId,
+        bool $batchSlotClaimed,
+        bool $jobInitialized,
+        array $createdAuditIds
+    ): void {
+        foreach (array_reverse($createdAuditIds) as $auditId) {
+            $stateStore->deleteAudit($auditId);
+        }
+
+        if ($jobInitialized) {
+            $stateStore->deleteJob($jobId);
+        }
+
+        if ($batchSlotClaimed) {
+            $stateStore->releaseBatchSlot($facNitSec, $dateFrom, $dateTo);
+        }
+    }
 
     protected function buildAuditStatusModel(): AuditStatusModel
     {
         return new AuditStatusModel();
     }
 
-    protected function buildAuditQueueService(): AuditQueueService
+    protected function getInvoicesModel(): InvoicesModel
     {
-        return new AuditQueueService();
+        return new InvoicesModel();
+    }
+
+    protected function buildStateStore(): AuditStateStore
+    {
+        return new AuditStateStore();
+    }
+
+    protected function buildEventPublisher(): AuditEventPublisher
+    {
+        return new AuditEventPublisher();
     }
 }

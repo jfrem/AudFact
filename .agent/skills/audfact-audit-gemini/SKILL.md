@@ -1,179 +1,169 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA de AudFact. Usar cuando se modifique app/Services/Audit/AuditOrchestrator.php, app/Services/Audit/*, reglas de prompts/schema, estrategia de reintentos, parseo JSON de Gemini o manejo de archivos adjuntos URL/BLOB.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Events/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el schema Gemini `extract_document_data` o el manejo de DLQ.
 ---
 
-# AudFact Audit Gemini
+# AudFact Audit Gemini (Event-Driven)
 
 ## Objetivo
-Mantener confiable el flujo de auditoría documental y su salida JSON validada.
+Mantener confiable el pipeline event-driven de auditoría documental con Redis Streams, extracción Gemini por function calling, normalización y policy en PHP puro, y persistencia final en SQL Server.
 
 > [!TIP]
-> Consulta la documentación técnica del pipeline en [audit-workflow.md](file:///c:/Users/USER/Desktop/AudFact/plans/features/audit-workflow.md).
+> Plan normativo obligatorio: [PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md](file:///c:/Users/USER/Desktop/AudFact/PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md).
 
 ## Archivos clave
 
+### Servicios del pipeline event-driven
+
 | Archivo | Rol |
 |---|---|
-| `app/Services/Audit/AuditOrchestrator.php` | ⭐ Orquestador principal — coordina las 3 fases del pipeline v4 |
-| `app/Services/Audit/ExtractionPromptBuilder.php` | Prompt de extracción v4: minimalista, solo pide campos y visual checks. Sin lógica de negocio (delegada a RuleEngine) |
-| `app/Services/Audit/ExtractionResponseSchema.php` | Schema de Function Calling para Gemini: define `report_extraction` tool |
-| `app/Services/Audit/AuditResponseSchema.php` | Schema JSON de respuesta final del pipeline (métricas, config, items) |
-| `app/Services/Audit/AuditFileManager.php` | Resuelve archivos: BLOB → memoria (optimizado, sin disco), URL → Drive |
-| `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, backoff y Function Calling |
-| `app/Services/Audit/EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API (Fase 2) |
-| `app/Services/Audit/SemanticComparator.php` | Compara campos FDV vs extraídos usando embeddings (Fase 2) |
-| `app/Services/Audit/FieldClassifier.php` | Clasifica campos por tipo (exact, semantic, visual, date, numeric) y doc autoritativo |
-| `app/Services/Audit/RuleEngine.php` | ⭐ Motor determinista PHP puro — evalúa discrepancias con pesos de riesgo (Fase 3) |
-| `app/Services/Audit/AuditPersistenceService.php` | Persistencia de resultados con **Transacciones PDO**: `AudDispEst` (upsert) + `AdjuntosDispensacion` (UPDATE) — revierte completo si algo falla |
-| `app/Services/Audit/AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
-| `app/Services/Audit/AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
-| `app/Services/Audit/AuditQueueService.php` | Orquesta colas de auditoría Redis, encolamiento y estados (Jobs) — Resiliente a reinicios (`NOSCRIPT` fallback) |
-| `app/Services/Audit/AuditOrchestratorFactory.php` | Patrón Factory para orquestar la construcción y reutilización de todos los servicios v4 |
-| `bin/audit-worker.php` | Consumidor CLI de cola Redis que orquesta las llamadas al pipeline AI de manera concurrente |
-| `app/Services/GoogleDriveAuthService.php` | JWT auth y streaming desde Google Drive |
-| `app/Services/GoogleDriveServiceInterface.php` | Interfaz Strategy para el servicio de Drive |
-| `app/Models/DispensationModel.php` | Source of truth (datos de dispensación) |
-| `app/Models/AttachmentsModel.php` | Resolución de adjuntos BLOB/Drive |
-| `app/Models/AuditConfigModel.php` | Configuración dinámica por cliente: campos, documentos y visual checks |
-| `app/Models/AuditStatusModel.php` | Persistencia de resultados en `AudDispEst` (upsert) |
+| `app/Services/Audit/Events/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
+| `app/Services/Audit/Events/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
+| `app/Services/Audit/Events/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
+| `app/Services/Audit/Events/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
+| `app/Services/Audit/Events/InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos, descarga JSON) |
+| `app/Services/Audit/Events/SchemaBuilder.php` | Construye el function declaration `extract_document_data` desde `audit-config` (TipoCampo D/V) |
+| `app/Services/Audit/Events/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos y publica N `document_registered` |
+| `app/Services/Audit/Events/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, consulta cache y publica `document_extracted` |
+| `app/Services/Audit/Events/ExtractionCache.php` | Cache Redis por `document_hash` para reutilizar extracciones Gemini |
+| `app/Services/Audit/Events/DocumentNormalizer.php` | Normalización determinística PHP de `fields`/`items`/`visual_checks` (fechas ISO, upper sin tildes, numéricos) |
+| `app/Services/Audit/Events/DocumentNormalizationWorker.php` | Consume `document_extracted` y publica `document_normalized` |
+| `app/Services/Audit/Events/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
+| `app/Services/Audit/Events/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
+| `app/Services/Audit/Events/AuditResultAggregator.php` | Construye el contrato final `auditResultData` + decisiones documentales para persistir |
+| `app/Services/Audit/Events/AuditAggregationWorker.php` | Consume `rules_evaluated`, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
+| `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y function calling |
+| `app/Services/Audit/FieldClassifier.php` | Clasifica campos por tipo (documental/visual) y severidad |
 
-## Mapa de dependencias del Orquestador
+### Workers bootstrap (largas ejecuciones)
 
-```
-AuditOrchestrator (v4)
-├── DispensationModel (source of truth)
-├── AttachmentsModel (adjuntos)
-├── AuditConfigModel (configuración dinámica por NitSec)
-├── AuditPreValidator (pre-validación)
-├── AuditFileManager
-│   └── GoogleDriveAuthService (descarga)
-├── ExtractionPromptBuilder (prompt de extracción, Fase 1)
-├── ExtractionResponseSchema (Function Calling schema, Fase 1)
-├── GeminiGateway (HTTP → Gemini API, Fase 1 + FC)
-├── EmbeddingGateway (HTTP → Gemini Embedding API, Fase 2)
-├── SemanticComparator (comparación semántica, Fase 2)
-├── FieldClassifier (clasificación de campos)
-├── RuleEngine (evaluación determinista, Fase 3)
-├── AuditPersistenceService (BD: AudDispEst + AdjuntosDispensacion)
-├── AuditTelemetryService (métricas)
-├── AuditResponseSchema (schema ref)
-└── Core\Logger (diagnóstico)
-```
+| Binario | Stream consumido | Consumer group |
+|---|---|---|
+| `bin/audit-orchestrator-worker.php` | `audit.inbox` | `orchestrator` |
+| `bin/audit-extraction-worker.php` | `audit.documents` | `extractors` |
+| `bin/audit-normalizer-worker.php` | `audit.documents` | `normalizers` |
+| `bin/audit-policy-worker.php` | `audit.documents` | `policy` |
+| `bin/audit-aggregator-worker.php` | `audit.results` | `aggregator` |
 
-## Flujo técnico
+Cada worker: carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso, llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base.
 
-### Flujo Normal (Síncrono `POST /audit/single`)
-1. `auditInvoice()` recibe `invoiceId`, `disDetNro`, `attachmentId`.
-2. Pre-validar datos → `AuditPreValidator` (incluye consulta de adjuntos requeridos y `audit-config` por `NitSec`).
-3. Preparar archivos → `AuditFileManager` (BLOB a memoria | Drive URL a temporal).
-4. **Fase 1 — Extracción**: `ExtractionPromptBuilder` usa campos/visual checks de `audit-config` + `GeminiGateway::sendWithFunctionCalling()` → `ExtractionResponseSchema::parseExtractionResponse()`.
-5. **Fase 2 — Embedding**: `SemanticComparator` + `EmbeddingGateway` → cosine similarity solo para campos semánticos configurados.
-6. **Fase 3 — Reglas**: `RuleEngine::evaluate()` — evalúa campos configurados con lógica PHP determinista.
-7. Persistir → `AuditPersistenceService` → `AudDispEst` (upsert via `AuditStatusModel`).
-8. Registrar telemetría → `AuditTelemetryService`.
+### Controllers y endpoints
 
-### Flujo Asíncrono (Colas `POST /audit/async` + `bin/audit-worker.php`)
-1. `POST /audit/async` -> Valida límites y llama a `AuditQueueService::enqueue()`.
-2. Encola ID de factura en Redis Lists y crea llave Hash de seguimiento.
-3. El proceso CLI long-running `bin/audit-worker.php` detiene la cola via `brpop`.
-4. El worker desempaqueta, llama a `AuditOrchestrator::auditInvoice()` internamente.
-5. El worker intercepta éxito/error y actualiza los hashes de seguimiento.
+| Archivo | Endpoints |
+|---|---|
+| `app/Controllers/AuditController.php` | `POST /audit/single` (202), `POST /audit/async` (202), `GET /audit/jobs/{jobId}` |
+| `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess` (listar y republicar `dead_letter`) |
+
+## Streams y eventos
+
+| Stream | Productor | Eventos |
+|---|---|---|
+| `audit.inbox` | `AuditController` | `audit_created`, `batch_created` |
+| `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized`, `extraction_failed` |
+| `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+| `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
 ## Variables de entorno relevantes
 
 | Variable | Uso |
 |---|---|
-| `GEMINI_API_KEY` | API key para Google Gemini |
-| `GEMINI_MODEL` | Modelo a usar (ej: gemini-2.0-flash) |
-| `GEMINI_MAX_RETRIES` | Intentos máximos por request |
-| `GEMINI_TEMPERATURE` | Temperatura de generación (0.0 = determinista) |
-| `GEMINI_TOP_P` | Top-P sampling (1.0 = greedy con temp 0) |
-| `GEMINI_TOP_K` | Top-K sampling (1 = solo token más probable) |
-| `GEMINI_SEED` | Seed para reproducibilidad (dev: 42, prod: opcional) |
-| `GDRIVE_*` | Credenciales JWT de Google Drive |
+| `GEMINI_API_KEY` | Credencial obligatoria para el extractor |
+| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.1-pro-preview`) |
+| `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED` | Determinismo de extracción |
+| `AUDIT_STREAM_BLOCK_MS` | Bloqueo `XREADGROUP` |
+| `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
+| `AUDIT_DLQ_STREAM` | Stream DLQ (default `audit.dlq`) |
+| `AUDIT_CACHE_TTL`, `AUDIT_EXTRACTION_CACHE_TTL` | TTL cache extracción Gemini |
+| `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
+| `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
+| `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` | Versionado para trazabilidad en `AuditEvent` |
 
-## Reglas de implementación
-1. Mantener respuesta final con campos `response`, `message`, `documento`, `data.items`.
-2. **No omitir limpieza de temporales en `finally`**.
-3. Tratar errores de API con mensaje corto y código HTTP cuando exista.
-4. El prompt de extracción (Fase 1) NO debe contener lógica de negocio — solo extracción de campos y visual checks.
-5. **No romper compatibilidad con `AuditResponseSchema`**. El schema de salida final debe ser consistente con el frontend.
-6. La evaluación de hallazgos (Fase 3) es **exclusivamente PHP determinista** en `RuleEngine` — nunca en el prompt de Gemini.
-7. Inyección de dependencias: constructor acepta 10 servicios tipados (sin nullable legacy).
-8. Resultados se persisten doble: disco (`responseIA/`) + BD estado (`AudDispEst` via upsert + `AdjuntosDispensacion` via `updateAuditResult`).
-9. **Exclusión de Régimen**: Para clientes que no suministran datos fiables de régimen (ej. NitSec `1045`, `80455`, `2426`), `DispensationModel` inyecta `NULL` en la consulta, transformándose en `N/D` por el prompt builder. El `RuleEngine` **omite la evaluación** si la Fuente de Verdad para `Cliente.Regimen` es `N/D` o `ARL`.
+## Flujo técnico
+
+1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
+2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
+3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con function calling `extract_document_data`.
+4. `DocumentNormalizationWorker` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, null para vacío) y emite `document_normalized` con `normalization_log`.
+5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, espera `docs:done == docs:total` y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
+6. `AuditAggregationWorker` agrega a `auditResultData`, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
+7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
+
+## Reglas de implementación (estrictas)
+
+1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio; comparación y severidad viven en `DocumentPolicyEngine`.
+2. **TipoCampo gobierna el schema**: `D` → `fields`, `V` → `visual_checks`. Prohibido inferir por nombre.
+3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
+4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
+5. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo (ver plan §23.3).
+6. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
+7. **Factor de empaque**: sólo `NitSec = 2426` admite exceso `<= 5` unidades con warning `ACEPTADO_POR_EMPAQUE`.
+8. **NumeroAutorizacion** no se audita contra `FORMULA MEDICA`.
+9. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
+10. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
 
 ## Anti-patterns ⚠️
-1. **No inyectar lógica de negocio en el prompt de extracción** — eso es responsabilidad exclusiva del `RuleEngine` (Fase 3).
-2. **No omitir safety settings** — documentos médicos requieren `BLOCK_NONE`.
-3. **No ignorar HTTP 429** (quota) ni **503** (model unavailable) — el retry con backoff los maneja.
-4. **No hardcodear el modelo Gemini** — leer de `GEMINI_MODEL` env var.
-5. **No parsear texto libre de Gemini** — usar Function Calling (`report_extraction`) para obtener JSON tipado directamente.
-6. **No guardar archivos temporales sin cleanup** — siempre usar `try/finally`.
 
-## Cross-references
-- **`audfact-sqlsrv-models`**: `DispensationModel` y `AttachmentsModel` proveen datos.
-- **`audfact-security-guardrails`**: Sanitización de archivos descargados.
+1. **No** consultar vistas SQL directamente desde workers para FDV/adjuntos — usar `InternalAuditApiClient`.
+2. **No** incluir base64, binarios o credenciales en el payload de eventos (solo en claves de estado Redis).
+3. **No** fabricar `items` desde `fields` en normalizador o policy.
+4. **No** borrar mensajes de streams; dejar ack/retry/DLQ hacer su trabajo.
+5. **No** mezclar dos responsabilidades en un worker: cada etapa publica exactamente un evento siguiente.
 
 ## Ejemplos
 
-### Ejemplo 1: invocación de auditoría por API
+### Validar contrato `POST /audit/single`
 ```bash
-curl -X POST http://localhost:8080/audit ^
-  -H "Content-Type: application/json" ^
-  -d "{\"facNitSec\":1165,\"date\":\"2025-12-30\",\"limit\":1}"
+curl -X POST http://localhost:8080/audit/single \
+  -H "Content-Type: application/json" \
+  -d '{"DisDetNro":"T38250701547"}'
+# Respuesta esperada: 202 { "data": { "audit_id": "...", "status": "pending", ... } }
 ```
 
-### Ejemplo 2: shape de error consistente
-```json
-{
-  "response": "error",
-  "message": "Dispensación no encontrada",
-  "documento": "MULTIPLE",
-  "data": {
-    "items": [],
-    "details": null
-  }
-}
+### Golden case (validación humana obligatoria)
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/audit/single" `
+  -Method POST -ContentType "application/json" `
+  -Body '{"DisDetNro":"T38250701547"}' | ConvertTo-Json -Depth 20
+```
+Resultado esperado documentado en `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md` §23.9.
+
+### Levantar los workers localmente
+```bash
+php bin/audit-orchestrator-worker.php &
+php bin/audit-extraction-worker.php &
+php bin/audit-normalizer-worker.php &
+php bin/audit-policy-worker.php &
+php bin/audit-aggregator-worker.php &
 ```
 
-### Ejemplo 3: limpieza garantizada
-```php
-try {
-    [$result, $attempt] = $this->executeAuditFlow($dispensationData, $files);
-} finally {
-    foreach ($files as $file) {
-        $this->fileManager->cleanup($file);
-    }
-}
+### Listar DLQ
+```bash
+curl http://localhost:8080/audit/dlq?limit=20
 ```
 
 ## Checklist rápido
-1. Flujo normal y estricto siguen funcionando.
-2. Casos de error retornan JSON consistente.
-3. Adjuntos URL/BLOB siguen soportados.
-4. Respuesta se persiste en disco (`responseIA/`).
-5. Resultado se persiste en BD (`AudDispEst` via upsert).
-6. Logs de diagnóstico cubren fases clave.
-7. Temporales limpiados en `finally`.
+
+1. `POST /audit/single` responde 202 con `audit_id`.
+2. `POST /audit/async` responde 202 con `job_id`.
+3. Workers procesan el flujo completo para `T38250701547` (cliente 2426).
+4. `rg "AuditQueueService|AuditOrchestrator|lpush|brpop"` sin coincidencias.
+5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
+6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
+7. PHPUnit pasa (cobertura mínima: Eventos 80%, SchemaBuilder 90%, Normalizer/Policy/Aggregator 80%, Controllers 75%).
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
 
-**Después de implementar cualquier cambio en los archivos gobernados por esta skill, DEBES:**
+Después de cualquier cambio en el pipeline event-driven:
 
-1. **Verificar si este SKILL.md sigue siendo preciso**:
-   - ¿Los servicios listados en "Archivos clave" siguen existiendo? ¿Hay nuevos?
-   - ¿El mapa de dependencias del Orquestador sigue vigente?
-   - ¿El flujo técnico (Normal y Estricto) refleja el código actual?
-   - ¿Las variables de entorno listadas están actualizadas?
-2. **Si detectas una desviación**: corregirla ANTES de ejecutar `audfact-docs-sync`.
-3. **Ejecutar `audfact-docs-sync`**: esto es la segunda capa de validación.
+1. Verificar que los archivos listados en "Archivos clave" existan.
+2. Confirmar que streams y consumer groups siguen alineados con `AuditEventPublisher` y `AuditEventConsumer`.
+3. Ejecutar `audfact-docs-sync` como segunda capa.
 
 > [!CAUTION]
-> Ignorar este paso y dejar la skill desactualizada generará drift
-> acumulativo que confundirá a futuros agentes.
+> Dejar la skill desactualizada genera drift que confunde a agentes futuros.
 
 ## Referencias
-1. Ver casos ampliados en `references/examples.md`.
-2. Ver plantilla y suite en `references/test-cases.md`.
+
+- Plan normativo: `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md`
+- Sprint checkpoints: `plans/checkpoints/`
+- Skill asociada para modelos SQL: `audfact-sqlsrv-models`

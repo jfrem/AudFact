@@ -61,6 +61,11 @@
       "path": ".agent/skills/technical-governance-assessment",
       "description": "Evalúa gobernanza técnica: ownership, code review, incidentes, deuda y alineación de roadmap.",
       "name": "technical-governance-assessment"
+    },
+    {
+      "path": ".agent/skills/clean-rebuild-policy",
+      "description": "Política para reconstrucción desde cero (clean rebuild) orientada a arquitectura limpia, eliminación de legacy y un MVP estricto.",
+      "name": "clean-rebuild-policy"
     }
   ]
 }

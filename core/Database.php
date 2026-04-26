@@ -49,9 +49,15 @@ class Database
         }
 
         // Construir string del servidor
-        $server = $host;
-        if ($port !== '' && strpos($host, '\\') === false) {
-            $server .= ",{$port}";
+        if ($port !== '') {
+            $baseHost = $host;
+            $backslashPos = strpos($host, '\\');
+            if ($backslashPos !== false) {
+                $baseHost = substr($host, 0, $backslashPos);
+            }
+            $server = "{$baseHost},{$port}";
+        } else {
+            $server = $host;
         }
 
         // Opciones de PDO

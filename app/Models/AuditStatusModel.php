@@ -7,6 +7,7 @@ namespace App\Models;
 use PDO;
 use PDOStatement;
 use Core\Logger;
+use Core\Cache;
 
 /**
  * Modelo de estado de auditoría de dispensaciones.
@@ -229,6 +230,12 @@ class AuditStatusModel extends Model
 
         $writeDb = $this->getWriteDb();
 
+        Logger::info('AuditTrace: persist_audit_start', [
+            'FacSec' => (string) $auditResultData['FacSec'],
+            'FacNro' => (string) $auditResultData['FacNro'],
+            'decisions_count' => count($documentDecisions),
+        ]);
+
         try {
             $writeDb->beginTransaction();
 
@@ -240,6 +247,12 @@ class AuditStatusModel extends Model
             );
 
             $writeDb->commit();
+            Cache::invalidateQueryResults((string) ($auditResultData['FacNitSec'] ?? 'all'));
+
+            Logger::info('AuditTrace: persist_audit_committed', [
+                'FacSec' => (string) $auditResultData['FacSec'],
+                'FacNro' => (string) $auditResultData['FacNro'],
+            ]);
 
             return $record;
         } catch (\Throwable $e) {
@@ -250,6 +263,9 @@ class AuditStatusModel extends Model
             Logger::error('persistAuditResultWithAttachments: transacción revertida', [
                 'FacSec' => $auditResultData['FacSec'],
                 'FacNro' => $auditResultData['FacNro'],
+                'error_class' => get_class($e),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
                 'error' => $e->getMessage(),
             ]);
             throw $e;

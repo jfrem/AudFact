@@ -1,0 +1,393 @@
+﻿{
+    "success":  true,
+    "message":  "Resultados de auditorías",
+    "data":  {
+                 "items":  [
+                               {
+                                   "FacSec":  "87723098",
+                                   "FacNro":  "T38250701547",
+                                   "EstAud":  "1",
+                                   "EstadoDetallado":  "manual_review",
+                                   "RequiereRevisionHumana":  "1",
+                                   "Severidad":  "alta",
+                                   "Hallazgos":  "[{\"valorFuenteVerdad\":\"GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5\",\"severidad\":\"alta\",\"valorDocumento\":\"20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5-- -INV:2018DM-0018580 CUM:0-0\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"NombreArticulo\"},{\"valorFuenteVerdad\":\"46338218\",\"severidad\":\"alta\",\"valorDocumento\":\"46338218\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"NumeroAutorizacion\"},{\"valorFuenteVerdad\":\"2025-07-29\",\"severidad\":\"media\",\"valorDocumento\":\"29\\/07\\/2025\",\"documento\":\"DISPENSA\",\"detalle\":\"FDV \u00272025-07-29\u0027 difiere de Documento \u002729\\/07\\/2025\u0027.\",\"resultado\":\"VALOR_DISTINTO\",\"campo\":\"FechaEntrega\"},{\"valorFuenteVerdad\":\"12132213\",\"severidad\":\"alta\",\"valorDocumento\":\"12132213\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"DocumentoPaciente\"},{\"valorFuenteVerdad\":\"S127\",\"severidad\":\"alta\",\"valorDocumento\":\"S127\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"CodigoDiagnostico\"},{\"valorFuenteVerdad\":\"50\",\"severidad\":\"alta\",\"valorDocumento\":\"50\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"CantidadEntregada\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"DISPENSA\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma manuscrita de Absalon Garcia y número de documento presentes en el documento\",\"campo\":\"FirmaActaEntrega\"},{\"valorFuenteVerdad\":\"46338218\",\"campo\":\"NumeroAutorizacion\",\"valorDocumento\":\"46338218\",\"documento\":\"AUTORIZACION\",\"resultado\":\"COINCIDE\",\"detalle\":null,\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"2025-07-27\",\"campo\":\"FechaAutorizacion\",\"valorDocumento\":\"27\\/07\\/2025\",\"documento\":\"AUTORIZACION\",\"resultado\":\"VALOR_DISTINTO\",\"detalle\":\"FDV \u00272025-07-27\u0027 difiere de Documento \u002727\\/07\\/2025\u0027.\",\"severidad\":\"media\"},{\"valorFuenteVerdad\":\"12132213\",\"campo\":\"DocumentoPaciente\",\"valorDocumento\":\"12132213\",\"documento\":\"AUTORIZACION\",\"resultado\":\"COINCIDE\",\"detalle\":null,\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5\",\"campo\":\"NombreArticulo\",\"valorDocumento\":\"Cureband premium gasa antiadherente estéril- 7.5cm x 7.5cm- sobre CAJA 18 unds\",\"documento\":\"AUTORIZACION\",\"resultado\":\"NO_CONCLUYENTE\",\"detalle\":\"Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18).\",\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"GARCIA ABSALON\",\"detalle\":null,\"campo\":\"NombrePaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"ABSALON GARCIA\"},{\"valorFuenteVerdad\":\"2025-05-20\",\"detalle\":null,\"campo\":\"FechaFormula\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"media\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"2025-05-20\"},{\"valorFuenteVerdad\":\"12132213\",\"detalle\":null,\"campo\":\"DocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"12132213\"},{\"valorFuenteVerdad\":\"carlos esneider murcia rojas\",\"detalle\":null,\"campo\":\"Medico\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"media\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"CARLOS ESNEIDER MURCIA ROJAS\"},{\"valorFuenteVerdad\":\"S127\",\"detalle\":\"No fue posible confirmar el codigo diagnostico en la formula medica.\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"NO_CONCLUYENTE\",\"valorDocumento\":null},{\"valorFuenteVerdad\":\"CC\",\"detalle\":null,\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"CC\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"FORMULA MEDICA\",\"campo\":\"FirmaPrescriptor\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma del médico prescriptor visible en la parte inferior del documento\"}]",
+                                   "DetalleError":  "Auditoria completada con incertidumbre documental: 2 campos no concluyentes requieren revision humana.",
+                                   "DocumentosProcesados":  "3",
+                                   "DocumentoFallido":  "FORMULA MEDICA",
+                                   "DuracionProcesamientoMs":  "101000",
+                                   "FacNitSec":  "2426",
+                                   "FechaCreacion":  "2026-04-26 15:26:57.980",
+                                   "FechaActualizacion":  "2026-04-26 15:26:57.980",
+                                   "HallazgosRaw":  "{\"items\":[{\"valorFuenteVerdad\":\"GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5\",\"severidad\":\"alta\",\"valorDocumento\":\"20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5-- -INV:2018DM-0018580 CUM:0-0\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"NombreArticulo\"},{\"valorFuenteVerdad\":\"46338218\",\"severidad\":\"alta\",\"valorDocumento\":\"46338218\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"NumeroAutorizacion\"},{\"valorFuenteVerdad\":\"2025-07-29\",\"severidad\":\"media\",\"valorDocumento\":\"29/07/2025\",\"documento\":\"DISPENSA\",\"detalle\":\"FDV \u00272025-07-29\u0027 difiere de Documento \u002729/07/2025\u0027.\",\"resultado\":\"VALOR_DISTINTO\",\"campo\":\"FechaEntrega\"},{\"valorFuenteVerdad\":\"12132213\",\"severidad\":\"alta\",\"valorDocumento\":\"12132213\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"DocumentoPaciente\"},{\"valorFuenteVerdad\":\"S127\",\"severidad\":\"alta\",\"valorDocumento\":\"S127\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"CodigoDiagnostico\"},{\"valorFuenteVerdad\":\"50\",\"severidad\":\"alta\",\"valorDocumento\":\"50\",\"documento\":\"DISPENSA\",\"detalle\":null,\"resultado\":\"COINCIDE\",\"campo\":\"CantidadEntregada\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"DISPENSA\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma manuscrita de Absalon Garcia y número de documento presentes en el documento\",\"campo\":\"FirmaActaEntrega\"},{\"valorFuenteVerdad\":\"46338218\",\"campo\":\"NumeroAutorizacion\",\"valorDocumento\":\"46338218\",\"documento\":\"AUTORIZACION\",\"resultado\":\"COINCIDE\",\"detalle\":null,\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"2025-07-27\",\"campo\":\"FechaAutorizacion\",\"valorDocumento\":\"27/07/2025\",\"documento\":\"AUTORIZACION\",\"resultado\":\"VALOR_DISTINTO\",\"detalle\":\"FDV \u00272025-07-27\u0027 difiere de Documento \u002727/07/2025\u0027.\",\"severidad\":\"media\"},{\"valorFuenteVerdad\":\"12132213\",\"campo\":\"DocumentoPaciente\",\"valorDocumento\":\"12132213\",\"documento\":\"AUTORIZACION\",\"resultado\":\"COINCIDE\",\"detalle\":null,\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5\",\"campo\":\"NombreArticulo\",\"valorDocumento\":\"Cureband premium gasa antiadherente estéril- 7.5cm x 7.5cm- sobre CAJA 18 unds\",\"documento\":\"AUTORIZACION\",\"resultado\":\"NO_CONCLUYENTE\",\"detalle\":\"Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18).\",\"severidad\":\"alta\"},{\"valorFuenteVerdad\":\"GARCIA ABSALON\",\"detalle\":null,\"campo\":\"NombrePaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"ABSALON GARCIA\"},{\"valorFuenteVerdad\":\"2025-05-20\",\"detalle\":null,\"campo\":\"FechaFormula\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"media\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"2025-05-20\"},{\"valorFuenteVerdad\":\"12132213\",\"detalle\":null,\"campo\":\"DocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"12132213\"},{\"valorFuenteVerdad\":\"carlos esneider murcia rojas\",\"detalle\":null,\"campo\":\"Medico\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"media\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"CARLOS ESNEIDER MURCIA ROJAS\"},{\"valorFuenteVerdad\":\"S127\",\"detalle\":\"No fue posible confirmar el codigo diagnostico en la formula medica.\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"NO_CONCLUYENTE\",\"valorDocumento\":null},{\"valorFuenteVerdad\":\"CC\",\"detalle\":null,\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"severidad\":\"alta\",\"resultado\":\"COINCIDE\",\"valorDocumento\":\"CC\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"FORMULA MEDICA\",\"campo\":\"FirmaPrescriptor\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma del médico prescriptor visible en la parte inferior del documento\"}],\"metrics\":{\"total_campos\":18,\"coincidencias\":14,\"discrepancias\":2,\"omitidos\":0,\"no_concluyentes\":2,\"risk_score\":30},\"affected_documents\":[{\"documentName\":\"DISPENSA\",\"approved\":false,\"observation\":\"FDV \u00272025-07-29\u0027 difiere de Documento \u002729/07/2025\u0027.\"},{\"documentName\":\"AUTORIZACION\",\"approved\":false,\"observation\":\"FDV \u00272025-07-27\u0027 difiere de Documento \u002727/07/2025\u0027. | Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18).\"},{\"documentName\":\"FORMULA MEDICA\",\"approved\":false,\"observation\":\"No fue posible confirmar el codigo diagnostico en la formula medica.\"}]}",
+                                   "HallazgosItems":  [
+                                                          {
+                                                              "valorFuenteVerdad":  "GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5-- -INV:2018DM-0018580 CUM:0-0",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  null,
+                                                              "resultado":  "COINCIDE",
+                                                              "campo":  "NombreArticulo"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "46338218",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "46338218",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  null,
+                                                              "resultado":  "COINCIDE",
+                                                              "campo":  "NumeroAutorizacion"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "2025-07-29",
+                                                              "severidad":  "media",
+                                                              "valorDocumento":  "29/07/2025",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  "FDV \u00272025-07-29\u0027 difiere de Documento \u002729/07/2025\u0027.",
+                                                              "resultado":  "VALOR_DISTINTO",
+                                                              "campo":  "FechaEntrega"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "12132213",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "12132213",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  null,
+                                                              "resultado":  "COINCIDE",
+                                                              "campo":  "DocumentoPaciente"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "S127",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "S127",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  null,
+                                                              "resultado":  "COINCIDE",
+                                                              "campo":  "CodigoDiagnostico"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "50",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "50",
+                                                              "documento":  "DISPENSA",
+                                                              "detalle":  null,
+                                                              "resultado":  "COINCIDE",
+                                                              "campo":  "CantidadEntregada"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "OBLIGATORIO",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "PRESENTE",
+                                                              "documento":  "DISPENSA",
+                                                              "resultado":  "COINCIDE",
+                                                              "detalle":  "Firma manuscrita de Absalon Garcia y número de documento presentes en el documento",
+                                                              "campo":  "FirmaActaEntrega"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "46338218",
+                                                              "campo":  "NumeroAutorizacion",
+                                                              "valorDocumento":  "46338218",
+                                                              "documento":  "AUTORIZACION",
+                                                              "resultado":  "COINCIDE",
+                                                              "detalle":  null,
+                                                              "severidad":  "alta"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "2025-07-27",
+                                                              "campo":  "FechaAutorizacion",
+                                                              "valorDocumento":  "27/07/2025",
+                                                              "documento":  "AUTORIZACION",
+                                                              "resultado":  "VALOR_DISTINTO",
+                                                              "detalle":  "FDV \u00272025-07-27\u0027 difiere de Documento \u002727/07/2025\u0027.",
+                                                              "severidad":  "media"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "12132213",
+                                                              "campo":  "DocumentoPaciente",
+                                                              "valorDocumento":  "12132213",
+                                                              "documento":  "AUTORIZACION",
+                                                              "resultado":  "COINCIDE",
+                                                              "detalle":  null,
+                                                              "severidad":  "alta"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5",
+                                                              "campo":  "NombreArticulo",
+                                                              "valorDocumento":  "Cureband premium gasa antiadherente estéril- 7.5cm x 7.5cm- sobre CAJA 18 unds",
+                                                              "documento":  "AUTORIZACION",
+                                                              "resultado":  "NO_CONCLUYENTE",
+                                                              "detalle":  "Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18).",
+                                                              "severidad":  "alta"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "GARCIA ABSALON",
+                                                              "detalle":  null,
+                                                              "campo":  "NombrePaciente",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "alta",
+                                                              "resultado":  "COINCIDE",
+                                                              "valorDocumento":  "ABSALON GARCIA"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "2025-05-20",
+                                                              "detalle":  null,
+                                                              "campo":  "FechaFormula",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "media",
+                                                              "resultado":  "COINCIDE",
+                                                              "valorDocumento":  "2025-05-20"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "12132213",
+                                                              "detalle":  null,
+                                                              "campo":  "DocumentoPaciente",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "alta",
+                                                              "resultado":  "COINCIDE",
+                                                              "valorDocumento":  "12132213"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "carlos esneider murcia rojas",
+                                                              "detalle":  null,
+                                                              "campo":  "Medico",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "media",
+                                                              "resultado":  "COINCIDE",
+                                                              "valorDocumento":  "CARLOS ESNEIDER MURCIA ROJAS"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "S127",
+                                                              "detalle":  "No fue posible confirmar el codigo diagnostico en la formula medica.",
+                                                              "campo":  "CodigoDiagnostico",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "alta",
+                                                              "resultado":  "NO_CONCLUYENTE",
+                                                              "valorDocumento":  null
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "CC",
+                                                              "detalle":  null,
+                                                              "campo":  "TipoDocumentoPaciente",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "severidad":  "alta",
+                                                              "resultado":  "COINCIDE",
+                                                              "valorDocumento":  "CC"
+                                                          },
+                                                          {
+                                                              "valorFuenteVerdad":  "OBLIGATORIO",
+                                                              "severidad":  "alta",
+                                                              "valorDocumento":  "PRESENTE",
+                                                              "documento":  "FORMULA MEDICA",
+                                                              "campo":  "FirmaPrescriptor",
+                                                              "resultado":  "COINCIDE",
+                                                              "detalle":  "Firma del médico prescriptor visible en la parte inferior del documento"
+                                                          }
+                                                      ],
+                                   "CriticalFieldDecisions":  [
+                                                                  {
+                                                                      "valorFuenteVerdad":  "GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5-- -INV:2018DM-0018580 CUM:0-0",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  null,
+                                                                      "resultado":  "COINCIDE",
+                                                                      "campo":  "NombreArticulo"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "46338218",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "46338218",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  null,
+                                                                      "resultado":  "COINCIDE",
+                                                                      "campo":  "NumeroAutorizacion"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "2025-07-29",
+                                                                      "severidad":  "media",
+                                                                      "valorDocumento":  "29/07/2025",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  "FDV \u00272025-07-29\u0027 difiere de Documento \u002729/07/2025\u0027.",
+                                                                      "resultado":  "VALOR_DISTINTO",
+                                                                      "campo":  "FechaEntrega"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "12132213",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "12132213",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  null,
+                                                                      "resultado":  "COINCIDE",
+                                                                      "campo":  "DocumentoPaciente"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "S127",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "S127",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  null,
+                                                                      "resultado":  "COINCIDE",
+                                                                      "campo":  "CodigoDiagnostico"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "50",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "50",
+                                                                      "documento":  "DISPENSA",
+                                                                      "detalle":  null,
+                                                                      "resultado":  "COINCIDE",
+                                                                      "campo":  "CantidadEntregada"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "OBLIGATORIO",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "PRESENTE",
+                                                                      "documento":  "DISPENSA",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "detalle":  "Firma manuscrita de Absalon Garcia y número de documento presentes en el documento",
+                                                                      "campo":  "FirmaActaEntrega"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "46338218",
+                                                                      "campo":  "NumeroAutorizacion",
+                                                                      "valorDocumento":  "46338218",
+                                                                      "documento":  "AUTORIZACION",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "detalle":  null,
+                                                                      "severidad":  "alta"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "2025-07-27",
+                                                                      "campo":  "FechaAutorizacion",
+                                                                      "valorDocumento":  "27/07/2025",
+                                                                      "documento":  "AUTORIZACION",
+                                                                      "resultado":  "VALOR_DISTINTO",
+                                                                      "detalle":  "FDV \u00272025-07-27\u0027 difiere de Documento \u002727/07/2025\u0027.",
+                                                                      "severidad":  "media"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "12132213",
+                                                                      "campo":  "DocumentoPaciente",
+                                                                      "valorDocumento":  "12132213",
+                                                                      "documento":  "AUTORIZACION",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "detalle":  null,
+                                                                      "severidad":  "alta"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5",
+                                                                      "campo":  "NombreArticulo",
+                                                                      "valorDocumento":  "Cureband premium gasa antiadherente estéril- 7.5cm x 7.5cm- sobre CAJA 18 unds",
+                                                                      "documento":  "AUTORIZACION",
+                                                                      "resultado":  "NO_CONCLUYENTE",
+                                                                      "detalle":  "Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18).",
+                                                                      "severidad":  "alta"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "GARCIA ABSALON",
+                                                                      "detalle":  null,
+                                                                      "campo":  "NombrePaciente",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "alta",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "valorDocumento":  "ABSALON GARCIA"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "2025-05-20",
+                                                                      "detalle":  null,
+                                                                      "campo":  "FechaFormula",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "media",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "valorDocumento":  "2025-05-20"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "12132213",
+                                                                      "detalle":  null,
+                                                                      "campo":  "DocumentoPaciente",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "alta",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "valorDocumento":  "12132213"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "carlos esneider murcia rojas",
+                                                                      "detalle":  null,
+                                                                      "campo":  "Medico",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "media",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "valorDocumento":  "CARLOS ESNEIDER MURCIA ROJAS"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "S127",
+                                                                      "detalle":  "No fue posible confirmar el codigo diagnostico en la formula medica.",
+                                                                      "campo":  "CodigoDiagnostico",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "alta",
+                                                                      "resultado":  "NO_CONCLUYENTE",
+                                                                      "valorDocumento":  null
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "CC",
+                                                                      "detalle":  null,
+                                                                      "campo":  "TipoDocumentoPaciente",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "severidad":  "alta",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "valorDocumento":  "CC"
+                                                                  },
+                                                                  {
+                                                                      "valorFuenteVerdad":  "OBLIGATORIO",
+                                                                      "severidad":  "alta",
+                                                                      "valorDocumento":  "PRESENTE",
+                                                                      "documento":  "FORMULA MEDICA",
+                                                                      "campo":  "FirmaPrescriptor",
+                                                                      "resultado":  "COINCIDE",
+                                                                      "detalle":  "Firma del médico prescriptor visible en la parte inferior del documento"
+                                                                  }
+                                                              ],
+                                   "AffectedDocuments":  [
+                                                             {
+                                                                 "documentName":  "DISPENSA",
+                                                                 "approved":  false,
+                                                                 "observation":  "FDV \u00272025-07-29\u0027 difiere de Documento \u002729/07/2025\u0027."
+                                                             },
+                                                             {
+                                                                 "documentName":  "AUTORIZACION",
+                                                                 "approved":  false,
+                                                                 "observation":  "FDV \u00272025-07-27\u0027 difiere de Documento \u002727/07/2025\u0027. | Difieren en material (no tejida vs antiadherente) y presentación comercial (pqte x5 vs caja x18)."
+                                                             },
+                                                             {
+                                                                 "documentName":  "FORMULA MEDICA",
+                                                                 "approved":  false,
+                                                                 "observation":  "No fue posible confirmar el codigo diagnostico en la formula medica."
+                                                             }
+                                                         ],
+                                   "_meta":  {
+                                                 "source":  "AudDispEst",
+                                                 "totalTimeMs":  101000,
+                                                 "documentsProcessed":  3,
+                                                 "createdAt":  "2026-04-26 15:26:57.980",
+                                                 "updatedAt":  "2026-04-26 15:26:57.980",
+                                                 "auditExecuted":  true,
+                                                 "metrics":  {
+                                                                 "total_campos":  18,
+                                                                 "coincidencias":  14,
+                                                                 "discrepancias":  2,
+                                                                 "omitidos":  0,
+                                                                 "no_concluyentes":  2,
+                                                                 "risk_score":  30
+                                                             }
+                                             }
+                               }
+                           ],
+                 "total":  1,
+                 "page":  1,
+                 "pageSize":  20,
+                 "totalPages":  1,
+                 "filters":  {
+                                 "facNro":  "T38250701547"
+                             }
+             }
+}
