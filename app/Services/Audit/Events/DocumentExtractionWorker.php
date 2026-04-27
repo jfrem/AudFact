@@ -106,11 +106,12 @@ TEXT;
                 $this->buildSystemPrompt($payload),
                 [['functionDeclarations' => [$schema]]],
                 $this->buildToolConfig($schema),
+                [],
                 [
-                    'X-Audit-Context-DisDetNro' => $disDetNro,
-                    'X-Audit-Context-AuditId' => $event->auditId,
-                    'X-Audit-Context-DocumentId' => $event->documentId,
-                    'X-Audit-Context-DocumentType' => $documentType,
+                    'dis_det_nro' => $disDetNro,
+                    'audit_id' => $event->auditId,
+                    'document_id' => $event->documentId,
+                    'document_type' => $documentType,
                 ]
             );
 

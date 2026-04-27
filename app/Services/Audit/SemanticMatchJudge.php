@@ -131,18 +131,18 @@ final class SemanticMatchJudge
             ],
         ];
 
-        $contextOverrides = [];
+        $debugContext = [];
         if (isset($context['audit_id'])) {
-            $contextOverrides['X-Audit-Context-AuditId'] = $context['audit_id'];
+            $debugContext['audit_id'] = $context['audit_id'];
         }
         if (isset($context['document_id'])) {
-            $contextOverrides['X-Audit-Context-DocumentId'] = $context['document_id'];
+            $debugContext['document_id'] = $context['document_id'];
         }
         if (isset($context['dis_det_nro'])) {
-            $contextOverrides['X-Audit-Context-DisDetNro'] = $context['dis_det_nro'];
+            $debugContext['dis_det_nro'] = $context['dis_det_nro'];
         }
         if (isset($context['document_type'])) {
-            $contextOverrides['X-Audit-Context-DocumentType'] = $context['document_type'];
+            $debugContext['document_type'] = $context['document_type'];
         }
 
         try {
@@ -152,7 +152,8 @@ final class SemanticMatchJudge
                 $systemInstruction,
                 [['functionDeclarations' => [$schema]]],
                 $toolConfig,
-                $contextOverrides
+                [],
+                $debugContext
             );
 
             $parts = $response['candidates'][0]['content']['parts'] ?? null;

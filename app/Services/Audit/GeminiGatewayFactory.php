@@ -25,19 +25,19 @@ final class GeminiGatewayFactory
             'connect_timeout' => $timeout > 0 ? $timeout : 300,
         ]);
 
-        return new GeminiGateway(
-            $httpClient,
-            $apiKey,
-            (string) Env::get('GEMINI_MODEL', 'gemini-3-pro-preview'),
-            self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
-            self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
-            self::nullableInt(Env::get('GEMINI_TOP_K', null)),
-            (int) Env::get('GEMINI_MAX_OUTPUT_TOKENS', 8192),
-            (string) Env::get('GEMINI_RESPONSE_MIME', 'application/json'),
-            self::nullableString(Env::get('GEMINI_MEDIA_RESOLUTION', null)),
-            self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
-            self::nullableInt(Env::get('GEMINI_SEED', null))
+        $config = new GeminiConfig(
+            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3-pro-preview'),
+            temperature:     self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
+            topP:            self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
+            topK:            self::nullableInt(Env::get('GEMINI_TOP_K', null)),
+            maxOutputTokens: (int) Env::get('GEMINI_MAX_OUTPUT_TOKENS', 8192),
+            responseMimeType:(string) Env::get('GEMINI_RESPONSE_MIME', 'application/json'),
+            mediaResolution: self::nullableString(Env::get('GEMINI_MEDIA_RESOLUTION', null)),
+            thinkingBudget:  self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
+            seed:            self::nullableInt(Env::get('GEMINI_SEED', null)),
         );
+
+        return new GeminiGateway($httpClient, $apiKey, $config);
     }
 
     private static function nullableFloat(mixed $value): ?float

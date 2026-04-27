@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-04-27] — Refactorización Arquitectónica: GeminiGateway
+
+### 🟢 Calidad de Código / Refactor
+- **AUDIT-012**: Rediseño completo de la capa de comunicación con IA (`GeminiGateway`).
+  - **Extracción de responsabilidades (SRP)**: Separación de la configuración en un Value Object inmutable (`GeminiConfig`) y extracción de la resiliencia en un componente aislado y testeable (`GeminiCircuitBreaker`).
+  - **Eliminación de código muerto**: Removidas funciones inutilizadas y simplificado el constructor de 12 a 4 parámetros.
+  - **Desacoplamiento de contexto**: El contexto de trazabilidad (`X-Audit-Context-*`) se desacopló del array de `generationOverrides`, inyectándose explícitamente como un parámetro dedicado (`$debugContext`), eliminando el antipatrón de "bolsa mágica".
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada la documentación de arquitectura y el changelog. Validada la cobertura implícita del catálogo de skills.
+  - Archivos actualizados: `plans/changelog.md`, `plans/architecture.md`
+
 ## [2026-04-27] — Auditoría Dinámica y Configuración Universal
 
 ### 🔵 Features / Architecture

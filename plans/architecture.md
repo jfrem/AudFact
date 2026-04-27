@@ -69,6 +69,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `ExtractionPromptBuilder.php` | Prompt de extracción v4: campos, visual checks y hints sin lógica de negocio |
 | `ExtractionResponseSchema.php` | Function Calling schema para `report_extraction` |
 | `AuditResponseSchema.php` | Definición del schema de respuesta final del pipeline |
+| `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo |
+| `GeminiCircuitBreaker.php` | Resiliencia y protección contra fallos en cascada hacia la API de IA |
 | `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y manejo de errores |
 | `EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API |
 | `SemanticComparator.php` | Comparación semántica de campos por embeddings |
