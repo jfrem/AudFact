@@ -15,7 +15,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1 KB | Definición de 18 rutas |
+| `app/Routes/web.php` | ~1.1 KB | Definición de 20 rutas |
 | `app/Controllers/Controller.php` | 2.3 KB | Base: `validate()`, `validateArray()`, `getJsonBody()` |
 | `app/Controllers/AttachmentsController.php` | 6.7 KB | Controlador más complejo (stream/download) |
 | `app/Controllers/AuditController.php` | ~3 KB | Orquestador de auditoría + resultados |
@@ -28,7 +28,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (18)
+## Endpoints actuales (20)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -38,6 +38,8 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/clients` | `ClientsController::index` |
 | `GET` | `/clients/{clientId}` | `ClientsController::show` |
 | `POST` | `/clients` | `ClientsController::lookup` |
+| `GET` | `/clients/{clientId}/audit-config` | `AuditController::configByClient` |
+| `POST` | `/clients/{clientId}/audit-config` | `AuditController::saveAuditConfig` |
 | `GET` | `/invoices` | `InvoicesController::index` |
 | `POST` | `/invoices` | `InvoicesController::search` |
 | `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | `AttachmentsController::showByDispensation` |

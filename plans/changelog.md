@@ -1,5 +1,16 @@
 # Changelog AudFact
 
+## [2026-04-27] — Auditoría Dinámica y Configuración Universal
+
+### 🔵 Features / Architecture
+- **AUDIT-009**: Implementación de **Configuración de Auditoría Dinámica**. El sistema ahora permite definir metadatos por campo (Exacto, Semántico, Negocio) y severidades (ALTA, MEDIA, BAJA) persistidos en base de datos.
+- **AUDIT-010**: Rediseño de la UI de configuración (`AuditConfigEditor`) para soportar la edición de nuevos tipos de campos y severidades dinámicas.
+- **AUDIT-011**: Soporte para tipos de campo "S" (Semántico) y "B" (Negocio) en el pipeline de auditoría, permitiendo validaciones contextuales avanzadas vía Gemini.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada la documentación de endpoints y las skills de API y Auditoría Gemini para reflejar el nuevo modelo de datos dinámico.
+  - Archivos actualizados: `plans/changelog.md`, `plans/api-endpoints.md`, `.agent/skills/audfact-api-rest/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+
 ## [2026-03-24] — Corrección Interfaz MCP (GetInvoices)
 
 ### 🔴 Critical Fixes

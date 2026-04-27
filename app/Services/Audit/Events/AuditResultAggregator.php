@@ -108,16 +108,7 @@ class AuditResultAggregator
         if (!is_array($findings)) {
             return [];
         }
-
-        $normalized = [];
-        foreach ($findings as $finding) {
-            if (!is_array($finding)) {
-                continue;
-            }
-            $normalized[] = $finding;
-        }
-
-        return $normalized;
+        return array_values(array_filter($findings, 'is_array'));
     }
 
     /**
@@ -225,18 +216,18 @@ class AuditResultAggregator
      */
     private function resolveOverallSeverity(array $findings): string
     {
-        $current = FieldClassifier::SEVERITY_LOW;
+        $highest = FieldClassifier::SEVERITY_LOW;
         foreach ($findings as $finding) {
             $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
             if ($severity === FieldClassifier::SEVERITY_HIGH) {
                 return FieldClassifier::SEVERITY_HIGH;
             }
             if ($severity === FieldClassifier::SEVERITY_MEDIUM) {
-                $current = FieldClassifier::SEVERITY_MEDIUM;
+                $highest = FieldClassifier::SEVERITY_MEDIUM;
             }
         }
 
-        return $current;
+        return $highest;
     }
 
     /**

@@ -28,13 +28,14 @@ final class SchemaBuilder
 
             $fields = $this->normalizeFields($documentConfig['fields'] ?? []);
             $visualChecks = $this->normalizeVisualChecks($documentConfig['visualChecks'] ?? []);
+            $fieldNames = $this->extractFieldNames($fields);
 
             $normalized[] = [
                 'doc_id' => $docId,
                 'document_name' => trim($documentName),
                 'document_name_normalized' => self::normalizeName($documentName),
                 'fields' => $fields,
-                'extraction_schema' => $this->buildExtractionSchema($fields, $visualChecks),
+                'extraction_schema' => $this->buildExtractionSchema($fieldNames, $visualChecks),
                 'visual_checks' => $visualChecks,
             ];
         }
@@ -47,40 +48,26 @@ final class SchemaBuilder
         return $normalized;
     }
 
-    private function buildExtractionSchema(array $fields, array $visualChecks = []): array
+    private function buildExtractionSchema(array $fieldNames, array $visualChecks = []): array
     {
-        $properties = [];
-        foreach ($fields as $field) {
-            $properties[$field] = [
-                'type' => 'string',
-            ];
-        }
+        $fieldProperties = $this->buildFieldProperties($fieldNames);
 
         return [
-            'name' => 'extract_document_data',
+            'name'        => 'extract_document_data',
             'description' => 'Extrae datos estructurados y verificaciones visuales de un documento de auditoria farmaceutica.',
-            'parameters' => [
-                'type' => 'object',
+            'parameters'  => [
+                'type'       => 'object',
                 'properties' => [
-                    'fields' => [
-                        'type' => 'object',
-                        'properties' => $properties,
-                    ],
-                    'items' => [
-                        'type' => 'array',
+                    'fields'           => ['type' => 'object', 'properties' => $fieldProperties],
+                    'items'            => ['type' => 'array',  'items' => ['type' => 'object', 'properties' => $fieldProperties]],
+                    'visual_checks'    => [
+                        'type'  => 'array',
                         'items' => [
-                            'type' => 'object',
-                            'properties' => $properties,
-                        ],
-                    ],
-                    'visual_checks' => [
-                        'type' => 'array',
-                        'items' => [
-                            'type' => 'object',
+                            'type'       => 'object',
                             'properties' => [
-                                'check' => ['type' => 'string'],
-                                'presente' => ['type' => 'boolean'],
-                                'detalle' => ['type' => 'string'],
+                                'check'     => ['type' => 'string'],
+                                'presente'  => ['type' => 'boolean'],
+                                'detalle'   => ['type' => 'string'],
                                 'severidad' => ['type' => 'string'],
                             ],
                             'required' => ['check', 'presente'],
@@ -90,16 +77,20 @@ final class SchemaBuilder
                         'type' => 'string',
                         'enum' => ['legible', 'parcialmente_legible', 'ilegible'],
                     ],
-                    'quality_notes' => [
-                        'type' => 'array',
-                        'items' => [
-                            'type' => 'string',
-                        ],
-                    ],
+                    'quality_notes'    => ['type' => 'array', 'items' => ['type' => 'string']],
                 ],
                 'required' => ['fields', 'visual_checks', 'document_quality'],
             ],
         ];
+    }
+
+    private function buildFieldProperties(array $fieldNames): array
+    {
+        $properties = [];
+        foreach ($fieldNames as $name) {
+            $properties[$name] = ['type' => 'string'];
+        }
+        return $properties;
     }
 
     public static function normalizeName(string $value): string
@@ -121,6 +112,11 @@ final class SchemaBuilder
         return trim((string) $ascii);
     }
 
+    private function extractFieldNames(array $fields): array
+    {
+        return array_map(fn(array $f): string => $f['campoNombre'], $fields);
+    }
+
     private function normalizeFields(mixed $fields): array
     {
         if (!is_array($fields)) {
@@ -129,13 +125,25 @@ final class SchemaBuilder
 
         $normalized = [];
         foreach ($fields as $field) {
-            if (!is_string($field) || trim($field) === '') {
+            if (is_array($field) && isset($field['campoNombre'])) {
+                $normalized[] = array_merge(
+                    ['rol' => 'AUTORITATIVO', 'omitirSi' => null],
+                    $field
+                );
+            } elseif (is_string($field) && trim($field) !== '') {
+                $normalized[] = [
+                    'campoNombre' => trim($field),
+                    'tipoCampo'   => 'E',
+                    'severity'    => 'alta',
+                    'rol'         => 'AUTORITATIVO',
+                    'omitirSi'    => null,
+                ];
+            } else {
                 throw new InvalidArgumentException('Campo inválido en fields');
             }
-            $normalized[] = trim($field);
         }
 
-        return array_values(array_unique($normalized));
+        return $normalized;
     }
 
     private function normalizeVisualChecks(mixed $checks): array
@@ -157,7 +165,7 @@ final class SchemaBuilder
                     : '',
                 'severity' => isset($check['severity']) && is_string($check['severity']) && trim($check['severity']) !== ''
                     ? strtoupper(trim($check['severity']))
-                    : 'CRITICO',
+                    : 'ALTA',
             ];
         }
 

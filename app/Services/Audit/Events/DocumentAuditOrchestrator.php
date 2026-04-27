@@ -195,6 +195,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'fac_sec' => $context['facSec'],
             'fac_nit_sec' => $context['nitSec'],
             'extraction_schema' => $schemaDocument['extraction_schema'],
+            'fields_config' => $schemaDocument['fields'],
             'visual_checks' => $schemaDocument['visual_checks'],
             'system_prompt' => $context['auditConfig']['systemPrompt'] ?? null,
             'fuente_verdad' => $context['fuenteVerdad'],

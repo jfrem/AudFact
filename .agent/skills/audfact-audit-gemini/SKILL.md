@@ -90,8 +90,8 @@ Cada worker: carga `.env`, instancia el consumer correspondiente, registra SIGTE
 
 ## Reglas de implementación (estrictas)
 
-1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio; comparación y severidad viven en `DocumentPolicyEngine`.
-2. **TipoCampo gobierna el schema**: `D` → `fields`, `V` → `visual_checks`. Prohibido inferir por nombre.
+1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`.
+2. **TipoCampo gobierna el schema**: `D` → Datos exactos, `S` → Datos semánticos, `B` → Reglas de negocio, `V` → Verificaciones visuales. Prohibido inferir por nombre.
 3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
 4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
 5. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo (ver plan §23.3).

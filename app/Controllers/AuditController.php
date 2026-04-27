@@ -435,6 +435,97 @@ class AuditController extends Controller
         }
     }
 
+    public function configByClient(string $clientId): void
+    {
+        $model = $this->buildAuditStatusModel();
+        $config = $model->getConfigByClient($clientId);
+
+        if (!$config) {
+            Response::error('Cliente no encontrado o sin configuración', 404);
+        }
+
+        // Obtener catálogo de campos por documento
+        $attModel = new AttachmentsModel();
+        $documents = $attModel->getDocumentTypes();
+        
+        $configDocs = [];
+        foreach ($documents as $doc) {
+            $docName = $doc['DocumentoNombre'];
+            $docId = (int)$doc['DocumentoId'];
+            
+            // Mezclar campos de AudDispEst (datos exactos/semánticos) y AdjuntosDispensacion (visuales)
+            $fields = [];
+            
+            // Campos de la tabla AudDispEst (Datos principales)
+            // Aquí usamos una lista predefinida o la obtenemos de la lógica del modelo
+            $baseFields = [
+                'NITCliente', 'TipoDocumentoPaciente', 'DocumentoPaciente', 'NombrePaciente',
+                'RegimenPaciente', 'CodigoDiagnostico', 'FechaFormula', 'FechaAutorizacion',
+                'NumeroAutorizacion', 'CodigoArticulo', 'CodigoProducto', 'CUM', 'Lote',
+                'FechaVencimiento', 'Mipres', 'VlrCobrado', 'Cliente', 'IPS', 'Medico',
+                'NombreArticulo', 'Laboratorio', 'CantidadEntregada', 'CantidadPrescrita'
+            ];
+
+            foreach ($baseFields as $fieldName) {
+                // Buscar override en la config del cliente
+                $override = $config['documents'][$docName]['fields'][$fieldName] ?? null;
+
+                $fields[] = [
+                    'campoNombre' => $fieldName,
+                    'tipoCampo' => $override['tipoCampo'] ?? 'E', // Default: Exacto
+                    'enabled' => $override['enabled'] ?? true,
+                    'descripcionOverride' => $override['descripcionOverride'] ?? '',
+                    'severityOverride' => $override['severityOverride'] ?? 'ALTA',
+                    'rol' => $override['rol'] ?? 'AUTORITATIVO',
+                    'omitirSi' => $override['omitirSi'] ?? null,
+                ];
+            }
+
+            // Campos visuales específicos de este documento (AdjuntosDispensacion)
+            $visualFields = $attModel->getFieldsByDocument($docId);
+            foreach ($visualFields as $vf) {
+                $fieldName = $vf['CampoNombre'];
+                $override = $config['documents'][$docName]['fields'][$fieldName] ?? null;
+
+                $fields[] = [
+                    'campoNombre' => $fieldName,
+                    'tipoCampo' => 'V', // Visual
+                    'enabled' => $override['enabled'] ?? true,
+                    'descripcionOverride' => $override['descripcionOverride'] ?? $vf['CampoDescripcion'],
+                    'severityOverride' => $override['severityOverride'] ?? 'ALTA',
+                    'rol' => $override['rol'] ?? 'AUTORITATIVO',
+                    'omitirSi' => $override['omitirSi'] ?? null,
+                ];
+            }
+
+            $configDocs[$docName] = [
+                'docId' => $docId,
+                'fields' => $fields
+            ];
+        }
+
+        Response::success([
+            'nitSec' => $config['nitSec'],
+            'activo' => $config['activo'],
+            'systemPrompt' => $config['systemPrompt'],
+            'documents' => $configDocs
+        ], 'Configuración de auditoría recuperada');
+    }
+
+    public function saveAuditConfig(string $clientId): void
+    {
+        $data = $this->getJsonBody();
+        
+        $model = $this->buildAuditStatusModel();
+        $success = $model->saveConfigByClient($clientId, $data);
+
+        if ($success) {
+            Response::success(null, 'Configuración guardada exitosamente');
+        } else {
+            Response::error('Error al guardar la configuración', 500);
+        }
+    }
+
     protected function buildAuditStatusModel(): AuditStatusModel
     {
         return new AuditStatusModel();

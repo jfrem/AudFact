@@ -94,10 +94,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             throw new RuntimeException('Auditoría no disponible después de policy');
         }
 
-        $docsDone = (int) ($updatedAudit['docs_done'] ?? 0);
-        $docsTotal = (int) ($updatedAudit['docs_total'] ?? 0);
-        $docsEvaluated = (int) ($updatedAudit['docs_evaluated'] ?? 0);
-        if ($docsTotal < 1 || $docsDone < $docsTotal || $docsEvaluated < $docsTotal) {
+        $docsNormalized = (int) ($updatedAudit['docs_done'] ?? 0);
+        $docsTotal      = (int) ($updatedAudit['docs_total'] ?? 0);
+        $docsEvaluated  = (int) ($updatedAudit['docs_evaluated'] ?? 0);
+        if ($docsTotal < 1 || $docsNormalized < $docsTotal || $docsEvaluated < $docsTotal) {
             return;
         }
 
@@ -139,12 +139,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 continue;
             }
 
-            $findings = $policyResult['hallazgos']['items'] ?? [];
-            if (is_array($findings)) {
-                foreach ($findings as $finding) {
-                    if (is_array($finding)) {
-                        $allFindings[] = $finding;
-                    }
+            $items = $policyResult['hallazgos']['items'] ?? [];
+            if (is_array($items)) {
+                foreach (array_filter($items, 'is_array') as $finding) {
+                    $allFindings[] = $finding;
                 }
             }
 

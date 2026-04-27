@@ -10,15 +10,15 @@ use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private const RESULT_MATCH = 'COINCIDE';
-    private const RESULT_MISMATCH = 'VALOR_DISTINTO';
-    private const RESULT_NOT_FOUND = 'NO_ENCONTRADO';
-    private const RESULT_SKIPPED = 'OMITIDO';
+    private const RESULT_MATCH        = 'COINCIDE';
+    private const RESULT_MISMATCH     = 'VALOR_DISTINTO';
+    private const RESULT_NOT_FOUND    = 'NO_ENCONTRADO';
+    private const RESULT_SKIPPED      = 'OMITIDO';
     private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
 
-    private const PERSON_THRESHOLD = 0.85;
+    private const PERSON_THRESHOLD  = 0.85;
     private const ARTICLE_THRESHOLD = 0.82;
-    private const TEXT_THRESHOLD = 0.90;
+    private const TEXT_THRESHOLD    = 0.90;
 
     private const PER_ITEM_FIELDS = [
         'CantidadEntregada',
@@ -32,14 +32,9 @@ class DocumentPolicyEngine
         'CodigoProducto',
     ];
 
-    private const NON_MVP_FIELDS = [
-        'Tipo',
-        'Cliente.Entidad',
-    ];
-
-    private const PRODUCT_HINT_FIELDS = [
-        'CodigoProducto',
-        'CUM',
+    private const QUANTITY_FIELDS = [
+        'CantidadEntregada',
+        'CantidadPrescrita',
     ];
 
     private const NON_SCALAR_MULTI_ITEM_FIELDS = [
@@ -55,6 +50,8 @@ class DocumentPolicyEngine
         'FechaEntrega',
         'FechaVencimiento',
     ];
+
+    private const COMPARISON_NUMBER_FIELDS = ['CantidadEntregada', 'CantidadPrescrita', 'VlrCobrado'];
 
     private FieldClassifier $classifier;
     private AuditFindingRules $findingRules;
@@ -83,9 +80,9 @@ class DocumentPolicyEngine
         $canonicalDocumentType = $this->normalizeDocumentType($documentType);
 
         $context = [
-            'audit_id' => $documentState['audit_id'] ?? null,
-            'document_id' => $documentState['document_id'] ?? null,
-            'dis_det_nro' => $documentState['dis_det_nro'] ?? null,
+            'audit_id'      => $documentState['audit_id'] ?? null,
+            'document_id'   => $documentState['document_id'] ?? null,
+            'dis_det_nro'   => $documentState['dis_det_nro'] ?? null,
             'document_type' => $documentType,
         ];
 
@@ -94,72 +91,31 @@ class DocumentPolicyEngine
             throw new RuntimeException('document_normalized sin fuente_verdad válida');
         }
 
-        $fields = $this->normalizeAssociative($normalizedPayload['fields_normalized'] ?? []);
-        $items = $this->normalizeRows($normalizedPayload['items_normalized'] ?? []);
-        $visualChecks = $this->normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
+        $fields        = $this->normalizeAssociative($normalizedPayload['fields_normalized'] ?? []);
+        $items         = $this->normalizeRows($normalizedPayload['items_normalized'] ?? []);
+        $visualChecks  = $this->normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
         $documentQuality = strtolower(trim((string) ($normalizedPayload['document_quality'] ?? '')));
         if (!in_array($documentQuality, ['legible', 'parcialmente_legible', 'ilegible'], true)) {
             throw new RuntimeException('document_normalized sin document_quality válido');
         }
 
-        $expectedFields = $this->extractExpectedFields($documentState['extraction_schema'] ?? []);
-        if ($expectedFields === []) {
-            $expectedFields = array_keys($fields);
-        }
+        $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
-        $findings = [];
-        foreach ($expectedFields as $field) {
-            $canonicalField = $this->classifier->normalizeField($field);
-            if ($this->classifier->classify($canonicalField) === FieldClassifier::TYPE_VISUAL) {
-                continue;
-            }
-
-            if (!$this->shouldAuditField($canonicalDocumentType, $canonicalField, $sourceTruth)) {
-                continue;
-            }
-
-            [$docValue, $ambiguous] = $this->resolveDocumentValue($canonicalField, $fields, $items);
-            $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
-            if ($this->shouldSkipMultiValueField($canonicalField) && $fdvValue === null && $docValue === null) {
-                continue;
-            }
-
-            $comparison = $this->evaluateField(
-                $canonicalDocumentType,
-                $canonicalField,
-                $fdvValue,
-                $docValue,
-                $documentQuality,
-                $ambiguous,
-                $context
-            );
-
-            $findings[] = [
-                'campo' => $this->classifier->getDisplayField($canonicalField),
-                'valorFuenteVerdad' => $fdvValue,
-                'valorDocumento' => $docValue,
-                'resultado' => $comparison['resultado'],
-                'severidad' => $this->classifier->getSeverity($canonicalField),
-                'documento' => $documentType,
-                'detalle' => $comparison['detalle'] ?? null,
-            ];
-        }
-
-        foreach ($this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality) as $finding) {
-            $findings[] = $finding;
-        }
+        $findings = array_merge(
+            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $canonicalDocumentType, $documentType, $documentQuality, $context),
+            $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
+        );
 
         $metrics = $this->findingRules->summarizeMetrics($findings);
 
         return [
-            'document_name' => $documentType,
-            'hallazgos' => [
-                'items' => $findings,
-                'metrics' => $metrics,
-            ],
+            'document_name'     => $documentType,
+            'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
             'document_decision' => $this->buildDocumentDecision($documentType, $findings),
         ];
     }
+
+    // ─── Normalizers ──────────────────────────────────────────────────────────
 
     /**
      * @return array<string,mixed>
@@ -208,11 +164,11 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $canonical = $this->classifier->normalizeField($check);
+            $canonical           = $this->classifier->normalizeField($check);
             $indexed[$canonical] = [
-                'check' => $canonical,
+                'check'    => $canonical,
                 'presente' => (bool) ($row['presente'] ?? false),
-                'detalle' => $this->normalizeNullableString($row['detalle'] ?? null),
+                'detalle'  => $this->normalizeNullableString($row['detalle'] ?? null),
                 'severidad' => $this->normalizeVisualSeverity($row['severidad'] ?? null),
             ];
         }
@@ -220,29 +176,164 @@ class DocumentPolicyEngine
         return $indexed;
     }
 
-    /**
-     * @return array<int,string>
-     */
-    private function extractExpectedFields(mixed $schema): array
+    // ─── Fields indexing & type mapping ───────────────────────────────────────
+
+    private function indexFieldsByCanonicalName(array $fieldsConfig): array
     {
-        if (!is_array($schema)) {
-            return [];
+        $indexed = [];
+        foreach ($fieldsConfig as $fieldConfig) {
+            $indexed[$this->classifier->normalizeField($fieldConfig['campoNombre'])] = $fieldConfig;
+        }
+        return $indexed;
+    }
+
+    private function mapToInternalType(string $tipoCampo): string
+    {
+        return match (strtoupper($tipoCampo)) {
+            'S'     => FieldClassifier::TYPE_SEMANTIC,
+            'B'     => FieldClassifier::TYPE_BUSINESS,
+            default => FieldClassifier::TYPE_EXACT,
+        };
+    }
+
+    // ─── Data field evaluation ────────────────────────────────────────────────
+
+    private function evaluateDataFields(
+        array $indexedFields,
+        array $fields,
+        array $items,
+        array $sourceTruth,
+        string $canonicalDocumentType,
+        string $documentType,
+        string $documentQuality,
+        array $context
+    ): array {
+        $findings = [];
+
+        foreach ($indexedFields as $canonicalField => $fieldConfig) {
+            if (strtoupper($fieldConfig['tipoCampo'] ?? '') === 'V') {
+                continue;
+            }
+
+            // INFORMATIVO: el campo se incluye en el schema de extracción pero no se audita.
+            $rol = strtoupper((string) ($fieldConfig['rol'] ?? 'AUTORITATIVO'));
+            if ($rol === 'INFORMATIVO') {
+                continue;
+            }
+
+            // Skip por regla condicional (OmitirSi).
+            if ($this->shouldSkipByCondition($fieldConfig['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
+                continue;
+            }
+
+            [$docValue, $ambiguous] = $this->resolveDocumentValue($canonicalField, $fields, $items);
+            $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
+
+            if ($this->shouldSkipMultiValueField($canonicalField) && $fdvValue === null && $docValue === null) {
+                continue;
+            }
+
+            $internalType = $this->mapToInternalType($fieldConfig['tipoCampo'] ?? 'E');
+            $comparison   = $this->evaluateField(
+                $canonicalDocumentType,
+                $canonicalField,
+                $fdvValue,
+                $docValue,
+                $documentQuality,
+                $ambiguous,
+                $context,
+                $internalType
+            );
+
+            $findings[] = $this->buildDataFinding($canonicalField, $fieldConfig, $comparison, $documentType, $fdvValue, $docValue, $internalType, $rol);
         }
 
-        $properties = $schema['parameters']['properties']['fields']['properties'] ?? null;
-        if (!is_array($properties)) {
-            return [];
+        return $findings;
+    }
+
+    /**
+     * Evalúa la regla `OmitirSi`. Acepta string JSON o array.
+     *
+     * Claves soportadas:
+     *   - fdv_has:     [campos del header de FDV que, si están presentes, omiten la auditoría]
+     *   - fdv_missing: [campos del header de FDV que, si faltan, omiten la auditoría]
+     *   - doc_quality: [calidades documentales que omiten la auditoría]
+     */
+    private function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
+    {
+        if ($rule === null || $rule === '' || $rule === []) {
+            return false;
         }
 
-        $fields = [];
-        foreach ($properties as $field => $config) {
-            if (is_string($field) && trim($field) !== '') {
-                $fields[] = trim($field);
+        if (is_string($rule)) {
+            $decoded = json_decode($rule, true);
+            if (!is_array($decoded)) {
+                // Fallback: el valor puede estar double-encoded (backslashes literales desde DB)
+                $decoded = json_decode(stripslashes($rule), true);
+            }
+            if (!is_array($decoded)) {
+                return false;
+            }
+            $rule = $decoded;
+        }
+
+        if (!is_array($rule)) {
+            return false;
+        }
+
+        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
+
+        if (!empty($rule['fdv_has']) && is_array($rule['fdv_has'])) {
+            foreach ($rule['fdv_has'] as $key) {
+                if (is_string($key) && $this->isPresent($header[$key] ?? null)) {
+                    return true;
+                }
             }
         }
 
-        return $fields;
+        if (!empty($rule['fdv_missing']) && is_array($rule['fdv_missing'])) {
+            foreach ($rule['fdv_missing'] as $key) {
+                if (is_string($key) && !$this->isPresent($header[$key] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
+        if (!empty($rule['doc_quality']) && is_array($rule['doc_quality'])) {
+            foreach ($rule['doc_quality'] as $quality) {
+                if (is_string($quality) && strtolower($quality) === $documentQuality) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
+
+    private function buildDataFinding(
+        string $canonicalField,
+        array $fieldConfig,
+        array $comparison,
+        string $documentType,
+        ?string $fdvValue,
+        ?string $docValue,
+        string $internalType,
+        string $rol = 'AUTORITATIVO'
+    ): array {
+        return [
+            'campo'              => $this->classifier->getDisplayField($canonicalField),
+            'valorFuenteVerdad'  => $fdvValue,
+            'valorDocumento'     => $docValue,
+            'resultado'          => $comparison['resultado'],
+            'severidad'          => strtolower($fieldConfig['severity'] ?? 'media'),
+            'documento'          => $documentType,
+            'detalle'            => $comparison['detalle'] ?? null,
+            'tipo_auditoria'     => $internalType,
+            'rol'                => $rol,
+        ];
+    }
+
+    // ─── Value resolution ─────────────────────────────────────────────────────
 
     /**
      * @param  array<string,mixed> $fields
@@ -257,26 +348,14 @@ class DocumentPolicyEngine
                 if (!array_key_exists($field, $row) || !$this->isPresent($row[$field])) {
                     continue;
                 }
-
                 $values[] = $this->scalarToString($row[$field]);
             }
 
             if ($values !== []) {
-                if (in_array($field, ['CantidadEntregada', 'CantidadPrescrita'], true)) {
-                    $sum = 0.0;
-                    $hasNumeric = false;
-                    foreach ($values as $value) {
-                        $number = $this->parseNumber($value);
-                        if ($number === null) {
-                            continue;
-                        }
-
-                        $sum += $number;
-                        $hasNumeric = true;
-                    }
-
-                    if ($hasNumeric) {
-                        return [$this->formatNumber($sum), false];
+                if (in_array($field, self::QUANTITY_FIELDS, true)) {
+                    $total = $this->sumNumericValues($values);
+                    if ($total !== null) {
+                        return [$this->formatNumber($total), false];
                     }
                 }
 
@@ -285,11 +364,7 @@ class DocumentPolicyEngine
                     return [$unique[0], false];
                 }
 
-                if ($this->shouldSkipMultiValueField($field)) {
-                    return [null, false];
-                }
-
-                return [null, true];
+                return $this->shouldSkipMultiValueField($field) ? [null, false] : [null, true];
             }
         }
 
@@ -306,7 +381,7 @@ class DocumentPolicyEngine
     private function resolveSourceTruthValue(string $field, array $sourceTruth): ?string
     {
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
-        $items = is_array($sourceTruth['items'] ?? null) ? $sourceTruth['items'] : [];
+        $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
         $column = $this->classifier->getSqlColumn($field);
 
         if ($column !== null) {
@@ -320,53 +395,53 @@ class DocumentPolicyEngine
             return null;
         }
 
-        if (in_array($field, ['CantidadEntregada', 'CantidadPrescrita'], true)) {
-            $sum = 0.0;
-            $hasNumeric = false;
-            foreach ($items as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
+        $itemValues = $this->extractItemValues($items, $field, $column);
 
-                $value = $this->extractRowValue($item, $field, $column);
-                if ($value === null) {
-                    continue;
-                }
-
-                $number = $this->parseNumber($value);
-                if ($number === null) {
-                    continue;
-                }
-
-                $sum += $number;
-                $hasNumeric = true;
-            }
-
-            return $hasNumeric ? $this->formatNumber($sum) : null;
+        if (in_array($field, self::QUANTITY_FIELDS, true)) {
+            $total = $this->sumNumericValues($itemValues);
+            return $total !== null ? $this->formatNumber($total) : null;
         }
 
-        $values = [];
-        foreach ($items as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-
-            $value = $this->extractRowValue($item, $field, $column);
-            if ($value !== null) {
-                $values[] = $value;
-            }
-        }
-
-        if ($values === []) {
+        if ($itemValues === []) {
             return null;
         }
 
-        $unique = array_values(array_unique($values));
+        $unique = array_values(array_unique($itemValues));
         if (count($unique) === 1) {
             return $unique[0];
         }
 
         return $this->shouldSkipMultiValueField($field) ? null : $unique[0];
+    }
+
+    private function extractItemValues(array $items, string $field, ?string $column): array
+    {
+        $values = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $value = $this->extractRowValue($item, $field, $column);
+            if ($value !== null) {
+                $values[] = $value;
+            }
+        }
+        return $values;
+    }
+
+    private function sumNumericValues(array $values): ?float
+    {
+        $sum        = 0.0;
+        $hasNumeric = false;
+        foreach ($values as $value) {
+            $n = $this->parseNumber((string) $value);
+            if ($n === null) {
+                continue;
+            }
+            $sum        += $n;
+            $hasNumeric  = true;
+        }
+        return $hasNumeric ? $sum : null;
     }
 
     /**
@@ -382,6 +457,8 @@ class DocumentPolicyEngine
         return $this->scalarToString($candidate);
     }
 
+    // ─── Field comparison ─────────────────────────────────────────────────────
+
     /**
      * @return array{resultado:string,detalle?:string}
      */
@@ -392,13 +469,14 @@ class DocumentPolicyEngine
         ?string $docValue,
         string $documentQuality,
         bool $ambiguous,
-        array $context = []
+        array $context = [],
+        ?string $forcedType = null
     ): array {
         if ($ambiguous || $documentQuality !== 'legible') {
             if ($docValue === null || $ambiguous) {
                 return [
                     'resultado' => self::RESULT_INCONCLUSIVE,
-                    'detalle' => $ambiguous
+                    'detalle'   => $ambiguous
                         ? 'El documento contiene multiples candidatos plausibles para el campo.'
                         : 'La calidad documental no permite concluir el valor con confianza suficiente.',
                 ];
@@ -410,13 +488,10 @@ class DocumentPolicyEngine
         }
 
         if ($docValue === null) {
-            if ($this->missingValueShouldBeInconclusive($documentType, $field)) {
-                return [
-                    'resultado' => self::RESULT_INCONCLUSIVE,
-                    'detalle' => $this->missingValueDetail($documentType, $field),
-                ];
+            $inconclusiveDetail = $this->inconclusiveMissingDetail($documentType, $field);
+            if ($inconclusiveDetail !== null) {
+                return ['resultado' => self::RESULT_INCONCLUSIVE, 'detalle' => $inconclusiveDetail];
             }
-
             return ['resultado' => self::RESULT_NOT_FOUND, 'detalle' => 'Campo esperado ausente en el documento.'];
         }
 
@@ -424,11 +499,11 @@ class DocumentPolicyEngine
             return ['resultado' => self::RESULT_SKIPPED, 'detalle' => 'Sin valor auditable en fuente de verdad.'];
         }
 
-        $type = $this->classifier->classify($field);
+        $type = $forcedType ?? $this->classifier->classify($field);
         return match ($type) {
             FieldClassifier::TYPE_SEMANTIC => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context),
             FieldClassifier::TYPE_BUSINESS => $this->evaluateBusinessField($field, $fdvValue, $docValue),
-            default => $this->evaluateExactField($field, $fdvValue, $docValue),
+            default                        => $this->evaluateExactField($field, $fdvValue, $docValue),
         };
     }
 
@@ -443,7 +518,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => self::RESULT_MISMATCH,
-            'detalle' => "FDV '{$fdvValue}' difiere de Documento '{$docValue}'.",
+            'detalle'   => "FDV '{$fdvValue}' difiere de Documento '{$docValue}'.",
         ];
     }
 
@@ -463,11 +538,11 @@ class DocumentPolicyEngine
             return ['resultado' => self::RESULT_MATCH];
         }
 
-        $score = $this->similarity($normalizedFdv, $normalizedDoc);
+        $score     = $this->similarity($normalizedFdv, $normalizedDoc);
         $threshold = match ($field) {
             'NombrePaciente' => self::PERSON_THRESHOLD,
             'NombreArticulo' => self::ARTICLE_THRESHOLD,
-            default => self::TEXT_THRESHOLD,
+            default          => self::TEXT_THRESHOLD,
         };
 
         if ($score >= $threshold) {
@@ -477,20 +552,14 @@ class DocumentPolicyEngine
         if ($this->semanticJudge !== null) {
             $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, $context);
             if ($judgeResult['is_match']) {
-                return [
-                    'resultado' => self::RESULT_MATCH,
-                    'detalle' => $judgeResult['reasoning']
-                ];
+                return ['resultado' => self::RESULT_MATCH,        'detalle' => $judgeResult['reasoning']];
             }
-            return [
-                'resultado' => self::RESULT_INCONCLUSIVE,
-                'detalle' => $judgeResult['reasoning']
-            ];
+            return [    'resultado' => self::RESULT_INCONCLUSIVE, 'detalle' => $judgeResult['reasoning']];
         }
 
         return [
             'resultado' => self::RESULT_INCONCLUSIVE,
-            'detalle' => sprintf(
+            'detalle'   => sprintf(
                 'Similitud %.2f por debajo del umbral %.2f para comparación semántica.',
                 $score,
                 $threshold
@@ -513,7 +582,7 @@ class DocumentPolicyEngine
      */
     private function evaluateBusinessField(string $field, string $fdvValue, string $docValue): array
     {
-        if (!in_array($field, ['CantidadEntregada', 'CantidadPrescrita'], true)) {
+        if (!in_array($field, self::QUANTITY_FIELDS, true)) {
             return $this->evaluateExactField($field, $fdvValue, $docValue);
         }
 
@@ -523,7 +592,7 @@ class DocumentPolicyEngine
         if ($fdvNumber === null || $docNumber === null) {
             return [
                 'resultado' => self::RESULT_INCONCLUSIVE,
-                'detalle' => 'Valores no numéricos en campo de negocio.',
+                'detalle'   => 'Valores no numéricos en campo de negocio.',
             ];
         }
 
@@ -533,9 +602,11 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => self::RESULT_MISMATCH,
-            'detalle' => sprintf('Cantidad en documento (%.2f) excede FDV (%.2f).', $docNumber, $fdvNumber),
+            'detalle'   => sprintf('Cantidad en documento (%.2f) excede FDV (%.2f).', $docNumber, $fdvNumber),
         ];
     }
+
+    // ─── Visual checks ────────────────────────────────────────────────────────
 
     private function evaluateVisualChecks(
         string $documentType,
@@ -547,7 +618,7 @@ class DocumentPolicyEngine
             return [];
         }
 
-        $results = is_array($visualChecksResults) ? $visualChecksResults : [];
+        $results  = is_array($visualChecksResults) ? $visualChecksResults : [];
         $findings = [];
 
         foreach ($visualChecksExpected as $checkExpected) {
@@ -561,8 +632,8 @@ class DocumentPolicyEngine
             }
 
             $canonicalField = $this->classifier->normalizeField($checkName);
-            $displayField = $this->classifier->getDisplayField($canonicalField);
-            $severity = $this->normalizeVisualSeverity($checkExpected['severity'] ?? null);
+            $displayField   = $this->classifier->getDisplayField($canonicalField);
+            $severity       = $this->normalizeVisualSeverity($checkExpected['severity'] ?? null);
 
             if ($documentQuality !== 'legible') {
                 $findings[] = $this->buildVisualFinding(
@@ -583,11 +654,11 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $actualPresent = (bool) ($foundResult['presente'] ?? false);
+            $isPresent  = (bool) ($foundResult['presente'] ?? false);
             $findings[] = $this->buildVisualFinding(
                 $documentType, $displayField, $severity,
-                $actualPresent ? 'PRESENTE' : 'AUSENTE',
-                $actualPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
+                $isPresent ? 'PRESENTE' : 'AUSENTE',
+                $isPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
                 $this->normalizeNullableString($foundResult['detalle'] ?? null)
             );
         }
@@ -608,72 +679,63 @@ class DocumentPolicyEngine
     ): array {
         return [
             'valorFuenteVerdad' => 'OBLIGATORIO',
-            'valorDocumento' => $valorDocumento,
-            'resultado' => $resultado,
-            'detalle' => $detalle,
-            'campo' => $displayField,
-            'severidad' => $severity,
-            'documento' => $documentType,
+            'valorDocumento'    => $valorDocumento,
+            'resultado'         => $resultado,
+            'detalle'           => $detalle,
+            'campo'             => $displayField,
+            'severidad'         => $severity,
+            'documento'         => $documentType,
         ];
     }
 
+    // ─── Decisions & metrics ──────────────────────────────────────────────────
+
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     * @return array{documentName:string,approved:bool,observation:?string}
+     */
+    private function buildDocumentDecision(string $documentType, array $findings): array
+    {
+        $approved     = true;
+        $observations = [];
+
+        foreach ($findings as $finding) {
+            $result = (string) ($finding['resultado'] ?? '');
+            if (in_array($result, [self::RESULT_MISMATCH, self::RESULT_NOT_FOUND, self::RESULT_INCONCLUSIVE], true)) {
+                $approved = false;
+                $detail   = $this->normalizeNullableString($finding['detalle'] ?? null);
+                if ($detail !== null) {
+                    $observations[] = $detail;
+                }
+            }
+        }
+
+        $observations = array_values(array_unique($observations));
+        $observation  = $observations === [] ? null : implode(' | ', array_slice($observations, 0, 3));
+
+        return [
+            'documentName' => str_replace('_', ' ', $this->normalizeDocumentType($documentType)),
+            'approved'     => $approved,
+            'observation'  => $observation,
+        ];
+    }
+
+    // ─── Normalization helpers ─────────────────────────────────────────────────
+
     private function normalizeDocumentType(string $documentType): string
     {
-        $upper = strtoupper(trim($documentType));
-        $ascii = $this->stripAccents($upper);
+        $upper      = strtoupper(trim($documentType));
+        $ascii      = $this->stripAccents($upper);
         $normalized = str_replace([' ', '-'], '_', $ascii);
         $normalized = (string) preg_replace('/_+/', '_', $normalized);
 
         return match ($normalized) {
             'FORMULA', 'FORMULA_MEDICA' => 'FORMULA_MEDICA',
-            'AUTORIZACION' => 'AUTORIZACION',
-            'DISPENSA' => 'DISPENSA',
-            'FACTURA' => 'FACTURA',
-            default => $normalized,
+            'AUTORIZACION'              => 'AUTORIZACION',
+            'DISPENSA'                  => 'DISPENSA',
+            'FACTURA'                   => 'FACTURA',
+            default                     => $normalized,
         };
-    }
-
-    /**
-     * @param  array<string,mixed> $sourceTruth
-     */
-    private function shouldAuditField(string $documentType, string $field, array $sourceTruth): bool
-    {
-        if (in_array($field, self::NON_MVP_FIELDS, true)) {
-            return false;
-        }
-
-        if ($documentType === 'FORMULA_MEDICA' && $field === 'Autorizacion') {
-            return false;
-        }
-
-        if ($documentType === 'FORMULA_MEDICA' && $field === 'NombreArticulo') {
-            return false;
-        }
-
-        if (
-            $documentType === 'FORMULA_MEDICA'
-            && $field === 'CantidadPrescrita'
-            && $this->isPresent($sourceTruth['header']['NumeroAutorizacion'] ?? null)
-        ) {
-            return false;
-        }
-
-        $authoritative = $this->normalizeDocumentType($this->classifier->getAuthoritativeDoc($field));
-        if ($authoritative === 'MULTIPLE') {
-            return true;
-        }
-
-        if ($authoritative === $documentType) {
-            return true;
-        }
-
-        foreach ($this->classifier->getAlternativeDocs($field) as $alternative) {
-            if ($this->normalizeDocumentType($alternative) === $documentType) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function shouldSkipMultiValueField(string $field): bool
@@ -681,32 +743,21 @@ class DocumentPolicyEngine
         return in_array($field, self::NON_SCALAR_MULTI_ITEM_FIELDS, true);
     }
 
-    private function missingValueShouldBeInconclusive(string $documentType, string $field): bool
-    {
-        if ($documentType === 'FORMULA_MEDICA' && $field === 'CodigoDiagnostico') {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function missingValueDetail(string $documentType, string $field): string
+    private function inconclusiveMissingDetail(string $documentType, string $field): ?string
     {
         if ($documentType === 'FORMULA_MEDICA' && $field === 'CodigoDiagnostico') {
             return 'No fue posible confirmar el codigo diagnostico en la formula medica.';
         }
-
-        return 'Campo esperado ausente en el documento.';
+        return null;
     }
 
     private function normalizeForComparison(string $field, string $value): string
     {
         if (in_array($field, self::DATE_FIELDS, true)) {
-            $normalizedDate = $this->normalizeDateForComparison($value);
-            return $normalizedDate ?? $this->normalizeText($value);
+            return $this->normalizeDateForComparison($value) ?? $this->normalizeText($value);
         }
 
-        if (in_array($field, ['CantidadEntregada', 'CantidadPrescrita', 'VlrCobrado'], true)) {
+        if (in_array($field, self::COMPARISON_NUMBER_FIELDS, true)) {
             $number = $this->parseNumber($value);
             return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
         }
@@ -726,15 +777,7 @@ class DocumentPolicyEngine
             return null;
         }
 
-        $formats = [
-            'Y-m-d',
-            'Y/m/d',
-            'd/m/Y',
-            'd-m-Y',
-            'd.m.Y',
-        ];
-
-        foreach ($formats as $format) {
+        foreach (['Y-m-d', 'Y/m/d', 'd/m/Y', 'd-m-Y', 'd.m.Y'] as $format) {
             $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
             if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
                 return $parsed->format('Y-m-d');
@@ -751,11 +794,18 @@ class DocumentPolicyEngine
             return '';
         }
 
-        $ascii = $this->stripAccents(strtoupper($trimmed));
-        $alnum = (string) preg_replace('/[^A-Z0-9]+/', ' ', $ascii);
-        $compact = (string) preg_replace('/\s+/', ' ', trim($alnum));
+        $withoutAccents   = $this->stripAccents(strtoupper($trimmed));
+        $alphanumericOnly = (string) preg_replace('/[^A-Z0-9]+/', ' ', $withoutAccents);
+        $normalized       = (string) preg_replace('/\s+/', ' ', trim($alphanumericOnly));
 
-        return $compact;
+        return $normalized;
+    }
+
+    private function tokenize(string $text): array
+    {
+        return array_values(array_unique(
+            array_filter(explode(' ', $text), static fn(string $t): bool => $t !== '')
+        ));
     }
 
     private function sameTokenSet(string $left, string $right): bool
@@ -764,9 +814,8 @@ class DocumentPolicyEngine
             return false;
         }
 
-        $leftTokens = array_values(array_unique(array_filter(explode(' ', $left), static fn(string $token): bool => $token !== '')));
-        $rightTokens = array_values(array_unique(array_filter(explode(' ', $right), static fn(string $token): bool => $token !== '')));
-
+        $leftTokens  = $this->tokenize($left);
+        $rightTokens = $this->tokenize($right);
         sort($leftTokens);
         sort($rightTokens);
 
@@ -782,16 +831,16 @@ class DocumentPolicyEngine
         similar_text($left, $right, $similarPercent);
         $similarScore = $similarPercent / 100;
 
-        $maxLength = max(strlen($left), strlen($right));
+        $maxLength        = max(strlen($left), strlen($right));
         $levenshteinScore = $maxLength > 0
             ? max(0.0, 1 - (levenshtein($left, $right) / $maxLength))
             : 0.0;
 
-        $leftTokens = array_values(array_unique(array_filter(explode(' ', $left), static fn(string $token): bool => $token !== '')));
-        $rightTokens = array_values(array_unique(array_filter(explode(' ', $right), static fn(string $token): bool => $token !== '')));
+        $leftTokens  = $this->tokenize($left);
+        $rightTokens = $this->tokenize($right);
         $intersection = array_intersect($leftTokens, $rightTokens);
-        $union = array_unique(array_merge($leftTokens, $rightTokens));
-        $jaccard = $union === [] ? 0.0 : (count($intersection) / count($union));
+        $union        = array_unique(array_merge($leftTokens, $rightTokens));
+        $jaccard      = $union === [] ? 0.0 : (count($intersection) / count($union));
 
         $composite = ($levenshteinScore * 0.6) + ($jaccard * 0.4);
         return max($similarScore, $composite);
@@ -832,21 +881,19 @@ class DocumentPolicyEngine
 
     private function parseNumber(string $value): ?float
     {
-        $normalized = trim($value);
+        $normalized = str_replace(' ', '', trim($value));
         if ($normalized === '') {
             return null;
         }
 
-        $normalized = str_replace(' ', '', $normalized);
-        $hasDot = str_contains($normalized, '.');
+        $hasDot   = str_contains($normalized, '.');
         $hasComma = str_contains($normalized, ',');
 
         if ($hasDot && $hasComma) {
-            $lastDot = strrpos($normalized, '.');
+            $lastDot   = strrpos($normalized, '.');
             $lastComma = strrpos($normalized, ',');
             if ($lastComma !== false && $lastDot !== false && $lastComma > $lastDot) {
-                $normalized = str_replace('.', '', $normalized);
-                $normalized = str_replace(',', '.', $normalized);
+                $normalized = str_replace(['.', ','], ['', '.'], $normalized);
             } else {
                 $normalized = str_replace(',', '', $normalized);
             }
@@ -871,36 +918,6 @@ class DocumentPolicyEngine
         return $formatted === '' ? '0' : $formatted;
     }
 
-    /**
-     * @param  array<int,array<string,mixed>> $findings
-     * @return array{documentName:string,approved:bool,observation:?string}
-     */
-    private function buildDocumentDecision(string $documentType, array $findings): array
-    {
-        $approved = true;
-        $observations = [];
-
-        foreach ($findings as $finding) {
-            $result = (string) ($finding['resultado'] ?? '');
-            if (in_array($result, [self::RESULT_MISMATCH, self::RESULT_NOT_FOUND, self::RESULT_INCONCLUSIVE], true)) {
-                $approved = false;
-                $detail = $this->normalizeNullableString($finding['detalle'] ?? null);
-                if ($detail !== null) {
-                    $observations[] = $detail;
-                }
-            }
-        }
-
-        $observations = array_values(array_unique($observations));
-        $observation = $observations === [] ? null : implode(' | ', array_slice($observations, 0, 3));
-
-        return [
-            'documentName' => str_replace('_', ' ', $this->normalizeDocumentType($documentType)),
-            'approved' => $approved,
-            'observation' => $observation,
-        ];
-    }
-
     private function normalizeNullableString(mixed $value): ?string
     {
         if (!is_string($value)) {
@@ -916,8 +933,8 @@ class DocumentPolicyEngine
         $normalized = strtoupper(trim((string) $severity));
         return match ($normalized) {
             'CRITICO', 'CRÍTICO', 'ALTA', 'HIGH' => FieldClassifier::SEVERITY_HIGH,
-            'BAJA', 'LOW' => FieldClassifier::SEVERITY_LOW,
-            default => FieldClassifier::SEVERITY_MEDIUM,
+            'BAJA', 'LOW'                         => FieldClassifier::SEVERITY_LOW,
+            default                               => FieldClassifier::SEVERITY_MEDIUM,
         };
     }
 

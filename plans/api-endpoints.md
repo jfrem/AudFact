@@ -240,6 +240,59 @@ Respuesta:
 }
 ```
 
+### `GET /clients/{clientId}/audit-config`
+
+Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema y la lista de campos por documento con sus metadatos (tipo, severidad, descripción).
+
+Respuesta:
+```json
+{
+  "success": true,
+  "data": {
+    "nitSec": "2426",
+    "activo": true,
+    "systemPrompt": "...",
+    "documents": {
+      "DISPENSA": {
+        "fields": [
+          {
+            "campoNombre": "FirmaActaEntrega",
+            "tipoCampo": "V",
+            "enabled": true,
+            "descripcionOverride": "Firma o sello...",
+            "severityOverride": "CRITICO"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### `POST /clients/{clientId}/audit-config`
+
+Guarda la configuración de auditoría. Permite habilitar/deshabilitar campos y sobrescribir sus propiedades dinámicas.
+
+Body:
+```json
+{
+  "activo": true,
+  "systemPrompt": "...",
+  "documents": {
+    "DISPENSA": {
+      "fields": [
+        {
+          "campoNombre": "FirmaActaEntrega",
+          "tipoCampo": "V",
+          "enabled": true,
+          "severityOverride": "ALTA"
+        }
+      ]
+    }
+  }
+}
+```
+
 ## MCP
 
 ### `POST /app/wrap/webhook.php`

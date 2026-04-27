@@ -83,24 +83,12 @@ class DocumentNormalizer
                 continue;
             }
 
-            $originalField = trim($field);
-            $canonicalField = $this->normalizeCanonicalField(
-                $originalField,
-                $normalizationLog,
-                'field_alias_normalized'
+            [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
+                trim($field), $value, $normalizationLog, 'field_alias_normalized'
             );
 
-            [$normalizedValue, $operations] = $this->normalizeScalarWithOperations($value);
-            [$normalizedValue, $fieldOperations] = $this->normalizeFieldValueWithOperations($canonicalField, $normalizedValue);
-            $operations = array_merge($operations, $fieldOperations);
-            foreach ($operations as $operation) {
-                $this->appendLog($normalizationLog, $operation, [
-                    'field' => $canonicalField,
-                ]);
-            }
-
-            if (!array_key_exists($canonicalField, $normalized) || $normalized[$canonicalField] === null) {
-                $normalized[$canonicalField] = $normalizedValue;
+            if (!array_key_exists($canonical, $normalized) || $normalized[$canonical] === null) {
+                $normalized[$canonical] = $normalizedValue;
             }
         }
 
@@ -130,31 +118,16 @@ class DocumentNormalizer
                     continue;
                 }
 
-                $originalField = trim($field);
-                $canonicalField = $this->normalizeCanonicalField(
-                    $originalField,
-                    $normalizationLog,
-                    'item_field_alias_normalized',
-                    ['item_index' => $index]
+                [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
+                    trim($field), $value, $normalizationLog,
+                    'item_field_alias_normalized', ['item_index' => $index]
                 );
 
-                [$normalizedValue, $operations] = $this->normalizeScalarWithOperations($value);
-                [$normalizedValue, $fieldOperations] = $this->normalizeFieldValueWithOperations($canonicalField, $normalizedValue);
-                $operations = array_merge($operations, $fieldOperations);
-                foreach ($operations as $operation) {
-                    $this->appendLog($normalizationLog, $operation, [
-                        'item_index' => $index,
-                        'field' => $canonicalField,
-                    ]);
-                }
-
-                $row[$canonicalField] = $normalizedValue;
+                $row[$canonical] = $normalizedValue;
             }
 
             if ($this->isEmptyRow($row)) {
-                $this->appendLog($normalizationLog, 'empty_item_row_dropped', [
-                    'item_index' => $index,
-                ]);
+                $this->appendLog($normalizationLog, 'empty_item_row_dropped', ['item_index' => $index]);
                 continue;
             }
 
@@ -163,6 +136,32 @@ class DocumentNormalizer
         }
 
         return array_values($normalized);
+    }
+
+    /**
+     * Normaliza un campo individual: alias canónico + scalar + valor específico + logging.
+     *
+     * @param  array<int,array<string,mixed>> $log
+     * @param  array<string,mixed>            $logContext
+     * @return array{0:string,1:mixed}        [canonicalName, normalizedValue]
+     */
+    private function normalizeFieldWithLog(
+        string $originalField,
+        mixed $value,
+        array &$log,
+        string $aliasOperation,
+        array $logContext = []
+    ): array {
+        $canonical = $this->normalizeCanonicalField($originalField, $log, $aliasOperation, $logContext);
+
+        [$normalizedValue, $scalarOps] = $this->normalizeScalarWithOperations($value);
+        [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($canonical, $normalizedValue);
+
+        foreach (array_merge($scalarOps, $fieldOps) as $op) {
+            $this->appendLog($log, $op, array_merge($logContext, ['field' => $canonical]));
+        }
+
+        return [$canonical, $normalizedValue];
     }
 
     /**

@@ -8,7 +8,11 @@ use App\Services\Audit\FieldClassifier;
 
 final class AuditFindingRules
 {
-    private const FAILURE_RESULTS = ['VALOR_DISTINTO', 'NO_ENCONTRADO', 'NO_CONCLUYENTE'];
+    private const RESULT_MATCH        = 'COINCIDE';
+    private const RESULT_SKIPPED      = 'OMITIDO';
+    private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
+
+    private const FAILURE_RESULTS     = ['VALOR_DISTINTO', 'NO_ENCONTRADO', 'NO_CONCLUYENTE'];
     private const DISCREPANCY_RESULTS = ['VALOR_DISTINTO', 'NO_ENCONTRADO'];
 
     private FieldClassifier $classifier;
@@ -81,17 +85,17 @@ final class AuditFindingRules
             $result = (string) ($finding['resultado'] ?? '');
             $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
 
-            if ($result === 'COINCIDE') {
+            if ($result === self::RESULT_MATCH) {
                 $metrics['coincidencias']++;
                 continue;
             }
 
-            if ($result === 'OMITIDO') {
+            if ($result === self::RESULT_SKIPPED) {
                 $metrics['omitidos']++;
                 continue;
             }
 
-            if ($result === 'NO_CONCLUYENTE') {
+            if ($result === self::RESULT_INCONCLUSIVE) {
                 $metrics['no_concluyentes']++;
                 $metrics['risk_score'] += $this->riskWeight($severity);
                 continue;

@@ -24,7 +24,10 @@ final class SchemaBuilderTest extends TestCase
         ]);
 
         $this->assertCount(1, $schema);
-        $this->assertSame(['DocumentoPaciente', 'FirmaActaEntrega'], $schema[0]['fields']);
+        $this->assertSame(
+            ['DocumentoPaciente', 'FirmaActaEntrega'],
+            array_column($schema[0]['fields'], 'campoNombre')
+        );
         $this->assertSame([], $schema[0]['visual_checks']);
         $this->assertSame('extract_document_data', $schema[0]['extraction_schema']['name']);
         $this->assertSame(

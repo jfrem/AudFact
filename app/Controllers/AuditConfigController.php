@@ -33,7 +33,13 @@ class AuditConfigController extends Controller
     private const EXCLUDED_FIELDS = ['FacSec', 'NitSec'];
 
     /** Severidades válidas para visual checks */
-    private const VALID_SEVERITIES = ['CRITICO', 'MENOR'];
+    private const VALID_SEVERITIES = ['ALTA', 'MEDIA', 'BAJA'];
+
+    /** Roles válidos. NULL/vacío equivale al default 'AUTORITATIVO' en el engine */
+    private const VALID_ROLES = ['AUTORITATIVO', 'ALTERNATIVO', 'INFORMATIVO'];
+
+    /** Claves permitidas en el JSON de OmitirSi */
+    private const OMITIR_SI_KEYS = ['fdv_has', 'fdv_missing', 'doc_quality'];
 
     public function __construct()
     {
@@ -113,8 +119,8 @@ class AuditConfigController extends Controller
     /**
      * Valida y sanitiza el array de campos del payload.
      * - Rechaza campos excluidos (FacSec, NitSec).
-     * - Normaliza tipoCampo a 'D' o 'V'.
-     * - Para tipoCampo 'V', acepta description y severity.
+     * - Normaliza tipoCampo a 'E', 'S', 'B', 'V'.
+     * - Acepta description y severity para todos los campos.
      * - Limita CampoNombre a 100 caracteres alfanuméricos+guiones.
      *
      * @param array  $rawFields  Body['fields'] sin sanitizar
@@ -146,31 +152,39 @@ class AuditConfigController extends Controller
                 continue;
             }
 
-            if (!preg_match('/^[A-Za-z0-9_]{1,100}$/', $campoNombre)) {
+            if (!preg_match('/^[A-Za-z0-9_.\-]{1,100}$/', $campoNombre)) {
                 $errors[] = "Campo #{$pos}: '{$campoNombre}' contiene caracteres inválidos.";
                 continue;
             }
 
-            // tipoCampo: D=Dato (default), V=Visual
-            $tipoCampo = strtoupper(trim((string)($field['tipoCampo'] ?? 'D')));
-            if (!in_array($tipoCampo, ['D', 'V'], true)) {
-                $tipoCampo = 'D';
+            // tipoCampo: E=Exacto (default), S=Semántico, B=Negocio, V=Visual
+            $tipoCampo = strtoupper(trim((string)($field['tipoCampo'] ?? 'E')));
+            if (!in_array($tipoCampo, ['E', 'S', 'B', 'V'], true)) {
+                $tipoCampo = 'E';
             }
 
-            // description y severity solo para visual checks (tipoCampo=V)
-            $description = null;
-            $severity    = null;
-            if ($tipoCampo === 'V') {
-                $description = isset($field['description']) && is_string($field['description'])
-                    ? trim($field['description'])
-                    : null;
-                $severity = isset($field['severity']) && is_string($field['severity'])
-                    ? strtoupper(trim($field['severity']))
-                    : 'CRITICO';
-                if (!in_array($severity, self::VALID_SEVERITIES, true)) {
-                    $severity = 'CRITICO';
-                }
+            // description y severity para todos los campos
+            $description = isset($field['description']) && is_string($field['description'])
+                ? trim($field['description'])
+                : null;
+            $severity = isset($field['severity']) && is_string($field['severity'])
+                ? strtoupper(trim($field['severity']))
+                : 'ALTA';
+            if (!in_array($severity, self::VALID_SEVERITIES, true)) {
+                $severity = 'ALTA';
             }
+
+            // rol: AUTORITATIVO (default), ALTERNATIVO, INFORMATIVO
+            $rol = isset($field['rol']) && is_string($field['rol']) && trim($field['rol']) !== ''
+                ? strtoupper(trim($field['rol']))
+                : null;
+            if ($rol !== null && !in_array($rol, self::VALID_ROLES, true)) {
+                $errors[] = "Campo #{$pos}: 'rol' debe ser uno de " . implode(', ', self::VALID_ROLES) . '.';
+                continue;
+            }
+
+            // omitirSi: JSON con claves fdv_has, fdv_missing, doc_quality
+            $omitirSi = $this->sanitizeOmitirSi($field['omitirSi'] ?? null, $pos, $errors);
 
             $sanitized[] = [
                 'docId'       => (int) $field['docId'],
@@ -178,7 +192,9 @@ class AuditConfigController extends Controller
                 'tipoCampo'   => $tipoCampo,
                 'orden'       => (int) ($field['orden'] ?? 0),
                 'description' => $description,
-                'severity'    => $severity,
+                'severity'    => strtolower($severity), // Guardar como alta, media, baja para consistencia interna
+                'rol'         => $rol,
+                'omitirSi'    => $omitirSi,
             ];
         }
 
@@ -187,5 +203,49 @@ class AuditConfigController extends Controller
         }
 
         return $sanitized;
+    }
+
+    /**
+     * Valida y normaliza la regla condicional de skip.
+     * Acepta string JSON, array (se reserializa), o null/vacío.
+     * Solo permite las claves de OMITIR_SI_KEYS y descarta el resto.
+     *
+     * @return string|null  JSON canonicalizado o null si no aplica regla
+     */
+    private function sanitizeOmitirSi(mixed $raw, int $pos, array &$errors): ?string
+    {
+        if ($raw === null || $raw === '' || $raw === []) {
+            return null;
+        }
+
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $errors[] = "Campo #{$pos}: 'omitirSi' debe ser JSON válido.";
+                return null;
+            }
+            $raw = $decoded;
+        }
+
+        if (!is_array($raw)) {
+            $errors[] = "Campo #{$pos}: 'omitirSi' debe ser objeto JSON.";
+            return null;
+        }
+
+        $clean = [];
+        foreach (self::OMITIR_SI_KEYS as $key) {
+            if (!isset($raw[$key]) || !is_array($raw[$key])) {
+                continue;
+            }
+            $values = array_values(array_filter(
+                array_map(static fn($v) => is_string($v) ? trim($v) : null, $raw[$key]),
+                static fn($v) => $v !== null && $v !== ''
+            ));
+            if ($values !== []) {
+                $clean[$key] = $values;
+            }
+        }
+
+        return $clean === [] ? null : json_encode($clean, JSON_UNESCAPED_UNICODE);
     }
 }
