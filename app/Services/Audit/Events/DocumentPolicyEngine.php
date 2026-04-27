@@ -187,7 +187,7 @@ class DocumentPolicyEngine
             [$docValue, $ambiguous] = $this->resolveDocumentValue($canonicalField, $fields, $items);
             $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
 
-            if (FieldStructure::isNonScalarMultiItemField($canonicalField) && $fdvValue === null && $docValue === null) {
+            if ($fdvValue === null && $docValue === null) {
                 continue;
             }
 
@@ -302,32 +302,33 @@ class DocumentPolicyEngine
      */
     private function resolveDocumentValue(string $field, array $fields, array $items): array
     {
-        if (FieldStructure::isPerItemField($field)) {
-            $values = [];
-            foreach ($items as $row) {
-                if (!array_key_exists($field, $row) || !$this->isPresent($row[$field])) {
-                    continue;
-                }
-                $values[] = $this->scalarToString($row[$field]);
+        // Intentar resolver desde items[] primero (el dato dice dónde está)
+        $itemValues = [];
+        foreach ($items as $row) {
+            if (!array_key_exists($field, $row) || !$this->isPresent($row[$field])) {
+                continue;
             }
-
-            if ($values !== []) {
-                if (FieldStructure::isQuantityField($field)) {
-                    $total = $this->sumNumericValues($values);
-                    if ($total !== null) {
-                        return [$this->formatNumber($total), false];
-                    }
-                }
-
-                $unique = array_values(array_unique($values));
-                if (count($unique) === 1) {
-                    return [$unique[0], false];
-                }
-
-                return FieldStructure::isNonScalarMultiItemField($field) ? [null, false] : [null, true];
-            }
+            $itemValues[] = $this->scalarToString($row[$field]);
         }
 
+        if ($itemValues !== []) {
+            if (FieldStructure::isQuantityField($field)) {
+                $total = $this->sumNumericValues($itemValues);
+                if ($total !== null) {
+                    return [$this->formatNumber($total), false];
+                }
+            }
+
+            $unique = array_values(array_unique($itemValues));
+            if (count($unique) === 1) {
+                return [$unique[0], false];
+            }
+
+            // Multi-valor no-sumable: skipear silenciosamente
+            return FieldStructure::isQuantityField($field) ? [null, true] : [null, false];
+        }
+
+        // Fallback: resolver desde fields{}
         if (array_key_exists($field, $fields) && $this->isPresent($fields[$field])) {
             return [$this->scalarToString($fields[$field]), false];
         }
@@ -371,7 +372,8 @@ class DocumentPolicyEngine
             return $unique[0];
         }
 
-        return FieldStructure::isNonScalarMultiItemField($field) ? null : $unique[0];
+        // Multi-valor no-sumable: skipear silenciosamente
+        return FieldStructure::isQuantityField($field) ? $unique[0] : null;
     }
 
     private function extractItemValues(array $items, string $field, ?string $column): array
