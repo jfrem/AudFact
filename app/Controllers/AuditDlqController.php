@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
 use Core\RedisClient;
 use Core\Response;
 

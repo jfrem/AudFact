@@ -2,10 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\GeminiGateway;
-use App\Services\Audit\GeminiGatewayFactory;
 use Core\Logger;
 use RuntimeException;
 
@@ -46,7 +45,7 @@ TEXT;
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->apiClient = $apiClient ?? new InternalAuditApiClient();
         $this->cache = $cache ?? new ExtractionCache($this->redis);
-        $this->gateway = $gateway ?? GeminiGatewayFactory::create();
+        $this->gateway = $gateway ?? GeminiGateway::create();
         $this->consumerName = $consumerName ?? ('extractor-' . getmypid());
     }
 

@@ -7,9 +7,10 @@ namespace App\Controllers;
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
 use App\Models\InvoicesModel;
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
-use App\Services\Audit\Events\AuditStateStore;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\Exceptions\HttpResponseException;
 use Core\Cache;
 use Core\Response;
@@ -226,6 +227,7 @@ class AuditController extends Controller
         $limit = isset($data['limit']) ? (int) $data['limit'] : 100;
 
         $stateStore = $this->buildStateStore();
+        $jobStore = $this->buildBatchJobStore();
         $publisher = $this->buildEventPublisher();
 
         $jobId = AuditEvent::uuidV4();
@@ -236,7 +238,7 @@ class AuditController extends Controller
         $responseStatus = AuditStateStore::JOB_STATUS_PENDING;
 
         try {
-            $claimed = $stateStore->claimBatchSlot($facNitSec, $dateFrom, $dateTo, $jobId);
+            $claimed = $jobStore->claimBatchSlot($facNitSec, $dateFrom, $dateTo, $jobId);
             if (!$claimed) {
                 Response::error(
                     'Ya existe un batch activo para el cliente y rango solicitado',
@@ -247,7 +249,7 @@ class AuditController extends Controller
 
             $invoices = $this->getInvoicesModel()->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
 
-            if (!$stateStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit)) {
+            if (!$jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit)) {
                 throw new RuntimeException('No se pudo inicializar el job');
             }
             $jobInitialized = true;
@@ -288,7 +290,7 @@ class AuditController extends Controller
 
                 $createdAuditIds[] = $auditId;
 
-                if (!$stateStore->registerAuditInJob($jobId, $auditId, $disDetNro)) {
+                if (!$jobStore->registerAuditInJob($jobId, $auditId, $disDetNro)) {
                     throw new RuntimeException('No se pudo registrar la auditoría en el job');
                 }
 
@@ -309,15 +311,16 @@ class AuditController extends Controller
             }
 
             if ($total === 0) {
-                $stateStore->patchJob($jobId, [
-                    'status' => AuditStateStore::JOB_STATUS_COMPLETED,
+                $jobStore->patchJob($jobId, [
+                    'status' => BatchJobStore::JOB_STATUS_COMPLETED,
                     'total'  => 0,
                 ]);
-                $responseStatus = AuditStateStore::JOB_STATUS_COMPLETED;
+                $responseStatus = BatchJobStore::JOB_STATUS_COMPLETED;
             }
         } catch (HttpResponseException $e) {
             $this->cleanupAsyncEnqueueState(
                 $stateStore,
+                $jobStore,
                 $facNitSec,
                 $dateFrom,
                 $dateTo,
@@ -330,6 +333,7 @@ class AuditController extends Controller
         } catch (RuntimeException $e) {
             $this->cleanupAsyncEnqueueState(
                 $stateStore,
+                $jobStore,
                 $facNitSec,
                 $dateFrom,
                 $dateTo,
@@ -363,7 +367,7 @@ class AuditController extends Controller
         }
 
         try {
-            $state = $this->buildStateStore()->getJob($jobId);
+            $state = $this->buildBatchJobStore()->getJob($jobId);
         } catch (RuntimeException $e) {
             Logger::error('AuditController::jobStatus falló', [
                 'job_id' => $jobId,
@@ -401,7 +405,7 @@ class AuditController extends Controller
 
         return [
             'job_id'     => (string) ($state['job_id'] ?? ''),
-            'status'     => (string) ($state['status'] ?? AuditStateStore::JOB_STATUS_PENDING),
+            'status'     => (string) ($state['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
             'total'      => $total,
             'done'       => $done,
             'failed'     => $failed,
@@ -414,6 +418,7 @@ class AuditController extends Controller
 
     private function cleanupAsyncEnqueueState(
         AuditStateStore $stateStore,
+        BatchJobStore $jobStore,
         int $facNitSec,
         string $dateFrom,
         ?string $dateTo,
@@ -427,11 +432,11 @@ class AuditController extends Controller
         }
 
         if ($jobInitialized) {
-            $stateStore->deleteJob($jobId);
+            $jobStore->deleteJob($jobId);
         }
 
         if ($batchSlotClaimed) {
-            $stateStore->releaseBatchSlot($facNitSec, $dateFrom, $dateTo);
+            $jobStore->releaseBatchSlot($facNitSec, $dateFrom, $dateTo);
         }
     }
 
@@ -544,5 +549,10 @@ class AuditController extends Controller
     protected function buildEventPublisher(): AuditEventPublisher
     {
         return new AuditEventPublisher();
+    }
+
+    protected function buildBatchJobStore(): BatchJobStore
+    {
+        return new BatchJobStore();
     }
 }

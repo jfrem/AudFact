@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
-use App\Services\Audit\Events\AuditStateStore;
-use App\Services\Audit\Events\DocumentExtractionWorker;
-use App\Services\Audit\Events\ExtractionCache;
-use App\Services\Audit\Events\InternalAuditApiClient;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\DocumentExtractionWorker;
+use App\Services\Audit\Pipeline\ExtractionCache;
+use App\Services\Audit\Pipeline\InternalAuditApiClient;
 use App\Services\Audit\GeminiGateway;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;

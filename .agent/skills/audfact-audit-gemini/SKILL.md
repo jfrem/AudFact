@@ -1,6 +1,6 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Events/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el schema Gemini `extract_document_data` o el manejo de DLQ.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el schema Gemini `extract_document_data` o el manejo de DLQ.
 ---
 
 # AudFact Audit Gemini (Event-Driven)
@@ -17,21 +17,21 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 
 | Archivo | Rol |
 |---|---|
-| `app/Services/Audit/Events/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `app/Services/Audit/Events/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
-| `app/Services/Audit/Events/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
-| `app/Services/Audit/Events/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
-| `app/Services/Audit/Events/InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos, descarga JSON) |
-| `app/Services/Audit/Events/SchemaBuilder.php` | Construye el function declaration `extract_document_data` desde `audit-config` (TipoCampo D/V) |
-| `app/Services/Audit/Events/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos y publica N `document_registered` |
-| `app/Services/Audit/Events/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, consulta cache y publica `document_extracted` |
-| `app/Services/Audit/Events/ExtractionCache.php` | Cache Redis por `document_hash` para reutilizar extracciones Gemini |
-| `app/Services/Audit/Events/DocumentNormalizer.php` | Normalización determinística PHP de `fields`/`items`/`visual_checks` (fechas ISO, upper sin tildes, numéricos) |
-| `app/Services/Audit/Events/DocumentNormalizationWorker.php` | Consume `document_extracted` y publica `document_normalized` |
-| `app/Services/Audit/Events/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
-| `app/Services/Audit/Events/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
-| `app/Services/Audit/Events/AuditResultAggregator.php` | Construye el contrato final `auditResultData` + decisiones documentales para persistir |
-| `app/Services/Audit/Events/AuditAggregationWorker.php` | Consume `rules_evaluated`, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
+| `app/Services/Audit/Pipeline/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
+| `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
+| `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
+| `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
+| `app/Services/Audit/Pipeline/InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos, descarga JSON) |
+| `app/Services/Audit/Pipeline/SchemaBuilder.php` | Construye el function declaration `extract_document_data` desde `audit-config` (TipoCampo D/V) |
+| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos y publica N `document_registered` |
+| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, consulta cache y publica `document_extracted` |
+| `app/Services/Audit/Pipeline/ExtractionCache.php` | Cache Redis por `document_hash` para reutilizar extracciones Gemini |
+| `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Normalización determinística PHP de `fields`/`items`/`visual_checks` (fechas ISO, upper sin tildes, numéricos) |
+| `app/Services/Audit/Pipeline/DocumentNormalizationWorker.php` | Consume `document_extracted` y publica `document_normalized` |
+| `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
+| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
+| `app/Services/Audit/Pipeline/AuditResultAggregator.php` | Construye el contrato final `auditResultData` + decisiones documentales para persistir |
+| `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y function calling |
 | `app/Services/Audit/FieldClassifier.php` | Clasifica campos por tipo (documental/visual) y severidad |
 

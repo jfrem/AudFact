@@ -1,5 +1,19 @@
 # Changelog AudFact
 
+## [2026-04-27] — Reestructuración Deep: app/Services/Audit
+
+### 🔵 Architecture / Refactor
+- **AUDIT-013**: Reestructuración profunda del árbol `app/Services/Audit`:
+  - **Rename `Events/` → `Pipeline/`**: El namespace genérico `Events` se renombró a `Pipeline` para reflejar con precisión su responsabilidad (pipeline event-driven de auditoría).
+  - **Fusión `FieldStructure` → `AuditComparisonType`**: Los 6 métodos estáticos de detección de tipo por convención (fechas, cantidades, umbrales semánticos) se integraron directamente en el enum `AuditComparisonType`. −1 archivo.
+  - **Fusión `GeminiGatewayFactory` → `GeminiConfig::fromEnv()` + `GeminiGateway::create()`**: La factory separada se absorbió como método estático en las clases que configuran e instancian el gateway. −1 archivo.
+  - **`AuditFindingRules` → métodos estáticos**: Eliminadas 3 instanciaciones innecesarias (`new AuditFindingRules()`) en `DocumentPolicyEngine`, `RulesEvaluationWorker` y `AuditResultAggregator`.
+  - **Resultado neto**: De 26 archivos dispersos a 22 archivos organizados en 2 subcarpetas (`Pipeline/`, `Debug/`).
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Reconstruido `plans/architecture.md` con la nueva estructura. Actualizado `plans/changelog.md`. Skills `audfact-audit-gemini` y `CATALOG.md` pendientes de actualización por el rename de namespace.
+  - Archivos actualizados: `plans/architecture.md`, `plans/changelog.md`
+
 ## [2026-04-27] — Refactorización Arquitectónica: GeminiGateway
 
 ### 🟢 Calidad de Código / Refactor

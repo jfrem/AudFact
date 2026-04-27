@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\ExtractionCache;
+use App\Services\Audit\Pipeline\ExtractionCache;
 use Core\RedisClient;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;

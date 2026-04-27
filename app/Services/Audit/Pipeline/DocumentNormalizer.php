@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
-use App\Services\Audit\FieldStructure;
+use App\Services\Audit\AuditComparisonType;
 use RuntimeException;
 
 class DocumentNormalizer
@@ -337,7 +337,7 @@ class DocumentNormalizer
             return [$value, []];
         }
 
-        if (FieldStructure::isDateField($field)) {
+        if (AuditComparisonType::isDateField($field)) {
             $normalizedDate = $this->normalizeDateString($value);
             if ($normalizedDate !== null) {
                 $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];

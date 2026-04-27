@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
 use Core\RedisClient;
 use Core\RedisUnavailableException;
 use InvalidArgumentException;

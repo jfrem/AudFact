@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\DocumentPolicyEngine;
+use App\Services\Audit\Pipeline\DocumentPolicyEngine;
 use PHPUnit\Framework\TestCase;
 
 final class DocumentPolicyEngineTest extends TestCase

@@ -3,10 +3,12 @@
 namespace App\Services\Audit;
 
 use App\Services\Audit\Debug\ResponseIADiskStore;
+use Core\Env;
 use Core\Logger;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
+use RuntimeException;
 
 class GeminiGateway
 {
@@ -32,6 +34,28 @@ class GeminiGateway
         $this->config = $config;
         $this->circuitBreaker = $circuitBreaker ?? new GeminiCircuitBreaker();
         $this->diskStore = $diskStore ?? new ResponseIADiskStore();
+    }
+
+    /**
+     * Factory estático: construye un GeminiGateway con configuración de .env.
+     */
+    public static function create(): self
+    {
+        Env::load();
+
+        $apiKey = (string) Env::get('GEMINI_API_KEY', '');
+        if ($apiKey === '') {
+            throw new RuntimeException('GEMINI_API_KEY no configurada');
+        }
+
+        $config = GeminiConfig::fromEnv();
+        $timeout = (int) Env::get('GEMINI_TIMEOUT', 300);
+
+        return new self(
+            http: new Client(['timeout' => $timeout, 'connect_timeout' => 10]),
+            apiKey: $apiKey,
+            config: $config,
+        );
     }
 
     /**

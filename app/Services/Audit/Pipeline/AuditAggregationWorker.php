@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use App\Models\AuditStatusModel;
 use RuntimeException;
@@ -10,12 +10,14 @@ use RuntimeException;
 final class AuditAggregationWorker extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
+    private BatchJobStore $jobStore;
     private AuditResultAggregator $aggregator;
     private AuditStatusModel $auditStatusModel;
     private string $consumerName;
 
     public function __construct(
         ?AuditStateStore $stateStore = null,
+        ?BatchJobStore $jobStore = null,
         ?AuditResultAggregator $aggregator = null,
         ?AuditStatusModel $auditStatusModel = null,
         ?\Core\RedisClient $redis = null,
@@ -25,6 +27,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         parent::__construct($redis, $publisher);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
+        $this->jobStore = $jobStore ?? new BatchJobStore($this->redis);
         $this->aggregator = $aggregator ?? new AuditResultAggregator();
         $this->auditStatusModel = $auditStatusModel ?? new AuditStatusModel();
         $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
@@ -98,7 +101,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         if ($event->jobId !== null) {
-            $this->stateStore->markAuditCompletedInJob($event->jobId, $event->auditId, $aggregate['final_status']);
+            $this->jobStore->markAuditCompletedInJob($event->jobId, $event->auditId, $aggregate['final_status']);
         }
 
         $this->publisher->publish(AuditEvent::create(
@@ -136,7 +139,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->stateStore->completeAudit($event->auditId ?? '', $failedPayload);
 
         if ($event->jobId !== null && $event->auditId !== null) {
-            $this->stateStore->markAuditCompletedInJob($event->jobId, $event->auditId, AuditStateStore::AUDIT_STATUS_FAILED);
+            $this->jobStore->markAuditCompletedInJob($event->jobId, $event->auditId, AuditStateStore::AUDIT_STATUS_FAILED);
         }
 
         $this->publisher->publish(AuditEvent::create(
@@ -154,15 +157,15 @@ final class AuditAggregationWorker extends AuditEventConsumer
 
     private function publishBatchTerminalEventIfNeeded(string $jobId, string $auditId, string $parentEventId): void
     {
-        $job = $this->stateStore->getJob($jobId);
+        $job = $this->jobStore->getJob($jobId);
         if ($job === null) {
             return;
         }
 
         $jobStatus = (string) ($job['status'] ?? '');
         $eventType = match ($jobStatus) {
-            AuditStateStore::JOB_STATUS_COMPLETED => AuditEvent::TYPE_BATCH_COMPLETED,
-            AuditStateStore::JOB_STATUS_COMPLETED_WITH_ERR => AuditEvent::TYPE_BATCH_COMPLETED_ERR,
+            BatchJobStore::JOB_STATUS_COMPLETED => AuditEvent::TYPE_BATCH_COMPLETED,
+            BatchJobStore::JOB_STATUS_COMPLETED_WITH_ERR => AuditEvent::TYPE_BATCH_COMPLETED_ERR,
             default => null,
         };
 
@@ -170,7 +173,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
             return;
         }
 
-        if (!$this->stateStore->claimBatchTerminalEvent($jobId, $eventType)) {
+        if (!$this->jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
             return;
         }
 
@@ -179,7 +182,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $dateTo = isset($job['date_to']) ? trim((string) $job['date_to']) : '';
         $normalizedDateTo = $dateTo !== '' ? $dateTo : null;
         if ($facNitSec > 0 && $dateFrom !== '') {
-            $this->stateStore->releaseBatchSlot($facNitSec, $dateFrom, $normalizedDateTo);
+            $this->jobStore->releaseBatchSlot($facNitSec, $dateFrom, $normalizedDateTo);
         }
 
         $this->publisher->publish(AuditEvent::create(

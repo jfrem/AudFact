@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditSeverity;
 use RuntimeException;
 
 class AuditResultAggregator
 {
-    private AuditFindingRules $findingRules;
+    
 
     public function __construct()
     {
-        $this->findingRules = new AuditFindingRules();
+        
     }
 
     /**
@@ -176,7 +176,7 @@ class AuditResultAggregator
 
         foreach ($findings as $finding) {
             $result = (string) ($finding['resultado'] ?? '');
-            if (!$this->findingRules->isFailureResult($result)) {
+            if (!AuditFindingRules::isFailureResult($result)) {
                 continue;
             }
 
@@ -193,7 +193,7 @@ class AuditResultAggregator
                 continue;
             }
 
-            if ($this->findingRules->observationRequiresManualReview($decision['observation'] ?? null)) {
+            if (AuditFindingRules::observationRequiresManualReview($decision['observation'] ?? null)) {
                 $hasHighSeverityFailure = true;
             }
         }
@@ -238,7 +238,7 @@ class AuditResultAggregator
 
         foreach ($findings as $finding) {
             $result = (string) ($finding['resultado'] ?? '');
-            if (!$this->findingRules->isFailureResult($result)) {
+            if (!AuditFindingRules::isFailureResult($result)) {
                 continue;
             }
 
@@ -248,7 +248,7 @@ class AuditResultAggregator
             }
 
             $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
-            $priority = $this->findingRules->findingPriority($severity, $result);
+            $priority = AuditFindingRules::findingPriority($severity, $result);
             if ($bestDocument === null || $priority > $bestPriority) {
                 $bestDocument = $document;
                 $bestPriority = $priority;

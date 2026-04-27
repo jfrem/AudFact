@@ -2,11 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditComparisonType;
 use App\Services\Audit\AuditSeverity;
-use App\Services\Audit\FieldStructure;
 use App\Services\Audit\SemanticMatchJudge;
 use RuntimeException;
 
@@ -18,13 +17,13 @@ class DocumentPolicyEngine
     private const RESULT_SKIPPED      = 'OMITIDO';
     private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
 
-    private AuditFindingRules $findingRules;
+    
     private ?SemanticMatchJudge $semanticJudge;
 
     public function __construct(
         ?SemanticMatchJudge $semanticJudge = null
     ) {
-        $this->findingRules = new AuditFindingRules();
+        
         $this->semanticJudge = $semanticJudge;
     }
 
@@ -68,7 +67,7 @@ class DocumentPolicyEngine
             $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
         );
 
-        $metrics = $this->findingRules->summarizeMetrics($findings);
+        $metrics = AuditFindingRules::summarizeMetrics($findings);
 
         return [
             'document_name'     => $documentType,
@@ -312,7 +311,7 @@ class DocumentPolicyEngine
         }
 
         if ($itemValues !== []) {
-            if (FieldStructure::isQuantityField($field)) {
+            if (AuditComparisonType::isQuantityField($field)) {
                 $total = $this->sumNumericValues($itemValues);
                 if ($total !== null) {
                     return [$this->formatNumber($total), false];
@@ -325,7 +324,7 @@ class DocumentPolicyEngine
             }
 
             // Multi-valor no-sumable: skipear silenciosamente
-            return FieldStructure::isQuantityField($field) ? [null, true] : [null, false];
+            return AuditComparisonType::isQuantityField($field) ? [null, true] : [null, false];
         }
 
         // Fallback: resolver desde fields{}
@@ -358,7 +357,7 @@ class DocumentPolicyEngine
 
         $itemValues = $this->extractItemValues($items, $field, $column);
 
-        if (FieldStructure::isQuantityField($field)) {
+        if (AuditComparisonType::isQuantityField($field)) {
             $total = $this->sumNumericValues($itemValues);
             return $total !== null ? $this->formatNumber($total) : null;
         }
@@ -373,7 +372,7 @@ class DocumentPolicyEngine
         }
 
         // Multi-valor no-sumable: skipear silenciosamente
-        return FieldStructure::isQuantityField($field) ? $unique[0] : null;
+        return AuditComparisonType::isQuantityField($field) ? $unique[0] : null;
     }
 
     private function extractItemValues(array $items, string $field, ?string $column): array
@@ -496,12 +495,12 @@ class DocumentPolicyEngine
             return ['resultado' => self::RESULT_MATCH];
         }
 
-        if (FieldStructure::isSubstringMatchAllowed($tipoCampo) && $this->containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
+        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && $this->containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => self::RESULT_MATCH];
         }
 
         $score     = $this->similarity($normalizedFdv, $normalizedDoc);
-        $threshold = FieldStructure::getSemanticThreshold($tipoCampo);
+        $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
         if ($score >= $threshold) {
             return ['resultado' => self::RESULT_MATCH];
@@ -540,7 +539,7 @@ class DocumentPolicyEngine
      */
     private function evaluateBusinessField(string $field, string $fdvValue, string $docValue): array
     {
-        if (!FieldStructure::isQuantityField($field)) {
+        if (!AuditComparisonType::isQuantityField($field)) {
             return $this->evaluateExactField($field, $fdvValue, $docValue);
         }
 
@@ -692,11 +691,11 @@ class DocumentPolicyEngine
 
     private function normalizeForComparison(string $field, string $value): string
     {
-        if (FieldStructure::isDateField($field)) {
+        if (AuditComparisonType::isDateField($field)) {
             return $this->normalizeDateForComparison($value) ?? $this->normalizeText($value);
         }
 
-        if (FieldStructure::isNumberField($field)) {
+        if (AuditComparisonType::isNumberField($field)) {
             $number = $this->parseNumber($value);
             return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
         }

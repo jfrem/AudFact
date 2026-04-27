@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use App\Services\Audit\Events\DocumentNormalizationWorker;
+use App\Services\Audit\Pipeline\DocumentNormalizationWorker;
 use Core\Env;
 use Core\Logger;
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditSeverity;
 
@@ -15,17 +15,17 @@ final class AuditFindingRules
     private const FAILURE_RESULTS     = ['VALOR_DISTINTO', 'NO_ENCONTRADO', 'NO_CONCLUYENTE'];
     private const DISCREPANCY_RESULTS = ['VALOR_DISTINTO', 'NO_ENCONTRADO'];
 
-    public function isFailureResult(string $result): bool
+    public static function isFailureResult(string $result): bool
     {
         return in_array($result, self::FAILURE_RESULTS, true);
     }
 
-    public function isDiscrepancyResult(string $result): bool
+    public static function isDiscrepancyResult(string $result): bool
     {
         return in_array($result, self::DISCREPANCY_RESULTS, true);
     }
 
-    public function riskWeight(string $severity): int
+    public static function riskWeight(string $severity): int
     {
         return match ($severity) {
             AuditSeverity::HIGH->value => 10,
@@ -34,7 +34,7 @@ final class AuditFindingRules
         };
     }
 
-    public function findingPriority(string $severity, string $result): int
+    public static function findingPriority(string $severity, string $result): int
     {
         $severityWeight = match ($severity) {
             AuditSeverity::HIGH->value => 30,
@@ -42,7 +42,7 @@ final class AuditFindingRules
             default                    => 15,
         };
 
-        $resultWeight = $this->isDiscrepancyResult($result) ? 10 : 0;
+        $resultWeight = self::isDiscrepancyResult($result) ? 10 : 0;
 
         return $severityWeight + $resultWeight;
     }
@@ -51,7 +51,7 @@ final class AuditFindingRules
      * @param  array<int,array<string,mixed>> $findings
      * @return array<string,int>
      */
-    public function summarizeMetrics(array $findings): array
+    public static function summarizeMetrics(array $findings): array
     {
         $metrics = [
             'total_campos' => 0,
@@ -79,20 +79,20 @@ final class AuditFindingRules
 
             if ($result === self::RESULT_INCONCLUSIVE) {
                 $metrics['no_concluyentes']++;
-                $metrics['risk_score'] += $this->riskWeight($severity);
+                $metrics['risk_score'] += self::riskWeight($severity);
                 continue;
             }
 
-            if ($this->isDiscrepancyResult($result)) {
+            if (self::isDiscrepancyResult($result)) {
                 $metrics['discrepancias']++;
-                $metrics['risk_score'] += $this->riskWeight($severity);
+                $metrics['risk_score'] += self::riskWeight($severity);
             }
         }
 
         return $metrics;
     }
 
-    public function observationRequiresManualReview(?string $observation): bool
+    public static function observationRequiresManualReview(?string $observation): bool
     {
         $normalized = strtolower(trim((string) $observation));
 

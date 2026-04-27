@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Controllers;
 
 use App\Controllers\AuditDlqController;
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
 use Core\Exceptions\HttpResponseException;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -22,7 +22,7 @@ final class AuditDlqControllerTest extends TestCase
             documentId: AuditEvent::uuidV4(),
             payload: [
                 'failed_event_type' => AuditEvent::TYPE_DOCUMENT_EXTRACTED,
-                'failed_stage' => 'App\\Services\\Audit\\Events\\DocumentExtractionWorker',
+                'failed_stage' => 'App\\Services\\Audit\\Pipeline\\DocumentExtractionWorker',
                 'failed_stream' => 'audit.documents',
                 'attempts' => 3,
                 'last_error_code' => 'RUNTIME_EXCEPTION',

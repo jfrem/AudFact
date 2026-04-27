@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
 use Core\Env;
 use Core\Logger;

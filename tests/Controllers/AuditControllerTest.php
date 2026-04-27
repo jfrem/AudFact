@@ -6,9 +6,9 @@ namespace Tests\Controllers;
 
 use App\Controllers\AuditController;
 use App\Models\InvoicesModel;
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
-use App\Services\Audit\Events\AuditStateStore;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditStateStore;
 use Core\Exceptions\HttpResponseException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;

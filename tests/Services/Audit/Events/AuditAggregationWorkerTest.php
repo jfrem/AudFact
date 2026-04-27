@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
 use App\Models\AuditStatusModel;
-use App\Services\Audit\Events\AuditAggregationWorker;
-use App\Services\Audit\Events\AuditEvent;
-use App\Services\Audit\Events\AuditEventPublisher;
-use App\Services\Audit\Events\AuditResultAggregator;
-use App\Services\Audit\Events\AuditStateStore;
+use App\Services\Audit\Pipeline\AuditAggregationWorker;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditResultAggregator;
+use App\Services\Audit\Pipeline\AuditStateStore;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;

@@ -63,55 +63,44 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 ### Servicios de Auditoría IA (`app/Services/Audit/`)
 
-| Servicio | Responsabilidad |
+| Componente | Responsabilidad |
 |---|---|
-| `AuditFileManager.php` | Resolución de archivos: BLOB → memoria (optimizado, sin disco), URL → download vía Drive |
-| `ExtractionPromptBuilder.php` | Prompt de extracción v4: campos, visual checks y hints sin lógica de negocio |
-| `ExtractionResponseSchema.php` | Function Calling schema para `report_extraction` |
-| `AuditResponseSchema.php` | Definición del schema de respuesta final del pipeline |
-| `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo |
+| `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) + detección de tipo por convención |
+| `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
+| `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
 | `GeminiCircuitBreaker.php` | Resiliencia y protección contra fallos en cascada hacia la API de IA |
-| `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout y manejo de errores |
-| `EmbeddingGateway.php` | Cliente HTTP para Gemini Embedding API |
-| `SemanticComparator.php` | Comparación semántica de campos por embeddings |
-| `FieldClassifier.php` | Clasificación de campos y documento autoritativo |
-| `RuleEngine.php` | Evaluación determinista PHP de discrepancias y risk score |
-| `AuditPersistenceService.php` | Persistencia de resultados de auditoría en `AudDispEst` y observaciones |
-| `AuditTelemetryService.php` | Métricas y telemetría del pipeline (tiempos, intentos, errores) |
-| `AuditPreValidator.php` | Pre-validación de datos y archivos antes de enviar a Gemini |
-| `AuditQueueService.php` | Gestión de colas asíncronas de auditoría con Redis Lists y persistencia de estado de jobs |
-| `AuditOrchestratorFactory.php` | Patrón Factory para construir instancias lazy y reutilizables de AuditOrchestrator y sus dependencias |
-| `GoogleDriveAuthService.php` | Autenticación JWT para acceso a archivos en Google Drive |
+| `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, factory `create()` y manejo de errores |
+| `SemanticMatchJudge.php` | Juez semántico con Gemini para campos de similitud textual |
+| `Debug/ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad |
 
 **Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`.
-**Interfaz**: Invocados por `AuditOrchestrator` o directamente desde Controladores/Workers.
+**Interfaz**: Invocados por los Workers del Pipeline o directamente desde Controladores.
 
 ---
 
-### Workers (`bin/`)
+### Pipeline Event-Driven (`app/Services/Audit/Pipeline/`)
 
-| Worker | Responsabilidad |
+| Worker / Componente | Responsabilidad |
 |---|---|
-| `audit-worker.php` | Proceso CLI long-running que consume colas de Redis (`BRPOP`), orquesta la auditoría asíncrona y actualiza el estado del job vía `AuditQueueService`. |
+| `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
+| `AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
+| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
+| `AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores) |
+| `AuditFindingRules.php` | Reglas estáticas de clasificación de hallazgos y cálculo de risk score |
+| `ExtractionCache.php` | Cache Redis por `document_hash` para reutilizar extracciones Gemini |
+| `InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos) |
+| `SchemaBuilder.php` | Construye el function declaration `extract_document_data` |
+| `DocumentNormalizer.php` | Normalización determinística PHP de campos extraídos |
+| `DocumentPolicyEngine.php` | Motor determinista de evaluación por documento |
+| `AuditResultAggregator.php` | Construye el contrato final `auditResultData` + decisiones documentales |
+| `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, publica N `document_registered` |
+| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, extrae con Gemini |
+| `DocumentNormalizationWorker.php` | Worker: consume `document_extracted`, normaliza campos |
+| `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy |
+| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste en SQL |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocado vía CLI (`php bin/audit-worker.php --max-jobs=...`).
-
----
-
-### Orchestrator (`app/Services/Audit/AuditOrchestrator.php`)
-
-**Responsabilidad**: Orquesta el pipeline completo de auditoría IA.
-
-**Flujo**:
-1. Recibe factura + datos de dispensación
-2. Resuelve archivos adjuntos (BLOB/URL)
-3. Ejecuta extracción con Gemini Vision + Function Calling
-4. Compara campos semánticos con embeddings
-5. Evalúa discrepancias con `RuleEngine`
-6. Persiste y retorna resultado estructurado
-
-**Dependencias**: Todos los servicios de `Audit/`, Guzzle HTTP, `core/Logger`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-*-worker.php`).
 
 ---
 

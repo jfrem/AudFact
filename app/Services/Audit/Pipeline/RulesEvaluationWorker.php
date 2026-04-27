@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Events;
+namespace App\Services\Audit\Pipeline;
 
-use App\Services\Audit\GeminiGatewayFactory;
+use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\SemanticMatchJudge;
 use RuntimeException;
 
@@ -12,7 +12,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
     private DocumentPolicyEngine $policyEngine;
-    private AuditFindingRules $findingRules;
+    
     private string $consumerName;
 
     public function __construct(
@@ -27,14 +27,14 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
 
         if ($policyEngine === null) {
-            $gateway = GeminiGatewayFactory::create();
+            $gateway = GeminiGateway::create();
             $semanticJudge = new SemanticMatchJudge($gateway, $this->redis);
             $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
         } else {
             $this->policyEngine = $policyEngine;
         }
 
-        $this->findingRules = new AuditFindingRules();
+        
         $this->consumerName = $consumerName ?? ('policy-' . getmypid());
     }
 
@@ -155,7 +155,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         return [
             'hallazgos' => [
                 'items' => $allFindings,
-                'metrics' => $this->findingRules->summarizeMetrics($allFindings),
+                'metrics' => AuditFindingRules::summarizeMetrics($allFindings),
             ],
             'document_decisions' => $documentDecisions,
         ];

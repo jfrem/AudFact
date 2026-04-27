@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\SchemaBuilder;
+use App\Services\Audit\Pipeline\SchemaBuilder;
 use PHPUnit\Framework\TestCase;
 
 final class SchemaBuilderTest extends TestCase

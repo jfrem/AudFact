@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Tests\Services\Audit\Events;
+namespace Tests\Services\Audit\Pipeline;
 
-use App\Services\Audit\Events\AuditResultAggregator;
-use App\Services\Audit\Events\AuditStateStore;
+use App\Services\Audit\Pipeline\AuditResultAggregator;
+use App\Services\Audit\Pipeline\AuditStateStore;
 use PHPUnit\Framework\TestCase;
 
 final class AuditResultAggregatorTest extends TestCase
