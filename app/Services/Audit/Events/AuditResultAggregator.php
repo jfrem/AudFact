@@ -4,18 +4,16 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Events;
 
-use App\Services\Audit\FieldClassifier;
+use App\Services\Audit\AuditSeverity;
 use RuntimeException;
 
 class AuditResultAggregator
 {
-    private FieldClassifier $classifier;
     private AuditFindingRules $findingRules;
 
-    public function __construct(?FieldClassifier $classifier = null)
+    public function __construct()
     {
-        $this->classifier = $classifier ?? new FieldClassifier();
-        $this->findingRules = new AuditFindingRules($this->classifier);
+        $this->findingRules = new AuditFindingRules();
     }
 
     /**
@@ -182,8 +180,8 @@ class AuditResultAggregator
                 continue;
             }
 
-            $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
-            if ($severity === FieldClassifier::SEVERITY_HIGH) {
+            $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
+            if ($severity === AuditSeverity::HIGH->value) {
                 $hasHighSeverityFailure = true;
             } else {
                 $hasNonCriticalFailure = true;
@@ -216,14 +214,14 @@ class AuditResultAggregator
      */
     private function resolveOverallSeverity(array $findings): string
     {
-        $highest = FieldClassifier::SEVERITY_LOW;
+        $highest = AuditSeverity::LOW->value;
         foreach ($findings as $finding) {
-            $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
-            if ($severity === FieldClassifier::SEVERITY_HIGH) {
-                return FieldClassifier::SEVERITY_HIGH;
+            $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
+            if ($severity === AuditSeverity::HIGH->value) {
+                return AuditSeverity::HIGH->value;
             }
-            if ($severity === FieldClassifier::SEVERITY_MEDIUM) {
-                $highest = FieldClassifier::SEVERITY_MEDIUM;
+            if ($severity === AuditSeverity::MEDIUM->value) {
+                $highest = AuditSeverity::MEDIUM->value;
             }
         }
 
@@ -249,9 +247,8 @@ class AuditResultAggregator
                 continue;
             }
 
-            $field = (string) ($finding['campo'] ?? '');
-            $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
-            $priority = $this->findingRules->findingPriority($field, $severity, $result);
+            $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
+            $priority = $this->findingRules->findingPriority($severity, $result);
             if ($bestDocument === null || $priority > $bestPriority) {
                 $bestDocument = $document;
                 $bestPriority = $priority;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Events;
 
-use App\Services\Audit\FieldClassifier;
+use App\Services\Audit\AuditSeverity;
 
 final class AuditFindingRules
 {
@@ -14,13 +14,6 @@ final class AuditFindingRules
 
     private const FAILURE_RESULTS     = ['VALOR_DISTINTO', 'NO_ENCONTRADO', 'NO_CONCLUYENTE'];
     private const DISCREPANCY_RESULTS = ['VALOR_DISTINTO', 'NO_ENCONTRADO'];
-
-    private FieldClassifier $classifier;
-
-    public function __construct(?FieldClassifier $classifier = null)
-    {
-        $this->classifier = $classifier ?? new FieldClassifier();
-    }
 
     public function isFailureResult(string $result): bool
     {
@@ -35,34 +28,23 @@ final class AuditFindingRules
     public function riskWeight(string $severity): int
     {
         return match ($severity) {
-            FieldClassifier::SEVERITY_HIGH => 10,
-            FieldClassifier::SEVERITY_LOW => 1,
+            AuditSeverity::HIGH->value => 10,
+            AuditSeverity::LOW->value => 1,
             default => 5,
         };
     }
 
-    public function findingPriority(string $field, string $severity, string $result): int
+    public function findingPriority(string $severity, string $result): int
     {
-        $field = $this->classifier->normalizeField($field);
-        $base = match ($field) {
-            'FirmaActaEntrega', 'FirmaPrescriptor' => 100,
-            'NumeroIdentificacion', 'TipoIdentificacion', 'NombrePaciente' => 90,
-            'CodigoDiagnostico' => 85,
-            'Autorizacion', 'FechaAutorizacion', 'FechaEntrega', 'FechaFormula' => 80,
-            'CantidadEntregada', 'CantidadPrescrita' => 75,
-            'NombreArticulo' => 70,
-            default => 50,
-        };
-
         $severityWeight = match ($severity) {
-            FieldClassifier::SEVERITY_HIGH => 20,
-            FieldClassifier::SEVERITY_LOW => 0,
-            default => 10,
+            AuditSeverity::HIGH->value => 30,
+            AuditSeverity::LOW->value  => 0,
+            default                    => 15,
         };
 
         $resultWeight = $this->isDiscrepancyResult($result) ? 10 : 0;
 
-        return $base + $severityWeight + $resultWeight;
+        return $severityWeight + $resultWeight;
     }
 
     /**
@@ -83,7 +65,7 @@ final class AuditFindingRules
         foreach ($findings as $finding) {
             $metrics['total_campos']++;
             $result = (string) ($finding['resultado'] ?? '');
-            $severity = (string) ($finding['severidad'] ?? FieldClassifier::SEVERITY_MEDIUM);
+            $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
 
             if ($result === self::RESULT_MATCH) {
                 $metrics['coincidencias']++;

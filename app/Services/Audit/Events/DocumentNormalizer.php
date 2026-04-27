@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Events;
 
-use App\Services\Audit\FieldClassifier;
+use App\Services\Audit\FieldStructure;
 use RuntimeException;
 
 class DocumentNormalizer
@@ -14,20 +14,6 @@ class DocumentNormalizer
         'parcialmente_legible',
         'ilegible',
     ];
-
-    private const DATE_FIELDS = [
-        'FechaFormula',
-        'FechaAutorizacion',
-        'FechaEntrega',
-        'FechaVencimiento',
-    ];
-
-    private FieldClassifier $classifier;
-
-    public function __construct(?FieldClassifier $classifier = null)
-    {
-        $this->classifier = $classifier ?? new FieldClassifier();
-    }
 
     /**
      * @param array<string,mixed> $payload
@@ -220,7 +206,7 @@ class DocumentNormalizer
                     continue;
                 }
 
-                $canonical = $this->classifier->normalizeField($name);
+                $canonical = $name;
                 $base = $result[$canonical] ?? [
                     'check' => $canonical,
                     'presente' => false,
@@ -351,7 +337,7 @@ class DocumentNormalizer
             return [$value, []];
         }
 
-        if (in_array($field, self::DATE_FIELDS, true)) {
+        if (FieldStructure::isDateField($field)) {
             $normalizedDate = $this->normalizeDateString($value);
             if ($normalizedDate !== null) {
                 $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];
@@ -404,7 +390,7 @@ class DocumentNormalizer
         string $originalKey = 'field_original',
         string $normalizedKey = 'field_normalized'
     ): string {
-        $canonicalField = $this->classifier->normalizeField($originalField);
+        $canonicalField = $originalField;
         if ($canonicalField !== $originalField) {
             $this->appendLog($normalizationLog, $operation, array_merge($context, [
                 $originalKey => $originalField,
