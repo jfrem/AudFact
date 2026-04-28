@@ -140,6 +140,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $extractions    = [];
         $normalizations = [];
         $policies       = [];
+        $downloads      = [];
+        $geminis        = [];
         $cacheHits      = 0;
         $total          = 0;
 
@@ -157,6 +159,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
             if (isset($doc['policy_duration_ms'])) {
                 $policies[] = (int) $doc['policy_duration_ms'];
             }
+            if (isset($doc['download_duration_ms'])) {
+                $downloads[] = (int) $doc['download_duration_ms'];
+            }
+            if (isset($doc['gemini_duration_ms'])) {
+                $geminis[] = (int) $doc['gemini_duration_ms'];
+            }
             if ($doc['cache_hit'] ?? false) {
                 $cacheHits++;
             }
@@ -165,6 +173,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
         return [
             'docs_total'     => $total,
             'cache_hit_rate' => $total > 0 ? round($cacheHits / $total, 2) : 0.0,
+            'download'       => $this->summarizeTimings($downloads),
+            'gemini'         => $this->summarizeTimings($geminis),
             'extraction'     => $this->summarizeTimings($extractions),
             'normalization'  => $this->summarizeTimings($normalizations),
             'policy'         => $this->summarizeTimings($policies),
@@ -474,13 +484,16 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         try {
-            $created = new \DateTimeImmutable($createdAt);
-            $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+            // Soporta timestamps con microsegundos (Y-m-d\TH:i:s.u\Z) generados por nowUtc()
+            // y también el formato legacy sin microsegundos (Y-m-d\TH:i:s\Z).
+            $created = new \DateTimeImmutable($createdAt, new \DateTimeZone('UTC'));
+            $now     = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         } catch (\Throwable) {
             return 0;
         }
 
-        return max(0, (int) (($now->getTimestamp() - $created->getTimestamp()) * 1000));
+        $diffUs = (int) $now->format('Uu') - (int) $created->format('Uu');
+        return max(0, (int) round($diffUs / 1000));
     }
 
     private function normalizeDocumentName(string $value): string

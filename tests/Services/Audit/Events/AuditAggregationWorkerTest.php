@@ -141,7 +141,7 @@ class AggregationRecordingStateStore extends AuditStateStore
             'fac_sec' => '87723098',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
-            'created_at' => microtime(true) - 42.0,
+            'created_at' => (new \DateTimeImmutable('-42 seconds', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z'),
             'documents' => [
                 'doc-1' => ['tipo_documento' => 'DISPENSA'],
             ],

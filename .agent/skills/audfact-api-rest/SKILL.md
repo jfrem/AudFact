@@ -28,7 +28,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (20)
+## Endpoints actuales (21)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -52,6 +52,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `POST` | `/audit/single` | `AuditController::single` |
 | `POST` | `/audit/async` | `AuditController::async` |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` |
+| `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |
 
 ## Flujo de trabajo
 1. Revisar rutas en `app/Routes/web.php`.

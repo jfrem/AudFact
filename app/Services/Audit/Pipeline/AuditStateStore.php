@@ -27,6 +27,11 @@ class AuditStateStore
         $this->redis = $redis ?? RedisClient::getInstance();
     }
 
+    private static function nowUtc(): string
+    {
+        return (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z');
+    }
+
     public function initAudit(
         string $auditId,
         string $disDetNro,
@@ -34,7 +39,7 @@ class AuditStateStore
         ?string $facNitSec = null,
         ?string $facSec = null
     ): bool {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = self::nowUtc();
         $state = [
             'audit_id'    => $auditId,
             'status'      => self::AUDIT_STATUS_PENDING,
@@ -78,7 +83,7 @@ class AuditStateStore
 
     public function patchAudit(string $auditId, array $patch): bool
     {
-        $patch['updated_at'] = gmdate('Y-m-d\TH:i:s\Z');
+        $patch['updated_at'] = self::nowUtc();
 
         return $this->runScript(
             self::MERGE_LUA,
@@ -102,7 +107,7 @@ class AuditStateStore
         return $this->runScript(
             self::REGISTER_DOCUMENT_LUA,
             [self::auditKey($auditId)],
-            [$documentId, $documentState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            [$documentId, $documentState, self::nowUtc(), self::AUDIT_TTL_SECONDS],
             'No se pudo registrar el documento en Redis',
             ['audit_id' => $auditId, 'document_id' => $documentId]
         );
@@ -158,7 +163,7 @@ class AuditStateStore
         return $this->runScript(
             self::DOCUMENT_TRANSITION_LUA,
             [self::auditKey($auditId)],
-            [$documentId, $patch, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS, $counterField, $expectedStatus],
+            [$documentId, $patch, self::nowUtc(), self::AUDIT_TTL_SECONDS, $counterField, $expectedStatus],
             $errorMessage,
             ['audit_id' => $auditId, 'document_id' => $documentId]
         );
@@ -169,7 +174,7 @@ class AuditStateStore
         return $this->runScript(
             self::STORE_RULES_EVALUATION_LUA,
             [self::auditKey($auditId)],
-            [$rulesEvaluation, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            [$rulesEvaluation, self::nowUtc(), self::AUDIT_TTL_SECONDS],
             'No se pudo persistir rules_evaluated en Redis',
             ['audit_id' => $auditId]
         );
@@ -180,7 +185,7 @@ class AuditStateStore
         return $this->runScript(
             self::COMPLETE_AUDIT_LUA,
             [self::auditKey($auditId)],
-            [$completionState, gmdate('Y-m-d\TH:i:s\Z'), self::AUDIT_TTL_SECONDS],
+            [$completionState, self::nowUtc(), self::AUDIT_TTL_SECONDS],
             'No se pudo completar la auditoría en Redis',
             ['audit_id' => $auditId]
         );

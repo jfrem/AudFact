@@ -139,6 +139,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'extraction_result'       => $extracted,
             'extracted_at'            => gmdate('Y-m-d\TH:i:s\Z'),
             'extraction_duration_ms'  => $extractionDurationMs,
+            'download_duration_ms'    => (int) ($document['duration_ms'] ?? 0),
+            'gemini_duration_ms'      => $geminiDurationMs,
         ];
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
