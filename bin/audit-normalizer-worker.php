@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use App\Services\Audit\Pipeline\DocumentNormalizationWorker;
+use App\Services\Audit\Pipeline\DocumentNormalizer;
 use Core\Env;
 use Core\Logger;
 
@@ -15,7 +15,7 @@ if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
 }
 
-$consumer = new DocumentNormalizationWorker();
+$consumer = new DocumentNormalizer();
 
 $stop = static function (int $signal) use ($consumer): void {
     Logger::info('audit-normalizer-worker: señal recibida, deteniendo', ['signal' => $signal]);

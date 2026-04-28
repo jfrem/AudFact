@@ -1,5 +1,22 @@
 # Changelog AudFact
 
+## [2026-04-27] — Consolidación Pipeline: 17 → 13 archivos
+
+### 🔵 Architecture / Refactor
+- **AUDIT-014**: Consolidación del árbol `app/Services/Audit/Pipeline/` mediante fusión de clases con relación 1:1 exclusiva:
+  - **F1: `DocumentNormalizationWorker` → `DocumentNormalizer`**: El thin wrapper (88 líneas) se eliminó. `DocumentNormalizer` ahora extiende `AuditEventConsumer` directamente, actuando como worker autocontenido.
+  - **F2: `AuditResultAggregator` → `AuditAggregationWorker`**: Los métodos de agregación (normalización de hallazgos, resolución de status final, severidad) se absorbieron como métodos privados del worker. Único consumidor.
+  - **F4: `ExtractionCache` → `DocumentExtractionWorker`**: Los métodos de cache Redis por `document_hash` se absorbieron como métodos privados del worker. Único consumidor.
+  - **F5: `SchemaBuilder` → `DocumentAuditOrchestrator`**: La construcción del function declaration Gemini se absorbió en el orchestrator. `normalizeName()` se mantiene público estático.
+  - **Descartada**: Fusión de `AuditFindingRules` — utilidad compartida por 3+ clases (PolicyEngine, RulesEvaluationWorker, AggregationWorker).
+  - **Resultado neto**: −4 archivos (17→13), −24% de archivos, sin pérdida funcional.
+  - **Archivos eliminados**: `DocumentNormalizationWorker.php`, `AuditResultAggregator.php`, `ExtractionCache.php`, `SchemaBuilder.php`
+  - **Archivos modificados**: `DocumentNormalizer.php`, `AuditAggregationWorker.php`, `DocumentExtractionWorker.php`, `DocumentAuditOrchestrator.php`, `bin/audit-normalizer-worker.php`
+  - **Validación E2E**: `T38250701547` → `risk_score:15`, `coincidencias:34`, `discrepancias:1` (idéntico a pre-refactorización)
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Actualizado `plans/architecture.md` con la estructura consolidada de 13 archivos. Actualizado `plans/changelog.md`.
+
 ## [2026-04-27] — Reestructuración Deep: app/Services/Audit
 
 ### 🔵 Architecture / Refactor

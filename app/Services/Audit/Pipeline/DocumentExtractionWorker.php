@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\GeminiGateway;
+use Core\Env;
 use Core\Logger;
+use Core\RedisUnavailableException;
 use RuntimeException;
 
 final class DocumentExtractionWorker extends AuditEventConsumer
@@ -25,28 +27,33 @@ Para verificaciones visuales usa presente=false cuando el elemento no sea visibl
 Invoca exactamente una vez la función extract_document_data.
 TEXT;
 
+    private const DEFAULT_CACHE_TTL = 86400;
+    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-items-v2';
+
     private AuditStateStore $stateStore;
     private InternalAuditApiClient $apiClient;
-    private ExtractionCache $cache;
     private GeminiGateway $gateway;
+    private int $cacheTtl;
     private string $consumerName;
 
     public function __construct(
         ?AuditStateStore $stateStore = null,
         ?InternalAuditApiClient $apiClient = null,
-        ?ExtractionCache $cache = null,
         ?GeminiGateway $gateway = null,
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null
+        ?string $consumerName = null,
+        ?int $cacheTtl = null
     ) {
         parent::__construct($redis, $publisher);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->apiClient = $apiClient ?? new InternalAuditApiClient();
-        $this->cache = $cache ?? new ExtractionCache($this->redis);
         $this->gateway = $gateway ?? GeminiGateway::create();
         $this->consumerName = $consumerName ?? ('extractor-' . getmypid());
+
+        $resolvedTtl = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
+        $this->cacheTtl = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
     }
 
     public function processEvent(AuditEvent $event): void
@@ -90,7 +97,7 @@ TEXT;
         $document = $this->apiClient->downloadAttachment($downloadUrl);
         $documentHash = hash('sha256', $document['data']);
 
-        $extracted = $this->cache->get($documentHash);
+        $extracted = $this->cacheGet($documentHash);
         $cacheHit = $extracted !== null;
         $geminiDurationMs = 0;
 
@@ -119,7 +126,7 @@ TEXT;
 
             $extracted = $this->parseGeminiResponse($response, $schema);
             $this->enforceItemSegmentation($documentType, $payload, $extracted);
-            $this->cache->put($documentHash, $extracted);
+            $this->cachePut($documentHash, $extracted);
         }
 
         $documentState = [
@@ -158,6 +165,65 @@ TEXT;
             'local_cpu_duration_ms' => (int) $localCpuDurationMs,
         ]);
     }
+
+    // ─── Extraction cache (absorbed from ExtractionCache) ────────────────────
+
+    private function cacheGet(string $documentHash): ?array
+    {
+        self::assertHash($documentHash);
+
+        try {
+            $raw = $this->redis->get(self::cacheKey($documentHash));
+        } catch (RedisUnavailableException $e) {
+            throw new RuntimeException('Redis no disponible al leer extraction cache', 0, $e);
+        }
+
+        if ($raw === null) {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Extraction cache corrupto en Redis');
+        }
+
+        return $decoded;
+    }
+
+    private function cachePut(string $documentHash, array $payload): void
+    {
+        self::assertHash($documentHash);
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            throw new RuntimeException('No se pudo serializar extraction cache');
+        }
+
+        if (!$this->redis->set(self::cacheKey($documentHash), $encoded, $this->cacheTtl)) {
+            throw new RuntimeException('No se pudo escribir extraction cache en Redis');
+        }
+    }
+
+    private static function cacheKey(string $documentHash): string
+    {
+        self::assertHash($documentHash);
+        $version = trim((string) Env::get('AUDIT_VERSION_EXTRACTOR', self::DEFAULT_EXTRACTOR_VERSION));
+        $sanitizedVersion = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $version);
+        if (!is_string($sanitizedVersion) || $sanitizedVersion === '') {
+            $sanitizedVersion = self::DEFAULT_EXTRACTOR_VERSION;
+        }
+
+        return "extraction:cache:{$sanitizedVersion}:{$documentHash}";
+    }
+
+    private static function assertHash(string $documentHash): void
+    {
+        if (!preg_match('/^[a-f0-9]{64}$/', $documentHash)) {
+            throw new RuntimeException("document_hash inválido: {$documentHash}");
+        }
+    }
+
+    // ─── Gemini interaction helpers ──────────────────────────────────────────
 
     private function buildSystemPrompt(array $payload): string
     {

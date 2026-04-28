@@ -85,19 +85,16 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
 | `AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
 | `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
-| `AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores) |
+| `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores) |
+| `BatchJobStore.php` | Claves Redis de estado de jobs/batch (`job:{id}:*`, slots, progreso) |
 | `AuditFindingRules.php` | Reglas estáticas de clasificación de hallazgos y cálculo de risk score |
-| `ExtractionCache.php` | Cache Redis por `document_hash` para reutilizar extracciones Gemini |
 | `InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos) |
-| `SchemaBuilder.php` | Construye el function declaration `extract_document_data` |
-| `DocumentNormalizer.php` | Normalización determinística PHP de campos extraídos |
+| `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
+| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
+| `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
+| `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy, publica `rules_evaluated` |
 | `DocumentPolicyEngine.php` | Motor determinista de evaluación por documento |
-| `AuditResultAggregator.php` | Construye el contrato final `auditResultData` + decisiones documentales |
-| `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, publica N `document_registered` |
-| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, extrae con Gemini |
-| `DocumentNormalizationWorker.php` | Worker: consume `document_extracted`, normaliza campos |
-| `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy |
-| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste en SQL |
+| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, agrega resultados, persiste en SQL, publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
 **Interfaz**: Invocados vía CLI (`php bin/audit-*-worker.php`).
