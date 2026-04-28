@@ -7,11 +7,11 @@ namespace App\Services\Audit;
 use App\Services\Audit\Debug\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
-use RuntimeException;
 
 final class SemanticMatchJudge
 {
     private const CACHE_TTL = 2592000; // 30 dias
+    private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
     private GeminiGateway $gateway;
     private RedisClient $redis;
@@ -42,7 +42,10 @@ final class SemanticMatchJudge
         }
 
         $result = $this->callGemini($expected, $actual, $context);
-        $this->putInCache($hash, $result);
+        if (($result['cacheable'] ?? true) === true) {
+            $this->putInCache($hash, $result);
+        }
+        unset($result['cacheable']);
 
         return $result;
     }
@@ -91,7 +94,11 @@ final class SemanticMatchJudge
         }
 
         try {
-            $this->redis->set($key, json_encode($result, JSON_UNESCAPED_UNICODE), self::CACHE_TTL);
+            $payload = [
+                'is_match' => (bool) ($result['is_match'] ?? false),
+                'reasoning' => (string) ($result['reasoning'] ?? ''),
+            ];
+            $this->redis->set($key, json_encode($payload, JSON_UNESCAPED_UNICODE), self::CACHE_TTL);
         } catch (\Throwable $e) {
             Logger::warning('SemanticMatchJudge: cache write error', ['error' => $e->getMessage()]);
         }
@@ -99,7 +106,7 @@ final class SemanticMatchJudge
 
     /**
      * @param array<string,mixed> $context
-     * @return array{is_match: bool, reasoning: string, gemini_metrics?: array<string,mixed>, cache_hit?: bool}
+     * @return array{is_match: bool, reasoning: string, gemini_metrics?: array<string,mixed>, cache_hit?: bool, cacheable?: bool}
      */
     private function callGemini(string $expected, string $actual, array $context): array
     {
@@ -133,19 +140,10 @@ final class SemanticMatchJudge
             ],
         ];
 
-        $debugContext = [];
-        if (isset($context['audit_id'])) {
-            $debugContext['audit_id'] = $context['audit_id'];
-        }
-        if (isset($context['document_id'])) {
-            $debugContext['document_id'] = $context['document_id'];
-        }
-        if (isset($context['dis_det_nro'])) {
-            $debugContext['dis_det_nro'] = $context['dis_det_nro'];
-        }
-        if (isset($context['document_type'])) {
-            $debugContext['document_type'] = $context['document_type'];
-        }
+        $debugContext = array_filter(
+            array_intersect_key($context, array_flip(['audit_id', 'document_id', 'dis_det_nro', 'document_type'])),
+            static fn(mixed $v): bool => $v !== null,
+        );
         $debugContext['task_type'] = 'semantic_match';
 
         try {
@@ -155,7 +153,9 @@ final class SemanticMatchJudge
                 $systemInstruction,
                 [['functionDeclarations' => [$schema]]],
                 $toolConfig,
-                [],
+                GeminiConfig::generationOverridesFromEnv('GEMINI_SEMANTIC', [
+                    'maxOutputTokens' => 2048,
+                ]),
                 $debugContext
             );
 
@@ -168,7 +168,14 @@ final class SemanticMatchJudge
 
             $parts = $response['candidates'][0]['content']['parts'] ?? null;
             if (!is_array($parts) || !isset($parts[0]['functionCall']['args'])) {
-                throw new RuntimeException('Respuesta Gemini sin functionCall válido');
+                Logger::warning('SemanticMatchJudge: respuesta Gemini sin functionCall válido', [
+                    'finishReason' => (string) ($response['candidates'][0]['finishReason'] ?? ''),
+                    'finishMessage' => (string) ($response['candidates'][0]['finishMessage'] ?? ''),
+                    'expected' => $expected,
+                    'actual' => $actual,
+                ]);
+
+                return $this->buildFailedResult($metrics);
             }
 
             $args = $parts[0]['functionCall']['args'];
@@ -185,15 +192,22 @@ final class SemanticMatchJudge
                 'expected' => $expected,
                 'actual' => $actual,
             ]);
-            return [
-                'is_match' => false,
-                'reasoning' => 'Error de evaluación semántica: ' . $e->getMessage(),
-                'gemini_metrics' => GeminiCallMetrics::failed([
-                    'task_type' => 'semantic_match',
-                    'document_type' => (string) ($context['document_type'] ?? ''),
-                ]),
-                'cache_hit' => false,
-            ];
+            return $this->buildFailedResult(GeminiCallMetrics::failed([
+                'task_type' => 'semantic_match',
+                'document_type' => (string) ($context['document_type'] ?? ''),
+            ]));
         }
+    }
+
+    /** @return array{is_match: bool, reasoning: string, gemini_metrics: array<string,mixed>, cache_hit: bool, cacheable: bool} */
+    private function buildFailedResult(array $metrics): array
+    {
+        return [
+            'is_match' => false,
+            'reasoning' => self::FALLBACK_REASONING,
+            'gemini_metrics' => $metrics,
+            'cache_hit' => false,
+            'cacheable' => false,
+        ];
     }
 }

@@ -25,6 +25,7 @@ final class GeminiConfig
         public string $responseMimeType = 'application/json',
         public ?string $mediaResolution = null,
         public ?int $thinkingBudget = null,
+        public ?string $thinkingLevel = null,
         public ?int $seed = null,
     ) {}
 
@@ -44,6 +45,7 @@ final class GeminiConfig
             responseMimeType:(string) Env::get('GEMINI_RESPONSE_MIME', 'application/json'),
             mediaResolution: self::nullableString(Env::get('GEMINI_MEDIA_RESOLUTION', null)),
             thinkingBudget:  self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
+            thinkingLevel:   self::nullableString(Env::get('GEMINI_THINKING_LEVEL', null)),
             seed:            self::nullableInt(Env::get('GEMINI_SEED', null)),
         );
     }
@@ -64,13 +66,16 @@ final class GeminiConfig
             'seed'        => $this->seed,
         ], fn($value) => $value !== null);
 
-        // Thinking budget: override > default
+        // Gemini 3 uses thinkingLevel; Gemini 2.5 uses thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
-        unset($overrides['thinkingBudget']);
+        $thinkingLevel = $overrides['thinkingLevel'] ?? $this->thinkingLevel;
+        unset($overrides['thinkingBudget'], $overrides['thinkingLevel']);
 
         $merged = array_merge($base, $overrides);
 
-        if ($thinkingBudget !== null) {
+        if ($thinkingLevel !== null) {
+            $merged['thinkingConfig'] = ['thinkingLevel' => $thinkingLevel];
+        } elseif ($thinkingBudget !== null) {
             $merged['thinkingConfig'] = ['thinkingBudget' => (int) $thinkingBudget];
         }
 
@@ -91,8 +96,39 @@ final class GeminiConfig
             'responseMimeType'=> $this->responseMimeType,
             'mediaResolution' => $this->mediaResolution,
             'thinkingBudget'  => $this->thinkingBudget,
+            'thinkingLevel'   => $this->thinkingLevel,
             'seed'            => $this->seed,
         ];
+    }
+
+    /**
+     * Construye overrides de generación desde variables de entorno con prefijo de tarea.
+     *
+     * @return array<string,mixed>
+     */
+    public static function generationOverridesFromEnv(string $prefix, array $defaults = []): array
+    {
+        Env::load();
+
+        $normalizedPrefix = strtoupper(trim($prefix));
+        if ($normalizedPrefix === '' || preg_match('/[^A-Z0-9_]/', $normalizedPrefix)) {
+            throw new RuntimeException('Prefijo de configuración Gemini inválido');
+        }
+
+        return array_filter([
+            'maxOutputTokens' => self::intFromEnvWithDefault(
+                "{$normalizedPrefix}_MAX_OUTPUT_TOKENS",
+                $defaults['maxOutputTokens'] ?? null
+            ),
+            'thinkingBudget' => self::intFromEnvWithDefault(
+                "{$normalizedPrefix}_THINKING_BUDGET",
+                $defaults['thinkingBudget'] ?? null
+            ),
+            'thinkingLevel' => self::stringFromEnvWithDefault(
+                "{$normalizedPrefix}_THINKING_LEVEL",
+                $defaults['thinkingLevel'] ?? null
+            ),
+        ], static fn(mixed $value): bool => $value !== null);
     }
 
     private static function nullableFloat(mixed $value): ?float
@@ -103,6 +139,16 @@ final class GeminiConfig
     private static function nullableInt(mixed $value): ?int
     {
         return ($value === null || $value === '') ? null : (int) $value;
+    }
+
+    private static function intFromEnvWithDefault(string $key, mixed $default): ?int
+    {
+        return self::nullableInt(Env::get($key, null)) ?? self::nullableInt($default);
+    }
+
+    private static function stringFromEnvWithDefault(string $key, mixed $default): ?string
+    {
+        return self::nullableString(Env::get($key, null)) ?? self::nullableString($default);
     }
 
     private static function nullableString(mixed $value): ?string

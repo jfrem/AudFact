@@ -196,7 +196,7 @@ class AttachmentsModel extends Model
         }
 
         if (!empty($filters['facNitSec'])) {
-            $where .= " AND v.FacNitSec = :facNitSec";
+            $where .= " AND v.NitSec = :facNitSec";
             $params[':facNitSec'] = $filters['facNitSec'];
         }
 
@@ -232,7 +232,7 @@ class AttachmentsModel extends Model
         }
 
         if (!empty($filters['facNitSec'])) {
-            $where .= " AND v.FacNitSec = :facNitSec";
+            $where .= " AND v.NitSec = :facNitSec";
             $params[':facNitSec'] = $filters['facNitSec'];
         }
 

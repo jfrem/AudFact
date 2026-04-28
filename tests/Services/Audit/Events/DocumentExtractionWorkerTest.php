@@ -112,6 +112,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame(1, $gateway->calls);
         $this->assertSame('extract_document_data', $gateway->lastTools[0]['functionDeclarations'][0]['name'] ?? null);
         $this->assertSame(['extract_document_data'], $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+        $this->assertSame(2048, $gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
         $this->assertSame('extraction', $gateway->lastDebugContext['task_type'] ?? null);
         $toolJson = json_encode($gateway->lastTools, JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString('additionalProperties', $toolJson);
@@ -231,6 +232,7 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $lastTools = [];
     public array $lastToolConfig = [];
+    public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
 
     public function __construct(private array $response)
@@ -249,6 +251,7 @@ final class StubGeminiGateway extends GeminiGateway
         $this->calls++;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
+        $this->lastGenerationOverrides = $generationOverrides;
         $this->lastDebugContext = $debugContext ?? [];
         return $this->response;
     }

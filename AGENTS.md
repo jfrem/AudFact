@@ -233,6 +233,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de la respuesta |
 | `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_MEDIUM` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para extracción documental |
+| `GEMINI_EXTRACTION_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para extracción documental |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3) |
+| `GEMINI_SEMANTIC_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
+| `GEMINI_SEMANTIC_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica |
 | `GEMINI_SEED` | *(vacío)* | ❌ | Semilla para reproducibilidad (opcional) |
 
 ### Redis

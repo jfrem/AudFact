@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\GeminiGateway;
+use App\Services\Audit\GeminiConfig;
 use Core\Env;
 use Core\Logger;
 use Core\RedisUnavailableException;
@@ -113,7 +114,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $this->buildSystemPrompt($payload),
                 [['functionDeclarations' => [$schema]]],
                 $this->buildToolConfig($schema),
-                [],
+                GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                    'maxOutputTokens' => 2048,
+                ]),
                 [
                     'dis_det_nro' => $disDetNro,
                     'audit_id' => $event->auditId,
