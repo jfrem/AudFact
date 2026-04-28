@@ -84,7 +84,7 @@ services:
     depends_on:
       - redis
       - nginx
-    command: php bin/audit-orchestrator-worker.php
+    command: php bin/audit-worker.php orchestrator
     restart: on-failure
     deploy:
       resources:
@@ -108,7 +108,7 @@ services:
     depends_on:
       - redis
       - nginx
-    command: php bin/audit-extraction-worker.php
+    command: php bin/audit-worker.php extraction
     restart: on-failure
     deploy:
       resources:
@@ -130,7 +130,7 @@ services:
       - ./logs:/var/www/html/logs
     depends_on:
       - redis
-    command: php bin/audit-normalizer-worker.php
+    command: php bin/audit-worker.php normalizer
     restart: on-failure
     deploy:
       resources:
@@ -153,7 +153,7 @@ services:
       - ./responseIA:/var/www/html/responseIA
     depends_on:
       - redis
-    command: php bin/audit-policy-worker.php
+    command: php bin/audit-worker.php policy
     restart: on-failure
     deploy:
       resources:
@@ -175,7 +175,7 @@ services:
       - ./logs:/var/www/html/logs
     depends_on:
       - redis
-    command: php bin/audit-aggregator-worker.php
+    command: php bin/audit-worker.php aggregator
     restart: on-failure
     deploy:
       resources:

@@ -97,7 +97,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, agrega resultados, persiste en SQL, publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-*-worker.php`).
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`).
 
 ---
 

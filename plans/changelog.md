@@ -1,5 +1,16 @@
 # Changelog AudFact
 
+## [2026-04-27] — Consolidación de Bootstrap Scripts (`bin/`)
+
+### 🔵 Architecture / Refactor
+- **AUDIT-015**: Consolidación de los scripts ejecutables de los workers en un único launcher.
+  - **Fusión `bin/audit-*-worker.php` → `bin/audit-worker.php`**: Se eliminaron 5 scripts de bootstrap casi idénticos y se reemplazaron por un único launcher que usa un registry de configuración.
+  - El nuevo launcher recibe el nombre del worker como primer argumento CLI (ej: `php bin/audit-worker.php orchestrator`).
+  - **Resultado neto**: −4 archivos (5→1). Centralización de carga de variables de entorno y manejo de señales POSIX.
+  - **Archivos eliminados**: `bin/audit-orchestrator-worker.php`, `bin/audit-extraction-worker.php`, `bin/audit-normalizer-worker.php`, `bin/audit-policy-worker.php`, `bin/audit-aggregator-worker.php`
+  - **Archivos añadidos**: `bin/audit-worker.php`
+  - **Archivos modificados**: `docker-compose.yml` (actualización de los `command:` de cada servicio).
+  - **Validación E2E**: `T38250701547` procesado correctamente con score idéntico (15) tras reconstrucción de contenedores.
 ## [2026-04-27] — Consolidación Pipeline: 17 → 13 archivos
 
 ### 🔵 Architecture / Refactor
