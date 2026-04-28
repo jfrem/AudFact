@@ -265,6 +265,18 @@ TEXT;
             $parts[] = 'No colapses cantidades, lotes, fechas de vencimiento ni codigos de articulo en `fields`.';
         }
 
+        // Extracción selectiva: para prescripciones, filtrar items al subconjunto dispensado
+        $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload);
+        if ($dispensedNames !== []) {
+            $parts[] = 'Articulos efectivamente dispensados al paciente (fuente de verdad):';
+            foreach ($dispensedNames as $name) {
+                $parts[] = "- {$name}";
+            }
+            $parts[] = 'En `items`, extrae UNICAMENTE los articulos que coincidan (exactos u homologos) con la lista anterior.';
+            $parts[] = 'Si un articulo prescrito no aparece en la lista de dispensados, omitelo de `items`.';
+            $parts[] = 'Incluye los nombres tal como aparecen en el documento, no los de la lista.';
+        }
+
         $parts[] = "Invoca exactamente una vez la función {$functionName}.";
 
         return implode("\n", $parts);
@@ -377,6 +389,60 @@ TEXT;
         $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
 
         return strtoupper(trim($documentType)) === 'DISPENSA' && count($sourceTruthItems) > 1;
+    }
+
+    /**
+     * Detecta dinámicamente si un tipo de documento es prescriptivo.
+     */
+    private function isPrescriptionDocument(string $documentType): bool
+    {
+        $normalized = strtoupper(trim($documentType));
+        $prescriptionTokens = ['FORMULA', 'PRESCRIPCION', 'RECETA', 'ORDEN MEDICA'];
+
+        foreach ($prescriptionTokens as $token) {
+            if (str_contains($normalized, $token)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Extrae nombres de artículos dispensados de la FDV para inyección selectiva en el prompt.
+     * Solo aplica a documentos prescriptivos. Retorna [] si no aplica (fallback: sin filtro).
+     *
+     * @return string[]
+     */
+    private function buildDispensedItemsContext(string $documentType, array $payload): array
+    {
+        if (!$this->isPrescriptionDocument($documentType)) {
+            return [];
+        }
+
+        $fdvItems = $payload['fuente_verdad']['items'] ?? [];
+        if (!is_array($fdvItems) || $fdvItems === []) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($fdvItems as $item) {
+            $name = trim((string) ($item['NombreArticulo'] ?? ''));
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        $unique = array_values(array_unique($names));
+
+        if ($unique !== []) {
+            Logger::info('Prescription selective extraction enabled', [
+                'document_type' => $documentType,
+                'dispensed_items_count' => count($unique),
+            ]);
+        }
+
+        return $unique;
     }
 
     /**

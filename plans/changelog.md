@@ -13,6 +13,7 @@
 ## [2026-04-27] — Consolidación de Bootstrap Scripts (`bin/`)
 
 ### 🔵 Architecture / Refactor
+- **AUDIT-017**: Implementación de extracción selectiva para documentos prescriptivos (FORMULA MEDICA, RECETA, etc.). El `DocumentExtractionWorker` ahora inyecta en el prompt de Gemini la lista de artículos efectivamente dispensados (según la FDV), limitando la extracción a ítems relevantes y reduciendo el ruido/consumo de tokens en >90% (ej. 2 ítems extraídos en lugar de 21).
 - **AUDIT-015**: Consolidación de los scripts ejecutables de los workers en un único launcher.
   - **Fusión `bin/audit-*-worker.php` → `bin/audit-worker.php`**: Se eliminaron 5 scripts de bootstrap casi idénticos y se reemplazaron por un único launcher que usa un registry de configuración.
   - El nuevo launcher recibe el nombre del worker como primer argumento CLI (ej: `php bin/audit-worker.php orchestrator`).
