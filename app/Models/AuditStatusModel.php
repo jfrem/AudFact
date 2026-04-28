@@ -51,6 +51,42 @@ class AuditStatusModel extends Model
     }
 
     /**
+     * Devuelve los tiempos por fase de una auditoría completada, buscando por FacNro (DisDetNro).
+     *
+     * @return array{fac_nro:string,fac_nit_sec:string,estado:string,phase_timings:array<string,mixed>|null,total_duration_ms:int}|null
+     */
+    public function getTimingsByFacNro(string $facNro): ?array
+    {
+        $sql = "SELECT TOP 1
+                    [FacSec], [FacNro], [FacNitSec], [EstadoDetallado],
+                    [DuracionProcesamientoMs], [Hallazgos]
+                FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
+                WHERE [FacNro] = :facNro
+                ORDER BY [FechaCreacion] DESC";
+
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->bindParam(':facNro', $facNro, PDO::PARAM_STR);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row === false || !is_array($row)) {
+            return null;
+        }
+
+        $raw = isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null;
+        $decoded = ($raw !== null) ? json_decode($raw, true) : null;
+        $meta = is_array($decoded['_meta'] ?? null) ? $decoded['_meta'] : null;
+
+        return [
+            'fac_nro'           => (string) ($row['FacNro'] ?? ''),
+            'fac_nit_sec'       => (string) ($row['FacNitSec'] ?? ''),
+            'estado'            => (string) ($row['EstadoDetallado'] ?? ''),
+            'phase_timings'     => is_array($meta['phase_timings'] ?? null) ? $meta['phase_timings'] : null,
+            'total_duration_ms' => (int) ($meta['total_duration_ms'] ?? $row['DuracionProcesamientoMs'] ?? 0),
+        ];
+    }
+
+    /**
      * Busca un registro de auditoría por FacSec (PK).
      * @param string $facSec Secuencia única de la factura
      * @return array|false

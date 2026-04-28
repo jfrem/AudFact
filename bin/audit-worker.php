@@ -27,7 +27,7 @@ $registry = [
     ],
     'policy' => [
         'class' => \App\Services\Audit\Pipeline\RulesEvaluationWorker::class,
-        'requiredEnv' => [],
+        'requiredEnv' => ['GEMINI_API_KEY'],
     ],
     'aggregator' => [
         'class' => \App\Services\Audit\Pipeline\AuditAggregationWorker::class,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditComparisonType;
+use Core\Logger;
 use RuntimeException;
 
 class DocumentNormalizer extends AuditEventConsumer
@@ -52,6 +53,8 @@ class DocumentNormalizer extends AuditEventConsumer
 
     protected function handle(AuditEvent $event): void
     {
+        $start = microtime(true);
+
         if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_EXTRACTED) {
             return;
         }
@@ -61,15 +64,24 @@ class DocumentNormalizer extends AuditEventConsumer
         }
 
         $normalized = $this->normalize($event->payload);
+        $durationMs = (int) ((microtime(true) - $start) * 1000);
+
         $documentState = [
-            'status' => 'normalized',
-            'normalized_result' => $normalized,
-            'normalized_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'status'                    => 'normalized',
+            'normalized_result'         => $normalized,
+            'normalized_at'             => gmdate('Y-m-d\TH:i:s\Z'),
+            'normalization_duration_ms' => $durationMs,
         ];
 
         if (!$this->stateStore->markDocumentNormalized($event->auditId, $event->documentId, $documentState)) {
             throw new RuntimeException('No se pudo persistir la normalización del documento en Redis');
         }
+
+        Logger::info('Document normalization event processed', [
+            'auditId'                   => $event->auditId,
+            'documentId'                => $event->documentId,
+            'normalization_duration_ms' => $durationMs,
+        ]);
 
         $this->publisher->publish(AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
@@ -146,7 +158,7 @@ class DocumentNormalizer extends AuditEventConsumer
             }
 
             [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
-                trim($field), $value, $normalizationLog, 'field_alias_normalized'
+                trim($field), $value, $normalizationLog
             );
 
             if (!array_key_exists($canonical, $normalized) || $normalized[$canonical] === null) {
@@ -182,7 +194,7 @@ class DocumentNormalizer extends AuditEventConsumer
 
                 [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
                     trim($field), $value, $normalizationLog,
-                    'item_field_alias_normalized', ['item_index' => $index]
+                    ['item_index' => $index]
                 );
 
                 $row[$canonical] = $normalizedValue;
@@ -211,19 +223,16 @@ class DocumentNormalizer extends AuditEventConsumer
         string $originalField,
         mixed $value,
         array &$log,
-        string $aliasOperation,
         array $logContext = []
     ): array {
-        $canonical = $this->normalizeCanonicalField($originalField, $log, $aliasOperation, $logContext);
-
         [$normalizedValue, $scalarOps] = $this->normalizeScalarWithOperations($value);
-        [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($canonical, $normalizedValue);
+        [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValue);
 
         foreach (array_merge($scalarOps, $fieldOps) as $op) {
-            $this->appendLog($log, $op, array_merge($logContext, ['field' => $canonical]));
+            $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField]));
         }
 
-        return [$canonical, $normalizedValue];
+        return [$originalField, $normalizedValue];
     }
 
     /**
@@ -247,14 +256,7 @@ class DocumentNormalizer extends AuditEventConsumer
                     continue;
                 }
 
-                $canonical = $this->normalizeCanonicalField(
-                    $name,
-                    $normalizationLog,
-                    'visual_check_alias_normalized',
-                    [],
-                    'check_original',
-                    'check_normalized'
-                );
+                $canonical = $name;
 
                 $configMap[$canonical] = [
                     'check' => $canonical,
@@ -454,28 +456,7 @@ class DocumentNormalizer extends AuditEventConsumer
         return null;
     }
 
-    /**
-     * @param array<int,array<string,mixed>> $normalizationLog
-     * @param array<string,mixed> $context
-     */
-    private function normalizeCanonicalField(
-        string $originalField,
-        array &$normalizationLog,
-        string $operation,
-        array $context = [],
-        string $originalKey = 'field_original',
-        string $normalizedKey = 'field_normalized'
-    ): string {
-        $canonicalField = $originalField;
-        if ($canonicalField !== $originalField) {
-            $this->appendLog($normalizationLog, $operation, array_merge($context, [
-                $originalKey => $originalField,
-                $normalizedKey => $canonicalField,
-            ]));
-        }
 
-        return $canonicalField;
-    }
 
     /**
      * @param array<string,mixed> $row

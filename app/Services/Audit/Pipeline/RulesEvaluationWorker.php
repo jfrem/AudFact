@@ -6,6 +6,7 @@ namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\SemanticMatchJudge;
+use Core\Logger;
 use RuntimeException;
 
 final class RulesEvaluationWorker extends AuditEventConsumer
@@ -60,6 +61,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
     protected function handle(AuditEvent $event): void
     {
+        $start = microtime(true);
+
         if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_NORMALIZED) {
             return;
         }
@@ -79,15 +82,24 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         $policyResult = $this->policyEngine->evaluate($documentState, $event->payload);
+        $durationMs = (int) ((microtime(true) - $start) * 1000);
+
         $documentPatch = [
-            'status' => 'evaluated',
-            'policy_result' => $policyResult,
-            'evaluated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'status'               => 'evaluated',
+            'policy_result'        => $policyResult,
+            'evaluated_at'         => gmdate('Y-m-d\TH:i:s\Z'),
+            'policy_duration_ms'   => $durationMs,
         ];
 
         if (!$this->stateStore->markDocumentEvaluated($event->auditId, $event->documentId, $documentPatch)) {
             throw new RuntimeException('No se pudo persistir la evaluación documental en Redis');
         }
+
+        Logger::info('Document policy evaluation processed', [
+            'auditId'            => $event->auditId,
+            'documentId'         => $event->documentId,
+            'policy_duration_ms' => $durationMs,
+        ]);
 
         $updatedAudit = $this->stateStore->getAudit($event->auditId);
         if ($updatedAudit === null) {

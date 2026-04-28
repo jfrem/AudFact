@@ -35,3 +35,4 @@ $router->post('/audit/async', 'AuditController', 'async');
 $router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus');
 $router->get('/audit/dlq', 'AuditDlqController', 'index');
 $router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess');
+$router->get('/audit/{facNro}/timings', 'AuditController', 'timings');

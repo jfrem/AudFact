@@ -284,7 +284,7 @@ class DocumentPolicyEngine
             'valorFuenteVerdad'  => $fdvValue,
             'valorDocumento'     => $docValue,
             'resultado'          => $comparison['resultado'],
-            'severidad'          => strtolower($fieldConfig['severity'] ?? 'media'),
+            'severidad'          => AuditSeverity::fromInput($fieldConfig['severity'] ?? 'media')->value,
             'documento'          => $documentType,
             'detalle'            => $comparison['detalle'] ?? null,
             'tipo_auditoria'     => $internalType,
@@ -342,20 +342,17 @@ class DocumentPolicyEngine
     {
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
-        $column = $field;
 
-        if ($column !== null) {
-            $headerValue = $this->extractRowValue($header, $field, $column);
-            if ($headerValue !== null) {
-                return $headerValue;
-            }
+        $headerValue = $this->extractRowValue($header, $field, $field);
+        if ($headerValue !== null) {
+            return $headerValue;
         }
 
         if ($items === []) {
             return null;
         }
 
-        $itemValues = $this->extractItemValues($items, $field, $column);
+        $itemValues = $this->extractItemValues($items, $field, $field);
 
         if (AuditComparisonType::isQuantityField($field)) {
             $total = $this->sumNumericValues($itemValues);

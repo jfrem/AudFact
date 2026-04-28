@@ -67,6 +67,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         $aggregate = $this->aggregate($audit, $event->payload);
+        $persistStart = microtime(true);
         try {
             $persisted = $this->auditStatusModel->persistAuditResultWithAttachments(
                 $aggregate['audit_result_data'],
@@ -76,6 +77,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
             $this->handleFinalFailure($event, $aggregate, $e);
             throw new RuntimeException('No se pudo persistir el resultado final de auditoría', 0, $e);
         }
+
+        $persistDurationMs = (int) ((microtime(true) - $persistStart) * 1000);
 
         if ($persisted === false) {
             $failure = new RuntimeException('persistAuditResultWithAttachments retornó false');
@@ -117,6 +120,78 @@ final class AuditAggregationWorker extends AuditEventConsumer
         if ($event->jobId !== null) {
             $this->publishBatchTerminalEventIfNeeded($event->jobId, $event->auditId, $event->eventId);
         }
+
+        \Core\Logger::info('Audit aggregation completed', [
+            'auditId'             => $event->auditId,
+            'final_status'        => $aggregate['final_status'],
+            'persistence_ms'      => $persistDurationMs,
+            'total_duration_ms'   => $aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0,
+        ]);
+    }
+
+    // ─── Phase timing helpers ─────────────────────────────────────────────────
+
+    /**
+     * @param  array<string,mixed> $audit
+     * @return array<string,mixed>
+     */
+    private function buildPhaseTimings(array $audit): array
+    {
+        $extractions    = [];
+        $normalizations = [];
+        $policies       = [];
+        $cacheHits      = 0;
+        $total          = 0;
+
+        foreach ($audit['documents'] ?? [] as $doc) {
+            if (!is_array($doc)) {
+                continue;
+            }
+            $total++;
+            if (isset($doc['extraction_duration_ms'])) {
+                $extractions[] = (int) $doc['extraction_duration_ms'];
+            }
+            if (isset($doc['normalization_duration_ms'])) {
+                $normalizations[] = (int) $doc['normalization_duration_ms'];
+            }
+            if (isset($doc['policy_duration_ms'])) {
+                $policies[] = (int) $doc['policy_duration_ms'];
+            }
+            if ($doc['cache_hit'] ?? false) {
+                $cacheHits++;
+            }
+        }
+
+        return [
+            'docs_total'     => $total,
+            'cache_hit_rate' => $total > 0 ? round($cacheHits / $total, 2) : 0.0,
+            'extraction'     => $this->summarizeTimings($extractions),
+            'normalization'  => $this->summarizeTimings($normalizations),
+            'policy'         => $this->summarizeTimings($policies),
+        ];
+    }
+
+    /**
+     * @param  array<int,int> $values
+     * @return array<string,int|float>
+     */
+    private function summarizeTimings(array $values): array
+    {
+        if ($values === []) {
+            return ['count' => 0];
+        }
+
+        sort($values);
+        $count    = count($values);
+        $p95index = max(0, (int) ceil($count * 0.95) - 1);
+
+        return [
+            'count'  => $count,
+            'avg_ms' => (int) (array_sum($values) / $count),
+            'min_ms' => $values[0],
+            'max_ms' => $values[$count - 1],
+            'p95_ms' => $values[$p95index],
+        ];
     }
 
     // ─── Aggregation logic (absorbed from AuditResultAggregator) ─────────────
@@ -165,9 +240,13 @@ final class AuditAggregationWorker extends AuditEventConsumer
             'RequiereRevisionHumana' => $requiresManualReview ? 1 : 0,
             'Severidad' => $severity,
             'Hallazgos' => json_encode([
-                'items' => $findings,
-                'metrics' => $metrics,
+                'items'              => $findings,
+                'metrics'            => $metrics,
                 'affected_documents' => $normalizedDecisions,
+                '_meta'              => [
+                    'phase_timings'    => $this->buildPhaseTimings($audit),
+                    'total_duration_ms'=> $this->resolveDurationMs($audit),
+                ],
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'DetalleError' => $detailMessage,
             'DocumentosProcesados' => count(is_array($audit['documents'] ?? null) ? $audit['documents'] : []),

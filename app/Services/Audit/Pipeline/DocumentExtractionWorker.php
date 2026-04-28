@@ -129,13 +129,16 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $this->cachePut($documentHash, $extracted);
         }
 
+        $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
+
         $documentState = [
-            'status' => 'extracted',
-            'document_hash' => $documentHash,
-            'cache_hit' => $cacheHit,
-            'mime' => $document['mime'],
-            'extraction_result' => $extracted,
-            'extracted_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'status'                  => 'extracted',
+            'document_hash'           => $documentHash,
+            'cache_hit'               => $cacheHit,
+            'mime'                    => $document['mime'],
+            'extraction_result'       => $extracted,
+            'extracted_at'            => gmdate('Y-m-d\TH:i:s\Z'),
+            'extraction_duration_ms'  => $extractionDurationMs,
         ];
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {

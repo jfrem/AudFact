@@ -315,6 +315,17 @@ class AuditController extends Controller
                     'status' => BatchJobStore::JOB_STATUS_COMPLETED,
                     'total'  => 0,
                 ]);
+                $publisher->publish(AuditEvent::create(
+                    eventType: AuditEvent::TYPE_BATCH_COMPLETED,
+                    auditId: null,
+                    jobId: $jobId,
+                    payload: [
+                        'status' => BatchJobStore::JOB_STATUS_COMPLETED,
+                        'total'  => 0,
+                        'done'   => 0,
+                        'failed' => 0,
+                    ],
+                ));
                 $responseStatus = BatchJobStore::JOB_STATUS_COMPLETED;
             }
         } catch (HttpResponseException $e) {
@@ -529,6 +540,30 @@ class AuditController extends Controller
         } else {
             Response::error('Error al guardar la configuración', 500);
         }
+    }
+
+    public function timings(string $facNro): void
+    {
+        $facNro = trim($facNro);
+        if ($facNro === '') {
+            Response::error('facNro es requerido', 422);
+        }
+
+        try {
+            $row = $this->buildAuditStatusModel()->getTimingsByFacNro($facNro);
+        } catch (\RuntimeException $e) {
+            Logger::error('AuditController::timings falló', [
+                'fac_nro' => $facNro,
+                'error'   => $e->getMessage(),
+            ]);
+            Response::error('No se pudieron obtener las métricas de fase', 503);
+        }
+
+        if ($row === null) {
+            Response::error('Auditoría no encontrada o sin métricas de fase persistidas', 404);
+        }
+
+        Response::success($row, 'Métricas de fase de auditoría');
     }
 
     protected function buildAuditStatusModel(): AuditStatusModel
