@@ -51,8 +51,8 @@ final class DocumentNormalizerTest extends TestCase
         ]);
 
         $this->assertSame('DISPENSA', $result['tipo_documento']);
-        $this->assertSame('46338218', $result['fields_normalized']['Autorizacion']);
-        $this->assertSame('123456789', $result['fields_normalized']['NumeroIdentificacion']);
+        $this->assertSame('46338218', $result['fields_normalized']['NumeroAutorizacion']);
+        $this->assertSame('123456789', $result['fields_normalized']['DocumentoPaciente']);
         $this->assertNull($result['fields_normalized']['NombrePaciente']);
         $this->assertArrayNotHasKey('CodigoArticulo', $result['fields_normalized']);
         $this->assertArrayNotHasKey('CantidadEntregada', $result['fields_normalized']);
@@ -65,7 +65,6 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame('legible', $result['document_quality']);
         $this->assertSame(['primera pagina OK'], $result['quality_notes']);
         $this->assertNotEmpty($result['normalization_log']);
-        $this->assertContains('field_alias_normalized', array_column($result['normalization_log'], 'operation'));
         $this->assertContains('empty_string_to_null', array_column($result['normalization_log'], 'operation'));
     }
 

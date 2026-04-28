@@ -9,6 +9,7 @@ use App\Models\InvoicesModel;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\Exceptions\HttpResponseException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -66,7 +67,7 @@ final class AuditControllerTest extends TestCase
 
     public function testAsyncReturns409WhenBatchSlotAlreadyClaimed(): void
     {
-        $store = $this->newStoreStub(claimReturns: false);
+        $jobStore = $this->newJobStoreStub(claimReturns: false);
 
         $controller = new TestableAuditController(
             body: [
@@ -75,7 +76,7 @@ final class AuditControllerTest extends TestCase
                 'dateTo' => '2025-07-29',
                 'limit' => 10,
             ],
-            stateStore: $store,
+            jobStore: $jobStore,
         );
 
         $response = self::captureResponse(static fn() => $controller->async());
@@ -99,7 +100,8 @@ final class AuditControllerTest extends TestCase
     public function testAsyncPublishesBatchCreatedAndAuditCreatedPerInvoice(): void
     {
         $publisher = new InMemoryAuditEventPublisher();
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: true, initAuditReturns: true);
+        $store = $this->newStoreStub(initAuditReturns: true);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: true);
         $invoices = new StubInvoicesModel([
             ['NitSec' => '2426', 'FacSec' => '87723098', 'Dispensa' => 'T38250701547'],
             ['NitSec' => '2426', 'FacSec' => '87723099', 'Dispensa' => 'T38250701548'],
@@ -114,6 +116,7 @@ final class AuditControllerTest extends TestCase
             ],
             invoicesModel: $invoices,
             stateStore: $store,
+            jobStore: $jobStore,
             publisher: $publisher,
         );
 
@@ -134,7 +137,8 @@ final class AuditControllerTest extends TestCase
     public function testAsyncSkipsInvoicesMissingFacSecOrDispensa(): void
     {
         $publisher = new InMemoryAuditEventPublisher();
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: true, initAuditReturns: true);
+        $store = $this->newStoreStub(initAuditReturns: true);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: true);
         $invoices = new StubInvoicesModel([
             ['FacSec' => '87723098', 'Dispensa' => ''],
             ['FacSec' => '', 'Dispensa' => 'T2'],
@@ -145,6 +149,7 @@ final class AuditControllerTest extends TestCase
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
             invoicesModel: $invoices,
             stateStore: $store,
+            jobStore: $jobStore,
             publisher: $publisher,
         );
 
@@ -161,45 +166,44 @@ final class AuditControllerTest extends TestCase
 
     public function testAsyncReturns503AndReleasesBatchSlotWhenInitJobFails(): void
     {
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: false);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: false);
 
         $controller = new TestableAuditController(
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
-            stateStore: $store,
+            jobStore: $jobStore,
             publisher: new InMemoryAuditEventPublisher(),
         );
 
         $response = self::captureResponse(static fn() => $controller->async());
 
         $this->assertSame(503, $response->getCode());
-        $this->assertSame([[2426, '2025-07-29', null]], $store->releasedBatchSlots);
-        $this->assertSame([], $store->deletedJobIds);
-        $this->assertSame([], $store->deletedAuditIds);
+        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
+        $this->assertSame([], $jobStore->deletedJobIds);
     }
 
     public function testAsyncReturns503AndCleansJobWhenBatchPublishFails(): void
     {
         $publisher = new InMemoryAuditEventPublisher(throwOnPublishAt: 1);
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: true);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: true);
 
         $controller = new TestableAuditController(
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
-            stateStore: $store,
+            jobStore: $jobStore,
             publisher: $publisher,
         );
 
         $response = self::captureResponse(static fn() => $controller->async());
 
         $this->assertSame(503, $response->getCode());
-        $this->assertCount(1, $store->deletedJobIds);
-        $this->assertSame([[2426, '2025-07-29', null]], $store->releasedBatchSlots);
-        $this->assertSame([], $store->deletedAuditIds);
+        $this->assertCount(1, $jobStore->deletedJobIds);
+        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
     }
 
     public function testAsyncReturns503AndCleansPartialAuditsWhenAuditPublishFails(): void
     {
         $publisher = new InMemoryAuditEventPublisher(throwOnPublishAt: 3);
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: true, initAuditReturns: true);
+        $store = $this->newStoreStub(initAuditReturns: true);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: true);
         $invoices = new StubInvoicesModel([
             ['NitSec' => '2426', 'FacSec' => '87723098', 'Dispensa' => 'T38250701547'],
             ['NitSec' => '2426', 'FacSec' => '87723099', 'Dispensa' => 'T38250701548'],
@@ -209,6 +213,7 @@ final class AuditControllerTest extends TestCase
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
             invoicesModel: $invoices,
             stateStore: $store,
+            jobStore: $jobStore,
             publisher: $publisher,
         );
 
@@ -216,20 +221,22 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(503, $response->getCode());
         $this->assertCount(2, $store->deletedAuditIds);
-        $this->assertCount(1, $store->deletedJobIds);
-        $this->assertSame([[2426, '2025-07-29', null]], $store->releasedBatchSlots);
+        $this->assertCount(1, $jobStore->deletedJobIds);
+        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
     }
 
     public function testAsyncReturnsCompletedWhenBatchIsEmpty(): void
     {
         $publisher = new InMemoryAuditEventPublisher();
-        $store = $this->newStoreStub(claimReturns: true, initJobReturns: true, initAuditReturns: true);
+        $store = $this->newStoreStub(initAuditReturns: true);
+        $jobStore = $this->newJobStoreStub(claimReturns: true, initJobReturns: true);
         $invoices = new StubInvoicesModel([]);
 
         $controller = new TestableAuditController(
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
             invoicesModel: $invoices,
             stateStore: $store,
+            jobStore: $jobStore,
             publisher: $publisher,
         );
 
@@ -240,7 +247,7 @@ final class AuditControllerTest extends TestCase
         $this->assertSame([
             'status' => 'completed',
             'total' => 0,
-        ], $store->patchedJobs[0]['patch'] ?? null);
+        ], $jobStore->patchedJobs[0]['patch'] ?? null);
     }
 
     public function testJobStatusReturns422WhenJobIdInvalid(): void
@@ -252,9 +259,9 @@ final class AuditControllerTest extends TestCase
 
     public function testJobStatusReturns404WhenJobMissing(): void
     {
-        $store = $this->newStoreStub(getJobReturns: null);
+        $jobStore = $this->newJobStoreStub(getJobReturns: null);
 
-        $controller = new TestableAuditController(stateStore: $store);
+        $controller = new TestableAuditController(jobStore: $jobStore);
 
         $response = self::captureResponse(static fn() => $controller->jobStatus(AuditEvent::uuidV4()));
         $this->assertSame(404, $response->getCode());
@@ -264,7 +271,7 @@ final class AuditControllerTest extends TestCase
     {
         $jobId = AuditEvent::uuidV4();
         $auditId = AuditEvent::uuidV4();
-        $store = $this->newStoreStub(getJobReturns: [
+        $jobStore = $this->newJobStoreStub(getJobReturns: [
             'job_id'     => $jobId,
             'status'     => 'processing',
             'total'      => 5,
@@ -277,7 +284,7 @@ final class AuditControllerTest extends TestCase
             ],
         ]);
 
-        $controller = new TestableAuditController(stateStore: $store);
+        $controller = new TestableAuditController(jobStore: $jobStore);
 
         $response = self::captureResponse(static fn() => $controller->jobStatus($jobId));
 
@@ -294,9 +301,9 @@ final class AuditControllerTest extends TestCase
 
     public function testJobStatusReturns503WhenStoreFails(): void
     {
-        $store = $this->newStoreStub(getJobThrows: true);
+        $jobStore = $this->newJobStoreStub(getJobThrows: true);
 
-        $controller = new TestableAuditController(stateStore: $store);
+        $controller = new TestableAuditController(jobStore: $jobStore);
 
         $response = self::captureResponse(static fn() => $controller->jobStatus(AuditEvent::uuidV4()));
         $this->assertSame(503, $response->getCode());
@@ -306,13 +313,17 @@ final class AuditControllerTest extends TestCase
 
     private function newStoreStub(
         bool $initAuditReturns = true,
+    ): StubAuditStateStore {
+        return new StubAuditStateStore($initAuditReturns);
+    }
+
+    private function newJobStoreStub(
         bool $claimReturns = true,
         bool $initJobReturns = true,
         mixed $getJobReturns = null,
         bool $getJobThrows = false,
-    ): AuditStateStore {
-        return new StubAuditStateStore(
-            $initAuditReturns,
+    ): StubBatchJobStore {
+        return new StubBatchJobStore(
             $claimReturns,
             $initJobReturns,
             $getJobReturns,
@@ -338,6 +349,7 @@ final class TestableAuditController extends AuditController
         private array $body = [],
         private ?InvoicesModel $invoicesModel = null,
         private ?AuditStateStore $stateStore = null,
+        private ?BatchJobStore $jobStore = null,
         private ?AuditEventPublisher $publisher = null,
     ) {
     }
@@ -355,6 +367,11 @@ final class TestableAuditController extends AuditController
     protected function buildStateStore(): AuditStateStore
     {
         return $this->stateStore ?? new StubAuditStateStore();
+    }
+
+    protected function buildBatchJobStore(): BatchJobStore
+    {
+        return $this->jobStore ?? new StubBatchJobStore();
     }
 
     protected function buildEventPublisher(): AuditEventPublisher
@@ -380,19 +397,9 @@ final class StubAuditStateStore extends AuditStateStore
 {
     /** @var array<int,string> */
     public array $deletedAuditIds = [];
-    /** @var array<int,string> */
-    public array $deletedJobIds = [];
-    /** @var array<int,array{0:int,1:string,2:?string}> */
-    public array $releasedBatchSlots = [];
-    /** @var array<int,array{jobId:string,patch:array<string,mixed>}> */
-    public array $patchedJobs = [];
 
     public function __construct(
         private bool $initAuditReturns = true,
-        private bool $claimReturns = true,
-        private bool $initJobReturns = true,
-        private mixed $getJobReturns = null,
-        private bool $getJobThrows = false,
     ) {
     }
 
@@ -406,6 +413,35 @@ final class StubAuditStateStore extends AuditStateStore
         return $this->initAuditReturns;
     }
 
+    public function deleteAudit(string $auditId): bool
+    {
+        $this->deletedAuditIds[] = $auditId;
+        return true;
+    }
+}
+
+final class StubBatchJobStore extends BatchJobStore
+{
+    /** @var array<int,string> */
+    public array $deletedJobIds = [];
+    /** @var array<int,array{0:int,1:string,2:?string}> */
+    public array $releasedBatchSlots = [];
+    /** @var array<int,array{jobId:string,patch:array<string,mixed>}> */
+    public array $patchedJobs = [];
+
+    public function __construct(
+        private bool $claimReturns = true,
+        private bool $initJobReturns = true,
+        private mixed $getJobReturns = null,
+        private bool $getJobThrows = false,
+    ) {
+    }
+
+    public function claimBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo, string $jobId): bool
+    {
+        return $this->claimReturns;
+    }
+
     public function initJob(
         string $jobId,
         int $facNitSec,
@@ -414,11 +450,6 @@ final class StubAuditStateStore extends AuditStateStore
         int $limit
     ): bool {
         return $this->initJobReturns;
-    }
-
-    public function claimBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo, string $jobId): bool
-    {
-        return $this->claimReturns;
     }
 
     public function registerAuditInJob(string $jobId, string $auditId, string $disDetNro): bool
@@ -432,12 +463,6 @@ final class StubAuditStateStore extends AuditStateStore
             'jobId' => $jobId,
             'patch' => $patch,
         ];
-        return true;
-    }
-
-    public function deleteAudit(string $auditId): bool
-    {
-        $this->deletedAuditIds[] = $auditId;
         return true;
     }
 

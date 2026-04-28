@@ -10,20 +10,20 @@ use RuntimeException;
 final class DocumentAuditOrchestrator extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
-    private InternalAuditApiClient $apiClient;
+    private AuditDataServiceInterface $dataService;
     private string $consumerName;
 
     public function __construct(
-        ?AuditStateStore $stateStore = null,
-        ?InternalAuditApiClient $apiClient = null,
-        ?\Core\RedisClient $redis = null,
-        ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null
+        ?AuditStateStore             $stateStore   = null,
+        ?AuditDataServiceInterface   $dataService  = null,
+        ?\Core\RedisClient           $redis        = null,
+        ?AuditEventPublisher         $publisher    = null,
+        ?string                      $consumerName = null
     ) {
         parent::__construct($redis, $publisher);
 
-        $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
-        $this->apiClient = $apiClient ?? new InternalAuditApiClient();
+        $this->stateStore   = $stateStore   ?? new AuditStateStore($this->redis);
+        $this->dataService  = $dataService  ?? new AuditDataService();
         $this->consumerName = $consumerName ?? ('orchestrator-' . getmypid());
     }
 
@@ -91,27 +91,23 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      */
     private function buildAuditContext(string $disDetNro): array
     {
-        $fuenteVerdad = $this->apiClient->getDispensation($disDetNro);
-        $header = $fuenteVerdad['header'];
-        $nitSec = trim((string) ($header['NitSec'] ?? ''));
-        $facSec = trim((string) ($header['FacSec'] ?? ''));
+        $fuenteVerdad  = $this->dataService->getDispensation($disDetNro);
+        $header        = $fuenteVerdad['header'];
+        $nitSec        = trim((string) ($header['NitSec']        ?? ''));
+        $facSec        = trim((string) ($header['FacSec']        ?? ''));
         $numeroFactura = trim((string) ($header['NumeroFactura'] ?? ''));
 
         if ($nitSec === '' || $facSec === '' || $numeroFactura === '') {
             throw new RuntimeException('FDV incompleta para registrar documentos');
         }
 
-        $auditConfig = $this->apiClient->getAuditConfig($nitSec);
-        if ($auditConfig === null || !($auditConfig['activo'] ?? false)) {
-            throw new RuntimeException("audit-config no disponible para NitSec {$nitSec}");
-        }
-
-        $clientDocuments = $this->apiClient->getClientDocuments($nitSec);
+        $auditConfig     = $this->dataService->getAuditConfig($nitSec);
+        $clientDocuments = $this->dataService->getClientDocuments($nitSec);
         if ($clientDocuments === []) {
             throw new RuntimeException("Catálogo documental vacío para NitSec {$nitSec}");
         }
 
-        $attachments = $this->apiClient->getAttachments($disDetNro, $nitSec);
+        $attachments = $this->dataService->getAttachments($disDetNro, $nitSec);
         if ($attachments === []) {
             throw new RuntimeException("Adjuntos no encontrados para {$disDetNro}");
         }
@@ -180,23 +176,25 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         $attachmentId = (string) ($attachment['id_documento'] ?? '');
 
         return [
-            'document_id' => $documentId,
-            'doc_id' => (string) $schemaDocument['doc_id'],
-            'tipo_documento' => $schemaDocument['document_name'],
+            'document_id'        => $documentId,
+            'doc_id'             => (string) $schemaDocument['doc_id'],
+            'tipo_documento'     => $schemaDocument['document_name'],
             'nombre_alternativo' => (string) ($catalogDocument['NitMedDocCodAlt'] ?? ''),
-            'status' => 'registered',
-            'attachment_id' => $attachmentId,
-            'download_url' => $this->apiClient->buildDownloadUrl($disDetNro, $attachmentId),
-            'tipo_almacenamiento' => (string) ($attachment['TipoAlmacenamiento'] ?? ''),
-            'dis_det_nro' => $disDetNro,
-            'numero_factura' => $context['numeroFactura'],
-            'fac_sec' => $context['facSec'],
-            'fac_nit_sec' => $context['nitSec'],
-            'extraction_schema' => $schemaDocument['extraction_schema'],
-            'fields_config' => $schemaDocument['fields'],
-            'visual_checks' => $schemaDocument['visual_checks'],
-            'system_prompt' => $context['auditConfig']['systemPrompt'] ?? null,
-            'fuente_verdad' => $context['fuenteVerdad'],
+            'status'             => 'registered',
+            'attachment_id'      => $attachmentId,
+            // download_url se mantiene como metadato de diagnóstico; el Worker ya no lo usa para descargar
+            'download_url'       => '/dispensation/' . rawurlencode($disDetNro)
+                                    . '/attachments/download/' . rawurlencode($attachmentId),
+            'tipo_almacenamiento'=> (string) ($attachment['TipoAlmacenamiento'] ?? ''),
+            'dis_det_nro'        => $disDetNro,
+            'numero_factura'     => $context['numeroFactura'],
+            'fac_sec'            => $context['facSec'],
+            'fac_nit_sec'        => $context['nitSec'],
+            'extraction_schema'  => $schemaDocument['extraction_schema'],
+            'fields_config'      => $schemaDocument['fields'],
+            'visual_checks'      => $schemaDocument['visual_checks'],
+            'system_prompt'      => $context['auditConfig']['systemPrompt'] ?? null,
+            'fuente_verdad'      => $context['fuenteVerdad'],
         ];
     }
 

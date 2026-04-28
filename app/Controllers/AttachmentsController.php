@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Models\AttachmentsModel;
+use App\Services\Audit\Pipeline\AttachmentDownloadService;
 use Core\Response;
 
 class AttachmentsController extends Controller
@@ -38,83 +39,62 @@ class AttachmentsController extends Controller
 
     private function handleDownloadForDispensation(string $attachmentId, string $invoiceId): void
     {
-        $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+        $accept    = $_SERVER['HTTP_ACCEPT'] ?? '';
         $wantsJson = stripos($accept, 'application/json') !== false;
 
+        if ($wantsJson) {
+            // Pipeline de auditoría: delega al servicio de dominio y retorna JSON
+            $downloader = new AttachmentDownloadService();
+            $result     = $downloader->download($attachmentId, $invoiceId);
+            Response::json(['mime' => $result['mime'], 'data' => $result['data']]);
+            return;
+        }
+
+        // Descarga directa al navegador: obtiene metadatos y hace streaming HTTP
         $attachment = $this->model->getAttachmentByIdForDispensation($attachmentId, $invoiceId);
         if (!$attachment) {
             Response::error('Adjunto no encontrado', 404);
         }
 
-        $rawName = $attachment['AdjDisNom'] ?? 'adjunto';
-        $nombre = $this->sanitizeFilename($rawName);
+        $rawName     = $attachment['AdjDisNom'] ?? 'adjunto';
+        $nombre      = $this->sanitizeFilename($rawName);
         $mimeForName = null;
 
         if ($attachment['TipoAlmacenamiento'] === 'URL') {
-            $fileId = (string)($attachment['AdjDisDocUrl'] ?? '');
+            $fileId = (string) ($attachment['AdjDisDocUrl'] ?? '');
             if ($fileId === '') {
                 Response::error('Adjunto invalido', 400);
             }
-
             $service = new \App\Services\GoogleDriveAuthService();
-            $tmp = $service->downloadFileToTemp($fileId, 'adj_');
-
-            if ($wantsJson) {
-                $mime = mime_content_type($tmp['path']) ?: 'application/octet-stream';
-                $data = base64_encode(file_get_contents($tmp['path']));
-                unlink($tmp['path']);
-                Response::json(['mime' => $mime, 'data' => $data]);
-                return;
-            }
+            $tmp     = $service->downloadFileToTemp($fileId, 'adj_');
 
             $mimeForName = mime_content_type($tmp['path']) ?: 'application/octet-stream';
-            $nombre = $this->ensureExtension($nombre, $mimeForName);
-            $disposition = 'attachment; filename="' . $nombre . '"';
+            $nombre      = $this->ensureExtension($nombre, $mimeForName);
             header('Content-Type: ' . $mimeForName);
-            header('Content-Disposition: ' . $disposition);
-
+            header('Content-Disposition: attachment; filename="' . $nombre . '"');
             if (!empty($tmp['size'])) {
-                header('Content-Length: ' . (int)$tmp['size']);
+                header('Content-Length: ' . (int) $tmp['size']);
             }
-
             $this->streamFileAndCleanup($tmp['path']);
             return;
         }
 
         if ($attachment['TipoAlmacenamiento'] === 'BLOB') {
-            $blob = $this->model->getAttachmentBlobStreamByIdForDispensation($attachmentId, $invoiceId);
+            $blob   = $this->model->getAttachmentBlobStreamByIdForDispensation($attachmentId, $invoiceId);
             $stream = $blob['stream'] ?? null;
             if (!is_resource($stream)) {
                 Response::error('Adjunto no disponible', 404);
             }
-
-            if ($wantsJson) {
-                $data = stream_get_contents($stream);
-                if (is_callable($blob['close'])) {
-                    $blob['close']();
-                }
-                if ($data === false) {
-                    Response::error('No se pudo leer el adjunto', 500);
-                }
-                $name = (string)($attachment['AdjDisNom'] ?? '');
-                $mime = $this->mimeFromName($name) ?: $this->detectMimeFromContent($data) ?: 'application/octet-stream';
-                Response::json(['mime' => $mime, 'data' => base64_encode($data)]);
-                return;
-            }
-
             $mimeForName = $this->mimeFromName($nombre) ?: 'application/octet-stream';
-            $nombre = $this->ensureExtension($nombre, $mimeForName);
-            $disposition = 'attachment; filename="' . $nombre . '"';
+            $nombre      = $this->ensureExtension($nombre, $mimeForName);
             header('Content-Type: ' . $mimeForName);
-            header('Content-Disposition: ' . $disposition);
-
+            header('Content-Disposition: attachment; filename="' . $nombre . '"');
             if (!empty($attachment['BlobSize'])) {
-                header('Content-Length: ' . (int)$attachment['BlobSize']);
+                header('Content-Length: ' . (int) $attachment['BlobSize']);
             }
-
             fpassthru($stream);
             if (is_callable($blob['close'])) {
-                $blob['close']();
+                ($blob['close'])();
             }
             return;
         }

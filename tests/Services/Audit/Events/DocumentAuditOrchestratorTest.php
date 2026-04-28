@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Services\Audit\Pipeline;
 
+use App\Services\Audit\Pipeline\AuditDataServiceInterface;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
-use App\Services\Audit\Pipeline\InternalAuditApiClient;
 use App\Services\Audit\Pipeline\SchemaBuilder;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -18,14 +18,14 @@ final class DocumentAuditOrchestratorTest extends TestCase
 {
     public function testAuditCreatedFor2426PublishesThreeDocumentRegisteredEventsWithContractPayload(): void
     {
-        $publisher = new InMemoryPublisher();
-        $store = new RecordingStateStore();
-        $redis = $this->createMock(RedisClient::class);
-        $apiClient = new StubInternalAuditApiClient(
+        $publisher  = new InMemoryPublisher();
+        $store      = new RecordingStateStore();
+        $redis      = $this->createMock(RedisClient::class);
+        $dataService = new StubAuditDataService(
             dispensation: [
                 'header' => [
-                    'NitSec' => '2426',
-                    'FacSec' => '87723098',
+                    'NitSec'        => '2426',
+                    'FacSec'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [
@@ -33,72 +33,62 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ],
             ],
             clientDocuments: [
-                ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
-                ['NitMedDocId' => 2, 'NitMedDocCodAlt' => 'AUT', 'NitMedDocNom' => 'AUTORIZACION'],
+                ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE',  'NitMedDocNom' => 'DISPENSA'],
+                ['NitMedDocId' => 2, 'NitMedDocCodAlt' => 'AUT',  'NitMedDocNom' => 'AUTORIZACION'],
                 ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'FORM', 'NitMedDocNom' => 'FORMULA MEDICA'],
             ],
             auditConfig: [
-                'nitSec' => '2426',
-                'activo' => true,
+                'nitSec'       => '2426',
+                'activo'       => true,
                 'systemPrompt' => null,
-                'documents' => [
+                'documents'    => [
                     'DISPENSA' => [
-                        'docId' => 1,
-                        'fields' => ['DocumentoPaciente'],
-                        'visualChecks' => [[
-                            'check' => 'FirmaActaEntrega',
-                            'description' => 'Firma',
-                            'severity' => 'CRITICO',
-                        ]],
+                        'docId'        => 1,
+                        'fields'       => ['DocumentoPaciente'],
+                        'visualChecks' => [['check' => 'FirmaActaEntrega', 'description' => 'Firma', 'severity' => 'CRITICO']],
                     ],
                     'AUTORIZACION' => [
-                        'docId' => 2,
-                        'fields' => ['NumeroAutorizacion'],
+                        'docId'        => 2,
+                        'fields'       => ['NumeroAutorizacion'],
                         'visualChecks' => [],
                     ],
                     'FORMULA MEDICA' => [
-                        'docId' => 3,
-                        'fields' => ['NombreArticulo'],
-                        'visualChecks' => [[
-                            'check' => 'FirmaPrescriptor',
-                            'description' => 'Firma médico',
-                            'severity' => 'CRITICO',
-                        ]],
+                        'docId'        => 3,
+                        'fields'       => ['NombreArticulo'],
+                        'visualChecks' => [['check' => 'FirmaPrescriptor', 'description' => 'Firma médico', 'severity' => 'CRITICO']],
                     ],
                 ],
             ],
             attachments: [
-                ['id_documento' => '1', 'nombre_documento' => 'DISPENSA', 'nombre_alternativo' => 'ANE', 'TipoAlmacenamiento' => 'URL'],
-                ['id_documento' => '2', 'nombre_documento' => 'AUTORIZACION', 'nombre_alternativo' => 'AUT', 'TipoAlmacenamiento' => 'URL'],
+                ['id_documento' => '1', 'nombre_documento' => 'DISPENSA',       'nombre_alternativo' => 'ANE',  'TipoAlmacenamiento' => 'URL'],
+                ['id_documento' => '2', 'nombre_documento' => 'AUTORIZACION',   'nombre_alternativo' => 'AUT',  'TipoAlmacenamiento' => 'URL'],
                 ['id_documento' => '3', 'nombre_documento' => 'FORMULA MEDICA', 'nombre_alternativo' => 'FORM', 'TipoAlmacenamiento' => 'URL'],
             ],
         );
 
         $orchestrator = new DocumentAuditOrchestrator(
-            stateStore: $store,
-            apiClient: $apiClient,
-            schemaBuilder: new SchemaBuilder(),
-            redis: $redis,
-            publisher: $publisher,
+            stateStore:   $store,
+            dataService:  $dataService,
+
+            redis:        $redis,
+            publisher:    $publisher,
             consumerName: 'test-orchestrator'
         );
 
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
-            auditId: AuditEvent::uuidV4(),
-            payload: ['dis_det_nro' => 'T38250701547']
+            auditId:   AuditEvent::uuidV4(),
+            payload:   ['dis_det_nro' => 'T38250701547']
         );
 
         $orchestrator->processEvent($event);
 
+        // Comportamiento esperado: 3 documentos registrados y publicados
         $this->assertSame(3, $store->docsTotal);
         $this->assertCount(3, $store->registeredDocuments);
         $this->assertCount(3, $publisher->published);
-        $this->assertSame('/dispensation/T38250701547', $apiClient->calledPaths[0] ?? null);
-        $this->assertSame('/clients/2426/audit-config', $apiClient->calledPaths[1] ?? null);
-        $this->assertSame('/clients/2426/documents', $apiClient->calledPaths[2] ?? null);
-        $this->assertSame('/dispensation/T38250701547/attachments/2426', $apiClient->calledPaths[3] ?? null);
 
+        // Contrato del payload del primer evento (DISPENSA)
         $payload = $publisher->published[0]->payload;
         $this->assertSame('DISPENSA', $payload['tipo_documento']);
         $this->assertSame('ANE', $payload['nombre_alternativo']);
@@ -137,14 +127,14 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
     public function testFallbackMatchesAttachmentByNormalizedName(): void
     {
-        $publisher = new InMemoryPublisher();
-        $store = new RecordingStateStore();
-        $redis = $this->createMock(RedisClient::class);
-        $apiClient = new StubInternalAuditApiClient(
+        $publisher   = new InMemoryPublisher();
+        $store       = new RecordingStateStore();
+        $redis       = $this->createMock(RedisClient::class);
+        $dataService = new StubAuditDataService(
             dispensation: [
                 'header' => [
-                    'NitSec' => '1165',
-                    'FacSec' => '87723098',
+                    'NitSec'        => '1165',
+                    'FacSec'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [],
@@ -153,13 +143,13 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'FORM', 'NitMedDocNom' => 'FORMULA MEDICA'],
             ],
             auditConfig: [
-                'nitSec' => '1165',
-                'activo' => true,
+                'nitSec'       => '1165',
+                'activo'       => true,
                 'systemPrompt' => 'prompt-fixture',
-                'documents' => [
+                'documents'    => [
                     'FORMULA_MEDICA' => [
-                        'docId' => 3,
-                        'fields' => ['FirmaActaEntrega'],
+                        'docId'        => 3,
+                        'fields'       => ['FirmaActaEntrega'],
                         'visualChecks' => [],
                     ],
                 ],
@@ -170,18 +160,18 @@ final class DocumentAuditOrchestratorTest extends TestCase
         );
 
         $orchestrator = new DocumentAuditOrchestrator(
-            stateStore: $store,
-            apiClient: $apiClient,
-            schemaBuilder: new SchemaBuilder(),
-            redis: $redis,
-            publisher: $publisher,
-            consumerName: 'test-orchestrator'
+            stateStore:    $store,
+            dataService:   $dataService,
+
+            redis:         $redis,
+            publisher:     $publisher,
+            consumerName:  'test-orchestrator'
         );
 
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
-            auditId: AuditEvent::uuidV4(),
-            payload: ['dis_det_nro' => 'T38250701547']
+            auditId:   AuditEvent::uuidV4(),
+            payload:   ['dis_det_nro' => 'T38250701547']
         );
 
         $orchestrator->processEvent($event);
@@ -194,12 +184,12 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
     public function testMissingRequiredAttachmentThrowsRuntimeException(): void
     {
-        $redis = $this->createMock(RedisClient::class);
-        $apiClient = new StubInternalAuditApiClient(
+        $redis       = $this->createMock(RedisClient::class);
+        $dataService = new StubAuditDataService(
             dispensation: [
                 'header' => [
-                    'NitSec' => '2426',
-                    'FacSec' => '87723098',
+                    'NitSec'        => '2426',
+                    'FacSec'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [],
@@ -208,13 +198,13 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
             ],
             auditConfig: [
-                'nitSec' => '2426',
-                'activo' => true,
+                'nitSec'       => '2426',
+                'activo'       => true,
                 'systemPrompt' => null,
-                'documents' => [
+                'documents'    => [
                     'DISPENSA' => [
-                        'docId' => 1,
-                        'fields' => ['DocumentoPaciente'],
+                        'docId'        => 1,
+                        'fields'       => ['DocumentoPaciente'],
                         'visualChecks' => [],
                     ],
                 ],
@@ -223,18 +213,18 @@ final class DocumentAuditOrchestratorTest extends TestCase
         );
 
         $orchestrator = new DocumentAuditOrchestrator(
-            stateStore: new RecordingStateStore(),
-            apiClient: $apiClient,
-            schemaBuilder: new SchemaBuilder(),
-            redis: $redis,
-            publisher: new InMemoryPublisher(),
-            consumerName: 'test-orchestrator'
+            stateStore:    new RecordingStateStore(),
+            dataService:   $dataService,
+
+            redis:         $redis,
+            publisher:     new InMemoryPublisher(),
+            consumerName:  'test-orchestrator'
         );
 
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
-            auditId: AuditEvent::uuidV4(),
-            payload: ['dis_det_nro' => 'T38250701547']
+            auditId:   AuditEvent::uuidV4(),
+            payload:   ['dis_det_nro' => 'T38250701547']
         );
 
         $this->expectException(RuntimeException::class);
@@ -243,15 +233,14 @@ final class DocumentAuditOrchestratorTest extends TestCase
     }
 }
 
-final class StubInternalAuditApiClient extends InternalAuditApiClient
-{
-    /** @var array<int,string> */
-    public array $calledPaths = [];
+// ─── Stubs ────────────────────────────────────────────────────────────────────
 
+final class StubAuditDataService implements AuditDataServiceInterface
+{
     /**
-     * @param array<string,mixed> $dispensation
+     * @param array<string,mixed>            $dispensation
      * @param array<int,array<string,mixed>> $clientDocuments
-     * @param array<string,mixed> $auditConfig
+     * @param array<string,mixed>            $auditConfig
      * @param array<int,array<string,mixed>> $attachments
      */
     public function __construct(
@@ -264,25 +253,21 @@ final class StubInternalAuditApiClient extends InternalAuditApiClient
 
     public function getDispensation(string $disDetNro): array
     {
-        $this->calledPaths[] = '/dispensation/' . rawurlencode($disDetNro);
         return $this->dispensation;
     }
 
-    public function getClientDocuments(string $clientId): array
+    public function getAuditConfig(string $nitSec): array
     {
-        $this->calledPaths[] = '/clients/' . rawurlencode($clientId) . '/documents';
-        return $this->clientDocuments;
+        return $this->auditConfig;
     }
 
-    public function getAuditConfig(string $clientId): array
+    public function getClientDocuments(string $nitSec): array
     {
-        $this->calledPaths[] = '/clients/' . rawurlencode($clientId) . '/audit-config';
-        return $this->auditConfig;
+        return $this->clientDocuments;
     }
 
     public function getAttachments(string $disDetNro, string $nitSec): array
     {
-        $this->calledPaths[] = '/dispensation/' . rawurlencode($disDetNro) . '/attachments/' . rawurlencode($nitSec);
         return $this->attachments;
     }
 }
@@ -314,9 +299,9 @@ final class RecordingStateStore extends AuditStateStore
     public function registerDocument(string $auditId, string $documentId, array $documentState): bool
     {
         $this->registeredDocuments[] = [
-            'auditId' => $auditId,
+            'auditId'    => $auditId,
             'documentId' => $documentId,
-            'state' => $documentState,
+            'state'      => $documentState,
         ];
         return true;
     }

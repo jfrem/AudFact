@@ -66,7 +66,7 @@ final class DocumentPolicyEngineTest extends TestCase
             ),
             self::payload(
                 'DISPENSA',
-                ['Autorizacion' => '46338218'],
+                ['NumeroAutorizacion' => '46338218'],
                 [['CantidadEntregada' => '20'], ['CantidadEntregada' => '30']],
                 [['check' => 'FirmaActaEntrega', 'presente' => true, 'detalle' => 'Firma visible', 'severidad' => 'ALTA']]
             )
@@ -107,7 +107,7 @@ final class DocumentPolicyEngineTest extends TestCase
                 [self::field('NumeroAutorizacion')],
                 ['header' => ['NumeroAutorizacion' => '46338218'], 'items' => []]
             ),
-            self::payload('FORMULA MEDICA', ['Autorizacion' => '45082636'])
+            self::payload('FORMULA MEDICA', ['NumeroAutorizacion' => '45082636'])
         );
 
         $this->assertCount(1, $result['hallazgos']['items']);
@@ -129,8 +129,8 @@ final class DocumentPolicyEngineTest extends TestCase
             self::payload('FORMULA MEDICA', ['CodigoDiagnostico' => 'null'])
         );
 
-        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertStringContainsString('codigo diagnostico', (string) $result['hallazgos']['items'][0]['detalle']);
+        $this->assertSame('NO_ENCONTRADO', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertStringContainsString('no se encontró', (string) $result['hallazgos']['items'][0]['detalle']);
     }
 
     public function testEvaluateMatchesPatientNameWhenTokensOnlyChangeOrder(): void
@@ -165,7 +165,7 @@ final class DocumentPolicyEngineTest extends TestCase
             ),
             self::payload(
                 'FORMULA MEDICA',
-                ['NumeroIdentificacion' => '12132213'],
+                ['DocumentoPaciente' => '12132213'],
                 [['CantidadPrescrita' => '50']]
             )
         );
@@ -333,7 +333,7 @@ final class DocumentPolicyEngineTest extends TestCase
                 [self::field('NumeroAutorizacion', 'E', 'alta', 'AUTORITATIVO', $omitirSi)],
                 ['header' => ['NumeroAutorizacion' => '46338218'], 'items' => []]
             ),
-            self::payload('DISPENSA', ['Autorizacion' => '46338218'], [], [], 'parcialmente_legible')
+            self::payload('DISPENSA', ['NumeroAutorizacion' => '46338218'], [], [], 'parcialmente_legible')
         );
 
         $this->assertSame([], $result['hallazgos']['items']);

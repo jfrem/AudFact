@@ -31,29 +31,29 @@ TEXT;
     private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-items-v2';
 
     private AuditStateStore $stateStore;
-    private InternalAuditApiClient $apiClient;
+    private AttachmentDownloadServiceInterface $downloader;
     private GeminiGateway $gateway;
     private int $cacheTtl;
     private string $consumerName;
 
     public function __construct(
-        ?AuditStateStore $stateStore = null,
-        ?InternalAuditApiClient $apiClient = null,
-        ?GeminiGateway $gateway = null,
-        ?\Core\RedisClient $redis = null,
-        ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null,
-        ?int $cacheTtl = null
+        ?AuditStateStore                    $stateStore   = null,
+        ?AttachmentDownloadServiceInterface $downloader   = null,
+        ?GeminiGateway                      $gateway      = null,
+        ?\Core\RedisClient                  $redis        = null,
+        ?AuditEventPublisher                $publisher    = null,
+        ?string                             $consumerName = null,
+        ?int                                $cacheTtl     = null
     ) {
         parent::__construct($redis, $publisher);
 
-        $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
-        $this->apiClient = $apiClient ?? new InternalAuditApiClient();
-        $this->gateway = $gateway ?? GeminiGateway::create();
+        $this->stateStore   = $stateStore ?? new AuditStateStore($this->redis);
+        $this->downloader   = $downloader ?? new AttachmentDownloadService();
+        $this->gateway      = $gateway    ?? GeminiGateway::create();
         $this->consumerName = $consumerName ?? ('extractor-' . getmypid());
 
-        $resolvedTtl = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
-        $this->cacheTtl = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
+        $resolvedTtl       = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
+        $this->cacheTtl    = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
     }
 
     public function processEvent(AuditEvent $event): void
@@ -87,14 +87,14 @@ TEXT;
             throw new RuntimeException('document_registered sin audit_id o document_id');
         }
 
-        $payload = $event->payload;
-        $downloadUrl = $this->requiredString($payload, 'download_url');
-        $schema = $this->requiredArray($payload, 'extraction_schema');
-        $documentType = $this->resolveDocumentType($payload);
-        $functionName = $this->resolveFunctionName($schema);
-        $disDetNro = $this->requiredString($payload, 'dis_det_nro');
+        $payload       = $event->payload;
+        $attachmentId  = $this->requiredString($payload, 'attachment_id');
+        $disDetNro     = $this->requiredString($payload, 'dis_det_nro');
+        $schema        = $this->requiredArray($payload, 'extraction_schema');
+        $documentType  = $this->resolveDocumentType($payload);
+        $functionName  = $this->resolveFunctionName($schema);
 
-        $document = $this->apiClient->downloadAttachment($downloadUrl);
+        $document     = $this->downloader->download($attachmentId, $disDetNro);
         $documentHash = hash('sha256', $document['data']);
 
         $extracted = $this->cacheGet($documentHash);

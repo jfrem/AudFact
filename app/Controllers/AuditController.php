@@ -235,7 +235,7 @@ class AuditController extends Controller
         $jobInitialized = false;
         $createdAuditIds = [];
         $total = 0;
-        $responseStatus = AuditStateStore::JOB_STATUS_PENDING;
+        $responseStatus = BatchJobStore::JOB_STATUS_PENDING;
 
         try {
             $claimed = $jobStore->claimBatchSlot($facNitSec, $dateFrom, $dateTo, $jobId);

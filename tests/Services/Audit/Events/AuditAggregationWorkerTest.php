@@ -8,7 +8,6 @@ use App\Models\AuditStatusModel;
 use App\Services\Audit\Pipeline\AuditAggregationWorker;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
-use App\Services\Audit\Pipeline\AuditResultAggregator;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -23,50 +22,12 @@ final class AuditAggregationWorkerTest extends TestCase
         $publisher = new AggregationPublisher();
         $store = new AggregationRecordingStateStore($auditId, $jobId);
         $model = new RecordingAuditStatusModel();
+        
+        $jobStore = new RecordingBatchJobStore($store);
+        
         $worker = new AuditAggregationWorker(
             stateStore: $store,
-            aggregator: new StubAuditResultAggregator([
-                'final_status' => 'manual_review',
-                'requires_manual_review' => true,
-                'severity' => 'alta',
-                'detail_message' => 'Auditoria completada con incertidumbre documental: 2 campos no concluyentes requieren revision humana.',
-                'failed_document' => 'FORMULA MEDICA',
-                'document_decisions' => [[
-                    'documentName' => 'FORMULA MEDICA',
-                    'approved' => false,
-                    'observation' => 'La calidad documental no permite concluir el valor con confianza suficiente.',
-                ]],
-                'audit_result_data' => [
-                    'FacSec' => '87723098',
-                    'FacNro' => 'T38250701547',
-                    'EstAud' => 1,
-                    'EstadoDetallado' => 'manual_review',
-                    'RequiereRevisionHumana' => 1,
-                    'Severidad' => 'alta',
-                    'Hallazgos' => '{"items":[],"metrics":{"risk_score":20}}',
-                    'DetalleError' => 'Auditoria completada con incertidumbre documental: 2 campos no concluyentes requieren revision humana.',
-                    'DocumentosProcesados' => 3,
-                    'DocumentoFallido' => 'FORMULA MEDICA',
-                    'DuracionProcesamientoMs' => 42000,
-                    'FacNitSec' => '2426',
-                ],
-                'completion_payload' => [
-                    'status' => 'manual_review',
-                    'requires_manual_review' => true,
-                    'audit_result' => [
-                        'hallazgos' => [
-                            'items' => [],
-                            'metrics' => ['risk_score' => 20],
-                        ],
-                        'document_decisions' => [[
-                            'documentName' => 'FORMULA MEDICA',
-                            'approved' => false,
-                            'observation' => 'La calidad documental no permite concluir el valor con confianza suficiente.',
-                        ]],
-                    ],
-                    'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
-                ],
-            ]),
+            jobStore: $jobStore,
             auditStatusModel: $model,
             redis: $this->createMock(RedisClient::class),
             publisher: $publisher,
@@ -78,8 +39,21 @@ final class AuditAggregationWorkerTest extends TestCase
             auditId: $auditId,
             jobId: $jobId,
             payload: [
-                'hallazgos' => ['items' => [], 'metrics' => ['risk_score' => 20]],
-                'document_decisions' => [],
+                'hallazgos' => [
+                    'items' => [
+                        [
+                            'campo' => 'FirmaActaEntrega',
+                            'resultado' => 'NO_CONCLUYENTE',
+                            'severidad' => 'alta'
+                        ]
+                    ], 
+                    'metrics' => ['risk_score' => 20]
+                ],
+                'document_decisions' => [[
+                    'documentName' => 'FORMULA MEDICA',
+                    'approved' => false,
+                    'observation' => 'La calidad documental no permite concluir el valor con confianza suficiente.',
+                ]],
             ]
         ));
 
@@ -89,7 +63,7 @@ final class AuditAggregationWorkerTest extends TestCase
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
         $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
-        $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'manual_review'], $store->lastJobCompletion);
+        $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'manual_review'], $jobStore->lastJobCompletion);
     }
 
     public function testDoesNotPublishAuditCompletedWhenSqlPersistenceFails(): void
@@ -98,40 +72,12 @@ final class AuditAggregationWorkerTest extends TestCase
         $jobId = AuditEvent::uuidV4();
         $publisher = new AggregationPublisher();
         $store = new AggregationRecordingStateStore($auditId, $jobId);
+        
+        $jobStore = clone new RecordingBatchJobStore($store);
+        
         $worker = new AuditAggregationWorker(
             stateStore: $store,
-            aggregator: new StubAuditResultAggregator([
-                'final_status' => 'completed',
-                'requires_manual_review' => false,
-                'severity' => 'baja',
-                'detail_message' => 'ok',
-                'failed_document' => null,
-                'document_decisions' => [[
-                    'documentName' => 'DISPENSA',
-                    'approved' => true,
-                    'observation' => null,
-                ]],
-                'audit_result_data' => [
-                    'FacSec' => '87723098',
-                    'FacNro' => 'T38250701547',
-                    'EstAud' => 1,
-                    'EstadoDetallado' => 'completed',
-                    'RequiereRevisionHumana' => 0,
-                    'Severidad' => 'baja',
-                    'Hallazgos' => '{"items":[],"metrics":{"risk_score":0}}',
-                    'DetalleError' => 'ok',
-                    'DocumentosProcesados' => 1,
-                    'DocumentoFallido' => null,
-                    'DuracionProcesamientoMs' => 1000,
-                    'FacNitSec' => '2426',
-                ],
-                'completion_payload' => [
-                    'status' => 'completed',
-                    'requires_manual_review' => false,
-                    'audit_result' => ['hallazgos' => ['items' => [], 'metrics' => ['risk_score' => 0]], 'document_decisions' => []],
-                    'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
-                ],
-            ]),
+            jobStore: $jobStore,
             auditStatusModel: new FailingAuditStatusModel(),
             redis: $this->createMock(RedisClient::class),
             publisher: $publisher,
@@ -147,33 +93,31 @@ final class AuditAggregationWorkerTest extends TestCase
                 auditId: $auditId,
                 jobId: $jobId,
                 payload: [
-                    'hallazgos' => ['items' => [], 'metrics' => ['risk_score' => 0]],
-                    'document_decisions' => [],
+                    'hallazgos' => [
+                        'items' => [
+                            [
+                                'campo' => 'NumeroFactura',
+                                'resultado' => 'NO_ENCONTRADO',
+                                'severidad' => 'baja'
+                            ]
+                        ], 
+                        'metrics' => ['risk_score' => 0]
+                    ],
+                    'document_decisions' => [[
+                        'documentName' => 'DISPENSA',
+                        'approved' => true,
+                        'observation' => null,
+                    ]],
                 ]
             ));
         } finally {
             $this->assertSame('failed', $store->lastCompletion['status'] ?? null);
             $this->assertTrue($store->lastCompletion['requires_manual_review'] ?? false);
-            $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'failed'], $store->lastJobCompletion);
+            $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'failed'], $jobStore->lastJobCompletion);
             $this->assertCount(2, $publisher->published);
             $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $publisher->published[0]->eventType);
             $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
         }
-    }
-}
-
-final class StubAuditResultAggregator extends AuditResultAggregator
-{
-    /**
-     * @param array<string,mixed> $result
-     */
-    public function __construct(private array $result)
-    {
-    }
-
-    public function aggregate(array $audit, array $rulesPayload): array
-    {
-        return $this->result;
     }
 }
 
@@ -197,6 +141,7 @@ class AggregationRecordingStateStore extends AuditStateStore
             'fac_sec' => '87723098',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
+            'created_at' => microtime(true) - 42.0,
             'documents' => [
                 'doc-1' => ['tipo_documento' => 'DISPENSA'],
             ],
@@ -207,6 +152,17 @@ class AggregationRecordingStateStore extends AuditStateStore
     {
         $this->lastCompletion = $completionState;
         return true;
+    }
+
+}
+
+class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
+{
+    public array $lastJobCompletion = [];
+    private bool $batchTerminalClaimed = false;
+
+    public function __construct(private AggregationRecordingStateStore $stateStore)
+    {
     }
 
     public function markAuditCompletedInJob(string $jobId, string $auditId, string $auditStatus): bool

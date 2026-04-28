@@ -55,57 +55,7 @@ final class AuditStateStoreTest extends TestCase
         $this->assertFalse($this->store->initAudit(AuditEvent::uuidV4(), 'T1'));
     }
 
-    public function testInitJobStoresInitialCounters(): void
-    {
-        $jobId = AuditEvent::uuidV4();
 
-        $this->redis
-            ->expects($this->once())
-            ->method('setnx')
-            ->with(
-                AuditStateStore::jobKey($jobId),
-                $this->callback(function (string $json) use ($jobId): bool {
-                    $decoded = json_decode($json, true);
-                    $this->assertSame($jobId, $decoded['job_id']);
-                    $this->assertSame(2426, $decoded['fac_nit_sec']);
-                    $this->assertSame('2025-07-29', $decoded['date_from']);
-                    $this->assertSame('2025-07-29', $decoded['date_to']);
-                    $this->assertSame(0, $decoded['total']);
-                    $this->assertSame([], $decoded['audits']);
-                    return true;
-                }),
-                86400
-            )
-            ->willReturn(true);
-
-        $this->assertTrue($this->store->initJob($jobId, 2426, '2025-07-29', '2025-07-29', 10));
-    }
-
-    public function testClaimBatchSlotUsesBuiltKey(): void
-    {
-        $jobId = AuditEvent::uuidV4();
-
-        $this->redis
-            ->expects($this->once())
-            ->method('setnx')
-            ->with('job:active:2426:2025-07-29:2025-07-30', $jobId, 86400)
-            ->willReturn(true);
-
-        $this->assertTrue($this->store->claimBatchSlot(2426, '2025-07-29', '2025-07-30', $jobId));
-    }
-
-    public function testClaimBatchSlotFillsMissingDateTo(): void
-    {
-        $jobId = AuditEvent::uuidV4();
-
-        $this->redis
-            ->expects($this->once())
-            ->method('setnx')
-            ->with('job:active:2426:2025-07-29:2025-07-29', $jobId, 86400)
-            ->willReturn(true);
-
-        $this->store->claimBatchSlot(2426, '2025-07-29', null, $jobId);
-    }
 
     public function testGetAuditReturnsNullWhenKeyMissing(): void
     {
@@ -123,24 +73,7 @@ final class AuditStateStoreTest extends TestCase
         $this->store->getAudit(AuditEvent::uuidV4());
     }
 
-    public function testGetJobDecodesPayload(): void
-    {
-        $jobId = AuditEvent::uuidV4();
-        $payload = [
-            'job_id' => $jobId,
-            'status' => 'pending',
-            'total'  => 3,
-            'done'   => 0,
-            'failed' => 0,
-            'audits' => ['audit-1' => ['dis_det_nro' => 'T1', 'status' => 'pending']],
-        ];
 
-        $this->redis->method('get')->willReturn(json_encode($payload));
-
-        $result = $this->store->getJob($jobId);
-        $this->assertSame($jobId, $result['job_id']);
-        $this->assertSame(3, $result['total']);
-    }
 
     public function testPatchAuditUsesEvalWithMergeLua(): void
     {
@@ -222,8 +155,8 @@ final class AuditStateStoreTest extends TestCase
             ->method('eval')
             ->with(
                 $this->logicalAnd(
-                    $this->stringContains("previousStatus ~= 'extracted'"),
-                    $this->stringContains("audit['docs_extracted']")
+                    $this->stringContains("previousStatus ~= expectedStatus"),
+                    $this->stringContains("audit[counterField]")
                 ),
                 [AuditStateStore::auditKey($auditId)],
                 $this->callback(function (array $args) use ($documentId): bool {
@@ -275,8 +208,8 @@ final class AuditStateStoreTest extends TestCase
             ->method('eval')
             ->with(
                 $this->logicalAnd(
-                    $this->stringContains("previousStatus ~= 'normalized'"),
-                    $this->stringContains("audit['docs_done']"),
+                    $this->stringContains("previousStatus ~= expectedStatus"),
+                    $this->stringContains("audit[counterField]"),
                     $this->stringContains("audit['status'] = 'processing'")
                 ),
                 [AuditStateStore::auditKey($auditId)],
@@ -308,8 +241,8 @@ final class AuditStateStoreTest extends TestCase
             ->method('eval')
             ->with(
                 $this->logicalAnd(
-                    $this->stringContains("previousStatus ~= 'evaluated'"),
-                    $this->stringContains("audit['docs_evaluated']")
+                    $this->stringContains("previousStatus ~= expectedStatus"),
+                    $this->stringContains("audit[counterField]")
                 ),
                 [AuditStateStore::auditKey($auditId)],
                 $this->callback(function (array $args) use ($documentId): bool {
@@ -374,59 +307,5 @@ final class AuditStateStoreTest extends TestCase
             'status' => 'manual_review',
             'requires_manual_review' => true,
         ]));
-    }
-
-    public function testMarkAuditCompletedInJobUpdatesCounters(): void
-    {
-        $jobId = AuditEvent::uuidV4();
-        $auditId = AuditEvent::uuidV4();
-
-        $this->redis
-            ->expects($this->once())
-            ->method('eval')
-            ->with(
-                $this->stringContains("job['done']"),
-                [AuditStateStore::jobKey($jobId)],
-                $this->callback(function (array $args) use ($auditId): bool {
-                    $this->assertSame($auditId, $args[0]);
-                    $this->assertSame('completed', $args[1]);
-                    return true;
-                })
-            )
-            ->willReturn(1);
-
-        $this->assertTrue($this->store->markAuditCompletedInJob($jobId, $auditId, 'completed'));
-    }
-
-    public function testClaimBatchTerminalEventUsesAtomicWrite(): void
-    {
-        $jobId = AuditEvent::uuidV4();
-
-        $this->redis
-            ->expects($this->once())
-            ->method('eval')
-            ->with(
-                $this->stringContains("batch_event_published"),
-                [AuditStateStore::jobKey($jobId)],
-                $this->callback(function (array $args): bool {
-                    $this->assertSame('batch_completed', $args[0]);
-                    return true;
-                })
-            )
-            ->willReturn(1);
-
-        $this->assertTrue($this->store->claimBatchTerminalEvent($jobId, 'batch_completed'));
-    }
-
-    public function testBatchLockKeyFormat(): void
-    {
-        $this->assertSame(
-            'job:active:2426:2025-07-29:2025-07-30',
-            AuditStateStore::batchLockKey(2426, '2025-07-29', '2025-07-30')
-        );
-        $this->assertSame(
-            'job:active:2426:2025-07-29:2025-07-29',
-            AuditStateStore::batchLockKey(2426, '2025-07-29', null)
-        );
     }
 }
