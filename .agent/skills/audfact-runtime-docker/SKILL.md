@@ -15,7 +15,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + nginx (Xdebug off) |
+| `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + extraction (5 réplicas) |
 | `docker-compose.frontend.yml`| ~0.4 KB | Frontend: next.js (3000:3000) |
 | `docker/Dockerfile` | ~1.5 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional |
 | `frontend/Dockerfile` | ~0.6 KB | Build multi-etapa Next.js (requiere standalone) |

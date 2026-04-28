@@ -231,7 +231,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_TOP_K` | *(vacío)* | ❌ | Top-K sampling (opcional) |
 | `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | ❌ | Límite de tokens en la respuesta |
 | `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de la respuesta |
-| `GEMINI_MEDIA_RESOLUTION` | *(vacío)* | ❌ | Resolución de imágenes enviadas |
+| `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_MEDIUM` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
 | `GEMINI_SEED` | *(vacío)* | ❌ | Semilla para reproducibilidad (opcional) |
 

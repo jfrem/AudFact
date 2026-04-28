@@ -69,7 +69,7 @@ Cada worker: carga `.env`, instancia el consumer correspondiente, registra SIGTE
 |---|---|
 | `GEMINI_API_KEY` | Credencial obligatoria para el extractor |
 | `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.1-pro-preview`) |
-| `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED` | Determinismo de extracción |
+| `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION` | Determinismo y calidad de extracción |
 | `AUDIT_STREAM_BLOCK_MS` | Bloqueo `XREADGROUP` |
 | `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
 | `AUDIT_DLQ_STREAM` | Stream DLQ (default `audit.dlq`) |

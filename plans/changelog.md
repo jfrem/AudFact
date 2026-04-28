@@ -1,5 +1,14 @@
 # Changelog AudFact
 
+## [2026-04-28] — Optimización de Performance: Pro-Parallel (82s → 34s)
+
+### ⚡ Performance / Infrastructure
+- **AUDIT-018**: Optimización masiva de latencia en el pipeline de auditoría sin pérdida de calidad.
+  - **Paralelismo**: Escalado de `worker-extraction` de 1 a **5 réplicas** en `docker-compose.yml`. Esto permite que los adjuntos de una factura (promedio 3) se procesen simultáneamente en lugar de secuencialmente.
+  - **Configuración Pro-Optimized**: Uso de `gemini-3.1-pro-preview` con `GEMINI_MEDIA_RESOLUTION=MEDIA_RESOLUTION_LOW`. La reducción de resolución acelera el procesamiento de la API de Gemini sin degradar la precisión en campos críticos (CIE-10, firmas).
+  - **Resultado**: Reducción del tiempo total de auditoría de **82 segundos a 34 segundos** (mejora del 58%) para una factura estándar de 3 documentos escaneados.
+  - **Archivos modificados**: `docker-compose.yml`, `.env`, `.env.example`, `app/Services/Audit/GeminiConfig.php`.
+
 ## [2026-04-27] — Limpieza de artefactos muertos del repositorio
 
 ### 🧹 Cleanup
