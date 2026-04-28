@@ -36,7 +36,7 @@ final class GeminiConfig
         Env::load();
 
         return new self(
-            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3-pro-preview'),
+            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3.1-pro-preview'),
             temperature:     self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
             topP:            self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
             topK:            self::nullableInt(Env::get('GEMINI_TOP_K', null)),
@@ -94,8 +94,6 @@ final class GeminiConfig
             'seed'            => $this->seed,
         ];
     }
-
-    // ─── Nullable converters ────────────────────────────────
 
     private static function nullableFloat(mixed $value): ?float
     {

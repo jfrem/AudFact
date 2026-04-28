@@ -111,6 +111,7 @@ services:
     command: php bin/audit-worker.php extraction
     restart: on-failure
     deploy:
+      replicas: 5
       resources:
         limits:
           memory: 1G

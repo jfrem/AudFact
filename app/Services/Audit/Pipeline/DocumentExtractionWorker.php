@@ -19,13 +19,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     ];
 
     private const DEFAULT_SYSTEM_PROMPT = <<<TEXT
-Eres un extractor documental determinístico.
-Analiza un único documento.
-No inventes valores.
-Si un dato no es visible o no es legible, omítelo o usa el valor nativo null de JSON (sin comillas).
-Para verificaciones visuales usa presente=false cuando el elemento no sea visible.
-Invoca exactamente una vez la función extract_document_data.
-TEXT;
+        Eres un extractor documental determinístico.
+        Analiza un único documento.
+        No inventes valores.
+        Si un dato no es visible o no es legible, omítelo o usa el valor nativo null de JSON (sin comillas).
+        Para verificaciones visuales usa presente=false cuando el elemento no sea visible.
+        Invoca exactamente una vez la función extract_document_data.
+    TEXT;
 
     private const DEFAULT_CACHE_TTL = 86400;
     private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-items-v2';
@@ -268,7 +268,7 @@ TEXT;
         // Extracción selectiva: para prescripciones, filtrar items al subconjunto dispensado
         $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload);
         if ($dispensedNames !== []) {
-            $parts[] = 'Articulos efectivamente dispensados al paciente (fuente de verdad):';
+            $parts[] = 'Articulos efectivamente dispensados al paciente (Registro de Dispensación):';
             foreach ($dispensedNames as $name) {
                 $parts[] = "- {$name}";
             }
