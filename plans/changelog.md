@@ -1,5 +1,15 @@
 # Changelog AudFact
 
+## [2026-04-27] — Limpieza de artefactos muertos del repositorio
+
+### 🧹 Cleanup
+- **AUDIT-016**: Eliminación de documentación obsoleta, variables fantasma y archivos dead del repositorio.
+  - **Archivos raíz eliminados**: `ASSESSMENT_AudFact_AuditPipeline_v1.0.md` (66KB), `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md` (67KB), `REPRODUCIBILITY_FRAMEWORK.md` (7KB), `CHANGELOG.md` (duplicado de `plans/changelog.md`), `.env.dev` (sin consumidor).
+  - **Directorio eliminado**: `tmp/` (3 JPGs de prueba manual), `app/Services/prompts/` (5 archivos de prompts legacy: v1-v4 + philosophy).
+  - **Variables fantasma eliminadas**: `GEMINI_THINKING_LEVEL` (sin consumidor PHP), `GEMINI_EMBEDDING_MODEL` (nunca implementado), `SEMANTIC_THRESHOLD_DEFAULT` (hardcoded en `AuditComparisonType`), `AUDIT_FDV_TTL` (sin consumidor).
+  - **Variables sincronizadas**: `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` agregadas a `.env` (faltaban, son consumidas por `AuditEvent.php`).
+  - **Resultado neto**: −8 archivos raíz, −8 archivos en subdirectorios, −4 variables fantasma, +3 variables sincronizadas.
+
 ## [2026-04-27] — Consolidación de Bootstrap Scripts (`bin/`)
 
 ### 🔵 Architecture / Refactor
