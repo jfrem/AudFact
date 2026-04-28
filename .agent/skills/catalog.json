@@ -66,6 +66,11 @@
       "path": ".agent/skills/clean-rebuild-policy",
       "description": "Política para reconstrucción desde cero (clean rebuild) orientada a arquitectura limpia, eliminación de legacy y un MVP estricto.",
       "name": "clean-rebuild-policy"
+    },
+    {
+      "path": ".agent/skills/ui-ux-pro-max",
+      "description": "Inteligencia de diseño UI/UX para web y móvil: estilos, colores, tipografía y accesibilidad.",
+      "name": "ui-ux-pro-max"
     }
   ]
 }

@@ -6,6 +6,7 @@ namespace App\Services\Audit\Pipeline;
 
 use App\Models\AuditStatusModel;
 use App\Services\Audit\AuditSeverity;
+use App\Services\Audit\Debug\GeminiCallMetrics;
 use RuntimeException;
 
 final class AuditAggregationWorker extends AuditEventConsumer
@@ -142,6 +143,9 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $policies       = [];
         $downloads      = [];
         $geminis        = [];
+        $geminiExtractionMetrics = [];
+        $geminiSemanticMetrics = [];
+        $semanticCacheHits = 0;
         $cacheHits      = 0;
         $total          = 0;
 
@@ -165,16 +169,34 @@ final class AuditAggregationWorker extends AuditEventConsumer
             if (isset($doc['gemini_duration_ms'])) {
                 $geminis[] = (int) $doc['gemini_duration_ms'];
             }
+            if (is_array($doc['gemini_metrics'] ?? null)) {
+                $geminiExtractionMetrics[] = $doc['gemini_metrics'];
+            }
+            if (is_array($doc['gemini_semantic_metrics']['semantic'] ?? null)) {
+                foreach ($doc['gemini_semantic_metrics']['semantic'] as $metric) {
+                    if (is_array($metric)) {
+                        $geminiSemanticMetrics[] = $metric;
+                    }
+                }
+            }
+            $semanticCacheHits += (int) ($doc['gemini_semantic_metrics']['semantic_cache_hits'] ?? 0);
             if ($doc['cache_hit'] ?? false) {
                 $cacheHits++;
             }
         }
+
+        $allGeminiMetrics = array_merge($geminiExtractionMetrics, $geminiSemanticMetrics);
 
         return [
             'docs_total'     => $total,
             'cache_hit_rate' => $total > 0 ? round($cacheHits / $total, 2) : 0.0,
             'download'       => $this->summarizeTimings($downloads),
             'gemini'         => $this->summarizeTimings($geminis),
+            'gemini_extraction' => GeminiCallMetrics::summarize($geminiExtractionMetrics),
+            'gemini_semantic'   => GeminiCallMetrics::summarize($geminiSemanticMetrics),
+            'gemini_total'      => GeminiCallMetrics::summarize($allGeminiMetrics),
+            'semantic_calls'    => count($geminiSemanticMetrics),
+            'semantic_cache_hits' => $semanticCacheHits,
             'extraction'     => $this->summarizeTimings($extractions),
             'normalization'  => $this->summarizeTimings($normalizations),
             'policy'         => $this->summarizeTimings($policies),

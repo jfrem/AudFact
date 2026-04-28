@@ -19,6 +19,9 @@ class DocumentPolicyEngine
 
     
     private ?SemanticMatchJudge $semanticJudge;
+    /** @var array<int,array<string,mixed>> */
+    private array $semanticMetrics = [];
+    private int $semanticCacheHits = 0;
 
     public function __construct(
         ?SemanticMatchJudge $semanticJudge = null
@@ -34,6 +37,8 @@ class DocumentPolicyEngine
      */
     public function evaluate(array $documentState, array $normalizedPayload): array
     {
+        $this->semanticMetrics = [];
+        $this->semanticCacheHits = 0;
         $documentType = trim((string) ($documentState['tipo_documento'] ?? $normalizedPayload['tipo_documento'] ?? ''));
         if ($documentType === '') {
             throw new RuntimeException('document_normalized sin tipo_documento');
@@ -73,6 +78,11 @@ class DocumentPolicyEngine
             'document_name'     => $documentType,
             'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
             'document_decision' => $this->buildDocumentDecision($documentType, $findings),
+            'gemini_semantic_metrics' => [
+                'semantic' => $this->semanticMetrics,
+                'semantic_calls' => count($this->semanticMetrics),
+                'semantic_cache_hits' => $this->semanticCacheHits,
+            ],
         ];
     }
 
@@ -508,6 +518,12 @@ class DocumentPolicyEngine
 
         if ($this->semanticJudge !== null) {
             $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, $context);
+            if (is_array($judgeResult['gemini_metrics'] ?? null)) {
+                $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
+            }
+            if (($judgeResult['cache_hit'] ?? false) === true) {
+                $this->semanticCacheHits++;
+            }
             if ($judgeResult['is_match']) {
                 return ['resultado' => self::RESULT_MATCH,        'detalle' => $judgeResult['reasoning']];
             }

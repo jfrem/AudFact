@@ -7,6 +7,19 @@ namespace App\Services\Audit\Debug;
 use Core\Env;
 use Core\Logger;
 
+/**
+ * Servicios de auditoría para persistencia de snapshots request/response en disco.
+ *
+ * La clase ResponseIADiskStore se encarga de guardar una copia fiel de la información procesada por el
+ * pipeline de auditoría, específicamente lo relacionado con las interacciones con el modelo de IA.
+ * Esta funcionalidad es utilizada exclusivamente en el entorno de desarrollo (`development`) para facilitar
+ * la depuración y el análisis offline de los resultados obtenidos, sin afectar la operación normal del sistema
+ * en producción.
+ *
+ * @package App\Services\Audit\Debug
+ * @version 2.4.0
+ * @stability stable
+ */
 final class ResponseIADiskStore
 {
     private const DEFAULT_BASE_DIR = '/var/www/html/responseIA';

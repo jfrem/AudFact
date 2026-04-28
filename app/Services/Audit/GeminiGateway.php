@@ -3,6 +3,7 @@
 namespace App\Services\Audit;
 
 use App\Services\Audit\Debug\ResponseIADiskStore;
+use App\Services\Audit\Debug\GeminiCallMetrics;
 use Core\Env;
 use Core\Logger;
 use GuzzleHttp\Client;
@@ -114,7 +115,8 @@ class GeminiGateway
 
                 $this->saveDebugLog($payload, $body ?? ['error' => 'cuerpo_vacio'], $ctx, 'success');
 
-                $body['X-Audit-Metrics'] = ['duration_ms' => (int) ((microtime(true) - $startTime) * 1000)];
+                $durationMs = (int) ((microtime(true) - $startTime) * 1000);
+                $body['X-Audit-Metrics'] = GeminiCallMetrics::fromResponse($body ?? [], $durationMs, $ctx);
                 return $body ?? [];
             } catch (\RuntimeException $e) {
                 $lastException = $e;

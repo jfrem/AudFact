@@ -49,6 +49,16 @@ final class RulesEvaluationWorkerTest extends TestCase
                     'approved' => true,
                     'observation' => null,
                 ],
+                'gemini_semantic_metrics' => [
+                    'semantic' => [[
+                        'task_type' => 'semantic_match',
+                        'duration_ms' => 120,
+                        'cache_hit' => false,
+                        'total_tokens' => 100,
+                    ]],
+                    'semantic_calls' => 1,
+                    'semantic_cache_hits' => 0,
+                ],
             ]),
             redis: $this->createMock(RedisClient::class),
             publisher: $publisher,
@@ -70,6 +80,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         ));
 
         $this->assertSame('evaluated', $store->lastPolicyPatch['status'] ?? null);
+        $this->assertSame(1, $store->lastPolicyPatch['gemini_semantic_metrics']['semantic_calls'] ?? null);
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_RULES_EVALUATED, $publisher->published[0]->eventType);
         $this->assertSame(1, $publisher->published[0]->payload['hallazgos']['metrics']['total_campos']);

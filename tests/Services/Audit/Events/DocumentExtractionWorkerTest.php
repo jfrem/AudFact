@@ -52,6 +52,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_EXTRACTED, $publisher->published[0]->eventType);
         $this->assertTrue($publisher->published[0]->payload['cache_hit']);
+        $this->assertArrayNotHasKey('gemini_metrics', $publisher->published[0]->payload);
         $this->assertSame($hash, $publisher->published[0]->payload['document_hash']);
         $this->assertSame('extracted', $store->lastPatch['status'] ?? null);
         $this->assertNull($store->forcedResult);
@@ -71,6 +72,12 @@ final class DocumentExtractionWorkerTest extends TestCase
         $redisMock->expects($this->once())->method('set')->willReturn(true);
         
         $gateway = new StubGeminiGateway([
+            'X-Audit-Metrics' => [
+                'task_type' => 'extraction',
+                'document_type' => 'FORMULA MEDICA',
+                'duration_ms' => 123,
+                'cache_hit' => false,
+            ],
             'candidates' => [[
                 'content' => [
                     'parts' => [[
@@ -105,10 +112,12 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame(1, $gateway->calls);
         $this->assertSame('extract_document_data', $gateway->lastTools[0]['functionDeclarations'][0]['name'] ?? null);
         $this->assertSame(['extract_document_data'], $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+        $this->assertSame('extraction', $gateway->lastDebugContext['task_type'] ?? null);
         $toolJson = json_encode($gateway->lastTools, JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString('additionalProperties', $toolJson);
         $this->assertStringNotContainsString('"default"', $toolJson);
         $this->assertFalse($publisher->published[0]->payload['cache_hit']);
+        $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
         $this->assertSame('T38250701547', $publisher->published[0]->payload['extraction_result']['fields']['NumeroFactura']);
     }
 
@@ -222,6 +231,7 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $lastTools = [];
     public array $lastToolConfig = [];
+    public array $lastDebugContext = [];
 
     public function __construct(private array $response)
     {
@@ -239,6 +249,7 @@ final class StubGeminiGateway extends GeminiGateway
         $this->calls++;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
+        $this->lastDebugContext = $debugContext ?? [];
         return $this->response;
     }
 }

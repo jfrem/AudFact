@@ -60,6 +60,11 @@ final class AuditAggregationWorkerTest extends TestCase
         $this->assertSame('manual_review', $store->lastCompletion['status'] ?? null);
         $this->assertSame('87723098', $model->lastAuditResultData['FacSec'] ?? null);
         $this->assertSame('FORMULA MEDICA', $model->lastDocumentDecisions[0]['documentName'] ?? null);
+        $hallazgos = json_decode((string) $model->lastAuditResultData['Hallazgos'], true);
+        $this->assertSame(1, $hallazgos['_meta']['phase_timings']['gemini_extraction']['count'] ?? null);
+        $this->assertSame(1, $hallazgos['_meta']['phase_timings']['gemini_semantic']['count'] ?? null);
+        $this->assertSame(300, $hallazgos['_meta']['phase_timings']['gemini_total']['total_tokens'] ?? null);
+        $this->assertArrayNotHasKey('token_usage', $hallazgos['_meta']['phase_timings']);
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
         $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
@@ -144,6 +149,25 @@ class AggregationRecordingStateStore extends AuditStateStore
             'created_at' => (new \DateTimeImmutable('-42 seconds', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z'),
             'documents' => [
                 'doc-1' => ['tipo_documento' => 'DISPENSA'],
+                'doc-2' => [
+                    'tipo_documento' => 'AUTORIZACION',
+                    'gemini_metrics' => [
+                        'task_type' => 'extraction',
+                        'duration_ms' => 1000,
+                        'cache_hit' => false,
+                        'total_tokens' => 200,
+                    ],
+                    'gemini_semantic_metrics' => [
+                        'semantic' => [[
+                            'task_type' => 'semantic_match',
+                            'duration_ms' => 120,
+                            'cache_hit' => false,
+                            'total_tokens' => 100,
+                        ]],
+                        'semantic_calls' => 1,
+                        'semantic_cache_hits' => 0,
+                    ],
+                ],
             ],
         ];
     }

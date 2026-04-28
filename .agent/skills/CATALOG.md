@@ -22,6 +22,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `next-cache-components` | Frontend Next.js | `frontend/*` | Guías sobre componentes de caché, PPR y estrategias de validación en Next.js 16+. |
 | `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
 | `clean-rebuild-policy` | Gobernanza Técnica | Repositorio completo | Política para proyectos en fase temprana: reconstrucción limpia, sin legacy, enfocada en MVP. |
+| `ui-ux-pro-max` | UI/UX Design | `frontend/*`, `public/assets/*` | Inteligencia de diseño para web/móvil: 50+ estilos, sistemas de color, tipografía y accesibilidad. |
 
 ## Triggers Sugeridos por Skill
 
@@ -42,6 +43,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `security-assessment` | vulnerabilidades, auth/authz, OWASP, exposición de secretos |
 | `technical-governance-assessment` | ownership, gobernanza, estándares, code review process, roadmap técnico |
 | `clean-rebuild-policy` | reconstrucción, clean rebuild, MVP, arquitectura desacoplada, eliminar legacy, desde cero |
+| `ui-ux-pro-max` | UI/UX, diseño, accesibilidad, tipografía, paleta de colores, mockup, prototipado, landing page, dashboard |
 
 ## Bundles
 
@@ -74,6 +76,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
 | Todo código nuevo o modificado | `clean-rebuild-policy` |
+| `frontend/**/*.tsx`, `frontend/**/*.css` | `ui-ux-pro-max` |
 
 ---
 

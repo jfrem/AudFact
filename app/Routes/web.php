@@ -1,6 +1,7 @@
 <?php
 $router->get('/', 'Controller', 'index');
 $router->get('/health', 'HealthController', 'status');
+$router->get('/metrics/async', 'ObservabilityController', 'asyncMetrics');
 $router->get('/config/public', 'ConfigController', 'publicConfig');
 
 // Clients

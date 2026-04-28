@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
+use App\Services\Audit\Debug\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
 use RuntimeException;
@@ -23,7 +24,7 @@ final class SemanticMatchJudge
 
     /**
      * @param array<string,mixed> $context
-     * @return array{is_match: bool, reasoning: string}
+     * @return array{is_match: bool, reasoning: string, gemini_metrics?: array<string,mixed>, cache_hit?: bool}
      */
     public function evaluate(string $expected, string $actual, array $context = []): array
     {
@@ -36,6 +37,7 @@ final class SemanticMatchJudge
 
         if ($cached !== null) {
             Logger::info('SemanticMatchJudge: cache hit', ['hash' => $hash]);
+            $cached['cache_hit'] = true;
             return $cached;
         }
 
@@ -97,7 +99,7 @@ final class SemanticMatchJudge
 
     /**
      * @param array<string,mixed> $context
-     * @return array{is_match: bool, reasoning: string}
+     * @return array{is_match: bool, reasoning: string, gemini_metrics?: array<string,mixed>, cache_hit?: bool}
      */
     private function callGemini(string $expected, string $actual, array $context): array
     {
@@ -144,6 +146,7 @@ final class SemanticMatchJudge
         if (isset($context['document_type'])) {
             $debugContext['document_type'] = $context['document_type'];
         }
+        $debugContext['task_type'] = 'semantic_match';
 
         try {
             $response = $this->gateway->sendWithFunctionCalling(
@@ -156,6 +159,13 @@ final class SemanticMatchJudge
                 $debugContext
             );
 
+            $metrics = is_array($response['X-Audit-Metrics'] ?? null)
+                ? $response['X-Audit-Metrics']
+                : GeminiCallMetrics::failed([
+                    'task_type' => 'semantic_match',
+                    'document_type' => (string) ($context['document_type'] ?? ''),
+                ]);
+
             $parts = $response['candidates'][0]['content']['parts'] ?? null;
             if (!is_array($parts) || !isset($parts[0]['functionCall']['args'])) {
                 throw new RuntimeException('Respuesta Gemini sin functionCall válido');
@@ -165,6 +175,8 @@ final class SemanticMatchJudge
             return [
                 'is_match' => (bool) ($args['is_match'] ?? false),
                 'reasoning' => (string) ($args['reasoning'] ?? 'Sin justificación'),
+                'gemini_metrics' => $metrics,
+                'cache_hit' => false,
             ];
 
         } catch (\Throwable $e) {
@@ -176,6 +188,11 @@ final class SemanticMatchJudge
             return [
                 'is_match' => false,
                 'reasoning' => 'Error de evaluación semántica: ' . $e->getMessage(),
+                'gemini_metrics' => GeminiCallMetrics::failed([
+                    'task_type' => 'semantic_match',
+                    'document_type' => (string) ($context['document_type'] ?? ''),
+                ]),
+                'cache_hit' => false,
             ];
         }
     }

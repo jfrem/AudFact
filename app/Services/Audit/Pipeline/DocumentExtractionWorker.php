@@ -100,6 +100,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $extracted = $this->cacheGet($documentHash);
         $cacheHit = $extracted !== null;
         $geminiDurationMs = 0;
+        $geminiMetrics = null;
 
         if ($extracted === null) {
             $response = $this->gateway->sendWithFunctionCalling(
@@ -118,10 +119,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     'audit_id' => $event->auditId,
                     'document_id' => $event->documentId,
                     'document_type' => $documentType,
+                    'task_type' => 'extraction',
                 ]
             );
 
             $geminiDurationMs = (int) ($response['X-Audit-Metrics']['duration_ms'] ?? 0);
+            $geminiMetrics = is_array($response['X-Audit-Metrics'] ?? null)
+                ? $response['X-Audit-Metrics']
+                : null;
             unset($response['X-Audit-Metrics']);
 
             $extracted = $this->parseGeminiResponse($response, $schema);
@@ -142,6 +147,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'download_duration_ms'    => (int) ($document['duration_ms'] ?? 0),
             'gemini_duration_ms'      => $geminiDurationMs,
         ];
+
+        if ($geminiMetrics !== null) {
+            $documentState['gemini_metrics'] = $geminiMetrics;
+        }
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
             throw new RuntimeException('No se pudo persistir la extracción del documento en Redis');

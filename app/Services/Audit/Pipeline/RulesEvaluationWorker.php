@@ -91,6 +91,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'policy_duration_ms'   => $durationMs,
         ];
 
+        if (is_array($policyResult['gemini_semantic_metrics'] ?? null)) {
+            $documentPatch['gemini_semantic_metrics'] = $policyResult['gemini_semantic_metrics'];
+        }
+
         if (!$this->stateStore->markDocumentEvaluated($event->auditId, $event->documentId, $documentPatch)) {
             throw new RuntimeException('No se pudo persistir la evaluación documental en Redis');
         }
