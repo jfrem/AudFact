@@ -450,11 +450,14 @@ class DocumentPolicyEngine
         }
 
         if ($docValue === null) {
-            return ['resultado' => self::RESULT_NOT_FOUND, 'detalle' => 'Campo esperado ausente en el documento.'];
+            return [
+                'resultado' => self::RESULT_NOT_FOUND, 
+                'detalle'   => "El campo '{$field}' no se encontró en el documento. Valor esperado según registro de dispensación: '{$fdvValue}'."
+            ];
         }
 
         if ($fdvValue === null) {
-            return ['resultado' => self::RESULT_SKIPPED, 'detalle' => 'Sin valor auditable en fuente de verdad.'];
+            return ['resultado' => self::RESULT_SKIPPED, 'detalle' => 'Sin valor auditable en registro de dispensación.'];
         }
 
         if ($forcedType === null) {
