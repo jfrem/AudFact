@@ -182,7 +182,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'nombre_alternativo' => (string) ($catalogDocument['NitMedDocCodAlt'] ?? ''),
             'status'             => 'registered',
             'attachment_id'      => $attachmentId,
-            // download_url se mantiene como metadato de diagnóstico; el Worker ya no lo usa para descargar
             'download_url'       => '/dispensation/' . rawurlencode($disDetNro)
                                     . '/attachments/download/' . rawurlencode($attachmentId),
             'tipo_almacenamiento'=> (string) ($attachment['TipoAlmacenamiento'] ?? ''),
@@ -243,8 +242,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         return null;
     }
-
-    // ─── Schema building (absorbed from SchemaBuilder) ───────────────────────
 
     private function buildSchema(array $auditConfig): array
     {

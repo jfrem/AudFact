@@ -1,5 +1,25 @@
 # Changelog AudFact
 
+## [2026-04-28] — Docs Sync: Pipeline event-driven & TipoCampo
+
+### 📚 Documentation / Skills
+- **DOCS-SYNC-002**: Sincronización tras detectar drift acumulado contra refactors AUDIT-013/014/015/016 y validación contra el caso golden `T38250701547` (NitSec 2426).
+  - **Skill `audfact-audit-gemini`**: bootstrap unificado a `bin/audit-worker.php <rol>` (era lista de 5 binarios consolidados en AUDIT-015), eliminadas filas de archivos fusionados (`DocumentNormalizationWorker`, `AuditResultAggregator`, `ExtractionCache`, `SchemaBuilder` — AUDIT-014), corregido naming TipoCampo (el enum `AuditComparisonType::fromTipoCampo()` mapea `E` como default → `EXACT`; el código `D` no existe), eliminada regla "factor de empaque NitSec=2426 ≤ 5 unidades / `ACEPTADO_POR_EMPAQUE`" (no implementada en código), agregadas secciones para mecanismo `omitirSi` (`fdv_has`/`fdv_missing`/`doc_quality`), agregación de items en reglas `B` (sumatoria pre-comparación) y contrato real de hallazgo, nota técnica sobre thinking tokens en Gemini 3.x, removida referencia al `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md` eliminado en AUDIT-016.
+  - **Skill `audfact-project-overview`**: reemplazado el flujo monolítico (`AuditOrchestrator.auditInvoice` + `EmbeddingGateway` + `RuleEngine` + `AuditPersistenceService`) por el flujo event-driven actual (orchestrator → extraction → normalizer → policy → aggregator); conteos actualizados (8→11 controllers, 6→7 models, 11→22 archivos en `Services/Audit`); endpoints 17→22 con `audit-config`, DLQ y timings; patrones actualizados (Template Method, Lua scripts, Builder dinámico).
+  - **`CATALOG.md`**: eliminada fila `app/Services/Audit/AuditOrchestrator.php` (no existe), agregada `Pipeline/DocumentAuditOrchestrator.php` y wildcard `Pipeline/*.php`; descripción y triggers de `audfact-audit-gemini` actualizados.
+  - **`AGENTS.md`**: corregido namespace `Events/ → Pipeline/` en archivos críticos del pipeline; reemplazada referencia a `AuditPromptBuilder.php` (eliminado) por construcción dinámica del schema/prompts en `DocumentAuditOrchestrator` y `DocumentExtractionWorker`.
+  - **TODO de negocio**: la regla "factor de empaque ≤ 5 unidades para NitSec=2426 con warning `ACEPTADO_POR_EMPAQUE`" se eliminó de la skill por no estar implementada (0 hits en código). Si el negocio aún la requiere, debe registrarse como nuevo ticket de implementación (puede vivir en `DocumentPolicyEngine` o como `omitirSi` en el `audit-config` de 2426).
+  - **Drift residual fuera de alcance**: la carpeta `tests/Services/Audit/Events/` no fue renombrada a `Pipeline/` cuando el código de producción se renombró (AUDIT-013). Pendiente como tarea separada de testing.
+
+## [2026-04-28] — Docs Sync: Perfiles Gemini y Fallback Semántico
+
+### 📚 Documentation / Skills
+- **DOCS-SYNC**: Sincronización documental posterior a la corrección del pipeline Gemini.
+  - **Skills actualizadas**: `audfact-audit-gemini` documenta `GeminiConfig`, `SemanticMatchJudge`, métricas Gemini por tarea, perfiles `GEMINI_EXTRACTION_*` / `GEMINI_SEMANTIC_*`, fallback limpio y no-cache de fallos transitorios.
+  - **Runtime actualizado**: `audfact-runtime-docker` documenta que PHP/workers usan código baked en imagen y requieren rebuild/recreate tras cambios de backend.
+  - **Documentación humana verificada**: `AGENTS.md` ya contiene el catálogo de variables Gemini por tarea; `CHANGELOG.md` ya registra el cambio user-facing.
+  - **Validación base**: Golden Case `T38250701547` mantiene `manual_review`, 34 coincidencias, 1 discrepancia y 1 no concluyente; la respuesta ya no persiste errores técnicos de Gemini.
+
 ## [2026-04-28] — Optimización de Performance: Pro-Parallel (82s → 34s)
 
 ### ⚡ Performance / Infrastructure

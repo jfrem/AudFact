@@ -1,3 +1,19 @@
+<!-- DOCS-SYNC-002 (2026-04-28): banner de obsolescencia agregado tras detectar drift contra el pipeline event-driven actual. -->
+
+> [!CAUTION]
+> **Documento obsoleto** (post AUDIT-013/014/015 del 2026-04-27).
+>
+> Este archivo describe el pipeline **monolítico pre-event-driven** y referencia archivos que ya no existen (`AuditOrchestrator`, `ExtractionPromptBuilder`, `EmbeddingGateway`, `SemanticComparator`, `RuleEngine`, `AuditResponseSchema`, `AuditPreValidator`, `AuditPersistenceService`, `AuditTelemetryService`, `AuditQueueService`, `AuditOrchestratorFactory`, `AuditFileManager`, `ExtractionResponseSchema`).
+>
+> **Fuentes de verdad actuales**:
+> - Skill `audfact-audit-gemini` → `.agent/skills/audfact-audit-gemini/SKILL.md`
+> - `plans/architecture.md` (estructura `Pipeline/` con 13 archivos)
+> - `app/Services/Audit/Pipeline/` (código real)
+>
+> El contenido histórico se preserva intencionalmente; pendiente reescritura completa como TODO separado.
+
+---
+
 # Feature: Pipeline de Auditoría con Gemini Flash
 
 ## Descripción

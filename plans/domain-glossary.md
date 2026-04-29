@@ -45,8 +45,7 @@
 | Término | Significado |
 |---|---|
 | **Auditoría batch** | Proceso que analiza múltiples facturas en una sola solicitud |
-| **AuditOrchestrator** | Servicio PHP que orquesta la comunicación con Google Gemini API y coordina el pipeline de auditoría |
-| **ExtractionPromptBuilder** | Clase que construye el prompt de extracción v4 sin reglas de negocio |
-| **ExtractionResponseSchema** | Schema de Function Calling usado para recibir `report_extraction` desde Gemini |
-| **RuleEngine** | Motor determinista PHP que evalúa discrepancias, severidades y risk score |
+| **DocumentAuditOrchestrator** | Worker que orquesta la resolución de FDV, adjuntos y construcción del function declaration para Gemini |
+| **extract_document_data** | Function Calling de Gemini parametrizado dinámicamente según audit-config para extraer datos de documentos |
+| **DocumentPolicyEngine** | Motor determinista PHP que evalúa discrepancias, severidades y emite hallazgos contra rules del audit-config |
 | **EstAud** | Campo en `AudDispEst` que almacena el estado de la auditoría |

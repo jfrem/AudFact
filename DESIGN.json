@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-04-29T02:10:00Z",
+  "title": "Design System: AudFact",
+  "extensions": {
+    "colorMeta": {
+      "deep-ink":           { "role": "neutral",  "displayName": "Deep Ink",            "canonical": "oklch(12% 0.02 250)",   "tonalRamp": ["#040810", "#060b14", "#09111d", "#0d1724", "#111c2b", "#1a2840", "#243555", "#2e426a"] },
+      "slate-surface":      { "role": "neutral",  "displayName": "Slate Surface",       "canonical": "oklch(18% 0.02 250)",   "tonalRamp": ["#06090f", "#0a1018", "#111c2b", "#17253a", "#1e2f4a", "#253a5c", "#2d456e", "#355080"] },
+      "elevated-slate":     { "role": "neutral",  "displayName": "Elevated Slate",      "canonical": "oklch(15% 0.02 250)",   "tonalRamp": ["#050911", "#081019", "#0d1724", "#121e30", "#17253c", "#1d2d48", "#233556", "#293e64"] },
+      "clinical-sky":       { "role": "primary",  "displayName": "Clinical Sky",        "canonical": "oklch(72% 0.14 230)",   "tonalRamp": ["#0a2a4d", "#134080", "#1d5ab3", "#2974e6", "#57b0ff", "#7bc4ff", "#9ed5ff", "#c2e5ff"] },
+      "clinical-sky-strong":{ "role": "primary",  "displayName": "Clinical Sky Strong",  "canonical": "oklch(58% 0.22 250)",   "tonalRamp": ["#0a1e47", "#103180", "#164ab9", "#197dff", "#3d8fff", "#61a1ff", "#85b4ff", "#a9c7ff"] },
+      "foreground-bright":  { "role": "neutral",  "displayName": "Foreground Bright",   "canonical": "oklch(96% 0.01 240)",   "tonalRamp": ["#4a5568", "#718096", "#a0aec0", "#cbd5e1", "#e2e8f0", "#edf2f7", "#eef4fc", "#f7fafc"] },
+      "muted-steel":        { "role": "neutral",  "displayName": "Muted Steel",         "canonical": "oklch(74% 0.02 240)",   "tonalRamp": ["#2d3748", "#4a5568", "#718096", "#8a9bb5", "#9db0c7", "#b0c4d6", "#c4d7e5", "#d8eaf4"] },
+      "verdict-pass":       { "role": "semantic", "displayName": "Verdict Pass",        "canonical": "oklch(72% 0.18 155)",   "tonalRamp": ["#04361e", "#085a33", "#0c7e48", "#10a25e", "#16c784", "#40d49d", "#6ae1b6", "#94eecf"] },
+      "verdict-warning":    { "role": "semantic", "displayName": "Verdict Warning",     "canonical": "oklch(80% 0.14 75)",    "tonalRamp": ["#4d2e00", "#804d00", "#b36c00", "#e68b00", "#ffb84d", "#ffc870", "#ffd894", "#ffe8b8"] },
+      "verdict-fail":       { "role": "semantic", "displayName": "Verdict Fail",        "canonical": "oklch(68% 0.18 15)",    "tonalRamp": ["#4d0f15", "#801a23", "#b32631", "#e6323f", "#ff6b7a", "#ff8a96", "#ffa9b2", "#ffc9ce"] },
+      "human-violet":       { "role": "semantic", "displayName": "Human Violet",        "canonical": "oklch(68% 0.16 300)",   "tonalRamp": ["#2a1a4d", "#442b80", "#5e3db3", "#784fe6", "#b892ff", "#c8a8ff", "#d8bfff", "#e8d5ff"] }
+    },
+    "typographyMeta": {
+      "display":  { "displayName": "Display",  "purpose": "Page titles only. One per view. Space Grotesk." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles inside cards. Space Grotesk." },
+      "body":     { "displayName": "Body",     "purpose": "Data content and descriptions. IBM Plex Sans. Max 65-75ch." },
+      "label":    { "displayName": "Label",    "purpose": "Eyebrows, categories, sidebar section dividers. Uppercase tracking." }
+    },
+    "shadows": [
+      { "name": "ambient-low",  "value": "0 4px 16px rgba(2, 8, 23, 0.12)",  "purpose": "Card hover only. Not visible at rest." },
+      { "name": "ambient-soft", "value": "0 8px 24px rgba(2, 8, 23, 0.2)",   "purpose": "Popovers and mobile drawers only." }
+    ],
+    "motion": [
+      { "name": "ease-standard",   "value": "cubic-bezier(0.16, 1, 0.3, 1)",  "purpose": "Fade-in-up, stagger children. Exponential ease-out." },
+      { "name": "ease-out-simple",  "value": "ease-out",                       "purpose": "Backdrop and drawer transitions." },
+      { "name": "transition-fast",  "value": "150ms ease",                     "purpose": "Hover state color shifts." },
+      { "name": "transition-base",  "value": "200ms ease",                     "purpose": "General state transitions." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main CTA. Sky accent on dark ground. Used sparingly.",
+      "html": "<button class=\"ds-btn-primary\">Nueva auditoría</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; background: #57b0ff; color: #09111d; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; font-weight: 500; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease; } .ds-btn-primary:hover { background: #6bbfff; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(87,176,255,0.38); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action. Transparent with faint border.",
+      "html": "<button class=\"ds-btn-outline\">Filtrar</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 8px 16px; background: rgba(255,255,255,0.03); color: #e2e8f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; font-weight: 500; border: 1px solid rgba(148,163,184,0.14); border-radius: 8px; cursor: pointer; transition: background 150ms ease, border-color 150ms ease; } .ds-btn-outline:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.14); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(87,176,255,0.18); }"
+    },
+    {
+      "name": "Surface Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "Primary data container. Flat at rest, subtle hover glow.",
+      "html": "<div class=\"ds-card\"><h2 class=\"ds-card-title\">Distribución de estados</h2><div class=\"ds-card-body\">Content area</div></div>",
+      "css": ".ds-card { background: #111c2b; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; color: #eef4fc; transition: border-color 180ms ease, box-shadow 180ms ease; } .ds-card:hover { border-color: rgba(148,163,184,0.18); } .ds-card-title { font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; color: #fff; margin: 0 0 16px 0; } .ds-card-body { font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 1.5; color: #9db0c7; }"
+    },
+    {
+      "name": "Default Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Text field for filters, search, invoice number entry.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Factura (FacNro)\" />",
+      "css": ".ds-input { width: 100%; height: 40px; padding: 8px 12px; background: rgba(255,255,255,0.03); color: #eef4fc; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; border: 1px solid rgba(148,163,184,0.14); border-radius: 8px; outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-input::placeholder { color: #718096; } .ds-input:focus { border-color: rgba(255,255,255,0.14); box-shadow: 0 0 0 3px rgba(87,176,255,0.18); }"
+    },
+    {
+      "name": "Nav Item Active",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Active sidebar navigation link with left accent line.",
+      "html": "<a class=\"ds-nav-item ds-nav-active\" href=\"#\"><svg class=\"ds-nav-icon\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" width=\"20\" height=\"20\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\"/></svg><span>Dashboard</span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: 8px; border: 1px solid transparent; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; font-weight: 500; color: #94a3b8; text-decoration: none; transition: color 150ms ease, background 150ms ease, border-color 150ms ease; position: relative; } .ds-nav-item:hover { color: #e2e8f0; background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.1); } .ds-nav-active { color: #fff; background: rgba(255,255,255,0.06); border-color: rgba(56,189,248,0.3); } .ds-nav-active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; border-radius: 999px; background: #38bdf8; } .ds-nav-icon { width: 20px; height: 20px; flex-shrink: 0; } .ds-nav-active .ds-nav-icon { color: #7dd3fc; }"
+    },
+    {
+      "name": "Verdict Badge",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "Compact circular audit result indicator for tables.",
+      "html": "<span class=\"ds-verdict ds-verdict-pass\">C</span><span class=\"ds-verdict ds-verdict-fail\">R</span>",
+      "css": ".ds-verdict { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 11px; font-weight: 700; line-height: 1; } .ds-verdict-pass { background: #16c784; color: #fff; } .ds-verdict-fail { background: #ff6b7a; color: #fff; } .ds-verdict-warning { background: #ffb84d; color: #09111d; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El Escritorio del Forense",
+    "overview": "Cada pieza de evidencia visible, limpia, trazable. Sin decoración, pura sustancia. La interfaz de AudFact no intenta impresionar con efectos visuales: impone respeto con la claridad de sus datos y la precisión de su tipografía. Un auditor abre esta herramienta para trabajar, no para admirarla. El sistema rechaza explícitamente lo que PRODUCT.md llama 'otro Dashboard más': nada de grids de tarjetas idénticas, nada de gráficos decorativos sin acción asociada, nada de fondos coloridos que enmascaren la falta de jerarquía tipográfica.",
+    "keyCharacteristics": [
+      "Densidad informativa alta con legibilidad controlada",
+      "Separación por tipografía y espacio, no por contenedores",
+      "Paleta restringida: neutrales teñidos de azul + un único acento sky",
+      "Instrumentalidad: cada elemento para acción o lectura",
+      "Dark mode calibrado para jornadas largas (WCAG AA)"
+    ],
+    "rules": [
+      { "name": "The Forensic Restraint Rule",  "body": "El acento sky aparece en ≤10% de la superficie visible. Su escasez es lo que le da autoridad.",  "section": "colors" },
+      { "name": "The Tonal Depth Rule",          "body": "La profundidad se comunica con luminosidad, no con sombras ni bordes gruesos. Deep Ink → Elevated Slate → Slate Surface es toda la jerarquía.",  "section": "colors" },
+      { "name": "The No-Default Rule",           "body": "IBM Plex Sans e Space Grotesk son obligatorias. Inter, Arial y system-ui están prohibidas como fuente visible.",  "section": "typography" },
+      { "name": "The Flat Evidence Rule",        "body": "Ninguna superficie muestra sombra en reposo. Las sombras aparecen solo como respuesta a estado.",  "section": "elevation" }
+    ],
+    "dos": [
+      "Do usar diferencia tonal para crear profundidad, nunca sombras en reposo.",
+      "Do mantener el acento sky por debajo del 10% de superficie visible.",
+      "Do usar Space Grotesk para títulos e IBM Plex Sans para todo lo demás.",
+      "Do respetar tracking 0.22em en labels uppercase.",
+      "Do aplicar ease-out exponencial (cubic-bezier(0.16, 1, 0.3, 1)).",
+      "Do respetar prefers-reduced-motion desactivando animaciones.",
+      "Do usar verdict badges como sistema semántico cerrado."
+    ],
+    "donts": [
+      "Don't crear tarjetas anidadas dentro de tarjetas.",
+      "Don't usar la plantilla hero-metric sin contexto accionable.",
+      "Don't usar gráficos decorativos sin acción derivada.",
+      "Don't usar border-left/right mayor a 1px como acento colorido.",
+      "Don't usar texto con gradiente (background-clip: text).",
+      "Don't usar glassmorphism como patrón de superficie por defecto.",
+      "Don't usar Inter, Arial o system-ui como fuente visible.",
+      "Don't usar #000 o #fff puros.",
+      "Don't usar bounce o elastic easing.",
+      "Don't crear grids de cards idénticas sin jerarquía de escala."
+    ]
+  }
+}

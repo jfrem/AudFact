@@ -24,7 +24,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM |
 | `public/index.php` | 2 KB | Bootstrap: env, CORS, rate limit, dispatch |
 | `.env` | 2.5 KB | Variables de entorno (secretos) |
-| `.env.example` | 737 B | Template de variables |
+| `.env.example` | ~3 KB | Template de variables, incluyendo perfiles Gemini por tarea |
 
 ## Arquitectura de red
 
@@ -62,6 +62,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `APP_ENV` | `development` | Entorno (development/production) |
 | `DB_HOST` | `host.docker.internal` | Host SQL Server |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | URL API para el browser |
+| `GEMINI_MODEL` | `gemini-3.1-pro-preview` | Modelo de auditoría IA |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para extracción documental |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 
 ## Flujo de revisión
 1. Verificar servicios en `docker-compose.yml` y `docker-compose.frontend.yml`.
@@ -79,6 +82,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 2. **No intentar build de frontend sin `output: standalone`** en `next.config.ts`.
 3. **No instalar extensiones PHP sin agregarlas al Dockerfile**.
 4. **No usar `docker compose up` sin `--build`** tras cambios en código de imagen inmutable.
+5. **No asumir hot reload del backend**: PHP y workers ejecutan código baked en imagen; tras cambios de código se requiere rebuild/recreate del servicio afectado.
 
 ## Comandos útiles
 ```bash

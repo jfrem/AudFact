@@ -80,10 +80,6 @@ abstract class AuditEventConsumer
                 );
             } catch (\Exception $e) {
                 if (stripos($e->getMessage(), 'NOGROUP') !== false) {
-                    // NOGROUP during the running loop means the group was destroyed after
-                    // startup — an extraordinary condition (Redis data loss, manual deletion).
-                    // Silently recreating with '0' would re-expose historical stream messages
-                    // and risk duplicate audit processing. Fail loudly instead.
                     throw new RuntimeException(
                         "Consumer group '{$this->group()}' desapareció en runtime en stream '{$this->stream()}'. Requiere intervención manual.",
                         0,
@@ -108,8 +104,6 @@ abstract class AuditEventConsumer
 
     private function reclaimPending(): void
     {
-        // Recupera mensajes del PEL de cualquier consumer que murió antes de hacer ACK.
-        // Se ejecuta una vez al arrancar, antes del bucle principal.
         $minIdleMs = max($this->blockMs * 2, 30_000);
         $cursor = '0-0';
 
@@ -131,10 +125,6 @@ abstract class AuditEventConsumer
 
     private function ensureGroup(): void
     {
-        // '0' instead of '$': new groups start from the beginning of the stream so events
-        // published before the worker started are not silently skipped. BUSYGROUP (group
-        // already exists) is handled inside xGroupCreate and still returns true without
-        // moving the cursor. xGroupCreate throws RedisUnavailableException on any real error.
         $this->redis->xGroupCreate($this->stream(), $this->group(), '0');
     }
 

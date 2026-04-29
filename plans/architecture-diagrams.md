@@ -1,5 +1,16 @@
 # Diagramas de Arquitectura — AudFact (C4 Model)
 
+> **[OBSOLETO POST-AUDIT-013/014/015]** Este documento describe la arquitectura monolítica anterior.  
+> **Arquitectura actual**: Pipeline event-driven con Redis Streams y 5 workers independientes.  
+> **Referencias actualizadas**:
+> - Skill: [`.agent/skills/audfact-audit-gemini/SKILL.md`](./.agent/skills/audfact-audit-gemini/SKILL.md) — flujo completo y workers  
+> - Architecture: [`plans/architecture.md`](./architecture.md) — diagrama event-driven  
+> - Project overview: [`.agent/skills/audfact-project-overview/SKILL.md`](./.agent/skills/audfact-project-overview/SKILL.md) — endpoints y flujo  
+>
+> Si necesitas diagramas C4 de la arquitectura actual, abre un ticket DOCS-*.
+
+---
+
 ## Level 1 — System Context
 
 ```mermaid

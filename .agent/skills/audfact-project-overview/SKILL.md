@@ -31,30 +31,37 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 AudFact/
 ├── frontend/           # Aplicación Next.js (Dashboard + Gestión)
 ├── app/
-│   ├── Controllers/     # 8 controladores HTTP (incluye base)
-│   ├── Models/          # 6 modelos SQL Server
-│   ├── Services/        # GoogleDrive + Audit/ (11 servicios) + prompts
-│   ├── Routes/web.php   # 17 endpoints
+│   ├── Controllers/     # 11 controladores HTTP (incluye base)
+│   ├── Models/          # 7 modelos SQL Server (incluye base Model.php)
+│   ├── Services/        # GoogleDrive + Audit/ (22 archivos: Pipeline/, Debug/, raíz)
+│   ├── Routes/web.php   # 19 endpoints
 │   └── wrap/            # Integración MCP (4 tools)
-├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route
+├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # php (HA: 5 réplicas) + nginx
-├── tests/               # CLI tests + install script
-├── responseIA/          # Resultados de auditoría IA
-└── logs/                # Logs rotativos
+├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (orchestrator, extraction×5, normalizer, policy, aggregator)
+├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
+├── tests/               # PHPUnit (Controllers, Models, Services)
+├── responseIA/          # Snapshots de request/response Gemini (debug)
+└── logs/                # Logs rotativos por hostname (HA-safe)
 ```
 
-## Endpoints REST (17)
+## Endpoints REST (22)
+
+> Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
 | Método | URI | Controlador |
 |---|---|---|
 | GET | `/` | Controller::index |
 | GET | `/health` | HealthController::status |
+| GET | `/metrics/async` | ObservabilityController::asyncMetrics |
 | GET | `/config/public` | ConfigController::publicConfig |
 | GET | `/clients` | ClientsController::index |
 | GET | `/clients/{clientId}` | ClientsController::show |
+| GET | `/clients/{clientId}/documents` | ClientsController::documents |
 | POST | `/clients` | ClientsController::lookup |
+| GET | `/clients/{clientId}/audit-config` | AuditConfigController::show |
+| POST | `/clients/{clientId}/audit-config` | AuditConfigController::save |
 | GET | `/invoices` | InvoicesController::index |
 | POST | `/invoices` | InvoicesController::search |
 | GET | `/dispensation/{invoiceId}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
@@ -63,24 +70,47 @@ AudFact/
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
 | GET | `/audit/documents-history` | AuditController::documentsHistory |
-| POST | `/audit` | AuditController::run |
 | POST | `/audit/single` | AuditController::single |
 | POST | `/audit/async` | AuditController::async |
 | GET | `/audit/jobs/{jobId}` | AuditController::jobStatus |
+| GET | `/audit/{facNro}/timings` | AuditController::timings |
+| GET | `/audit/dlq` | AuditDlqController::index |
+| POST | `/audit/dlq/reprocess` | AuditDlqController::reprocess |
 
-## Flujo principal — Auditoría IA
+## Flujo principal — Auditoría IA (event-driven)
+
+Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa es un worker independiente que consume un evento y publica el siguiente:
 
 ```
-1. POST /audit → AuditController
-2. → AuditOrchestrator.auditInvoice()
-3.   → DispensationModel (source of truth)
-4.   → AttachmentsModel → AuditFileManager (BLOB a memoria | Drive URL descarga)
-5.   → ExtractionPromptBuilder + ExtractionResponseSchema (Function Calling)
-6.   → GeminiGateway (retry + backoff)
-7.   → EmbeddingGateway + SemanticComparator
-8.   → RuleEngine (evaluación determinista)
-9.   → AuditPersistenceService → AudDispEst (upsert)
-10.  → AuditTelemetryService (métricas)
+1. POST /audit/single → AuditController::single
+   └─ publica `audit_created` en stream `audit.inbox` (202 con audit_id)
+
+2. DocumentAuditOrchestrator (group: orchestrator)
+   ├─ resuelve FDV (DispensationModel) + audit-config (AuditConfigModel) + adjuntos
+   ├─ construye function declaration `extract_document_data` desde audit-config
+   └─ publica N × `document_registered` en `audit.documents`
+
+3. DocumentExtractionWorker (group: extractors, ×5 réplicas)
+   ├─ descarga adjunto (Drive URL o BLOB)
+   ├─ document_hash = sha256(file) → cache Redis
+   └─ Gemini function calling → publica `document_extracted`
+
+4. DocumentNormalizer (group: normalizers)
+   ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío
+   └─ publica `document_normalized`
+
+5. RulesEvaluationWorker (group: policy)
+   ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
+   ├─ SemanticMatchJudge como fallback de homologación de artículos
+   └─ cuando docs_done == docs_total, publica `rules_evaluated` en `audit.results`
+
+6. AuditAggregationWorker (group: aggregator)
+   ├─ AuditResultData + documentDecisions
+   ├─ AuditStatusModel.persistAuditResultWithAttachments()
+   │    → MERGE Discolnet.dbo.AudDispEst + UPDATE AdjuntosDispensacionDetalle
+   └─ publica `audit_completed` | `audit_failed` | `batch_completed[_with_errors]`
+
+Reintentos por evento → DLQ (`audit.dlq`) tras AUDIT_EVENT_MAX_RETRIES (3).
 ```
 
 ## Skills disponibles
@@ -96,12 +126,14 @@ AudFact/
 
 ## Patrones de diseño
 
-- **Singleton**: `Database::getConnection()` — pool de conexiones PDO.
-- **Strategy**: `GoogleDriveServiceInterface`.
-- **Builder**: `ExtractionPromptBuilder`.
-- **Chain of Responsibility**: Middleware pipeline.
+- **Singleton**: `Database::getConnection()` — pool de conexiones PDO (default + db2).
+- **Strategy**: `AuditDataServiceInterface`, `AttachmentDownloadServiceInterface`.
+- **Template Method**: `AuditEventConsumer` (XREADGROUP + ack + retry + DLQ; subclases sólo implementan `handle()`).
+- **Builder dinámico**: function declaration `extract_document_data` armado desde `audit-config` en `DocumentAuditOrchestrator`.
+- **Chain of Responsibility**: Middleware pipeline en `Core\Router`.
 - **Facade**: `Response::success()` / `Response::error()`.
-- **Retry with Backoff**: `sendGeminiRequestWithRetry()`.
+- **Retry with Backoff**: `GeminiGateway` con `GeminiCircuitBreaker`.
+- **Idempotencia con scripts Lua**: `AuditStateStore` (`STORE_RULES_EVALUATION_LUA`, `COMPLETE_AUDIT_LUA`, `REGISTER_DOCUMENT_LUA`).
 
 ## Instrucciones para el agente
 

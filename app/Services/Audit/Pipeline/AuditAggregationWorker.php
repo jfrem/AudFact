@@ -32,26 +32,48 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
     }
 
+    /**
+     * Procesa un evento de auditoría.
+     * @param AuditEvent $event
+     * @return void
+     */
     public function processEvent(AuditEvent $event): void
     {
         $this->handle($event);
     }
 
+    /**
+     * Retorna el stream del consumer.
+     * @return string
+     */
     protected function stream(): string
     {
         return AuditEventPublisher::STREAM_RESULTS;
     }
 
+    /**
+     * Retorna el grupo del consumer.
+     * @return string
+     */
     protected function group(): string
     {
         return 'aggregator';
     }
 
+    /**
+     * Retorna el nombre del consumer.
+     * @return string
+     */
     protected function consumer(): string
     {
         return $this->consumerName;
     }
 
+    /**
+     * Maneja el evento de auditoría.
+     * @param AuditEvent $event
+     * @return void
+     */
     protected function handle(AuditEvent $event): void
     {
         if ($event->eventType !== AuditEvent::TYPE_RULES_EVALUATED) {
@@ -130,9 +152,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
         ]);
     }
 
-    // ─── Phase timing helpers ─────────────────────────────────────────────────
-
     /**
+     * Construye los tiempos de las fases de la auditoría.
      * @param  array<string,mixed> $audit
      * @return array<string,mixed>
      */
@@ -204,6 +225,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Resume los tiempos de un array de valores enteros.
      * @param  array<int,int> $values
      * @return array<string,int|float>
      */
@@ -225,8 +247,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
             'p95_ms' => $values[$p95index],
         ];
     }
-
-    // ─── Aggregation logic (absorbed from AuditResultAggregator) ─────────────
 
     /**
      * @param  array<string,mixed> $audit
@@ -315,6 +335,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Normaliza los hallazgos de la auditoría.
      * @return array<int,array<string,mixed>>
      */
     private function normalizeFindings(mixed $findings): array
@@ -326,6 +347,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Normaliza las métricas de la auditoría.
      * @return array<string,int>
      */
     private function normalizeMetrics(mixed $metrics): array
@@ -351,6 +373,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Normaliza las decisiones documentales.
      * @return array<int,array{documentName:string,approved:bool,observation:?string}>
      */
     private function normalizeDocumentDecisions(mixed $decisions): array
@@ -382,6 +405,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Resuelve el estado final de la auditoría basado en los hallazgos y decisiones documentales.
      * @param  array<int,array<string,mixed>> $findings
      * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
      */
@@ -426,6 +450,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Resuelve la severidad general de la auditoría.
      * @param  array<int,array<string,mixed>> $findings
      */
     private function resolveOverallSeverity(array $findings): string
@@ -445,6 +470,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Resuelve el documento que falló en la auditoría.
      * @param  array<int,array<string,mixed>> $findings
      */
     private function resolveFailedDocument(array $findings): ?string
@@ -475,6 +501,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Construye un mensaje de detalle basado en el estado final y las métricas de la auditoría.
      * @param  array<string,int> $metrics
      */
     private function buildDetailMessage(string $finalStatus, array $metrics): string
@@ -496,6 +523,9 @@ final class AuditAggregationWorker extends AuditEventConsumer
     }
 
     /**
+     * Calcula la duración total de la auditoría en milisegundos, restando el tiempo
+     * dedicado a llamadas a Gemini desde el tiempo transcurrido entre creación y
+     * finalización.
      * @param  array<string,mixed> $audit
      */
     private function resolveDurationMs(array $audit): int
@@ -506,8 +536,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         try {
-            // Soporta timestamps con microsegundos (Y-m-d\TH:i:s.u\Z) generados por nowUtc()
-            // y también el formato legacy sin microsegundos (Y-m-d\TH:i:s\Z).
             $created = new \DateTimeImmutable($createdAt, new \DateTimeZone('UTC'));
             $now     = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
         } catch (\Throwable) {
@@ -528,9 +556,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
         return str_replace('_', ' ', strtoupper($trimmed));
     }
 
-    // ─── Failure handling & batch terminal ────────────────────────────────────
-
     /**
+     * Maneja el fallo final de la auditoría, actualizando el estado y persistiendo los resultados.
      * @param  array<string,mixed> $aggregate
      */
     private function handleFinalFailure(AuditEvent $event, array $aggregate, \Throwable $error): void
@@ -564,6 +591,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
     }
 
+    /**
+     * Publica un evento terminal del batch si se cumplen las condiciones.
+     * @param string $jobId
+     * @param string $auditId
+     * @param string $parentEventId
+     */
     private function publishBatchTerminalEventIfNeeded(string $jobId, string $auditId, string $parentEventId): void
     {
         $job = $this->jobStore->getJob($jobId);

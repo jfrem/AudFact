@@ -437,7 +437,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Pipeline de auditoría IA
 
-- **Archivos críticos**: `app/Services/Audit/Events/DocumentPolicyEngine.php` y `app/Services/Audit/Events/AuditAggregationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
+- **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/AuditAggregationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
 - **Pipeline event-driven actual**: `audit_created -> document_registered -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
 - **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizationWorker`, `RulesEvaluationWorker`, `AuditAggregationWorker`
 - **Agregación final**: `AuditResultAggregator` transforma `rules_evaluated` + estado Redis a `auditResultData` y `documentDecisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
@@ -446,7 +446,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
-- **Prompts**: definidos en `app/Services/Audit/AuditPromptBuilder.php` — cualquier cambio afecta la calidad de las auditorías
+- **Schema y prompts**: construidos dinámicamente en `DocumentAuditOrchestrator` (function declaration `extract_document_data`, parametrizado por `audit-config`) y en `DocumentExtractionWorker` (user prompt por documento). Cualquier cambio afecta la calidad de las auditorías.
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño
 - **Respuestas JSON de Gemini**: pueden llegar truncadas o malformadas — siempre usar `JsonResponseParser` con `JsonRepairHelper`
 

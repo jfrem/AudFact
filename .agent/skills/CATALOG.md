@@ -8,7 +8,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 |---|---|---|---|
 | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
 | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
-| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` | Pipeline con Gemini y servicios (AuditOrchestrator). |
+| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (Pipeline + Debug) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator` + 4 workers (extraction, normalizer, policy, aggregator) sobre Redis Streams. |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml` | Entorno Docker y conectividad DB. |
@@ -23,6 +23,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
 | `clean-rebuild-policy` | Gobernanza Técnica | Repositorio completo | Política para proyectos en fase temprana: reconstrucción limpia, sin legacy, enfocada en MVP. |
 | `ui-ux-pro-max` | UI/UX Design | `frontend/*`, `public/assets/*` | Inteligencia de diseño para web/móvil: 50+ estilos, sistemas de color, tipografía y accesibilidad. |
+| `impeccable` | UI/UX Design | `frontend/*` | The vocabulary you didn't know you needed. 23 commands y anti-patrones para un diseño frontend impecable. |
 
 ## Triggers Sugeridos por Skill
 
@@ -32,7 +33,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 |---|---|
 | `audfact-project-overview` | overview, visión general, arquitectura, cómo está organizado, mapear dependencias, estructura del proyecto |
 | `audfact-api-rest` | endpoint, ruta, controller, request/response, validación HTTP, web.php, API REST |
-| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, retry/backoff, AuditOrchestrator |
+| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, retry/backoff, DocumentAuditOrchestrator, workers, Pipeline event-driven, DLQ |
 | `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
 | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
 | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
@@ -44,6 +45,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `technical-governance-assessment` | ownership, gobernanza, estándares, code review process, roadmap técnico |
 | `clean-rebuild-policy` | reconstrucción, clean rebuild, MVP, arquitectura desacoplada, eliminar legacy, desde cero |
 | `ui-ux-pro-max` | UI/UX, diseño, accesibilidad, tipografía, paleta de colores, mockup, prototipado, landing page, dashboard |
+| `impeccable` | impeccable, audit UI, diseño frontend, anti-patrones, polish UI, diseño |
 
 ## Bundles
 
@@ -63,7 +65,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Controllers/*.php` | `audfact-api-rest` |
 | `app/Models/*.php` | `audfact-sqlsrv-models` |
 | `core/Database.php` | `audfact-sqlsrv-models` |
-| `app/Services/Audit/AuditOrchestrator.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/Pipeline/*.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/*.php` | `audfact-audit-gemini` |
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
@@ -76,7 +79,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
 | Todo código nuevo o modificado | `clean-rebuild-policy` |
-| `frontend/**/*.tsx`, `frontend/**/*.css` | `ui-ux-pro-max` |
+| `frontend/**/*.tsx`, `frontend/**/*.css` | `ui-ux-pro-max`, `impeccable` |
 
 ---
 
