@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Services\Audit;
 
 use App\Services\Audit\Debug\ResponseIADiskStore;
@@ -15,9 +13,6 @@ use RuntimeException;
 
 class GeminiGateway
 {
-    public const TASK_EXTRACTION = 'extraction';
-    public const TASK_SEMANTIC_MATCH = 'semantic_match';
-
     private const MAX_API_RETRIES = 3;
     private const BASE_RETRY_DELAY_MS = 1000;
     private const RETRYABLE_HTTP_CODES = [429, 503, 500, 502, 504];
@@ -72,7 +67,6 @@ class GeminiGateway
      * @param  string $systemInstruction  Instrucción de sistema.
      * @param  array<int, array<string, mixed>> $tools  Declaraciones de funciones.
      * @param  array<string, mixed> $toolConfig  Configuración de function calling.
-     * @param  string $taskType Perfil explícito de tarea Gemini.
      * @param  array<string, mixed> $generationOverrides  Sobrecargas de generación (temp, tokens, etc).
      * @param  array<string, mixed>|null $debugContext  Metadata de trazabilidad para debug (audit_id, document_id, etc).
      * @return array<string, mixed>
@@ -83,16 +77,15 @@ class GeminiGateway
         string $systemInstruction,
         array $tools,
         array $toolConfig,
-        string $taskType,
         array $generationOverrides = [],
         ?array $debugContext = null
     ): array {
-        $ctx = array_merge($debugContext ?? [], ['task_type' => $taskType]);
+        $ctx = $debugContext ?? [];
 
         $this->circuitBreaker->check();
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
-        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $tools, $toolConfig, $taskType, $generationOverrides);
+        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $tools, $toolConfig, $generationOverrides);
 
         $lastException = null;
 
@@ -207,7 +200,6 @@ class GeminiGateway
      * @param  array<int, array<string, mixed>> $files
      * @param  array<int, array<string, mixed>> $tools
      * @param  array<string, mixed> $toolConfig
-     * @param  string $taskType
      * @param  array<string, mixed> $generationOverrides
      * @return array<string, mixed>
      */
@@ -217,14 +209,9 @@ class GeminiGateway
         string $systemInstruction,
         array $tools,
         array $toolConfig,
-        string $taskType,
         array $generationOverrides = []
     ): array {
-        $this->assertTaskProfile($taskType, $files);
-        $generationConfig = $this->config->toGenerationConfig(
-            $generationOverrides,
-            $taskType === self::TASK_EXTRACTION
-        );
+        $generationConfig = $this->config->toGenerationConfig($generationOverrides);
 
         $parts = [['text' => $prompt]];
 
@@ -252,28 +239,6 @@ class GeminiGateway
             'generationConfig' => $generationConfig,
             'safetySettings' => $this->getSafetySettings(),
         ];
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function assertTaskProfile(string $taskType, array $files): void
-    {
-        if ($taskType === self::TASK_EXTRACTION) {
-            if ($files === []) {
-                throw new RuntimeException('Perfil Gemini extraction requiere al menos un archivo');
-            }
-            return;
-        }
-
-        if ($taskType === self::TASK_SEMANTIC_MATCH) {
-            if ($files !== []) {
-                throw new RuntimeException('Perfil Gemini semantic_match no acepta archivos');
-            }
-            return;
-        }
-
-        throw new RuntimeException("Perfil Gemini no soportado: {$taskType}");
     }
 
     /**

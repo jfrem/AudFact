@@ -62,8 +62,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `APP_ENV` | `development` | Entorno (development/production) |
 | `DB_HOST` | `host.docker.internal` | Host SQL Server |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | URL API para el browser |
-| `GEMINI_MODEL` | `gemini-3.1-pro-preview` | Modelo de auditoría IA |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para extracción documental |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
+| `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 
 ## Flujo de revisión

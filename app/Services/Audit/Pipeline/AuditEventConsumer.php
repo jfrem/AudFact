@@ -46,6 +46,11 @@ abstract class AuditEventConsumer
 
     abstract protected function handle(AuditEvent $event): void;
 
+    final public function processEvent(AuditEvent $event): void
+    {
+        $this->handle($event);
+    }
+
     public function requestStop(): void
     {
         $this->stopRequested = true;

@@ -25,6 +25,7 @@ final class GeminiCallMetrics
             'model' => self::stringOrNull($responseBody['modelVersion'] ?? null),
             'task_type' => self::stringOrNull($context['task_type'] ?? null),
             'document_type' => self::stringOrNull($context['document_type'] ?? null),
+            'finish_reason' => self::stringOrNull($responseBody['candidates'][0]['finishReason'] ?? null),
             'cache_hit' => false,
             'prompt_tokens' => self::intOrNull($usage['promptTokenCount'] ?? null),
             'output_tokens' => self::intOrNull($usage['candidatesTokenCount'] ?? null),
@@ -68,6 +69,7 @@ final class GeminiCallMetrics
         $thoughtsTokens = 0;
         $totalTokens = 0;
         $cacheHits = 0;
+        $finishReasons = [];
 
         foreach ($filtered as $metric) {
             $durations[] = (int) ($metric['duration_ms'] ?? 0);
@@ -75,15 +77,20 @@ final class GeminiCallMetrics
             $outputTokens += (int) ($metric['output_tokens'] ?? 0);
             $thoughtsTokens += (int) ($metric['thoughts_tokens'] ?? 0);
             $totalTokens += (int) ($metric['total_tokens'] ?? 0);
+            $finishReason = self::stringOrNull($metric['finish_reason'] ?? null);
+            if ($finishReason !== null) {
+                $finishReasons[$finishReason] = ($finishReasons[$finishReason] ?? 0) + 1;
+            }
             if (($metric['cache_hit'] ?? false) === true) {
                 $cacheHits++;
             }
         }
 
         sort($durations);
+        ksort($finishReasons);
         $p95Index = max(0, (int) ceil($calls * 0.95) - 1);
 
-        return [
+        return self::withoutEmptyArrays([
             'count' => $calls,
             'cache_hits' => $cacheHits,
             'avg_ms' => (int) (array_sum($durations) / $calls),
@@ -94,7 +101,8 @@ final class GeminiCallMetrics
             'output_tokens' => $outputTokens,
             'thoughts_tokens' => $thoughtsTokens,
             'total_tokens' => $totalTokens,
-        ];
+            'finish_reasons' => $finishReasons,
+        ]);
     }
 
     /**
@@ -104,6 +112,18 @@ final class GeminiCallMetrics
     private static function withoutNulls(array $values): array
     {
         return array_filter($values, static fn(mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * @param  array<string,mixed> $values
+     * @return array<string,mixed>
+     */
+    private static function withoutEmptyArrays(array $values): array
+    {
+        return array_filter(
+            $values,
+            static fn(mixed $value): bool => !is_array($value) || $value !== []
+        );
     }
 
     private static function stringOrNull(mixed $value): ?string

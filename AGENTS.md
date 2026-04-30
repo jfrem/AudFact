@@ -224,17 +224,18 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
 | `GEMINI_API_KEY` | *(vacío)* | ✅ | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI |
-| `GEMINI_MODEL` | `gemini-3.1-pro-preview` | ❌ | Modelo de Gemini a usar |
+| `GEMINI_MODEL` | `gemini-3-flash-preview` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
 | `GEMINI_TOP_P` | *(vacío)* | ❌ | Nucleus sampling (opcional) |
 | `GEMINI_TOP_K` | *(vacío)* | ❌ | Top-K sampling (opcional) |
 | `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | ❌ | Límite de tokens en la respuesta |
-| `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de la respuesta |
-| `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_MEDIUM` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
+| `GEMINI_RESPONSE_MIME` | `application/json` | ❌ | Tipo MIME de respuesta para flujos sin forced function calling; no se envía en `ANY` mode |
+| `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_HIGH` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para extracción documental |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | ❌ | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para extracción documental |
+| `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | ❌ | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3) |
 | `GEMINI_SEMANTIC_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
 | `GEMINI_SEMANTIC_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica |
@@ -344,6 +345,9 @@ Antes de pasar una tarea de **Backlog → Ready**, el agente debe presentar el s
 ### Verificación
 - [Cómo se validará que el cambio funciona]
 
+### Archivos de documentación
+- [lista de archivos de documentación a crear o actualizar]
+
 ### Hallazgos relacionados
 - [IDs de auditoría si aplica, o "ninguno"]
 ```
@@ -446,7 +450,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
-- **Schema y prompts**: construidos dinámicamente en `DocumentAuditOrchestrator` (function declaration `extract_document_data`, parametrizado por `audit-config`) y en `DocumentExtractionWorker` (user prompt por documento). Cualquier cambio afecta la calidad de las auditorías.
+- **Contrato Gemini y prompts**: `DocumentAuditOrchestrator` publica `extraction_contract` parametrizado por `audit-config`; `DocumentExtractionContractBuilder` construye las cuatro funciones paralelas (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`); `DocumentExtractionWorker` genera el user prompt por documento y combina las llamadas en `extraction_result`. Cualquier cambio afecta la calidad de las auditorías.
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño
 - **Respuestas JSON de Gemini**: pueden llegar truncadas o malformadas — siempre usar `JsonResponseParser` con `JsonRepairHelper`
 

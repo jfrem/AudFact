@@ -39,11 +39,6 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('policy-' . getmypid());
     }
 
-    public function processEvent(AuditEvent $event): void
-    {
-        $this->handle($event);
-    }
-
     protected function stream(): string
     {
         return AuditEventPublisher::STREAM_DOCUMENTS;

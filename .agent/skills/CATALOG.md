@@ -8,7 +8,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 |---|---|---|---|
 | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
 | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
-| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (Pipeline + Debug) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator` + 4 workers (extraction, normalizer, policy, aggregator) sobre Redis Streams. |
+| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (Pipeline + Debug) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder` + 4 workers (extraction, normalizer, policy, aggregator) sobre Redis Streams. |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml` | Entorno Docker y conectividad DB. |
@@ -33,7 +33,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 |---|---|
 | `audfact-project-overview` | overview, visión general, arquitectura, cómo está organizado, mapear dependencias, estructura del proyecto |
 | `audfact-api-rest` | endpoint, ruta, controller, request/response, validación HTTP, web.php, API REST |
-| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, retry/backoff, DocumentAuditOrchestrator, workers, Pipeline event-driven, DLQ |
+| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, extraction_contract, parallel function calling, retry/backoff, DocumentAuditOrchestrator, workers, Pipeline event-driven, DLQ |
 | `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
 | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
 | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |

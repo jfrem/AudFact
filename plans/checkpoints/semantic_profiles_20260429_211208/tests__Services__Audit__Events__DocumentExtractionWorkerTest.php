@@ -104,7 +104,6 @@ final class DocumentExtractionWorkerTest extends TestCase
             ],
             $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null
         );
-        $this->assertSame(GeminiGateway::TASK_EXTRACTION, $gateway->lastTaskType);
         $this->assertIsInt($gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
         $this->assertGreaterThan(0, $gateway->lastGenerationOverrides['maxOutputTokens']);
         $this->assertSame('extraction', $gateway->lastDebugContext['task_type'] ?? null);
@@ -441,7 +440,6 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $lastTools = [];
     public array $lastToolConfig = [];
-    public string $lastTaskType = '';
     public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
 
@@ -455,16 +453,14 @@ final class StubGeminiGateway extends GeminiGateway
         string $systemInstruction,
         array $tools,
         array $toolConfig,
-        string $taskType,
         array $generationOverrides = [],
         ?array $debugContext = null
     ): array {
         $this->calls++;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
-        $this->lastTaskType = $taskType;
         $this->lastGenerationOverrides = $generationOverrides;
-        $this->lastDebugContext = array_merge($debugContext ?? [], ['task_type' => $taskType]);
+        $this->lastDebugContext = $debugContext ?? [];
         return $this->response;
     }
 }

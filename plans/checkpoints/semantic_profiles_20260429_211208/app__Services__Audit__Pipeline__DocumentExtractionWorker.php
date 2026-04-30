@@ -43,7 +43,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private AttachmentDownloadServiceInterface $downloader;
     private GeminiGateway $gateway;
     private int $cacheTtl;
-    private string $extractorVersion;
     private string $consumerName;
 
     public function __construct(
@@ -62,14 +61,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->gateway      = $gateway    ?? GeminiGateway::create();
         $this->consumerName = $consumerName ?? ('extractor-' . getmypid());
 
-        $resolvedTtl          = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
-        $this->cacheTtl       = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
+        $resolvedTtl       = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
+        $this->cacheTtl    = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
+    }
 
-        $rawVersion           = trim((string) Env::get('AUDIT_VERSION_EXTRACTOR', self::DEFAULT_EXTRACTOR_VERSION));
-        $sanitized            = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $rawVersion);
-        $this->extractorVersion = (is_string($sanitized) && $sanitized !== '')
-            ? $sanitized
-            : self::DEFAULT_EXTRACTOR_VERSION;
+    public function processEvent(AuditEvent $event): void
+    {
+        $this->handle($event);
     }
 
     protected function stream(): string
@@ -123,7 +121,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $this->buildSystemPrompt($payload),
                 [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
                 $this->buildToolConfig($contract),
-                GeminiGateway::TASK_EXTRACTION,
                 GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
                     'maxOutputTokens' => 2048,
                 ]),
@@ -132,6 +129,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     'audit_id' => $event->auditId,
                     'document_id' => $event->documentId,
                     'document_type' => $documentType,
+                    'task_type' => 'extraction',
                 ]
             );
 
@@ -199,7 +197,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         self::assertHash($documentHash);
 
         try {
-            $raw = $this->redis->get($this->cacheKey($documentHash));
+            $raw = $this->redis->get(self::cacheKey($documentHash));
         } catch (RedisUnavailableException $e) {
             throw new RuntimeException('Redis no disponible al leer extraction cache', 0, $e);
         }
@@ -225,15 +223,21 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             throw new RuntimeException('No se pudo serializar extraction cache');
         }
 
-        if (!$this->redis->set($this->cacheKey($documentHash), $encoded, $this->cacheTtl)) {
+        if (!$this->redis->set(self::cacheKey($documentHash), $encoded, $this->cacheTtl)) {
             throw new RuntimeException('No se pudo escribir extraction cache en Redis');
         }
     }
 
-    private function cacheKey(string $documentHash): string
+    private static function cacheKey(string $documentHash): string
     {
         self::assertHash($documentHash);
-        return "extraction:cache:{$this->extractorVersion}:{$documentHash}";
+        $version = trim((string) Env::get('AUDIT_VERSION_EXTRACTOR', self::DEFAULT_EXTRACTOR_VERSION));
+        $sanitizedVersion = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $version);
+        if (!is_string($sanitizedVersion) || $sanitizedVersion === '') {
+            $sanitizedVersion = self::DEFAULT_EXTRACTOR_VERSION;
+        }
+
+        return "extraction:cache:{$sanitizedVersion}:{$documentHash}";
     }
 
     private static function assertHash(string $documentHash): void
@@ -565,6 +569,23 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     }
 
     /**
+     * Detecta dinámicamente si un tipo de documento es prescriptivo.
+     */
+    private function isPrescriptionDocument(string $documentType): bool
+    {
+        $normalized = strtoupper(trim($documentType));
+        $prescriptionTokens = ['FORMULA', 'PRESCRIPCION', 'RECETA', 'ORDEN MEDICA'];
+
+        foreach ($prescriptionTokens as $token) {
+            if (str_contains($normalized, $token)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Extrae nombres de artículos dispensados de la FDV para inyección selectiva en el prompt.
      * Solo aplica a documentos prescriptivos. Retorna [] si no aplica (fallback: sin filtro).
      *
@@ -572,7 +593,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
      */
     private function buildDispensedItemsContext(string $documentType, array $payload): array
     {
-        if (!DocumentExtractionContractBuilder::isPrescriptionDocument($documentType)) {
+        if (!$this->isPrescriptionDocument($documentType)) {
             return [];
         }
 

@@ -8,7 +8,6 @@ use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\AttachmentDownloadServiceInterface;
-use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
 use App\Services\Audit\GeminiGateway;
 use Core\RedisClient;
@@ -86,37 +85,17 @@ final class DocumentExtractionWorkerTest extends TestCase
         $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
 
         $this->assertSame(1, $gateway->calls);
-        $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            array_column($gateway->lastTools[0]['functionDeclarations'], 'name')
-        );
-        $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null
-        );
-        $this->assertSame(GeminiGateway::TASK_EXTRACTION, $gateway->lastTaskType);
-        $this->assertIsInt($gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
-        $this->assertGreaterThan(0, $gateway->lastGenerationOverrides['maxOutputTokens']);
+        $this->assertSame('extract_document_data', $gateway->lastTools[0]['functionDeclarations'][0]['name'] ?? null);
+        $this->assertSame(['extract_document_data'], $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+        $this->assertSame(2048, $gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
         $this->assertSame('extraction', $gateway->lastDebugContext['task_type'] ?? null);
         $toolJson = json_encode($gateway->lastTools, JSON_THROW_ON_ERROR);
-        $this->assertStringNotContainsString('extract_document_data', $toolJson);
         $this->assertStringNotContainsString('additionalProperties', $toolJson);
         $this->assertStringNotContainsString('"default"', $toolJson);
         $this->assertFalse($publisher->published[0]->payload['cache_hit']);
         $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
         $this->assertSame('STOP', $publisher->published[0]->payload['gemini_metrics']['finish_reason'] ?? null);
         $this->assertSame('T38250701547', $publisher->published[0]->payload['extraction_result']['fields']['NumeroFactura']);
-        $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
     }
 
     public function testDoesNotPublishWhenStateStoreReturnsFalse(): void
@@ -198,114 +177,8 @@ final class DocumentExtractionWorkerTest extends TestCase
         }
     }
 
-    public function testMissingParallelFunctionCallThrowsRuntimeException(): void
+    private function geminiFunctionCallResponse(string $finishReason = 'STOP'): array
     {
-        $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
-        $redisMock->expects($this->never())->method('set');
-
-        $worker = new DocumentExtractionWorker(
-            stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
-            gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
-                omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
-            )),
-            redis: $redisMock,
-            publisher: new ExtractionPublisher(),
-            consumerName: 'extractor-test'
-        );
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_FUNCTION_CALL: extract_items');
-
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
-    }
-
-    public function testDuplicateParallelFunctionCallThrowsRuntimeException(): void
-    {
-        $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
-        $redisMock->expects($this->never())->method('set');
-
-        $worker = new DocumentExtractionWorker(
-            stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
-            gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
-                duplicateFunction: DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS
-            )),
-            redis: $redisMock,
-            publisher: new ExtractionPublisher(),
-            consumerName: 'extractor-test'
-        );
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL: extract_fields');
-
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
-    }
-
-    private function geminiFunctionCallResponse(
-        string $finishReason = 'STOP',
-        ?string $omittedFunction = null,
-        ?string $duplicateFunction = null
-    ): array
-    {
-        $parts = [
-            [
-                'functionCall' => [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                    'args' => [
-                        'fields' => ['NumeroFactura' => 'T38250701547'],
-                    ],
-                ],
-            ],
-            [
-                'functionCall' => [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                    'args' => [
-                        'items' => [
-                            ['NombreArticulo' => 'ITEM A'],
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'functionCall' => [
-                    'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                    'args' => [
-                        'visual_checks' => [
-                            ['check' => 'FirmaActaEntrega', 'presente' => true],
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'functionCall' => [
-                    'name' => DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-                    'args' => [
-                        'document_quality' => 'legible',
-                        'quality_notes' => ['ok'],
-                    ],
-                ],
-            ],
-        ];
-
-        if ($omittedFunction !== null) {
-            $parts = array_values(array_filter(
-                $parts,
-                static fn(array $part): bool => ($part['functionCall']['name'] ?? null) !== $omittedFunction
-            ));
-        }
-
-        if ($duplicateFunction !== null) {
-            foreach ($parts as $part) {
-                if (($part['functionCall']['name'] ?? null) === $duplicateFunction) {
-                    $parts[] = $part;
-                    break;
-                }
-            }
-        }
-
         return [
             'X-Audit-Metrics' => [
                 'task_type' => 'extraction',
@@ -317,7 +190,20 @@ final class DocumentExtractionWorkerTest extends TestCase
             'candidates' => [[
                 'finishReason' => $finishReason,
                 'content' => [
-                    'parts' => $parts,
+                    'parts' => [[
+                        'functionCall' => [
+                            'name' => 'extract_document_data',
+                            'args' => [
+                                'fields' => ['NumeroFactura' => 'T38250701547'],
+                                'items' => [],
+                                'visual_checks' => [
+                                    ['check' => 'FirmaActaEntrega', 'presente' => true],
+                                ],
+                                'document_quality' => 'legible',
+                                'quality_notes' => ['ok'],
+                            ],
+                        ],
+                    ]],
                 ],
             ]],
         ];
@@ -337,7 +223,18 @@ final class DocumentExtractionWorkerTest extends TestCase
                 'diagnosticos' => ['E119'],
                 'items' => [],
             ],
-            'extraction_contract' => $this->extractionContract(),
+            'extraction_schema' => [
+                'name' => 'extract_document_data',
+                'description' => 'Extract data from document',
+                'parameters' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'fields' => ['type' => 'object'],
+                        'items' => ['type' => 'array'],
+                        'visual_checks' => ['type' => 'array'],
+                    ],
+                ]
+            ],
             'attempt' => 1,
         ];
 
@@ -349,78 +246,6 @@ final class DocumentExtractionWorkerTest extends TestCase
             parentEventId: null,
             documentId: $documentId
         );
-    }
-
-    private function extractionContract(): array
-    {
-        return [
-            'function_declarations' => [
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'fields' => [
-                                'type' => 'object',
-                                'properties' => [
-                                    'NumeroFactura' => ['type' => 'string', 'nullable' => true],
-                                ],
-                            ],
-                        ],
-                        'required' => ['fields'],
-                    ],
-                ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'items' => [
-                                'type' => 'array',
-                                'items' => [
-                                    'type' => 'object',
-                                    'properties' => [
-                                        'NombreArticulo' => ['type' => 'string', 'nullable' => true],
-                                    ],
-                                ],
-                            ],
-                        ],
-                        'required' => ['items'],
-                    ],
-                ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'visual_checks' => ['type' => 'array'],
-                        ],
-                        'required' => ['visual_checks'],
-                    ],
-                ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-                    'parameters' => [
-                        'type' => 'object',
-                        'properties' => [
-                            'document_quality' => ['type' => 'string'],
-                            'quality_notes' => ['type' => 'array'],
-                        ],
-                        'required' => ['document_quality', 'quality_notes'],
-                    ],
-                ],
-            ],
-            'required_function_names' => [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            'field_groups' => [
-                'fields' => ['NumeroFactura'],
-                'items' => ['NombreArticulo'],
-            ],
-        ];
     }
 }
 
@@ -441,7 +266,6 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $lastTools = [];
     public array $lastToolConfig = [];
-    public string $lastTaskType = '';
     public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
 
@@ -455,16 +279,14 @@ final class StubGeminiGateway extends GeminiGateway
         string $systemInstruction,
         array $tools,
         array $toolConfig,
-        string $taskType,
         array $generationOverrides = [],
         ?array $debugContext = null
     ): array {
         $this->calls++;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
-        $this->lastTaskType = $taskType;
         $this->lastGenerationOverrides = $generationOverrides;
-        $this->lastDebugContext = array_merge($debugContext ?? [], ['task_type' => $taskType]);
+        $this->lastDebugContext = $debugContext ?? [];
         return $this->response;
     }
 }

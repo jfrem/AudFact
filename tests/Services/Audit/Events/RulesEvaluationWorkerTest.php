@@ -163,7 +163,6 @@ class RulesReadyStateStore extends AuditStateStore
                     'tipo_documento' => 'DISPENSA',
                     'status' => 'normalized',
                     'fuente_verdad' => ['header' => [], 'items' => []],
-                    'extraction_schema' => [],
                     'visual_checks' => [],
                 ],
             ],

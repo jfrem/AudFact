@@ -87,7 +87,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 2. DocumentAuditOrchestrator (group: orchestrator)
    ├─ resuelve FDV (DispensationModel) + audit-config (AuditConfigModel) + adjuntos
-   ├─ construye function declaration `extract_document_data` desde audit-config
+   ├─ construye `extraction_contract` con cuatro function declarations paralelas desde audit-config
    └─ publica N × `document_registered` en `audit.documents`
 
 3. DocumentExtractionWorker (group: extractors, ×5 réplicas)
@@ -129,7 +129,7 @@ Reintentos por evento → DLQ (`audit.dlq`) tras AUDIT_EVENT_MAX_RETRIES (3).
 - **Singleton**: `Database::getConnection()` — pool de conexiones PDO (default + db2).
 - **Strategy**: `AuditDataServiceInterface`, `AttachmentDownloadServiceInterface`.
 - **Template Method**: `AuditEventConsumer` (XREADGROUP + ack + retry + DLQ; subclases sólo implementan `handle()`).
-- **Builder dinámico**: function declaration `extract_document_data` armado desde `audit-config` en `DocumentAuditOrchestrator`.
+- **Builder dinámico**: `DocumentExtractionContractBuilder` arma `extract_fields`, `extract_items`, `detect_visual_checks` y `assess_document_quality` desde `audit-config`.
 - **Chain of Responsibility**: Middleware pipeline en `Core\Router`.
 - **Facade**: `Response::success()` / `Response::error()`.
 - **Retry with Backoff**: `GeminiGateway` con `GeminiCircuitBreaker`.

@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Models\AuditStatusModel;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\Debug\GeminiCallMetrics;
+use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use RuntimeException;
 
 final class AuditAggregationWorker extends AuditEventConsumer
@@ -30,16 +31,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->jobStore = $jobStore ?? new BatchJobStore($this->redis);
         $this->auditStatusModel = $auditStatusModel ?? new AuditStatusModel();
         $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
-    }
-
-    /**
-     * Procesa un evento de auditoría.
-     * @param AuditEvent $event
-     * @return void
-     */
-    public function processEvent(AuditEvent $event): void
-    {
-        $this->handle($event);
     }
 
     /**
@@ -388,7 +379,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
                 continue;
             }
 
-            $name = $this->normalizeDocumentName((string) ($decision['documentName'] ?? ''));
+            $name = DocumentExtractionContractBuilder::normalizeDocumentName((string) ($decision['documentName'] ?? ''));
             if ($name === '') {
                 continue;
             }
@@ -484,7 +475,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
                 continue;
             }
 
-            $document = $this->normalizeDocumentName((string) ($finding['documento'] ?? ''));
+            $document = DocumentExtractionContractBuilder::normalizeDocumentName((string) ($finding['documento'] ?? ''));
             if ($document === '') {
                 continue;
             }
@@ -544,16 +535,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
 
         $diffUs = (int) $now->format('Uu') - (int) $created->format('Uu');
         return max(0, (int) round($diffUs / 1000));
-    }
-
-    private function normalizeDocumentName(string $value): string
-    {
-        $trimmed = trim($value);
-        if ($trimmed === '') {
-            return '';
-        }
-
-        return str_replace('_', ' ', strtoupper($trimmed));
     }
 
     /**

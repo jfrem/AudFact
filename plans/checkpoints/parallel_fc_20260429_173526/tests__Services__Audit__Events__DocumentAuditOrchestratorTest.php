@@ -9,7 +9,7 @@ use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
-use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
+use App\Services\Audit\Pipeline\SchemaBuilder;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -44,11 +44,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 'documents'    => [
                     'DISPENSA' => [
                         'docId'        => 1,
-                        'fields'       => [
-                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E'],
-                            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S'],
-                            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B'],
-                        ],
+                        'fields'       => ['DocumentoPaciente'],
                         'visualChecks' => [['check' => 'FirmaActaEntrega', 'description' => 'Firma', 'severity' => 'CRITICO']],
                     ],
                     'AUTORIZACION' => [
@@ -98,52 +94,27 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('ANE', $payload['nombre_alternativo']);
         $this->assertSame('/dispensation/T38250701547/attachments/download/1', $payload['download_url']);
         $this->assertSame('URL', $payload['tipo_almacenamiento']);
-        $this->assertArrayNotHasKey('extraction_schema', $payload);
-        $this->assertIsArray($payload['extraction_contract']);
+        $this->assertIsArray($payload['extraction_schema']);
+        $this->assertSame('extract_document_data', $payload['extraction_schema']['name']);
         $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            $payload['extraction_contract']['required_function_names']
-        );
-        $this->assertCount(4, $payload['extraction_contract']['function_declarations']);
-        $this->assertSame(
-            'extract_fields',
-            $payload['extraction_contract']['function_declarations'][0]['name']
-        );
-        $this->assertSame(
-            ['DocumentoPaciente'],
-            $payload['extraction_contract']['field_groups']['fields']
-        );
-        $this->assertSame(
-            ['NombreArticulo', 'CantidadEntregada'],
-            $payload['extraction_contract']['field_groups']['items']
+            ['fields', 'visual_checks', 'document_quality'],
+            $payload['extraction_schema']['parameters']['required']
         );
         $this->assertSame(
             'string',
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente']['type']
-        );
-        $this->assertTrue(
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente']['nullable']
-        );
-        $this->assertSame(
-            'number',
-            $payload['extraction_contract']['function_declarations'][1]['parameters']['properties']['items']['items']['properties']['CantidadEntregada']['type']
+            $payload['extraction_schema']['parameters']['properties']['fields']['properties']['DocumentoPaciente']['type']
         );
         $this->assertSame(
             ['legible', 'parcialmente_legible', 'ilegible'],
-            $payload['extraction_contract']['function_declarations'][3]['parameters']['properties']['document_quality']['enum']
+            $payload['extraction_schema']['parameters']['properties']['document_quality']['enum']
         );
         $this->assertSame(
             ['check', 'presente'],
-            $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['required']
+            $payload['extraction_schema']['parameters']['properties']['visual_checks']['items']['required']
         );
         $this->assertArrayNotHasKey(
             'additionalProperties',
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']
+            $payload['extraction_schema']['parameters']['properties']['fields']
         );
         $this->assertIsArray($payload['visual_checks']);
         $this->assertArrayHasKey('header', $payload['fuente_verdad']);

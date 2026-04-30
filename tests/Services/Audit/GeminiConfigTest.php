@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Services\Audit;
 
 use App\Services\Audit\GeminiConfig;
+use App\Services\Audit\GeminiGateway;
+use GuzzleHttp\Client;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -50,10 +52,12 @@ final class GeminiConfigTest extends TestCase
         $this->assertSame('low', $overrides['thinkingLevel']);
     }
 
-    public function testThinkingLevelTakesPrecedenceOverThinkingBudget(): void
+    public function testThinkingLevelTakesPrecedenceOverThinkingBudgetWithoutMediaResolutionByDefault(): void
     {
         $config = new GeminiConfig(
             model: 'gemini-3.1-pro-preview',
+            responseMimeType: 'application/json',
+            mediaResolution: 'MEDIA_RESOLUTION_HIGH',
             thinkingBudget: 128,
             thinkingLevel: 'low'
         );
@@ -64,6 +68,86 @@ final class GeminiConfigTest extends TestCase
         ]);
 
         $this->assertSame(['thinkingLevel' => 'high'], $generationConfig['thinkingConfig']);
+        $this->assertArrayNotHasKey('responseMimeType', $generationConfig);
+        $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
+    }
+
+    public function testIncludesMediaResolutionOnlyWhenRequested(): void
+    {
+        $config = new GeminiConfig(
+            model: 'gemini-3.1-pro-preview',
+            responseMimeType: 'application/json',
+            mediaResolution: 'MEDIA_RESOLUTION_HIGH'
+        );
+
+        $generationConfig = $config->toGenerationConfig(includeMediaResolution: true);
+
+        $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
+    }
+
+    public function testGatewayAppliesMediaResolutionOnlyForExtractionProfile(): void
+    {
+        $gateway = new GeminiGateway(
+            new Client(),
+            'test-key',
+            new GeminiConfig(
+                model: 'gemini-3.1-pro-preview',
+                responseMimeType: 'application/json',
+                mediaResolution: 'MEDIA_RESOLUTION_HIGH'
+            )
+        );
+        $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
+        $buildPayload->setAccessible(true);
+
+        $semanticPayload = $buildPayload->invoke(
+            $gateway,
+            'prompt',
+            [],
+            'system',
+            [['functionDeclarations' => [$this->toolDeclaration()]]],
+            $this->toolConfig(),
+            GeminiGateway::TASK_SEMANTIC_MATCH,
+            []
+        );
+
+        $extractionPayload = $buildPayload->invoke(
+            $gateway,
+            'prompt',
+            [['mime' => 'application/pdf', 'data' => base64_encode('pdf'), 'label' => 'DOC']],
+            'system',
+            [['functionDeclarations' => [$this->toolDeclaration()]]],
+            $this->toolConfig(),
+            GeminiGateway::TASK_EXTRACTION,
+            []
+        );
+
+        $this->assertArrayNotHasKey('mediaResolution', $semanticPayload['generationConfig']);
+        $this->assertSame('MEDIA_RESOLUTION_HIGH', $extractionPayload['generationConfig']['mediaResolution']);
+    }
+
+    public function testGatewayRejectsFilesForSemanticProfile(): void
+    {
+        $gateway = new GeminiGateway(
+            new Client(),
+            'test-key',
+            new GeminiConfig(model: 'gemini-3.1-pro-preview')
+        );
+        $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
+        $buildPayload->setAccessible(true);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('semantic_match no acepta archivos');
+
+        $buildPayload->invoke(
+            $gateway,
+            'prompt',
+            [['mime' => 'application/pdf', 'data' => base64_encode('pdf'), 'label' => 'DOC']],
+            'system',
+            [['functionDeclarations' => [$this->toolDeclaration()]]],
+            $this->toolConfig(),
+            GeminiGateway::TASK_SEMANTIC_MATCH,
+            []
+        );
     }
 
     public function testRejectsInvalidGenerationOverridePrefix(): void
@@ -71,5 +155,35 @@ final class GeminiConfigTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         GeminiConfig::generationOverridesFromEnv('GEMINI-TEST');
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function toolDeclaration(): array
+    {
+        return [
+            'name' => 'test_function',
+            'parameters' => [
+                'type' => 'object',
+                'properties' => [
+                    'ok' => ['type' => 'boolean'],
+                ],
+                'required' => ['ok'],
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function toolConfig(): array
+    {
+        return [
+            'functionCallingConfig' => [
+                'mode' => 'ANY',
+                'allowedFunctionNames' => ['test_function'],
+            ],
+        ];
     }
 }

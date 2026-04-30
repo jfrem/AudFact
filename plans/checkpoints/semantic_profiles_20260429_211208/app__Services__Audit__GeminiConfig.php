@@ -12,6 +12,7 @@ use RuntimeException;
  *
  * Encapsula todos los parámetros de generación para que GeminiGateway
  * no necesite recibirlos individualmente en el constructor.
+ * Incluye factory estático `fromEnv()` (antes en GeminiGatewayFactory).
  */
 final class GeminiConfig
 {
@@ -53,29 +54,25 @@ final class GeminiConfig
      * Genera el array `generationConfig` filtrado (sin nulls) para el payload de Gemini.
      *
      * @param  array<string, mixed> $overrides Sobrecargas opcionales del caller.
-     * @param  bool $includeMediaResolution Incluye resolución solo para tareas multimodales.
      * @return array<string, mixed>
      */
-    public function toGenerationConfig(array $overrides = [], bool $includeMediaResolution = false): array
+    public function toGenerationConfig(array $overrides = []): array
     {
         $base = array_filter([
             'temperature' => $this->temperature ?? 0.0,
             'topP'        => $this->topP,
             'topK'        => $this->topK,
             'maxOutputTokens' => $this->maxOutputTokens,
+            'mediaResolution' => $this->mediaResolution,
             'seed'        => $this->seed,
         ], fn($value) => $value !== null);
 
-        if ($includeMediaResolution && $this->mediaResolution !== null) {
-            $base['mediaResolution'] = $this->mediaResolution;
-        }
-
         // Gemini 3 uses thinkingLevel; Gemini 2.5 uses thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
-        $thinkingLevel  = $overrides['thinkingLevel']  ?? $this->thinkingLevel;
-        $cleanOverrides = array_diff_key($overrides, array_flip(['thinkingBudget', 'thinkingLevel']));
+        $thinkingLevel = $overrides['thinkingLevel'] ?? $this->thinkingLevel;
+        unset($overrides['thinkingBudget'], $overrides['thinkingLevel']);
 
-        $merged = array_merge($base, $cleanOverrides);
+        $merged = array_merge($base, $overrides);
 
         if ($thinkingLevel !== null) {
             $merged['thinkingConfig'] = ['thinkingLevel' => $thinkingLevel];

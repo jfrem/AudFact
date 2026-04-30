@@ -1,23 +1,6 @@
 ## [2026-04-29]
 
 ### fix
-- **Auditoría Gemini**: Aísla perfiles Gemini por tarea y endurece la homologación semántica del Golden Case.
-  - Archivos modificados: `app/Services/Audit/GeminiConfig.php`, `app/Services/Audit/GeminiGateway.php`, `app/Services/Audit/SemanticMatchJudge.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
-  - Hallazgo resuelto: regresión Golden Case `T38250701547` — falso `COINCIDE` en `NombreArticulo` de `AUTORIZACION`
-  - Impacto: `mediaResolution` queda limitado a extracción multimodal, `semantic_match` opera text-only con evidencia estructurada conservadora y la cache semántica usa namespace versionado para no reutilizar falsos positivos previos.
-
-### refactor
-- **Auditoría Gemini**: Reemplaza la extracción monolítica por `extraction_contract` con parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`).
-  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
-  - Hallazgo resuelto: ninguno
-  - Impacto: separa responsabilidades de extracción por documento, evita compatibilidad con el contrato legacy y conserva el shape interno consumido por normalización y policy.
-
-- **Configuración Gemini**: Alinea el perfil de extracción del golden case con `config.md` (`gemini-3-flash-preview`, `4096` output tokens, `MINIMAL` thinking, `MEDIA_RESOLUTION_HIGH`) e invalida cache con `AUDIT_VERSION_EXTRACTOR=gemini-3.x-parallel-fc-v1`.
-  - Archivos modificados: `.env.example`, `app/Services/Audit/GeminiConfig.php`
-  - Hallazgo resuelto: ninguno
-  - Impacto: asegura que la corrida E2E use el contrato nuevo, que la resolución multimedia configurada llegue al payload Gemini y que `responseMimeType` no se envíe junto con forced function calling.
-
-### fix
 - **Auditoría Gemini**: Rechaza extracciones truncadas o sin candidato válido antes de cachear o publicar `document_extracted`.
   - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Debug/GeminiCallMetrics.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`
   - Hallazgo resuelto: desviación Google 2026 sobre validación de `finishReason`

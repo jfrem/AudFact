@@ -31,11 +31,6 @@ class DocumentNormalizer extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('normalizer-' . getmypid());
     }
 
-    public function processEvent(AuditEvent $event): void
-    {
-        $this->handle($event);
-    }
-
     protected function stream(): string
     {
         return AuditEventPublisher::STREAM_DOCUMENTS;

@@ -1,11 +1,5 @@
 ## [2026-04-29]
 
-### fix
-- **Auditoría Gemini**: Aísla perfiles Gemini por tarea y endurece la homologación semántica del Golden Case.
-  - Archivos modificados: `app/Services/Audit/GeminiConfig.php`, `app/Services/Audit/GeminiGateway.php`, `app/Services/Audit/SemanticMatchJudge.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
-  - Hallazgo resuelto: regresión Golden Case `T38250701547` — falso `COINCIDE` en `NombreArticulo` de `AUTORIZACION`
-  - Impacto: `mediaResolution` queda limitado a extracción multimodal, `semantic_match` opera text-only con evidencia estructurada conservadora y la cache semántica usa namespace versionado para no reutilizar falsos positivos previos.
-
 ### refactor
 - **Auditoría Gemini**: Reemplaza la extracción monolítica por `extraction_contract` con parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`).
   - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`

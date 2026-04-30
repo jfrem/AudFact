@@ -11,7 +11,6 @@ use Core\RedisClient;
 final class SemanticMatchJudge
 {
     private const CACHE_TTL = 2592000; // 30 dias
-    private const CACHE_NAMESPACE = 'audfact:semantic:match:v2:article';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
     private GeminiGateway $gateway;
@@ -57,7 +56,7 @@ final class SemanticMatchJudge
         sort($elements);
         $payload = implode('|', $elements);
         $hash = hash('sha256', $payload);
-        return self::CACHE_NAMESPACE . ":{$hash}";
+        return "audfact:semantic:match:article:{$hash}";
     }
 
     /**
@@ -113,7 +112,7 @@ final class SemanticMatchJudge
     {
         $prompt = "Producto Esperado (Registro de Dispensación): \"{$expected}\"\nProducto Entregado (Documento): \"{$actual}\"";
 
-        $systemInstruction = "Eres un auditor experto de salud en Colombia. Determina si el Producto Esperado y el Producto Entregado son comercial o clínicamente intercambiables. Responde is_match=true SOLO si no hay diferencias materiales, de presentación, dimensión/dosis o uso clínico que impidan homologación determinística. Ante duda, diferencias no resueltas o evidencia insuficiente, is_match=false.";
+        $systemInstruction = "Eres un auditor experto de salud en Colombia. Determina si el Producto Esperado y el Producto Entregado son comercial o clínicamente intercambiables (ej. genérico vs marca, diferente gramaje si la dosis es adaptable). Responde is_match=true SOLO si tienes una confianza determinística absoluta en la homologación. Debes proveer un reasoning breve (max 100 caracteres) de tu decisión.";
 
         $schema = [
             'name' => 'report_semantic_match',
@@ -123,48 +122,14 @@ final class SemanticMatchJudge
                 'properties' => [
                     'is_match' => [
                         'type' => 'boolean',
-                        'description' => 'True solo si todos los criterios críticos soportan equivalencia determinística.'
-                    ],
-                    'same_clinical_use' => [
-                        'type' => 'boolean',
-                        'description' => 'True si el uso clínico/comercial auditable es equivalente.'
-                    ],
-                    'same_dimensions_or_dose' => [
-                        'type' => 'boolean',
-                        'description' => 'True si medida, dosis o concentración relevantes son equivalentes.'
-                    ],
-                    'same_material_or_technology' => [
-                        'type' => 'boolean',
-                        'description' => 'True si material, tecnología o característica crítica son equivalentes.'
-                    ],
-                    'presentation_compatible' => [
-                        'type' => 'boolean',
-                        'description' => 'True si presentación, empaque o cantidad comercial no contradicen la equivalencia.'
-                    ],
-                    'unresolved_differences' => [
-                        'type' => 'boolean',
-                        'description' => 'True si existe alguna diferencia relevante sin resolver.'
-                    ],
-                    'confidence' => [
-                        'type' => 'string',
-                        'enum' => ['alta', 'media', 'baja'],
-                        'description' => 'Confianza de la homologación.'
+                        'description' => 'True si son equivalentes, false en caso contrario.'
                     ],
                     'reasoning' => [
                         'type' => 'string',
-                        'description' => 'Justificación clínica o comercial breve.'
+                        'description' => 'Justificación clínica o comercial, máximo 100 caracteres.'
                     ]
                 ],
-                'required' => [
-                    'is_match',
-                    'same_clinical_use',
-                    'same_dimensions_or_dose',
-                    'same_material_or_technology',
-                    'presentation_compatible',
-                    'unresolved_differences',
-                    'confidence',
-                    'reasoning',
-                ]
+                'required' => ['is_match', 'reasoning']
             ]
         ];
 
@@ -179,6 +144,7 @@ final class SemanticMatchJudge
             array_intersect_key($context, array_flip(['audit_id', 'document_id', 'dis_det_nro', 'document_type'])),
             static fn(mixed $v): bool => $v !== null,
         );
+        $debugContext['task_type'] = 'semantic_match';
 
         try {
             $response = $this->gateway->sendWithFunctionCalling(
@@ -187,7 +153,6 @@ final class SemanticMatchJudge
                 $systemInstruction,
                 [['functionDeclarations' => [$schema]]],
                 $toolConfig,
-                GeminiGateway::TASK_SEMANTIC_MATCH,
                 GeminiConfig::generationOverridesFromEnv('GEMINI_SEMANTIC', [
                     'maxOutputTokens' => 2048,
                 ]),
@@ -197,7 +162,7 @@ final class SemanticMatchJudge
             $metrics = is_array($response['X-Audit-Metrics'] ?? null)
                 ? $response['X-Audit-Metrics']
                 : GeminiCallMetrics::failed([
-                    'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,
+                    'task_type' => 'semantic_match',
                     'document_type' => (string) ($context['document_type'] ?? ''),
                 ]);
 
@@ -215,8 +180,8 @@ final class SemanticMatchJudge
 
             $args = $parts[0]['functionCall']['args'];
             return [
-                'is_match' => $this->isConservativeMatch($args),
-                'reasoning' => $this->buildReasoning($args),
+                'is_match' => (bool) ($args['is_match'] ?? false),
+                'reasoning' => (string) ($args['reasoning'] ?? 'Sin justificación'),
                 'gemini_metrics' => $metrics,
                 'cache_hit' => false,
             ];
@@ -228,41 +193,10 @@ final class SemanticMatchJudge
                 'actual' => $actual,
             ]);
             return $this->buildFailedResult(GeminiCallMetrics::failed([
-                'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,
+                'task_type' => 'semantic_match',
                 'document_type' => (string) ($context['document_type'] ?? ''),
             ]));
         }
-    }
-
-    /**
-     * @param array<string,mixed> $args
-     */
-    private function isConservativeMatch(array $args): bool
-    {
-        return ($args['is_match'] ?? null) === true
-            && ($args['same_clinical_use'] ?? null) === true
-            && ($args['same_dimensions_or_dose'] ?? null) === true
-            && ($args['same_material_or_technology'] ?? null) === true
-            && ($args['presentation_compatible'] ?? null) === true
-            && ($args['unresolved_differences'] ?? null) === false
-            && strtolower(trim((string) ($args['confidence'] ?? ''))) === 'alta';
-    }
-
-    /**
-     * @param array<string,mixed> $args
-     */
-    private function buildReasoning(array $args): string
-    {
-        $reasoning = trim((string) ($args['reasoning'] ?? 'Sin justificación'));
-        if ($reasoning === '') {
-            $reasoning = 'Sin justificación';
-        }
-
-        if (($args['is_match'] ?? null) === true && !$this->isConservativeMatch($args)) {
-            return 'Evidencia semántica insuficiente: ' . $reasoning;
-        }
-
-        return $reasoning;
     }
 
     /** @return array{is_match: bool, reasoning: string, gemini_metrics: array<string,mixed>, cache_hit: bool, cacheable: bool} */

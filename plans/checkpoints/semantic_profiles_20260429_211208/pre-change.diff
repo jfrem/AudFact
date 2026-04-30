@@ -1,0 +1,868 @@
+diff --git a/.agent/skills/audfact-audit-gemini/SKILL.md b/.agent/skills/audfact-audit-gemini/SKILL.md
+index 794865c..188d8b2 100644
+--- a/.agent/skills/audfact-audit-gemini/SKILL.md
++++ b/.agent/skills/audfact-audit-gemini/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: audfact-audit-gemini
+-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el schema Gemini `extract_document_data` o el manejo de DLQ.
++description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+ ---
+ 
+ # AudFact Audit Gemini (Event-Driven)
+@@ -20,8 +20,9 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
+ | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
+ | `app/Services/Audit/Pipeline/AuditDataService.php` / `AuditDataServiceInterface.php` | Acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
+ | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` / `AttachmentDownloadServiceInterface.php` | Descarga del adjunto (Drive/BLOB) por audit-id + document-id |
+-| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, **construye el function declaration `extract_document_data` desde `audit-config`** (rol heredado de `SchemaBuilder` tras AUDIT-014) y publica N `document_registered` |
+-| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, **gestiona cache Redis por hash** (rol heredado de `ExtractionCache` tras AUDIT-014) y publica `document_extracted` |
++| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
++| `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye las cuatro function declarations Gemini (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y agrupa campos dinámicos por responsabilidad |
++| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por hash, invoca Gemini con parallel function calling y publica `document_extracted` |
+ | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, upper sin tildes, numéricos) y publica `document_normalized` |
+ | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
+ | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
+@@ -71,9 +72,9 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
+ | Variable | Uso |
+ |---|---|
+ | `GEMINI_API_KEY` | Credencial obligatoria para el extractor |
+-| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.1-pro-preview`) |
++| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3-flash-preview`) |
+ | `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini |
+-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
++| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
+ | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica; en Gemini 3.1 dejar `THINKING_LEVEL` vacío si se desea omitir `thinkingConfig` |
+ | `AUDIT_STREAM_BLOCK_MS` | Bloqueo `XREADGROUP` |
+ | `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
+@@ -87,7 +88,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
+ 
+ 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
+ 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
+-3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con function calling `extract_document_data`.
++3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
+ 4. `DocumentNormalizationWorker` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, null para vacío) y emite `document_normalized` con `normalization_log`.
+ 5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `SemanticMatchJudge` solo como fallback de homologación semántica, espera `docs:done == docs:total` y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
+ 6. `AuditAggregationWorker` agrega a `auditResultData`, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
+@@ -96,12 +97,12 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
+ ## Reglas de implementación (estrictas)
+ 
+ 1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`.
+-2. **TipoCampo gobierna el schema** — fuente de verdad: columna `TipoCampo` en `Discolnet.dbo.AudDispCampo` mapeada por `AuditComparisonType::fromTipoCampo()`:
++2. **TipoCampo gobierna la comparación y el tipo base de extracción** — fuente de verdad: columna `TipoCampo` en `Discolnet.dbo.AudDispCampo` mapeada por `AuditComparisonType::fromTipoCampo()`:
+    - `E` (default — cualquier código no-S/B/V) → `EXACT` (igualdad normalizada)
+    - `S` → `SEMANTIC` (umbral 0.82, fallback `SemanticMatchJudge`)
+    - `B` → `BUSINESS` (sumatoria de items + comparación numérica)
+    - `V` → `VISUAL` (también puede vivir en `visualChecks[]` del `audit-config`)
+-   Prohibido inferir el tipo por nombre del campo.
++   Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
+ 3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
+ 4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
+ 5. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo según `rol` del `audit-config` (`AUTORITATIVO` audita, `INFORMATIVO` se omite).
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2df8a64..53344c3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,27 @@
++## [2026-04-29]
++
++### refactor
++- **Auditoría Gemini**: Reemplaza la extracción monolítica por `extraction_contract` con parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`).
++  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
++  - Hallazgo resuelto: ninguno
++  - Impacto: separa responsabilidades de extracción por documento, evita compatibilidad con el contrato legacy y conserva el shape interno consumido por normalización y policy.
++
++- **Configuración Gemini**: Alinea el perfil de extracción del golden case con `config.md` (`gemini-3-flash-preview`, `4096` output tokens, `MINIMAL` thinking, `MEDIA_RESOLUTION_HIGH`) e invalida cache con `AUDIT_VERSION_EXTRACTOR=gemini-3.x-parallel-fc-v1`.
++  - Archivos modificados: `.env.example`, `app/Services/Audit/GeminiConfig.php`
++  - Hallazgo resuelto: ninguno
++  - Impacto: asegura que la corrida E2E use el contrato nuevo, que la resolución multimedia configurada llegue al payload Gemini y que `responseMimeType` no se envíe junto con forced function calling.
++
++### fix
++- **Auditoría Gemini**: Rechaza extracciones truncadas o sin candidato válido antes de cachear o publicar `document_extracted`.
++  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Debug/GeminiCallMetrics.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`
++  - Hallazgo resuelto: desviación Google 2026 sobre validación de `finishReason`
++  - Impacto: evita persistir auditorías incompletas cuando Gemini termina con `MAX_TOKENS` y agrega `finish_reason` a métricas diagnósticas.
++
++- **Auditoría Gemini**: Agrega conteo `finish_reasons` a los resúmenes agregados de métricas Gemini.
++  - Archivos modificados: `app/Services/Audit/Debug/GeminiCallMetrics.php`, `tests/Services/Audit/Debug/GeminiCallMetricsTest.php`
++  - Hallazgo resuelto: ninguno
++  - Impacto: permite auditar en resultados agregados cuántas llamadas terminaron en `STOP`, `MAX_TOKENS` u otra razón sin exponer payload documental.
++
+ ## [2026-04-28]
+ 
+ ### fix
+diff --git a/app/Services/Audit/GeminiConfig.php b/app/Services/Audit/GeminiConfig.php
+index c8e1a6e..865d904 100644
+--- a/app/Services/Audit/GeminiConfig.php
++++ b/app/Services/Audit/GeminiConfig.php
+@@ -63,6 +63,7 @@ final class GeminiConfig
+             'topP'        => $this->topP,
+             'topK'        => $this->topK,
+             'maxOutputTokens' => $this->maxOutputTokens,
++            'mediaResolution' => $this->mediaResolution,
+             'seed'        => $this->seed,
+         ], fn($value) => $value !== null);
+ 
+diff --git a/app/Services/Audit/Pipeline/DocumentExtractionWorker.php b/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
+index c789344..5396aa0 100644
+--- a/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
++++ b/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
+@@ -25,11 +25,19 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         No inventes valores.
+         Si un dato no es visible o no es legible, omítelo o usa el valor nativo null de JSON (sin comillas).
+         Para verificaciones visuales usa presente=false cuando el elemento no sea visible.
+-        Invoca exactamente una vez la función extract_document_data.
++        Invoca cada función permitida exactamente una vez en el mismo turno.
++        No devuelvas texto libre; responde únicamente con function calls.
+     TEXT;
+ 
+     private const DEFAULT_CACHE_TTL = 86400;
+-    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-items-v2';
++    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v1';
++    private const ACCEPTED_FINISH_REASON = 'STOP';
++    private const ERROR_MISSING_CANDIDATE = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
++    private const ERROR_UNSAFE_FINISH_REASON = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
++    private const ERROR_MISSING_FUNCTION_CALL = 'GEMINI_EXTRACTION_MISSING_FUNCTION_CALL';
++    private const ERROR_INVALID_ARGS = 'GEMINI_EXTRACTION_INVALID_ARGS';
++    private const ERROR_UNEXPECTED_FUNCTION_CALL = 'GEMINI_EXTRACTION_UNEXPECTED_FUNCTION_CALL';
++    private const ERROR_DUPLICATE_FUNCTION_CALL = 'GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL';
+ 
+     private AuditStateStore $stateStore;
+     private AttachmentDownloadServiceInterface $downloader;
+@@ -91,9 +99,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         $payload       = $event->payload;
+         $attachmentId  = $this->requiredString($payload, 'attachment_id');
+         $disDetNro     = $this->requiredString($payload, 'dis_det_nro');
+-        $schema        = $this->requiredArray($payload, 'extraction_schema');
++        $contract      = $this->requiredArray($payload, 'extraction_contract');
+         $documentType  = $this->resolveDocumentType($payload);
+-        $functionName  = $this->resolveFunctionName($schema);
+ 
+         $document     = $this->downloader->download($attachmentId, $disDetNro);
+         $documentHash = hash('sha256', $document['data']);
+@@ -105,15 +112,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+ 
+         if ($extracted === null) {
+             $response = $this->gateway->sendWithFunctionCalling(
+-                $this->buildUserPrompt($documentType, $payload, $functionName),
++                $this->buildUserPrompt($documentType, $payload, $contract),
+                 [[
+                     'mime' => $document['mime'],
+                     'data' => $document['data'],
+                     'label' => $documentType,
+                 ]],
+                 $this->buildSystemPrompt($payload),
+-                [['functionDeclarations' => [$schema]]],
+-                $this->buildToolConfig($schema),
++                [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
++                $this->buildToolConfig($contract),
+                 GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                     'maxOutputTokens' => 2048,
+                 ]),
+@@ -132,7 +139,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+                 : null;
+             unset($response['X-Audit-Metrics']);
+ 
+-            $extracted = $this->parseGeminiResponse($response, $schema);
++            $extracted = $this->parseGeminiResponse($response, $contract);
+             $this->enforceItemSegmentation($documentType, $payload, $extracted);
+             $this->cachePut($documentHash, $extracted);
+         }
+@@ -252,7 +259,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         return self::DEFAULT_SYSTEM_PROMPT . "\n\n" . $systemPrompt;
+     }
+ 
+-    private function buildUserPrompt(string $documentType, array $payload, string $functionName): string
++    private function buildUserPrompt(string $documentType, array $payload, array $contract): string
+     {
+         $parts = [
+             "Documento objetivo: {$documentType}.",
+@@ -260,6 +267,19 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+             'No completes campos con inferencias desde otros documentos.',
+         ];
+ 
++        $fieldGroups = $this->contractFieldGroups($contract);
++        if ($fieldGroups['fields'] !== []) {
++            $parts[] = 'Campos para `extract_fields`: ' . implode(', ', $fieldGroups['fields']) . '.';
++        } else {
++            $parts[] = '`extract_fields` debe retornar fields como objeto vacío.';
++        }
++
++        if ($fieldGroups['items'] !== []) {
++            $parts[] = 'Campos para `extract_items`: ' . implode(', ', $fieldGroups['items']) . '.';
++        } else {
++            $parts[] = '`extract_items` debe retornar items como arreglo vacío.';
++        }
++
+         $visualChecks = $payload['visual_checks'] ?? [];
+         if (is_array($visualChecks) && $visualChecks !== []) {
+             $parts[] = 'Checks visuales esperados:';
+@@ -274,6 +294,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+                 $description = trim((string) ($check['description'] ?? ''));
+                 $parts[] = $description !== '' ? "- {$name}: {$description}" : "- {$name}";
+             }
++        } else {
++            $parts[] = '`detect_visual_checks` debe retornar visual_checks como arreglo vacío.';
+         }
+ 
+         if ($this->requiresSegmentedDispensaItems($documentType, $payload)) {
+@@ -294,58 +316,202 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+             $parts[] = 'Incluye los nombres tal como aparecen en el documento, no los de la lista.';
+         }
+ 
+-        $parts[] = "Invoca exactamente una vez la función {$functionName}.";
++        $parts[] = 'Invoca exactamente una vez cada función en el mismo turno: '
++            . implode(', ', $this->requiredFunctionNames($contract)) . '.';
+ 
+         return implode("\n", $parts);
+     }
+ 
+-    private function buildToolConfig(array $schema): array
++    private function buildToolConfig(array $contract): array
+     {
+         return [
+             'functionCallingConfig' => [
+                 'mode' => 'ANY',
+-                'allowedFunctionNames' => [$this->resolveFunctionName($schema)],
++                'allowedFunctionNames' => $this->requiredFunctionNames($contract),
+             ],
+         ];
+     }
+ 
+-    private function parseGeminiResponse(array $response, array $schema): array
++    /**
++     * @return array<int,array<string,mixed>>
++     */
++    private function contractFunctionDeclarations(array $contract): array
++    {
++        $declarations = $this->requiredArray(
++            $contract,
++            'function_declarations',
++            'extraction_contract sin function_declarations'
++        );
++
++        foreach ($declarations as $index => $declaration) {
++            if (!is_array($declaration) || trim((string) ($declaration['name'] ?? '')) === '') {
++                throw new RuntimeException("extraction_contract function_declaration inválida en posición {$index}");
++            }
++        }
++
++        return array_values($declarations);
++    }
++
++    /**
++     * @return array<int,string>
++     */
++    private function requiredFunctionNames(array $contract): array
++    {
++        $names = $this->requiredArray(
++            $contract,
++            'required_function_names',
++            'extraction_contract sin required_function_names'
++        );
++
++        $normalized = [];
++        foreach ($names as $index => $name) {
++            if (!is_string($name) || trim($name) === '') {
++                throw new RuntimeException("extraction_contract required_function_name inválido en posición {$index}");
++            }
++
++            $normalized[] = trim($name);
++        }
++
++        return array_values(array_unique($normalized));
++    }
++
++    /**
++     * @return array{fields:array<int,string>,items:array<int,string>}
++     */
++    private function contractFieldGroups(array $contract): array
++    {
++        $groups = is_array($contract['field_groups'] ?? null) ? $contract['field_groups'] : [];
++
++        return [
++            'fields' => $this->stringList($groups['fields'] ?? []),
++            'items' => $this->stringList($groups['items'] ?? []),
++        ];
++    }
++
++    /**
++     * @return array<int,string>
++     */
++    private function stringList(mixed $value): array
++    {
++        if (!is_array($value)) {
++            return [];
++        }
++
++        $strings = [];
++        foreach ($value as $item) {
++            if (is_string($item) && trim($item) !== '') {
++                $strings[] = trim($item);
++            }
++        }
++
++        return array_values($strings);
++    }
++
++    private function parseGeminiResponse(array $response, array $contract): array
++    {
++        $requiredNames = $this->requiredFunctionNames($contract);
++        $candidate = $this->extractPrimaryCandidate($response);
++        $this->assertSuccessfulFinishReason($candidate);
++
++        $parts = $this->extractCandidateParts($candidate);
++        $calls = $this->extractFunctionCalls($parts, $requiredNames);
++
++        return $this->validateParallelExtractionPayload($calls);
++    }
++
++    /**
++     * @return array<string,mixed>
++     */
++    private function extractPrimaryCandidate(array $response): array
+     {
+-        $expectedName = $this->resolveFunctionName($schema);
++        $candidate = $response['candidates'][0] ?? null;
++        if (!is_array($candidate)) {
++            throw new RuntimeException(self::ERROR_MISSING_CANDIDATE);
++        }
++
++        return $candidate;
++    }
++
++    private function assertSuccessfulFinishReason(array $candidate): void
++    {
++        $finishReason = trim((string) ($candidate['finishReason'] ?? ''));
++        if ($finishReason !== self::ACCEPTED_FINISH_REASON) {
++            $reportedReason = $finishReason !== '' ? $finishReason : 'UNKNOWN';
++            throw new RuntimeException(self::ERROR_UNSAFE_FINISH_REASON . ": {$reportedReason}");
++        }
++    }
+ 
+-        $parts = $response['candidates'][0]['content']['parts'] ?? null;
++    /**
++     * @return array<int,array<string,mixed>>
++     */
++    private function extractCandidateParts(array $candidate): array
++    {
++        $parts = $candidate['content']['parts'] ?? null;
+         if (!is_array($parts)) {
+-            throw new RuntimeException('Respuesta Gemini sin functionCall');
++            throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL);
+         }
+ 
++        return $parts;
++    }
++
++    /**
++     * @param  array<int,array<string,mixed>> $parts
++     * @param  array<int,string> $requiredNames
++     * @return array<string,array<string,mixed>>
++     */
++    private function extractFunctionCalls(array $parts, array $requiredNames): array
++    {
++        $calls = [];
+         foreach ($parts as $part) {
+             $functionCall = $part['functionCall'] ?? null;
+             if (!is_array($functionCall)) {
+                 continue;
+             }
+ 
+-            if (($functionCall['name'] ?? null) !== $expectedName) {
+-                continue;
++            $name = trim((string) ($functionCall['name'] ?? ''));
++            if ($name === '' || !in_array($name, $requiredNames, true)) {
++                $reportedName = $name !== '' ? $name : 'UNKNOWN';
++                throw new RuntimeException(self::ERROR_UNEXPECTED_FUNCTION_CALL . ": {$reportedName}");
++            }
++
++            if (array_key_exists($name, $calls)) {
++                throw new RuntimeException(self::ERROR_DUPLICATE_FUNCTION_CALL . ": {$name}");
+             }
+ 
+             $args = $functionCall['args'] ?? null;
+             if (!is_array($args)) {
+-                break;
++                throw new RuntimeException(self::ERROR_INVALID_ARGS . ": {$name}");
+             }
+ 
+-            return $this->validateExtractionPayload($args);
++            $calls[$name] = $args;
++        }
++
++        foreach ($requiredNames as $requiredName) {
++            if (!array_key_exists($requiredName, $calls)) {
++                throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$requiredName}");
++            }
+         }
+ 
+-        throw new RuntimeException("Gemini no invocó {$expectedName}");
++        return $calls;
+     }
+ 
+-    private function validateExtractionPayload(array $args): array
++    /**
++     * @param  array<string,array<string,mixed>> $calls
++     * @return array<string,mixed>
++     */
++    private function validateParallelExtractionPayload(array $calls): array
+     {
+-        $fields = $this->requiredArray($args, 'fields', 'Gemini retornó extraction payload sin fields');
+-        $visualChecks = $this->requiredArray($args, 'visual_checks', 'Gemini retornó extraction payload sin visual_checks');
+-        $documentQuality = $this->validateDocumentQuality($args['document_quality'] ?? null);
+-        $items = $this->normalizeOptionalArray($args['items'] ?? []);
+-        $qualityNotes = $this->normalizeOptionalArray($args['quality_notes'] ?? []);
++        $fieldsArgs = $calls[DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS] ?? [];
++        $itemsArgs = $calls[DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS] ?? [];
++        $visualArgs = $calls[DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS] ?? [];
++        $qualityArgs = $calls[DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY] ?? [];
++
++        $fields = $this->requiredArray($fieldsArgs, 'fields', 'Gemini retornó extract_fields sin fields');
++        $items = $this->requiredArray($itemsArgs, 'items', 'Gemini retornó extract_items sin items');
++        $visualChecks = $this->requiredArray($visualArgs, 'visual_checks', 'Gemini retornó detect_visual_checks sin visual_checks');
++        $documentQuality = $this->validateDocumentQuality($qualityArgs['document_quality'] ?? null);
++        $qualityNotes = $this->requiredArray($qualityArgs, 'quality_notes', 'Gemini retornó assess_document_quality sin quality_notes');
++        $this->validateItems($items);
+         $this->validateVisualChecks($visualChecks);
+ 
+         return [
+@@ -395,12 +561,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         return trim((string) ($payload['tipo_documento'] ?? 'DOCUMENTO'));
+     }
+ 
+-    private function resolveFunctionName(array $schema): string
+-    {
+-        $name = is_string($schema['name'] ?? null) ? trim((string) $schema['name']) : '';
+-        return $name !== '' ? $name : 'extract_document_data';
+-    }
+-
+     private function requiresSegmentedDispensaItems(string $documentType, array $payload): bool
+     {
+         $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
+@@ -462,14 +622,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         return $unique;
+     }
+ 
+-    /**
+-     * @return array<int|string,mixed>
+-     */
+-    private function normalizeOptionalArray(mixed $value): array
+-    {
+-        return is_array($value) ? $value : [];
+-    }
+-
+     private function validateDocumentQuality(mixed $documentQuality): string
+     {
+         if (!is_string($documentQuality) || trim($documentQuality) === '') {
+@@ -484,6 +636,18 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         return $normalized;
+     }
+ 
++    /**
++     * @param array<int,mixed> $items
++     */
++    private function validateItems(array $items): void
++    {
++        foreach ($items as $index => $item) {
++            if (!is_array($item)) {
++                throw new RuntimeException("Gemini retornó item inválido en posición {$index}");
++            }
++        }
++    }
++
+     /**
+      * @param array<int,mixed> $visualChecks
+      */
+diff --git a/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php b/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
+index a226e1f..5fe066c 100644
+--- a/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
++++ b/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
+@@ -8,6 +8,7 @@ use App\Services\Audit\Pipeline\AuditEvent;
+ use App\Services\Audit\Pipeline\AuditEventPublisher;
+ use App\Services\Audit\Pipeline\AuditStateStore;
+ use App\Services\Audit\Pipeline\AttachmentDownloadServiceInterface;
++use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
+ use App\Services\Audit\Pipeline\DocumentExtractionWorker;
+ use App\Services\Audit\GeminiGateway;
+ use Core\RedisClient;
+@@ -71,32 +72,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+         $redisMock->method('get')->willReturn(null);
+         $redisMock->expects($this->once())->method('set')->willReturn(true);
+         
+-        $gateway = new StubGeminiGateway([
+-            'X-Audit-Metrics' => [
+-                'task_type' => 'extraction',
+-                'document_type' => 'FORMULA MEDICA',
+-                'duration_ms' => 123,
+-                'cache_hit' => false,
+-            ],
+-            'candidates' => [[
+-                'content' => [
+-                    'parts' => [[
+-                        'functionCall' => [
+-                            'name' => 'extract_document_data',
+-                            'args' => [
+-                                'fields' => ['NumeroFactura' => 'T38250701547'],
+-                                'items' => [],
+-                                'visual_checks' => [
+-                                    ['check' => 'FirmaActaEntrega', 'presente' => true],
+-                                ],
+-                                'document_quality' => 'legible',
+-                                'quality_notes' => ['ok'],
+-                            ],
+-                        ],
+-                    ]],
+-                ],
+-            ]],
+-        ]);
++        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+         
+         $worker = new DocumentExtractionWorker(
+             stateStore: $store,
+@@ -110,16 +86,36 @@ final class DocumentExtractionWorkerTest extends TestCase
+         $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
+ 
+         $this->assertSame(1, $gateway->calls);
+-        $this->assertSame('extract_document_data', $gateway->lastTools[0]['functionDeclarations'][0]['name'] ?? null);
+-        $this->assertSame(['extract_document_data'], $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+-        $this->assertSame(2048, $gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
++        $this->assertSame(
++            [
++                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
++                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
++                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
++                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
++            ],
++            array_column($gateway->lastTools[0]['functionDeclarations'], 'name')
++        );
++        $this->assertSame(
++            [
++                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
++                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
++                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
++                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
++            ],
++            $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null
++        );
++        $this->assertIsInt($gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
++        $this->assertGreaterThan(0, $gateway->lastGenerationOverrides['maxOutputTokens']);
+         $this->assertSame('extraction', $gateway->lastDebugContext['task_type'] ?? null);
+         $toolJson = json_encode($gateway->lastTools, JSON_THROW_ON_ERROR);
++        $this->assertStringNotContainsString('extract_document_data', $toolJson);
+         $this->assertStringNotContainsString('additionalProperties', $toolJson);
+         $this->assertStringNotContainsString('"default"', $toolJson);
+         $this->assertFalse($publisher->published[0]->payload['cache_hit']);
+         $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
++        $this->assertSame('STOP', $publisher->published[0]->payload['gemini_metrics']['finish_reason'] ?? null);
+         $this->assertSame('T38250701547', $publisher->published[0]->payload['extraction_result']['fields']['NumeroFactura']);
++        $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
+     }
+ 
+     public function testDoesNotPublishWhenStateStoreReturnsFalse(): void
+@@ -170,11 +166,162 @@ final class DocumentExtractionWorkerTest extends TestCase
+         );
+ 
+         $this->expectException(RuntimeException::class);
+-        $this->expectExceptionMessage('Gemini');
++        $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_CANDIDATE');
++
++        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
++    }
++
++    public function testMaxTokensFinishReasonDoesNotCacheOrPublishExtraction(): void
++    {
++        $publisher = new ExtractionPublisher();
++        $redisMock = $this->createMock(RedisClient::class);
++        $redisMock->method('get')->willReturn(null);
++        $redisMock->expects($this->never())->method('set');
++
++        $worker = new DocumentExtractionWorker(
++            stateStore: new ExtractionRecordingStateStore(),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            gateway: new StubGeminiGateway($this->geminiFunctionCallResponse('MAX_TOKENS')),
++            redis: $redisMock,
++            publisher: $publisher,
++            consumerName: 'extractor-test'
++        );
++
++        $this->expectException(RuntimeException::class);
++        $this->expectExceptionMessage('GEMINI_EXTRACTION_UNSAFE_FINISH_REASON: MAX_TOKENS');
++
++        try {
++            $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
++        } finally {
++            $this->assertCount(0, $publisher->published);
++        }
++    }
++
++    public function testMissingParallelFunctionCallThrowsRuntimeException(): void
++    {
++        $redisMock = $this->createMock(RedisClient::class);
++        $redisMock->method('get')->willReturn(null);
++        $redisMock->expects($this->never())->method('set');
++
++        $worker = new DocumentExtractionWorker(
++            stateStore: new ExtractionRecordingStateStore(),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
++                omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
++            )),
++            redis: $redisMock,
++            publisher: new ExtractionPublisher(),
++            consumerName: 'extractor-test'
++        );
++
++        $this->expectException(RuntimeException::class);
++        $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_FUNCTION_CALL: extract_items');
++
++        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
++    }
++
++    public function testDuplicateParallelFunctionCallThrowsRuntimeException(): void
++    {
++        $redisMock = $this->createMock(RedisClient::class);
++        $redisMock->method('get')->willReturn(null);
++        $redisMock->expects($this->never())->method('set');
++
++        $worker = new DocumentExtractionWorker(
++            stateStore: new ExtractionRecordingStateStore(),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
++                duplicateFunction: DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS
++            )),
++            redis: $redisMock,
++            publisher: new ExtractionPublisher(),
++            consumerName: 'extractor-test'
++        );
++
++        $this->expectException(RuntimeException::class);
++        $this->expectExceptionMessage('GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL: extract_fields');
+ 
+         $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+     }
+ 
++    private function geminiFunctionCallResponse(
++        string $finishReason = 'STOP',
++        ?string $omittedFunction = null,
++        ?string $duplicateFunction = null
++    ): array
++    {
++        $parts = [
++            [
++                'functionCall' => [
++                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
++                    'args' => [
++                        'fields' => ['NumeroFactura' => 'T38250701547'],
++                    ],
++                ],
++            ],
++            [
++                'functionCall' => [
++                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
++                    'args' => [
++                        'items' => [
++                            ['NombreArticulo' => 'ITEM A'],
++                        ],
++                    ],
++                ],
++            ],
++            [
++                'functionCall' => [
++                    'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
++                    'args' => [
++                        'visual_checks' => [
++                            ['check' => 'FirmaActaEntrega', 'presente' => true],
++                        ],
++                    ],
++                ],
++            ],
++            [
++                'functionCall' => [
++                    'name' => DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
++                    'args' => [
++                        'document_quality' => 'legible',
++                        'quality_notes' => ['ok'],
++                    ],
++                ],
++            ],
++        ];
++
++        if ($omittedFunction !== null) {
++            $parts = array_values(array_filter(
++                $parts,
++                static fn(array $part): bool => ($part['functionCall']['name'] ?? null) !== $omittedFunction
++            ));
++        }
++
++        if ($duplicateFunction !== null) {
++            foreach ($parts as $part) {
++                if (($part['functionCall']['name'] ?? null) === $duplicateFunction) {
++                    $parts[] = $part;
++                    break;
++                }
++            }
++        }
++
++        return [
++            'X-Audit-Metrics' => [
++                'task_type' => 'extraction',
++                'document_type' => 'FORMULA MEDICA',
++                'duration_ms' => 123,
++                'cache_hit' => false,
++                'finish_reason' => $finishReason,
++            ],
++            'candidates' => [[
++                'finishReason' => $finishReason,
++                'content' => [
++                    'parts' => $parts,
++                ],
++            ]],
++        ];
++    }
++
+     private function documentRegisteredEvent(
+         string $auditId,
+         string $documentId,
+@@ -189,18 +336,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+                 'diagnosticos' => ['E119'],
+                 'items' => [],
+             ],
+-            'extraction_schema' => [
+-                'name' => 'extract_document_data',
+-                'description' => 'Extract data from document',
+-                'parameters' => [
+-                    'type' => 'object',
+-                    'properties' => [
+-                        'fields' => ['type' => 'object'],
+-                        'items' => ['type' => 'array'],
+-                        'visual_checks' => ['type' => 'array'],
+-                    ],
+-                ]
+-            ],
++            'extraction_contract' => $this->extractionContract(),
+             'attempt' => 1,
+         ];
+ 
+@@ -213,6 +349,78 @@ final class DocumentExtractionWorkerTest extends TestCase
+             documentId: $documentId
+         );
+     }
++
++    private function extractionContract(): array
++    {
++        return [
++            'function_declarations' => [
++                [
++                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
++                    'parameters' => [
++                        'type' => 'object',
++                        'properties' => [
++                            'fields' => [
++                                'type' => 'object',
++                                'properties' => [
++                                    'NumeroFactura' => ['type' => 'string', 'nullable' => true],
++                                ],
++                            ],
++                        ],
++                        'required' => ['fields'],
++                    ],
++                ],
++                [
++                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
++                    'parameters' => [
++                        'type' => 'object',
++                        'properties' => [
++                            'items' => [
++                                'type' => 'array',
++                                'items' => [
++                                    'type' => 'object',
++                                    'properties' => [
++                                        'NombreArticulo' => ['type' => 'string', 'nullable' => true],
++                                    ],
++                                ],
++                            ],
++                        ],
++                        'required' => ['items'],
++                    ],
++                ],
++                [
++                    'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
++                    'parameters' => [
++                        'type' => 'object',
++                        'properties' => [
++                            'visual_checks' => ['type' => 'array'],
++                        ],
++                        'required' => ['visual_checks'],
++                    ],
++                ],
++                [
++                    'name' => DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
++                    'parameters' => [
++                        'type' => 'object',
++                        'properties' => [
++                            'document_quality' => ['type' => 'string'],
++                            'quality_notes' => ['type' => 'array'],
++                        ],
++                        'required' => ['document_quality', 'quality_notes'],
++                    ],
++                ],
++            ],
++            'required_function_names' => [
++                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
++                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
++                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
++                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
++            ],
++            'field_groups' => [
++                'fields' => ['NumeroFactura'],
++                'items' => ['NombreArticulo'],
++            ],
++        ];
++    }
+ }
+ 
+ final class StubDownloadService implements AttachmentDownloadServiceInterface
+diff --git a/tests/Services/Audit/GeminiConfigTest.php b/tests/Services/Audit/GeminiConfigTest.php
+index 83eda22..2676382 100644
+--- a/tests/Services/Audit/GeminiConfigTest.php
++++ b/tests/Services/Audit/GeminiConfigTest.php
+@@ -54,6 +54,8 @@ final class GeminiConfigTest extends TestCase
+     {
+         $config = new GeminiConfig(
+             model: 'gemini-3.1-pro-preview',
++            responseMimeType: 'application/json',
++            mediaResolution: 'MEDIA_RESOLUTION_HIGH',
+             thinkingBudget: 128,
+             thinkingLevel: 'low'
+         );
+@@ -64,6 +66,8 @@ final class GeminiConfigTest extends TestCase
+         ]);
+ 
+         $this->assertSame(['thinkingLevel' => 'high'], $generationConfig['thinkingConfig']);
++        $this->assertArrayNotHasKey('responseMimeType', $generationConfig);
++        $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
+     }
+ 
+     public function testRejectsInvalidGenerationOverridePrefix(): void
+diff --git a/tests/Services/Audit/SemanticMatchJudgeTest.php b/tests/Services/Audit/SemanticMatchJudgeTest.php
+index cca57e7..0a10900 100644
+--- a/tests/Services/Audit/SemanticMatchJudgeTest.php
++++ b/tests/Services/Audit/SemanticMatchJudgeTest.php
+@@ -33,7 +33,7 @@ final class SemanticMatchJudgeTest extends TestCase
+         );
+         $this->assertStringNotContainsString('Error de evaluación semántica', $result['reasoning']);
+         $this->assertStringNotContainsString('Budget 0 is invalid', $result['reasoning']);
+-        $this->assertSame(['maxOutputTokens' => 256, 'thinkingLevel' => 'low'], $gateway->lastGenerationOverrides);
++        $this->assertSame(['maxOutputTokens' => 2048], $gateway->lastGenerationOverrides);
+     }
+ 
+     public function testMalformedFunctionCallKeepsGeminiMetricsAndCleanFallback(): void
+@@ -56,7 +56,7 @@ final class SemanticMatchJudgeTest extends TestCase
+             $result['reasoning']
+         );
+         $this->assertSame(268, $result['gemini_metrics']['total_tokens'] ?? null);
+-        $this->assertSame(['maxOutputTokens' => 256, 'thinkingLevel' => 'low'], $gateway->lastGenerationOverrides);
++        $this->assertSame(['maxOutputTokens' => 2048], $gateway->lastGenerationOverrides);
+     }
+ }
+ 

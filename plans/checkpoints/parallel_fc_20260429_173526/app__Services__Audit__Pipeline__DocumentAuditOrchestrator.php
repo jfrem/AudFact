@@ -11,23 +11,25 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
     private AuditDataServiceInterface $dataService;
-    private DocumentExtractionContractBuilder $contractBuilder;
     private string $consumerName;
 
     public function __construct(
-        ?AuditStateStore                  $stateStore      = null,
-        ?AuditDataServiceInterface        $dataService     = null,
-        ?DocumentExtractionContractBuilder $contractBuilder = null,
-        ?\Core\RedisClient                $redis           = null,
-        ?AuditEventPublisher              $publisher       = null,
-        ?string                           $consumerName    = null
+        ?AuditStateStore             $stateStore   = null,
+        ?AuditDataServiceInterface   $dataService  = null,
+        ?\Core\RedisClient           $redis        = null,
+        ?AuditEventPublisher         $publisher    = null,
+        ?string                      $consumerName = null
     ) {
         parent::__construct($redis, $publisher);
 
-        $this->stateStore      = $stateStore      ?? new AuditStateStore($this->redis);
-        $this->dataService     = $dataService     ?? new AuditDataService();
-        $this->contractBuilder = $contractBuilder ?? new DocumentExtractionContractBuilder();
-        $this->consumerName    = $consumerName    ?? ('orchestrator-' . getmypid());
+        $this->stateStore   = $stateStore   ?? new AuditStateStore($this->redis);
+        $this->dataService  = $dataService  ?? new AuditDataService();
+        $this->consumerName = $consumerName ?? ('orchestrator-' . getmypid());
+    }
+
+    public function processEvent(AuditEvent $event): void
+    {
+        $this->handle($event);
     }
 
     protected function stream(): string
@@ -59,7 +61,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'fac_sec' => $context['facSec'],
             'numero_factura' => $context['numeroFactura'],
         ]);
-        $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
+        $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['schemaDocuments']));
 
         $this->registerDocuments($event, $disDetNro, $context);
     }
@@ -82,7 +84,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * @return array{
      *   nitSec:string, facSec:string, numeroFactura:string,
      *   fuenteVerdad:array<string,mixed>, auditConfig:array<string,mixed>,
-     *   configuredDocuments:array<int,array<string,mixed>>,
+     *   schemaDocuments:array<int,array<string,mixed>>,
      *   catalogById:array<int,array<string,mixed>>,
      *   attachments:array<int,array<string,mixed>>
      * }
@@ -116,7 +118,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'numeroFactura' => $numeroFactura,
             'fuenteVerdad' => $fuenteVerdad,
             'auditConfig' => $auditConfig,
-            'configuredDocuments' => $this->buildConfiguredDocuments($auditConfig),
+            'schemaDocuments' => $this->buildSchema($auditConfig),
             'catalogById' => $this->indexClientDocumentsById($clientDocuments),
             'attachments' => $attachments,
         ];
@@ -127,20 +129,20 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      */
     private function registerDocuments(AuditEvent $event, string $disDetNro, array $context): void
     {
-        foreach ($context['configuredDocuments'] as $configuredDocument) {
-            $catalogDocument = $context['catalogById'][$configuredDocument['doc_id']] ?? null;
+        foreach ($context['schemaDocuments'] as $schemaDocument) {
+            $catalogDocument = $context['catalogById'][$schemaDocument['doc_id']] ?? null;
             if ($catalogDocument === null) {
-                throw new RuntimeException("DOCUMENT_CONFIG_NOT_FOUND: docId {$configuredDocument['doc_id']}");
+                throw new RuntimeException("DOCUMENT_CONFIG_NOT_FOUND: docId {$schemaDocument['doc_id']}");
             }
 
-            $attachment = $this->matchAttachment($configuredDocument, $catalogDocument, $context['attachments']);
+            $attachment = $this->matchAttachment($schemaDocument, $catalogDocument, $context['attachments']);
             if ($attachment === null) {
-                throw new RuntimeException('REQUIRED_ATTACHMENT_MISSING: ' . $configuredDocument['document_name']);
+                throw new RuntimeException('REQUIRED_ATTACHMENT_MISSING: ' . $schemaDocument['document_name']);
             }
 
             $documentId = AuditEvent::uuidV4();
             $documentState = $this->buildDocumentState(
-                $documentId, $configuredDocument, $catalogDocument, $attachment, $disDetNro, $context
+                $documentId, $schemaDocument, $catalogDocument, $attachment, $disDetNro, $context
             );
 
             $this->stateStore->registerDocument($event->auditId, $documentId, $documentState);
@@ -157,7 +159,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     }
 
     /**
-     * @param  array<string,mixed> $configuredDocument
+     * @param  array<string,mixed> $schemaDocument
      * @param  array<string,mixed> $catalogDocument
      * @param  array<string,mixed> $attachment
      * @param  array<string,mixed> $context
@@ -165,7 +167,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      */
     private function buildDocumentState(
         string $documentId,
-        array $configuredDocument,
+        array $schemaDocument,
         array $catalogDocument,
         array $attachment,
         string $disDetNro,
@@ -175,8 +177,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         return [
             'document_id'        => $documentId,
-            'doc_id'             => (string) $configuredDocument['doc_id'],
-            'tipo_documento'     => $configuredDocument['document_name'],
+            'doc_id'             => (string) $schemaDocument['doc_id'],
+            'tipo_documento'     => $schemaDocument['document_name'],
             'nombre_alternativo' => (string) ($catalogDocument['NitMedDocCodAlt'] ?? ''),
             'status'             => 'registered',
             'attachment_id'      => $attachmentId,
@@ -187,9 +189,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'numero_factura'     => $context['numeroFactura'],
             'fac_sec'            => $context['facSec'],
             'fac_nit_sec'        => $context['nitSec'],
-            'extraction_contract' => $configuredDocument['extraction_contract'],
-            'fields_config'      => $configuredDocument['fields'],
-            'visual_checks'      => $configuredDocument['visual_checks'],
+            'extraction_schema'  => $schemaDocument['extraction_schema'],
+            'fields_config'      => $schemaDocument['fields'],
+            'visual_checks'      => $schemaDocument['visual_checks'],
             'system_prompt'      => $context['auditConfig']['systemPrompt'] ?? null,
             'fuente_verdad'      => $context['fuenteVerdad'],
         ];
@@ -209,9 +211,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         return $indexed;
     }
 
-    private function matchAttachment(array $configuredDocument, array $catalogDocument, array $attachments): ?array
+    private function matchAttachment(array $schemaDocument, array $catalogDocument, array $attachments): ?array
     {
-        $docId = (int) $configuredDocument['doc_id'];
+        $docId = (int) $schemaDocument['doc_id'];
         foreach ($attachments as $attachment) {
             if ((int) ($attachment['id_documento'] ?? 0) === $docId) {
                 return $attachment;
@@ -219,11 +221,11 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         $candidates = array_filter([
-            (string) ($configuredDocument['document_name'] ?? ''),
+            (string) ($schemaDocument['document_name'] ?? ''),
             (string) ($catalogDocument['NitMedDocNom'] ?? ''),
             (string) ($catalogDocument['NitMedDocCodAlt'] ?? ''),
         ]);
-        $normalizedCandidates = array_map([DocumentExtractionContractBuilder::class, 'normalizeDocumentName'], $candidates);
+        $normalizedCandidates = array_map([self::class, 'normalizeName'], $candidates);
 
         foreach ($attachments as $attachment) {
             $attachmentNames = array_filter([
@@ -232,7 +234,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             ]);
 
             foreach ($attachmentNames as $attachmentName) {
-                if (in_array(DocumentExtractionContractBuilder::normalizeDocumentName($attachmentName), $normalizedCandidates, true)) {
+                if (in_array(self::normalizeName($attachmentName), $normalizedCandidates, true)) {
                     return $attachment;
                 }
             }
@@ -241,7 +243,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         return null;
     }
 
-    private function buildConfiguredDocuments(array $auditConfig): array
+    private function buildSchema(array $auditConfig): array
     {
         $documents = $auditConfig['documents'] ?? null;
         if (!is_array($documents) || $documents === []) {
@@ -261,13 +263,14 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
             $fields = $this->normalizeSchemaFields($documentConfig['fields'] ?? []);
             $visualChecks = $this->normalizeSchemaVisualChecks($documentConfig['visualChecks'] ?? []);
+            $fieldNames = $this->extractFieldNames($fields);
 
             $normalized[] = [
                 'doc_id' => $docId,
                 'document_name' => trim($documentName),
-                'document_name_normalized' => DocumentExtractionContractBuilder::normalizeDocumentName($documentName),
+                'document_name_normalized' => self::normalizeName($documentName),
                 'fields' => $fields,
-                'extraction_contract' => $this->contractBuilder->build(trim($documentName), $fields, $visualChecks),
+                'extraction_schema' => $this->buildExtractionSchema($fieldNames, $visualChecks),
                 'visual_checks' => $visualChecks,
             ];
         }
@@ -278,6 +281,75 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         );
 
         return $normalized;
+    }
+
+    private function buildExtractionSchema(array $fieldNames, array $visualChecks = []): array
+    {
+        $fieldProperties = $this->buildFieldProperties($fieldNames);
+
+        return [
+            'name'        => 'extract_document_data',
+            'description' => 'Extrae datos estructurados y verificaciones visuales de un documento de auditoria farmaceutica.',
+            'parameters'  => [
+                'type'       => 'object',
+                'properties' => [
+                    'fields'           => ['type' => 'object', 'properties' => $fieldProperties],
+                    'items'            => ['type' => 'array',  'items' => ['type' => 'object', 'properties' => $fieldProperties]],
+                    'visual_checks'    => [
+                        'type'  => 'array',
+                        'items' => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'check'     => ['type' => 'string'],
+                                'presente'  => ['type' => 'boolean'],
+                                'detalle'   => ['type' => 'string'],
+                                'severidad' => ['type' => 'string'],
+                            ],
+                            'required' => ['check', 'presente'],
+                        ],
+                    ],
+                    'document_quality' => [
+                        'type' => 'string',
+                        'enum' => ['legible', 'parcialmente_legible', 'ilegible'],
+                    ],
+                    'quality_notes'    => ['type' => 'array', 'items' => ['type' => 'string']],
+                ],
+                'required' => ['fields', 'visual_checks', 'document_quality'],
+            ],
+        ];
+    }
+
+    private function buildFieldProperties(array $fieldNames): array
+    {
+        $properties = [];
+        foreach ($fieldNames as $name) {
+            $properties[$name] = ['type' => 'string'];
+        }
+        return $properties;
+    }
+
+    public static function normalizeName(string $value): string
+    {
+        $upper = strtoupper(trim($value));
+        $ascii = strtr($upper, [
+            'Á' => 'A',
+            'É' => 'E',
+            'Í' => 'I',
+            'Ó' => 'O',
+            'Ú' => 'U',
+            'Ü' => 'U',
+            'Ñ' => 'N',
+            '_' => ' ',
+            '-' => ' ',
+        ]);
+
+        $ascii = preg_replace('/\s+/', ' ', $ascii);
+        return trim((string) $ascii);
+    }
+
+    private function extractFieldNames(array $fields): array
+    {
+        return array_map(fn(array $f): string => $f['campoNombre'], $fields);
     }
 
     private function normalizeSchemaFields(mixed $fields): array
