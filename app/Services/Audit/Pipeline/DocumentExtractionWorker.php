@@ -104,70 +104,163 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $contract      = $this->requiredArray($payload, 'extraction_contract');
         $documentType  = $this->resolveDocumentType($payload);
 
-        $document     = $this->downloader->download($attachmentId, $disDetNro);
-        $documentHash = hash('sha256', $document['data']);
+        $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
+        $document = $downloaded['document'];
+        $documentHash = $downloaded['document_hash'];
 
-        $extracted = $this->cacheGet($documentHash);
-        $cacheHit = $extracted !== null;
-        $geminiDurationMs = 0;
-        $geminiMetrics = null;
-
-        if ($extracted === null) {
-            $response = $this->gateway->sendWithFunctionCalling(
-                $this->buildUserPrompt($documentType, $payload, $contract),
-                [[
-                    'mime' => $document['mime'],
-                    'data' => $document['data'],
-                    'label' => $documentType,
-                ]],
-                $this->buildSystemPrompt($payload),
-                [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
-                $this->buildToolConfig($contract),
-                GeminiGateway::TASK_EXTRACTION,
-                GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
-                    'maxOutputTokens' => 2048,
-                ]),
-                [
-                    'dis_det_nro' => $disDetNro,
-                    'audit_id' => $event->auditId,
-                    'document_id' => $event->documentId,
-                    'document_type' => $documentType,
-                ]
-            );
-
-            $geminiDurationMs = (int) ($response['X-Audit-Metrics']['duration_ms'] ?? 0);
-            $geminiMetrics = is_array($response['X-Audit-Metrics'] ?? null)
-                ? $response['X-Audit-Metrics']
-                : null;
-            unset($response['X-Audit-Metrics']);
-
-            $extracted = $this->parseGeminiResponse($response, $contract);
-            $this->enforceItemSegmentation($documentType, $payload, $extracted);
-            $this->cachePut($documentHash, $extracted);
-        }
+        $extraction = $this->resolveExtraction(
+            $documentHash,
+            $document,
+            $documentType,
+            $payload,
+            $contract,
+            $disDetNro,
+            $event
+        );
 
         $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
 
-        $documentState = [
-            'status'                  => 'extracted',
-            'document_hash'           => $documentHash,
-            'cache_hit'               => $cacheHit,
-            'mime'                    => $document['mime'],
-            'extraction_result'       => $extracted,
-            'extracted_at'            => gmdate('Y-m-d\TH:i:s\Z'),
-            'extraction_duration_ms'  => $extractionDurationMs,
-            'download_duration_ms'    => (int) ($document['duration_ms'] ?? 0),
-            'gemini_duration_ms'      => $geminiDurationMs,
-        ];
-
-        if ($geminiMetrics !== null) {
-            $documentState['gemini_metrics'] = $geminiMetrics;
-        }
+        $documentState = $this->buildDocumentState(
+            $documentHash,
+            $document,
+            $extraction,
+            $extractionDurationMs
+        );
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
             throw new RuntimeException('No se pudo persistir la extracción del documento en Redis');
         }
 
+        $this->publishDocumentExtracted($event, $payload, $documentState);
+
+        $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
+        $this->logDocumentExtracted($event, $documentState, $totalDurationMs);
+    }
+
+    /**
+     * @return array{document:array<string,mixed>,document_hash:string}
+     */
+    private function downloadDocumentWithHash(string $attachmentId, string $disDetNro): array
+    {
+        $document = $this->downloader->download($attachmentId, $disDetNro);
+
+        return [
+            'document' => $document,
+            'document_hash' => hash('sha256', $document['data']),
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $document
+     * @param  array<string,mixed> $payload
+     * @param  array<string,mixed> $contract
+     * @return array{
+     *   extracted:array<string,mixed>,
+     *   cache_hit:bool,
+     *   gemini_duration_ms:int,
+     *   gemini_metrics:?array<string,mixed>
+     * }
+     */
+    private function resolveExtraction(
+        string $documentHash,
+        array $document,
+        string $documentType,
+        array $payload,
+        array $contract,
+        string $disDetNro,
+        AuditEvent $event
+    ): array {
+        $extracted = $this->cacheGet($documentHash);
+        if ($extracted !== null) {
+            return [
+                'extracted' => $extracted,
+                'cache_hit' => true,
+                'gemini_duration_ms' => 0,
+                'gemini_metrics' => null,
+            ];
+        }
+
+        $response = $this->gateway->sendWithFunctionCalling(
+            $this->buildUserPrompt($documentType, $payload, $contract),
+            [[
+                'mime' => $document['mime'],
+                'data' => $document['data'],
+                'label' => $documentType,
+            ]],
+            $this->buildSystemPrompt($payload),
+            [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
+            $this->buildToolConfig($contract),
+            GeminiGateway::TASK_EXTRACTION,
+            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                'maxOutputTokens' => 2048,
+            ]),
+            [
+                'dis_det_nro' => $disDetNro,
+                'audit_id' => $event->auditId,
+                'document_id' => $event->documentId,
+                'document_type' => $documentType,
+            ]
+        );
+
+        $geminiDurationMs = (int) ($response['X-Audit-Metrics']['duration_ms'] ?? 0);
+        $geminiMetrics = is_array($response['X-Audit-Metrics'] ?? null)
+            ? $response['X-Audit-Metrics']
+            : null;
+        unset($response['X-Audit-Metrics']);
+
+        $extracted = $this->parseGeminiResponse($response, $contract);
+        $this->enforceItemSegmentation($documentType, $payload, $extracted);
+        $this->cachePut($documentHash, $extracted);
+
+        return [
+            'extracted' => $extracted,
+            'cache_hit' => false,
+            'gemini_duration_ms' => $geminiDurationMs,
+            'gemini_metrics' => $geminiMetrics,
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $document
+     * @param  array{
+     *   extracted:array<string,mixed>,
+     *   cache_hit:bool,
+     *   gemini_duration_ms:int,
+     *   gemini_metrics:?array<string,mixed>
+     * } $extraction
+     * @return array<string,mixed>
+     */
+    private function buildDocumentState(
+        string $documentHash,
+        array $document,
+        array $extraction,
+        int $extractionDurationMs
+    ): array {
+        $documentState = [
+            'status'                  => 'extracted',
+            'document_hash'           => $documentHash,
+            'cache_hit'               => $extraction['cache_hit'],
+            'mime'                    => $document['mime'],
+            'extraction_result'       => $extraction['extracted'],
+            'extracted_at'            => gmdate('Y-m-d\TH:i:s\Z'),
+            'extraction_duration_ms'  => $extractionDurationMs,
+            'download_duration_ms'    => (int) ($document['duration_ms'] ?? 0),
+            'gemini_duration_ms'      => $extraction['gemini_duration_ms'],
+        ];
+
+        if ($extraction['gemini_metrics'] !== null) {
+            $documentState['gemini_metrics'] = $extraction['gemini_metrics'];
+        }
+
+        return $documentState;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed> $documentState
+     */
+    private function publishDocumentExtracted(AuditEvent $event, array $payload, array $documentState): void
+    {
         $this->publisher->publish(AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_EXTRACTED,
             auditId: $event->auditId,
@@ -176,15 +269,21 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             payload: array_merge($payload, $documentState),
             parentEventId: $event->eventId,
         ));
+    }
 
-        $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
-        $downloadDurationMs = (int) ($document['duration_ms'] ?? 0);
+    /**
+     * @param array<string,mixed> $documentState
+     */
+    private function logDocumentExtracted(AuditEvent $event, array $documentState, float $totalDurationMs): void
+    {
+        $downloadDurationMs = (int) ($documentState['download_duration_ms'] ?? 0);
+        $geminiDurationMs = (int) ($documentState['gemini_duration_ms'] ?? 0);
         $localCpuDurationMs = $totalDurationMs - $downloadDurationMs - $geminiDurationMs;
 
         Logger::info('Document extraction event processed', [
             'auditId' => $event->auditId,
             'documentId' => $event->documentId,
-            'cache_hit' => $cacheHit,
+            'cache_hit' => (bool) ($documentState['cache_hit'] ?? false),
             'total_duration_ms' => (int) $totalDurationMs,
             'download_duration_ms' => $downloadDurationMs,
             'gemini_duration_ms' => $geminiDurationMs,

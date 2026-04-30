@@ -1,8 +1,0 @@
- M AGENTS.md
- M CHANGELOG.md
- M app/Services/Audit/Debug/GeminiCallMetrics.php
- M app/Services/Audit/Pipeline/DocumentExtractionWorker.php
- M tests/Services/Audit/Debug/GeminiCallMetricsTest.php
- M tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
-?? config.md
-?? plans/checkpoints/

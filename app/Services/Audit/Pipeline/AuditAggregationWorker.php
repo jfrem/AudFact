@@ -150,69 +150,105 @@ final class AuditAggregationWorker extends AuditEventConsumer
      */
     private function buildPhaseTimings(array $audit): array
     {
-        $extractions    = [];
-        $normalizations = [];
-        $policies       = [];
-        $downloads      = [];
-        $geminis        = [];
-        $geminiExtractionMetrics = [];
-        $geminiSemanticMetrics = [];
-        $semanticCacheHits = 0;
-        $cacheHits      = 0;
-        $total          = 0;
+        $samples = $this->emptyPhaseTimingSamples();
 
         foreach ($audit['documents'] ?? [] as $doc) {
             if (!is_array($doc)) {
                 continue;
             }
-            $total++;
-            if (isset($doc['extraction_duration_ms'])) {
-                $extractions[] = (int) $doc['extraction_duration_ms'];
-            }
-            if (isset($doc['normalization_duration_ms'])) {
-                $normalizations[] = (int) $doc['normalization_duration_ms'];
-            }
-            if (isset($doc['policy_duration_ms'])) {
-                $policies[] = (int) $doc['policy_duration_ms'];
-            }
-            if (isset($doc['download_duration_ms'])) {
-                $downloads[] = (int) $doc['download_duration_ms'];
-            }
-            if (isset($doc['gemini_duration_ms'])) {
-                $geminis[] = (int) $doc['gemini_duration_ms'];
-            }
-            if (is_array($doc['gemini_metrics'] ?? null)) {
-                $geminiExtractionMetrics[] = $doc['gemini_metrics'];
-            }
-            if (is_array($doc['gemini_semantic_metrics']['semantic'] ?? null)) {
-                foreach ($doc['gemini_semantic_metrics']['semantic'] as $metric) {
-                    if (is_array($metric)) {
-                        $geminiSemanticMetrics[] = $metric;
-                    }
-                }
-            }
-            $semanticCacheHits += (int) ($doc['gemini_semantic_metrics']['semantic_cache_hits'] ?? 0);
-            if ($doc['cache_hit'] ?? false) {
-                $cacheHits++;
+            $samples = $this->collectDocumentTimingSamples($samples, $doc);
+        }
+
+        $allGeminiMetrics = array_merge(
+            $samples['gemini_extraction_metrics'],
+            $samples['gemini_semantic_metrics']
+        );
+
+        return [
+            'docs_total'     => $samples['total'],
+            'cache_hit_rate' => $samples['total'] > 0 ? round($samples['cache_hits'] / $samples['total'], 2) : 0.0,
+            'download'       => $this->summarizeTimings($samples['downloads']),
+            'gemini'         => $this->summarizeTimings($samples['geminis']),
+            'gemini_extraction' => GeminiCallMetrics::summarize($samples['gemini_extraction_metrics']),
+            'gemini_semantic'   => GeminiCallMetrics::summarize($samples['gemini_semantic_metrics']),
+            'gemini_total'      => GeminiCallMetrics::summarize($allGeminiMetrics),
+            'semantic_calls'    => count($samples['gemini_semantic_metrics']),
+            'semantic_cache_hits' => $samples['semantic_cache_hits'],
+            'extraction'     => $this->summarizeTimings($samples['extractions']),
+            'normalization'  => $this->summarizeTimings($samples['normalizations']),
+            'policy'         => $this->summarizeTimings($samples['policies']),
+        ];
+    }
+
+    /**
+     * @return array{
+     *   extractions:array<int,int>,
+     *   normalizations:array<int,int>,
+     *   policies:array<int,int>,
+     *   downloads:array<int,int>,
+     *   geminis:array<int,int>,
+     *   gemini_extraction_metrics:array<int,array<string,mixed>>,
+     *   gemini_semantic_metrics:array<int,array<string,mixed>>,
+     *   semantic_cache_hits:int,
+     *   cache_hits:int,
+     *   total:int
+     * }
+     */
+    private function emptyPhaseTimingSamples(): array
+    {
+        return [
+            'extractions' => [],
+            'normalizations' => [],
+            'policies' => [],
+            'downloads' => [],
+            'geminis' => [],
+            'gemini_extraction_metrics' => [],
+            'gemini_semantic_metrics' => [],
+            'semantic_cache_hits' => 0,
+            'cache_hits' => 0,
+            'total' => 0,
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $samples
+     * @param  array<string,mixed> $doc
+     * @return array<string,mixed>
+     */
+    private function collectDocumentTimingSamples(array $samples, array $doc): array
+    {
+        $samples['total']++;
+
+        foreach ([
+            'extraction_duration_ms' => 'extractions',
+            'normalization_duration_ms' => 'normalizations',
+            'policy_duration_ms' => 'policies',
+            'download_duration_ms' => 'downloads',
+            'gemini_duration_ms' => 'geminis',
+        ] as $sourceKey => $sampleKey) {
+            if (isset($doc[$sourceKey])) {
+                $samples[$sampleKey][] = (int) $doc[$sourceKey];
             }
         }
 
-        $allGeminiMetrics = array_merge($geminiExtractionMetrics, $geminiSemanticMetrics);
+        if (is_array($doc['gemini_metrics'] ?? null)) {
+            $samples['gemini_extraction_metrics'][] = $doc['gemini_metrics'];
+        }
 
-        return [
-            'docs_total'     => $total,
-            'cache_hit_rate' => $total > 0 ? round($cacheHits / $total, 2) : 0.0,
-            'download'       => $this->summarizeTimings($downloads),
-            'gemini'         => $this->summarizeTimings($geminis),
-            'gemini_extraction' => GeminiCallMetrics::summarize($geminiExtractionMetrics),
-            'gemini_semantic'   => GeminiCallMetrics::summarize($geminiSemanticMetrics),
-            'gemini_total'      => GeminiCallMetrics::summarize($allGeminiMetrics),
-            'semantic_calls'    => count($geminiSemanticMetrics),
-            'semantic_cache_hits' => $semanticCacheHits,
-            'extraction'     => $this->summarizeTimings($extractions),
-            'normalization'  => $this->summarizeTimings($normalizations),
-            'policy'         => $this->summarizeTimings($policies),
-        ];
+        if (is_array($doc['gemini_semantic_metrics']['semantic'] ?? null)) {
+            foreach ($doc['gemini_semantic_metrics']['semantic'] as $metric) {
+                if (is_array($metric)) {
+                    $samples['gemini_semantic_metrics'][] = $metric;
+                }
+            }
+        }
+
+        $samples['semantic_cache_hits'] += (int) ($doc['gemini_semantic_metrics']['semantic_cache_hits'] ?? 0);
+        if ($doc['cache_hit'] ?? false) {
+            $samples['cache_hits']++;
+        }
+
+        return $samples;
     }
 
     /**
@@ -267,15 +303,72 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $normalizedDecisions = $this->normalizeDocumentDecisions($documentDecisions);
 
         $finalStatus = $this->resolveFinalStatus($findings, $normalizedDecisions);
-        $requiresManualReview = in_array($finalStatus, [
-            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
-            AuditStateStore::AUDIT_STATUS_FAILED,
-        ], true);
+        $requiresManualReview = $this->requiresManualReview($finalStatus);
         $severity = $this->resolveOverallSeverity($findings);
         $failedDocument = $this->resolveFailedDocument($findings);
         $detailMessage = $this->buildDetailMessage($finalStatus, $metrics);
 
-        $auditResultData = [
+        $auditResultData = $this->buildAuditResultData(
+            $audit,
+            $findings,
+            $metrics,
+            $normalizedDecisions,
+            $finalStatus,
+            $requiresManualReview,
+            $severity,
+            $failedDocument,
+            $detailMessage
+        );
+
+        if ($auditResultData['FacSec'] === '' || $auditResultData['FacNro'] === '') {
+            throw new RuntimeException('Estado de auditoría incompleto para persistencia final');
+        }
+
+        return [
+            'final_status' => $finalStatus,
+            'requires_manual_review' => $requiresManualReview,
+            'severity' => $severity,
+            'detail_message' => $detailMessage,
+            'failed_document' => $failedDocument,
+            'document_decisions' => $normalizedDecisions,
+            'audit_result_data' => $auditResultData,
+            'completion_payload' => $this->buildCompletionPayload(
+                $finalStatus,
+                $requiresManualReview,
+                $findings,
+                $metrics,
+                $normalizedDecisions
+            ),
+        ];
+    }
+
+    private function requiresManualReview(string $finalStatus): bool
+    {
+        return in_array($finalStatus, [
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
+            AuditStateStore::AUDIT_STATUS_FAILED,
+        ], true);
+    }
+
+    /**
+     * @param  array<string,mixed> $audit
+     * @param  array<int,array<string,mixed>> $findings
+     * @param  array<string,int> $metrics
+     * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $normalizedDecisions
+     * @return array<string,mixed>
+     */
+    private function buildAuditResultData(
+        array $audit,
+        array $findings,
+        array $metrics,
+        array $normalizedDecisions,
+        string $finalStatus,
+        bool $requiresManualReview,
+        string $severity,
+        ?string $failedDocument,
+        string $detailMessage
+    ): array {
+        return [
             'FacSec' => (string) ($audit['fac_sec'] ?? ''),
             'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
             'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_FAILED ? 0 : 1,
@@ -297,31 +390,32 @@ final class AuditAggregationWorker extends AuditEventConsumer
             'DuracionProcesamientoMs' => $this->resolveDurationMs($audit),
             'FacNitSec' => (string) ($audit['fac_nit_sec'] ?? ''),
         ];
+    }
 
-        if ($auditResultData['FacSec'] === '' || $auditResultData['FacNro'] === '') {
-            throw new RuntimeException('Estado de auditoría incompleto para persistencia final');
-        }
-
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     * @param  array<string,int> $metrics
+     * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $normalizedDecisions
+     * @return array<string,mixed>
+     */
+    private function buildCompletionPayload(
+        string $finalStatus,
+        bool $requiresManualReview,
+        array $findings,
+        array $metrics,
+        array $normalizedDecisions
+    ): array {
         return [
-            'final_status' => $finalStatus,
+            'status' => $finalStatus,
             'requires_manual_review' => $requiresManualReview,
-            'severity' => $severity,
-            'detail_message' => $detailMessage,
-            'failed_document' => $failedDocument,
-            'document_decisions' => $normalizedDecisions,
-            'audit_result_data' => $auditResultData,
-            'completion_payload' => [
-                'status' => $finalStatus,
-                'requires_manual_review' => $requiresManualReview,
-                'audit_result' => [
-                    'hallazgos' => [
-                        'items' => $findings,
-                        'metrics' => $metrics,
-                    ],
-                    'document_decisions' => $normalizedDecisions,
+            'audit_result' => [
+                'hallazgos' => [
+                    'items' => $findings,
+                    'metrics' => $metrics,
                 ],
-                'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
+                'document_decisions' => $normalizedDecisions,
             ],
+            'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
         ];
     }
 

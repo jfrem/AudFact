@@ -1,3 +1,11 @@
+## [2026-04-30]
+
+### fix
+- **Frontend resultados de auditoría**: Corrige la alineación responsive de filtros, tabla y modal en `/audit/results`.
+  - Archivos modificados: `frontend/app/globals.css`, `frontend/app/(dashboard)/layout.tsx`, `frontend/components/shared/section-card.tsx`, `frontend/components/audit/client-selector-combo.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/results/audit-results-table.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: elimina overflow horizontal móvil, reemplaza el scroll horizontal de la tabla por vista móvil en tarjetas, permite truncar clientes largos y renombra el conteo de `Hallazgos` a `Campos`/`Incidencias` según su significado real.
+
 ## [2026-04-29]
 
 ### fix

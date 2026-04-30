@@ -16,8 +16,12 @@ class DocumentPolicyEngine
     private const RESULT_NOT_FOUND    = 'NO_ENCONTRADO';
     private const RESULT_SKIPPED      = 'OMITIDO';
     private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
+    private const DOCUMENT_QUALITY_ENUM = [
+        'legible',
+        'parcialmente_legible',
+        'ilegible',
+    ];
 
-    
     private ?SemanticMatchJudge $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
@@ -26,7 +30,6 @@ class DocumentPolicyEngine
     public function __construct(
         ?SemanticMatchJudge $semanticJudge = null
     ) {
-        
         $this->semanticJudge = $semanticJudge;
     }
 
@@ -37,33 +40,17 @@ class DocumentPolicyEngine
      */
     public function evaluate(array $documentState, array $normalizedPayload): array
     {
-        $this->semanticMetrics = [];
-        $this->semanticCacheHits = 0;
-        $documentType = trim((string) ($documentState['tipo_documento'] ?? $normalizedPayload['tipo_documento'] ?? ''));
-        if ($documentType === '') {
-            throw new RuntimeException('document_normalized sin tipo_documento');
-        }
+        $this->resetSemanticMetrics();
+
+        $documentType = $this->resolveDocumentType($documentState, $normalizedPayload);
         $canonicalDocumentType = $this->normalizeDocumentType($documentType);
-
-        $context = [
-            'audit_id'      => $documentState['audit_id'] ?? null,
-            'document_id'   => $documentState['document_id'] ?? null,
-            'dis_det_nro'   => $documentState['dis_det_nro'] ?? null,
-            'document_type' => $documentType,
-        ];
-
-        $sourceTruth = $documentState['fuente_verdad'] ?? null;
-        if (!is_array($sourceTruth)) {
-            throw new RuntimeException('document_normalized sin fuente_verdad válida');
-        }
+        $context = $this->buildEvaluationContext($documentState, $documentType);
+        $sourceTruth = $this->resolveSourceTruth($documentState);
 
         $fields        = $this->normalizeAssociative($normalizedPayload['fields_normalized'] ?? []);
         $items         = $this->normalizeRows($normalizedPayload['items_normalized'] ?? []);
         $visualChecks  = $this->normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
-        $documentQuality = strtolower(trim((string) ($normalizedPayload['document_quality'] ?? '')));
-        if (!in_array($documentQuality, ['legible', 'parcialmente_legible', 'ilegible'], true)) {
-            throw new RuntimeException('document_normalized sin document_quality válido');
-        }
+        $documentQuality = $this->resolveDocumentQuality($normalizedPayload);
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
@@ -84,6 +71,67 @@ class DocumentPolicyEngine
                 'semantic_cache_hits' => $this->semanticCacheHits,
             ],
         ];
+    }
+
+    private function resetSemanticMetrics(): void
+    {
+        $this->semanticMetrics = [];
+        $this->semanticCacheHits = 0;
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @param  array<string,mixed> $normalizedPayload
+     */
+    private function resolveDocumentType(array $documentState, array $normalizedPayload): string
+    {
+        $documentType = trim((string) ($documentState['tipo_documento'] ?? $normalizedPayload['tipo_documento'] ?? ''));
+        if ($documentType === '') {
+            throw new RuntimeException('document_normalized sin tipo_documento');
+        }
+
+        return $documentType;
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @return array<string,mixed>
+     */
+    private function buildEvaluationContext(array $documentState, string $documentType): array
+    {
+        return [
+            'audit_id'      => $documentState['audit_id'] ?? null,
+            'document_id'   => $documentState['document_id'] ?? null,
+            'dis_det_nro'   => $documentState['dis_det_nro'] ?? null,
+            'document_type' => $documentType,
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @return array<string,mixed>
+     */
+    private function resolveSourceTruth(array $documentState): array
+    {
+        $sourceTruth = $documentState['fuente_verdad'] ?? null;
+        if (!is_array($sourceTruth)) {
+            throw new RuntimeException('document_normalized sin fuente_verdad válida');
+        }
+
+        return $sourceTruth;
+    }
+
+    /**
+     * @param  array<string,mixed> $normalizedPayload
+     */
+    private function resolveDocumentQuality(array $normalizedPayload): string
+    {
+        $documentQuality = strtolower(trim((string) ($normalizedPayload['document_quality'] ?? '')));
+        if (!in_array($documentQuality, self::DOCUMENT_QUALITY_ENUM, true)) {
+            throw new RuntimeException('document_normalized sin document_quality válido');
+        }
+
+        return $documentQuality;
     }
 
     // ─── Normalizers ──────────────────────────────────────────────────────────

@@ -138,8 +138,6 @@ final class AttachmentDownloadService implements AttachmentDownloadServiceInterf
         return ['mime' => $mime, 'data' => base64_encode($raw), 'duration_ms' => $durationMs];
     }
 
-    // ─── Utilidades MIME ──────────────────────────────────────────────────────
-
     private function mimeFromName(string $name): ?string
     {
         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));

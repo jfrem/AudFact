@@ -104,15 +104,8 @@ class DocumentNormalizer extends AuditEventConsumer
      */
     public function normalize(array $payload): array
     {
-        $rawType = trim((string) ($payload['tipo_documento'] ?? ''));
-        if ($rawType === '') {
-            throw new RuntimeException('document_extracted sin tipo_documento');
-        }
-
-        $extraction = $payload['extraction_result'] ?? null;
-        if (!is_array($extraction)) {
-            throw new RuntimeException('document_extracted sin extraction_result válido');
-        }
+        $rawType = $this->resolveDocumentType($payload);
+        $extraction = $this->resolveExtractionResult($payload);
 
         $normalizationLog = [];
         $fieldsNormalized = $this->normalizeFields($extraction['fields'] ?? [], $normalizationLog);
@@ -134,6 +127,33 @@ class DocumentNormalizer extends AuditEventConsumer
             'quality_notes' => $qualityNotes,
             'normalization_log' => $normalizationLog,
         ];
+    }
+
+    /**
+     * @param  array<string,mixed> $payload
+     */
+    private function resolveDocumentType(array $payload): string
+    {
+        $rawType = trim((string) ($payload['tipo_documento'] ?? ''));
+        if ($rawType === '') {
+            throw new RuntimeException('document_extracted sin tipo_documento');
+        }
+
+        return $rawType;
+    }
+
+    /**
+     * @param  array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function resolveExtractionResult(array $payload): array
+    {
+        $extraction = $payload['extraction_result'] ?? null;
+        if (!is_array($extraction)) {
+            throw new RuntimeException('document_extracted sin extraction_result válido');
+        }
+
+        return $extraction;
     }
 
     /**
@@ -239,7 +259,20 @@ class DocumentNormalizer extends AuditEventConsumer
         mixed $extractedChecks,
         array &$normalizationLog
     ): array {
-        $configMap = [];
+        $result = $this->buildConfiguredVisualCheckMap($configuredChecks, $normalizationLog);
+        $result = $this->mergeExtractedVisualChecks($result, $extractedChecks, $normalizationLog);
+
+        ksort($result);
+        return array_values($result);
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $normalizationLog
+     * @return array<string,array{check:string,presente:bool,detalle:?string,severidad:string}>
+     */
+    private function buildConfiguredVisualCheckMap(mixed $configuredChecks, array &$normalizationLog): array
+    {
+        $result = [];
         if (is_array($configuredChecks)) {
             foreach ($configuredChecks as $check) {
                 if (!is_array($check)) {
@@ -253,7 +286,7 @@ class DocumentNormalizer extends AuditEventConsumer
 
                 $canonical = $name;
 
-                $configMap[$canonical] = [
+                $result[$canonical] = [
                     'check' => $canonical,
                     'presente' => false,
                     'detalle' => $this->normalizeNullableString($check['description'] ?? null),
@@ -267,7 +300,16 @@ class DocumentNormalizer extends AuditEventConsumer
             }
         }
 
-        $result = $configMap;
+        return $result;
+    }
+
+    /**
+     * @param  array<string,array{check:string,presente:bool,detalle:?string,severidad:string}> $result
+     * @param  array<int,array<string,mixed>> $normalizationLog
+     * @return array<string,array{check:string,presente:bool,detalle:?string,severidad:string}>
+     */
+    private function mergeExtractedVisualChecks(array $result, mixed $extractedChecks, array &$normalizationLog): array
+    {
         if (is_array($extractedChecks)) {
             foreach ($extractedChecks as $check) {
                 if (!is_array($check)) {
@@ -303,8 +345,7 @@ class DocumentNormalizer extends AuditEventConsumer
             }
         }
 
-        ksort($result);
-        return array_values($result);
+        return $result;
     }
 
     private function normalizeDocumentQuality(mixed $value): string
