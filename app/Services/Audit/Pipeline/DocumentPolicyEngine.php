@@ -479,7 +479,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => self::RESULT_MISMATCH,
-            'detalle'   => "FDV '{$fdvValue}' difiere de Documento '{$docValue}'.",
+            'detalle'   => "Registro de Dispensación '{$fdvValue}' difiere de Documento '{$docValue}'.",
         ];
     }
 

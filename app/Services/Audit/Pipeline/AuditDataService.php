@@ -14,8 +14,8 @@ use RuntimeException;
 /**
  * Implementación de producción del AuditDataServiceInterface.
  *
- * Accede directamente a los Modelos PHP (SQL Server vía PDO) eliminando
- * el antipatrón de peticiones HTTP loopback que usaba InternalAuditApiClient.
+ * Accede directamente a los modelos PHP (SQL Server vía PDO) para resolver
+ * FDV, audit-config, cliente y catálogo documental dentro del pipeline.
  */
 final class AuditDataService implements AuditDataServiceInterface
 {

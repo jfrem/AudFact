@@ -12,8 +12,8 @@ use RuntimeException;
 /**
  * Implementación de producción de AttachmentDownloadServiceInterface.
  *
- * Absorbe la lógica de resolución BLOB/URL que antes vivía en AttachmentsController,
- * eliminando el antipatrón de peticiones HTTP loopback vía InternalAuditApiClient.
+ * Resuelve adjuntos BLOB/URL desde el modelo y entrega el contenido binario
+ * en base64 al extractor documental del pipeline.
  *
  * Contrato de retorno: array{mime:string, data:string (base64), duration_ms:int}
  */
