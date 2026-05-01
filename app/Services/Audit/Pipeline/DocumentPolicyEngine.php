@@ -56,7 +56,7 @@ class DocumentPolicyEngine
 
         $findings = array_merge(
             $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $canonicalDocumentType, $documentType, $documentQuality, $context),
-            $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
+            $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality, $sourceTruth)
         );
 
         $metrics = AuditFindingRules::summarizeMetrics($findings);
@@ -189,6 +189,9 @@ class DocumentPolicyEngine
                 'presente' => (bool) ($row['presente'] ?? false),
                 'detalle'  => $this->normalizeNullableString($row['detalle'] ?? null),
                 'severidad' => $this->normalizeVisualSeverity($row['severidad'] ?? null),
+                'valor' => $row['valor'] ?? null,
+                'unidad' => $row['unidad'] ?? null,
+                'fecha_base' => $row['fecha_base'] ?? null,
             ];
         }
 
@@ -278,53 +281,7 @@ class DocumentPolicyEngine
      */
     private function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
     {
-        if ($rule === null || $rule === '' || $rule === []) {
-            return false;
-        }
-
-        if (is_string($rule)) {
-            $decoded = json_decode($rule, true);
-            if (!is_array($decoded)) {
-                // Fallback: el valor puede estar double-encoded (backslashes literales desde DB)
-                $decoded = json_decode(stripslashes($rule), true);
-            }
-            if (!is_array($decoded)) {
-                return false;
-            }
-            $rule = $decoded;
-        }
-
-        if (!is_array($rule)) {
-            return false;
-        }
-
-        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
-
-        if (!empty($rule['fdv_has']) && is_array($rule['fdv_has'])) {
-            foreach ($rule['fdv_has'] as $key) {
-                if (is_string($key) && $this->isPresent($header[$key] ?? null)) {
-                    return true;
-                }
-            }
-        }
-
-        if (!empty($rule['fdv_missing']) && is_array($rule['fdv_missing'])) {
-            foreach ($rule['fdv_missing'] as $key) {
-                if (is_string($key) && !$this->isPresent($header[$key] ?? null)) {
-                    return true;
-                }
-            }
-        }
-
-        if (!empty($rule['doc_quality']) && is_array($rule['doc_quality'])) {
-            foreach ($rule['doc_quality'] as $quality) {
-                if (is_string($quality) && strtolower($quality) === $documentQuality) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return AuditFindingRules::shouldSkipByCondition($rule, $sourceTruth, $documentQuality);
     }
 
     private function buildDataFinding(
@@ -633,7 +590,8 @@ class DocumentPolicyEngine
         string $documentType,
         mixed $visualChecksExpected,
         mixed $visualChecksResults,
-        string $documentQuality
+        string $documentQuality,
+        array $sourceTruth
     ): array {
         if (!is_array($visualChecksExpected)) {
             return [];
@@ -652,6 +610,19 @@ class DocumentPolicyEngine
                 continue;
             }
 
+            if (AuditFindingRules::isCalculatedVisualCheck($checkName)) {
+                continue;
+            }
+
+            $rol = strtoupper((string) ($checkExpected['rol'] ?? 'AUTORITATIVO'));
+            if ($rol === 'INFORMATIVO') {
+                continue;
+            }
+
+            if ($this->shouldSkipByCondition($checkExpected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
+                continue;
+            }
+
             $canonicalField = $checkName;
             $displayField   = $canonicalField;
             $severity       = $this->normalizeVisualSeverity($checkExpected['severity'] ?? null);
@@ -660,7 +631,8 @@ class DocumentPolicyEngine
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $displayField, $severity,
                     'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
-                    'La calidad documental no permite concluir la validación visual.'
+                    'La calidad documental no permite concluir la validación visual.',
+                    $rol
                 );
                 continue;
             }
@@ -670,7 +642,8 @@ class DocumentPolicyEngine
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $displayField, $severity,
                     'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
-                    'Check visual esperado no fue evaluado por el modelo.'
+                    'Check visual esperado no fue evaluado por el modelo.',
+                    $rol
                 );
                 continue;
             }
@@ -680,7 +653,8 @@ class DocumentPolicyEngine
                 $documentType, $displayField, $severity,
                 $isPresent ? 'PRESENTE' : 'AUSENTE',
                 $isPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
-                $this->normalizeNullableString($foundResult['detalle'] ?? null)
+                $this->normalizeNullableString($foundResult['detalle'] ?? null),
+                $rol
             );
         }
 
@@ -696,7 +670,8 @@ class DocumentPolicyEngine
         string $severity,
         string $valorDocumento,
         string $resultado,
-        ?string $detalle
+        ?string $detalle,
+        string $rol
     ): array {
         return [
             'valorFuenteVerdad' => 'OBLIGATORIO',
@@ -706,6 +681,7 @@ class DocumentPolicyEngine
             'campo'             => $displayField,
             'severidad'         => $severity,
             'documento'         => $documentType,
+            'rol'               => $rol,
         ];
     }
 

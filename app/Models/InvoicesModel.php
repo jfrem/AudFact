@@ -36,37 +36,40 @@ class InvoicesModel extends Model
             : "d.Fecha_solicitud = :dateFromD";
 
         $safeLimit = (int) $limit;
-        $sql = "SELECT TOP ({$safeLimit})
-                    d.NitSec,
-                    d.FacSec,
-                    d.Dispensa
-                FROM vw_discolnet_dispensas d
-                LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = d.FacSec
-                LEFT JOIN (SELECT f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where f.Fecha >= :dateFromF
+        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb2.DisId facsec,tb2.DisDetNro Dispensa
+                FROM Dispensacion tb1 WITH(NOLOCK) 
+                left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
+                left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
+                left JOIN FacturaKardex tb4 WITH(NOLOCK) on tb4.FacSec=tb3.FacSec
+                left join tipos t with(nolock) on t.TipCod=tb3.FacTipCod
+                LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb2.DisId
+                LEFT JOIN (
+                    SELECT f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where f.Fecha >= :dateFromF
                     GROUP BY f.DisId,f.DisdetId,f.artsec,f.Documento
-                )f on f.DisId=d.facsec and f.DisdetId=d.DisDetId and f.artsec=d.artsec
+                )f on f.DisId=tb2.DisId and f.DisdetId=tb2.DisDetId and f.artsec=tb4.artsec
                 LEFT JOIN(
                     SELECT DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
                     WHERE AdjDisOpc='N'
                     GROUP BY DisId,DisDetId
-                )aud on aud.DisId=d.facsec and aud.DisDetId=d.DisDetId
+                )aud on aud.DisId=tb2.DisId and aud.DisDetId=tb2.DisDetId
                 left join (
-                SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 OR DATALENGTH(a.AdjDisDoc) > 0 then 1 else 0 end)adj,sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
-                from AdjuntosDispensacion a with(nolock)
-                left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
-                left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
-                GROUP BY a.DisId,a.DisDetId
-                )docadj on docadj.DisId=d.facsec and docadj.DisDetId=d.DisDetId
-                WHERE {$dateConditionD}
-                    AND d.NitSec = :facNitSec
-                    AND d.Tipo_servicio in ('POS','MIPRES')
-                    AND d.pendientes = 0
-                    AND d.estadodisp = 'A'
+                    SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 OR DATALENGTH(a.AdjDisDoc) > 0 then 1 else 0 end)adj,
+                    sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
+                    from AdjuntosDispensacion a with(nolock)
+                    left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
+                    left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
+                    GROUP BY a.DisId,a.DisDetId
+                )docadj on docadj.DisId=tb2.DisId and docadj.DisDetId=tb2.DisDetId
+                WHERE t.FueCod='DISP' and tb2.DisDetEst in ('A','P') and tb4.KarUni>0
+                and tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD
+                    AND tb3.FacNitSec = :facNitSec
+                    AND tb2.DisTip in ('P','M')
+                    AND tb2.DisDetEst = 'A'
                     AND (a.EstAud IS NULL)
-                    AND aud.c<aud.ca
-                    AND docadj.adj>=docadj.adjobl
-                GROUP BY d.NitSec, d.FacSec, d.Dispensa,aud.c,aud.ca
-                having sum(isnull(f.KarUni,0))=0";
+                    AND isnull(aud.c,0)<isnull(aud.ca,0)
+                    AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
+                GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro
+                having sum(tb4.KarUniCP-tb4.KarUni) = 0";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':facNitSec', $facNitSec, PDO::PARAM_INT);

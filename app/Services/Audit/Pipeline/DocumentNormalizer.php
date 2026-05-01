@@ -291,6 +291,11 @@ class DocumentNormalizer extends AuditEventConsumer
                     'presente' => false,
                     'detalle' => $this->normalizeNullableString($check['description'] ?? null),
                     'severidad' => $this->normalizeSeverity($check['severity'] ?? null),
+                    'rol' => $this->normalizeRole($check['rol'] ?? null),
+                    'omitirSi' => $check['omitirSi'] ?? null,
+                    'valor' => null,
+                    'unidad' => null,
+                    'fecha_base' => null,
                 ];
 
                 $this->appendLog($normalizationLog, 'visual_check_defaulted', [
@@ -336,6 +341,9 @@ class DocumentNormalizer extends AuditEventConsumer
                 }
 
                 $base['severidad'] = $this->normalizeSeverity($check['severidad'] ?? null);
+                $base['valor'] = $this->normalizeVisualIntegerValue($check['valor'] ?? null, $normalizationLog, $canonical);
+                $base['unidad'] = $this->normalizeVisualUnit($check['unidad'] ?? null, $normalizationLog, $canonical);
+                $base['fecha_base'] = $this->normalizeVisualDateBase($check['fecha_base'] ?? null, $normalizationLog, $canonical);
                 $result[$canonical] = $base;
 
                 $this->appendLog($normalizationLog, 'visual_check_result_normalized', [
@@ -440,6 +448,114 @@ class DocumentNormalizer extends AuditEventConsumer
     {
         $normalized = strtoupper(trim((string) $value));
         return $normalized !== '' ? $normalized : 'CRITICO';
+    }
+
+    private function normalizeRole(mixed $value): string
+    {
+        $normalized = strtoupper(trim((string) $value));
+        return $normalized !== '' ? $normalized : 'AUTORITATIVO';
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $normalizationLog
+     */
+    private function normalizeVisualIntegerValue(mixed $value, array &$normalizationLog, string $check): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value)) {
+            return $value;
+        }
+
+        if (is_float($value) && floor($value) === $value) {
+            return (int) $value;
+        }
+
+        if (is_string($value) && preg_match('/^\d+$/', trim($value)) === 1) {
+            $this->appendLog($normalizationLog, 'visual_value_normalized_to_integer', ['check' => $check]);
+            return (int) trim($value);
+        }
+
+        $this->appendLog($normalizationLog, 'visual_value_invalid', ['check' => $check]);
+        return null;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $normalizationLog
+     */
+    private function normalizeVisualUnit(mixed $value, array &$normalizationLog, string $check): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        $normalized = $this->normalizeToken($value);
+        if (in_array($normalized, ['DIA', 'DIAS'], true)) {
+            if ($normalized !== 'DIAS') {
+                $this->appendLog($normalizationLog, 'visual_unit_normalized', ['check' => $check]);
+            }
+            return 'dias';
+        }
+
+        $this->appendLog($normalizationLog, 'visual_unit_invalid', ['check' => $check]);
+        return null;
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $normalizationLog
+     */
+    private function normalizeVisualDateBase(mixed $value, array &$normalizationLog, string $check): ?string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        $normalized = $this->normalizeToken($value);
+        $map = [
+            'FECHAAUTORIZACION' => 'FechaAutorizacion',
+            'FECHADEAUTORIZACION' => 'FechaAutorizacion',
+            'AUTORIZACION' => 'FechaAutorizacion',
+            'FECHAFORMULA' => 'FechaFormula',
+            'FECHADEFORMULA' => 'FechaFormula',
+            'FORMULA' => 'FechaFormula',
+            'FECHAENTREGA' => 'FechaEntrega',
+            'FECHADEENTREGA' => 'FechaEntrega',
+            'ENTREGA' => 'FechaEntrega',
+        ];
+
+        if (isset($map[$normalized])) {
+            if ($map[$normalized] !== trim($value)) {
+                $this->appendLog($normalizationLog, 'visual_date_base_normalized', ['check' => $check]);
+            }
+            return $map[$normalized];
+        }
+
+        $this->appendLog($normalizationLog, 'visual_date_base_invalid', ['check' => $check]);
+        return null;
+    }
+
+    private function normalizeToken(string $value): string
+    {
+        $ascii = strtr(trim($value), [
+            'Á' => 'A',
+            'É' => 'E',
+            'Í' => 'I',
+            'Ó' => 'O',
+            'Ú' => 'U',
+            'Ü' => 'U',
+            'Ñ' => 'N',
+            'á' => 'a',
+            'é' => 'e',
+            'í' => 'i',
+            'ó' => 'o',
+            'ú' => 'u',
+            'ü' => 'u',
+            'ñ' => 'n',
+        ]);
+
+        return (string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($ascii));
     }
 
     /**

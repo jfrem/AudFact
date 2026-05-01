@@ -1,5 +1,11 @@
 ## [2026-04-30]
 
+### feat
+- **Auditoría Gemini**: Soporta `VigenciaEntrega` como visual estructurado y calculable para validar oportunidad de entrega.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/DocumentNormalizer.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/AuditFindingRules.php`
+  - Hallazgo resuelto: ninguno
+  - Impacto: permite que un visual configurado en cualquier documento aporte `valor`, `unidad` y `fecha_base`; PHP calcula si `FechaEntrega` está dentro de la vigencia sin depender del nombre del documento.
+
 ### fix
 - **Frontend resultados de auditoría**: Corrige la alineación responsive de filtros, tabla y modal en `/audit/results`.
   - Archivos modificados: `frontend/app/globals.css`, `frontend/app/(dashboard)/layout.tsx`, `frontend/components/shared/section-card.tsx`, `frontend/components/audit/client-selector-combo.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/results/audit-results-table.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`

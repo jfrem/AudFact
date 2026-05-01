@@ -126,6 +126,166 @@ final class RulesEvaluationWorkerTest extends TestCase
             $this->assertCount(0, $publisher->published);
         }
     }
+
+    public function testPublishesCalculatedDeliveryValidityFindingWhenVisualEvidenceIsComplete(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $authorizationDocumentId = AuditEvent::uuidV4();
+        $publisher = new RulesPublisher();
+        $store = new RulesDeliveryValidityStateStore(
+            $auditId,
+            $authorizationDocumentId,
+            deliveryDate: '2025-07-29',
+            visualResult: [
+                'check' => 'VigenciaEntrega',
+                'presente' => true,
+                'valor' => 60,
+                'unidad' => 'dias',
+                'fecha_base' => 'FechaAutorizacion',
+                'severidad' => 'ALTA',
+            ]
+        );
+
+        $worker = new RulesEvaluationWorker(
+            stateStore: $store,
+            policyEngine: new StubDocumentPolicyEngine(self::authorizationPolicyResult('2025-07-27')),
+            redis: $this->createMock(RedisClient::class),
+            publisher: $publisher,
+            consumerName: 'policy-test'
+        );
+
+        $worker->processEvent(self::authorizationNormalizedEvent($auditId, $authorizationDocumentId));
+
+        $findings = $publisher->published[0]->payload['hallazgos']['items'];
+        $vigencia = end($findings);
+        $this->assertSame('VigenciaEntrega', $vigencia['campo']);
+        $this->assertSame('COINCIDE', $vigencia['resultado']);
+        $this->assertSame(3, $publisher->published[0]->payload['hallazgos']['metrics']['total_campos']);
+        $this->assertSame(3, $publisher->published[0]->payload['hallazgos']['metrics']['coincidencias']);
+    }
+
+    public function testCalculatedDeliveryValidityMarksDocumentWhenExpired(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $authorizationDocumentId = AuditEvent::uuidV4();
+        $publisher = new RulesPublisher();
+        $store = new RulesDeliveryValidityStateStore(
+            $auditId,
+            $authorizationDocumentId,
+            deliveryDate: '2025-10-01',
+            visualResult: [
+                'check' => 'VigenciaEntrega',
+                'presente' => true,
+                'valor' => 60,
+                'unidad' => 'dias',
+                'fecha_base' => 'FechaAutorizacion',
+                'severidad' => 'ALTA',
+            ]
+        );
+
+        $worker = new RulesEvaluationWorker(
+            stateStore: $store,
+            policyEngine: new StubDocumentPolicyEngine(self::authorizationPolicyResult('2025-07-27')),
+            redis: $this->createMock(RedisClient::class),
+            publisher: $publisher,
+            consumerName: 'policy-test'
+        );
+
+        $worker->processEvent(self::authorizationNormalizedEvent($auditId, $authorizationDocumentId));
+
+        $payload = $publisher->published[0]->payload;
+        $vigencia = end($payload['hallazgos']['items']);
+        $this->assertSame('VALOR_DISTINTO', $vigencia['resultado']);
+        $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
+        $this->assertFalse($payload['document_decisions'][1]['approved']);
+        $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['observation']);
+    }
+
+    public function testCalculatedDeliveryValidityIsInconclusiveWhenAuthoritativeEvidenceIsIncomplete(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $authorizationDocumentId = AuditEvent::uuidV4();
+        $publisher = new RulesPublisher();
+        $store = new RulesDeliveryValidityStateStore(
+            $auditId,
+            $authorizationDocumentId,
+            deliveryDate: '2025-07-29',
+            visualResult: [
+                'check' => 'VigenciaEntrega',
+                'presente' => true,
+                'valor' => null,
+                'unidad' => 'dias',
+                'fecha_base' => 'FechaAutorizacion',
+                'severidad' => 'ALTA',
+            ]
+        );
+
+        $worker = new RulesEvaluationWorker(
+            stateStore: $store,
+            policyEngine: new StubDocumentPolicyEngine(self::authorizationPolicyResult('2025-07-27')),
+            redis: $this->createMock(RedisClient::class),
+            publisher: $publisher,
+            consumerName: 'policy-test'
+        );
+
+        $worker->processEvent(self::authorizationNormalizedEvent($auditId, $authorizationDocumentId));
+
+        $payload = $publisher->published[0]->payload;
+        $vigencia = end($payload['hallazgos']['items']);
+        $this->assertSame('NO_CONCLUYENTE', $vigencia['resultado']);
+        $this->assertSame(1, $payload['hallazgos']['metrics']['no_concluyentes']);
+        $this->assertFalse($payload['document_decisions'][1]['approved']);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function authorizationPolicyResult(string $authorizationDate): array
+    {
+        return [
+            'document_name' => 'AUTORIZACION',
+            'hallazgos' => [
+                'items' => [[
+                    'campo' => 'FechaAutorizacion',
+                    'valorFuenteVerdad' => $authorizationDate,
+                    'valorDocumento' => $authorizationDate,
+                    'resultado' => 'COINCIDE',
+                    'severidad' => 'alta',
+                    'documento' => 'AUTORIZACION',
+                ]],
+                'metrics' => [
+                    'total_campos' => 1,
+                    'coincidencias' => 1,
+                    'discrepancias' => 0,
+                    'omitidos' => 0,
+                    'no_concluyentes' => 0,
+                    'risk_score' => 0,
+                ],
+            ],
+            'document_decision' => [
+                'documentName' => 'AUTORIZACION',
+                'approved' => true,
+                'observation' => null,
+            ],
+        ];
+    }
+
+    private static function authorizationNormalizedEvent(string $auditId, string $documentId): AuditEvent
+    {
+        return AuditEvent::create(
+            eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
+            auditId: $auditId,
+            documentId: $documentId,
+            payload: [
+                'tipo_documento' => 'AUTORIZACION',
+                'fields_normalized' => ['FechaAutorizacion' => '2025-07-27'],
+                'items_normalized' => [],
+                'visual_checks_resultado' => [],
+                'document_quality' => 'legible',
+                'normalization_log' => [],
+            ]
+        );
+    }
 }
 
 final class StubDocumentPolicyEngine extends DocumentPolicyEngine
@@ -199,6 +359,93 @@ final class RulesFailingStateStore extends RulesReadyStateStore
     public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
     {
         return false;
+    }
+}
+
+final class RulesDeliveryValidityStateStore extends AuditStateStore
+{
+    /** @var array<string,mixed> */
+    private array $audit;
+
+    public function __construct(
+        private string $auditId,
+        private string $authorizationDocumentId,
+        string $deliveryDate,
+        array $visualResult
+    ) {
+        $dispensaDocumentId = AuditEvent::uuidV4();
+        $this->audit = [
+            'audit_id' => $auditId,
+            'docs_total' => 2,
+            'docs_done' => 2,
+            'docs_evaluated' => 1,
+            'documents' => [
+                $dispensaDocumentId => [
+                    'tipo_documento' => 'DISPENSA',
+                    'status' => 'evaluated',
+                    'fuente_verdad' => ['header' => [], 'items' => []],
+                    'visual_checks' => [],
+                    'policy_result' => [
+                        'document_name' => 'DISPENSA',
+                        'hallazgos' => [
+                            'items' => [[
+                                'campo' => 'FechaEntrega',
+                                'valorFuenteVerdad' => $deliveryDate,
+                                'valorDocumento' => $deliveryDate,
+                                'resultado' => 'COINCIDE',
+                                'severidad' => 'alta',
+                                'documento' => 'DISPENSA',
+                            ]],
+                        ],
+                        'document_decision' => [
+                            'documentName' => 'DISPENSA',
+                            'approved' => true,
+                            'observation' => null,
+                        ],
+                    ],
+                ],
+                $authorizationDocumentId => [
+                    'tipo_documento' => 'AUTORIZACION',
+                    'status' => 'normalized',
+                    'fuente_verdad' => ['header' => [], 'items' => []],
+                    'visual_checks' => [[
+                        'check' => 'VigenciaEntrega',
+                        'description' => 'Vigencia visible',
+                        'severity' => 'alta',
+                        'rol' => 'AUTORITATIVO',
+                        'omitirSi' => null,
+                    ]],
+                    'normalized_result' => [
+                        'tipo_documento' => 'AUTORIZACION',
+                        'fields_normalized' => ['FechaAutorizacion' => '2025-07-27'],
+                        'items_normalized' => [],
+                        'visual_checks_resultado' => [$visualResult],
+                        'document_quality' => 'legible',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    public function getAudit(string $auditId): ?array
+    {
+        return $this->audit;
+    }
+
+    public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
+    {
+        $this->audit['docs_evaluated'] = 2;
+        $this->audit['documents'][$this->authorizationDocumentId] = array_merge(
+            $this->audit['documents'][$this->authorizationDocumentId],
+            $policyState
+        );
+        return true;
+    }
+
+    public function storeRulesEvaluation(string $auditId, array $rulesEvaluation): bool
+    {
+        $this->audit['rules_evaluated_result'] = $rulesEvaluation;
+        return true;
     }
 }
 

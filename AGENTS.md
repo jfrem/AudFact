@@ -451,6 +451,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
 - **Contrato Gemini y prompts**: `DocumentAuditOrchestrator` publica `extraction_contract` parametrizado por `audit-config`; `DocumentExtractionContractBuilder` construye las cuatro funciones paralelas (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`); `DocumentExtractionWorker` genera el user prompt por documento y combina las llamadas en `extraction_result`. Cualquier cambio afecta la calidad de las auditorías.
+- **Visuales calculables**: `TipoCampo = V` puede ser booleano (`presente`/`ausente`) o aportar evidencia estructurada opcional (`valor`, `unidad`, `fecha_base`). `VigenciaEntrega` se calcula en `RulesEvaluationWorker` cuando todos los documentos están evaluados; Gemini solo extrae evidencia y PHP decide.
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño
 - **Respuestas JSON de Gemini**: pueden llegar truncadas o malformadas — siempre usar `JsonResponseParser` con `JsonRepairHelper`
 

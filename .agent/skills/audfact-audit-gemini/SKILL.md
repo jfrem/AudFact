@@ -23,7 +23,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye las cuatro function declarations Gemini (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y agrupa campos dinámicos por responsabilidad |
 | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por hash, invoca Gemini con parallel function calling y publica `document_extracted` |
-| `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, upper sin tildes, numéricos) y publica `document_normalized` |
+| `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, upper sin tildes, numéricos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, **agrega a `auditResultData` + decisiones documentales** (rol heredado de `AuditResultAggregator` tras AUDIT-014), persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
@@ -89,8 +89,8 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
 3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
-4. `DocumentNormalizationWorker` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, null para vacío) y emite `document_normalized` con `normalization_log`.
-5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `SemanticMatchJudge` solo como fallback text-only de homologación semántica con perfil `semantic_match`, espera `docs:done == docs:total` y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
+4. `DocumentNormalizationWorker` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log`.
+5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `SemanticMatchJudge` solo como fallback text-only de homologación semántica con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
 6. `AuditAggregationWorker` agrega a `auditResultData`, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
 
@@ -101,7 +101,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
    - `E` (default — cualquier código no-S/B/V) → `EXACT` (igualdad normalizada)
    - `S` → `SEMANTIC` (umbral 0.82, fallback `SemanticMatchJudge`)
    - `B` → `BUSINESS` (sumatoria de items + comparación numérica)
-   - `V` → `VISUAL` (también puede vivir en `visualChecks[]` del `audit-config`)
+   - `V` → `VISUAL` (vive en `visualChecks[]` del `audit-config`; puede ser booleano `presente`/`ausente` o evidencia estructurada opcional `valor`/`unidad`/`fecha_base`)
    Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
 3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
 4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
@@ -113,6 +113,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 10. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
 11. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
 12. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
+13. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si es `AUTORITATIVO` y falta evidencia suficiente, el resultado agregado es `NO_CONCLUYENTE`.
 
 ## Mecanismo `omitirSi`
 
@@ -159,7 +160,7 @@ Forma exacta del objeto persistido en `AudDispEst.Hallazgos[*]`:
 }
 ```
 
-Visual checks emiten un objeto similar pero **omiten** `rol` y `tipo_auditoria` (el resto de campos sí aplica).
+Visual checks booleanos emiten un objeto similar y pueden incluir `rol`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 
 ## Nota Gemini 3.x — thinking tokens
 

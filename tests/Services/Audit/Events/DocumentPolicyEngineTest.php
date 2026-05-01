@@ -78,6 +78,35 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
+    public function testEvaluateSkipsCalculatedVisualChecksForAggregatePolicy(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [],
+                ['header' => [], 'items' => []],
+                [['check' => 'VigenciaEntrega', 'severity' => 'ALTA', 'rol' => 'AUTORITATIVO']]
+            ),
+            self::payload(
+                'AUTORIZACION',
+                [],
+                [],
+                [[
+                    'check' => 'VigenciaEntrega',
+                    'presente' => true,
+                    'valor' => 60,
+                    'unidad' => 'dias',
+                    'fecha_base' => 'FechaAutorizacion',
+                ]]
+            )
+        );
+
+        $this->assertSame(0, $result['hallazgos']['metrics']['total_campos']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
     public function testEvaluateMarksInconclusiveWhenDocumentQualityIsNotLegible(): void
     {
         $engine = new DocumentPolicyEngine();

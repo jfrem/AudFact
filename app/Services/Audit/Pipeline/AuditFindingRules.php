@@ -8,6 +8,8 @@ use App\Services\Audit\AuditSeverity;
 
 final class AuditFindingRules
 {
+    public const FIELD_DELIVERY_VALIDITY = 'VigenciaEntrega';
+
     private const RESULT_MATCH        = 'COINCIDE';
     private const RESULT_SKIPPED      = 'OMITIDO';
     private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
@@ -23,6 +25,11 @@ final class AuditFindingRules
     public static function isDiscrepancyResult(string $result): bool
     {
         return in_array($result, self::DISCREPANCY_RESULTS, true);
+    }
+
+    public static function isCalculatedVisualCheck(string $field): bool
+    {
+        return $field === self::FIELD_DELIVERY_VALIDITY;
     }
 
     public static function riskWeight(string $severity): int
@@ -45,6 +52,56 @@ final class AuditFindingRules
         $resultWeight = self::isDiscrepancyResult($result) ? 10 : 0;
 
         return $severityWeight + $resultWeight;
+    }
+
+    public static function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
+    {
+        if ($rule === null || $rule === '' || $rule === []) {
+            return false;
+        }
+
+        if (is_string($rule)) {
+            $decoded = json_decode($rule, true);
+            if (!is_array($decoded)) {
+                $decoded = json_decode(stripslashes($rule), true);
+            }
+            if (!is_array($decoded)) {
+                return false;
+            }
+            $rule = $decoded;
+        }
+
+        if (!is_array($rule)) {
+            return false;
+        }
+
+        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
+
+        if (!empty($rule['fdv_has']) && is_array($rule['fdv_has'])) {
+            foreach ($rule['fdv_has'] as $key) {
+                if (is_string($key) && self::isPresent($header[$key] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
+        if (!empty($rule['fdv_missing']) && is_array($rule['fdv_missing'])) {
+            foreach ($rule['fdv_missing'] as $key) {
+                if (is_string($key) && !self::isPresent($header[$key] ?? null)) {
+                    return true;
+                }
+            }
+        }
+
+        if (!empty($rule['doc_quality']) && is_array($rule['doc_quality'])) {
+            foreach ($rule['doc_quality'] as $quality) {
+                if (is_string($quality) && strtolower($quality) === $documentQuality) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -102,5 +159,18 @@ final class AuditFindingRules
                 || str_contains($normalized, 'no permite concluir')
                 || str_contains($normalized, 'incertidumbre')
             );
+    }
+
+    private static function isPresent(mixed $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        if (is_string($value)) {
+            return trim($value) !== '';
+        }
+
+        return $value !== '';
     }
 }

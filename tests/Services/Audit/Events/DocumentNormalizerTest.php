@@ -130,4 +130,46 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame('2029-03-30', $result['items_normalized'][0]['FechaVencimiento']);
         $this->assertContains('date_normalized_to_iso', array_column($result['normalization_log'], 'operation'));
     }
+
+    public function testNormalizePreservesStructuredVisualEvidence(): void
+    {
+        $normalizer = new DocumentNormalizer();
+
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'AUTORIZACION',
+            'visual_checks' => [
+                [
+                    'check' => 'VigenciaEntrega',
+                    'description' => 'Vigencia visible',
+                    'severity' => 'alta',
+                    'rol' => 'AUTORITATIVO',
+                    'omitirSi' => null,
+                ],
+            ],
+            'extraction_result' => [
+                'fields' => [],
+                'items' => [],
+                'visual_checks' => [
+                    [
+                        'check' => 'VigenciaEntrega',
+                        'presente' => true,
+                        'valor' => '60',
+                        'unidad' => 'días',
+                        'fecha_base' => 'fecha de autorización',
+                        'detalle' => 'Vigencia de 60 días',
+                    ],
+                ],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+            ],
+        ]);
+
+        $visual = $result['visual_checks_resultado'][0];
+        $this->assertSame('VigenciaEntrega', $visual['check']);
+        $this->assertTrue($visual['presente']);
+        $this->assertSame(60, $visual['valor']);
+        $this->assertSame('dias', $visual['unidad']);
+        $this->assertSame('FechaAutorizacion', $visual['fecha_base']);
+        $this->assertSame('AUTORITATIVO', $visual['rol']);
+    }
 }

@@ -51,6 +51,59 @@ class AuditStatusModel extends Model
     }
 
     /**
+     * Resumen agregado de estados de auditoría para el dashboard.
+     *
+     * Ejecuta un GROUP BY a nivel de BD en lugar de contar sobre items paginados,
+     * garantizando conteos reales sobre toda la tabla AudDispEst.
+     *
+     * @return array{total:int,byState:array<string,int>,documentsAudited:int,lastAuditAt:?string}
+     */
+    public function getStateSummary(): array
+    {
+        $sql = "SELECT
+                    [EstadoDetallado],
+                    COUNT(*) AS total
+                FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
+                GROUP BY [EstadoDetallado]";
+
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $byState = [];
+        $grandTotal = 0;
+        foreach ($rows as $row) {
+            $state = strtoupper(trim((string) ($row['EstadoDetallado'] ?? 'UNKNOWN')));
+            $count = (int) ($row['total'] ?? 0);
+            $byState[$state] = $count;
+            $grandTotal += $count;
+        }
+
+        $sqlDocs = "SELECT
+                        COUNT(*) AS total
+                    FROM AdjuntosDispensacion WITH (NOLOCK)
+                    WHERE AdjDisUsuAudi IS NOT NULL";
+        $stmtDocs = $this->readDb->prepare($sqlDocs);
+        $stmtDocs->execute();
+        $docsTotal = (int) ($stmtDocs->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+        $sqlLast = "SELECT TOP 1 [FechaCreacion]
+                    FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
+                    ORDER BY [FechaCreacion] DESC";
+        $stmtLast = $this->readDb->prepare($sqlLast);
+        $stmtLast->execute();
+        $lastRow = $stmtLast->fetch(PDO::FETCH_ASSOC);
+        $lastAuditAt = $lastRow ? (string) ($lastRow['FechaCreacion'] ?? '') : null;
+
+        return [
+            'total'            => $grandTotal,
+            'byState'          => $byState,
+            'documentsAudited' => $docsTotal,
+            'lastAuditAt'      => $lastAuditAt ?: null,
+        ];
+    }
+
+    /**
      * Devuelve los tiempos por fase de una auditoría completada, buscando por FacNro (DisDetNro).
      *
      * @return array{fac_nro:string,fac_nit_sec:string,estado:string,phase_timings:array<string,mixed>|null,total_duration_ms:int}|null

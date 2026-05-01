@@ -389,6 +389,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $description = trim((string) ($check['description'] ?? ''));
                 $parts[] = $description !== '' ? "- {$name}: {$description}" : "- {$name}";
             }
+            $parts[] = 'Para checks de vigencia o plazo, si el valor es visible retorna valor numerico, unidad="dias" y fecha_base con el nombre del campo fecha desde el cual se cuenta.';
         } else {
             $parts[] = '`detect_visual_checks` debe retornar visual_checks como arreglo vacío.';
         }
@@ -743,6 +744,26 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
             if (!array_key_exists('presente', $visualCheck) || !is_bool($visualCheck['presente'])) {
                 throw new RuntimeException("Gemini retornó visual_check sin presente booleano en posición {$index}");
+            }
+
+            if (
+                array_key_exists('valor', $visualCheck)
+                && $visualCheck['valor'] !== null
+                && !is_int($visualCheck['valor'])
+                && !is_float($visualCheck['valor'])
+                && !is_string($visualCheck['valor'])
+            ) {
+                throw new RuntimeException("Gemini retornó visual_check.valor inválido en posición {$index}");
+            }
+
+            foreach (['unidad', 'fecha_base'] as $optionalStringKey) {
+                if (
+                    array_key_exists($optionalStringKey, $visualCheck)
+                    && $visualCheck[$optionalStringKey] !== null
+                    && !is_string($visualCheck[$optionalStringKey])
+                ) {
+                    throw new RuntimeException("Gemini retornó visual_check.{$optionalStringKey} inválido en posición {$index}");
+                }
             }
         }
     }

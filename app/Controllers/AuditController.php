@@ -81,6 +81,26 @@ class AuditController extends Controller
         );
     }
 
+    public function stats(): void
+    {
+        try {
+            $cacheKey = 'audit:stats:summary:v' . Cache::getQueryResultsVersion('all');
+
+            $payload = Cache::remember($cacheKey, function () {
+                return $this->buildAuditStatusModel()->getStateSummary();
+            }, 30);
+
+            Response::success($payload, 'Resumen de estados de auditoría');
+        } catch (\Core\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\RuntimeException $e) {
+            Logger::error('AuditController::stats falló', [
+                'error' => $e->getMessage(),
+            ]);
+            Response::error('Estadísticas de auditoría temporalmente no disponibles', 503);
+        }
+    }
+
     public function results(): void
     {
         try {

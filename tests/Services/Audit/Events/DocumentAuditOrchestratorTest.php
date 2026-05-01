@@ -49,7 +49,13 @@ final class DocumentAuditOrchestratorTest extends TestCase
                             ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S'],
                             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B'],
                         ],
-                        'visualChecks' => [['check' => 'FirmaActaEntrega', 'description' => 'Firma', 'severity' => 'CRITICO']],
+                        'visualChecks' => [[
+                            'check' => 'FirmaActaEntrega',
+                            'description' => 'Firma',
+                            'severity' => 'CRITICO',
+                            'rol' => 'AUTORITATIVO',
+                            'omitirSi' => '{"fdv_missing":["NumeroAutorizacion"]}',
+                        ]],
                     ],
                     'AUTORIZACION' => [
                         'docId'        => 2,
@@ -141,11 +147,17 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ['check', 'presente'],
             $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['required']
         );
+        $visualProperties = $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['properties'];
+        $this->assertArrayHasKey('valor', $visualProperties);
+        $this->assertArrayHasKey('unidad', $visualProperties);
+        $this->assertArrayHasKey('fecha_base', $visualProperties);
         $this->assertArrayNotHasKey(
             'additionalProperties',
             $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']
         );
         $this->assertIsArray($payload['visual_checks']);
+        $this->assertSame('AUTORITATIVO', $payload['visual_checks'][0]['rol']);
+        $this->assertSame('{"fdv_missing":["NumeroAutorizacion"]}', $payload['visual_checks'][0]['omitirSi']);
         $this->assertArrayHasKey('header', $payload['fuente_verdad']);
         $this->assertNull($payload['system_prompt']);
         $this->assertSame('T38250701547', $payload['dis_det_nro']);
