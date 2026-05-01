@@ -26,7 +26,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, upper sin tildes, numéricos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
-| `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, **agrega a `auditResultData` + decisiones documentales** (rol heredado de `AuditResultAggregator` tras AUDIT-014), persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
+| `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, **agrega a `auditResultData` + decisiones documentales**, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
 | `app/Services/Audit/Pipeline/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) |
@@ -35,7 +35,6 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
 | `app/Services/Audit/Debug/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
 | `app/Services/Audit/Debug/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `responseIA/` para diagnóstico local |
-| `app/Services/Audit/FieldClassifier.php` | Clasifica campos por tipo (documental/visual) y severidad |
 
 ### Workers bootstrap (largas ejecuciones)
 
@@ -63,7 +62,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | Stream | Productor | Eventos |
 |---|---|---|
 | `audit.inbox` | `AuditController` | `audit_created`, `batch_created` |
-| `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized`, `extraction_failed` |
+| `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
@@ -89,7 +88,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
 3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
-4. `DocumentNormalizationWorker` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log`.
+4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, mayúsculas sin tildes, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log`.
 5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `SemanticMatchJudge` solo como fallback text-only de homologación semántica con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
 6. `AuditAggregationWorker` agrega a `auditResultData`, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
@@ -168,7 +167,7 @@ En Gemini 3.x los thinking tokens pueden superar **4×** los output tokens (caso
 
 ## Anti-patterns ⚠️
 
-1. **No** consultar vistas SQL directamente desde workers para FDV/adjuntos — usar `InternalAuditApiClient`.
+1. **No** consultar vistas SQL directamente desde workers para FDV/adjuntos — usar `AuditDataService` y `AttachmentDownloadService`.
 2. **No** incluir base64, binarios o credenciales en el payload de eventos (solo en claves de estado Redis).
 3. **No** fabricar `items` desde `fields` en normalizador o policy.
 4. **No** borrar mensajes de streams; dejar ack/retry/DLQ hacer su trabajo.

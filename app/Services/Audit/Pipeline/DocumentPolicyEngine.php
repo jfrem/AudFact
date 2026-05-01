@@ -188,7 +188,7 @@ class DocumentPolicyEngine
                 'check'    => $canonical,
                 'presente' => (bool) ($row['presente'] ?? false),
                 'detalle'  => $this->normalizeNullableString($row['detalle'] ?? null),
-                'severidad' => $this->normalizeVisualSeverity($row['severidad'] ?? null),
+                'severidad' => AuditSeverity::fromInput((string) ($row['severidad'] ?? ''))->value,
                 'valor' => $row['valor'] ?? null,
                 'unidad' => $row['unidad'] ?? null,
                 'fecha_base' => $row['fecha_base'] ?? null,
@@ -240,7 +240,7 @@ class DocumentPolicyEngine
             }
 
             // Skip por regla condicional (OmitirSi).
-            if ($this->shouldSkipByCondition($fieldConfig['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
+            if (AuditFindingRules::shouldSkipByCondition($fieldConfig['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
                 continue;
             }
 
@@ -271,19 +271,6 @@ class DocumentPolicyEngine
         return $findings;
     }
 
-    /**
-     * Evalúa la regla `OmitirSi`. Acepta string JSON o array.
-     *
-     * Claves soportadas:
-     *   - fdv_has:     [campos del header de FDV que, si están presentes, omiten la auditoría]
-     *   - fdv_missing: [campos del header de FDV que, si faltan, omiten la auditoría]
-     *   - doc_quality: [calidades documentales que omiten la auditoría]
-     */
-    private function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
-    {
-        return AuditFindingRules::shouldSkipByCondition($rule, $sourceTruth, $documentQuality);
-    }
-
     private function buildDataFinding(
         string $canonicalField,
         array $fieldConfig,
@@ -306,8 +293,6 @@ class DocumentPolicyEngine
             'rol'                => $rol,
         ];
     }
-
-    // ─── Value resolution ─────────────────────────────────────────────────────
 
     /**
      * @param  array<string,mixed> $fields
@@ -619,13 +604,13 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            if ($this->shouldSkipByCondition($checkExpected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
+            if (AuditFindingRules::shouldSkipByCondition($checkExpected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
                 continue;
             }
 
             $canonicalField = $checkName;
             $displayField   = $canonicalField;
-            $severity       = $this->normalizeVisualSeverity($checkExpected['severity'] ?? null);
+            $severity       = AuditSeverity::fromInput((string) ($checkExpected['severity'] ?? ''))->value;
 
             if ($documentQuality !== 'legible') {
                 $findings[] = $this->buildVisualFinding(
@@ -904,16 +889,6 @@ class DocumentPolicyEngine
 
         $trimmed = trim($value);
         return $trimmed === '' ? null : $trimmed;
-    }
-
-    private function normalizeVisualSeverity(mixed $severity): string
-    {
-        $normalized = strtoupper(trim((string) $severity));
-        return match ($normalized) {
-            'CRITICO', 'CRÍTICO', 'ALTA', 'HIGH' => AuditSeverity::HIGH->value,
-            'BAJA', 'LOW'                         => AuditSeverity::LOW->value,
-            default                               => AuditSeverity::MEDIUM->value,
-        };
     }
 
     private function stripAccents(string $value): string

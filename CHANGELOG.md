@@ -1,5 +1,22 @@
-## [2026-04-30]
+## [2026-05-01] — Limpieza Dead Code y Wrappers Redundantes (Pipeline)
 
+### 🧹 Cleanup / Refactor
+- **QUAL-001**: Eliminado `TYPE_EXTRACTION_FAILED` — constante declarada y ruteada sin productor ni consumer en todo el codebase.
+  - Archivos modificados: `app/Services/Audit/Pipeline/AuditEvent.php`, `app/Services/Audit/Pipeline/AuditEventPublisher.php`
+- **QUAL-002**: Limpieza de referencias fantasma a clases eliminadas en refactors AUDIT-013/014.
+  - `FieldClassifier` eliminado de `AuditSeverity.php` (docblock) y SKILL.md (tabla de archivos)
+  - `DocumentNormalizationWorker` → `DocumentNormalizer` en AGENTS.md y SKILL.md
+  - `AuditResultAggregator` → `AuditAggregationWorker` en AGENTS.md y SKILL.md
+  - `InternalAuditApiClient` → `AuditDataService` + `AttachmentDownloadService` en `plans/architecture.md` y SKILL.md
+  - `extraction_failed` eliminado de tabla de streams en SKILL.md
+  - `FieldClassifier` agregado al banner de obsolescencia de `audit-workflow.md`
+- **Wrappers eliminados en `DocumentPolicyEngine`**:
+  - `shouldSkipByCondition()` — wrapper de 1 línea que delegaba a `AuditFindingRules::shouldSkipByCondition()`. Docblock migrado al método fuente de verdad.
+  - `normalizeVisualSeverity()` — duplicaba `AuditSeverity::fromInput()->value`. Reemplazado por llamada directa al enum.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `app/Services/Audit/Pipeline/AuditFindingRules.php`
+- **Deuda documentada (fuera de scope)**: `normalizeDocumentType()` en PolicyEngine (semántica `iconv` vs `strtr` requiere tests), parámetro muerto `$documentType` en `evaluateField()`.
+
+## [2026-04-30]
 ### feat
 - **Auditoría Gemini**: Soporta `VigenciaEntrega` como visual estructurado y calculable para validar oportunidad de entrega.
   - Archivos modificados: `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/DocumentNormalizer.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/AuditFindingRules.php`

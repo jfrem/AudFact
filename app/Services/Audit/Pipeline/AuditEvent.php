@@ -13,7 +13,6 @@ final class AuditEvent
     public const TYPE_DOCUMENT_REGISTERED  = 'document_registered';
     public const TYPE_DOCUMENT_EXTRACTED   = 'document_extracted';
     public const TYPE_DOCUMENT_NORMALIZED  = 'document_normalized';
-    public const TYPE_EXTRACTION_FAILED    = 'extraction_failed';
     public const TYPE_RULES_EVALUATED      = 'rules_evaluated';
     public const TYPE_AUDIT_COMPLETED      = 'audit_completed';
     public const TYPE_AUDIT_FAILED         = 'audit_failed';

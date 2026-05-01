@@ -8,7 +8,7 @@ namespace App\Services\Audit;
  * Severidades de auditoría normalizadas.
  *
  * Fuente de verdad: columna `SeveridadOverride` en `Discolnet.dbo.AudDispCampo`.
- * Este enum centraliza las constantes que antes vivían dispersas en FieldClassifier.
+ * Fuente de verdad para normalización de severidades en todo el pipeline.
  */
 enum AuditSeverity: string
 {

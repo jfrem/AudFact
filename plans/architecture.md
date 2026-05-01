@@ -88,7 +88,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores) |
 | `BatchJobStore.php` | Claves Redis de estado de jobs/batch (`job:{id}:*`, slots, progreso) |
 | `AuditFindingRules.php` | Reglas estáticas de clasificación de hallazgos y cálculo de risk score |
-| `InternalAuditApiClient.php` | Cliente HTTP interno usado por workers (FDV, catálogo, adjuntos) |
+| `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
 | `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |

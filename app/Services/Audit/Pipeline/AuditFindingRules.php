@@ -54,6 +54,18 @@ final class AuditFindingRules
         return $severityWeight + $resultWeight;
     }
 
+    /**
+     * Evalúa la regla `OmitirSi`. Acepta string JSON o array.
+     *
+     * Claves soportadas:
+     *   - fdv_has:     [campos del header de FDV que, si están presentes, omiten la auditoría]
+     *   - fdv_missing: [campos del header de FDV que, si faltan, omiten la auditoría]
+     *   - doc_quality: [calidades documentales que omiten la auditoría]
+     *
+     * @param  mixed                   $rule            String JSON o array con claves de condición.
+     * @param  array<string,mixed>     $sourceTruth     FDV completa (debe contener clave 'header').
+     * @param  string                  $documentQuality Calidad documental (legible/parcialmente_legible/ilegible).
+     */
     public static function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
     {
         if ($rule === null || $rule === '' || $rule === []) {

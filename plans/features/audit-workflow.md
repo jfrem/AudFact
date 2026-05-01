@@ -3,7 +3,7 @@
 > [!CAUTION]
 > **Documento obsoleto** (post AUDIT-013/014/015 del 2026-04-27).
 >
-> Este archivo describe el pipeline **monolítico pre-event-driven** y referencia archivos que ya no existen (`AuditOrchestrator`, `ExtractionPromptBuilder`, `EmbeddingGateway`, `SemanticComparator`, `RuleEngine`, `AuditResponseSchema`, `AuditPreValidator`, `AuditPersistenceService`, `AuditTelemetryService`, `AuditQueueService`, `AuditOrchestratorFactory`, `AuditFileManager`, `ExtractionResponseSchema`).
+> Este archivo describe el pipeline **monolítico pre-event-driven** y referencia archivos que ya no existen (`AuditOrchestrator`, `ExtractionPromptBuilder`, `EmbeddingGateway`, `SemanticComparator`, `RuleEngine`, `AuditResponseSchema`, `AuditPreValidator`, `AuditPersistenceService`, `AuditTelemetryService`, `AuditQueueService`, `AuditOrchestratorFactory`, `AuditFileManager`, `ExtractionResponseSchema`, `FieldClassifier`).
 >
 > **Fuentes de verdad actuales**:
 > - Skill `audfact-audit-gemini` → `.agent/skills/audfact-audit-gemini/SKILL.md`

@@ -443,8 +443,8 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 - **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/AuditAggregationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
 - **Pipeline event-driven actual**: `audit_created -> document_registered -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
-- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizationWorker`, `RulesEvaluationWorker`, `AuditAggregationWorker`
-- **Agregación final**: `AuditResultAggregator` transforma `rules_evaluated` + estado Redis a `auditResultData` y `documentDecisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
+- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
+- **Agregación final**: `AuditAggregationWorker` transforma `rules_evaluated` + estado Redis a `auditResultData` y `documentDecisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy) y `docs_evaluated`
 - **Cierre de auditoría**: solo el agregador final puede marcar `completed`, `manual_review`, `error` o `failed`; extracción y normalización nunca deben cerrar la auditoría
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
