@@ -223,7 +223,12 @@ class DocumentNormalizer extends AuditEventConsumer
     }
 
     /**
-     * Normaliza un campo individual: alias canónico + scalar + valor específico + logging.
+     * Normaliza un campo individual con soporte para shape v1 de evidencia.
+     *
+     * Dos modos de operación:
+     * - **Legacy (escalar):** string/int/null → normaliza y envuelve en shape v1 mínimo
+     * - **v1 (objeto de evidencia):** array con 'valor' → normaliza el escalar,
+     *   preserva metadatos (confianza, estadoExtraccion, valores, evidencia, ubicacion)
      *
      * @param  array<int,array<string,mixed>> $log
      * @param  array<string,mixed>            $logContext
@@ -235,6 +240,12 @@ class DocumentNormalizer extends AuditEventConsumer
         array &$log,
         array $logContext = []
     ): array {
+        // Detectar shape v1: objeto con key 'valor'
+        if (is_array($value) && array_key_exists('valor', $value)) {
+            return $this->normalizeEvidenceField($originalField, $value, $log, $logContext);
+        }
+
+        // Legacy: escalar → normalizar y envolver en v1 mínimo
         [$normalizedValue, $scalarOps] = $this->normalizeScalarWithOperations($value);
         [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValue);
 
@@ -242,7 +253,84 @@ class DocumentNormalizer extends AuditEventConsumer
             $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField]));
         }
 
-        return [$originalField, $normalizedValue];
+        // Envolver escalar legacy en shape v1 mínimo
+        $v1Shape = [
+            'valor'             => $normalizedValue,
+            'valores'           => $normalizedValue !== null ? [$normalizedValue] : [],
+            'presente'          => $normalizedValue !== null,
+            'confianza'         => null,
+            'estadoExtraccion'  => $normalizedValue !== null ? 'FOUND' : 'NOT_FOUND',
+            'evidencia'         => null,
+            'ubicacion'         => null,
+        ];
+
+        $this->appendLog($log, 'legacy_scalar_wrapped_v1', array_merge($logContext, ['field' => $originalField]));
+
+        return [$originalField, $v1Shape];
+    }
+
+    /**
+     * Normaliza un campo con shape v1 de evidencia preservando metadatos.
+     *
+     * @param  array<string,mixed>            $evidence  Objeto v1 {valor, valores, presente, ...}
+     * @param  array<int,array<string,mixed>> $log
+     * @param  array<string,mixed>            $logContext
+     * @return array{0:string,1:array<string,mixed>}
+     */
+    private function normalizeEvidenceField(
+        string $originalField,
+        array $evidence,
+        array &$log,
+        array $logContext = []
+    ): array {
+        // Normalizar el valor principal
+        $rawValor = $evidence['valor'] ?? null;
+        [$normalizedValor, $scalarOps] = $this->normalizeScalarWithOperations($rawValor);
+        [$normalizedValor, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValor);
+
+        foreach (array_merge($scalarOps, $fieldOps) as $op) {
+            $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField, 'context' => 'v1_valor']));
+        }
+
+        // Normalizar array de valores (tokens)
+        $rawValores = is_array($evidence['valores'] ?? null) ? $evidence['valores'] : [];
+        $normalizedValores = [];
+        foreach ($rawValores as $v) {
+            [$nv, ] = $this->normalizeScalarWithOperations($v);
+            if ($nv !== null) {
+                $normalizedValores[] = $nv;
+            }
+        }
+
+        // Preservar metadatos de evidencia
+        $v1Shape = [
+            'valor'             => $normalizedValor,
+            'valores'           => $normalizedValores !== [] ? $normalizedValores : ($normalizedValor !== null ? [$normalizedValor] : []),
+            'presente'          => (bool) ($evidence['presente'] ?? ($normalizedValor !== null)),
+            'confianza'         => AuditFindingRules::normalizeNullableString($evidence['confianza'] ?? null),
+            'estadoExtraccion'  => $this->normalizeEstadoExtraccion($evidence['estadoExtraccion'] ?? null),
+            'evidencia'         => AuditFindingRules::normalizeNullableString($evidence['evidencia'] ?? null),
+            'ubicacion'         => AuditFindingRules::normalizeNullableString($evidence['ubicacion'] ?? null),
+        ];
+
+        $this->appendLog($log, 'v1_evidence_normalized', array_merge($logContext, ['field' => $originalField]));
+
+        return [$originalField, $v1Shape];
+    }
+
+    /**
+     * Normaliza el enum estadoExtraccion a valores válidos.
+     */
+    private function normalizeEstadoExtraccion(mixed $value): string
+    {
+        if (!is_string($value)) {
+            return 'FOUND';
+        }
+
+        $upper = strtoupper(trim($value));
+        $valid = ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'];
+
+        return in_array($upper, $valid, true) ? $upper : 'FOUND';
     }
 
     /**
@@ -581,6 +669,15 @@ class DocumentNormalizer extends AuditEventConsumer
     private function isEmptyRow(array $row): bool
     {
         foreach ($row as $value) {
+            // Shape v1: objeto con 'valor' — revisar internamente
+            if (is_array($value) && array_key_exists('valor', $value)) {
+                $inner = $value['valor'];
+                if ($inner !== null && $inner !== '') {
+                    return false;
+                }
+                continue;
+            }
+
             if ($value !== null && $value !== '') {
                 return false;
             }

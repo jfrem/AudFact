@@ -46,19 +46,54 @@ final class DocumentExtractionContractBuilder
     {
         $fieldGroups = $this->groupFields($documentName, $fields);
 
+        $declarations = [
+            $this->buildExtractFieldsDeclaration($fieldGroups['fields']),
+            $this->buildExtractItemsDeclaration($fieldGroups['items']),
+            $this->buildDetectVisualChecksDeclaration($visualChecks),
+            $this->buildAssessDocumentQualityDeclaration(),
+        ];
+
         return [
-            'function_declarations' => [
-                $this->buildExtractFieldsDeclaration($fieldGroups['fields']),
-                $this->buildExtractItemsDeclaration($fieldGroups['items']),
-                $this->buildDetectVisualChecksDeclaration($visualChecks),
-                $this->buildAssessDocumentQualityDeclaration(),
-            ],
+            'function_declarations' => $declarations,
             'required_function_names' => self::REQUIRED_FUNCTION_NAMES,
             'field_groups' => [
                 'fields' => array_column($fieldGroups['fields'], 'campoNombre'),
                 'items' => array_column($fieldGroups['items'], 'campoNombre'),
             ],
+            'contract_hash' => self::hashPayload($declarations),
         ];
+    }
+
+    /**
+     * SHA-256 canónico de un payload serializable.
+     * Usado para contract_hash y target_context_hash.
+     */
+    public static function hashPayload(mixed $payload): string
+    {
+        $sorted = self::recursiveKsort($payload);
+        $json = json_encode($sorted, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return hash('sha256', $json !== false ? $json : '');
+    }
+
+    /**
+     * Ordena keys recursivamente para serialización determinística.
+     */
+    private static function recursiveKsort(mixed $data): mixed
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        // Solo ordenar keys en arrays asociativos
+        if (array_values($data) !== $data) {
+            ksort($data);
+        }
+
+        foreach ($data as $key => $value) {
+            $data[$key] = self::recursiveKsort($value);
+        }
+
+        return $data;
     }
 
     /**
@@ -97,7 +132,7 @@ final class DocumentExtractionContractBuilder
         return $name;
     }
 
-    private function isItemField(string $documentName, string $fieldName, string $tipoCampo): bool
+    public function isItemField(string $documentName, string $fieldName, string $tipoCampo): bool
     {
         if (AuditComparisonType::fromTipoCampo($tipoCampo) === AuditComparisonType::BUSINESS) {
             return true;
@@ -152,7 +187,13 @@ final class DocumentExtractionContractBuilder
 
         return [
             'name' => self::FN_EXTRACT_FIELDS,
-            'description' => 'Extrae campos administrativos y documentales visibles del documento.',
+            'description' => 'Extrae campos administrativos y documentales visibles del documento. '
+                . 'Para cada campo, reporta el valor literal visible, si está presente, '
+                . 'y el estado de extracción. '
+                . 'Usa estadoExtraccion=FOUND_IN_LIST cuando el campo contiene múltiples valores '
+                . 'separados por coma, barra o punto y coma (ej: códigos diagnósticos). '
+                . 'Usa FOUND para un único valor claro, NOT_FOUND si no es visible, '
+                . 'AMBIGUOUS si hay conflicto y ILLEGIBLE si no es legible.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -178,7 +219,9 @@ final class DocumentExtractionContractBuilder
 
         return [
             'name' => self::FN_EXTRACT_ITEMS,
-            'description' => 'Extrae filas de producto o prescripción visibles, una entrada por línea documental.',
+            'description' => 'Extrae filas de producto o prescripción visibles, una entrada por línea documental. '
+                . 'No colapses cantidades, lotes, fechas de vencimiento ni códigos distintos entre filas. '
+                . 'Cada fila del documento debe ser un item independiente.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -285,13 +328,71 @@ final class DocumentExtractionContractBuilder
         $properties = [];
         foreach ($fields as $field) {
             $name = $this->fieldName($field);
-            $properties[$name] = [
-                'type' => $this->schemaTypeForField($name, (string) ($field['tipoCampo'] ?? 'E')),
-                'nullable' => true,
-            ];
+            $properties[$name] = $this->buildEvidenceFieldSchema(
+                $name,
+                (string) ($field['tipoCampo'] ?? 'E')
+            );
         }
 
         return $properties;
+    }
+
+    /**
+     * Construye el JSON Schema de un campo con estructura de evidencia v1.
+     *
+     * Shape: {valor, valores, presente, confianza, estadoExtraccion, evidencia, ubicacion}
+     * - `valor`: valor principal (tipo derivado del campo)
+     * - `valores`: array de tokens individuales (útil para FOUND_IN_LIST)
+     * - `presente`: si el dato fue encontrado en el documento
+     * - `confianza`: nivel de certeza de la extracción
+     * - `estadoExtraccion`: clasificación del resultado de búsqueda
+     * - `evidencia`: texto literal visible en el documento
+     * - `ubicacion`: posición aproximada en el documento
+     */
+    private function buildEvidenceFieldSchema(string $fieldName, string $tipoCampo): array
+    {
+        $valorType = $this->schemaTypeForField($fieldName, $tipoCampo);
+
+        return [
+            'type' => 'object',
+            'properties' => [
+                'valor' => [
+                    'type' => $valorType,
+                    'nullable' => true,
+                    'description' => 'Valor principal extraído del documento tal como aparece visible.',
+                ],
+                'valores' => [
+                    'type' => 'array',
+                    'items' => ['type' => $valorType],
+                    'description' => 'Tokens individuales cuando el campo contiene múltiples valores (FOUND_IN_LIST). Array de un elemento cuando es FOUND.',
+                ],
+                'presente' => [
+                    'type' => 'boolean',
+                    'description' => 'true si el dato fue encontrado visiblemente en el documento.',
+                ],
+                'confianza' => [
+                    'type' => 'string',
+                    'enum' => ['alta', 'media', 'baja'],
+                ],
+                'estadoExtraccion' => [
+                    'type' => 'string',
+                    'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'],
+                    'description' => 'FOUND: valor único claro. FOUND_IN_LIST: múltiples valores separados por coma/barra/punto y coma. NOT_FOUND: no visible. AMBIGUOUS: conflicto. ILLEGIBLE: no legible.',
+                ],
+                'evidencia' => [
+                    'type' => 'string',
+                    'nullable' => true,
+                    'description' => 'Texto literal visible en el documento que sustenta este campo.',
+                ],
+                'ubicacion' => [
+                    'type' => 'string',
+                    'nullable' => true,
+                    'description' => 'Posición aproximada en el documento (ej: "sección Diagnóstico", "tabla fila 2").',
+                ],
+            ],
+            'required' => ['valor', 'presente', 'estadoExtraccion'],
+            'propertyOrdering' => ['valor', 'valores', 'presente', 'confianza', 'estadoExtraccion', 'evidencia', 'ubicacion'],
+        ];
     }
 
     private function schemaTypeForField(string $fieldName, string $tipoCampo): string

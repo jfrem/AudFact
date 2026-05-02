@@ -128,17 +128,20 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ['NombreArticulo', 'CantidadEntregada'],
             $payload['extraction_contract']['field_groups']['items']
         );
+        // Schema v1: DocumentoPaciente es un objeto de evidencia, no un escalar
+        $docPacSchema = $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente'];
+        $this->assertSame('object', $docPacSchema['type']);
+        $this->assertArrayHasKey('valor', $docPacSchema['properties']);
+        $this->assertSame('string', $docPacSchema['properties']['valor']['type']);
+        $this->assertArrayHasKey('estadoExtraccion', $docPacSchema['properties']);
         $this->assertSame(
-            'string',
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente']['type']
+            ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'],
+            $docPacSchema['properties']['estadoExtraccion']['enum']
         );
-        $this->assertTrue(
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente']['nullable']
-        );
-        $this->assertSame(
-            'number',
-            $payload['extraction_contract']['function_declarations'][1]['parameters']['properties']['items']['items']['properties']['CantidadEntregada']['type']
-        );
+        // Schema v1: CantidadEntregada es un objeto de evidencia con valor type=number
+        $cantSchema = $payload['extraction_contract']['function_declarations'][1]['parameters']['properties']['items']['items']['properties']['CantidadEntregada'];
+        $this->assertSame('object', $cantSchema['type']);
+        $this->assertSame('number', $cantSchema['properties']['valor']['type']);
         $this->assertSame(
             ['legible', 'parcialmente_legible', 'ilegible'],
             $payload['extraction_contract']['function_declarations'][3]['parameters']['properties']['document_quality']['enum']
@@ -164,6 +167,18 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('T38250701547', $payload['numero_factura']);
         $this->assertSame('T38250701547', $store->patches[0]['numero_factura'] ?? null);
         $this->assertArrayNotHasKey('dis_det_nro', $store->patches[0] ?? []);
+
+        // T07: contract_hash y target_context propagados al payload
+        $this->assertArrayHasKey('contract_hash', $payload);
+        $this->assertNotEmpty($payload['contract_hash']);
+        $this->assertSame(64, strlen($payload['contract_hash']));
+        $this->assertArrayHasKey('target_context', $payload);
+        $this->assertIsArray($payload['target_context']);
+        $this->assertArrayHasKey('fields', $payload['target_context']);
+        $this->assertArrayHasKey('items', $payload['target_context']);
+        $this->assertArrayHasKey('visualChecks', $payload['target_context']);
+        $this->assertArrayHasKey('target_context_hash', $payload);
+        $this->assertSame(64, strlen($payload['target_context_hash']));
     }
 
     public function testFallbackMatchesAttachmentByNormalizedName(): void

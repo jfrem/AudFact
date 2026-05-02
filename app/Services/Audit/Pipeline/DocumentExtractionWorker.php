@@ -99,13 +99,17 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $disDetNro     = $this->requiredString($payload, 'dis_det_nro');
         $contract      = $this->requiredArray($payload, 'extraction_contract');
         $documentType  = $this->resolveDocumentType($payload);
+        $contractHash  = (string) ($payload['contract_hash'] ?? $contract['contract_hash'] ?? '');
+        $targetContextHash = (string) ($payload['target_context_hash'] ?? '');
 
         $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
         $document = $downloaded['document'];
         $documentHash = $downloaded['document_hash'];
 
+        $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $targetContextHash);
+
         $extraction = $this->resolveExtraction(
-            $documentHash,
+            $compositeCacheKey,
             $document,
             $documentType,
             $payload,
@@ -120,7 +124,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $documentHash,
             $document,
             $extraction,
-            $extractionDurationMs
+            $extractionDurationMs,
+            $contractHash,
+            $targetContextHash
         );
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
@@ -158,7 +164,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
      * }
      */
     private function resolveExtraction(
-        string $documentHash,
+        string $cacheKey,
         array $document,
         string $documentType,
         array $payload,
@@ -166,7 +172,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         string $disDetNro,
         AuditEvent $event
     ): array {
-        $extracted = $this->cacheGet($documentHash);
+        $extracted = $this->cacheGet($cacheKey);
         if ($extracted !== null) {
             return [
                 'extracted' => $extracted,
@@ -206,7 +212,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $extracted = $this->parseGeminiResponse($response, $contract);
         $this->enforceItemSegmentation($documentType, $payload, $extracted);
-        $this->cachePut($documentHash, $extracted);
+        $this->cachePut($cacheKey, $extracted);
 
         return [
             'extracted' => $extracted,
@@ -230,11 +236,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         string $documentHash,
         array $document,
         array $extraction,
-        int $extractionDurationMs
+        int $extractionDurationMs,
+        string $contractHash = '',
+        string $targetContextHash = ''
     ): array {
         $documentState = [
             'status'                  => 'extracted',
             'document_hash'           => $documentHash,
+            'contract_hash'           => $contractHash,
+            'target_context_hash'     => $targetContextHash,
             'cache_hit'               => $extraction['cache_hit'],
             'mime'                    => $document['mime'],
             'extraction_result'       => $extraction['extracted'],
@@ -289,12 +299,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     // ─── Extraction cache (absorbed from ExtractionCache) ────────────────────
 
-    private function cacheGet(string $documentHash): ?array
+    private function cacheGet(string $cacheKey): ?array
     {
-        self::assertHash($documentHash);
-
         try {
-            $raw = $this->redis->get($this->cacheKey($documentHash));
+            $raw = $this->redis->get($cacheKey);
         } catch (RedisUnavailableException $e) {
             throw new RuntimeException('Redis no disponible al leer extraction cache', 0, $e);
         }
@@ -311,16 +319,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         return $decoded;
     }
 
-    private function cachePut(string $documentHash, array $payload): void
+    private function cachePut(string $cacheKey, array $payload): void
     {
-        self::assertHash($documentHash);
-
         $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($encoded === false) {
             throw new RuntimeException('No se pudo serializar extraction cache');
         }
 
-        if (!$this->redis->set($this->cacheKey($documentHash), $encoded, $this->cacheTtl)) {
+        if (!$this->redis->set($cacheKey, $encoded, $this->cacheTtl)) {
             throw new RuntimeException('No se pudo escribir extraction cache en Redis');
         }
     }
@@ -336,6 +342,21 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         if (!preg_match('/^[a-f0-9]{64}$/', $documentHash)) {
             throw new RuntimeException("document_hash inválido: {$documentHash}");
         }
+    }
+
+    /**
+     * Construye la cache key compuesta.
+     * Cualquier cambio en document, contrato, FDV o versión invalida el cache.
+     */
+    private function compositeCacheKey(string $documentHash, string $contractHash, string $targetContextHash): string
+    {
+        if ($contractHash === '' || $targetContextHash === '') {
+            // Fallback legacy: solo document_hash + version
+            return $this->cacheKey($documentHash);
+        }
+
+        $composite = hash('sha256', $documentHash . $contractHash . $targetContextHash . $this->extractorVersion);
+        return "extraction:cache:v1:{$composite}";
     }
 
     // ─── Gemini interaction helpers ──────────────────────────────────────────
@@ -410,6 +431,36 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $parts[] = 'Invoca exactamente una vez cada función en el mismo turno: '
             . implode(', ', $this->requiredFunctionNames($contract)) . '.';
+
+        // --- Target context (FDV-lite) con instrucción anti-sesgo ---
+        $targetContext = $payload['target_context'] ?? null;
+        if (is_array($targetContext)) {
+            $parts[] = '';
+            $parts[] = '--- Valores de referencia (Registro de Dispensación) ---';
+            $parts[] = 'IMPORTANTE: Estos son los valores del registro de dispensación, SOLO referencia.';
+            $parts[] = 'Extrae lo que el documento muestra independientemente de si coincide con estos valores.';
+            $parts[] = 'No limites tu extracción a estos valores ni los uses para completar datos no visibles.';
+
+            $tcFields = is_array($targetContext['fields'] ?? null) ? $targetContext['fields'] : [];
+            if ($tcFields !== []) {
+                $parts[] = 'Campos de cabecera esperados:';
+                foreach ($tcFields as $tcName => $tcMeta) {
+                    $fdvVal = $tcMeta['valorFuenteVerdad'] ?? 'N/A';
+                    $parts[] = "- {$tcName}: {$fdvVal}";
+                }
+            }
+
+            $tcItems = is_array($targetContext['items'] ?? null) ? $targetContext['items'] : [];
+            if ($tcItems !== []) {
+                $parts[] = 'Campos de línea esperados:';
+                foreach ($tcItems as $tcName => $tcMeta) {
+                    $vals = is_array($tcMeta['valoresFuenteVerdad'] ?? null)
+                        ? implode(', ', $tcMeta['valoresFuenteVerdad'])
+                        : 'N/A';
+                    $parts[] = "- {$tcName}: [{$vals}]";
+                }
+            }
+        }
 
         return implode("\n", $parts);
     }

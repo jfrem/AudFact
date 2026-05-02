@@ -1,3 +1,50 @@
+## [2026-05-02] — AUDIT-016 fase 2: Workers v1 — Contratos de Evidencia Upstream
+
+### feat
+- **Pipeline Auditoría — Schema Gemini v1 con Evidencia (`DocumentExtractionContractBuilder`)**:
+  Cada campo del schema Gemini ahora es un objeto con propiedades:
+  `{valor, valores, presente, confianza, estadoExtraccion, evidencia, ubicacion}`.
+  - `estadoExtraccion` enum: `FOUND | FOUND_IN_LIST | NOT_FOUND | AMBIGUOUS | ILLEGIBLE`
+  - Descriptions de `extract_fields` y `extract_items` incluyen instrucciones FOUND_IN_LIST
+  - Nuevo: `contractHash()` — SHA-256 canónico de las function declarations
+  - Nuevo: `hashPayload()` estático con `recursiveKsort()` para serialización determinística
+  - `isItemField()` ahora es `public` para uso por el Orchestrator
+  - Archivos: `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`
+
+- **Pipeline Auditoría — Target Context FDV-lite (`DocumentAuditOrchestrator`)**:
+  Construye `target_context` por documento — FDV-lite con solo los campos configurados.
+  - `target_context.fields`: campos de cabecera con `valorFuenteVerdad`, `valueType`, `tipoCampo`
+  - `target_context.items`: campos de línea con `valoresFuenteVerdad[]`
+  - `target_context.visualChecks`: checks visuales esperados
+  - Propaga `contract_hash`, `target_context_hash` al state del documento
+  - Archivos: `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`
+
+- **Pipeline Auditoría — Cache Key Compuesta + Anti-sesgo (`DocumentExtractionWorker`)**:
+  Cache key ahora es `sha256(document_hash + contract_hash + target_context_hash + extractor_version)`.
+  - Cambios en contrato, FDV o versión invalidan cache automáticamente
+  - `buildUserPrompt()` inyecta `target_context` con instrucción anti-sesgo:
+    "Extrae lo que el documento muestra independientemente de si coincide con estos valores"
+  - `contract_hash` y `target_context_hash` propagados al document state
+  - Fallback legacy: si faltan hashes, usa cache key clásica
+  - Archivos: `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
+
+- **Pipeline Auditoría — Normalizer v1 Forward-Compatible (`DocumentNormalizer`)**:
+  Soporta tanto escalares legacy como objetos de evidencia v1.
+  - Escalares legacy se envuelven en shape v1 mínimo con `presente=true`, `estadoExtraccion=FOUND`
+  - Objetos v1 preservan: `confianza`, `estadoExtraccion`, `evidencia`, `ubicacion`, `valores`
+  - `normalizeEstadoExtraccion()`: valida enum contra valores permitidos
+  - `isEmptyRow()` adaptada para detectar rows vacías con shapes v1
+  - Archivos: `app/Services/Audit/Pipeline/DocumentNormalizer.php`
+
+### test
+- Orchestrator: assertions actualizadas para schema v1 (object vs string) + verificación de
+  `contract_hash`, `target_context`, `target_context_hash` en payload
+- Normalizer: 5 tests (antes 4) — nuevo `testNormalizeHandlesV1EvidenceObjects` cubre
+  path completo de FOUND_IN_LIST + fecha ISO + metadata preservada
+- Suite: 129 tests, 461 assertions, 0 errores
+
+---
+
 ## [2026-05-02] — AUDIT-016: Auditoría Reproducible con Contratos de Evidencia
 
 ### feat
