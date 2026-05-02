@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditComparisonType;
+use App\Services\Audit\AuditFieldValueType;
 use InvalidArgumentException;
 
 final class DocumentExtractionContractBuilder
@@ -299,6 +300,6 @@ final class DocumentExtractionContractBuilder
             return 'number';
         }
 
-        return AuditComparisonType::isNumberField($fieldName) ? 'number' : 'string';
+        return AuditFieldValueType::fromFieldName($fieldName)->isNumericForSchema() ? 'number' : 'string';
     }
 }

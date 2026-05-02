@@ -5,17 +5,12 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditComparisonType;
+use App\Services\Audit\DocumentQuality;
 use Core\Logger;
 use RuntimeException;
 
 class DocumentNormalizer extends AuditEventConsumer
 {
-    private const DOCUMENT_QUALITY_ENUM = [
-        'legible',
-        'parcialmente_legible',
-        'ilegible',
-    ];
-
     private AuditStateStore $stateStore;
     private string $consumerName;
 
@@ -289,7 +284,7 @@ class DocumentNormalizer extends AuditEventConsumer
                 $result[$canonical] = [
                     'check' => $canonical,
                     'presente' => false,
-                    'detalle' => $this->normalizeNullableString($check['description'] ?? null),
+                    'detalle' => AuditFindingRules::normalizeNullableString($check['description'] ?? null),
                     'severidad' => $this->normalizeSeverity($check['severity'] ?? null),
                     'rol' => $this->normalizeRole($check['rol'] ?? null),
                     'omitirSi' => $check['omitirSi'] ?? null,
@@ -335,7 +330,7 @@ class DocumentNormalizer extends AuditEventConsumer
                 ];
 
                 $base['presente'] = (bool) ($check['presente'] ?? false);
-                $detail = $this->normalizeNullableString($check['detalle'] ?? null);
+                $detail = AuditFindingRules::normalizeNullableString($check['detalle'] ?? null);
                 if ($detail !== null) {
                     $base['detalle'] = $detail;
                 }
@@ -358,12 +353,7 @@ class DocumentNormalizer extends AuditEventConsumer
 
     private function normalizeDocumentQuality(mixed $value): string
     {
-        $normalized = strtolower(trim((string) $value));
-        if (!in_array($normalized, self::DOCUMENT_QUALITY_ENUM, true)) {
-            throw new RuntimeException("document_quality inválido para normalización: {$normalized}");
-        }
-
-        return $normalized;
+        return DocumentQuality::fromString((string) $value)->value;
     }
 
     /**
@@ -378,7 +368,7 @@ class DocumentNormalizer extends AuditEventConsumer
 
         $normalized = [];
         foreach ($notes as $index => $note) {
-            $string = $this->normalizeNullableString($note);
+            $string = AuditFindingRules::normalizeNullableString($note);
             if ($string === null) {
                 if (is_string($note) && trim($note) === '') {
                     $this->appendLog($normalizationLog, 'quality_note_empty_dropped', [
@@ -434,15 +424,7 @@ class DocumentNormalizer extends AuditEventConsumer
         return [null, ['unsupported_value_to_null']];
     }
 
-    private function normalizeNullableString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
 
-        $trimmed = trim($value);
-        return $trimmed === '' ? null : $trimmed;
-    }
 
     private function normalizeSeverity(mixed $value): string
     {
@@ -538,24 +520,7 @@ class DocumentNormalizer extends AuditEventConsumer
 
     private function normalizeToken(string $value): string
     {
-        $ascii = strtr(trim($value), [
-            'Á' => 'A',
-            'É' => 'E',
-            'Í' => 'I',
-            'Ó' => 'O',
-            'Ú' => 'U',
-            'Ü' => 'U',
-            'Ñ' => 'N',
-            'á' => 'a',
-            'é' => 'e',
-            'í' => 'i',
-            'ó' => 'o',
-            'ú' => 'u',
-            'ü' => 'u',
-            'ñ' => 'n',
-        ]);
-
-        return (string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($ascii));
+        return AuditFindingRules::normalizeToken($value);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\SemanticMatchJudge;
@@ -12,9 +13,6 @@ use RuntimeException;
 
 final class RulesEvaluationWorker extends AuditEventConsumer
 {
-    private const RESULT_MATCH = 'COINCIDE';
-    private const RESULT_MISMATCH = 'VALOR_DISTINTO';
-    private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
     private const FIELD_DELIVERY_DATE = 'FechaEntrega';
     private const UNIT_DAYS = 'dias';
     private const ROLE_INFORMATIVE = 'INFORMATIVO';
@@ -292,7 +290,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
             'valorFuenteVerdad' => "{$baseField} {$baseDateText} + {$days} dias = {$limitDateText}",
             'valorDocumento' => "{$deliveryDateText} dentro de {$days} dias",
-            'resultado' => $matches ? self::RESULT_MATCH : self::RESULT_MISMATCH,
+            'resultado' => $matches ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
             'severidad' => $this->normalizeSeverity($candidate['expected']['severity'] ?? null),
             'documento' => $candidate['document_name'],
             'detalle' => $matches
@@ -392,7 +390,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function resolveMatchedDate(array $findings, string $field): ?\DateTimeImmutable
     {
         foreach ($findings as $finding) {
-            if (($finding['campo'] ?? null) !== $field || ($finding['resultado'] ?? null) !== self::RESULT_MATCH) {
+            if (($finding['campo'] ?? null) !== $field || ($finding['resultado'] ?? null) !== AuditFindingResult::MATCH->value) {
                 continue;
             }
 
@@ -432,7 +430,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
             'valorFuenteVerdad' => 'Vigencia calculable requerida',
             'valorDocumento' => null,
-            'resultado' => self::RESULT_INCONCLUSIVE,
+            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'severidad' => $this->normalizeSeverity($candidate['expected']['severity'] ?? null),
             'documento' => $candidate['document_name'],
             'detalle' => $detail,

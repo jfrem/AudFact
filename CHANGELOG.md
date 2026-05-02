@@ -1,5 +1,11 @@
 ## [2026-05-01] — Limpieza Dead Code y Wrappers Redundantes (Pipeline)
 
+### fix
+- **Auditoría Gemini**: Normaliza equivalencias de tipo de documento de identidad en comparación exacta.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`
+  - Hallazgo resuelto: falso positivo `TipoDocumentoPaciente` (`CC` vs `Cédula ciudadanía`) en auditoría de fórmula médica.
+  - Impacto: conserva `TipoCampo = E` y el valor original extraído en hallazgos, pero compara códigos documentales por equivalencia determinística.
+
 ### 🧹 Cleanup / Refactor
 - **QUAL-001**: Eliminado `TYPE_EXTRACTION_FAILED` — constante declarada y ruteada sin productor ni consumer en todo el codebase.
   - Archivos modificados: `app/Services/Audit/Pipeline/AuditEvent.php`, `app/Services/Audit/Pipeline/AuditEventPublisher.php`

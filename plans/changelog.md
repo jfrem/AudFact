@@ -1,5 +1,38 @@
 # Changelog AudFact
 
+## [2026-05-02] — Clean Code Pipeline: Enums Centralizadores (AUDIT-020)
+
+### 🔵 Architecture / Refactor
+- **AUDIT-020**: Eliminación de constantes duplicadas y métodos redundantes en el pipeline de auditoría. Sin cambios en API pública, contratos de eventos ni respuestas REST.
+  - **Nuevo enum** `DocumentQuality` (`legible/parcialmente_legible/ilegible`) reemplaza la constante privada `DOCUMENT_QUALITY_ENUM` que existía duplicada en `DocumentExtractionWorker`, `DocumentNormalizer` y `DocumentPolicyEngine`. Incluye `fromString()` (con validación), `tryFromString()`, `isLegible()` y `preventsConclusion()`.
+  - **Nuevo enum** `AuditFindingResult` (`COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE`) reemplaza las constantes privadas `RESULT_*` que existían duplicadas en `DocumentPolicyEngine` (5), `RulesEvaluationWorker` (3) y `AuditFindingRules` (3). Incluye `isFailure()`, `isDiscrepancy()`, `isInconclusive()`, `isSkipped()`.
+  - **`AuditFindingRules`**: eliminadas constantes `RESULT_*` y listas `FAILURE_RESULTS`/`DISCREPANCY_RESULTS` → delegación a `AuditFindingResult`. Agregados helpers estáticos compartidos: `normalizeNullableString()` y `normalizeToken()`.
+  - **`DocumentPolicyEngine`**: eliminadas 5 constantes `RESULT_*`, `DOCUMENT_QUALITY_ENUM`, `normalizeNullableString()` privado, `normalizeIdentityDocumentTypeToken()` privado (duplicado de `normalizeToken()` de `DocumentNormalizer`), y parámetro muerto `$documentType` de `evaluateField()`.
+  - **`DocumentNormalizer`**: eliminadas `DOCUMENT_QUALITY_ENUM`, `normalizeNullableString()` privado, `normalizeToken()` privado → delegan a `AuditFindingRules`.
+  - **`DocumentExtractionWorker`**: eliminada `DOCUMENT_QUALITY_ENUM` → `DocumentQuality::fromString()`.
+  - **`RulesEvaluationWorker`**: eliminadas 3 constantes `RESULT_*` → `AuditFindingResult::*->value`.
+  - **Resultado**: 15 definiciones duplicadas eliminadas (5 constantes × 3 clases). Todos los valores de string son idénticos al contrato anterior — backward compatibility total.
+  - **Validación**: 88/88 tests, 330 assertions, 0 regresiones, sin modificación de tests.
+  - **Archivos creados**: `app/Services/Audit/DocumentQuality.php`, `app/Services/Audit/AuditFindingResult.php`
+  - **Archivos modificados**: `AuditFindingRules.php`, `DocumentPolicyEngine.php`, `DocumentNormalizer.php`, `DocumentExtractionWorker.php`, `RulesEvaluationWorker.php`
+
+## [2026-05-02] — Formalización de Tipos de Valor Auditables (AuditFieldValueType)
+
+### 🔵 Architecture / Refactor
+- **AUDIT-019**: Separación formal de "tipo de comparación" (`AuditComparisonType`: E/S/B/V) y "tipo de dato" (`AuditFieldValueType`: text/date/quantity/money/identity_doc_type).
+  - **Nuevo enum** `AuditFieldValueType` con factory `fromFieldName()` que consolida 4 heurísticas dispersas (`str_starts_with('Fecha')`, `str_starts_with('Cantidad')`, `str_starts_with('Vlr')`, `in_array(['TipoDocumentoPaciente', 'TipoDocumentoMedico'])`) en un único punto de decisión.
+  - **Métodos auxiliares**: `isNumericForSchema()` (reemplaza `isNumberField()`), `isQuantitySummable()` (reemplaza `isQuantityField()` en resolución de valores).
+  - **DocumentPolicyEngine**: `normalizeForComparison()` refactorizado de cascada if/else a `match` expression. Método privado `isIdentityDocumentTypeField()` eliminado. `resolveDocumentValue()`, `resolveSourceTruthValue()` y `evaluateBusinessField()` usan `AuditFieldValueType` directamente.
+  - **DocumentExtractionContractBuilder**: `schemaTypeForField()` delega a `isNumericForSchema()`.
+  - **AuditComparisonType**: `isDateField()`, `isQuantityField()`, `isNumberField()` marcados `@deprecated` como puentes que delegan a `AuditFieldValueType` — backward compatibility total para `DocumentNormalizer`.
+  - **Resultado**: Refactoring puramente interno. API pública, contratos de eventos, respuestas REST y hallazgos persistidos no cambian.
+  - **Validación**: 88/88 tests, 330 assertions, 0 regresiones, sin modificación de tests.
+  - **Archivos creados**: `app/Services/Audit/AuditFieldValueType.php`
+  - **Archivos modificados**: `AuditComparisonType.php`, `DocumentPolicyEngine.php`, `DocumentExtractionContractBuilder.php`
+
+### 📚 Documentation / Skills
+- **DOCS-SYNC**: Skill `audfact-audit-gemini` actualizada con `AuditFieldValueType` en tabla de archivos clave, regla 2 y referencias.
+
 ## [2026-05-01] — Limpieza Dead Code y Wrappers Redundantes (Pipeline)
 
 ### 🧹 Cleanup / Refactor

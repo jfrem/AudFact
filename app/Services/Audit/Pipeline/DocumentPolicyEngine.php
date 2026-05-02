@@ -5,22 +5,15 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditComparisonType;
+use App\Services\Audit\AuditFieldValueType;
+use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditSeverity;
+use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\SemanticMatchJudge;
 use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private const RESULT_MATCH        = 'COINCIDE';
-    private const RESULT_MISMATCH     = 'VALOR_DISTINTO';
-    private const RESULT_NOT_FOUND    = 'NO_ENCONTRADO';
-    private const RESULT_SKIPPED      = 'OMITIDO';
-    private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
-    private const DOCUMENT_QUALITY_ENUM = [
-        'legible',
-        'parcialmente_legible',
-        'ilegible',
-    ];
 
     private ?SemanticMatchJudge $semanticJudge;
     /** @var array<int,array<string,mixed>> */
@@ -126,12 +119,7 @@ class DocumentPolicyEngine
      */
     private function resolveDocumentQuality(array $normalizedPayload): string
     {
-        $documentQuality = strtolower(trim((string) ($normalizedPayload['document_quality'] ?? '')));
-        if (!in_array($documentQuality, self::DOCUMENT_QUALITY_ENUM, true)) {
-            throw new RuntimeException('document_normalized sin document_quality válido');
-        }
-
-        return $documentQuality;
+        return DocumentQuality::fromString((string) ($normalizedPayload['document_quality'] ?? ''))->value;
     }
 
     // ─── Normalizers ──────────────────────────────────────────────────────────
@@ -187,7 +175,7 @@ class DocumentPolicyEngine
             $indexed[$canonical] = [
                 'check'    => $canonical,
                 'presente' => (bool) ($row['presente'] ?? false),
-                'detalle'  => $this->normalizeNullableString($row['detalle'] ?? null),
+                'detalle'  => AuditFindingRules::normalizeNullableString($row['detalle'] ?? null),
                 'severidad' => AuditSeverity::fromInput((string) ($row['severidad'] ?? ''))->value,
                 'valor' => $row['valor'] ?? null,
                 'unidad' => $row['unidad'] ?? null,
@@ -254,7 +242,6 @@ class DocumentPolicyEngine
             $tipoCampo    = $fieldConfig['tipoCampo'] ?? 'E';
             $internalType = $this->mapToInternalType($tipoCampo);
             $comparison   = $this->evaluateField(
-                $canonicalDocumentType,
                 $canonicalField,
                 $fdvValue,
                 $docValue,
@@ -301,6 +288,8 @@ class DocumentPolicyEngine
      */
     private function resolveDocumentValue(string $field, array $fields, array $items): array
     {
+        $valueType = AuditFieldValueType::fromFieldName($field);
+
         // Intentar resolver desde items[] primero (el dato dice dónde está)
         $itemValues = [];
         foreach ($items as $row) {
@@ -311,7 +300,7 @@ class DocumentPolicyEngine
         }
 
         if ($itemValues !== []) {
-            if (AuditComparisonType::isQuantityField($field)) {
+            if ($valueType->isQuantitySummable()) {
                 $total = $this->sumNumericValues($itemValues);
                 if ($total !== null) {
                     return [$this->formatNumber($total), false];
@@ -324,7 +313,7 @@ class DocumentPolicyEngine
             }
 
             // Multi-valor no-sumable: skipear silenciosamente
-            return AuditComparisonType::isQuantityField($field) ? [null, true] : [null, false];
+            return $valueType->isQuantitySummable() ? [null, true] : [null, false];
         }
 
         // Fallback: resolver desde fields{}
@@ -340,6 +329,8 @@ class DocumentPolicyEngine
      */
     private function resolveSourceTruthValue(string $field, array $sourceTruth): ?string
     {
+        $valueType = AuditFieldValueType::fromFieldName($field);
+
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
 
@@ -354,7 +345,7 @@ class DocumentPolicyEngine
 
         $itemValues = $this->extractItemValues($items, $field, $field);
 
-        if (AuditComparisonType::isQuantityField($field)) {
+        if ($valueType->isQuantitySummable()) {
             $total = $this->sumNumericValues($itemValues);
             return $total !== null ? $this->formatNumber($total) : null;
         }
@@ -369,7 +360,7 @@ class DocumentPolicyEngine
         }
 
         // Multi-valor no-sumable: skipear silenciosamente
-        return AuditComparisonType::isQuantityField($field) ? $unique[0] : null;
+        return $valueType->isQuantitySummable() ? $unique[0] : null;
     }
 
     private function extractItemValues(array $items, string $field, ?string $column): array
@@ -421,7 +412,6 @@ class DocumentPolicyEngine
      * @return array{resultado:string,detalle?:string}
      */
     private function evaluateField(
-        string $documentType,
         string $field,
         ?string $fdvValue,
         ?string $docValue,
@@ -434,7 +424,7 @@ class DocumentPolicyEngine
         if ($ambiguous || $documentQuality !== 'legible') {
             if ($docValue === null || $ambiguous) {
                 return [
-                    'resultado' => self::RESULT_INCONCLUSIVE,
+                    'resultado' => AuditFindingResult::INCONCLUSIVE->value,
                     'detalle'   => $ambiguous
                         ? 'El documento contiene multiples candidatos plausibles para el campo.'
                         : 'La calidad documental no permite concluir el valor con confianza suficiente.',
@@ -443,28 +433,27 @@ class DocumentPolicyEngine
         }
 
         if ($fdvValue === null && $docValue === null) {
-            return ['resultado' => self::RESULT_SKIPPED];
+            return ['resultado' => AuditFindingResult::SKIPPED->value];
         }
 
         if ($docValue === null) {
             return [
-                'resultado' => self::RESULT_NOT_FOUND, 
+                'resultado' => AuditFindingResult::NOT_FOUND->value,
                 'detalle'   => "El campo '{$field}' no se encontró en el documento. Valor esperado según registro de dispensación: '{$fdvValue}'."
             ];
         }
 
         if ($fdvValue === null) {
-            return ['resultado' => self::RESULT_SKIPPED, 'detalle' => 'Sin valor auditable en registro de dispensación.'];
+            return ['resultado' => AuditFindingResult::SKIPPED->value, 'detalle' => 'Sin valor auditable en registro de dispensación.'];
         }
 
         if ($forcedType === null) {
             throw new RuntimeException("Campo '{$field}' sin tipo de comparación — verificar audit-config en BD");
         }
-        $type = $forcedType;
-        return match ($type) {
+        return match ($forcedType) {
             AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo),
             AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue),
-            default                        => $this->evaluateExactField($field, $fdvValue, $docValue),
+            default                              => $this->evaluateExactField($field, $fdvValue, $docValue),
         };
     }
 
@@ -474,11 +463,11 @@ class DocumentPolicyEngine
     private function evaluateExactField(string $field, string $fdvValue, string $docValue): array
     {
         if ($this->normalizeForComparison($field, $fdvValue) === $this->normalizeForComparison($field, $docValue)) {
-            return ['resultado' => self::RESULT_MATCH];
+            return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         return [
-            'resultado' => self::RESULT_MISMATCH,
+            'resultado' => AuditFindingResult::MISMATCH->value,
             'detalle'   => "Registro de Dispensación '{$fdvValue}' difiere de Documento '{$docValue}'.",
         ];
     }
@@ -492,18 +481,18 @@ class DocumentPolicyEngine
         $normalizedDoc = $this->normalizeText($docValue);
 
         if ($this->sameTokenSet($normalizedFdv, $normalizedDoc)) {
-            return ['resultado' => self::RESULT_MATCH];
+            return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && $this->containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
-            return ['resultado' => self::RESULT_MATCH];
+            return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         $score     = $this->similarity($normalizedFdv, $normalizedDoc);
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
         if ($score >= $threshold) {
-            return ['resultado' => self::RESULT_MATCH];
+            return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         if ($this->semanticJudge !== null) {
@@ -515,13 +504,13 @@ class DocumentPolicyEngine
                 $this->semanticCacheHits++;
             }
             if ($judgeResult['is_match']) {
-                return ['resultado' => self::RESULT_MATCH,        'detalle' => $judgeResult['reasoning']];
+                return ['resultado' => AuditFindingResult::MATCH->value,        'detalle' => $judgeResult['reasoning']];
             }
-            return [    'resultado' => self::RESULT_INCONCLUSIVE, 'detalle' => $judgeResult['reasoning']];
+            return ['resultado'     => AuditFindingResult::INCONCLUSIVE->value, 'detalle' => $judgeResult['reasoning']];
         }
 
         return [
-            'resultado' => self::RESULT_INCONCLUSIVE,
+            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'detalle'   => sprintf(
                 'Similitud %.2f por debajo del umbral %.2f para comparación semántica.',
                 $score,
@@ -545,7 +534,7 @@ class DocumentPolicyEngine
      */
     private function evaluateBusinessField(string $field, string $fdvValue, string $docValue): array
     {
-        if (!AuditComparisonType::isQuantityField($field)) {
+        if (!AuditFieldValueType::fromFieldName($field)->isQuantitySummable()) {
             return $this->evaluateExactField($field, $fdvValue, $docValue);
         }
 
@@ -554,17 +543,17 @@ class DocumentPolicyEngine
 
         if ($fdvNumber === null || $docNumber === null) {
             return [
-                'resultado' => self::RESULT_INCONCLUSIVE,
+                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
                 'detalle'   => 'Valores no numéricos en campo de negocio.',
             ];
         }
 
         if ($docNumber <= $fdvNumber) {
-            return ['resultado' => self::RESULT_MATCH];
+            return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         return [
-            'resultado' => self::RESULT_MISMATCH,
+            'resultado' => AuditFindingResult::MISMATCH->value,
             'detalle'   => sprintf('Cantidad en documento (%.2f) excede FDV (%.2f).', $docNumber, $fdvNumber),
         ];
     }
@@ -615,7 +604,7 @@ class DocumentPolicyEngine
             if ($documentQuality !== 'legible') {
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $displayField, $severity,
-                    'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
+                    'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
                     'La calidad documental no permite concluir la validación visual.',
                     $rol
                 );
@@ -626,7 +615,7 @@ class DocumentPolicyEngine
             if (!is_array($foundResult)) {
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $displayField, $severity,
-                    'NO_EVALUADO', self::RESULT_INCONCLUSIVE,
+                    'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
                     'Check visual esperado no fue evaluado por el modelo.',
                     $rol
                 );
@@ -637,8 +626,8 @@ class DocumentPolicyEngine
             $findings[] = $this->buildVisualFinding(
                 $documentType, $displayField, $severity,
                 $isPresent ? 'PRESENTE' : 'AUSENTE',
-                $isPresent ? self::RESULT_MATCH : self::RESULT_MISMATCH,
-                $this->normalizeNullableString($foundResult['detalle'] ?? null),
+                $isPresent ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
+                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null),
                 $rol
             );
         }
@@ -682,10 +671,10 @@ class DocumentPolicyEngine
         $observations = [];
 
         foreach ($findings as $finding) {
-            $result = (string) ($finding['resultado'] ?? '');
-            if (in_array($result, [self::RESULT_MISMATCH, self::RESULT_NOT_FOUND, self::RESULT_INCONCLUSIVE], true)) {
+            $resultCase = AuditFindingResult::tryFromString((string) ($finding['resultado'] ?? ''));
+            if ($resultCase !== null && $resultCase->isFailure()) {
                 $approved = false;
-                $detail   = $this->normalizeNullableString($finding['detalle'] ?? null);
+                $detail   = AuditFindingRules::normalizeNullableString($finding['detalle'] ?? null);
                 if ($detail !== null) {
                     $observations[] = $detail;
                 }
@@ -716,16 +705,29 @@ class DocumentPolicyEngine
 
     private function normalizeForComparison(string $field, string $value): string
     {
-        if (AuditComparisonType::isDateField($field)) {
-            return $this->normalizeDateForComparison($value) ?? $this->normalizeText($value);
-        }
+        return match (AuditFieldValueType::fromFieldName($field)) {
+            AuditFieldValueType::IDENTITY_DOC_TYPE => $this->normalizeIdentityDocumentTypeForComparison($value),
+            AuditFieldValueType::DATE => $this->normalizeDateForComparison($value) ?? $this->normalizeText($value),
+            AuditFieldValueType::QUANTITY,
+            AuditFieldValueType::MONEY => $this->normalizeNumberForComparison($value),
+            default => $this->normalizeText($value),
+        };
+    }
 
-        if (AuditComparisonType::isNumberField($field)) {
-            $number = $this->parseNumber($value);
-            return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
-        }
+    private function normalizeNumberForComparison(string $value): string
+    {
+        $number = $this->parseNumber($value);
+        return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
+    }
 
-        return $this->normalizeText($value);
+    private function normalizeIdentityDocumentTypeForComparison(string $value): string
+    {
+        $normalized = AuditFindingRules::normalizeToken($value);
+
+        return match ($normalized) {
+            'CC', 'CEDULACIUDADANIA', 'CEDULADECIUDADANIA' => 'CC',
+            default => $normalized,
+        };
     }
 
     private function normalizeDateForComparison(string $value): ?string
@@ -881,15 +883,7 @@ class DocumentPolicyEngine
         return $formatted === '' ? '0' : $formatted;
     }
 
-    private function normalizeNullableString(mixed $value): ?string
-    {
-        if (!is_string($value)) {
-            return null;
-        }
 
-        $trimmed = trim($value);
-        return $trimmed === '' ? null : $trimmed;
-    }
 
     private function stripAccents(string $value): string
     {

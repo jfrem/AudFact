@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\GeminiConfig;
 use Core\Env;
@@ -13,11 +14,6 @@ use RuntimeException;
 
 final class DocumentExtractionWorker extends AuditEventConsumer
 {
-    private const DOCUMENT_QUALITY_ENUM = [
-        'legible',
-        'parcialmente_legible',
-        'ilegible',
-    ];
 
     private const DEFAULT_SYSTEM_PROMPT = <<<TEXT
         Eres un extractor documental determinístico.
@@ -707,12 +703,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             throw new RuntimeException('Gemini retornó extraction payload sin document_quality');
         }
 
-        $normalized = trim($documentQuality);
-        if (!in_array($normalized, self::DOCUMENT_QUALITY_ENUM, true)) {
-            throw new RuntimeException("Gemini retornó document_quality inválido: {$normalized}");
-        }
-
-        return $normalized;
+        return DocumentQuality::fromString(trim($documentQuality))->value;
     }
 
     /**

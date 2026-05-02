@@ -393,6 +393,7 @@ Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
 ### Comportamiento general
 
 - **Idioma**: toda comunicación en Español (Latinoamérica)
+- **Contexto de negocio obligatorio**: leer [`BUSINESS.md`](./BUSINESS.md) ANTES de cualquier implementación que involucre reglas de negocio, validaciones, pipeline de auditoría o lógica de dominio. Este documento explica el dominio de dispensación farmacéutica, la cadena POS/MIPRES, y las reglas que gobiernan cada decisión técnica.
 - **Documentación primero**: OBLIGATORIO revisar planes (`plans/api-endpoints.md`, `plans/architecture.md`, etc.) ANTES de intentar adivinar URLs, comandos o la estructura del ruteo.
 - **Verificar en código**: responder con alta confianza; no adivinar comportamientos
 - **Skill-first**: antes de analizar, responder o modificar, detectar y cargar la skill aplicable desde `.agent/skills/CATALOG.md`
@@ -482,6 +483,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 | Skills (`SKILL.md`) | `CATALOG.md` |
 | Docker config | `README.md` (instrucciones de setup) |
 | `AGENTS.md` | `CLAUDE.md` (mantener en sync) |
+| Reglas de negocio / dominio | `BUSINESS.md` |
 | Cualquier implementación | `CHANGELOG.md` (ver protocolo abajo) |
 
 ---

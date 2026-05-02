@@ -145,6 +145,42 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertFalse($result['document_decision']['approved']);
     }
 
+    public function testEvaluateMatchesPatientDocumentTypeAliasForCedulaCiudadania(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('TipoDocumentoPaciente')],
+                ['header' => ['TipoDocumentoPaciente' => 'CC'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['TipoDocumentoPaciente' => 'Cédula ciudadanía'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testEvaluateKeepsDifferentPatientDocumentTypesAsMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('TipoDocumentoPaciente')],
+                ['header' => ['TipoDocumentoPaciente' => 'CC'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['TipoDocumentoPaciente' => 'CE'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('VALOR_DISTINTO', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertFalse($result['document_decision']['approved']);
+    }
+
     public function testEvaluateMarksFormulaDiagnosticAsInconclusiveWhenMissing(): void
     {
         $engine = new DocumentPolicyEngine();

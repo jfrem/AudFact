@@ -1,6 +1,7 @@
 # Glosario de Dominio — AudFact
 
 > Términos del negocio usados en el código y la base de datos. Referencia para que cualquier agente entienda el contexto del proyecto.
+> **Contexto completo de negocio**: ver [`BUSINESS.md`](../BUSINESS.md) en la raíz del repositorio para entender el dominio, la cadena de dispensación, las reglas de auditoría y el modelo POS/MIPRES.
 
 ## Entidades principales
 

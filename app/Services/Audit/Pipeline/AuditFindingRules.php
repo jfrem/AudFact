@@ -4,27 +4,31 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditSeverity;
 
 final class AuditFindingRules
 {
     public const FIELD_DELIVERY_VALIDITY = 'VigenciaEntrega';
 
-    private const RESULT_MATCH        = 'COINCIDE';
-    private const RESULT_SKIPPED      = 'OMITIDO';
-    private const RESULT_INCONCLUSIVE = 'NO_CONCLUYENTE';
-
-    private const FAILURE_RESULTS     = ['VALOR_DISTINTO', 'NO_ENCONTRADO', 'NO_CONCLUYENTE'];
-    private const DISCREPANCY_RESULTS = ['VALOR_DISTINTO', 'NO_ENCONTRADO'];
-
+    /**
+     * Indica si el resultado representa un fallo auditable.
+     * Delega a AuditFindingResult para evitar listas hardcoded.
+     */
     public static function isFailureResult(string $result): bool
     {
-        return in_array($result, self::FAILURE_RESULTS, true);
+        $case = AuditFindingResult::tryFromString($result);
+        return $case !== null && $case->isFailure();
     }
 
+    /**
+     * Indica si el resultado representa una discrepancia directa de datos.
+     * Delega a AuditFindingResult para evitar listas hardcoded.
+     */
     public static function isDiscrepancyResult(string $result): bool
     {
-        return in_array($result, self::DISCREPANCY_RESULTS, true);
+        $case = AuditFindingResult::tryFromString($result);
+        return $case !== null && $case->isDiscrepancy();
     }
 
     public static function isCalculatedVisualCheck(string $field): bool
@@ -123,36 +127,37 @@ final class AuditFindingRules
     public static function summarizeMetrics(array $findings): array
     {
         $metrics = [
-            'total_campos' => 0,
-            'coincidencias' => 0,
-            'discrepancias' => 0,
-            'omitidos' => 0,
+            'total_campos'   => 0,
+            'coincidencias'  => 0,
+            'discrepancias'  => 0,
+            'omitidos'       => 0,
             'no_concluyentes' => 0,
-            'risk_score' => 0,
+            'risk_score'     => 0,
         ];
 
         foreach ($findings as $finding) {
             $metrics['total_campos']++;
-            $result = (string) ($finding['resultado'] ?? '');
-            $severity = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
+            $rawResult = (string) ($finding['resultado'] ?? '');
+            $severity  = (string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value);
+            $result    = AuditFindingResult::tryFromString($rawResult);
 
-            if ($result === self::RESULT_MATCH) {
+            if ($result === AuditFindingResult::MATCH) {
                 $metrics['coincidencias']++;
                 continue;
             }
 
-            if ($result === self::RESULT_SKIPPED) {
+            if ($result === AuditFindingResult::SKIPPED) {
                 $metrics['omitidos']++;
                 continue;
             }
 
-            if ($result === self::RESULT_INCONCLUSIVE) {
+            if ($result === AuditFindingResult::INCONCLUSIVE) {
                 $metrics['no_concluyentes']++;
                 $metrics['risk_score'] += self::riskWeight($severity);
                 continue;
             }
 
-            if (self::isDiscrepancyResult($result)) {
+            if ($result !== null && $result->isDiscrepancy()) {
                 $metrics['discrepancias']++;
                 $metrics['risk_score'] += self::riskWeight($severity);
             }
@@ -173,6 +178,38 @@ final class AuditFindingRules
             );
     }
 
+    /**
+     * Normaliza un valor a string no-vacío, o null si está vacío.
+     * Helper compartido para DocumentPolicyEngine y DocumentNormalizer.
+     */
+    public static function normalizeNullableString(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    /**
+     * Normaliza un token de texto: elimina acentos, pasa a mayúsculas y
+     * suprime caracteres no alfanuméricos.
+     *
+     * Helper compartido para DocumentPolicyEngine y DocumentNormalizer.
+     */
+    public static function normalizeToken(string $value): string
+    {
+        $ascii = strtr(trim($value), [
+            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
+            'Ü' => 'U', 'Ñ' => 'N',
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'ü' => 'u', 'ñ' => 'n',
+        ]);
+
+        return (string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($ascii));
+    }
+
     private static function isPresent(mixed $value): bool
     {
         if ($value === null) {
@@ -186,3 +223,4 @@ final class AuditFindingRules
         return $value !== '';
     }
 }
+

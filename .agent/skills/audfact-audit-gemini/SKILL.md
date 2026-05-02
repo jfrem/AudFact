@@ -29,7 +29,8 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, **agrega a `auditResultData` + decisiones documentales**, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
 | `app/Services/Audit/Pipeline/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
-| `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) |
+| `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
+| `app/Services/Audit/AuditFieldValueType.php` | Enum `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE` + `fromFieldName()` — fuente de verdad única para tipo de dato del campo; reemplaza heurísticas dispersas (`str_starts_with('Fecha')`, etc.) |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
@@ -101,7 +102,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
    - `S` → `SEMANTIC` (umbral 0.82, fallback `SemanticMatchJudge`)
    - `B` → `BUSINESS` (sumatoria de items + comparación numérica)
    - `V` → `VISUAL` (vive en `visualChecks[]` del `audit-config`; puede ser booleano `presente`/`ausente` o evidencia estructurada opcional `valor`/`unidad`/`fecha_base`)
-   Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
+   **Tipo de dato del campo** (normalización y schema Gemini) lo determina `AuditFieldValueType::fromFieldName()`: `DATE` (Fecha*), `QUANTITY` (Cantidad* — sumable), `MONEY` (Vlr* — no sumable), `IDENTITY_DOC_TYPE` (TipoDocumento*), `TEXT` (default). Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
 3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
 4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
 5. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo según `rol` del `audit-config` (`AUTORITATIVO` audita, `INFORMATIVO` se omite).
@@ -223,6 +224,7 @@ Después de cualquier cambio en el pipeline event-driven:
 2. Confirmar que streams y consumer groups siguen alineados con `AuditEventPublisher` y `AuditEventConsumer`.
 3. Ejecutar `audfact-docs-sync` como segunda capa.
 
+
 > [!CAUTION]
 > Dejar la skill desactualizada genera drift que confunde a agentes futuros.
 
@@ -231,4 +233,5 @@ Después de cualquier cambio en el pipeline event-driven:
 - Sprint checkpoints: `plans/checkpoints/`
 - Skill asociada para modelos SQL: `audfact-sqlsrv-models`
 - Mapeo TipoCampo → tipo de comparación: `app/Services/Audit/AuditComparisonType.php`
+- Mapeo fieldName → tipo de dato: `app/Services/Audit/AuditFieldValueType.php`
 - Casos de validación E2E: `plans/changelog.md` (entradas DOCS-SYNC y AUDIT-014/015)
