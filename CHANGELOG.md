@@ -1,3 +1,27 @@
+## [2026-05-02] — AUDIT-016 fase 2b: PolicyEngine Boundary v1→Escalar
+
+### refactor
+- **`DocumentPolicyEngine` — Boundary centralizado `unwrapV1()`**:
+  Refactor arquitectónico: la conversión de shapes v1 de evidencia a escalares
+  ahora ocurre en un único punto (`resolveDocumentValue()` via `unwrapV1()`).
+  - `unwrapV1()`: extrae `valor` (escalar) + `meta` (confianza, estadoExtraccion,
+    evidencia, ubicacion, valores) de un campo que puede ser legacy o v1
+  - `resolveDocumentValue()`: retorna `[?string, bool, array]` — valor, ambiguous, evidenceMeta
+  - `buildDataFinding()`: recibe `$evidenceMeta` y lo propaga como `_evidencia`
+    en el hallazgo canónico para trazabilidad forense
+  - `isPresent()` y `scalarToString()` restaurados a contrato original (solo escalares)
+  - `resolveFieldScalar()` eliminado (código muerto, reemplazado por `unwrapV1`)
+  - Archivos: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`
+
+### E2E
+- Golden Case `D65260408592`: 36/39 COINCIDE, 0 'Array', 0 errores
+  - `CodigoDiagnostico` COINCIDE (S202 ⊆ {S202, S923, S723, S325, S399})
+  - `NombrePaciente` COINCIDE (token-sort: TAPIAS SOCHA ROBERTO vs ROBERTO TAPIAS SOCHA)
+  - `VigenciaEntrega` COINCIDE (fecha dentro de vigencia calculada)
+  - `NombreArticulo` COINCIDE (semántico: ACETAMINOFEN 500MG C*100 → equivalencia clínica)
+
+---
+
 ## [2026-05-02] — AUDIT-016 fase 2: Workers v1 — Contratos de Evidencia Upstream
 
 ### feat

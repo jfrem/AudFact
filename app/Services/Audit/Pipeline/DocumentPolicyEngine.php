@@ -232,7 +232,7 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            [$docValue, $ambiguous] = $this->resolveDocumentValue($canonicalField, $fields, $items);
+            [$docValue, $ambiguous, $evidenceMeta] = $this->resolveDocumentValue($canonicalField, $fields, $items);
             $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
 
             if ($fdvValue === null && $docValue === null && !$ambiguous) {
@@ -252,7 +252,7 @@ class DocumentPolicyEngine
                 $tipoCampo
             );
 
-            $findings[] = $this->buildDataFinding($canonicalField, $fieldConfig, $comparison, $documentType, $fdvValue, $docValue, $internalType, $rol);
+            $findings[] = $this->buildDataFinding($canonicalField, $fieldConfig, $comparison, $documentType, $fdvValue, $docValue, $internalType, $rol, $evidenceMeta);
         }
 
         return $findings;
@@ -266,7 +266,8 @@ class DocumentPolicyEngine
         ?string $fdvValue,
         ?string $docValue,
         string $internalType,
-        string $rol = 'AUTORITATIVO'
+        string $rol = 'AUTORITATIVO',
+        array $evidenceMeta = []
     ): array {
         $valueType = AuditFieldValueType::fromFieldName($canonicalField);
 
@@ -293,51 +294,99 @@ class DocumentPolicyEngine
             $finding['valoresDocumento'] = $valoresDocumento;
         }
 
+        // Propagar metadata de evidencia v1 al hallazgo canónico
+        if ($evidenceMeta !== []) {
+            $finding['_evidencia'] = array_filter($evidenceMeta, fn($v) => $v !== null);
+        }
+
         return $finding;
     }
 
     /**
+     * Boundary de conversión v1→escalar.
+     *
+     * Este es el ÚNICO punto donde shapes v1 de evidencia se convierten a escalares.
+     * Todo lo que está downstream (evaluateField, evaluateExactField, etc.) recibe solo strings.
+     * La metadata de evidencia (confianza, estadoExtraccion, evidencia, ubicacion) se extrae
+     * aquí y se propaga al hallazgo canónico por separado.
+     *
      * @param  array<string,mixed> $fields
      * @param  array<int,array<string,mixed>> $items
-     * @return array{0:?string,1:bool}
+     * @return array{0:?string, 1:bool, 2:array<string,mixed>}  [valor, ambiguous, evidenceMeta]
      */
     private function resolveDocumentValue(string $field, array $fields, array $items): array
     {
         $valueType = AuditFieldValueType::fromFieldName($field);
+        $evidenceMeta = [];
 
         // Intentar resolver desde items[] primero (el dato dice dónde está)
         $itemValues = [];
         foreach ($items as $row) {
-            if (!array_key_exists($field, $row) || !$this->isPresent($row[$field])) {
+            if (!array_key_exists($field, $row)) {
                 continue;
             }
-            $itemValues[] = $this->scalarToString($row[$field]);
+            $unwrapped = $this->unwrapV1($row[$field]);
+            if (!$this->isPresent($unwrapped['valor'])) {
+                continue;
+            }
+            $itemValues[] = $this->scalarToString($unwrapped['valor']);
+            if ($evidenceMeta === []) {
+                $evidenceMeta = $unwrapped['meta'];
+            }
         }
 
         if ($itemValues !== []) {
             if ($valueType->isQuantitySummable()) {
                 $total = $this->sumNumericValues($itemValues);
                 if ($total !== null) {
-                    return [$this->formatNumber($total), false];
+                    return [$this->formatNumber($total), false, $evidenceMeta];
                 }
             }
 
             $unique = array_values(array_unique($itemValues));
             if (count($unique) === 1) {
-                return [$unique[0], false];
+                return [$unique[0], false, $evidenceMeta];
             }
 
             // CAT-1 AUDIT-016: multi-item con valores distintos NO se descarta silenciosamente.
             // ambiguous=true → evaluateField() emite NO_CONCLUYENTE con detalle explicativo.
-            return [null, true];
+            return [null, true, $evidenceMeta];
         }
 
         // Fallback: resolver desde fields{}
-        if (array_key_exists($field, $fields) && $this->isPresent($fields[$field])) {
-            return [$this->scalarToString($fields[$field]), false];
+        if (array_key_exists($field, $fields)) {
+            $unwrapped = $this->unwrapV1($fields[$field]);
+            if ($this->isPresent($unwrapped['valor'])) {
+                return [$this->scalarToString($unwrapped['valor']), false, $unwrapped['meta']];
+            }
         }
 
-        return [null, false];
+        return [null, false, $evidenceMeta];
+    }
+
+    /**
+     * Extrae escalar + metadata de un campo que puede ser:
+     * - Legacy: string/int/null/float
+     * - v1: array con 'valor' y propiedades de evidencia
+     *
+     * @return array{valor:mixed, meta:array<string,mixed>}
+     */
+    private function unwrapV1(mixed $raw): array
+    {
+        if (is_array($raw) && array_key_exists('valor', $raw)) {
+            return [
+                'valor' => $raw['valor'],
+                'meta'  => [
+                    'confianza'        => $raw['confianza'] ?? null,
+                    'estadoExtraccion' => $raw['estadoExtraccion'] ?? null,
+                    'evidencia'        => $raw['evidencia'] ?? null,
+                    'ubicacion'        => $raw['ubicacion'] ?? null,
+                    'valores'          => $raw['valores'] ?? null,
+                ],
+            ];
+        }
+
+        return ['valor' => $raw, 'meta' => []];
     }
 
     /**
@@ -551,32 +600,6 @@ class DocumentPolicyEngine
             }
         }
         return array_values(array_unique($tokens));
-    }
-
-    /**
-     * Adaptador de compatibilidad legacy/v1 (AUDIT-016).
-     *
-     * fields_normalized puede llegar como:
-     *   - Legacy: { "Campo": "valor_string" }
-     *   - v1:     { "Campo": { "valor": "...", "valores": [...] } }
-     *
-     * Siempre retorna un string escalar o null. Prohibido acceder a
-     * $fields[$campo] directamente si el payload puede ser v1.
-     */
-    private function resolveFieldScalar(mixed $rawField): ?string
-    {
-        if ($rawField === null) {
-            return null;
-        }
-        if (is_string($rawField)) {
-            $trimmed = trim($rawField);
-            return ($trimmed !== '' && strtolower($trimmed) !== 'null') ? $trimmed : null;
-        }
-        if (is_array($rawField) && array_key_exists('valor', $rawField)) {
-            $v = $rawField['valor'];
-            return $v !== null ? trim((string) $v) : null;
-        }
-        return null;
     }
 
     /**

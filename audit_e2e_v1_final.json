@@ -1,0 +1,1116 @@
+﻿{
+    "success": true,
+    "message": "Resultados de auditor├¡as",
+    "data": {
+        "items": [
+            {
+                "FacSec": "DIS26-4-30-10-16-29-5371679A3FD3A92D02606AC59094F042D5E",
+                "FacNro": "D65260408592",
+                "EstAud": "1",
+                "EstadoDetallado": "manual_review",
+                "RequiereRevisionHumana": "1",
+                "Severidad": "alta",
+                "Hallazgos": "[{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"CC\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"4166963\",\"tipo_auditoria\":\"exact\"},{\"valueType\":\"code\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"valorFuenteVerdad\":\"S202\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaFormula\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"2026-04-22\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"IPS\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.\",\"valorFuenteVerdad\":\"Gencell Pharma S.A.S\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Medico\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').\",\"valorFuenteVerdad\":\"JONATHAN STIVEN ARANDA RODRIGUEZ\",\"tipo_auditoria\":\"semantic\"},{\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"detalle\":\"Firma manuscrita de Jonathan Aranda R. visible en la p├ígina 2.\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"FORMULA MEDICA\",\"campo\":\"FirmaPrescriptor\",\"resultado\":\"COINCIDE\",\"valorFuenteVerdad\":\"OBLIGATORIO\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroAutorizacion\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"49262612\",\"detalle\":\"Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"CC\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"4166963\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaAutorizacion\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"2026-04-24\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"S202\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Cliente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"POSITIVA COMPA├æIA DE SEGUROS S.A\",\"detalle\":\"Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NombreArticulo\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"ACETAMINOFEN 500MG C*100 TABLETA\",\"detalle\":\"El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"quantity\",\"campo\":\"CantidadEntregada\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"60\",\"detalle\":\"Valores no num├®ricos en campo de negocio.\",\"tipo_auditoria\":\"business\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"quantity\",\"campo\":\"CantidadPrescrita\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"60\",\"detalle\":\"Valores no num├®ricos en campo de negocio.\",\"tipo_auditoria\":\"business\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NITCliente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"860011153\",\"detalle\":\"Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"CC\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"4166963\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroFactura\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"D65260408592\",\"detalle\":\"Registro de Dispensaci├│n 'D65260408592' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"S202\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaEntrega\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-30\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-30' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaFormula\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-22\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaAutorizacion\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-24\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroAutorizacion\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"49262612\",\"detalle\":\"Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoArticulo\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"ME00428\",\"detalle\":\"C├│digo(s) FDV 'ME00428' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Lote\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"F02113A\",\"detalle\":\"Registro de Dispensaci├│n 'F02113A' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaVencimiento\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2028-09-30\",\"detalle\":\"Registro de Dispensaci├│n '2028-09-30' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"OMITIDO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Mipres\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":null,\"detalle\":\"Sin valor auditable en registro de dispensaci├│n.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"money\",\"campo\":\"VlrCobrado\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\".00\",\"detalle\":\"Registro de Dispensaci├│n '.00' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Cliente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"POSITIVA COMPA├æIA DE SEGUROS S.A\",\"detalle\":\"Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"IPS\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"Gencell Pharma S.A.S\",\"detalle\":\"El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Medico\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"JONATHAN STIVEN ARANDA RODRIGUEZ\",\"detalle\":\"Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NombreArticulo\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"ACETAMINOFEN 500MG C*100 TABLETA\",\"detalle\":\"El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Laboratorio\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"GENFAR\",\"detalle\":\"'GENFAR' es una marca\\\/laboratorio y 'Array' no corresponde a un producto farmac├®utico identificable. No existe informaci├│n de mol├®cula, dosis o forma farmac├®utica para realizar una comparaci├│n.\",\"tipo_auditoria\":\"semantic\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"DISPENSA\",\"campo\":\"FirmaActaEntrega\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma manuscrita visible en el recuadro de recepci├│n del paciente.\"},{\"campo\":\"VigenciaEntrega\",\"valorFuenteVerdad\":\"Vigencia calculable requerida\",\"valorDocumento\":null,\"resultado\":\"NO_CONCLUYENTE\",\"severidad\":\"alta\",\"documento\":\"AUTORIZACION\",\"detalle\":\"FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.\",\"tipo_auditoria\":\"visual\",\"rol\":\"AUTORITATIVO\"}]",
+                "DetalleError": "Auditoria completada con incertidumbre documental: 15 campos no concluyentes requieren revision humana.",
+                "DocumentosProcesados": "3",
+                "DocumentoFallido": "FORMULA MEDICA",
+                "DuracionProcesamientoMs": "20674",
+                "FacNitSec": "2426",
+                "FechaCreacion": "2026-05-02 17:38:20.363",
+                "FechaActualizacion": "2026-05-02 17:38:20.363",
+                "HallazgosRaw": "{\"items\":[{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"CC\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"4166963\",\"tipo_auditoria\":\"exact\"},{\"valueType\":\"code\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"valorFuenteVerdad\":\"S202\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaFormula\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.\",\"valorFuenteVerdad\":\"2026-04-22\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"IPS\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.\",\"valorFuenteVerdad\":\"Gencell Pharma S.A.S\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Medico\",\"documento\":\"FORMULA MEDICA\",\"detalle\":\"Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').\",\"valorFuenteVerdad\":\"JONATHAN STIVEN ARANDA RODRIGUEZ\",\"tipo_auditoria\":\"semantic\"},{\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"detalle\":\"Firma manuscrita de Jonathan Aranda R. visible en la p├ígina 2.\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"FORMULA MEDICA\",\"campo\":\"FirmaPrescriptor\",\"resultado\":\"COINCIDE\",\"valorFuenteVerdad\":\"OBLIGATORIO\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroAutorizacion\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"49262612\",\"detalle\":\"Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"CC\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"4166963\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaAutorizacion\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"2026-04-24\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"S202\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Cliente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"POSITIVA COMPA├æIA DE SEGUROS S.A\",\"detalle\":\"Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NombreArticulo\",\"documento\":\"AUTORIZACION\",\"valorFuenteVerdad\":\"ACETAMINOFEN 500MG C*100 TABLETA\",\"detalle\":\"El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"quantity\",\"campo\":\"CantidadEntregada\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"60\",\"detalle\":\"Valores no num├®ricos en campo de negocio.\",\"tipo_auditoria\":\"business\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"quantity\",\"campo\":\"CantidadPrescrita\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"60\",\"detalle\":\"Valores no num├®ricos en campo de negocio.\",\"tipo_auditoria\":\"business\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NITCliente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"860011153\",\"detalle\":\"Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"identity_doc_type\",\"campo\":\"TipoDocumentoPaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"CC\",\"detalle\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"DocumentoPaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"4166963\",\"detalle\":\"Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroFactura\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"D65260408592\",\"detalle\":\"Registro de Dispensaci├│n 'D65260408592' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoDiagnostico\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"S202\",\"detalle\":\"C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaEntrega\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-30\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-30' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaFormula\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-22\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaAutorizacion\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2026-04-24\",\"detalle\":\"Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NumeroAutorizacion\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"49262612\",\"detalle\":\"Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"valoresDocumento\":[\"ARRAY\"],\"rol\":\"AUTORITATIVO\",\"valueType\":\"code\",\"campo\":\"CodigoArticulo\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"ME00428\",\"detalle\":\"C├│digo(s) FDV 'ME00428' no encontrado(s) en el set documental 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Lote\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"F02113A\",\"detalle\":\"Registro de Dispensaci├│n 'F02113A' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"date\",\"campo\":\"FechaVencimiento\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"2028-09-30\",\"detalle\":\"Registro de Dispensaci├│n '2028-09-30' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"OMITIDO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Mipres\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":null,\"detalle\":\"Sin valor auditable en registro de dispensaci├│n.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"VALOR_DISTINTO\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"money\",\"campo\":\"VlrCobrado\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\".00\",\"detalle\":\"Registro de Dispensaci├│n '.00' difiere de Documento 'Array'.\",\"tipo_auditoria\":\"exact\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Cliente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"POSITIVA COMPA├æIA DE SEGUROS S.A\",\"detalle\":\"Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"IPS\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"Gencell Pharma S.A.S\",\"detalle\":\"El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"NombrePaciente\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"TAPIAS SOCHA ROBERTO\",\"detalle\":\"Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"person_name\",\"campo\":\"Medico\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"JONATHAN STIVEN ARANDA RODRIGUEZ\",\"detalle\":\"Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"NombreArticulo\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"ACETAMINOFEN 500MG C*100 TABLETA\",\"detalle\":\"El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.\",\"tipo_auditoria\":\"semantic\"},{\"severidad\":\"alta\",\"valorDocumento\":\"Array\",\"resultado\":\"NO_CONCLUYENTE\",\"rol\":\"AUTORITATIVO\",\"valueType\":\"text\",\"campo\":\"Laboratorio\",\"documento\":\"DISPENSA\",\"valorFuenteVerdad\":\"GENFAR\",\"detalle\":\"'GENFAR' es una marca\/laboratorio y 'Array' no corresponde a un producto farmac├®utico identificable. No existe informaci├│n de mol├®cula, dosis o forma farmac├®utica para realizar una comparaci├│n.\",\"tipo_auditoria\":\"semantic\"},{\"valorFuenteVerdad\":\"OBLIGATORIO\",\"rol\":\"AUTORITATIVO\",\"severidad\":\"alta\",\"valorDocumento\":\"PRESENTE\",\"documento\":\"DISPENSA\",\"campo\":\"FirmaActaEntrega\",\"resultado\":\"COINCIDE\",\"detalle\":\"Firma manuscrita visible en el recuadro de recepci├│n del paciente.\"},{\"campo\":\"VigenciaEntrega\",\"valorFuenteVerdad\":\"Vigencia calculable requerida\",\"valorDocumento\":null,\"resultado\":\"NO_CONCLUYENTE\",\"severidad\":\"alta\",\"documento\":\"AUTORIZACION\",\"detalle\":\"FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.\",\"tipo_auditoria\":\"visual\",\"rol\":\"AUTORITATIVO\"}],\"metrics\":{\"total_campos\":40,\"coincidencias\":2,\"discrepancias\":22,\"omitidos\":1,\"no_concluyentes\":15,\"risk_score\":370},\"affected_documents\":[{\"documentName\":\"FORMULA MEDICA\",\"approved\":false,\"observation\":\"Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'. | Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'. | C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.\"},{\"documentName\":\"AUTORIZACION\",\"approved\":false,\"observation\":\"Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'. | Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'. | Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'. | FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.\"},{\"documentName\":\"DISPENSA\",\"approved\":false,\"observation\":\"Valores no num├®ricos en campo de negocio. | Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'. | Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.\"}],\"_meta\":{\"phase_timings\":{\"docs_total\":3,\"cache_hit_rate\":0,\"download\":{\"count\":3,\"avg_ms\":5289,\"min_ms\":849,\"max_ms\":7640,\"p95_ms\":7640},\"gemini\":{\"count\":3,\"avg_ms\":8243,\"min_ms\":5649,\"max_ms\":11483,\"p95_ms\":11483},\"gemini_extraction\":{\"count\":3,\"cache_hits\":0,\"avg_ms\":8243,\"min_ms\":5649,\"max_ms\":11483,\"p95_ms\":11483,\"prompt_tokens\":21002,\"output_tokens\":3451,\"thoughts_tokens\":0,\"total_tokens\":24453,\"finish_reasons\":{\"STOP\":3}},\"gemini_semantic\":{\"count\":0},\"gemini_total\":{\"count\":3,\"cache_hits\":0,\"avg_ms\":8243,\"min_ms\":5649,\"max_ms\":11483,\"p95_ms\":11483,\"prompt_tokens\":21002,\"output_tokens\":3451,\"thoughts_tokens\":0,\"total_tokens\":24453,\"finish_reasons\":{\"STOP\":3}},\"semantic_calls\":0,\"semantic_cache_hits\":12,\"extraction\":{\"count\":3,\"avg_ms\":13696,\"min_ms\":6659,\"max_ms\":19032,\"p95_ms\":19032},\"normalization\":{\"count\":3,\"avg_ms\":0,\"min_ms\":0,\"max_ms\":0,\"p95_ms\":0},\"policy\":{\"count\":3,\"avg_ms\":47,\"min_ms\":29,\"max_ms\":63,\"p95_ms\":63}},\"total_duration_ms\":20674}}",
+                "HallazgosItems": [
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "CC",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "4166963",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "valueType": "code",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "valorFuenteVerdad": "S202",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaFormula",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "2026-04-22",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "IPS",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.",
+                        "valorFuenteVerdad": "Gencell Pharma S.A.S",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Medico",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').",
+                        "valorFuenteVerdad": "JONATHAN STIVEN ARANDA RODRIGUEZ",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "detalle": "Firma manuscrita de Jonathan Aranda R. visible en la p├ígina 2.",
+                        "valorDocumento": "PRESENTE",
+                        "documento": "FORMULA MEDICA",
+                        "campo": "FirmaPrescriptor",
+                        "resultado": "COINCIDE",
+                        "valorFuenteVerdad": "OBLIGATORIO"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroAutorizacion",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "49262612",
+                        "detalle": "Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "CC",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "4166963",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaAutorizacion",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "2026-04-24",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "S202",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Cliente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "POSITIVA COMPA├æIA DE SEGUROS S.A",
+                        "detalle": "Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NombreArticulo",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "ACETAMINOFEN 500MG C*100 TABLETA",
+                        "detalle": "El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "quantity",
+                        "campo": "CantidadEntregada",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "60",
+                        "detalle": "Valores no num├®ricos en campo de negocio.",
+                        "tipo_auditoria": "business"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "quantity",
+                        "campo": "CantidadPrescrita",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "60",
+                        "detalle": "Valores no num├®ricos en campo de negocio.",
+                        "tipo_auditoria": "business"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NITCliente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "860011153",
+                        "detalle": "Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "CC",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "4166963",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroFactura",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "D65260408592",
+                        "detalle": "Registro de Dispensaci├│n 'D65260408592' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "S202",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaEntrega",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-30",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-30' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaFormula",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-22",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaAutorizacion",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-24",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroAutorizacion",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "49262612",
+                        "detalle": "Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoArticulo",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "ME00428",
+                        "detalle": "C├│digo(s) FDV 'ME00428' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Lote",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "F02113A",
+                        "detalle": "Registro de Dispensaci├│n 'F02113A' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaVencimiento",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2028-09-30",
+                        "detalle": "Registro de Dispensaci├│n '2028-09-30' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "OMITIDO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Mipres",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": null,
+                        "detalle": "Sin valor auditable en registro de dispensaci├│n.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "money",
+                        "campo": "VlrCobrado",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": ".00",
+                        "detalle": "Registro de Dispensaci├│n '.00' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Cliente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "POSITIVA COMPA├æIA DE SEGUROS S.A",
+                        "detalle": "Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "IPS",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "Gencell Pharma S.A.S",
+                        "detalle": "El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Medico",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "JONATHAN STIVEN ARANDA RODRIGUEZ",
+                        "detalle": "Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NombreArticulo",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "ACETAMINOFEN 500MG C*100 TABLETA",
+                        "detalle": "El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Laboratorio",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "GENFAR",
+                        "detalle": "'GENFAR' es una marca\/laboratorio y 'Array' no corresponde a un producto farmac├®utico identificable. No existe informaci├│n de mol├®cula, dosis o forma farmac├®utica para realizar una comparaci├│n.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "valorFuenteVerdad": "OBLIGATORIO",
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "valorDocumento": "PRESENTE",
+                        "documento": "DISPENSA",
+                        "campo": "FirmaActaEntrega",
+                        "resultado": "COINCIDE",
+                        "detalle": "Firma manuscrita visible en el recuadro de recepci├│n del paciente."
+                    },
+                    {
+                        "campo": "VigenciaEntrega",
+                        "valorFuenteVerdad": "Vigencia calculable requerida",
+                        "valorDocumento": null,
+                        "resultado": "NO_CONCLUYENTE",
+                        "severidad": "alta",
+                        "documento": "AUTORIZACION",
+                        "detalle": "FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.",
+                        "tipo_auditoria": "visual",
+                        "rol": "AUTORITATIVO"
+                    }
+                ],
+                "CriticalFieldDecisions": [
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "CC",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "4166963",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "valueType": "code",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "valorFuenteVerdad": "S202",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaFormula",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.",
+                        "valorFuenteVerdad": "2026-04-22",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "IPS",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.",
+                        "valorFuenteVerdad": "Gencell Pharma S.A.S",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Medico",
+                        "documento": "FORMULA MEDICA",
+                        "detalle": "Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').",
+                        "valorFuenteVerdad": "JONATHAN STIVEN ARANDA RODRIGUEZ",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "detalle": "Firma manuscrita de Jonathan Aranda R. visible en la p├ígina 2.",
+                        "valorDocumento": "PRESENTE",
+                        "documento": "FORMULA MEDICA",
+                        "campo": "FirmaPrescriptor",
+                        "resultado": "COINCIDE",
+                        "valorFuenteVerdad": "OBLIGATORIO"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroAutorizacion",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "49262612",
+                        "detalle": "Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "CC",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "4166963",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaAutorizacion",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "2026-04-24",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "S202",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Cliente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "POSITIVA COMPA├æIA DE SEGUROS S.A",
+                        "detalle": "Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NombreArticulo",
+                        "documento": "AUTORIZACION",
+                        "valorFuenteVerdad": "ACETAMINOFEN 500MG C*100 TABLETA",
+                        "detalle": "El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "quantity",
+                        "campo": "CantidadEntregada",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "60",
+                        "detalle": "Valores no num├®ricos en campo de negocio.",
+                        "tipo_auditoria": "business"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "quantity",
+                        "campo": "CantidadPrescrita",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "60",
+                        "detalle": "Valores no num├®ricos en campo de negocio.",
+                        "tipo_auditoria": "business"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NITCliente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "860011153",
+                        "detalle": "Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "identity_doc_type",
+                        "campo": "TipoDocumentoPaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "CC",
+                        "detalle": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "DocumentoPaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "4166963",
+                        "detalle": "Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroFactura",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "D65260408592",
+                        "detalle": "Registro de Dispensaci├│n 'D65260408592' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoDiagnostico",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "S202",
+                        "detalle": "C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaEntrega",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-30",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-30' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaFormula",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-22",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-22' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaAutorizacion",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2026-04-24",
+                        "detalle": "Registro de Dispensaci├│n '2026-04-24' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NumeroAutorizacion",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "49262612",
+                        "detalle": "Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "valoresDocumento": [
+                            "ARRAY"
+                        ],
+                        "rol": "AUTORITATIVO",
+                        "valueType": "code",
+                        "campo": "CodigoArticulo",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "ME00428",
+                        "detalle": "C├│digo(s) FDV 'ME00428' no encontrado(s) en el set documental 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Lote",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "F02113A",
+                        "detalle": "Registro de Dispensaci├│n 'F02113A' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "date",
+                        "campo": "FechaVencimiento",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "2028-09-30",
+                        "detalle": "Registro de Dispensaci├│n '2028-09-30' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "OMITIDO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Mipres",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": null,
+                        "detalle": "Sin valor auditable en registro de dispensaci├│n.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "VALOR_DISTINTO",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "money",
+                        "campo": "VlrCobrado",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": ".00",
+                        "detalle": "Registro de Dispensaci├│n '.00' difiere de Documento 'Array'.",
+                        "tipo_auditoria": "exact"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Cliente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "POSITIVA COMPA├æIA DE SEGUROS S.A",
+                        "detalle": "Los t├®rminos no corresponden a productos farmac├®uticos. El producto esperado es una raz├│n social de una aseguradora y el entregado es un marcador de posici├│n t├®cnico (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "IPS",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "Gencell Pharma S.A.S",
+                        "detalle": "El producto esperado corresponde al nombre de un laboratorio (Gencell Pharma S.A.S) y el entregado es un t├®rmino gen├®rico o error de sistema ('Array'). No existe equivalencia cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "NombrePaciente",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "TAPIAS SOCHA ROBERTO",
+                        "detalle": "Los t├®rminos proporcionados no corresponden a productos farmac├®uticos. Uno es un nombre propio y el otro es un t├®rmino t├®cnico de datos (Array). No existe relaci├│n cl├¡nica ni comercial.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "person_name",
+                        "campo": "Medico",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "JONATHAN STIVEN ARANDA RODRIGUEZ",
+                        "detalle": "Los datos proporcionados no corresponden a productos farmac├®uticos; el esperado es un nombre de persona y el entregado es un t├®rmino t├®cnico o error de datos ('Array').",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "NombreArticulo",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "ACETAMINOFEN 500MG C*100 TABLETA",
+                        "detalle": "El producto entregado figura como 'Array', lo cual no corresponde a una descripci├│n de producto farmac├®utico v├ílida, impidiendo cualquier validaci├│n de equivalencia.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "severidad": "alta",
+                        "valorDocumento": "Array",
+                        "resultado": "NO_CONCLUYENTE",
+                        "rol": "AUTORITATIVO",
+                        "valueType": "text",
+                        "campo": "Laboratorio",
+                        "documento": "DISPENSA",
+                        "valorFuenteVerdad": "GENFAR",
+                        "detalle": "'GENFAR' es una marca\/laboratorio y 'Array' no corresponde a un producto farmac├®utico identificable. No existe informaci├│n de mol├®cula, dosis o forma farmac├®utica para realizar una comparaci├│n.",
+                        "tipo_auditoria": "semantic"
+                    },
+                    {
+                        "valorFuenteVerdad": "OBLIGATORIO",
+                        "rol": "AUTORITATIVO",
+                        "severidad": "alta",
+                        "valorDocumento": "PRESENTE",
+                        "documento": "DISPENSA",
+                        "campo": "FirmaActaEntrega",
+                        "resultado": "COINCIDE",
+                        "detalle": "Firma manuscrita visible en el recuadro de recepci├│n del paciente."
+                    },
+                    {
+                        "campo": "VigenciaEntrega",
+                        "valorFuenteVerdad": "Vigencia calculable requerida",
+                        "valorDocumento": null,
+                        "resultado": "NO_CONCLUYENTE",
+                        "severidad": "alta",
+                        "documento": "AUTORIZACION",
+                        "detalle": "FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.",
+                        "tipo_auditoria": "visual",
+                        "rol": "AUTORITATIVO"
+                    }
+                ],
+                "AffectedDocuments": [
+                    {
+                        "documentName": "FORMULA MEDICA",
+                        "approved": false,
+                        "observation": "Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'. | Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'. | C├│digo(s) FDV 'S202' no encontrado(s) en el set documental 'Array'."
+                    },
+                    {
+                        "documentName": "AUTORIZACION",
+                        "approved": false,
+                        "observation": "Registro de Dispensaci├│n '49262612' difiere de Documento 'Array'. | Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'. | Registro de Dispensaci├│n '4166963' difiere de Documento 'Array'. | FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia."
+                    },
+                    {
+                        "documentName": "DISPENSA",
+                        "approved": false,
+                        "observation": "Valores no num├®ricos en campo de negocio. | Registro de Dispensaci├│n '860011153' difiere de Documento 'Array'. | Registro de Dispensaci├│n 'CC' difiere de Documento 'Array'."
+                    }
+                ],
+                "_meta": {
+                    "source": "AudDispEst",
+                    "totalTimeMs": 20674,
+                    "documentsProcessed": 3,
+                    "createdAt": "2026-05-02 17:38:20.363",
+                    "updatedAt": "2026-05-02 17:38:20.363",
+                    "auditExecuted": true,
+                    "metrics": {
+                        "total_campos": 40,
+                        "coincidencias": 2,
+                        "discrepancias": 22,
+                        "omitidos": 1,
+                        "no_concluyentes": 15,
+                        "risk_score": 370
+                    },
+                    "phase_timings": {
+                        "docs_total": 3,
+                        "cache_hit_rate": 0,
+                        "download": {
+                            "count": 3,
+                            "avg_ms": 5289,
+                            "min_ms": 849,
+                            "max_ms": 7640,
+                            "p95_ms": 7640
+                        },
+                        "gemini": {
+                            "count": 3,
+                            "avg_ms": 8243,
+                            "min_ms": 5649,
+                            "max_ms": 11483,
+                            "p95_ms": 11483
+                        },
+                        "gemini_extraction": {
+                            "count": 3,
+                            "cache_hits": 0,
+                            "avg_ms": 8243,
+                            "min_ms": 5649,
+                            "max_ms": 11483,
+                            "p95_ms": 11483,
+                            "prompt_tokens": 21002,
+                            "output_tokens": 3451,
+                            "thoughts_tokens": 0,
+                            "total_tokens": 24453,
+                            "finish_reasons": {
+                                "STOP": 3
+                            }
+                        },
+                        "gemini_semantic": {
+                            "count": 0
+                        },
+                        "gemini_total": {
+                            "count": 3,
+                            "cache_hits": 0,
+                            "avg_ms": 8243,
+                            "min_ms": 5649,
+                            "max_ms": 11483,
+                            "p95_ms": 11483,
+                            "prompt_tokens": 21002,
+                            "output_tokens": 3451,
+                            "thoughts_tokens": 0,
+                            "total_tokens": 24453,
+                            "finish_reasons": {
+                                "STOP": 3
+                            }
+                        },
+                        "semantic_calls": 0,
+                        "semantic_cache_hits": 12,
+                        "extraction": {
+                            "count": 3,
+                            "avg_ms": 13696,
+                            "min_ms": 6659,
+                            "max_ms": 19032,
+                            "p95_ms": 19032
+                        },
+                        "normalization": {
+                            "count": 3,
+                            "avg_ms": 0,
+                            "min_ms": 0,
+                            "max_ms": 0,
+                            "p95_ms": 0
+                        },
+                        "policy": {
+                            "count": 3,
+                            "avg_ms": 47,
+                            "min_ms": 29,
+                            "max_ms": 63,
+                            "p95_ms": 63
+                        }
+                    },
+                    "total_duration_ms": 20674
+                }
+            }
+        ],
+        "total": 1,
+        "page": 1,
+        "pageSize": 1,
+        "totalPages": 1,
+        "filters": []
+    }
+}
