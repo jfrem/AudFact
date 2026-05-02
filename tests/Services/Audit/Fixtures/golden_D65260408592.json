@@ -1,0 +1,73 @@
+{
+  "_comment": "Golden Set Fixture — AUDIT-016. Datos redactados/sintéticos. Sin base64.",
+  "id": "D65260408592",
+  "description": "FORMULA MEDICA: Acetaminofén prescrito. CodigoDiagnostico FDV=S202, documento lista 6 códigos CIE-10 (S202 presente → COINCIDE por subset). TipoDocumentoPaciente CC. Campo NombreArticulo INFORMATIVO (no genera hallazgo).",
+  "source_truth": {
+    "header": {
+      "TipoDocumentoPaciente": "CC",
+      "DocumentoPaciente":     "***REDACTED***",
+      "CodigoDiagnostico":     "S202",
+      "FechaFormula":          "2026-01-15",
+      "IPS":                   "CLINICA EJEMPLO SAS",
+      "NombrePaciente":        "GARCIA ABSALON",
+      "Medico":                "DR. PEREZ JUAN"
+    },
+    "items": [
+      {
+        "NombreArticulo":    "ACETAMINOFEN 500MG C*100 TABLETA",
+        "CantidadPrescrita": "100"
+      }
+    ]
+  },
+  "documents": [
+    {
+      "document_type": "FORMULA MEDICA",
+      "document_quality": "legible",
+      "fields_config": [
+        {
+          "campoNombre": "TipoDocumentoPaciente",
+          "tipoCampo":   "E",
+          "severity":    "alta",
+          "rol":         "AUTORITATIVO",
+          "omitirSi":    null
+        },
+        {
+          "campoNombre": "CodigoDiagnostico",
+          "tipoCampo":   "E",
+          "severity":    "alta",
+          "rol":         "AUTORITATIVO",
+          "omitirSi":    null
+        },
+        {
+          "campoNombre": "FechaFormula",
+          "tipoCampo":   "E",
+          "severity":    "alta",
+          "rol":         "AUTORITATIVO",
+          "omitirSi":    null
+        },
+        {
+          "campoNombre": "NombreArticulo",
+          "tipoCampo":   "S",
+          "severity":    "alta",
+          "rol":         "INFORMATIVO",
+          "omitirSi":    null
+        }
+      ],
+      "fields": {
+        "TipoDocumentoPaciente": "CC",
+        "CodigoDiagnostico":     "S202, S273, S224, S325, S723, F432",
+        "FechaFormula":          "2026-01-15",
+        "NombreArticulo":        "ACETAMINOFEN 500MG C*100 TABLETA"
+      },
+      "items": []
+    }
+  ],
+  "expected": {
+    "_comment": "NombreArticulo es INFORMATIVO → no genera hallazgo. CodigoDiagnostico: S202 ⊂ lista → COINCIDE (CAT-3). TipoDocumentoPaciente: CC=CC → COINCIDE. FechaFormula: exacto → COINCIDE.",
+    "campo_results": {
+      "TipoDocumentoPaciente": "COINCIDE",
+      "CodigoDiagnostico":     "COINCIDE",
+      "FechaFormula":          "COINCIDE"
+    }
+  }
+}

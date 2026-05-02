@@ -235,7 +235,7 @@ class DocumentPolicyEngine
             [$docValue, $ambiguous] = $this->resolveDocumentValue($canonicalField, $fields, $items);
             $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
 
-            if ($fdvValue === null && $docValue === null) {
+            if ($fdvValue === null && $docValue === null && !$ambiguous) {
                 continue;
             }
 
@@ -268,7 +268,15 @@ class DocumentPolicyEngine
         string $internalType,
         string $rol = 'AUTORITATIVO'
     ): array {
-        return [
+        $valueType = AuditFieldValueType::fromFieldName($canonicalField);
+
+        // Contrato canónico v1 (AUDIT-016): campos CODE exponen el set tokenizado.
+        $valoresDocumento = null;
+        if ($valueType === AuditFieldValueType::CODE && $docValue !== null) {
+            $valoresDocumento = $this->tokenizeCodeField($docValue);
+        }
+
+        $finding = [
             'campo'              => $canonicalField,
             'valorFuenteVerdad'  => $fdvValue,
             'valorDocumento'     => $docValue,
@@ -276,9 +284,16 @@ class DocumentPolicyEngine
             'severidad'          => AuditSeverity::fromInput($fieldConfig['severity'] ?? 'media')->value,
             'documento'          => $documentType,
             'detalle'            => $comparison['detalle'] ?? null,
-            'tipo_auditoria'     => $internalType,
+            'tipo_auditoria'     => $comparison['tipo_auditoria'] ?? $internalType,
             'rol'                => $rol,
+            'valueType'          => $valueType->value,
         ];
+
+        if ($valoresDocumento !== null) {
+            $finding['valoresDocumento'] = $valoresDocumento;
+        }
+
+        return $finding;
     }
 
     /**
@@ -312,8 +327,9 @@ class DocumentPolicyEngine
                 return [$unique[0], false];
             }
 
-            // Multi-valor no-sumable: skipear silenciosamente
-            return $valueType->isQuantitySummable() ? [null, true] : [null, false];
+            // CAT-1 AUDIT-016: multi-item con valores distintos NO se descarta silenciosamente.
+            // ambiguous=true → evaluateField() emite NO_CONCLUYENTE con detalle explicativo.
+            return [null, true];
         }
 
         // Fallback: resolver desde fields{}
@@ -426,7 +442,7 @@ class DocumentPolicyEngine
                 return [
                     'resultado' => AuditFindingResult::INCONCLUSIVE->value,
                     'detalle'   => $ambiguous
-                        ? 'El documento contiene multiples candidatos plausibles para el campo.'
+                        ? 'El campo es ambiguous: el documento contiene múltiples valores distintos para el mismo campo.'
                         : 'La calidad documental no permite concluir el valor con confianza suficiente.',
                 ];
             }
@@ -450,11 +466,117 @@ class DocumentPolicyEngine
         if ($forcedType === null) {
             throw new RuntimeException("Campo '{$field}' sin tipo de comparación — verificar audit-config en BD");
         }
+
+        $valueType = AuditFieldValueType::fromFieldName($field);
+
+        // CAT-3 AUDIT-016: CODE usa comparación de subconjunto antes del match normal.
+        if ($valueType->requiresSubsetComparison()) {
+            return $this->evaluateSubsetField($field, $fdvValue, $docValue);
+        }
+
+        // CAT-4 AUDIT-016: PERSON_NAME en modo semántico prueba token-sort primero.
+        // Si los tokens son idénticos → COINCIDE con tipo_auditoria=exact (sin llamar a Gemini).
+        if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
+            $normalizedFdv = $this->normalizeText($fdvValue);
+            $normalizedDoc = $this->normalizeText($docValue);
+            if ($this->sameTokenSet($normalizedFdv, $normalizedDoc)) {
+                return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
+            }
+        }
+
         return match ($forcedType) {
             AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo),
             AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue),
             default                              => $this->evaluateExactField($field, $fdvValue, $docValue),
         };
+    }
+
+    // ─── CAT-3: Subset comparison para campos CODE ────────────────────────────
+
+    /**
+     * Compara FDV contra un set documental potencialmente multi-código.
+     *
+     * Normaliza ambos lados, tokeniza el documento y verifica que todos los
+     * tokens FDV están presentes en el set documental.
+     *
+     * Ejemplos:
+     *   FDV "S202" vs doc "S202, S273, S224" → COINCIDE (S202 ∈ {S202,S273,S224})
+     *   FDV "Z999" vs doc "S202, S273, S224" → VALOR_DISTINTO
+     *   FDV "S202" vs doc "S202"             → COINCIDE (exacto)
+     *
+     * @return array{resultado:string,tipo_auditoria:string,detalle?:string}
+     */
+    private function evaluateSubsetField(string $field, string $fdvValue, string $docValue): array
+    {
+        $fdvTokens = $this->tokenizeCodeField($this->normalizeText($fdvValue));
+        $docTokens = $this->tokenizeCodeField($this->normalizeText($docValue));
+        $docSet    = array_flip($docTokens); // O(1) lookup
+
+        $missing = [];
+        foreach ($fdvTokens as $token) {
+            if (!isset($docSet[$token])) {
+                $missing[] = $token;
+            }
+        }
+
+        if ($missing === []) {
+            return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
+        }
+
+        return [
+            'resultado'      => AuditFindingResult::MISMATCH->value,
+            'tipo_auditoria' => 'exact',
+            'detalle'        => sprintf(
+                "Código(s) FDV '%s' no encontrado(s) en el set documental '%s'.",
+                implode(', ', $missing),
+                $docValue
+            ),
+        ];
+    }
+
+    /**
+     * Tokeniza un string de códigos separados por coma, punto y coma o barra.
+     * Normaliza cada token (uppercase, sin espacios) y descarta vacíos y duplicados.
+     *
+     * @return string[]
+     */
+    private function tokenizeCodeField(string $value): array
+    {
+        $raw    = preg_split('/[,;\/\s]+/', $value) ?: [];
+        $tokens = [];
+        foreach ($raw as $token) {
+            $normalized = trim((string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($token)));
+            if ($normalized !== '') {
+                $tokens[] = $normalized;
+            }
+        }
+        return array_values(array_unique($tokens));
+    }
+
+    /**
+     * Adaptador de compatibilidad legacy/v1 (AUDIT-016).
+     *
+     * fields_normalized puede llegar como:
+     *   - Legacy: { "Campo": "valor_string" }
+     *   - v1:     { "Campo": { "valor": "...", "valores": [...] } }
+     *
+     * Siempre retorna un string escalar o null. Prohibido acceder a
+     * $fields[$campo] directamente si el payload puede ser v1.
+     */
+    private function resolveFieldScalar(mixed $rawField): ?string
+    {
+        if ($rawField === null) {
+            return null;
+        }
+        if (is_string($rawField)) {
+            $trimmed = trim($rawField);
+            return ($trimmed !== '' && strtolower($trimmed) !== 'null') ? $trimmed : null;
+        }
+        if (is_array($rawField) && array_key_exists('valor', $rawField)) {
+            $v = $rawField['valor'];
+            return $v !== null ? trim((string) $v) : null;
+        }
+        return null;
     }
 
     /**

@@ -245,7 +245,12 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
-    public function testEvaluateSkipsNonDeterministicMultiItemFieldsInDispensa(): void
+    /**
+     * AUDIT-016 CAT-1: campos multi-item con valores distintos NO se saltan silenciosamente.
+     * Lote y FechaVencimiento tienen lotes distintos → NO_CONCLUYENTE.
+     * NombreArticulo es idéntico en todas las filas → COINCIDE (valor único).
+     */
+    public function testEvaluateMultiItemFieldsWithDistinctValuesProduceAmbiguousNotSilentSkip(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -270,8 +275,18 @@ final class DocumentPolicyEngineTest extends TestCase
 
         $campos = array_column($result['hallazgos']['items'], 'campo');
 
-        $this->assertSame(['NombreArticulo'], $campos);
-        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+        // CAT-1: Lote y FechaVencimiento producen NO_CONCLUYENTE, no se saltan
+        $this->assertContains('Lote', $campos);
+        $this->assertContains('FechaVencimiento', $campos);
+        $this->assertContains('NombreArticulo', $campos);
+
+        // NombreArticulo es idéntico en todas las filas → COINCIDE
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+
+        // Lote es ambiguous → NO_CONCLUYENTE
+        $loteIdx = array_search('Lote', $campos, true);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$loteIdx]['resultado']);
     }
 
     public function testEvaluateDoesNotEvaluateFieldsAbsentFromConfig(): void
@@ -469,5 +484,180 @@ final class DocumentPolicyEngineTest extends TestCase
         // Con NumeroAutorizacion presente en FDV, omitirSi debe activarse → sin findings
         $this->assertSame([], $result['hallazgos']['items']);
         $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    // ─── AUDIT-016: CAT-1 — Data loss silencioso en multi-item ────────────────
+
+    /**
+     * CAT-1: Multi-item con lotes distintos NO debe producir skip silencioso.
+     * Antes del fix: resolveDocumentValue() retornaba [null, false] → OMITIDO.
+     * Después del fix: debe retornar NO_CONCLUYENTE con flag ambiguous=true.
+     */
+    public function testCAT1MultiItemWithDifferentLotesProducesAmbiguousNotSilentSkip(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Lote')],
+                ['header' => [], 'items' => [
+                    ['Lote' => '02041804-25'],
+                    ['Lote' => '02041806-25'], // distinto al anterior
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '02041804-25'],
+                    ['Lote' => '02041806-25'],
+                ]
+            )
+        );
+
+        $this->assertNotEmpty($result['hallazgos']['items'], 'El hallazgo no debe desaparecer silenciosamente');
+        $loteHallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('Lote', $loteHallazgo['campo']);
+        // El resultado debe ser NO_CONCLUYENTE (ambiguous) nunca OMITIDO ni ausente
+        $this->assertSame('NO_CONCLUYENTE', $loteHallazgo['resultado']);
+        $this->assertStringContainsStringIgnoringCase('ambiguous', (string)($loteHallazgo['detalle'] ?? ''));
+    }
+
+    // ─── AUDIT-016: CAT-3 — Comparación de subconjunto para CODE ─────────────
+
+    /**
+     * CAT-3 Golden Case: FDV contiene "S202", documento contiene "S202, S273, S224, S325, S723, F432".
+     * El FDV es subconjunto del set documental → resultado debe ser COINCIDE.
+     */
+    public function testCAT3DiagnosticCodeFdvSubsetOfDocumentListResultsInCoincide(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E')],
+                ['header' => ['CodigoDiagnostico' => 'S202'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['CodigoDiagnostico' => 'S202, S273, S224, S325, S723, F432'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('CodigoDiagnostico', $hallazgo['campo']);
+        $this->assertSame('COINCIDE', $hallazgo['resultado'], 'S202 es subconjunto de la lista documental');
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    /**
+     * CAT-3: Si el código FDV NO está en la lista documental → VALOR_DISTINTO.
+     */
+    public function testCAT3DiagnosticCodeFdvNotInDocumentListResultsInMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E')],
+                ['header' => ['CodigoDiagnostico' => 'Z999'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['CodigoDiagnostico' => 'S202, S273, S224'])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('VALOR_DISTINTO', $hallazgo['resultado']);
+    }
+
+    /**
+     * CAT-3: Cuando el documento tiene un solo código (FOUND, no lista) → comparación exacta normal.
+     */
+    public function testCAT3SingleCodeInDocumentUsesExactComparison(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [self::field('CodigoDiagnostico', 'E')],
+                ['header' => ['CodigoDiagnostico' => 'S202'], 'items' => []]
+            ),
+            self::payload('AUTORIZACION', ['CodigoDiagnostico' => 'S202'])
+        );
+
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+    }
+
+    // ─── AUDIT-016: CAT-4 — Token-sort para PERSON_NAME ────────────────────
+
+    /**
+     * CAT-4: "GARCIA ABSALON" vs "ABSALON GARCIA" → tokens ordenados son iguales → COINCIDE sin Gemini.
+     */
+    public function testCAT4PersonNameTokenSortResolvesMismatchBeforeSemanticFallback(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('NombrePaciente', 'S')],
+                ['header' => ['NombrePaciente' => 'GARCIA ABSALON'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['NombrePaciente' => 'ABSALON GARCIA'])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('NombrePaciente', $hallazgo['campo']);
+        $this->assertSame('COINCIDE', $hallazgo['resultado']);
+        $this->assertSame('exact', $hallazgo['tipo_auditoria']);
+    }
+
+    /**
+     * CAT-4: "GARCIA ABSALON" vs "PEREZ JUAN" → tokens distintos → sigue al SemanticMatchJudge.
+     */
+    public function testCAT4PersonNameWithDifferentTokensGoesToSemanticJudge(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('NombrePaciente', 'S')],
+                ['header' => ['NombrePaciente' => 'GARCIA ABSALON'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['NombrePaciente' => 'PEREZ JUAN'])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('NombrePaciente', $hallazgo['campo']);
+        $this->assertNotSame('COINCIDE', $hallazgo['resultado']);
+    }
+
+    // ─── AUDIT-016: Contrato v1 — hallazgo canónico ─────────────────────────
+
+    /**
+     * El hallazgo de un campo CODE debe incluir valoresDocumento y valueType.
+     */
+    public function testHallazgoCanonicoIncludesValoresDocumentoAndValueTypeForCodeFields(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E')],
+                ['header' => ['CodigoDiagnostico' => 'S202'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['CodigoDiagnostico' => 'S202, S273, S224'])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertArrayHasKey('valoresDocumento', $hallazgo);
+        $this->assertArrayHasKey('valueType', $hallazgo);
+        $this->assertSame('code', $hallazgo['valueType']);
+        $this->assertIsArray($hallazgo['valoresDocumento']);
+        $this->assertContains('S202', $hallazgo['valoresDocumento']);
+        $this->assertContains('S273', $hallazgo['valoresDocumento']);
     }
 }

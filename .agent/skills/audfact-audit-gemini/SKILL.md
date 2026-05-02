@@ -30,7 +30,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
-| `app/Services/Audit/AuditFieldValueType.php` | Enum `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE` + `fromFieldName()` — fuente de verdad única para tipo de dato del campo; reemplaza heurísticas dispersas (`str_starts_with('Fecha')`, etc.) |
+| `app/Services/Audit/AuditFieldValueType.php` | **[AUDIT-016]** Enum strategy-based: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/CODE/PERSON_NAME` + `fromFieldName()`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE). Fuente de verdad única para lógica de comparación diferenciada. |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
@@ -102,18 +102,22 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
    - `S` → `SEMANTIC` (umbral 0.82, fallback `SemanticMatchJudge`)
    - `B` → `BUSINESS` (sumatoria de items + comparación numérica)
    - `V` → `VISUAL` (vive en `visualChecks[]` del `audit-config`; puede ser booleano `presente`/`ausente` o evidencia estructurada opcional `valor`/`unidad`/`fecha_base`)
-   **Tipo de dato del campo** (normalización y schema Gemini) lo determina `AuditFieldValueType::fromFieldName()`: `DATE` (Fecha*), `QUANTITY` (Cantidad* — sumable), `MONEY` (Vlr* — no sumable), `IDENTITY_DOC_TYPE` (TipoDocumento*), `TEXT` (default). Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
-3. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
-4. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
-5. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo según `rol` del `audit-config` (`AUTORITATIVO` audita, `INFORMATIVO` se omite).
-6. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
-7. **NumeroAutorizacion** no se audita contra `FORMULA MEDICA` (rol `INFORMATIVO` para ese campo en ese documento).
-8. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
-9. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
-10. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
-11. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
-12. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
-13. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si es `AUTORITATIVO` y falta evidencia suficiente, el resultado agregado es `NO_CONCLUYENTE`.
+   **Tipo de dato del campo** (normalización y schema Gemini) lo determina `AuditFieldValueType::fromFieldName()`: `DATE` (Fecha*), `QUANTITY` (Cantidad* — sumable), `MONEY` (Vlr* — no sumable), `IDENTITY_DOC_TYPE` (TipoDocumento*), **`CODE` (CodigoDiagnostico, etc.)**, **`PERSON_NAME` (NombrePaciente, Medico, etc.)**, `TEXT` (default). Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
+3. **[AUDIT-016] Subset matching para `CODE`**: Campos con `AuditFieldValueType::CODE` usan `evaluateSubsetField()`. Si el FDV tiene un código (ej. `S202`) y el documento lista múltiples (ej. `S202, S273, F432`), se evalúa como `COINCIDE` con `tipo_auditoria=exact`. `tokenizeCodeField()` separa por coma, punto y coma o barra; normaliza a mayúsculas. El hallazgo incluye `valueType=code` y `valoresDocumento` (array de tokens).
+4. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico intentan token-sort antes de invocar Gemini. `GARCIA ABSALON` vs `ABSALON GARCIA` → `COINCIDE` con `tipo_auditoria=exact` sin gasto de API.
+5. **[AUDIT-016] No data-loss en multi-item divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Ya no se descarta silenciosamente el campo.
+6. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType` y `valoresDocumento` (tokens del set `CODE`). Siempre presente en hallazgos de tipo `CODE`. Adaptador `resolveFieldScalar()` normaliza payloads legacy (string) y v1 (`{valor, valores}`).
+7. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
+8. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
+9. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo según `rol` del `audit-config` (`AUTORITATIVO` audita, `INFORMATIVO` se omite).
+10. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
+11. **NumeroAutorizacion** no se audita contra `FORMULA MEDICA` (rol `INFORMATIVO` para ese campo en ese documento).
+12. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
+13. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
+14. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
+15. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
+16. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
+17. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si es `AUTORITATIVO` y falta evidencia suficiente, el resultado agregado es `NO_CONCLUYENTE`.
 
 ## Mecanismo `omitirSi`
 
@@ -142,23 +146,28 @@ Ejemplo real (audit-config NitSec 2426, doc `FORMULA MEDICA`):
 
 Para `TipoCampo = B`, `DocumentPolicyEngine` **suma los items de la FDV** antes de comparar contra `valorDocumento`. Caso real `T38250701547` (NitSec 2426): la FDV tiene 2 items con `CantidadEntregada = 20` y `30`; el hallazgo persistido reporta `valorFuenteVerdad: "50"`, `valorDocumento: "50"`, `tipo_auditoria: "business"`, `resultado: COINCIDE`. Implicación: nunca documentar reglas `B` como "campo a campo" — son agregadas a nivel documento.
 
-## Contrato real de hallazgo
+## Contrato real de hallazgo (v1 — AUDIT-016)
 
-Forma exacta del objeto persistido en `AudDispEst.Hallazgos[*]`:
+Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obligatorios post-AUDIT-016):
 
 ```json
 {
-  "severidad": "alta|media|baja",
-  "rol": "AUTORITATIVO|INFORMATIVO",
-  "campo": "<nombre>",
-  "documento": "DISPENSA|AUTORIZACION|FORMULA MEDICA|...",
-  "valorDocumento": "<valor extraído por Gemini>",
-  "valorFuenteVerdad": "<valor de la FDV>",
-  "resultado": "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE",
-  "detalle": "<string|null>",
-  "tipo_auditoria": "exact|semantic|business"
+  "severidad":          "alta|media|baja",
+  "rol":                "AUTORITATIVO|INFORMATIVO",
+  "campo":              "<nombre>",
+  "documento":          "DISPENSA|AUTORIZACION|FORMULA MEDICA|...",
+  "valorDocumento":     "<valor extraído por Gemini>",
+  "valorFuenteVerdad":  "<valor de la FDV>",
+  "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE",
+  "detalle":            "<string|null>",
+  "tipo_auditoria":     "exact|semantic|business|visual",
+  "valueType":          "code|person_name|date|quantity|money|identity_doc_type|text",
+  "valoresDocumento":   ["S202","S273","F432"]   // solo para CODE; null en otros tipos
 }
 ```
+
+> [!NOTE]
+> `valueType` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. Los payloads v0 (string escalar) son normalizados por `resolveFieldScalar()` antes de evaluar.
 
 Visual checks booleanos emiten un objeto similar y pueden incluir `rol`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 
@@ -214,7 +223,10 @@ curl http://localhost:8080/audit/dlq?limit=20
 4. `rg "AuditQueueService|AuditOrchestrator|lpush|brpop"` sin coincidencias.
 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
 6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
-7. PHPUnit pasa (cobertura mínima: Eventos 80%, SchemaBuilder 90%, Normalizer/Policy/Aggregator 80%, Controllers 75%).
+7. PHPUnit pasa — suite completa 128 tests, 428 assertions.
+8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` → 3 tests, 34 assertions (Golden Set D65260408592).
+9. Hallazgos de tipo `CODE` incluyen `valueType` y `valoresDocumento` en el contrato v1.
+10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
 

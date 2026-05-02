@@ -1,3 +1,55 @@
+## [2026-05-02] — AUDIT-016: Auditoría Reproducible con Contratos de Evidencia
+
+### feat
+- **Pipeline Auditoría — Tipología de Campos (`AuditFieldValueType`)**:
+  Migra el enum a arquitectura strategy-based con tipos `CODE`, `PERSON_NAME` y métodos
+  de comportamiento: `requiresSubsetComparison()`, `requiresTokenSortComparison()`,
+  `allowsMultiValueDocument()`.
+  - Archivos: `app/Services/Audit/AuditFieldValueType.php`
+  - Impacto: habilita rutas de comparación diferenciadas por tipo sin lógica hardcoded en el engine.
+
+- **Pipeline Auditoría — `DocumentPolicyEngine` Resilience (4 gaps)**:
+  - **CAT-1 (Data-loss)**: Multi-item con valores distintos ya no se descarta silenciosamente.
+    Emite `NO_CONCLUYENTE` con `detalle` que incluye `"ambiguous"`. La guardia
+    `fdvValue===null && docValue===null` excluye el caso ambiguous para evitar saltos incorrectos.
+  - **CAT-3 (Subset matching)**: Campos `CODE` (ej. `CodigoDiagnostico`) usan
+    `evaluateSubsetField()` — FDV `S202` ⊆ `{S202, S273, S224}` → `COINCIDE`.
+    `tokenizeCodeField()` separa por coma, punto y coma o barra; normaliza a mayúsculas.
+  - **CAT-4 (Token-sort)**: Campos `PERSON_NAME` en modo semántico prueban token-sort
+    antes de llamar a Gemini. `GARCIA ABSALON` vs `ABSALON GARCIA` → `COINCIDE` con
+    `tipo_auditoria=exact` sin costo de API.
+  - **Hallazgo canónico v1**: `buildDataFinding()` emite `valueType` y `valoresDocumento`
+    (array de tokens) en todos los hallazgos `CODE`. `tipo_auditoria` se propaga desde
+    `comparison['tipo_auditoria']` si lo aporta `evaluateSubsetField`.
+  - Nuevo: `resolveFieldScalar()` — adaptador de compatibilidad legacy/v1 para payloads
+    mixtos (string escalar o `{valor, valores}` v1).
+  - Archivos: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`
+
+- **Golden Set Replay Framework (T04)**:
+  Scaffolding completo del framework de regresión determinístico offline.
+  - `GoldenSetReplayTest`: 3 tests × N fixtures — reproducibilidad SHA-256, decisión canónica,
+    shape del hallazgo (contrato v1).
+  - Fixture `golden_D65260408592.json`: Fórmula Médica con CodigoDiagnostico multi-código
+    (CAT-3), TipoDocumentoPaciente `CC`, FechaFormula exacta. Datos completamente sintéticos.
+  - Directorio: `tests/Services/Audit/Fixtures/`
+  - Archivos: `tests/Services/Audit/GoldenSetReplayTest.php`,
+    `tests/Services/Audit/Fixtures/golden_D65260408592.json`
+
+### test
+- **`AuditFieldValueTypeTest`**: 30 tests, 40 assertions — cubre mapping de campo→tipo,
+  métodos de comportamiento, y normalización por tipo.
+- **`DocumentPolicyEngineTest`**: 26 tests, 71 assertions — incluye casos CAT-1, CAT-3,
+  CAT-4 y hallazgo canónico. Reemplaza el test legacy de skip silencioso por el comportamiento
+  correcto post-AUDIT-016.
+- **Suite completa**: 128 tests, 428 assertions — 0 errores.
+
+### refactor
+- Renombrado `testEvaluateSkipsNonDeterministicMultiItemFieldsInDispensa` →
+  `testEvaluateMultiItemFieldsWithDistinctValuesProduceAmbiguousNotSilentSkip` para
+  reflejar el comportamiento correcto post-CAT-1.
+
+---
+
 ## [2026-05-01] — Limpieza Dead Code y Wrappers Redundantes (Pipeline)
 
 ### fix
