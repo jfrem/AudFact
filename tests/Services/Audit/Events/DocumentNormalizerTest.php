@@ -24,18 +24,18 @@ final class DocumentNormalizerTest extends TestCase
             ],
             'extraction_result' => [
                 'fields' => [
-                    'NumeroAutorizacion' => ' 46338218 ',
-                    'DocumentoPaciente' => ' 123456789 ',
-                    'NombrePaciente' => '   ',
+                    'NumeroAutorizacion' => ['valor' => ' 46338218 '],
+                    'DocumentoPaciente' => ['valor' => ' 123456789 '],
+                    'NombrePaciente' => ['valor' => '   ', 'estadoExtraccion' => 'NOT_FOUND'],
                 ],
                 'items' => [
                     [
-                        'CodigoArticulo' => 'IM01273',
-                        'CantidadEntregada' => '20',
+                        'CodigoArticulo' => ['valor' => 'IM01273'],
+                        'CantidadEntregada' => ['valor' => '20'],
                     ],
                     [
-                        'CodigoArticulo' => 'IM01274',
-                        'CantidadEntregada' => '30',
+                        'CodigoArticulo' => ['valor' => 'IM01274'],
+                        'CantidadEntregada' => ['valor' => '30'],
                     ],
                 ],
                 'visual_checks' => [
@@ -82,7 +82,6 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame(['primera pagina OK'], $result['quality_notes']);
         $this->assertNotEmpty($result['normalization_log']);
         $this->assertContains('empty_string_to_null', array_column($result['normalization_log'], 'operation'));
-        $this->assertContains('legacy_scalar_wrapped_v1', array_column($result['normalization_log'], 'operation'));
     }
 
     public function testNormalizeDropsEmptyRowsAndDefaultsConfiguredVisualCheck(): void
@@ -101,8 +100,8 @@ final class DocumentNormalizerTest extends TestCase
             'extraction_result' => [
                 'fields' => [],
                 'items' => [
-                    ['CodigoArticulo' => '   '],
-                    ['CodigoArticulo' => 'ABC123'],
+                    ['CodigoArticulo' => ['valor' => '   ']],
+                    ['CodigoArticulo' => ['valor' => 'ABC123']],
                 ],
                 'visual_checks' => [],
                 'document_quality' => 'parcialmente_legible',
@@ -128,12 +127,12 @@ final class DocumentNormalizerTest extends TestCase
             'visual_checks' => [],
             'extraction_result' => [
                 'fields' => [
-                    'FechaEntrega' => '29/07/2025',
-                    'FechaAutorizacion' => '27/07/2025',
+                    'FechaEntrega' => ['valor' => '29/07/2025'],
+                    'FechaAutorizacion' => ['valor' => '27/07/2025'],
                 ],
                 'items' => [
                     [
-                        'FechaVencimiento' => '30/03/2029',
+                        'FechaVencimiento' => ['valor' => '30/03/2029'],
                     ],
                 ],
                 'visual_checks' => [],

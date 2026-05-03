@@ -40,10 +40,28 @@ final class DocumentPolicyEngineTest extends TestCase
 
     private static function payload(string $docType, array $fields = [], array $items = [], array $visualResults = [], string $quality = 'legible'): array
     {
+        $v1Fields = [];
+        foreach ($fields as $key => $value) {
+            $v1Fields[$key] = is_array($value) && array_key_exists('valor', $value) 
+                ? $value 
+                : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+        }
+
+        $v1Items = [];
+        foreach ($items as $item) {
+            $v1Item = [];
+            foreach ($item as $key => $value) {
+                $v1Item[$key] = is_array($value) && array_key_exists('valor', $value) 
+                    ? $value 
+                    : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+            }
+            $v1Items[] = $v1Item;
+        }
+
         return [
             'tipo_documento'         => $docType,
-            'fields_normalized'      => $fields,
-            'items_normalized'       => $items,
+            'fields_normalized'      => $v1Fields,
+            'items_normalized'       => $v1Items,
             'visual_checks_resultado' => $visualResults,
             'document_quality'       => $quality,
         ];

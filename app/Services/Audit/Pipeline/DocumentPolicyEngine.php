@@ -305,13 +305,22 @@ class DocumentPolicyEngine
             if (!array_key_exists($field, $row)) {
                 continue;
             }
-            $unwrapped = $this->unwrapV1($row[$field]);
-            if (!AuditFindingRules::isPresent($unwrapped['valor'])) {
+            $v1Shape = $row[$field];
+            if (!is_array($v1Shape) || !array_key_exists('valor', $v1Shape)) {
                 continue;
             }
-            $itemValues[] = AuditFindingRules::scalarToString($unwrapped['valor']);
+            if (!AuditFindingRules::isPresent($v1Shape['valor'])) {
+                continue;
+            }
+            $itemValues[] = AuditFindingRules::scalarToString($v1Shape['valor']);
             if ($evidenceMeta === []) {
-                $evidenceMeta = $unwrapped['meta'];
+                $evidenceMeta = [
+                    'confianza'        => $v1Shape['confianza'] ?? null,
+                    'estadoExtraccion' => $v1Shape['estadoExtraccion'] ?? null,
+                    'evidencia'        => $v1Shape['evidencia'] ?? null,
+                    'ubicacion'        => $v1Shape['ubicacion'] ?? null,
+                    'valores'          => $v1Shape['valores'] ?? null,
+                ];
             }
         }
 
@@ -332,39 +341,23 @@ class DocumentPolicyEngine
         }
 
         if (array_key_exists($field, $fields)) {
-            $unwrapped = $this->unwrapV1($fields[$field]);
-            if (AuditFindingRules::isPresent($unwrapped['valor'])) {
-                return [AuditFindingRules::scalarToString($unwrapped['valor']), false, $unwrapped['meta']];
+            $v1Shape = $fields[$field];
+            if (is_array($v1Shape) && array_key_exists('valor', $v1Shape) && AuditFindingRules::isPresent($v1Shape['valor'])) {
+                $meta = [
+                    'confianza'        => $v1Shape['confianza'] ?? null,
+                    'estadoExtraccion' => $v1Shape['estadoExtraccion'] ?? null,
+                    'evidencia'        => $v1Shape['evidencia'] ?? null,
+                    'ubicacion'        => $v1Shape['ubicacion'] ?? null,
+                    'valores'          => $v1Shape['valores'] ?? null,
+                ];
+                return [AuditFindingRules::scalarToString($v1Shape['valor']), false, $meta];
             }
         }
 
         return [null, false, $evidenceMeta];
     }
 
-    /**
-     * Extrae escalar + metadata de un campo que puede ser:
-     * - Legacy: string/int/null/float
-     * - v1: array con 'valor' y propiedades de evidencia
-     *
-     * @return array{valor:mixed, meta:array<string,mixed>}
-     */
-    private function unwrapV1(mixed $raw): array
-    {
-        if (is_array($raw) && array_key_exists('valor', $raw)) {
-            return [
-                'valor' => $raw['valor'],
-                'meta'  => [
-                    'confianza'        => $raw['confianza'] ?? null,
-                    'estadoExtraccion' => $raw['estadoExtraccion'] ?? null,
-                    'evidencia'        => $raw['evidencia'] ?? null,
-                    'ubicacion'        => $raw['ubicacion'] ?? null,
-                    'valores'          => $raw['valores'] ?? null,
-                ],
-            ];
-        }
 
-        return ['valor' => $raw, 'meta' => []];
-    }
 
     /**
      * @param  array<string,mixed> $sourceTruth

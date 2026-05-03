@@ -1,5 +1,15 @@
 # Changelog AudFact
 
+## [2026-05-03] — Clean Rebuild: Erradicación de Legacy en Pipeline (AUDIT-021)
+
+### 🧹 Cleanup / Refactor
+- **AUDIT-021**: Eliminación completa de compatibilidad retroactiva legacy en la capa de normalización y políticas, asumiendo un flujo estrictamente "shape v1" determinista.
+  - **`DocumentNormalizer`**: Eliminado el comportamiento híbrido en `normalizeFieldWithLog` y borrado de la lógica y logs de `legacy_scalar_wrapped_v1`. Se simplificó `isEmptyRow` asumiendo arrays `['valor']`.
+  - **`DocumentPolicyEngine`**: Eliminado el método `unwrapV1()` híbrido, haciendo acceso directo a los arrays v1 inyectados en la extracción.
+  - **Resultado**: Código más limpio, directo y libre de capas de traducción ("por si acasos"), ciñéndose al MVP. Se eliminó la capacidad de procesar payloads antiguos, lo cual es correcto dado que el contrato actual de Gemini siempre devuelve v1.
+  - **Validación**: Los tests `GoldenSetReplayTest` (así como unitarios de `DocumentNormalizer` y `DocumentPolicyEngine`) fueron adecuados y pasaron exitosamente.
+  - **Archivos modificados**: `DocumentNormalizer.php`, `DocumentPolicyEngine.php`, `DocumentNormalizerTest.php`, `DocumentPolicyEngineTest.php`, `golden_D65260408592.json`.
+
 ## [2026-05-02] — Clean Code Pipeline: Enums Centralizadores (AUDIT-020)
 
 ### 🔵 Architecture / Refactor

@@ -54,10 +54,10 @@
         }
       ],
       "fields": {
-        "TipoDocumentoPaciente": "CC",
-        "CodigoDiagnostico":     "S202, S273, S224, S325, S723, F432",
-        "FechaFormula":          "2026-01-15",
-        "NombreArticulo":        "ACETAMINOFEN 500MG C*100 TABLETA"
+        "TipoDocumentoPaciente": {"valor": "CC"},
+        "CodigoDiagnostico":     {"valor": "S202, S273, S224, S325, S723, F432"},
+        "FechaFormula":          {"valor": "2026-01-15"},
+        "NombreArticulo":        {"valor": "ACETAMINOFEN 500MG C*100 TABLETA"}
       },
       "items": []
     }

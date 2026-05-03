@@ -220,48 +220,17 @@ final class DocumentNormalizer extends AuditEventConsumer
         return array_values($normalized);
     }
 
-    /**
-     * Normaliza un campo individual con soporte para shape v1 de evidencia.
-     *
-     * Dos modos de operación:
-     * - **Legacy (escalar):** string/int/null → normaliza y envuelve en shape v1 mínimo
-     * - **v1 (objeto de evidencia):** array con 'valor' → normaliza el escalar,
-     *   preserva metadatos (confianza, estadoExtraccion, valores, evidencia, ubicacion)
-     *
-     * @param  array<int,array<string,mixed>> $log
-     * @param  array<string,mixed>            $logContext
-     * @return array{0:string,1:mixed}        [canonicalName, normalizedValue]
-     */
     private function normalizeFieldWithLog(
         string $originalField,
         mixed $value,
         array &$log,
         array $logContext = []
     ): array {
-        if (is_array($value) && array_key_exists('valor', $value)) {
-            return $this->normalizeEvidenceField($originalField, $value, $log, $logContext);
+        if (!is_array($value) || !array_key_exists('valor', $value)) {
+            throw new RuntimeException("El campo '{$originalField}' no cumple con shape v1 (se esperaba un array con la clave 'valor').");
         }
 
-        [$normalizedValue, $scalarOps] = $this->normalizeScalarWithOperations($value);
-        [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValue);
-
-        foreach (array_merge($scalarOps, $fieldOps) as $op) {
-            $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField]));
-        }
-
-        $v1Shape = [
-            'valor'             => $normalizedValue,
-            'valores'           => $normalizedValue !== null ? [$normalizedValue] : [],
-            'presente'          => $normalizedValue !== null,
-            'confianza'         => null,
-            'estadoExtraccion'  => $normalizedValue !== null ? 'FOUND' : 'NOT_FOUND',
-            'evidencia'         => null,
-            'ubicacion'         => null,
-        ];
-
-        $this->appendLog($log, 'legacy_scalar_wrapped_v1', array_merge($logContext, ['field' => $originalField]));
-
-        return [$originalField, $v1Shape];
+        return $this->normalizeEvidenceField($originalField, $value, $log, $logContext);
     }
 
     /**
@@ -625,11 +594,6 @@ final class DocumentNormalizer extends AuditEventConsumer
                 if ($inner !== null && $inner !== '') {
                     return false;
                 }
-                continue;
-            }
-
-            if ($value !== null && $value !== '') {
-                return false;
             }
         }
 
