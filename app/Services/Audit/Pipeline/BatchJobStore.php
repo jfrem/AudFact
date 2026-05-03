@@ -11,6 +11,8 @@ use RuntimeException;
 
 class BatchJobStore
 {
+    use JsonRedisStoreTrait;
+
     public const JOB_STATUS_PENDING             = 'pending';
     public const JOB_STATUS_PROCESSING          = 'processing';
     public const JOB_STATUS_COMPLETED           = 'completed';
@@ -49,7 +51,7 @@ class BatchJobStore
             'audits'      => new \stdClass(),
         ];
 
-        return $this->redis->setnx(self::jobKey($jobId), self::encode($state), self::JOB_TTL_SECONDS);
+        return $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::JOB_TTL_SECONDS);
     }
 
     public function getJob(string $jobId): ?array
@@ -60,7 +62,7 @@ class BatchJobStore
             throw new RuntimeException('Redis no disponible al leer job', 0, $e);
         }
 
-        return $raw === null ? null : self::decode($raw);
+        return $raw === null ? null : self::decodeJson($raw, 'BatchJobStore');
     }
 
     public function registerAuditInJob(string $jobId, string $auditId, string $disDetNro): bool
@@ -153,40 +155,6 @@ class BatchJobStore
         return "job:active:{$facNitSec}:{$dateFrom}:{$to}";
     }
 
-    private static function encode(array $data): string
-    {
-        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            throw new RuntimeException('BatchJobStore: encoding falló — ' . json_last_error_msg());
-        }
-        return $json;
-    }
-
-    private static function decode(string $raw): array
-    {
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
-            throw new RuntimeException('BatchJobStore: decoding falló — payload inválido en Redis');
-        }
-        return $data;
-    }
-
-    /**
-     * @param  array<int,string> $keys
-     * @param  array<int,mixed> $args
-     * @param  array<string,mixed> $logContext
-     */
-    private function runScript(string $lua, array $keys, array $args, string $errorMessage, array $logContext): bool
-    {
-        try {
-            $result = $this->redis->eval($lua, $keys, $args);
-        } catch (\Exception $e) {
-            Logger::error($errorMessage, array_merge($logContext, ['error' => $e->getMessage()]));
-            throw new RuntimeException($errorMessage, 0, $e);
-        }
-
-        return (int) $result === 1;
-    }
 
     private const MERGE_LUA = <<<'LUA'
 local raw = redis.call('GET', KEYS[1])

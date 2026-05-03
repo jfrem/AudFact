@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFindingResult;
-use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\SemanticMatchJudge;
 use Core\Logger;
@@ -13,10 +12,6 @@ use RuntimeException;
 
 final class RulesEvaluationWorker extends AuditEventConsumer
 {
-    private const FIELD_DELIVERY_DATE = 'FechaEntrega';
-    private const UNIT_DAYS = 'dias';
-    private const ROLE_INFORMATIVE = 'INFORMATIVO';
-
     private AuditStateStore $stateStore;
     private DocumentPolicyEngine $policyEngine;
 
@@ -183,7 +178,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function aggregateRulesEvaluation(array $audit): array
     {
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
-        $calculatedFindings = $this->evaluateCalculatedVisualFindings($audit, $allFindings);
+        $calculatedFindings = AuditFindingRules::evaluateDeliveryValidity($audit, $allFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
 
         return [
@@ -228,215 +223,6 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         return [$allFindings, $documentDecisions];
-    }
-
-    /**
-     * @param  array<string,mixed> $audit
-     * @param  array<int,array<string,mixed>> $findings
-     * @return array<int,array<string,mixed>>
-     */
-    private function evaluateCalculatedVisualFindings(array $audit, array $findings): array
-    {
-        $candidate = $this->resolveDeliveryValidityCandidate($audit);
-        if ($candidate === null) {
-            return [];
-        }
-
-        $role = strtoupper((string) ($candidate['expected']['rol'] ?? 'AUTORITATIVO'));
-        if ($role === self::ROLE_INFORMATIVE) {
-            return [];
-        }
-
-        $visual = $candidate['visual'];
-        if (!is_array($visual) || ($visual['presente'] ?? false) !== true) {
-            return [$this->buildDeliveryValidityInconclusiveFinding($candidate, 'No se encontró una vigencia de entrega visible y estructurada.')];
-        }
-
-        $days = $this->resolvePositiveInteger($visual['valor'] ?? null);
-        $unit = (string) ($visual['unidad'] ?? '');
-        $baseField = trim((string) ($visual['fecha_base'] ?? ''));
-        if ($days === null || $unit !== self::UNIT_DAYS || $baseField === '') {
-            return [$this->buildDeliveryValidityInconclusiveFinding($candidate, 'La vigencia visible no contiene valor, unidad o fecha base suficiente para calcular.')];
-        }
-
-        $deliveryDate = $this->resolveMatchedDate($findings, self::FIELD_DELIVERY_DATE);
-        $baseDate = $this->resolveMatchedDate($findings, $baseField);
-        if ($deliveryDate === null || $baseDate === null) {
-            return [$this->buildDeliveryValidityInconclusiveFinding($candidate, 'FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.')];
-        }
-
-        return [$this->buildDeliveryValidityFinding($candidate, $days, $baseField, $baseDate, $deliveryDate, $role)];
-    }
-
-    /**
-     * @param  array{document_name:string,expected:array<string,mixed>,visual:?array<string,mixed>} $candidate
-     * @return array<string,mixed>
-     */
-    private function buildDeliveryValidityFinding(
-        array $candidate,
-        int $days,
-        string $baseField,
-        \DateTimeImmutable $baseDate,
-        \DateTimeImmutable $deliveryDate,
-        string $role
-    ): array {
-        $limitDate = $baseDate->modify("+{$days} days");
-        $matches = $deliveryDate <= $limitDate;
-        $baseDateText = $baseDate->format('Y-m-d');
-        $deliveryDateText = $deliveryDate->format('Y-m-d');
-        $limitDateText = $limitDate->format('Y-m-d');
-
-        return [
-            'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
-            'valorFuenteVerdad' => "{$baseField} {$baseDateText} + {$days} dias = {$limitDateText}",
-            'valorDocumento' => "{$deliveryDateText} dentro de {$days} dias",
-            'resultado' => $matches ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
-            'severidad' => $this->normalizeSeverity($candidate['expected']['severity'] ?? null),
-            'documento' => $candidate['document_name'],
-            'detalle' => $matches
-                ? "FechaEntrega {$deliveryDateText} dentro de la vigencia hasta {$limitDateText}."
-                : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}.",
-            'tipo_auditoria' => 'visual',
-            'rol' => $role,
-        ];
-    }
-
-    /**
-     * @param  array<string,mixed> $audit
-     * @return array{document_name:string,expected:array<string,mixed>,visual:?array<string,mixed>}|null
-     */
-    private function resolveDeliveryValidityCandidate(array $audit): ?array
-    {
-        $fallback = null;
-
-        foreach (($audit['documents'] ?? []) as $document) {
-            if (!is_array($document)) {
-                continue;
-            }
-
-            $documentName = (string) ($document['tipo_documento'] ?? '');
-            $visualResults = $this->indexVisualResults($document['normalized_result']['visual_checks_resultado'] ?? []);
-            $sourceTruth = is_array($document['fuente_verdad'] ?? null) ? $document['fuente_verdad'] : [];
-            $documentQuality = (string) ($document['normalized_result']['document_quality'] ?? '');
-
-            foreach (($document['visual_checks'] ?? []) as $expected) {
-                if (!is_array($expected)) {
-                    continue;
-                }
-
-                $checkName = trim((string) ($expected['check'] ?? ''));
-                if (!AuditFindingRules::isCalculatedVisualCheck($checkName)) {
-                    continue;
-                }
-
-                if (AuditFindingRules::shouldSkipByCondition($expected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
-                    continue;
-                }
-
-                $candidate = [
-                    'document_name' => $documentName,
-                    'expected' => $expected,
-                    'visual' => $visualResults[$checkName] ?? null,
-                ];
-
-                if (is_array($candidate['visual']) && ($candidate['visual']['presente'] ?? false) === true) {
-                    return $candidate;
-                }
-
-                $fallback ??= $candidate;
-            }
-        }
-
-        return $fallback;
-    }
-
-    /**
-     * @param  array<int,array<string,mixed>> $visualResults
-     * @return array<string,array<string,mixed>>
-     */
-    private function indexVisualResults(mixed $visualResults): array
-    {
-        if (!is_array($visualResults)) {
-            return [];
-        }
-
-        $indexed = [];
-        foreach ($visualResults as $visual) {
-            if (!is_array($visual)) {
-                continue;
-            }
-
-            $check = trim((string) ($visual['check'] ?? ''));
-            if ($check !== '') {
-                $indexed[$check] = $visual;
-            }
-        }
-
-        return $indexed;
-    }
-
-    private function resolvePositiveInteger(mixed $value): ?int
-    {
-        if (!is_int($value) || $value < 1) {
-            return null;
-        }
-
-        return $value;
-    }
-
-    /**
-     * @param  array<int,array<string,mixed>> $findings
-     */
-    private function resolveMatchedDate(array $findings, string $field): ?\DateTimeImmutable
-    {
-        foreach ($findings as $finding) {
-            if (($finding['campo'] ?? null) !== $field || ($finding['resultado'] ?? null) !== AuditFindingResult::MATCH->value) {
-                continue;
-            }
-
-            foreach (['valorFuenteVerdad', 'valorDocumento'] as $key) {
-                $date = $this->parseIsoDate($finding[$key] ?? null);
-                if ($date !== null) {
-                    return $date;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private function parseIsoDate(mixed $value): ?\DateTimeImmutable
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        $candidate = preg_split('/\s+/', trim($value), 2)[0] ?? '';
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $candidate);
-        if (!$date instanceof \DateTimeImmutable || $date->format('Y-m-d') !== $candidate) {
-            return null;
-        }
-
-        return $date;
-    }
-
-    /**
-     * @param  array{document_name:string,expected:array<string,mixed>,visual:?array<string,mixed>} $candidate
-     * @return array<string,mixed>
-     */
-    private function buildDeliveryValidityInconclusiveFinding(array $candidate, string $detail): array
-    {
-        return [
-            'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
-            'valorFuenteVerdad' => 'Vigencia calculable requerida',
-            'valorDocumento' => null,
-            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-            'severidad' => $this->normalizeSeverity($candidate['expected']['severity'] ?? null),
-            'documento' => $candidate['document_name'],
-            'detalle' => $detail,
-            'tipo_auditoria' => 'visual',
-            'rol' => strtoupper((string) ($candidate['expected']['rol'] ?? 'AUTORITATIVO')),
-        ];
     }
 
     /**
@@ -494,10 +280,5 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         $existing = trim((string) ($decision['observation'] ?? ''));
         $decision['observation'] = $existing === '' ? $detail : "{$existing} | {$detail}";
-    }
-
-    private function normalizeSeverity(mixed $severity): string
-    {
-        return AuditSeverity::fromInput((string) ($severity ?? AuditSeverity::MEDIUM->value))->value;
     }
 }

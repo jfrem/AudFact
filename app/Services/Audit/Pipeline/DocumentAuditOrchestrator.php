@@ -174,6 +174,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     ): array {
         $attachmentId = (string) ($attachment['id_documento'] ?? '');
         $targetContext = $this->buildTargetContext(
+            $configuredDocument['document_name'],
             $configuredDocument['fields'],
             $configuredDocument['visual_checks'],
             $context['fuenteVerdad']
@@ -220,7 +221,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * @param  array<string,mixed>            $fuenteVerdad   FDV completa {header, items}
      * @return array{fields:array<string,mixed>,items:array<string,mixed>,visualChecks:array<string,mixed>}
      */
-    private function buildTargetContext(array $fieldsConfig, array $visualChecks, array $fuenteVerdad): array
+    private function buildTargetContext(string $documentName, array $fieldsConfig, array $visualChecks, array $fuenteVerdad): array
     {
         $header = is_array($fuenteVerdad['header'] ?? null) ? $fuenteVerdad['header'] : [];
         $items  = is_array($fuenteVerdad['items'] ?? null) ? $fuenteVerdad['items'] : [];
@@ -238,11 +239,10 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
             $valueType = AuditFieldValueType::fromFieldName($name);
             $isItem    = $this->contractBuilder->isItemField(
-                '', $name, $tipoCampo
+                $documentName, $name, $tipoCampo
             );
 
             if ($isItem) {
-                // Campos de línea: sumarizar valores de todos los items FDV
                 $valores = [];
                 foreach ($items as $item) {
                     $v = trim((string) ($item[$name] ?? ''));
@@ -257,7 +257,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                     'valoresFuenteVerdad' => $valores,
                 ];
             } else {
-                // Campos de cabecera: valor directo de header
                 $valor = trim((string) ($header[$name] ?? ''));
                 $targetFields[$name] = [
                     'tipoCampo'          => $tipoCampo,

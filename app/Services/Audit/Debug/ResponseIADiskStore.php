@@ -16,9 +16,6 @@ use Core\Logger;
  * la depuración y el análisis offline de los resultados obtenidos, sin afectar la operación normal del sistema
  * en producción.
  *
- * @package App\Services\Audit\Debug
- * @version 2.4.0
- * @stability stable
  */
 final class ResponseIADiskStore
 {

@@ -30,7 +30,6 @@ enum AuditComparisonType: string
         };
     }
 
-
     /** Umbral default para comparación textual local */
     public const DEFAULT_SEMANTIC_THRESHOLD = 0.90;
 

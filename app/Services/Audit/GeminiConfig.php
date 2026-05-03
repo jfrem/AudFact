@@ -70,7 +70,7 @@ final class GeminiConfig
             $base['mediaResolution'] = $this->mediaResolution;
         }
 
-        // Gemini 3 uses thinkingLevel; Gemini 2.5 uses thinkingBudget.
+        // Gemini 3 usa thinkingLevel; Gemini 2.5 usa thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
         $thinkingLevel  = $overrides['thinkingLevel']  ?? $this->thinkingLevel;
         $cleanOverrides = array_diff_key($overrides, array_flip(['thinkingBudget', 'thinkingLevel']));

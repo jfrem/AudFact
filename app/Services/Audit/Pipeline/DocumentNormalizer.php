@@ -9,7 +9,7 @@ use App\Services\Audit\DocumentQuality;
 use Core\Logger;
 use RuntimeException;
 
-class DocumentNormalizer extends AuditEventConsumer
+final class DocumentNormalizer extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
     private string $consumerName;
@@ -90,8 +90,6 @@ class DocumentNormalizer extends AuditEventConsumer
             parentEventId: $event->eventId,
         ));
     }
-
-    // ─── Normalization logic ─────────────────────────────────────────────────
 
     /**
      * @param array<string,mixed> $payload
@@ -240,12 +238,10 @@ class DocumentNormalizer extends AuditEventConsumer
         array &$log,
         array $logContext = []
     ): array {
-        // Detectar shape v1: objeto con key 'valor'
         if (is_array($value) && array_key_exists('valor', $value)) {
             return $this->normalizeEvidenceField($originalField, $value, $log, $logContext);
         }
 
-        // Legacy: escalar → normalizar y envolver en v1 mínimo
         [$normalizedValue, $scalarOps] = $this->normalizeScalarWithOperations($value);
         [$normalizedValue, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValue);
 
@@ -253,7 +249,6 @@ class DocumentNormalizer extends AuditEventConsumer
             $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField]));
         }
 
-        // Envolver escalar legacy en shape v1 mínimo
         $v1Shape = [
             'valor'             => $normalizedValue,
             'valores'           => $normalizedValue !== null ? [$normalizedValue] : [],
@@ -283,7 +278,6 @@ class DocumentNormalizer extends AuditEventConsumer
         array &$log,
         array $logContext = []
     ): array {
-        // Normalizar el valor principal
         $rawValor = $evidence['valor'] ?? null;
         [$normalizedValor, $scalarOps] = $this->normalizeScalarWithOperations($rawValor);
         [$normalizedValor, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValor);
@@ -292,7 +286,6 @@ class DocumentNormalizer extends AuditEventConsumer
             $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField, 'context' => 'v1_valor']));
         }
 
-        // Normalizar array de valores (tokens)
         $rawValores = is_array($evidence['valores'] ?? null) ? $evidence['valores'] : [];
         $normalizedValores = [];
         foreach ($rawValores as $v) {
@@ -302,7 +295,6 @@ class DocumentNormalizer extends AuditEventConsumer
             }
         }
 
-        // Preservar metadatos de evidencia
         $v1Shape = [
             'valor'             => $normalizedValor,
             'valores'           => $normalizedValores !== [] ? $normalizedValores : ($normalizedValor !== null ? [$normalizedValor] : []),
@@ -556,7 +548,7 @@ class DocumentNormalizer extends AuditEventConsumer
             return null;
         }
 
-        $normalized = $this->normalizeToken($value);
+        $normalized = AuditFindingRules::normalizeToken($value);
         if (in_array($normalized, ['DIA', 'DIAS'], true)) {
             if ($normalized !== 'DIAS') {
                 $this->appendLog($normalizationLog, 'visual_unit_normalized', ['check' => $check]);
@@ -577,7 +569,7 @@ class DocumentNormalizer extends AuditEventConsumer
             return null;
         }
 
-        $normalized = $this->normalizeToken($value);
+        $normalized = AuditFindingRules::normalizeToken($value);
         $map = [
             'FECHAAUTORIZACION' => 'FechaAutorizacion',
             'FECHADEAUTORIZACION' => 'FechaAutorizacion',
@@ -601,10 +593,6 @@ class DocumentNormalizer extends AuditEventConsumer
         return null;
     }
 
-    private function normalizeToken(string $value): string
-    {
-        return AuditFindingRules::normalizeToken($value);
-    }
 
     /**
      * @return array{0:mixed,1:array<int,string>}
@@ -616,7 +604,7 @@ class DocumentNormalizer extends AuditEventConsumer
         }
 
         if (AuditFieldValueType::fromFieldName($field) === AuditFieldValueType::DATE) {
-            $normalizedDate = $this->normalizeDateString($value);
+            $normalizedDate = AuditFindingRules::normalizeDateToIso($value);
             if ($normalizedDate !== null) {
                 $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];
                 return [$normalizedDate, $operations];
@@ -626,43 +614,12 @@ class DocumentNormalizer extends AuditEventConsumer
         return [$value, []];
     }
 
-    private function normalizeDateString(string $value): ?string
-    {
-        $candidate = trim($value);
-        if ($candidate === '') {
-            return null;
-        }
-
-        $datePortion = preg_split('/\s+/', $candidate, 2)[0] ?? $candidate;
-        if ($datePortion === '') {
-            return null;
-        }
-
-        $formats = [
-            'Y-m-d',
-            'Y/m/d',
-            'd/m/Y',
-            'd-m-Y',
-            'd.m.Y',
-        ];
-
-        foreach ($formats as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
-            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
-                return $parsed->format('Y-m-d');
-            }
-        }
-
-        return null;
-    }
-
     /**
      * @param array<string,mixed> $row
      */
     private function isEmptyRow(array $row): bool
     {
         foreach ($row as $value) {
-            // Shape v1: objeto con 'valor' — revisar internamente
             if (is_array($value) && array_key_exists('valor', $value)) {
                 $inner = $value['valor'];
                 if ($inner !== null && $inner !== '') {

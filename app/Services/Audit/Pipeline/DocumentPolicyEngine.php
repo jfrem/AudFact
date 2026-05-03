@@ -14,7 +14,6 @@ use RuntimeException;
 
 class DocumentPolicyEngine
 {
-
     private ?SemanticMatchJudge $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
@@ -36,7 +35,6 @@ class DocumentPolicyEngine
         $this->resetSemanticMetrics();
 
         $documentType = $this->resolveDocumentType($documentState, $normalizedPayload);
-        $canonicalDocumentType = $this->normalizeDocumentType($documentType);
         $context = $this->buildEvaluationContext($documentState, $documentType);
         $sourceTruth = $this->resolveSourceTruth($documentState);
 
@@ -48,7 +46,7 @@ class DocumentPolicyEngine
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
         $findings = array_merge(
-            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $canonicalDocumentType, $documentType, $documentQuality, $context),
+            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context),
             $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality, $sourceTruth)
         );
 
@@ -122,8 +120,6 @@ class DocumentPolicyEngine
         return DocumentQuality::fromString((string) ($normalizedPayload['document_quality'] ?? ''))->value;
     }
 
-    // ─── Normalizers ──────────────────────────────────────────────────────────
-
     /**
      * @return array<string,mixed>
      */
@@ -185,8 +181,6 @@ class DocumentPolicyEngine
         return $indexed;
     }
 
-    // ─── Fields indexing & type mapping ───────────────────────────────────────
-
     private function indexFieldsByCanonicalName(array $fieldsConfig): array
     {
         $indexed = [];
@@ -196,19 +190,11 @@ class DocumentPolicyEngine
         return $indexed;
     }
 
-    private function mapToInternalType(string $tipoCampo): string
-    {
-        return AuditComparisonType::fromTipoCampo($tipoCampo)->value;
-    }
-
-    // ─── Data field evaluation ────────────────────────────────────────────────
-
     private function evaluateDataFields(
         array $indexedFields,
         array $fields,
         array $items,
         array $sourceTruth,
-        string $canonicalDocumentType,
         string $documentType,
         string $documentQuality,
         array $context
@@ -220,13 +206,11 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            // INFORMATIVO: el campo se incluye en el schema de extracción pero no se audita.
             $rol = strtoupper((string) ($fieldConfig['rol'] ?? 'AUTORITATIVO'));
             if ($rol === 'INFORMATIVO') {
                 continue;
             }
 
-            // Skip por regla condicional (OmitirSi).
             if (AuditFindingRules::shouldSkipByCondition($fieldConfig['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
                 continue;
             }
@@ -239,7 +223,7 @@ class DocumentPolicyEngine
             }
 
             $tipoCampo    = $fieldConfig['tipoCampo'] ?? 'E';
-            $internalType = $this->mapToInternalType($tipoCampo);
+            $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
             $comparison   = $this->evaluateField(
                 $canonicalField,
                 $fdvValue,
@@ -270,10 +254,9 @@ class DocumentPolicyEngine
     ): array {
         $valueType = AuditFieldValueType::fromFieldName($canonicalField);
 
-        // Contrato canónico v1 (AUDIT-016): campos CODE exponen el set tokenizado.
         $valoresDocumento = null;
         if ($valueType === AuditFieldValueType::CODE && $docValue !== null) {
-            $valoresDocumento = $this->tokenizeCodeField($docValue);
+            $valoresDocumento = AuditFindingRules::tokenizeCodeField($docValue);
         }
 
         $finding = [
@@ -293,7 +276,6 @@ class DocumentPolicyEngine
             $finding['valoresDocumento'] = $valoresDocumento;
         }
 
-        // Propagar metadata de evidencia v1 al hallazgo canónico
         if ($evidenceMeta !== []) {
             $finding['_evidencia'] = array_filter($evidenceMeta, fn($v) => $v !== null);
         }
@@ -318,17 +300,16 @@ class DocumentPolicyEngine
         $valueType = AuditFieldValueType::fromFieldName($field);
         $evidenceMeta = [];
 
-        // Intentar resolver desde items[] primero (el dato dice dónde está)
         $itemValues = [];
         foreach ($items as $row) {
             if (!array_key_exists($field, $row)) {
                 continue;
             }
             $unwrapped = $this->unwrapV1($row[$field]);
-            if (!$this->isPresent($unwrapped['valor'])) {
+            if (!AuditFindingRules::isPresent($unwrapped['valor'])) {
                 continue;
             }
-            $itemValues[] = $this->scalarToString($unwrapped['valor']);
+            $itemValues[] = AuditFindingRules::scalarToString($unwrapped['valor']);
             if ($evidenceMeta === []) {
                 $evidenceMeta = $unwrapped['meta'];
             }
@@ -336,9 +317,9 @@ class DocumentPolicyEngine
 
         if ($itemValues !== []) {
             if ($valueType->isQuantitySummable()) {
-                $total = $this->sumNumericValues($itemValues);
+                $total = AuditFindingRules::sumNumericValues($itemValues);
                 if ($total !== null) {
-                    return [$this->formatNumber($total), false, $evidenceMeta];
+                    return [AuditFindingRules::formatNumber($total), false, $evidenceMeta];
                 }
             }
 
@@ -347,16 +328,13 @@ class DocumentPolicyEngine
                 return [$unique[0], false, $evidenceMeta];
             }
 
-            // CAT-1 AUDIT-016: multi-item con valores distintos NO se descarta silenciosamente.
-            // ambiguous=true → evaluateField() emite NO_CONCLUYENTE con detalle explicativo.
             return [null, true, $evidenceMeta];
         }
 
-        // Fallback: resolver desde fields{}
         if (array_key_exists($field, $fields)) {
             $unwrapped = $this->unwrapV1($fields[$field]);
-            if ($this->isPresent($unwrapped['valor'])) {
-                return [$this->scalarToString($unwrapped['valor']), false, $unwrapped['meta']];
+            if (AuditFindingRules::isPresent($unwrapped['valor'])) {
+                return [AuditFindingRules::scalarToString($unwrapped['valor']), false, $unwrapped['meta']];
             }
         }
 
@@ -398,7 +376,7 @@ class DocumentPolicyEngine
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
 
-        $headerValue = $this->extractRowValue($header, $field, $field);
+        $headerValue = $this->extractRowValue($header, $field);
         if ($headerValue !== null) {
             return $headerValue;
         }
@@ -407,11 +385,11 @@ class DocumentPolicyEngine
             return null;
         }
 
-        $itemValues = $this->extractItemValues($items, $field, $field);
+        $itemValues = $this->extractItemValues($items, $field);
 
         if ($valueType->isQuantitySummable()) {
-            $total = $this->sumNumericValues($itemValues);
-            return $total !== null ? $this->formatNumber($total) : null;
+            $total = AuditFindingRules::sumNumericValues($itemValues);
+            return $total !== null ? AuditFindingRules::formatNumber($total) : null;
         }
 
         if ($itemValues === []) {
@@ -426,14 +404,14 @@ class DocumentPolicyEngine
         return null;
     }
 
-    private function extractItemValues(array $items, string $field, ?string $column): array
+    private function extractItemValues(array $items, string $field): array
     {
         $values = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
                 continue;
             }
-            $value = $this->extractRowValue($item, $field, $column);
+            $value = $this->extractRowValue($item, $field);
             if ($value !== null) {
                 $values[] = $value;
             }
@@ -441,35 +419,18 @@ class DocumentPolicyEngine
         return $values;
     }
 
-    private function sumNumericValues(array $values): ?float
-    {
-        $sum        = 0.0;
-        $hasNumeric = false;
-        foreach ($values as $value) {
-            $n = $this->parseNumber((string) $value);
-            if ($n === null) {
-                continue;
-            }
-            $sum        += $n;
-            $hasNumeric  = true;
-        }
-        return $hasNumeric ? $sum : null;
-    }
-
     /**
      * @param  array<string,mixed> $row
      */
-    private function extractRowValue(array $row, string $field, ?string $column): ?string
+    private function extractRowValue(array $row, string $field): ?string
     {
-        $candidate = $row[$field] ?? ($column !== null ? ($row[$column] ?? null) : null);
-        if (!$this->isPresent($candidate)) {
+        $candidate = $row[$field] ?? null;
+        if (!AuditFindingRules::isPresent($candidate)) {
             return null;
         }
 
-        return $this->scalarToString($candidate);
+        return AuditFindingRules::scalarToString($candidate);
     }
-
-    // ─── Field comparison ─────────────────────────────────────────────────────
 
     /**
      * @return array{resultado:string,detalle?:string}
@@ -484,15 +445,18 @@ class DocumentPolicyEngine
         ?string $forcedType = null,
         string $tipoCampo = 'E'
     ): array {
-        if ($ambiguous || $documentQuality !== 'legible') {
-            if ($docValue === null || $ambiguous) {
-                return [
-                    'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                    'detalle'   => $ambiguous
-                        ? 'El campo es ambiguous: el documento contiene múltiples valores distintos para el mismo campo.'
-                        : 'La calidad documental no permite concluir el valor con confianza suficiente.',
-                ];
-            }
+        if ($ambiguous) {
+            return [
+                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+                'detalle'   => 'El campo es ambiguous: el documento contiene múltiples valores distintos para el mismo campo.',
+            ];
+        }
+
+        if ($documentQuality !== 'legible' && $docValue === null) {
+            return [
+                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+                'detalle'   => 'La calidad documental no permite concluir el valor con confianza suficiente.',
+            ];
         }
 
         if ($fdvValue === null && $docValue === null) {
@@ -516,17 +480,14 @@ class DocumentPolicyEngine
 
         $valueType = AuditFieldValueType::fromFieldName($field);
 
-        // CAT-3 AUDIT-016: CODE usa comparación de subconjunto antes del match normal.
         if ($valueType->requiresSubsetComparison()) {
             return $this->evaluateSubsetField($field, $fdvValue, $docValue);
         }
-
-        // CAT-4 AUDIT-016: PERSON_NAME en modo semántico prueba token-sort primero.
-        // Si los tokens son idénticos → COINCIDE con tipo_auditoria=exact (sin llamar a Gemini).
+        
         if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
-            $normalizedFdv = $this->normalizeText($fdvValue);
-            $normalizedDoc = $this->normalizeText($docValue);
-            if ($this->sameTokenSet($normalizedFdv, $normalizedDoc)) {
+            $normalizedFdv = AuditFindingRules::normalizeText($fdvValue);
+            $normalizedDoc = AuditFindingRules::normalizeText($docValue);
+            if (AuditFindingRules::sameTokenSet($normalizedFdv, $normalizedDoc)) {
                 return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
             }
         }
@@ -538,25 +499,18 @@ class DocumentPolicyEngine
         };
     }
 
-    // ─── CAT-3: Subset comparison para campos CODE ────────────────────────────
-
     /**
      * Compara FDV contra un set documental potencialmente multi-código.
      *
      * Normaliza ambos lados, tokeniza el documento y verifica que todos los
      * tokens FDV están presentes en el set documental.
      *
-     * Ejemplos:
-     *   FDV "S202" vs doc "S202, S273, S224" → COINCIDE (S202 ∈ {S202,S273,S224})
-     *   FDV "Z999" vs doc "S202, S273, S224" → VALOR_DISTINTO
-     *   FDV "S202" vs doc "S202"             → COINCIDE (exacto)
-     *
      * @return array{resultado:string,tipo_auditoria:string,detalle?:string}
      */
     private function evaluateSubsetField(string $field, string $fdvValue, string $docValue): array
     {
-        $fdvTokens = $this->tokenizeCodeField($this->normalizeText($fdvValue));
-        $docTokens = $this->tokenizeCodeField($this->normalizeText($docValue));
+        $fdvTokens = AuditFindingRules::tokenizeCodeField(AuditFindingRules::normalizeText($fdvValue));
+        $docTokens = AuditFindingRules::tokenizeCodeField(AuditFindingRules::normalizeText($docValue));
         $docSet    = array_flip($docTokens); // O(1) lookup
 
         $missing = [];
@@ -582,30 +536,11 @@ class DocumentPolicyEngine
     }
 
     /**
-     * Tokeniza un string de códigos separados por coma, punto y coma o barra.
-     * Normaliza cada token (uppercase, sin espacios) y descarta vacíos y duplicados.
-     *
-     * @return string[]
-     */
-    private function tokenizeCodeField(string $value): array
-    {
-        $raw    = preg_split('/[,;\/\s]+/', $value) ?: [];
-        $tokens = [];
-        foreach ($raw as $token) {
-            $normalized = trim((string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($token)));
-            if ($normalized !== '') {
-                $tokens[] = $normalized;
-            }
-        }
-        return array_values(array_unique($tokens));
-    }
-
-    /**
      * @return array{resultado:string,detalle?:string}
      */
     private function evaluateExactField(string $field, string $fdvValue, string $docValue): array
     {
-        if ($this->normalizeForComparison($field, $fdvValue) === $this->normalizeForComparison($field, $docValue)) {
+        if (AuditFindingRules::normalizeForComparison($field, $fdvValue) === AuditFindingRules::normalizeForComparison($field, $docValue)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
@@ -620,18 +555,18 @@ class DocumentPolicyEngine
      */
     private function evaluateSemanticField(string $field, string $fdvValue, string $docValue, array $context, string $tipoCampo = 'S'): array
     {
-        $normalizedFdv = $this->normalizeText($fdvValue);
-        $normalizedDoc = $this->normalizeText($docValue);
+        $normalizedFdv = AuditFindingRules::normalizeText($fdvValue);
+        $normalizedDoc = AuditFindingRules::normalizeText($docValue);
 
-        if ($this->sameTokenSet($normalizedFdv, $normalizedDoc)) {
+        if (AuditFindingRules::sameTokenSet($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && $this->containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
+        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && AuditFindingRules::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        $score     = $this->similarity($normalizedFdv, $normalizedDoc);
+        $score     = AuditFindingRules::similarity($normalizedFdv, $normalizedDoc);
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
         if ($score >= $threshold) {
@@ -662,16 +597,6 @@ class DocumentPolicyEngine
         ];
     }
 
-    private function containsNormalizedSubstring(string $normalizedFdv, string $normalizedDoc): bool
-    {
-        if ($normalizedFdv === '' || $normalizedDoc === '') {
-            return false;
-        }
-
-        return str_contains($normalizedDoc, $normalizedFdv)
-            || str_contains($normalizedFdv, $normalizedDoc);
-    }
-
     /**
      * @return array{resultado:string,detalle?:string}
      */
@@ -681,8 +606,8 @@ class DocumentPolicyEngine
             return $this->evaluateExactField($field, $fdvValue, $docValue);
         }
 
-        $fdvNumber = $this->parseNumber($fdvValue);
-        $docNumber = $this->parseNumber($docValue);
+        $fdvNumber = AuditFindingRules::parseNumber($fdvValue);
+        $docNumber = AuditFindingRules::parseNumber($docValue);
 
         if ($fdvNumber === null || $docNumber === null) {
             return [
@@ -700,8 +625,6 @@ class DocumentPolicyEngine
             'detalle'   => sprintf('Cantidad en documento (%.2f) excede FDV (%.2f).', $docNumber, $fdvNumber),
         ];
     }
-
-    // ─── Visual checks ────────────────────────────────────────────────────────
 
     private function evaluateVisualChecks(
         string $documentType,
@@ -800,8 +723,6 @@ class DocumentPolicyEngine
         ];
     }
 
-    // ─── Decisions & metrics ──────────────────────────────────────────────────
-
     /**
      * @param  array<int,array<string,mixed>> $findings
      * @return array{documentName:string,approved:bool,observation:?string}
@@ -812,7 +733,7 @@ class DocumentPolicyEngine
         $observations = [];
 
         foreach ($findings as $finding) {
-            $resultCase = AuditFindingResult::tryFromString((string) ($finding['resultado'] ?? ''));
+            $resultCase = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
             if ($resultCase !== null && $resultCase->isFailure()) {
                 $approved = false;
                 $detail   = AuditFindingRules::normalizeNullableString($finding['detalle'] ?? null);
@@ -826,211 +747,9 @@ class DocumentPolicyEngine
         $observation  = $observations === [] ? null : implode(' | ', array_slice($observations, 0, 3));
 
         return [
-            'documentName' => str_replace('_', ' ', $this->normalizeDocumentType($documentType)),
+            'documentName' => DocumentExtractionContractBuilder::normalizeDocumentName($documentType),
             'approved'     => $approved,
             'observation'  => $observation,
         ];
-    }
-
-    // ─── Normalization helpers ─────────────────────────────────────────────────
-
-    private function normalizeDocumentType(string $documentType): string
-    {
-        $upper      = strtoupper(trim($documentType));
-        $ascii      = $this->stripAccents($upper);
-        $normalized = str_replace([' ', '-'], '_', $ascii);
-        $normalized = (string) preg_replace('/_+/', '_', $normalized);
-
-        return $normalized;
-    }
-
-    private function normalizeForComparison(string $field, string $value): string
-    {
-        return match (AuditFieldValueType::fromFieldName($field)) {
-            AuditFieldValueType::IDENTITY_DOC_TYPE => $this->normalizeIdentityDocumentTypeForComparison($value),
-            AuditFieldValueType::DATE => $this->normalizeDateForComparison($value) ?? $this->normalizeText($value),
-            AuditFieldValueType::QUANTITY,
-            AuditFieldValueType::MONEY => $this->normalizeNumberForComparison($value),
-            default => $this->normalizeText($value),
-        };
-    }
-
-    private function normalizeNumberForComparison(string $value): string
-    {
-        $number = $this->parseNumber($value);
-        return $number === null ? $this->normalizeText($value) : $this->formatNumber($number);
-    }
-
-    private function normalizeIdentityDocumentTypeForComparison(string $value): string
-    {
-        $normalized = AuditFindingRules::normalizeToken($value);
-
-        return match ($normalized) {
-            'CC', 'CEDULACIUDADANIA', 'CEDULADECIUDADANIA' => 'CC',
-            default => $normalized,
-        };
-    }
-
-    private function normalizeDateForComparison(string $value): ?string
-    {
-        $candidate = trim($value);
-        if ($candidate === '') {
-            return null;
-        }
-
-        $datePortion = preg_split('/\s+/', $candidate, 2)[0] ?? $candidate;
-        if ($datePortion === '') {
-            return null;
-        }
-
-        foreach (['Y-m-d', 'Y/m/d', 'd/m/Y', 'd-m-Y', 'd.m.Y'] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
-            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
-                return $parsed->format('Y-m-d');
-            }
-        }
-
-        return null;
-    }
-
-    private function normalizeText(string $value): string
-    {
-        $trimmed = trim($value);
-        if ($trimmed === '') {
-            return '';
-        }
-
-        $withoutAccents   = $this->stripAccents(strtoupper($trimmed));
-        $alphanumericOnly = (string) preg_replace('/[^A-Z0-9]+/', ' ', $withoutAccents);
-        $normalized       = (string) preg_replace('/\s+/', ' ', trim($alphanumericOnly));
-
-        return $normalized;
-    }
-
-    private function tokenize(string $text): array
-    {
-        return array_values(array_unique(
-            array_filter(explode(' ', $text), static fn(string $t): bool => $t !== '')
-        ));
-    }
-
-    private function sameTokenSet(string $left, string $right): bool
-    {
-        if ($left === '' || $right === '') {
-            return false;
-        }
-
-        $leftTokens  = $this->tokenize($left);
-        $rightTokens = $this->tokenize($right);
-        sort($leftTokens);
-        sort($rightTokens);
-
-        return $leftTokens === $rightTokens;
-    }
-
-    private function similarity(string $left, string $right): float
-    {
-        if ($left === '' || $right === '') {
-            return 0.0;
-        }
-
-        similar_text($left, $right, $similarPercent);
-        $similarScore = $similarPercent / 100;
-
-        $maxLength        = max(strlen($left), strlen($right));
-        $levenshteinScore = $maxLength > 0
-            ? max(0.0, 1 - (levenshtein($left, $right) / $maxLength))
-            : 0.0;
-
-        $leftTokens  = $this->tokenize($left);
-        $rightTokens = $this->tokenize($right);
-        $intersection = array_intersect($leftTokens, $rightTokens);
-        $union        = array_unique(array_merge($leftTokens, $rightTokens));
-        $jaccard      = $union === [] ? 0.0 : (count($intersection) / count($union));
-
-        $composite = ($levenshteinScore * 0.6) + ($jaccard * 0.4);
-        return max($similarScore, $composite);
-    }
-
-    private function isPresent(mixed $value): bool
-    {
-        if ($value === null) {
-            return false;
-        }
-
-        if (is_string($value)) {
-            $trimmed = trim($value);
-            if ($trimmed === '' || strtolower($trimmed) === 'null') {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function scalarToString(mixed $value): string
-    {
-        if (is_string($value)) {
-            return trim($value);
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return $this->formatNumber((float) $value);
-        }
-
-        if (is_bool($value)) {
-            return $value ? '1' : '0';
-        }
-
-        return trim((string) $value);
-    }
-
-    private function parseNumber(string $value): ?float
-    {
-        $normalized = str_replace(' ', '', trim($value));
-        if ($normalized === '') {
-            return null;
-        }
-
-        $hasDot   = str_contains($normalized, '.');
-        $hasComma = str_contains($normalized, ',');
-
-        if ($hasDot && $hasComma) {
-            $lastDot   = strrpos($normalized, '.');
-            $lastComma = strrpos($normalized, ',');
-            if ($lastComma !== false && $lastDot !== false && $lastComma > $lastDot) {
-                $normalized = str_replace(['.', ','], ['', '.'], $normalized);
-            } else {
-                $normalized = str_replace(',', '', $normalized);
-            }
-        } elseif ($hasComma) {
-            $normalized = str_replace(',', '.', $normalized);
-        }
-
-        if (!is_numeric($normalized)) {
-            return null;
-        }
-
-        return (float) $normalized;
-    }
-
-    private function formatNumber(float $value): string
-    {
-        if (abs($value - round($value)) < 0.0000001) {
-            return (string) (int) round($value);
-        }
-
-        $formatted = rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
-        return $formatted === '' ? '0' : $formatted;
-    }
-
-    private function stripAccents(string $value): string
-    {
-        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if ($converted === false) {
-            return $value;
-        }
-
-        return $converted;
     }
 }

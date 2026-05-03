@@ -22,8 +22,6 @@ enum AuditFieldValueType: string
     case CODE              = 'code';              // Codigo*, CUM — subset comparison, multi-valor documental
     case PERSON_NAME       = 'person_name';       // NombrePaciente, Medico, Cliente — token-sort antes de semántico
 
-    // ─── Mapeo desde nombre de campo ─────────────────────────────────────────
-
     /**
      * Detecta el tipo de dato a partir del nombre del campo.
      *
@@ -73,8 +71,6 @@ enum AuditFieldValueType: string
 
         return self::TEXT;
     }
-
-    // ─── Comportamientos para el PolicyEngine ─────────────────────────────────
 
     /**
      * ¿El documento puede traer múltiples valores para este campo?

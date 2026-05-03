@@ -11,17 +11,17 @@ use Core\RedisClient;
 /**
  * Circuit Breaker para llamadas a la API de Gemini.
  *
- * Protege el sistema abriendo el circuito tras N fallos consecutivos
- * y permitiendo un request de prueba (half-open) tras un período de cooldown.
+ * Protege el sistema abriendo el circuito tras N fallos consecutivos.
+ * La transición open→closed ocurre automáticamente vía expiración del TTL
+ * de la key de estado en Redis (no se implementa half-open explícito).
  */
 final class GeminiCircuitBreaker
 {
     private const KEY_STATE = 'cb:gemini:state';
     private const KEY_FAILS = 'cb:gemini:fails';
 
-    private const STATE_CLOSED    = 'closed';
-    private const STATE_OPEN      = 'open';
-    private const STATE_HALF_OPEN = 'half-open';
+    private const STATE_CLOSED = 'closed';
+    private const STATE_OPEN   = 'open';
 
     private RedisClient $redis;
 
@@ -57,10 +57,6 @@ final class GeminiCircuitBreaker
                 503
             );
         }
-
-        if ($state === self::STATE_HALF_OPEN) {
-            Logger::info('Circuit Breaker HALF-OPEN — permitiendo request de prueba');
-        }
     }
 
     /**
@@ -70,15 +66,6 @@ final class GeminiCircuitBreaker
     {
         if (!$this->redis->isAvailable()) {
             return;
-        }
-
-        try {
-            $state = $this->redis->get(self::KEY_STATE);
-            if ($state === self::STATE_HALF_OPEN) {
-                Logger::info('Circuit Breaker: Half-Open → Closed (request exitoso)');
-            }
-        } catch (\Core\RedisUnavailableException $e) {
-            // No es crítico para el flujo de éxito
         }
 
         $this->redis->del(self::KEY_STATE);

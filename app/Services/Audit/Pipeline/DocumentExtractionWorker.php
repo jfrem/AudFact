@@ -14,7 +14,6 @@ use RuntimeException;
 
 final class DocumentExtractionWorker extends AuditEventConsumer
 {
-
     private const DEFAULT_SYSTEM_PROMPT = <<<TEXT
         Eres un extractor documental determinístico.
         Analiza un único documento.
@@ -193,9 +192,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
             $this->buildToolConfig($contract),
             GeminiGateway::TASK_EXTRACTION,
-            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
-                'maxOutputTokens' => 2048,
-            ]),
+            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', []),
             [
                 'dis_det_nro' => $disDetNro,
                 'audit_id' => $event->auditId,
@@ -297,8 +294,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ]);
     }
 
-    // ─── Extraction cache (absorbed from ExtractionCache) ────────────────────
-
     private function cacheGet(string $cacheKey): ?array
     {
         try {
@@ -331,12 +326,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
     }
 
-    private function cacheKey(string $documentHash): string
-    {
-        self::assertHash($documentHash);
-        return "extraction:cache:{$this->extractorVersion}:{$documentHash}";
-    }
-
     private static function assertHash(string $documentHash): void
     {
         if (!preg_match('/^[a-f0-9]{64}$/', $documentHash)) {
@@ -350,16 +339,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
      */
     private function compositeCacheKey(string $documentHash, string $contractHash, string $targetContextHash): string
     {
+        self::assertHash($documentHash);
+
         if ($contractHash === '' || $targetContextHash === '') {
-            // Fallback legacy: solo document_hash + version
-            return $this->cacheKey($documentHash);
+            throw new RuntimeException("Faltan hashes de contrato o contexto para documentHash {$documentHash}");
         }
 
         $composite = hash('sha256', $documentHash . $contractHash . $targetContextHash . $this->extractorVersion);
         return "extraction:cache:v1:{$composite}";
     }
-
-    // ─── Gemini interaction helpers ──────────────────────────────────────────
 
     private function buildSystemPrompt(array $payload): string
     {
@@ -417,7 +405,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $parts[] = 'No colapses cantidades, lotes, fechas de vencimiento ni codigos de articulo en `fields`.';
         }
 
-        // Extracción selectiva: para prescripciones, filtrar items al subconjunto dispensado
         $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload);
         if ($dispensedNames !== []) {
             $parts[] = 'Articulos efectivamente dispensados al paciente (Registro de Dispensación):';
@@ -432,7 +419,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $parts[] = 'Invoca exactamente una vez cada función en el mismo turno: '
             . implode(', ', $this->requiredFunctionNames($contract)) . '.';
 
-        // --- Target context (FDV-lite) con instrucción anti-sesgo ---
         $targetContext = $payload['target_context'] ?? null;
         if (is_array($targetContext)) {
             $parts[] = '';

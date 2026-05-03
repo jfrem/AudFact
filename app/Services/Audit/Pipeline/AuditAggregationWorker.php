@@ -609,7 +609,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
             return 0;
         }
 
-        $diffUs = (int) $now->format('Uu') - (int) $created->format('Uu');
+        $diffUs = ((int) $now->format('U') - (int) $created->format('U')) * 1_000_000
+            + ((int) $now->format('u') - (int) $created->format('u'));
         return max(0, (int) round($diffUs / 1000));
     }
 

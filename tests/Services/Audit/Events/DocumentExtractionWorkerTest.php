@@ -339,6 +339,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             ],
             'extraction_contract' => $this->extractionContract(),
             'attempt' => 1,
+            'contract_hash' => hash('sha256', json_encode($this->extractionContract(), JSON_THROW_ON_ERROR)),
+            'target_context_hash' => hash('sha256', json_encode(['diagnosticos' => ['E119'], 'items' => []], JSON_THROW_ON_ERROR)),
         ];
 
         return AuditEvent::create(

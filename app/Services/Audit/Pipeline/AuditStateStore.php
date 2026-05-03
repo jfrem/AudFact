@@ -11,6 +11,8 @@ use RuntimeException;
 
 class AuditStateStore
 {
+    use JsonRedisStoreTrait;
+
     public const AUDIT_STATUS_PENDING       = 'pending';
     public const AUDIT_STATUS_PROCESSING    = 'processing';
     public const AUDIT_STATUS_COMPLETED     = 'completed';
@@ -56,7 +58,7 @@ class AuditStateStore
             'updated_at'  => $now,
         ];
 
-        $encoded = self::encode($state);
+        $encoded = self::encodeJson($state, 'AuditStateStore');
         return $this->redis->setnx(self::auditKey($auditId), $encoded, self::AUDIT_TTL_SECONDS);
     }
 
@@ -68,7 +70,7 @@ class AuditStateStore
             throw new RuntimeException('Redis no disponible al leer auditoría', 0, $e);
         }
 
-        return $raw === null ? null : self::decode($raw);
+        return $raw === null ? null : self::decodeJson($raw, 'AuditStateStore');
     }
 
     public function updateAuditStatus(string $auditId, string $status): bool
@@ -196,159 +198,124 @@ class AuditStateStore
         return "audit:{$auditId}:state";
     }
 
-    private static function encode(array $data): string
-    {
-        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($json === false) {
-            throw new RuntimeException('AuditStateStore: encoding falló — ' . json_last_error_msg());
-        }
-        return $json;
-    }
-
-    private static function decode(string $raw): array
-    {
-        $data = json_decode($raw, true);
-        if (!is_array($data)) {
-            throw new RuntimeException('AuditStateStore: decoding falló — payload inválido en Redis');
-        }
-        return $data;
-    }
-
-    /**
-     * @param  array<int,string> $keys
-     * @param  array<int,mixed> $args
-     * @param  array<string,mixed> $logContext
-     */
-    private function runScript(string $lua, array $keys, array $args, string $errorMessage, array $logContext): bool
-    {
-        try {
-            $result = $this->redis->eval($lua, $keys, $args);
-        } catch (\Exception $e) {
-            Logger::error($errorMessage, array_merge($logContext, ['error' => $e->getMessage()]));
-            throw new RuntimeException($errorMessage, 0, $e);
-        }
-
-        return (int) $result === 1;
-    }
-
     private const MERGE_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
 
-local state = cjson.decode(raw)
-local patch = cjson.decode(ARGV[1])
+        local state = cjson.decode(raw)
+        local patch = cjson.decode(ARGV[1])
 
-for k, v in pairs(patch) do
-    state[k] = v
-end
+        for k, v in pairs(patch) do
+            state[k] = v
+        end
 
-redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[2]))
-return 1
-LUA;
+        redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[2]))
+        return 1
+    LUA;
 
     private const REGISTER_DOCUMENT_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
 
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local documentState = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
+        local audit = cjson.decode(raw)
+        local documentId = ARGV[1]
+        local documentState = cjson.decode(ARGV[2])
+        local now = ARGV[3]
+        local ttl = tonumber(ARGV[4])
 
-if type(audit['documents']) ~= 'table' then
-    audit['documents'] = {}
-end
+        if type(audit['documents']) ~= 'table' then
+            audit['documents'] = {}
+        end
 
-audit['documents'][documentId] = documentState
-audit['updated_at'] = now
+        audit['documents'][documentId] = documentState
+        audit['updated_at'] = now
 
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
 
     private const DOCUMENT_TRANSITION_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
 
-local audit = cjson.decode(raw)
-local documentId = ARGV[1]
-local patch = cjson.decode(ARGV[2])
-local now = ARGV[3]
-local ttl = tonumber(ARGV[4])
-local counterField = ARGV[5]
-local expectedStatus = ARGV[6]
+        local audit = cjson.decode(raw)
+        local documentId = ARGV[1]
+        local patch = cjson.decode(ARGV[2])
+        local now = ARGV[3]
+        local ttl = tonumber(ARGV[4])
+        local counterField = ARGV[5]
+        local expectedStatus = ARGV[6]
 
-if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
-    return 0
-end
+        if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
+            return 0
+        end
 
-local document = audit['documents'][documentId]
-local previousStatus = tostring(document['status'] or '')
+        local document = audit['documents'][documentId]
+        local previousStatus = tostring(document['status'] or '')
 
-for k, v in pairs(patch) do
-    document[k] = v
-end
+        for k, v in pairs(patch) do
+            document[k] = v
+        end
 
-document['updated_at'] = now
-audit['documents'][documentId] = document
+        document['updated_at'] = now
+        audit['documents'][documentId] = document
 
-if previousStatus ~= expectedStatus then
-    audit[counterField] = (tonumber(audit[counterField]) or 0) + 1
-end
+        if previousStatus ~= expectedStatus then
+            audit[counterField] = (tonumber(audit[counterField]) or 0) + 1
+        end
 
-audit['status'] = 'processing'
-audit['updated_at'] = now
+        audit['status'] = 'processing'
+        audit['updated_at'] = now
 
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
 
     private const STORE_RULES_EVALUATION_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
 
-local audit = cjson.decode(raw)
-if type(audit['rules_evaluated_result']) == 'table' then
-    return 2
-end
+        local audit = cjson.decode(raw)
+        if type(audit['rules_evaluated_result']) == 'table' then
+            return 2
+        end
 
-local payload = cjson.decode(ARGV[1])
-local now = ARGV[2]
-local ttl = tonumber(ARGV[3])
+        local payload = cjson.decode(ARGV[1])
+        local now = ARGV[2]
+        local ttl = tonumber(ARGV[3])
 
-audit['rules_evaluated_result'] = payload
-audit['rules_evaluated_at'] = now
-audit['updated_at'] = now
+        audit['rules_evaluated_result'] = payload
+        audit['rules_evaluated_at'] = now
+        audit['updated_at'] = now
 
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
 
     private const COMPLETE_AUDIT_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
 
-local audit = cjson.decode(raw)
-if tostring(audit['status'] or '') == 'completed'
-or tostring(audit['status'] or '') == 'manual_review'
-or tostring(audit['status'] or '') == 'error'
-or tostring(audit['status'] or '') == 'failed' then
-    return 2
-end
+        local audit = cjson.decode(raw)
+        if tostring(audit['status'] or '') == 'completed'
+        or tostring(audit['status'] or '') == 'manual_review'
+        or tostring(audit['status'] or '') == 'error'
+        or tostring(audit['status'] or '') == 'failed' then
+            return 2
+        end
 
-local patch = cjson.decode(ARGV[1])
-local now = ARGV[2]
-local ttl = tonumber(ARGV[3])
+        local patch = cjson.decode(ARGV[1])
+        local now = ARGV[2]
+        local ttl = tonumber(ARGV[3])
 
-for k, v in pairs(patch) do
-    audit[k] = v
-end
+        for k, v in pairs(patch) do
+            audit[k] = v
+        end
 
-audit['completed_at'] = now
-audit['updated_at'] = now
+        audit['completed_at'] = now
+        audit['updated_at'] = now
 
-redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
-return 1
-LUA;
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
 }

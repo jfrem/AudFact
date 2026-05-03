@@ -201,8 +201,6 @@ class GeminiGateway
         return [$httpCode, $errorMessage];
     }
 
-    // ─── Payload Builder ────────────────────────────────────
-
     /**
      * @param  array<int, array<string, mixed>> $files
      * @param  array<int, array<string, mixed>> $tools
@@ -289,8 +287,6 @@ class GeminiGateway
         ];
     }
 
-    // ─── Debug & Observability ──────────────────────────────
-
     /**
      * @param  array<string, mixed> $requestPayload
      * @param  array<string, mixed> $responseBody
@@ -308,7 +304,7 @@ class GeminiGateway
         }
     }
 
-    private function logApiQuotaHeaders($response): void
+    private function logApiQuotaHeaders(\Psr\Http\Message\ResponseInterface $response): void
     {
         $headers = [
             'remaining' => $response->getHeaderLine('x-ratelimit-remaining'),

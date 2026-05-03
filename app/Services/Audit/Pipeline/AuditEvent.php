@@ -21,6 +21,8 @@ final class AuditEvent
     public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
 
+    private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
+
     public readonly string $eventId;
     public readonly ?string $parentEventId;
     public readonly string $eventType;
@@ -96,7 +98,7 @@ final class AuditEvent
             jobId: $jobId,
             documentId: $documentId,
             timestamp: gmdate('Y-m-d\TH:i:s\Z'),
-            versionExtractor: self::envVersion('AUDIT_VERSION_EXTRACTOR', 'gemini-3.x'),
+            versionExtractor: self::envVersion('AUDIT_VERSION_EXTRACTOR', self::DEFAULT_VERSION_EXTRACTOR),
             versionNormalizer: self::envVersion('AUDIT_VERSION_NORMALIZER', '1.0.0'),
             versionRules: self::envVersion('AUDIT_VERSION_RULES', '1.0.0'),
             payload: $payload,
@@ -131,7 +133,7 @@ final class AuditEvent
                 ? $data['document_id']
                 : null,
             timestamp: (string) $data['timestamp'],
-            versionExtractor: isset($data['version_extractor']) ? (string) $data['version_extractor'] : 'gemini-3.x',
+            versionExtractor: isset($data['version_extractor']) ? (string) $data['version_extractor'] : self::DEFAULT_VERSION_EXTRACTOR,
             versionNormalizer: isset($data['version_normalizer']) ? (string) $data['version_normalizer'] : '1.0.0',
             versionRules: isset($data['version_rules']) ? (string) $data['version_rules'] : '1.0.0',
             payload: $payload,
