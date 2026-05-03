@@ -171,9 +171,8 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $canonical           = $check;
-            $indexed[$canonical] = [
-                'check'    => $canonical,
+            $indexed[$check] = [
+                'check'    => $check,
                 'presente' => (bool) ($row['presente'] ?? false),
                 'detalle'  => AuditFindingRules::normalizeNullableString($row['detalle'] ?? null),
                 'severidad' => AuditSeverity::fromInput((string) ($row['severidad'] ?? ''))->value,
@@ -424,8 +423,7 @@ class DocumentPolicyEngine
             return $unique[0];
         }
 
-        // Multi-valor no-sumable: skipear silenciosamente
-        return $valueType->isQuantitySummable() ? $unique[0] : null;
+        return null;
     }
 
     private function extractItemValues(array $items, string $field, ?string $column): array
@@ -742,13 +740,11 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $canonicalField = $checkName;
-            $displayField   = $canonicalField;
             $severity       = AuditSeverity::fromInput((string) ($checkExpected['severity'] ?? ''))->value;
 
             if ($documentQuality !== 'legible') {
                 $findings[] = $this->buildVisualFinding(
-                    $documentType, $displayField, $severity,
+                    $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
                     'La calidad documental no permite concluir la validación visual.',
                     $rol
@@ -756,10 +752,10 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $foundResult = $results[$canonicalField] ?? null;
+            $foundResult = $results[$checkName] ?? null;
             if (!is_array($foundResult)) {
                 $findings[] = $this->buildVisualFinding(
-                    $documentType, $displayField, $severity,
+                    $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
                     'Check visual esperado no fue evaluado por el modelo.',
                     $rol
@@ -769,7 +765,7 @@ class DocumentPolicyEngine
 
             $isPresent  = (bool) ($foundResult['presente'] ?? false);
             $findings[] = $this->buildVisualFinding(
-                $documentType, $displayField, $severity,
+                $documentType, $checkName, $severity,
                 $isPresent ? 'PRESENTE' : 'AUSENTE',
                 $isPresent ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
                 AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null),
@@ -1027,8 +1023,6 @@ class DocumentPolicyEngine
         $formatted = rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
         return $formatted === '' ? '0' : $formatted;
     }
-
-
 
     private function stripAccents(string $value): string
     {

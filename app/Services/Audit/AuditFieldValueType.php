@@ -10,15 +10,6 @@ namespace App\Services\Audit;
  * Centraliza la detección del "tipo de dato" de un campo, separándola
  * del "tipo de comparación" (AuditComparisonType: E/S/B/V).
  *
- * Reemplaza las heurísticas dispersas anteriores:
- * - AuditComparisonType::isDateField()
- * - AuditComparisonType::isQuantityField()
- * - AuditComparisonType::isNumberField()
- * - DocumentPolicyEngine::isIdentityDocumentTypeField()
- *
- * --- AUDIT-016 ---
- * Agrega CODE y PERSON_NAME para resolver los gaps sistémicos CAT-2, CAT-3 y CAT-4.
- *
  * @see AuditComparisonType para la estrategia de comparación (E/S/B/V).
  */
 enum AuditFieldValueType: string
@@ -124,8 +115,6 @@ enum AuditFieldValueType: string
 
     /**
      * ¿El campo debería representarse como `number` en el schema de Gemini?
-     *
-     * Reemplaza AuditComparisonType::isNumberField().
      */
     public function isNumericForSchema(): bool
     {
@@ -137,8 +126,6 @@ enum AuditFieldValueType: string
      *
      * Solo campos tipo QUANTITY (Cantidad*) se agregan por suma.
      * MONEY (Vlr*) es numérico pero no sumable por esta lógica.
-     *
-     * Reemplaza AuditComparisonType::isQuantityField() en resolveDocumentValue().
      */
     public function isQuantitySummable(): bool
     {

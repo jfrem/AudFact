@@ -223,4 +223,3 @@ final class AuditFindingRules
         return $value !== '';
     }
 }
-

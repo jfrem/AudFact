@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use Core\Env;
 use InvalidArgumentException;
 
 final class AuditEvent
@@ -194,10 +195,7 @@ final class AuditEvent
 
     private static function envVersion(string $key, string $default): string
     {
-        $value = getenv($key);
-        if ($value === false || $value === '') {
-            return $default;
-        }
-        return $value;
+        $value = Env::get($key, '');
+        return $value !== '' ? $value : $default;
     }
 }

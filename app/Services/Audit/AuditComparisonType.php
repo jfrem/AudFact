@@ -30,34 +30,9 @@ enum AuditComparisonType: string
         };
     }
 
-    // ─── Convention-based field type detection ─────────────────────
 
     /** Umbral default para comparación textual local */
     public const DEFAULT_SEMANTIC_THRESHOLD = 0.90;
-
-    /**
-     * @deprecated Usar AuditFieldValueType::fromFieldName($field) === AuditFieldValueType::DATE
-     */
-    public static function isDateField(string $field): bool
-    {
-        return AuditFieldValueType::fromFieldName($field) === AuditFieldValueType::DATE;
-    }
-
-    /**
-     * @deprecated Usar AuditFieldValueType::fromFieldName($field)->isQuantitySummable()
-     */
-    public static function isQuantityField(string $field): bool
-    {
-        return AuditFieldValueType::fromFieldName($field)->isQuantitySummable();
-    }
-
-    /**
-     * @deprecated Usar AuditFieldValueType::fromFieldName($field)->isNumericForSchema()
-     */
-    public static function isNumberField(string $field): bool
-    {
-        return AuditFieldValueType::fromFieldName($field)->isNumericForSchema();
-    }
 
     /**
      * Umbral de similitud textual derivado del TipoCampo de BD.

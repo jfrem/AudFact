@@ -7,7 +7,6 @@ namespace App\Services\Audit\Pipeline;
 use App\Models\AuditStatusModel;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\Debug\GeminiCallMetrics;
-use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use RuntimeException;
 
 final class AuditAggregationWorker extends AuditEventConsumer
@@ -33,38 +32,21 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
     }
 
-    /**
-     * Retorna el stream del consumer.
-     * @return string
-     */
     protected function stream(): string
     {
         return AuditEventPublisher::STREAM_RESULTS;
     }
 
-    /**
-     * Retorna el grupo del consumer.
-     * @return string
-     */
     protected function group(): string
     {
         return 'aggregator';
     }
 
-    /**
-     * Retorna el nombre del consumer.
-     * @return string
-     */
     protected function consumer(): string
     {
         return $this->consumerName;
     }
 
-    /**
-     * Maneja el evento de auditoría.
-     * @param AuditEvent $event
-     * @return void
-     */
     protected function handle(AuditEvent $event): void
     {
         if ($event->eventType !== AuditEvent::TYPE_RULES_EVALUATED) {

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
-use App\Services\Audit\AuditComparisonType;
+use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\DocumentQuality;
 use Core\Logger;
 use RuntimeException;
@@ -367,10 +367,8 @@ class DocumentNormalizer extends AuditEventConsumer
                     continue;
                 }
 
-                $canonical = $name;
-
-                $result[$canonical] = [
-                    'check' => $canonical,
+                $result[$name] = [
+                    'check' => $name,
                     'presente' => false,
                     'detalle' => AuditFindingRules::normalizeNullableString($check['description'] ?? null),
                     'severidad' => $this->normalizeSeverity($check['severity'] ?? null),
@@ -382,7 +380,7 @@ class DocumentNormalizer extends AuditEventConsumer
                 ];
 
                 $this->appendLog($normalizationLog, 'visual_check_defaulted', [
-                    'check' => $canonical,
+                    'check' => $name,
                     'presente' => false,
                 ]);
             }
@@ -409,9 +407,8 @@ class DocumentNormalizer extends AuditEventConsumer
                     continue;
                 }
 
-                $canonical = $name;
-                $base = $result[$canonical] ?? [
-                    'check' => $canonical,
+                $base = $result[$name] ?? [
+                    'check' => $name,
                     'presente' => false,
                     'detalle' => null,
                     'severidad' => 'CRITICO',
@@ -424,13 +421,13 @@ class DocumentNormalizer extends AuditEventConsumer
                 }
 
                 $base['severidad'] = $this->normalizeSeverity($check['severidad'] ?? null);
-                $base['valor'] = $this->normalizeVisualIntegerValue($check['valor'] ?? null, $normalizationLog, $canonical);
-                $base['unidad'] = $this->normalizeVisualUnit($check['unidad'] ?? null, $normalizationLog, $canonical);
-                $base['fecha_base'] = $this->normalizeVisualDateBase($check['fecha_base'] ?? null, $normalizationLog, $canonical);
-                $result[$canonical] = $base;
+                $base['valor'] = $this->normalizeVisualIntegerValue($check['valor'] ?? null, $normalizationLog, $name);
+                $base['unidad'] = $this->normalizeVisualUnit($check['unidad'] ?? null, $normalizationLog, $name);
+                $base['fecha_base'] = $this->normalizeVisualDateBase($check['fecha_base'] ?? null, $normalizationLog, $name);
+                $result[$name] = $base;
 
                 $this->appendLog($normalizationLog, 'visual_check_result_normalized', [
-                    'check' => $canonical,
+                    'check' => $name,
                     'presente' => $base['presente'],
                 ]);
             }
@@ -511,8 +508,6 @@ class DocumentNormalizer extends AuditEventConsumer
 
         return [null, ['unsupported_value_to_null']];
     }
-
-
 
     private function normalizeSeverity(mixed $value): string
     {
@@ -620,7 +615,7 @@ class DocumentNormalizer extends AuditEventConsumer
             return [$value, []];
         }
 
-        if (AuditComparisonType::isDateField($field)) {
+        if (AuditFieldValueType::fromFieldName($field) === AuditFieldValueType::DATE) {
             $normalizedDate = $this->normalizeDateString($value);
             if ($normalizedDate !== null) {
                 $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];
@@ -660,8 +655,6 @@ class DocumentNormalizer extends AuditEventConsumer
 
         return null;
     }
-
-
 
     /**
      * @param array<string,mixed> $row
