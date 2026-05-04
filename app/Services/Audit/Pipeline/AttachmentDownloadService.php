@@ -55,8 +55,6 @@ final class AttachmentDownloadService implements AttachmentDownloadServiceInterf
         );
     }
 
-    // ─── Resolución Drive ─────────────────────────────────────────────────────
-
     /**
      * @param  array<string,mixed> $attachment
      * @return array{mime:string,data:string,duration_ms:int}
@@ -93,8 +91,6 @@ final class AttachmentDownloadService implements AttachmentDownloadServiceInterf
 
         return ['mime' => $mime, 'data' => $data, 'duration_ms' => $durationMs];
     }
-
-    // ─── Resolución BLOB ──────────────────────────────────────────────────────
 
     /**
      * @param  array<string,mixed> $attachment  Metadata row (para detectar MIME por nombre)

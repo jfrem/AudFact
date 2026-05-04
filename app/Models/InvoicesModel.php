@@ -32,8 +32,8 @@ class InvoicesModel extends Model
 
         // Determinar condición de fecha principal
         $dateConditionD = $dateTo
-            ? "d.Fecha_solicitud >= :dateFromD AND d.Fecha_solicitud <= :dateToD"
-            : "d.Fecha_solicitud = :dateFromD";
+            ? "tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD"
+            : "tb1.DisFecSol = :dateFromD";
 
         $safeLimit = (int) $limit;
         $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb2.DisId facsec,tb2.DisDetNro Dispensa
@@ -61,7 +61,7 @@ class InvoicesModel extends Model
                     GROUP BY a.DisId,a.DisDetId
                 )docadj on docadj.DisId=tb2.DisId and docadj.DisDetId=tb2.DisDetId
                 WHERE t.FueCod='DISP' and tb2.DisDetEst in ('A','P') and tb4.KarUni>0
-                and tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD
+                and {$dateConditionD}
                     AND tb3.FacNitSec = :facNitSec
                     AND tb2.DisTip in ('P','M')
                     AND tb2.DisDetEst = 'A'

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Services\Audit;
 
 use App\Services\Audit\Pipeline\DocumentPolicyEngine;
+use App\Services\Audit\Pipeline\ExtractedEvidence;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -213,10 +214,33 @@ class GoldenSetReplayTest extends TestCase
      */
     private function buildPayload(array $doc): array
     {
+        $rawFields = $doc['fields'] ?? [];
+        $rawItems = $doc['items'] ?? [];
+
+        $hydratedFields = [];
+        foreach ($rawFields as $key => $value) {
+            $raw = is_array($value) && array_key_exists('valor', $value)
+                ? $value
+                : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+            $hydratedFields[$key] = ExtractedEvidence::fromArray($raw);
+        }
+
+        $hydratedItems = [];
+        foreach ($rawItems as $item) {
+            $hydratedItem = [];
+            foreach ($item as $key => $value) {
+                $raw = is_array($value) && array_key_exists('valor', $value)
+                    ? $value
+                    : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+                $hydratedItem[$key] = ExtractedEvidence::fromArray($raw);
+            }
+            $hydratedItems[] = $hydratedItem;
+        }
+
         return [
             'tipo_documento'       => $doc['document_type'],
-            'fields_normalized'    => $doc['fields'] ?? [],
-            'items_normalized'     => $doc['items'] ?? [],
+            'fields_normalized'    => $hydratedFields,
+            'items_normalized'     => $hydratedItems,
             'document_quality'     => $doc['document_quality'] ?? 'legible',
             'visual_checks_resultado' => [],
         ];

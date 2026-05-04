@@ -65,6 +65,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Componente | Responsabilidad |
 |---|---|
+| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), slots y rollback transaccional |
+| `ClientConfigurationService.php` | Centraliza obtención y guardado de configuración de campos (base + visuales) por cliente |
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) + detección de tipo por convención |
 | `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
 | `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |

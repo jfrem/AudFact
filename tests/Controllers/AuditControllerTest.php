@@ -481,7 +481,7 @@ final class StubBatchJobStore extends BatchJobStore
     public function getJob(string $jobId): ?array
     {
         if ($this->getJobThrows) {
-            throw new RuntimeException('Redis no disponible');
+            throw new RuntimeException('Redis no disponible', 503);
         }
         return $this->getJobReturns;
     }
@@ -503,7 +503,7 @@ final class InMemoryAuditEventPublisher extends AuditEventPublisher
     {
         $nextIndex = count($this->published) + 1;
         if ($this->throwOnPublish || ($this->throwOnPublishAt !== null && $nextIndex === $this->throwOnPublishAt)) {
-            throw new RuntimeException('Redis no disponible');
+            throw new RuntimeException('Redis no disponible', 503);
         }
 
         $this->published[] = $event;

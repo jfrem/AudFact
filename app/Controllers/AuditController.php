@@ -7,6 +7,8 @@ namespace App\Controllers;
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
 use App\Models\InvoicesModel;
+use App\Services\Audit\AuditBatchOrchestrator;
+use App\Services\Audit\ClientConfigurationService;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
@@ -227,9 +229,9 @@ class AuditController extends Controller
     {
         $data = $this->validate([
             'facNitSec' => 'required|integer|min_value:1',
-            'date' => 'required|date',
-            'dateTo' => 'optional|date',
-            'limit' => 'nullable|integer|min_value:1|max_value:100',
+            'date'      => 'required|date',
+            'dateTo'    => 'optional|date',
+            'limit'     => 'nullable|integer|min_value:1|max_value:100',
         ]);
 
         $dateFrom = (string) $data['date'];
@@ -246,146 +248,22 @@ class AuditController extends Controller
         $facNitSec = (int) $data['facNitSec'];
         $limit = isset($data['limit']) ? (int) $data['limit'] : 100;
 
-        $stateStore = $this->buildStateStore();
-        $jobStore = $this->buildBatchJobStore();
-        $publisher = $this->buildEventPublisher();
-
-        $jobId = AuditEvent::uuidV4();
-        $batchSlotClaimed = false;
-        $jobInitialized = false;
-        $createdAuditIds = [];
-        $total = 0;
-        $responseStatus = BatchJobStore::JOB_STATUS_PENDING;
+        $orchestrator = new AuditBatchOrchestrator(
+            $this->buildStateStore(),
+            $this->buildBatchJobStore(),
+            $this->buildEventPublisher(),
+            $this->getInvoicesModel()
+        );
 
         try {
-            $claimed = $jobStore->claimBatchSlot($facNitSec, $dateFrom, $dateTo, $jobId);
-            if (!$claimed) {
-                Response::error(
-                    'Ya existe un batch activo para el cliente y rango solicitado',
-                    409
-                );
-            }
-            $batchSlotClaimed = true;
-
-            $invoices = $this->getInvoicesModel()->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
-
-            if (!$jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit)) {
-                throw new RuntimeException('No se pudo inicializar el job');
-            }
-            $jobInitialized = true;
-
-            $publisher->publish(AuditEvent::create(
-                eventType: AuditEvent::TYPE_BATCH_CREATED,
-                auditId: null,
-                jobId: $jobId,
-                documentId: null,
-                payload: [
-                    'fac_nit_sec' => (string) $facNitSec,
-                    'date_from'   => $dateFrom,
-                    'date_to'     => $dateTo,
-                    'limit'       => $limit,
-                    'total'       => count($invoices),
-                ],
-            ));
-
-            foreach ($invoices as $invoice) {
-                $disDetNro = isset($invoice['Dispensa']) ? trim((string) $invoice['Dispensa']) : '';
-                $facSec = isset($invoice['FacSec']) ? trim((string) $invoice['FacSec']) : '';
-                if ($disDetNro === '' || $facSec === '') {
-                    Logger::warning('AuditController::async factura inválida, omitida', [
-                        'job_id' => $jobId,
-                        'invoice' => $invoice,
-                    ]);
-                    continue;
-                }
-
-                $auditId = AuditEvent::uuidV4();
-                if (!$stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $facSec)) {
-                    Logger::warning('AuditController::async no se pudo inicializar auditoría', [
-                        'job_id' => $jobId,
-                        'audit_id' => $auditId,
-                    ]);
-                    continue;
-                }
-
-                $createdAuditIds[] = $auditId;
-
-                if (!$jobStore->registerAuditInJob($jobId, $auditId, $disDetNro)) {
-                    throw new RuntimeException('No se pudo registrar la auditoría en el job');
-                }
-
-                $publisher->publish(AuditEvent::create(
-                    eventType: AuditEvent::TYPE_AUDIT_CREATED,
-                    auditId: $auditId,
-                    jobId: $jobId,
-                    documentId: null,
-                    payload: [
-                        'dis_det_nro' => $disDetNro,
-                        'fac_nit_sec' => (string) $facNitSec,
-                        'fac_sec'     => $facSec,
-                        'source'      => 'batch',
-                    ],
-                ));
-
-                $total++;
-            }
-
-            if ($total === 0) {
-                $jobStore->patchJob($jobId, [
-                    'status' => BatchJobStore::JOB_STATUS_COMPLETED,
-                    'total'  => 0,
-                ]);
-                $publisher->publish(AuditEvent::create(
-                    eventType: AuditEvent::TYPE_BATCH_COMPLETED,
-                    auditId: null,
-                    jobId: $jobId,
-                    payload: [
-                        'status' => BatchJobStore::JOB_STATUS_COMPLETED,
-                        'total'  => 0,
-                        'done'   => 0,
-                        'failed' => 0,
-                    ],
-                ));
-                $responseStatus = BatchJobStore::JOB_STATUS_COMPLETED;
-            }
-        } catch (HttpResponseException $e) {
-            $this->cleanupAsyncEnqueueState(
-                $stateStore,
-                $jobStore,
-                $facNitSec,
-                $dateFrom,
-                $dateTo,
-                $jobId,
-                $batchSlotClaimed,
-                $jobInitialized,
-                $createdAuditIds
-            );
-            throw $e;
+            $result = $orchestrator->enqueueBatch($facNitSec, $dateFrom, $dateTo, $limit);
         } catch (RuntimeException $e) {
-            $this->cleanupAsyncEnqueueState(
-                $stateStore,
-                $jobStore,
-                $facNitSec,
-                $dateFrom,
-                $dateTo,
-                $jobId,
-                $batchSlotClaimed,
-                $jobInitialized,
-                $createdAuditIds
-            );
-            Logger::error('AuditController::async falló encolando batch', [
-                'job_id' => $jobId,
-                'error' => $e->getMessage(),
-            ]);
-            Response::error('No se pudo encolar el batch', 503);
+            $code = $e->getCode() !== 0 ? $e->getCode() : 500;
+            Response::error($e->getMessage(), $code);
         }
 
         Response::success(
-            [
-                'job_id' => $jobId,
-                'status' => $responseStatus,
-                'total'  => $total,
-            ],
+            $result,
             'Batch de auditoría encolado',
             202,
         );
@@ -447,113 +325,26 @@ class AuditController extends Controller
         ];
     }
 
-    private function cleanupAsyncEnqueueState(
-        AuditStateStore $stateStore,
-        BatchJobStore $jobStore,
-        int $facNitSec,
-        string $dateFrom,
-        ?string $dateTo,
-        string $jobId,
-        bool $batchSlotClaimed,
-        bool $jobInitialized,
-        array $createdAuditIds
-    ): void {
-        foreach (array_reverse($createdAuditIds) as $auditId) {
-            $stateStore->deleteAudit($auditId);
-        }
 
-        if ($jobInitialized) {
-            $jobStore->deleteJob($jobId);
-        }
-
-        if ($batchSlotClaimed) {
-            $jobStore->releaseBatchSlot($facNitSec, $dateFrom, $dateTo);
-        }
-    }
 
     public function configByClient(string $clientId): void
     {
-        $model = $this->buildAuditStatusModel();
-        $config = $model->getConfigByClient($clientId);
+        $service = new ClientConfigurationService($this->buildAuditStatusModel(), new AttachmentsModel());
+        $config = $service->getConfigForClient($clientId);
 
-        if (!$config) {
+        if ($config === null) {
             Response::error('Cliente no encontrado o sin configuración', 404);
         }
 
-        // Obtener catálogo de campos por documento
-        $attModel = new AttachmentsModel();
-        $documents = $attModel->getDocumentTypes();
-        
-        $configDocs = [];
-        foreach ($documents as $doc) {
-            $docName = $doc['DocumentoNombre'];
-            $docId = (int)$doc['DocumentoId'];
-            
-            // Mezclar campos de AudDispEst (datos exactos/semánticos) y AdjuntosDispensacion (visuales)
-            $fields = [];
-            
-            // Campos de la tabla AudDispEst (Datos principales)
-            // Aquí usamos una lista predefinida o la obtenemos de la lógica del modelo
-            $baseFields = [
-                'NITCliente', 'TipoDocumentoPaciente', 'DocumentoPaciente', 'NombrePaciente',
-                'RegimenPaciente', 'CodigoDiagnostico', 'FechaFormula', 'FechaAutorizacion',
-                'NumeroAutorizacion', 'CodigoArticulo', 'CodigoProducto', 'CUM', 'Lote',
-                'FechaVencimiento', 'Mipres', 'VlrCobrado', 'Cliente', 'IPS', 'Medico',
-                'NombreArticulo', 'Laboratorio', 'CantidadEntregada', 'CantidadPrescrita'
-            ];
-
-            foreach ($baseFields as $fieldName) {
-                // Buscar override en la config del cliente
-                $override = $config['documents'][$docName]['fields'][$fieldName] ?? null;
-
-                $fields[] = [
-                    'campoNombre' => $fieldName,
-                    'tipoCampo' => $override['tipoCampo'] ?? 'E', // Default: Exacto
-                    'enabled' => $override['enabled'] ?? true,
-                    'descripcionOverride' => $override['descripcionOverride'] ?? '',
-                    'severityOverride' => $override['severityOverride'] ?? 'ALTA',
-                    'rol' => $override['rol'] ?? 'AUTORITATIVO',
-                    'omitirSi' => $override['omitirSi'] ?? null,
-                ];
-            }
-
-            // Campos visuales específicos de este documento (AdjuntosDispensacion)
-            $visualFields = $attModel->getFieldsByDocument($docId);
-            foreach ($visualFields as $vf) {
-                $fieldName = $vf['CampoNombre'];
-                $override = $config['documents'][$docName]['fields'][$fieldName] ?? null;
-
-                $fields[] = [
-                    'campoNombre' => $fieldName,
-                    'tipoCampo' => 'V', // Visual
-                    'enabled' => $override['enabled'] ?? true,
-                    'descripcionOverride' => $override['descripcionOverride'] ?? $vf['CampoDescripcion'],
-                    'severityOverride' => $override['severityOverride'] ?? 'ALTA',
-                    'rol' => $override['rol'] ?? 'AUTORITATIVO',
-                    'omitirSi' => $override['omitirSi'] ?? null,
-                ];
-            }
-
-            $configDocs[$docName] = [
-                'docId' => $docId,
-                'fields' => $fields
-            ];
-        }
-
-        Response::success([
-            'nitSec' => $config['nitSec'],
-            'activo' => $config['activo'],
-            'systemPrompt' => $config['systemPrompt'],
-            'documents' => $configDocs
-        ], 'Configuración de auditoría recuperada');
+        Response::success($config, 'Configuración de auditoría recuperada');
     }
 
     public function saveAuditConfig(string $clientId): void
     {
         $data = $this->getJsonBody();
         
-        $model = $this->buildAuditStatusModel();
-        $success = $model->saveConfigByClient($clientId, $data);
+        $service = new ClientConfigurationService($this->buildAuditStatusModel(), new AttachmentsModel());
+        $success = $service->saveConfigForClient($clientId, $data);
 
         if ($success) {
             Response::success(null, 'Configuración guardada exitosamente');

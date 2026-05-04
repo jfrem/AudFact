@@ -239,7 +239,7 @@ final class DocumentNormalizer extends AuditEventConsumer
      * @param  array<string,mixed>            $evidence  Objeto v1 {valor, valores, presente, ...}
      * @param  array<int,array<string,mixed>> $log
      * @param  array<string,mixed>            $logContext
-     * @return array{0:string,1:array<string,mixed>}
+     * @return array{0:string,1:ExtractedEvidence}
      */
     private function normalizeEvidenceField(
         string $originalField,
@@ -264,35 +264,22 @@ final class DocumentNormalizer extends AuditEventConsumer
             }
         }
 
-        $v1Shape = [
-            'valor'             => $normalizedValor,
-            'valores'           => $normalizedValores !== [] ? $normalizedValores : ($normalizedValor !== null ? [$normalizedValor] : []),
-            'presente'          => (bool) ($evidence['presente'] ?? ($normalizedValor !== null)),
-            'confianza'         => AuditFindingRules::normalizeNullableString($evidence['confianza'] ?? null),
-            'estadoExtraccion'  => $this->normalizeEstadoExtraccion($evidence['estadoExtraccion'] ?? null),
-            'evidencia'         => AuditFindingRules::normalizeNullableString($evidence['evidencia'] ?? null),
-            'ubicacion'         => AuditFindingRules::normalizeNullableString($evidence['ubicacion'] ?? null),
-        ];
+        $dto = new ExtractedEvidence(
+            valor: $normalizedValor,
+            valores: $normalizedValores !== [] ? $normalizedValores : ($normalizedValor !== null ? [$normalizedValor] : []),
+            presente: (bool) ($evidence['presente'] ?? ($normalizedValor !== null)),
+            confianza: AuditFindingRules::normalizeNullableString($evidence['confianza'] ?? null),
+            estadoExtraccion: ExtractionState::fromInput($evidence['estadoExtraccion'] ?? null),
+            evidencia: AuditFindingRules::normalizeNullableString($evidence['evidencia'] ?? null),
+            ubicacion: AuditFindingRules::normalizeNullableString($evidence['ubicacion'] ?? null),
+        );
 
         $this->appendLog($log, 'v1_evidence_normalized', array_merge($logContext, ['field' => $originalField]));
 
-        return [$originalField, $v1Shape];
+        return [$originalField, $dto];
     }
 
-    /**
-     * Normaliza el enum estadoExtraccion a valores válidos.
-     */
-    private function normalizeEstadoExtraccion(mixed $value): string
-    {
-        if (!is_string($value)) {
-            return 'FOUND';
-        }
 
-        $upper = strtoupper(trim($value));
-        $valid = ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'];
-
-        return in_array($upper, $valid, true) ? $upper : 'FOUND';
-    }
 
     /**
      * @param array<int,array<string,mixed>> $normalizationLog
@@ -589,9 +576,8 @@ final class DocumentNormalizer extends AuditEventConsumer
     private function isEmptyRow(array $row): bool
     {
         foreach ($row as $value) {
-            if (is_array($value) && array_key_exists('valor', $value)) {
-                $inner = $value['valor'];
-                if ($inner !== null && $inner !== '') {
+            if ($value instanceof ExtractedEvidence) {
+                if ($value->valor !== null && $value->valor !== '') {
                     return false;
                 }
             }

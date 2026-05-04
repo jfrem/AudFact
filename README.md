@@ -24,7 +24,7 @@ AudFact/
 │   ├── Controllers/       # 8 controladores HTTP (incluye base)
 │   ├── Models/            # 6 modelos SQL Server (incluye base)
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
-│   ├── Services/Audit/    # Events/ (workers, policy, agregación y persistencia)
+│   ├── Services/Audit/    # Pipeline/ (workers, policy, agregación y persistencia)
 │   ├── Routes/            # web.php (definición de rutas)
 │   └── wrap/              # Integración MCP (4 tools)
 ├── bin/                   # Workers CLI event-driven

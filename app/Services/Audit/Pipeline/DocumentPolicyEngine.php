@@ -121,15 +121,26 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @return array<string,mixed>
+     * @return array<string,ExtractedEvidence>
      */
     private function normalizeAssociative(mixed $value): array
     {
-        return is_array($value) ? $value : [];
+        if (!is_array($value)) {
+            return [];
+        }
+        $hydrated = [];
+        foreach ($value as $k => $v) {
+            if (is_array($v)) {
+                $hydrated[$k] = ExtractedEvidence::fromArray($v);
+            } elseif ($v instanceof ExtractedEvidence) {
+                $hydrated[$k] = $v;
+            }
+        }
+        return $hydrated;
     }
 
     /**
-     * @return array<int,array<string,mixed>>
+     * @return array<int,array<string,ExtractedEvidence>>
      */
     private function normalizeRows(mixed $value): array
     {
@@ -139,9 +150,18 @@ class DocumentPolicyEngine
 
         $rows = [];
         foreach ($value as $row) {
-            if (is_array($row)) {
-                $rows[] = $row;
+            if (!is_array($row)) {
+                continue;
             }
+            $hydratedRow = [];
+            foreach ($row as $k => $v) {
+                if (is_array($v)) {
+                    $hydratedRow[$k] = ExtractedEvidence::fromArray($v);
+                } elseif ($v instanceof ExtractedEvidence) {
+                    $hydratedRow[$k] = $v;
+                }
+            }
+            $rows[] = $hydratedRow;
         }
 
         return $rows;
@@ -284,9 +304,9 @@ class DocumentPolicyEngine
     }
 
     /**
-     * Boundary de conversión v1→escalar.
+     * Boundary de conversión DTO→escalar.
      *
-     * Este es el ÚNICO punto donde shapes v1 de evidencia se convierten a escalares.
+     * Este es el ÚNICO punto donde ExtractedEvidence se convierte a escalares.
      * Todo lo que está downstream (evaluateField, evaluateExactField, etc.) recibe solo strings.
      * La metadata de evidencia (confianza, estadoExtraccion, evidencia, ubicacion) se extrae
      * aquí y se propaga al hallazgo canónico por separado.
@@ -305,22 +325,16 @@ class DocumentPolicyEngine
             if (!array_key_exists($field, $row)) {
                 continue;
             }
-            $v1Shape = $row[$field];
-            if (!is_array($v1Shape) || !array_key_exists('valor', $v1Shape)) {
+            $cell = $row[$field];
+            if (!$cell instanceof ExtractedEvidence) {
                 continue;
             }
-            if (!AuditFindingRules::isPresent($v1Shape['valor'])) {
+            if (!AuditFindingRules::isPresent($cell->valor)) {
                 continue;
             }
-            $itemValues[] = AuditFindingRules::scalarToString($v1Shape['valor']);
+            $itemValues[] = AuditFindingRules::scalarToString($cell->valor);
             if ($evidenceMeta === []) {
-                $evidenceMeta = [
-                    'confianza'        => $v1Shape['confianza'] ?? null,
-                    'estadoExtraccion' => $v1Shape['estadoExtraccion'] ?? null,
-                    'evidencia'        => $v1Shape['evidencia'] ?? null,
-                    'ubicacion'        => $v1Shape['ubicacion'] ?? null,
-                    'valores'          => $v1Shape['valores'] ?? null,
-                ];
+                $evidenceMeta = $cell->extractMeta();
             }
         }
 
@@ -341,16 +355,9 @@ class DocumentPolicyEngine
         }
 
         if (array_key_exists($field, $fields)) {
-            $v1Shape = $fields[$field];
-            if (is_array($v1Shape) && array_key_exists('valor', $v1Shape) && AuditFindingRules::isPresent($v1Shape['valor'])) {
-                $meta = [
-                    'confianza'        => $v1Shape['confianza'] ?? null,
-                    'estadoExtraccion' => $v1Shape['estadoExtraccion'] ?? null,
-                    'evidencia'        => $v1Shape['evidencia'] ?? null,
-                    'ubicacion'        => $v1Shape['ubicacion'] ?? null,
-                    'valores'          => $v1Shape['valores'] ?? null,
-                ];
-                return [AuditFindingRules::scalarToString($v1Shape['valor']), false, $meta];
+            $cell = $fields[$field];
+            if ($cell instanceof ExtractedEvidence && AuditFindingRules::isPresent($cell->valor)) {
+                return [AuditFindingRules::scalarToString($cell->valor), false, $cell->extractMeta()];
             }
         }
 

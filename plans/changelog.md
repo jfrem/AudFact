@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-05-03] — Clean Controller: Delegación de Orquestación y Configuración (AUDIT-022)
+
+### 🔵 Architecture / Refactor
+- **AUDIT-022**: Refactorización de `AuditController` hacia el patrón *Thin Controller*, delegando la lógica de negocio a servicios especializados.
+  - **`AuditBatchOrchestrator`**: Creado para encapsular el encolamiento asíncrono, la reserva de slots concurrentes en Redis (`BatchJobStore`), la inicialización del estado (`AuditStateStore`) y el rollback transaccional en caso de fallos de persistencia.
+  - **`ClientConfigurationService`**: Creado para abstraer la consolidación dinámica de la configuración de auditoría (mezcla de campos hardcodeados y visuales de la DB) y su persistencia.
+  - **Resultado**: El controlador `AuditController` redujo su tamaño y complejidad drásticamente (de 614 a 427 líneas). Las responsabilidades transaccionales ahora residen en clases testeables e independientes.
+  - **Fix adicional**: Corregido bug en `InvoicesModelTest` donde las pruebas fallaban al depender de lógica condicional obsoleta (`$dateConditionD`).
+  - **Validación**: 100% verde (174/174 tests, 568 assertions).
+  - **Archivos creados**: `AuditBatchOrchestrator.php`, `ClientConfigurationService.php`.
+  - **Archivos modificados**: `AuditController.php`, `AuditControllerTest.php`, `InvoicesModel.php`, `InvoicesModelTest.php`.
+
 ## [2026-05-03] — Clean Rebuild: Erradicación de Legacy en Pipeline (AUDIT-021)
 
 ### 🧹 Cleanup / Refactor

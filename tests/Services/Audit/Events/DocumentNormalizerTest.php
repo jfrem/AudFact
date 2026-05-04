@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\DocumentNormalizer;
+use App\Services\Audit\Pipeline\ExtractedEvidence;
+use App\Services\Audit\Pipeline\ExtractionState;
 use PHPUnit\Framework\TestCase;
 
 final class DocumentNormalizerTest extends TestCase
@@ -52,28 +54,29 @@ final class DocumentNormalizerTest extends TestCase
 
         $this->assertSame('DISPENSA', $result['tipo_documento']);
 
-        // Fields ahora son shapes v1 — verificar estructura
+        // Fields ahora son ExtractedEvidence — verificar estructura
         $numAut = $result['fields_normalized']['NumeroAutorizacion'];
-        $this->assertSame('46338218', $numAut['valor']);
-        $this->assertTrue($numAut['presente']);
-        $this->assertSame('FOUND', $numAut['estadoExtraccion']);
-        $this->assertSame(['46338218'], $numAut['valores']);
+        $this->assertInstanceOf(ExtractedEvidence::class, $numAut);
+        $this->assertSame('46338218', $numAut->valor);
+        $this->assertTrue($numAut->presente);
+        $this->assertSame(ExtractionState::FOUND, $numAut->estadoExtraccion);
+        $this->assertSame(['46338218'], $numAut->valores);
 
         $docPac = $result['fields_normalized']['DocumentoPaciente'];
-        $this->assertSame('123456789', $docPac['valor']);
+        $this->assertSame('123456789', $docPac->valor);
 
         $nombrePac = $result['fields_normalized']['NombrePaciente'];
-        $this->assertNull($nombrePac['valor']);
-        $this->assertFalse($nombrePac['presente']);
-        $this->assertSame('NOT_FOUND', $nombrePac['estadoExtraccion']);
+        $this->assertNull($nombrePac->valor);
+        $this->assertFalse($nombrePac->presente);
+        $this->assertSame(ExtractionState::NOT_FOUND, $nombrePac->estadoExtraccion);
 
         $this->assertArrayNotHasKey('CodigoArticulo', $result['fields_normalized']);
         $this->assertArrayNotHasKey('CantidadEntregada', $result['fields_normalized']);
 
-        // Items: cada campo es shape v1
+        // Items: cada campo es ExtractedEvidence
         $this->assertCount(2, $result['items_normalized']);
-        $this->assertSame('IM01273', $result['items_normalized'][0]['CodigoArticulo']['valor']);
-        $this->assertSame('20', $result['items_normalized'][0]['CantidadEntregada']['valor']);
+        $this->assertSame('IM01273', $result['items_normalized'][0]['CodigoArticulo']->valor);
+        $this->assertSame('20', $result['items_normalized'][0]['CantidadEntregada']->valor);
 
         $this->assertSame(true, $result['visual_checks_resultado'][0]['presente']);
         $this->assertSame('Firma visible', $result['visual_checks_resultado'][0]['detalle']);
@@ -141,17 +144,19 @@ final class DocumentNormalizerTest extends TestCase
             ],
         ]);
 
-        // Fields: shapes v1 con fecha normalizada
+        // Fields: ExtractedEvidence con fecha normalizada
         $fechaEntrega = $result['fields_normalized']['FechaEntrega'];
-        $this->assertSame('2025-07-29', $fechaEntrega['valor']);
-        $this->assertTrue($fechaEntrega['presente']);
+        $this->assertInstanceOf(ExtractedEvidence::class, $fechaEntrega);
+        $this->assertSame('2025-07-29', $fechaEntrega->valor);
+        $this->assertTrue($fechaEntrega->presente);
 
         $fechaAut = $result['fields_normalized']['FechaAutorizacion'];
-        $this->assertSame('2025-07-27', $fechaAut['valor']);
+        $this->assertSame('2025-07-27', $fechaAut->valor);
 
-        // Items: shape v1 con fecha normalizada
+        // Items: ExtractedEvidence con fecha normalizada
         $fechaVenc = $result['items_normalized'][0]['FechaVencimiento'];
-        $this->assertSame('2029-03-30', $fechaVenc['valor']);
+        $this->assertInstanceOf(ExtractedEvidence::class, $fechaVenc);
+        $this->assertSame('2029-03-30', $fechaVenc->valor);
         $this->assertContains('date_normalized_to_iso', array_column($result['normalization_log'], 'operation'));
     }
 
@@ -245,25 +250,26 @@ final class DocumentNormalizerTest extends TestCase
             ],
         ]);
 
-        // CodigoDiagnostico: v1 preservada con tokens
+        // CodigoDiagnostico: ExtractedEvidence preservada con tokens
         $diag = $result['fields_normalized']['CodigoDiagnostico'];
-        $this->assertSame('S202, S273, S224', $diag['valor']);
-        $this->assertSame(['S202', 'S273', 'S224'], $diag['valores']);
-        $this->assertTrue($diag['presente']);
-        $this->assertSame('alta', $diag['confianza']);
-        $this->assertSame('FOUND_IN_LIST', $diag['estadoExtraccion']);
-        $this->assertSame('S202, S273, S224', $diag['evidencia']);
-        $this->assertSame('sección Diagnóstico', $diag['ubicacion']);
+        $this->assertInstanceOf(ExtractedEvidence::class, $diag);
+        $this->assertSame('S202, S273, S224', $diag->valor);
+        $this->assertSame(['S202', 'S273', 'S224'], $diag->valores);
+        $this->assertTrue($diag->presente);
+        $this->assertSame('alta', $diag->confianza);
+        $this->assertSame(ExtractionState::FOUND_IN_LIST, $diag->estadoExtraccion);
+        $this->assertSame('S202, S273, S224', $diag->evidencia);
+        $this->assertSame('sección Diagnóstico', $diag->ubicacion);
 
-        // NombrePaciente: v1 preservada
+        // NombrePaciente: ExtractedEvidence preservada
         $nombre = $result['fields_normalized']['NombrePaciente'];
-        $this->assertSame('ROBERTO TAPIAS SOCHA', $nombre['valor']);
-        $this->assertSame('FOUND', $nombre['estadoExtraccion']);
+        $this->assertSame('ROBERTO TAPIAS SOCHA', $nombre->valor);
+        $this->assertSame(ExtractionState::FOUND, $nombre->estadoExtraccion);
 
-        // FechaFormula: fecha normalizada dentro de v1
+        // FechaFormula: fecha normalizada dentro de ExtractedEvidence
         $fecha = $result['fields_normalized']['FechaFormula'];
-        $this->assertSame('2026-04-22', $fecha['valor']);
-        $this->assertSame('FOUND', $fecha['estadoExtraccion']);
+        $this->assertSame('2026-04-22', $fecha->valor);
+        $this->assertSame(ExtractionState::FOUND, $fecha->estadoExtraccion);
 
         // Verificar log operations
         $ops = array_column($result['normalization_log'], 'operation');

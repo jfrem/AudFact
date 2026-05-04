@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\DocumentPolicyEngine;
+use App\Services\Audit\Pipeline\ExtractedEvidence;
+use App\Services\Audit\Pipeline\ExtractionState;
 use PHPUnit\Framework\TestCase;
 
 final class DocumentPolicyEngineTest extends TestCase
@@ -42,18 +44,20 @@ final class DocumentPolicyEngineTest extends TestCase
     {
         $v1Fields = [];
         foreach ($fields as $key => $value) {
-            $v1Fields[$key] = is_array($value) && array_key_exists('valor', $value) 
+            $raw = is_array($value) && array_key_exists('valor', $value) 
                 ? $value 
                 : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+            $v1Fields[$key] = ExtractedEvidence::fromArray($raw);
         }
 
         $v1Items = [];
         foreach ($items as $item) {
             $v1Item = [];
             foreach ($item as $key => $value) {
-                $v1Item[$key] = is_array($value) && array_key_exists('valor', $value) 
+                $raw = is_array($value) && array_key_exists('valor', $value) 
                     ? $value 
                     : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
+                $v1Item[$key] = ExtractedEvidence::fromArray($raw);
             }
             $v1Items[] = $v1Item;
         }
