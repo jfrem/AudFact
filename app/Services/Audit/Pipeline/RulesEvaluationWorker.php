@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFindingResult;
+use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\SemanticMatchJudge;
 use Core\Logger;

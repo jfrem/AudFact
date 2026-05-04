@@ -14,7 +14,7 @@ use Core\Logger;
 /**
  * GoogleDriveAuthService 
  */
-class GoogleDriveAuthService implements GoogleDriveServiceInterface
+class GoogleDriveAuthService
 {
     private string $clientEmail;
     private string $privateKey;

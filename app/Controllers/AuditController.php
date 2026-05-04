@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
 use App\Models\InvoicesModel;
 use App\Services\Audit\AuditBatchOrchestrator;
-use App\Services\Audit\ClientConfigurationService;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
@@ -326,32 +326,6 @@ class AuditController extends Controller
     }
 
 
-
-    public function configByClient(string $clientId): void
-    {
-        $service = new ClientConfigurationService($this->buildAuditStatusModel(), new AttachmentsModel());
-        $config = $service->getConfigForClient($clientId);
-
-        if ($config === null) {
-            Response::error('Cliente no encontrado o sin configuración', 404);
-        }
-
-        Response::success($config, 'Configuración de auditoría recuperada');
-    }
-
-    public function saveAuditConfig(string $clientId): void
-    {
-        $data = $this->getJsonBody();
-        
-        $service = new ClientConfigurationService($this->buildAuditStatusModel(), new AttachmentsModel());
-        $success = $service->saveConfigForClient($clientId, $data);
-
-        if ($success) {
-            Response::success(null, 'Configuración guardada exitosamente');
-        } else {
-            Response::error('Error al guardar la configuración', 500);
-        }
-    }
 
     public function timings(string $facNro): void
     {

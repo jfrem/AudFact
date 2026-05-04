@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Models\AuditStatusModel;
+use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
-use App\Services\Audit\Debug\GeminiCallMetrics;
+use App\Services\Audit\GeminiCallMetrics;
 use RuntimeException;
 
 final class AuditAggregationWorker extends AuditEventConsumer

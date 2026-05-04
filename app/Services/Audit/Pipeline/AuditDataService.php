@@ -12,12 +12,12 @@ use Core\Logger;
 use RuntimeException;
 
 /**
- * Implementación de producción del AuditDataServiceInterface.
+ * Servicio de datos para el pipeline de auditoría.
  *
  * Accede directamente a los modelos PHP (SQL Server vía PDO) para resolver
  * FDV, audit-config, cliente y catálogo documental dentro del pipeline.
  */
-final class AuditDataService implements AuditDataServiceInterface
+class AuditDataService
 {
     private DispensationModel $dispensationModel;
     private ClientsModel $clientsModel;

@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
-use App\Services\Audit\Debug\ResponseIADiskStore;
-use App\Services\Audit\Debug\GeminiCallMetrics;
+use App\Services\Audit\ResponseIADiskStore;
+use App\Services\Audit\GeminiCallMetrics;
 use Core\Env;
 use Core\Logger;
+use Core\RedisClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
@@ -22,23 +23,29 @@ class GeminiGateway
     private const BASE_RETRY_DELAY_MS = 1000;
     private const RETRYABLE_HTTP_CODES = [429, 503, 500, 502, 504];
 
+    // Circuit Breaker keys y estados
+    private const CB_KEY_STATE = 'cb:gemini:state';
+    private const CB_KEY_FAILS = 'cb:gemini:fails';
+    private const CB_STATE_CLOSED = 'closed';
+    private const CB_STATE_OPEN   = 'open';
+
     private Client $http;
     private string $apiKey;
     private GeminiConfig $config;
-    private GeminiCircuitBreaker $circuitBreaker;
+    private RedisClient $cbRedis;
     private ResponseIADiskStore $diskStore;
 
     public function __construct(
         Client $http,
         string $apiKey,
         GeminiConfig $config,
-        ?GeminiCircuitBreaker $circuitBreaker = null,
+        ?RedisClient $cbRedis = null,
         ?ResponseIADiskStore $diskStore = null
     ) {
         $this->http = $http;
         $this->apiKey = $apiKey;
         $this->config = $config;
-        $this->circuitBreaker = $circuitBreaker ?? new GeminiCircuitBreaker();
+        $this->cbRedis = $cbRedis ?? RedisClient::getInstance();
         $this->diskStore = $diskStore ?? new ResponseIADiskStore();
     }
 
@@ -89,7 +96,7 @@ class GeminiGateway
     ): array {
         $ctx = array_merge($debugContext ?? [], ['task_type' => $taskType]);
 
-        $this->circuitBreaker->check();
+        $this->cbCheck();
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
         $payload = $this->buildPayload($prompt, $files, $systemInstruction, $tools, $toolConfig, $taskType, $generationOverrides);
@@ -108,7 +115,7 @@ class GeminiGateway
                 ]);
 
                 $this->logApiQuotaHeaders($res);
-                $this->circuitBreaker->recordSuccess();
+                $this->cbRecordSuccess();
 
                 $bodyStr = (string) $res->getBody();
                 $body = json_decode($bodyStr, true);
@@ -140,7 +147,7 @@ class GeminiGateway
                 }
 
                 $this->saveDebugLog($payload, ['error' => $e->getMessage()], $ctx, 'runtime_error');
-                $this->circuitBreaker->recordFailure($httpCode);
+                $this->cbRecordFailure($httpCode);
                 throw $e;
             } catch (GuzzleException $e) {
                 $lastException = $e;
@@ -152,17 +159,87 @@ class GeminiGateway
                 }
 
                 $this->saveDebugLog($payload, ['error' => $errorMessage], $ctx, 'http_error');
-                $this->circuitBreaker->recordFailure($httpCode);
+                $this->cbRecordFailure($httpCode);
                 throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
             }
         }
 
         $this->saveDebugLog($payload, ['error' => 'Error desconocido en Gemini FC'], $ctx, 'unknown_error');
-        $this->circuitBreaker->recordFailure(0);
+        $this->cbRecordFailure(0);
         throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
     }
 
-    // ─── Retry ──────────────────────────────────────────────
+    // ─── Circuit Breaker (inlined) ──────────────────────────────
+
+    /**
+     * Verifica el estado del circuito antes de realizar una llamada.
+     *
+     * @throws \RuntimeException Si el circuito está abierto.
+     */
+    private function cbCheck(): void
+    {
+        if (!$this->cbRedis->isAvailable()) {
+            return;
+        }
+
+        try {
+            $state = $this->cbRedis->get(self::CB_KEY_STATE) ?? self::CB_STATE_CLOSED;
+        } catch (\Core\RedisUnavailableException $e) {
+            return;
+        }
+
+        if ($state === self::CB_STATE_OPEN) {
+            $ttl = $this->cbRedis->ttl(self::CB_KEY_STATE);
+            Logger::warning('Circuit Breaker ABIERTO — request rechazado sin llamar API', [
+                'cooldownRestante' => $ttl,
+            ]);
+            throw new \RuntimeException(
+                'Circuit Breaker abierto: API Gemini temporalmente no disponible. Reintentar en ' . max($ttl, 0) . 's',
+                503
+            );
+        }
+    }
+
+    private function cbRecordSuccess(): void
+    {
+        if (!$this->cbRedis->isAvailable()) {
+            return;
+        }
+
+        $this->cbRedis->del(self::CB_KEY_STATE);
+        $this->cbRedis->del(self::CB_KEY_FAILS);
+    }
+
+    private function cbRecordFailure(int $httpCode): void
+    {
+        if (!$this->cbRedis->isAvailable()) {
+            return;
+        }
+
+        $threshold = (int) Env::get('CB_GEMINI_THRESHOLD', 3);
+        $cooldown  = (int) Env::get('CB_GEMINI_COOLDOWN', 60);
+
+        $fails = $this->cbRedis->incr(self::CB_KEY_FAILS, $cooldown * 2);
+
+        if ($fails !== null && $fails >= $threshold) {
+            $this->cbRedis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
+
+            Logger::warning('Circuit Breaker ABIERTO', [
+                'fallosConsecutivos' => $fails,
+                'threshold'          => $threshold,
+                'cooldownSeconds'    => $cooldown,
+                'httpCode'           => $httpCode,
+            ]);
+        } else {
+            Logger::info('Circuit Breaker: fallo registrado', [
+                'fallosActuales' => $fails,
+                'threshold'      => $threshold,
+                'httpCode'       => $httpCode,
+            ]);
+        }
+    }
+
+    // ─── Retry ──────────────────────────────────────────────────
 
     private function shouldRetry(int $httpCode, int $attempt): bool
     {
@@ -180,7 +257,7 @@ class GeminiGateway
         usleep($this->retryDelayMs($attempt) * 1000);
     }
 
-    // ─── Error Extraction ───────────────────────────────────
+    // ─── Error Extraction ───────────────────────────────────────
 
     /**
      * @return array{0:int,1:string}

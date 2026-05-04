@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Debug;
+namespace App\Services\Audit;
 
 /**
  * Normaliza metricas no sensibles de llamadas a Gemini.

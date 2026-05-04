@@ -11,13 +11,13 @@ use RuntimeException;
 final class DocumentAuditOrchestrator extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
-    private AuditDataServiceInterface $dataService;
+    private AuditDataService $dataService;
     private DocumentExtractionContractBuilder $contractBuilder;
     private string $consumerName;
 
     public function __construct(
         ?AuditStateStore                  $stateStore      = null,
-        ?AuditDataServiceInterface        $dataService     = null,
+        ?AuditDataService                 $dataService     = null,
         ?DocumentExtractionContractBuilder $contractBuilder = null,
         ?\Core\RedisClient                $redis           = null,
         ?AuditEventPublisher              $publisher       = null,
@@ -232,7 +232,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         foreach ($fieldsConfig as $fieldConfig) {
             $name      = trim((string) ($fieldConfig['campoNombre'] ?? ''));
             $tipoCampo = (string) ($fieldConfig['tipoCampo'] ?? 'E');
-            $rol       = (string) ($fieldConfig['rol'] ?? 'AUTORITATIVO');
             if ($name === '') {
                 continue;
             }
@@ -253,7 +252,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $targetItems[$name] = [
                     'tipoCampo'           => $tipoCampo,
                     'valueType'           => $valueType->value,
-                    'rol'                 => $rol,
                     'valoresFuenteVerdad' => $valores,
                 ];
             } else {
@@ -261,7 +259,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $targetFields[$name] = [
                     'tipoCampo'          => $tipoCampo,
                     'valueType'          => $valueType->value,
-                    'rol'                => $rol,
                     'valorFuenteVerdad'  => $valor !== '' ? $valor : null,
                 ];
             }
@@ -273,7 +270,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             if ($checkName !== '') {
                 $targetVisualChecks[$checkName] = [
                     'tipoCampo' => 'V',
-                    'rol'       => (string) ($check['rol'] ?? 'AUTORITATIVO'),
                     'expected'  => 'PRESENTE',
                 ];
             }
@@ -381,7 +377,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         foreach ($fields as $field) {
             if (is_array($field) && isset($field['campoNombre'])) {
                 $normalized[] = array_merge(
-                    ['rol' => 'AUTORITATIVO', 'omitirSi' => null],
+                    [],
                     $field
                 );
             } elseif (is_string($field) && trim($field) !== '') {
@@ -389,8 +385,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                     'campoNombre' => trim($field),
                     'tipoCampo'   => 'E',
                     'severity'    => 'alta',
-                    'rol'         => 'AUTORITATIVO',
-                    'omitirSi'    => null,
                 ];
             } else {
                 throw new InvalidArgumentException('Campo inválido en fields');
@@ -420,10 +414,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 'severity' => isset($check['severity']) && is_string($check['severity']) && trim($check['severity']) !== ''
                     ? strtoupper(trim($check['severity']))
                     : 'ALTA',
-                'rol' => isset($check['rol']) && is_string($check['rol']) && trim($check['rol']) !== ''
-                    ? strtoupper(trim($check['rol']))
-                    : 'AUTORITATIVO',
-                'omitirSi' => $check['omitirSi'] ?? null,
             ];
         }
 

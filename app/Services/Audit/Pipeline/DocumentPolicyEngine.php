@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditComparisonType;
 use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\AuditFindingResult;
+use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\SemanticMatchJudge;
@@ -226,15 +227,6 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $rol = strtoupper((string) ($fieldConfig['rol'] ?? 'AUTORITATIVO'));
-            if ($rol === 'INFORMATIVO') {
-                continue;
-            }
-
-            if (AuditFindingRules::shouldSkipByCondition($fieldConfig['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
-                continue;
-            }
-
             [$docValue, $ambiguous, $evidenceMeta] = $this->resolveDocumentValue($canonicalField, $fields, $items);
             $fdvValue = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
 
@@ -255,7 +247,7 @@ class DocumentPolicyEngine
                 $tipoCampo
             );
 
-            $findings[] = $this->buildDataFinding($canonicalField, $fieldConfig, $comparison, $documentType, $fdvValue, $docValue, $internalType, $rol, $evidenceMeta);
+            $findings[] = $this->buildDataFinding($canonicalField, $fieldConfig, $comparison, $documentType, $fdvValue, $docValue, $internalType, $evidenceMeta);
         }
 
         return $findings;
@@ -269,7 +261,6 @@ class DocumentPolicyEngine
         ?string $fdvValue,
         ?string $docValue,
         string $internalType,
-        string $rol = 'AUTORITATIVO',
         array $evidenceMeta = []
     ): array {
         $valueType = AuditFieldValueType::fromFieldName($canonicalField);
@@ -288,7 +279,6 @@ class DocumentPolicyEngine
             'documento'          => $documentType,
             'detalle'            => $comparison['detalle'] ?? null,
             'tipo_auditoria'     => $comparison['tipo_auditoria'] ?? $internalType,
-            'rol'                => $rol,
             'valueType'          => $valueType->value,
         ];
 
@@ -654,23 +644,13 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $rol = strtoupper((string) ($checkExpected['rol'] ?? 'AUTORITATIVO'));
-            if ($rol === 'INFORMATIVO') {
-                continue;
-            }
-
-            if (AuditFindingRules::shouldSkipByCondition($checkExpected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
-                continue;
-            }
-
             $severity       = AuditSeverity::fromInput((string) ($checkExpected['severity'] ?? ''))->value;
 
             if ($documentQuality !== 'legible') {
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'La calidad documental no permite concluir la validación visual.',
-                    $rol
+                    'La calidad documental no permite concluir la validación visual.'
                 );
                 continue;
             }
@@ -680,8 +660,7 @@ class DocumentPolicyEngine
                 $findings[] = $this->buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'Check visual esperado no fue evaluado por el modelo.',
-                    $rol
+                    'Check visual esperado no fue evaluado por el modelo.'
                 );
                 continue;
             }
@@ -691,8 +670,7 @@ class DocumentPolicyEngine
                 $documentType, $checkName, $severity,
                 $isPresent ? 'PRESENTE' : 'AUSENTE',
                 $isPresent ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
-                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null),
-                $rol
+                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null)
             );
         }
 
@@ -708,8 +686,7 @@ class DocumentPolicyEngine
         string $severity,
         string $valorDocumento,
         string $resultado,
-        ?string $detalle,
-        string $rol
+        ?string $detalle
     ): array {
         return [
             'valorFuenteVerdad' => 'OBLIGATORIO',
@@ -719,7 +696,6 @@ class DocumentPolicyEngine
             'campo'             => $displayField,
             'severidad'         => $severity,
             'documento'         => $documentType,
-            'rol'               => $rol,
         ];
     }
 

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Services\Audit\Debug;
 
-use App\Services\Audit\Debug\GeminiCallMetrics;
+use App\Services\Audit\GeminiCallMetrics;
 use PHPUnit\Framework\TestCase;
 
 final class GeminiCallMetricsTest extends TestCase

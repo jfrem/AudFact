@@ -7,7 +7,7 @@ namespace Tests\Services\Audit\Pipeline;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
-use App\Services\Audit\Pipeline\AttachmentDownloadServiceInterface;
+use App\Services\Audit\Pipeline\AttachmentDownloadService;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
 use App\Services\Audit\GeminiGateway;
@@ -426,7 +426,7 @@ final class DocumentExtractionWorkerTest extends TestCase
     }
 }
 
-final class StubDownloadService implements AttachmentDownloadServiceInterface
+final class StubDownloadService extends AttachmentDownloadService
 {
     public function __construct(private array $document)
     {

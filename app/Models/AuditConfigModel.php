@@ -58,9 +58,7 @@ class AuditConfigModel extends Model
                 ac.TipoCampo,
                 ac.Orden,
                 ac.DescripcionOverride,
-                ac.SeveridadOverride,
-                ac.Rol,
-                ac.OmitirSi
+                ac.SeveridadOverride
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN NitDocumentos nd WITH (NOLOCK)
                 ON nd.NitSec       = ac.FacNitSec
@@ -99,8 +97,6 @@ class AuditConfigModel extends Model
                     'tipoCampo'   => $row['TipoCampo'],
                     'orden'       => (int) $row['Orden'],
                     'severity'    => $row['SeveridadOverride'] ?? 'media',
-                    'rol'         => $row['Rol'] ?? 'AUTORITATIVO',
-                    'omitirSi'    => $row['OmitirSi'],
                 ];
             } else {
                 // Visual checks retornados como objetos completos
@@ -109,8 +105,6 @@ class AuditConfigModel extends Model
                     'description' => $row['DescripcionOverride'] ?? '',
                     'severity'    => $row['SeveridadOverride'] ?? 'alta',
                     'orden'       => (int) $row['Orden'],
-                    'rol'         => $row['Rol'] ?? 'AUTORITATIVO',
-                    'omitirSi'    => $row['OmitirSi'],
                 ];
             }
         }
@@ -240,10 +234,10 @@ class AuditConfigModel extends Model
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
                 (FacNitSec, NitMedDocId, CampoNombre, TipoCampo, Activo, Orden,
-                 DescripcionOverride, SeveridadOverride, Rol, OmitirSi)
+                 DescripcionOverride, SeveridadOverride)
             VALUES
                 (:nitSec, :docId, :campoNombre, :tipoCampo, 1, :orden,
-                 :description, :severity, :rol, :omitirSi)
+                 :description, :severity)
         ";
         $insStmt = $db->prepare($insSql);
 
@@ -254,8 +248,6 @@ class AuditConfigModel extends Model
             $orden       = (int)    ($field['orden']     ?? 0);
             $description = $field['description'] ?? null;
             $severity    = $field['severity']    ?? null;
-            $rol         = $field['rol']         ?? null;
-            $omitirSi    = $field['omitirSi']    ?? null;
 
             $insStmt->bindParam(':nitSec',      $nitSec,      PDO::PARAM_STR);
             $insStmt->bindParam(':docId',       $docId,       PDO::PARAM_INT);
@@ -264,8 +256,6 @@ class AuditConfigModel extends Model
             $insStmt->bindParam(':orden',       $orden,       PDO::PARAM_INT);
             $insStmt->bindParam(':description', $description, PDO::PARAM_STR);
             $insStmt->bindParam(':severity',    $severity,    PDO::PARAM_STR);
-            $insStmt->bindParam(':rol',         $rol,         PDO::PARAM_STR);
-            $insStmt->bindParam(':omitirSi',    $omitirSi,    PDO::PARAM_STR);
             $insStmt->execute();
         }
     }

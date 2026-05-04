@@ -10,14 +10,14 @@ use Core\Logger;
 use RuntimeException;
 
 /**
- * Implementación de producción de AttachmentDownloadServiceInterface.
+ * Servicio de descarga de adjuntos de dispensación para el pipeline de auditoría.
  *
  * Resuelve adjuntos BLOB/URL desde el modelo y entrega el contenido binario
  * en base64 al extractor documental del pipeline.
  *
  * Contrato de retorno: array{mime:string, data:string (base64), duration_ms:int}
  */
-final class AttachmentDownloadService implements AttachmentDownloadServiceInterface
+class AttachmentDownloadService
 {
     private AttachmentsModel $model;
 

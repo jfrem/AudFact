@@ -2,11 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Pipeline;
-
-use App\Services\Audit\AuditFieldValueType;
-use App\Services\Audit\AuditFindingResult;
-use App\Services\Audit\AuditSeverity;
+namespace App\Services\Audit;
 
 final class AuditFindingRules
 {
@@ -59,67 +55,6 @@ final class AuditFindingRules
         return $severityWeight + $resultWeight;
     }
 
-    /**
-     * Evalúa la regla `OmitirSi`. Acepta string JSON o array.
-     *
-     * Claves soportadas:
-     *   - fdv_has:     [campos del header de FDV que, si están presentes, omiten la auditoría]
-     *   - fdv_missing: [campos del header de FDV que, si faltan, omiten la auditoría]
-     *   - doc_quality: [calidades documentales que omiten la auditoría]
-     *
-     * @param  mixed                   $rule            String JSON o array con claves de condición.
-     * @param  array<string,mixed>     $sourceTruth     FDV completa (debe contener clave 'header').
-     * @param  string                  $documentQuality Calidad documental (legible/parcialmente_legible/ilegible).
-     */
-    public static function shouldSkipByCondition(mixed $rule, array $sourceTruth, string $documentQuality): bool
-    {
-        if ($rule === null || $rule === '' || $rule === []) {
-            return false;
-        }
-
-        if (is_string($rule)) {
-            $decoded = json_decode($rule, true);
-            if (!is_array($decoded)) {
-                $decoded = json_decode(stripslashes($rule), true);
-            }
-            if (!is_array($decoded)) {
-                return false;
-            }
-            $rule = $decoded;
-        }
-
-        if (!is_array($rule)) {
-            return false;
-        }
-
-        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
-
-        if (!empty($rule['fdv_has']) && is_array($rule['fdv_has'])) {
-            foreach ($rule['fdv_has'] as $key) {
-                if (is_string($key) && self::isPresent($header[$key] ?? null)) {
-                    return true;
-                }
-            }
-        }
-
-        if (!empty($rule['fdv_missing']) && is_array($rule['fdv_missing'])) {
-            foreach ($rule['fdv_missing'] as $key) {
-                if (is_string($key) && !self::isPresent($header[$key] ?? null)) {
-                    return true;
-                }
-            }
-        }
-
-        if (!empty($rule['doc_quality']) && is_array($rule['doc_quality'])) {
-            foreach ($rule['doc_quality'] as $quality) {
-                if (is_string($quality) && strtolower($quality) === $documentQuality) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 
     /**
      * @param  array<int,array<string,mixed>> $findings
@@ -475,11 +410,6 @@ final class AuditFindingRules
             return [];
         }
 
-        $role = strtoupper((string) ($candidate['expected']['rol'] ?? 'AUTORITATIVO'));
-        if ($role === 'INFORMATIVO') {
-            return [];
-        }
-
         $visual = $candidate['visual'];
         if (!is_array($visual) || ($visual['presente'] ?? false) !== true) {
             return [self::buildDeliveryValidityInconclusiveFinding($candidate, 'No se encontró una vigencia de entrega visible y estructurada.')];
@@ -498,7 +428,7 @@ final class AuditFindingRules
             return [self::buildDeliveryValidityInconclusiveFinding($candidate, 'FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.')];
         }
 
-        return [self::buildDeliveryValidityFinding($candidate, $days, $baseField, $baseDate, $deliveryDate, $role)];
+        return [self::buildDeliveryValidityFinding($candidate, $days, $baseField, $baseDate, $deliveryDate)];
     }
 
     /**
@@ -528,9 +458,6 @@ final class AuditFindingRules
                     continue;
                 }
 
-                if (self::shouldSkipByCondition($expected['omitirSi'] ?? null, $sourceTruth, $documentQuality)) {
-                    continue;
-                }
 
                 $candidate = [
                     'document_name' => $documentName,
@@ -623,8 +550,7 @@ final class AuditFindingRules
         int $days,
         string $baseField,
         \DateTimeImmutable $baseDate,
-        \DateTimeImmutable $deliveryDate,
-        string $role
+        \DateTimeImmutable $deliveryDate
     ): array {
         $limitDate = $baseDate->modify("+{$days} days");
         $matches = $deliveryDate <= $limitDate;
@@ -644,7 +570,6 @@ final class AuditFindingRules
                 ? "FechaEntrega {$deliveryDateText} dentro de la vigencia hasta {$limitDateText}."
                 : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}.",
             'tipo_auditoria' => 'visual',
-            'rol' => $role,
         ];
     }
 
@@ -661,7 +586,6 @@ final class AuditFindingRules
             'documento' => $candidate['document_name'],
             'detalle' => $detail,
             'tipo_auditoria' => 'visual',
-            'rol' => strtoupper((string) ($candidate['expected']['rol'] ?? 'AUTORITATIVO')),
         ];
     }
 }

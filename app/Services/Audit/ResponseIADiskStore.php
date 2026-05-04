@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\Audit\Debug;
+namespace App\Services\Audit;
 
 use Core\Env;
 use Core\Logger;

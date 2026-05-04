@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFieldValueType;
+use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\DocumentQuality;
 use Core\Logger;
 use RuntimeException;
@@ -320,8 +321,6 @@ final class DocumentNormalizer extends AuditEventConsumer
                     'presente' => false,
                     'detalle' => AuditFindingRules::normalizeNullableString($check['description'] ?? null),
                     'severidad' => $this->normalizeSeverity($check['severity'] ?? null),
-                    'rol' => $this->normalizeRole($check['rol'] ?? null),
-                    'omitirSi' => $check['omitirSi'] ?? null,
                     'valor' => null,
                     'unidad' => null,
                     'fecha_base' => null,

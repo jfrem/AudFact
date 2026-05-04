@@ -35,7 +35,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private const ERROR_DUPLICATE_FUNCTION_CALL = 'GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL';
 
     private AuditStateStore $stateStore;
-    private AttachmentDownloadServiceInterface $downloader;
+    private AttachmentDownloadService $downloader;
     private GeminiGateway $gateway;
     private int $cacheTtl;
     private string $extractorVersion;
@@ -43,7 +43,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     public function __construct(
         ?AuditStateStore                    $stateStore   = null,
-        ?AttachmentDownloadServiceInterface $downloader   = null,
+        ?AttachmentDownloadService          $downloader   = null,
         ?GeminiGateway                      $gateway      = null,
         ?\Core\RedisClient                  $redis        = null,
         ?AuditEventPublisher                $publisher    = null,

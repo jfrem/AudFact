@@ -35,11 +35,6 @@ class AuditConfigController extends Controller
     /** Severidades válidas para visual checks */
     private const VALID_SEVERITIES = ['ALTA', 'MEDIA', 'BAJA'];
 
-    /** Roles válidos. NULL/vacío equivale al default 'AUTORITATIVO' en el engine */
-    private const VALID_ROLES = ['AUTORITATIVO', 'ALTERNATIVO', 'INFORMATIVO'];
-
-    /** Claves permitidas en el JSON de OmitirSi */
-    private const OMITIR_SI_KEYS = ['fdv_has', 'fdv_missing', 'doc_quality'];
 
     public function __construct()
     {
@@ -65,7 +60,7 @@ class AuditConfigController extends Controller
         if ($config === null) {
             Response::error(
                 'Este cliente no tiene configuración de auditoría. '
-                . 'Usa POST con una factura de muestra para inicializarlo.',
+                    . 'Usa POST con una factura de muestra para inicializarlo.',
                 404
             );
         }
@@ -174,18 +169,6 @@ class AuditConfigController extends Controller
                 $severity = 'ALTA';
             }
 
-            // rol: AUTORITATIVO (default), ALTERNATIVO, INFORMATIVO
-            $rol = isset($field['rol']) && is_string($field['rol']) && trim($field['rol']) !== ''
-                ? strtoupper(trim($field['rol']))
-                : null;
-            if ($rol !== null && !in_array($rol, self::VALID_ROLES, true)) {
-                $errors[] = "Campo #{$pos}: 'rol' debe ser uno de " . implode(', ', self::VALID_ROLES) . '.';
-                continue;
-            }
-
-            // omitirSi: JSON con claves fdv_has, fdv_missing, doc_quality
-            $omitirSi = $this->sanitizeOmitirSi($field['omitirSi'] ?? null, $pos, $errors);
-
             $sanitized[] = [
                 'docId'       => (int) $field['docId'],
                 'campoNombre' => $campoNombre,
@@ -193,8 +176,6 @@ class AuditConfigController extends Controller
                 'orden'       => (int) ($field['orden'] ?? 0),
                 'description' => $description,
                 'severity'    => strtolower($severity), // Guardar como alta, media, baja para consistencia interna
-                'rol'         => $rol,
-                'omitirSi'    => $omitirSi,
             ];
         }
 
@@ -203,49 +184,5 @@ class AuditConfigController extends Controller
         }
 
         return $sanitized;
-    }
-
-    /**
-     * Valida y normaliza la regla condicional de skip.
-     * Acepta string JSON, array (se reserializa), o null/vacío.
-     * Solo permite las claves de OMITIR_SI_KEYS y descarta el resto.
-     *
-     * @return string|null  JSON canonicalizado o null si no aplica regla
-     */
-    private function sanitizeOmitirSi(mixed $raw, int $pos, array &$errors): ?string
-    {
-        if ($raw === null || $raw === '' || $raw === []) {
-            return null;
-        }
-
-        if (is_string($raw)) {
-            $decoded = json_decode($raw, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                $errors[] = "Campo #{$pos}: 'omitirSi' debe ser JSON válido.";
-                return null;
-            }
-            $raw = $decoded;
-        }
-
-        if (!is_array($raw)) {
-            $errors[] = "Campo #{$pos}: 'omitirSi' debe ser objeto JSON.";
-            return null;
-        }
-
-        $clean = [];
-        foreach (self::OMITIR_SI_KEYS as $key) {
-            if (!isset($raw[$key]) || !is_array($raw[$key])) {
-                continue;
-            }
-            $values = array_values(array_filter(
-                array_map(static fn($v) => is_string($v) ? trim($v) : null, $raw[$key]),
-                static fn($v) => $v !== null && $v !== ''
-            ));
-            if ($values !== []) {
-                $clean[$key] = $values;
-            }
-        }
-
-        return $clean === [] ? null : json_encode($clean, JSON_UNESCAPED_UNICODE);
     }
 }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
-use App\Services\Audit\Debug\GeminiCallMetrics;
+use App\Services\Audit\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
 
