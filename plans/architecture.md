@@ -66,14 +66,14 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Componente | Responsabilidad |
 |---|---|
 | `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), slots y rollback transaccional |
-| `ClientConfigurationService.php` | Centraliza obtención y guardado de configuración de campos (base + visuales) por cliente |
+
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) + detección de tipo por convención |
 | `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
 | `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
-| `GeminiCircuitBreaker.php` | Resiliencia y protección contra fallos en cascada hacia la API de IA |
+| `GeminiCallMetrics.php` | Normalización de métricas no sensibles de llamadas Gemini (latencia, tokens, cache hits) |
 | `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, factory `create()` y manejo de errores |
 | `SemanticMatchJudge.php` | Juez semántico con Gemini para campos de similitud textual |
-| `Debug/ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad |
+| `ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad (solo `development`) |
 
 **Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`.
 **Interfaz**: Invocados por los Workers del Pipeline o directamente desde Controladores.

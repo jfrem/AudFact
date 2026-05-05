@@ -149,6 +149,11 @@ final class AuditFindingRules
     /**
      * Normaliza un string de fecha a formato ISO (Y-m-d).
      *
+     * Soporta:
+     * - Formatos numéricos: Y-m-d, Y/m/d, d/m/Y, d-m-Y, d.m.Y
+     * - Fechas narrativas en español: "4 de mayo de 2026", "Mayo 4, 2026"
+     * - Abreviaciones: "4 may 2026", "4-ene-2026"
+     *
      * Helper compartido para DocumentPolicyEngine y DocumentNormalizer.
      */
     public static function normalizeDateToIso(string $value): ?string
@@ -163,6 +168,7 @@ final class AuditFindingRules
             return null;
         }
 
+        // 1. Formatos numéricos estrictos
         foreach (['Y-m-d', 'Y/m/d', 'd/m/Y', 'd-m-Y', 'd.m.Y'] as $format) {
             $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
             if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
@@ -170,7 +176,70 @@ final class AuditFindingRules
             }
         }
 
-        return null;
+        // 2. Fechas narrativas en español (fallback)
+        return self::parseSpanishNarrativeDate($candidate);
+    }
+
+    /**
+     * Parsea fechas con nombre de mes en español.
+     *
+     * Soporta variantes:
+     * - "4 de mayo de 2026"
+     * - "Mayo 4, 2026"
+     * - "4-mayo-2026", "4/mayo/2026"
+     * - "4 may 2026" (abreviaciones)
+     *
+     * Retorna null si no puede extraer día + mes + año válidos.
+     */
+    private static function parseSpanishNarrativeDate(string $value): ?string
+    {
+        $normalized = strtolower(trim($value));
+        // Strip preposición "de": "4 de mayo de 2026" → "4 mayo 2026"
+        $normalized = (string) preg_replace('/\bde\b/u', '', $normalized);
+        $normalized = (string) preg_replace('/[,.\-\/]+/', ' ', $normalized);
+        $normalized = trim((string) preg_replace('/\s+/', ' ', $normalized));
+
+        $months = [
+            'enero' => 1, 'febrero' => 2, 'marzo' => 3, 'abril' => 4,
+            'mayo' => 5, 'junio' => 6, 'julio' => 7, 'agosto' => 8,
+            'septiembre' => 9, 'octubre' => 10, 'noviembre' => 11, 'diciembre' => 12,
+            // Abreviaciones comunes
+            'ene' => 1, 'feb' => 2, 'mar' => 3, 'abr' => 4,
+            'may' => 5, 'jun' => 6, 'jul' => 7, 'ago' => 8,
+            'sep' => 9, 'oct' => 10, 'nov' => 11, 'dic' => 12,
+        ];
+
+        $parts = explode(' ', $normalized);
+        $parts = array_values(array_filter($parts, static fn(string $p): bool => $p !== ''));
+
+        if (count($parts) < 3) {
+            return null;
+        }
+
+        $day = $month = $year = null;
+
+        foreach ($parts as $part) {
+            if (isset($months[$part])) {
+                $month = $months[$part];
+            } elseif (is_numeric($part)) {
+                $num = (int) $part;
+                if ($num >= 1900 && $num <= 2100) {
+                    $year = $num;
+                } elseif ($num >= 1 && $num <= 31 && $day === null) {
+                    $day = $num;
+                }
+            }
+        }
+
+        if ($day === null || $month === null || $year === null) {
+            return null;
+        }
+
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
     public static function isPresent(mixed $value): bool
@@ -210,14 +279,72 @@ final class AuditFindingRules
         return $number === null ? self::normalizeText($value) : self::formatNumber($number);
     }
 
+    /**
+     * Tabla de aliases para tipos de documento de identidad colombianos.
+     *
+     * Cubre los 11 tipos oficiales del sistema RIPS/BDUA.
+     * Keys: versión normalizada (sin acentos, sin espacios, uppercase).
+     * Values: código canónico de 2-4 letras.
+     */
+    private const IDENTITY_DOC_ALIASES = [
+        // Cédula de Ciudadanía
+        'CC' => 'CC',
+        'CEDULA' => 'CC',
+        'CEDULACIUDADANIA' => 'CC',
+        'CEDULADECIUDADANIA' => 'CC',
+        // Tarjeta de Identidad
+        'TI' => 'TI',
+        'TARJETAIDENTIDAD' => 'TI',
+        'TARJETADEIDENTIDAD' => 'TI',
+        // Cédula de Extranjería
+        'CE' => 'CE',
+        'CEDULAEXTRANJERIA' => 'CE',
+        'CEDULADEEXTRANJERIA' => 'CE',
+        // Registro Civil
+        'RC' => 'RC',
+        'REGISTROCIVIL' => 'RC',
+        'REGISTROCIVILNACIMIENTO' => 'RC',
+        'REGISTROCIVILDENACIMIENTO' => 'RC',
+        // Pasaporte
+        'PA' => 'PA',
+        'PASAPORTE' => 'PA',
+        'PT' => 'PA',
+        // Permiso Especial de Permanencia
+        'PE' => 'PE',
+        'PEP' => 'PE',
+        'PERMISOESPECIALPERMANENCIA' => 'PE',
+        'PERMISOESPECIALDEPERMANENCIA' => 'PE',
+        // Permiso por Protección Temporal
+        'PPT' => 'PPT',
+        'PERMISOPROTECCIONTEMPORAL' => 'PPT',
+        'PERMISODEPROTECCIONTEMPORAL' => 'PPT',
+        'PERMISOPORPROTECCIONTEMPORAL' => 'PPT',
+        // Menor sin identificación
+        'MS' => 'MS',
+        'MENORSINIDENTIFICACION' => 'MS',
+        // Adulto sin identificación
+        'AS' => 'AS',
+        'ADULTOSINIDENTIFICACION' => 'AS',
+        // Número Único de Identificación Personal
+        'NUIP' => 'NUIP',
+        'NUMEROUNICODEIDENTIFICACION' => 'NUIP',
+        'NUMEROUNICODEIDENTIFICACIONPERSONAL' => 'NUIP',
+        // Salvoconducto
+        'SC' => 'SC',
+        'SALVOCONDUCTO' => 'SC',
+    ];
+
+    /**
+     * Normaliza un tipo de documento de identidad al código canónico RIPS/BDUA.
+     *
+     * Resuelve tanto abreviaciones ("CC", "TI") como texto completo
+     * ("Cédula de Ciudadanía", "Tarjeta de Identidad").
+     */
     public static function normalizeIdentityDocType(string $value): string
     {
-        $normalized = self::normalizeToken($value);
+        $token = self::normalizeToken($value);
 
-        return match ($normalized) {
-            'CC', 'CEDULACIUDADANIA', 'CEDULADECIUDADANIA' => 'CC',
-            default => $normalized,
-        };
+        return self::IDENTITY_DOC_ALIASES[$token] ?? $token;
     }
 
     /**
@@ -336,14 +463,39 @@ final class AuditFindingRules
         return $formatted === '' ? '0' : $formatted;
     }
 
+    /**
+     * Elimina acentos y diacríticos de un string.
+     *
+     * Usa strtr determinístico (no depende de locale del servidor) como estrategia
+     * primaria para los caracteres comunes en español/portugués. Solo recurre a
+     * iconv como fallback para caracteres Unicode exóticos fuera de la tabla.
+     */
     public static function stripAccents(string $value): string
     {
-        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if ($converted === false) {
-            return $value;
+        // Estrategia primaria: strtr determinístico (independiente de locale)
+        $stripped = strtr($value, [
+            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
+            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
+            'Ä' => 'A', 'Ë' => 'E', 'Ï' => 'I', 'Ö' => 'O', 'Ü' => 'U',
+            'ä' => 'a', 'ë' => 'e', 'ï' => 'i', 'ö' => 'o', 'ü' => 'u',
+            'Ñ' => 'N', 'ñ' => 'n',
+            'Ç' => 'C', 'ç' => 'c',
+            'À' => 'A', 'È' => 'E', 'Ì' => 'I', 'Ò' => 'O', 'Ù' => 'U',
+            'à' => 'a', 'è' => 'e', 'ì' => 'i', 'ò' => 'o', 'ù' => 'u',
+            'Â' => 'A', 'Ê' => 'E', 'Î' => 'I', 'Ô' => 'O', 'Û' => 'U',
+            'â' => 'a', 'ê' => 'e', 'î' => 'i', 'ô' => 'o', 'û' => 'u',
+            'Ã' => 'A', 'Õ' => 'O',
+            'ã' => 'a', 'õ' => 'o',
+        ]);
+
+        // Si strtr eliminó todo o no quedan non-ASCII, listo
+        if (!preg_match('/[^\x00-\x7F]/', $stripped)) {
+            return $stripped;
         }
 
-        return $converted;
+        // Fallback: iconv para caracteres Unicode fuera de la tabla
+        $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $stripped);
+        return $converted !== false ? $converted : $stripped;
     }
 
     public static function scalarToString(mixed $value): string

@@ -682,4 +682,66 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertContains('S202', $hallazgo['valoresDocumento']);
         $this->assertContains('S273', $hallazgo['valoresDocumento']);
     }
+
+    // ─── NORM-001: Hardening de normalización ─────────────────────────────────
+
+    /**
+     * NORM-001: Alias CE (Cédula de Extranjería) debe resolverse contra FDV "CE".
+     */
+    public function testNORM001CedulaExtranjeriaAliasResolvesAsMatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('TipoDocumentoPaciente')],
+                ['header' => ['TipoDocumentoPaciente' => 'CE'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['TipoDocumentoPaciente' => 'Cédula de Extranjería'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+    }
+
+    /**
+     * NORM-001: Alias TI (Tarjeta de Identidad) debe resolverse contra FDV "TI".
+     */
+    public function testNORM001TarjetaIdentidadAliasResolvesAsMatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('TipoDocumentoPaciente')],
+                ['header' => ['TipoDocumentoPaciente' => 'TI'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['TipoDocumentoPaciente' => 'Tarjeta de Identidad'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+    }
+
+    /**
+     * NORM-001: Fecha narrativa "4 de mayo de 2026" debe coincidir con FDV ISO.
+     */
+    public function testNORM001NarrativeDateMatchesIsoFdv(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('FechaFormula')],
+                ['header' => ['FechaFormula' => '2026-05-04'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['FechaFormula' => '4 de mayo de 2026'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+    }
 }

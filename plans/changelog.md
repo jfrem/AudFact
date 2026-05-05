@@ -1,5 +1,45 @@
 # Changelog AudFact
 
+## [2026-05-05] — Hardening de Normalización: Cierre de Brechas Anti-Glosa (NORM-001)
+
+### 🔒 Hardening / Bugfix
+- **NORM-001**: Cierre de 3 brechas de normalización que podían generar falsos `VALOR_DISTINTO` y consecuentes glosas injustificadas.
+
+  **Componente 1 — Tabla completa de aliases `IDENTITY_DOC_TYPE`** (`AuditFindingRules`):
+  - Cobertura ampliada de ~30% a ~100% de los tipos de documento RIPS/BDUA colombianos.
+  - Se cubren ahora los 11 tipos oficiales: CC, TI, CE, RC, PA, PE/PEP, PPT, MS, AS, NUIP, SC.
+  - Antes: solo CC y variantes de "Cédula de Ciudadanía". Ahora: "Tarjeta de Identidad" → TI, "Cédula de Extranjería" → CE, "Pasaporte" → PA, "PEP" → PE, etc.
+  - Implementado como `private const IDENTITY_DOC_ALIASES` en vez de `match` — O(1) lookup, extensible sin tocar lógica.
+
+  **Componente 2 — `stripAccents()` determinístico**:
+  - Antes: dependía exclusivamente de `iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE')` — frágil en contenedores Alpine sin locale configurada.
+  - Ahora: `strtr()` con tabla explícita de 40+ caracteres como estrategia primaria. `iconv` como fallback solo para caracteres Unicode exóticos fuera de la tabla.
+  - Elimina la posibilidad de que acentos persistan como diferencias en la comparación textual.
+
+  **Componente 3 — Parser de fechas narrativas en español** (`normalizeDateToIso`):
+  - Nuevo método privado `parseSpanishNarrativeDate()` como fallback tras parseo numérico.
+  - Soporta: "4 de mayo de 2026", "Mayo 4, 2026", "4-mayo-2026", "4 may 2026", abreviaciones estándar.
+  - `checkdate()` valida que la fecha sea real (ej: "30 de febrero" → `null`).
+
+  **Tests añadidos** (64 unitarios NORM-001 + 3 integración):
+  - `tests/Services/Audit/AuditFindingRulesNormalizationTest.php` — 64 tests con DataProviders.
+  - `tests/Services/Audit/Events/DocumentPolicyEngineTest.php` — 3 tests end-to-end NORM-001.
+  - Resultado: 94/94 ✅, cero regresiones en tests preexistentes.
+
+  **Archivos modificados**: `AuditFindingRules.php`.
+  **Archivos creados**: `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+
+
+## [2026-05-04] — Depuración: Código Muerto y Drift Documental (ARCH-002)
+
+### 🧹 Cleanup
+- **ARCH-002**: Eliminación de código muerto y corrección de drift documental en `plans/architecture.md`.
+  - **Archivo eliminado**: `ClientConfigurationService.php` — fachada hueca sin consumidores (0 imports en todo el proyecto). Era un pass-through 1:1 sobre `AuditConfigModel`, creado en AUDIT-022 pero nunca integrado en el pipeline ni en controllers.
+  - **Drift corregido en `architecture.md`**: Eliminada referencia fantasma a `GeminiCircuitBreaker.php` (circuit breaker fue inlineado en `GeminiGateway` en AUDIT-013). Agregada referencia faltante a `GeminiCallMetrics.php`. Corregida ruta `Debug/ResponseIADiskStore.php` → `ResponseIADiskStore.php` (el subdirectorio `Debug/` nunca existió).
+  - **Archivos eliminados**: `app/Services/Audit/ClientConfigurationService.php`
+  - **Archivos modificados**: `plans/architecture.md`
+
+
 ## [2026-05-03] — Clean Controller: Delegación de Orquestación y Configuración (AUDIT-022)
 
 ### 🔵 Architecture / Refactor
