@@ -412,8 +412,6 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
                         'check' => 'VigenciaEntrega',
                         'description' => 'Vigencia visible',
                         'severity' => 'alta',
-                        'rol' => 'AUTORITATIVO',
-                        'omitirSi' => null,
                     ]],
                     'normalized_result' => [
                         'tipo_documento' => 'AUTORIZACION',

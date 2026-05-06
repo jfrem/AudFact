@@ -16,17 +16,13 @@ final class DocumentPolicyEngineTest extends TestCase
     private static function field(
         string $name,
         string $tipo = 'E',
-        string $severity = 'alta',
-        string $rol = 'AUTORITATIVO',
-        ?string $omitirSi = null
+        string $severity = 'alta'
     ): array {
         return [
             'campoNombre' => $name,
             'tipoCampo'   => $tipo,
             'severity'    => $severity,
             'orden'       => 0,
-            'rol'         => $rol,
-            'omitirSi'    => $omitirSi,
         ];
     }
 
@@ -109,7 +105,7 @@ final class DocumentPolicyEngineTest extends TestCase
                 'AUTORIZACION',
                 [],
                 ['header' => [], 'items' => []],
-                [['check' => 'VigenciaEntrega', 'severity' => 'ALTA', 'rol' => 'AUTORITATIVO']]
+                [['check' => 'VigenciaEntrega', 'severity' => 'ALTA']]
             ),
             self::payload(
                 'AUTORIZACION',
@@ -367,99 +363,6 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
-    // ─── Reglas dinámicas (Rol / OmitirSi) ────────────────────────────────────
-
-    public function testFieldWithRolInformativoIsExtractedButNotAudited(): void
-    {
-        // Reproduce el escenario "NombreArticulo en FORMULA MEDICA": se quiere extraer para
-        // dar contexto al modelo, pero no debe generar findings (la receta tiene N artículos).
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'FORMULA MEDICA',
-                [
-                    self::field('NombreArticulo', 'S', 'alta', 'INFORMATIVO'),
-                    self::field('FechaFormula'),
-                ],
-                ['header' => ['FechaFormula' => '2025-05-20', 'NombreArticulo' => 'GASA ESTERIL'], 'items' => []]
-            ),
-            self::payload('FORMULA MEDICA', ['FechaFormula' => '2025-05-20', 'NombreArticulo' => 'OTRO PRODUCTO'])
-        );
-
-        $campos = array_column($result['hallazgos']['items'], 'campo');
-        $this->assertSame(['FechaFormula'], $campos);
-        $this->assertTrue($result['document_decision']['approved']);
-    }
-
-    public function testOmitirSiSkipsFieldWhenFdvHasReferencedKey(): void
-    {
-        // Reproduce la regla original: skip CantidadPrescrita en FORMULA MEDICA
-        // si la FDV ya trae NumeroAutorizacion.
-        $engine = new DocumentPolicyEngine();
-
-        $omitirSiJson = json_encode(['fdv_has' => ['NumeroAutorizacion']]);
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'FORMULA MEDICA',
-                [
-                    self::field('CantidadPrescrita', 'B', 'alta', 'AUTORITATIVO', $omitirSiJson),
-                    self::field('FechaFormula'),
-                ],
-                [
-                    'header' => ['NumeroAutorizacion' => '46338218', 'FechaFormula' => '2025-05-20'],
-                    'items'  => [['CantidadPrescrita' => '50']],
-                ]
-            ),
-            self::payload(
-                'FORMULA MEDICA',
-                ['FechaFormula' => '2025-05-20'],
-                [['CantidadPrescrita' => '999']]
-            )
-        );
-
-        $campos = array_column($result['hallazgos']['items'], 'campo');
-        $this->assertSame(['FechaFormula'], $campos);
-    }
-
-    public function testOmitirSiSkipsFieldByDocQuality(): void
-    {
-        $engine = new DocumentPolicyEngine();
-
-        $omitirSi = json_encode(['doc_quality' => ['parcialmente_legible', 'ilegible']]);
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'DISPENSA',
-                [self::field('NumeroAutorizacion', 'E', 'alta', 'AUTORITATIVO', $omitirSi)],
-                ['header' => ['NumeroAutorizacion' => '46338218'], 'items' => []]
-            ),
-            self::payload('DISPENSA', ['NumeroAutorizacion' => '46338218'], [], [], 'parcialmente_legible')
-        );
-
-        $this->assertSame([], $result['hallazgos']['items']);
-    }
-
-    public function testFieldFindingIncludesRolMetadata(): void
-    {
-        // El finding debe propagar el rol para que el agregador pueda hacer cross-check.
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'AUTORIZACION',
-                [self::field('NombreArticulo', 'S', 'alta', 'ALTERNATIVO')],
-                ['header' => [], 'items' => [['NombreArticulo' => 'GASA ESTERIL']]]
-            ),
-            self::payload('AUTORIZACION', ['NombreArticulo' => 'GASA ESTERIL'])
-        );
-
-        $this->assertCount(1, $result['hallazgos']['items']);
-        $this->assertSame('ALTERNATIVO', $result['hallazgos']['items'][0]['rol']);
-        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
-    }
-
     public function testEvaluateMatchesDatesAcrossEquivalentDocumentFormats(): void
     {
         $engine = new DocumentPolicyEngine();
@@ -484,28 +387,6 @@ final class DocumentPolicyEngineTest extends TestCase
 
         $this->assertSame('COINCIDE', $authorizationResult['hallazgos']['items'][0]['resultado']);
         $this->assertSame('COINCIDE', $dispensaResult['hallazgos']['items'][0]['resultado']);
-    }
-
-    public function testSkipByConditionAppliesWithDoubleEncodedJson(): void
-    {
-        // Simula el valor double-encoded que la DB persiste cuando el frontend
-        // envía omitirSi como string JSON serializado dos veces.
-        $doubleEncoded = '{\"fdv_has\":[\"NumeroAutorizacion\"]}';
-
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'FORMULA MEDICA',
-                [self::field('CantidadPrescrita', 'B', 'alta', 'AUTORITATIVO', $doubleEncoded)],
-                ['header' => ['NumeroAutorizacion' => '46338218'], 'items' => [['CantidadPrescrita' => '576']]]
-            ),
-            self::payload('FORMULA MEDICA', [], [['CantidadPrescrita' => '576']])
-        );
-
-        // Con NumeroAutorizacion presente en FDV, omitirSi debe activarse → sin findings
-        $this->assertSame([], $result['hallazgos']['items']);
-        $this->assertTrue($result['document_decision']['approved']);
     }
 
     // ─── AUDIT-016: CAT-1 — Data loss silencioso en multi-item ────────────────

@@ -158,7 +158,6 @@ class GoldenSetReplayTest extends TestCase
                 $this->assertArrayHasKey('tipo_auditoria',    $h, "[$fixtureId] Hallazgo sin 'tipo_auditoria'.");
                 $this->assertArrayHasKey('severidad',         $h, "[$fixtureId] Hallazgo sin 'severidad'.");
                 $this->assertArrayHasKey('documento',         $h, "[$fixtureId] Hallazgo sin 'documento'.");
-                $this->assertArrayHasKey('rol',               $h, "[$fixtureId] Hallazgo sin 'rol'.");
             }
         }
     }

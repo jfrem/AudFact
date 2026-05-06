@@ -171,8 +171,6 @@ final class DocumentNormalizerTest extends TestCase
                     'check' => 'VigenciaEntrega',
                     'description' => 'Vigencia visible',
                     'severity' => 'alta',
-                    'rol' => 'AUTORITATIVO',
-                    'omitirSi' => null,
                 ],
             ],
             'extraction_result' => [
@@ -199,7 +197,6 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame(60, $visual['valor']);
         $this->assertSame('dias', $visual['unidad']);
         $this->assertSame('FechaAutorizacion', $visual['fecha_base']);
-        $this->assertSame('AUTORITATIVO', $visual['rol']);
     }
 
     /**
