@@ -536,7 +536,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => "Registro de Dispensación '{$fdvValue}' difiere de Documento '{$docValue}'.",
+            'detalle'   => "Registro de Dispensación '{$fdvValue}' difiere de Documento soporte '{$docValue}'.",
         ];
     }
 
@@ -612,7 +612,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf('Cantidad en documento (%.2f) excede FDV (%.2f).', $docNumber, $fdvNumber),
+            'detalle'   => sprintf('Cantidad en documento soporte (%.2f) excede cantidad registrada en registro de dispensación (%.2f).', $docNumber, $fdvNumber),
         ];
     }
 

@@ -72,8 +72,8 @@ C4Component
     Container_Boundary(phpfpm, "PHP 8.2-FPM (Pool N Replicas + static)") {
         Component(router, "Router + Route", "core/", "Despacho de rutas HTTP con middleware pipeline")
         Component(middleware, "Middleware Pipeline", "core/", "Rate limit, CORS, validación")
-        Component(controllers, "Controllers", "app/Controllers/", "8 controladores HTTP: base, health, config, clients, invoices, attachments, dispensation, audit")
-        Component(models, "Models", "app/Models/", "6 modelos PDO: base, clients, invoices, attachments, dispensation, audit status")
+        Component(controllers, "Controllers", "app/Controllers/", "11 controladores HTTP: base, health, observability, config, clients, audit config, invoices, attachments, dispensation, audit, DLQ")
+        Component(models, "Models", "app/Models/", "7 modelos PDO: base, clients, invoices, attachments, dispensation, audit config, audit status")
         Component(auditWorker, "AuditOrchestrator", "app/Services/Audit/", "Orquestador del pipeline de auditoría IA")
         Component(auditServices, "Audit Services", "app/Services/Audit/", "FileManager, PromptBuilder, ResponseSchema, ResultValidator, JsonRepair, JsonParser")
         Component(driveService, "GoogleDriveAuthService", "app/Services/", "Autenticación JWT + streaming de archivos")

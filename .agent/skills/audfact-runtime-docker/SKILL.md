@@ -16,9 +16,8 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | Archivo | Tamaño | Rol |
 |---|---|---|
 | `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + extraction (5 réplicas) |
-| `docker-compose.frontend.yml`| ~0.4 KB | Frontend: next.js (3000:3000) |
+| `docker-compose.prod.yml` | ~5 KB | Producción: imágenes GHCR + runner LAN |
 | `docker/Dockerfile` | ~1.5 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional |
-| `frontend/Dockerfile` | ~0.6 KB | Build multi-etapa Next.js (requiere standalone) |
 | `frontend/next.config.ts` | < 1 KB | Config Next.js (debe tener `output: standalone`) |
 | `docker/nginx.Dockerfile` | ~0.4 KB | Nginx 1.25 Alpine con assets estáticos baked-in |
 | `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM |
@@ -52,7 +51,8 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 ### Producción (Backend)
 | Host | Container | Uso |
 |---|---|---|
-| `./logs` | `/var/www/html/logs` | Logs rotativos (Zero-Source: único mount de datos) |
+| `./logs` | `/var/www/html/logs` | Logs rotativos |
+| `./responseIA` | `/var/www/html/responseIA` | Respuestas crudas Gemini generadas en runtime; no entran al build context |
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ## Variables .env obligatorias
@@ -68,7 +68,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 
 ## Flujo de revisión
-1. Verificar servicios en `docker-compose.yml` y `docker-compose.frontend.yml`.
+1. Verificar servicios en `docker-compose.yml` y `docker-compose.prod.yml`.
 2. Verificar extensiones en `docker/Dockerfile`.
 3. Validar `frontend/next.config.ts` (output: standalone).
 4. Verificar variables obligatorias en `.env`.
@@ -87,11 +87,12 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 
 ## Comandos útiles
 ```bash
-# Rebuild Frontend (Producción Local)
-wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose -f docker-compose.frontend.yml down && docker compose -f docker-compose.frontend.yml up -d --build"
-
-# Rebuild API Backend
+# Rebuild API Backend local
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
+
+# Deploy producción desde imagenes GHCR (runner LAN)
+AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
+AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)

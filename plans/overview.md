@@ -30,10 +30,10 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 ```
 AudFact/
 ├── app/
-│   ├── Controllers/       # 8 controladores HTTP (incluye base)
-│   ├── Models/            # 6 modelos SQL Server (incluye base)
-│   ├── Services/          # Google Drive + 11 servicios de auditoría IA + prompts
-│   ├── Routes/            # web.php (17 endpoints)
+│   ├── Controllers/       # 11 controladores HTTP (incluye base)
+│   ├── Models/            # 7 modelos SQL Server (incluye base)
+│   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
+│   ├── Routes/            # web.php (25 endpoints)
 │   └── wrap/              # MCP (webhook + 4 tools)
 ├── frontend/              # Frontend Next.js
 ├── bin/                   # Worker CLI (audit-worker.php)

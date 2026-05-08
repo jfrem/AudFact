@@ -211,7 +211,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * Construye el FDV-lite (target_context) por documento.
      *
      * Extrae solo los campos configurados para ese documento desde la fuente de verdad,
-     * incluyendo tipoCampo, valueType y rol. Esto permite:
+     * incluyendo tipoCampo y valueType. Esto permite:
      * 1. Inyectar contexto mínimo en el prompt de Gemini (anti-sesgo)
      * 2. Calcular target_context_hash para invalidar cache al cambiar FDV
      * 3. Trazar qué datos tenía la FDV al momento de la extracción

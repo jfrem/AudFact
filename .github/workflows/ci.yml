@@ -1,4 +1,4 @@
-name: CI — AudFact
+name: CI - AudFact
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main, develop]
 
-# CICD-003: Principle of least privilege for GITHUB_TOKEN
 permissions:
   contents: read
 
@@ -14,16 +13,16 @@ jobs:
   lint:
     name: PHP Lint & Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # CICD-004
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup PHP
-        uses: shivammathur/setup-php@v2  # TODO(CICD-008): pin to full commit SHA
+        uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.2'
+          php-version: "8.2"
           extensions: pdo, pdo_sqlsrv
           tools: composer:v2
 
@@ -50,7 +49,6 @@ jobs:
           done
           echo "Project structure is valid"
 
-      # CICD-010: Secret scan now BLOCKS the build instead of warning
       - name: Check for secrets in code
         run: |
           echo "Scanning for hardcoded secrets..."
@@ -67,208 +65,3 @@ jobs:
           echo "Running unit tests..."
           vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always
           echo "All tests passed"
-
-  deploy:
-    name: Deploy to Production
-    needs: lint
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 30  # CICD-004
-    concurrency:
-      group: deploy-production-main
-      cancel-in-progress: false
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - name: Fix workspace permissions (Docker creates root-owned files)
-        run: |
-          echo "🔧 Reclaiming workspace ownership from root..."
-          docker run --rm -v "$GITHUB_WORKSPACE":"$GITHUB_WORKSPACE" alpine chown -R $(id -u):$(id -g) "$GITHUB_WORKSPACE"
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          clean: true
-          submodules: recursive
-
-      - name: Validate workspace
-        run: |
-          if [ -z "$GITHUB_WORKSPACE" ] || [ ! -d "$GITHUB_WORKSPACE" ]; then
-            echo "::error::Workspace path is invalid"
-            exit 1
-          fi
-
-      - name: Create .env from GitHub Secrets
-        env:
-          APP_ENV: ${{ secrets.APP_ENV }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
-          DB_ENCRYPT: ${{ secrets.DB_ENCRYPT }}
-          DB_TRUST_SERVER_CERT: ${{ secrets.DB_TRUST_SERVER_CERT }}
-          DB2_HOST: ${{ secrets.DB2_HOST }}
-          DB2_PORT: ${{ secrets.DB2_PORT }}
-          DB2_NAME: ${{ secrets.DB2_NAME }}
-          DB2_USER: ${{ secrets.DB2_USER }}
-          DB2_PASS: ${{ secrets.DB2_PASS }}
-          DB2_ENCRYPT: ${{ secrets.DB2_ENCRYPT }}
-          DB2_TRUST_SERVER_CERT: ${{ secrets.DB2_TRUST_SERVER_CERT }}
-          GOOGLE_DRIVE_CLIENT_EMAIL: ${{ secrets.GOOGLE_DRIVE_CLIENT_EMAIL }}
-          GOOGLE_DRIVE_PRIVATE_KEY: ${{ secrets.GOOGLE_DRIVE_PRIVATE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
-          MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          AUDIT_NGINX_READ_TIMEOUT: ${{ secrets.AUDIT_NGINX_READ_TIMEOUT }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
-        run: |
-          echo "Generating .env from GitHub Secrets..."
-
-          required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY)
-          for key in "${required[@]}"; do
-            if [ -z "${!key}" ]; then
-              echo "::error::Missing required GitHub secret: $key"
-              exit 1
-            fi
-          done
-
-          if [ "$APP_ENV" = "production" ]; then
-            if [ "${DB_ENCRYPT}" != "no" ] || [ "${DB_TRUST_SERVER_CERT}" != "yes" ]; then
-              echo "Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
-              exit 1
-            fi
-
-            if [ "${DB2_ENCRYPT}" != "no" ] || [ "${DB2_TRUST_SERVER_CERT}" != "yes" ]; then
-              echo "Production deploy currently requires DB2_ENCRYPT=no and DB2_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
-              exit 1
-            fi
-          fi
-
-          cat > .env << EOF
-          APP_ENV=${APP_ENV}
-          WWWUSER_ID=$(id -u)
-          WWWGROUP_ID=$(id -g)
-          WRAP_API_BASE=http://nginx
-          WEBHOOK_URL=http://localhost:8080/app/wrap/webhook.php
-          CAPABILITIES_URL=http://localhost:8080/app/wrap/capabilities.php
-          MCP_WEBHOOK_SECRET=${MCP_WEBHOOK_SECRET}
-
-          DB_TYPE=sqlsrv
-          DB_HOST=${DB_HOST}
-          DB_PORT=${DB_PORT}
-          DB_NAME=${DB_NAME}
-          DB_USER=${DB_USER}
-          DB_PASS=${DB_PASS}
-
-          DB2_HOST=${DB2_HOST}
-          DB2_PORT=${DB2_PORT}
-          DB2_NAME=${DB2_NAME}
-          DB2_USER=${DB2_USER}
-          DB2_PASS=${DB2_PASS}
-
-          DB_POOLING=1
-          DB_ENCRYPT=${DB_ENCRYPT:-no}
-          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-yes}
-          DB2_ENCRYPT=${DB2_ENCRYPT:-no}
-          DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-yes}
-
-          GOOGLE_DRIVE_CLIENT_EMAIL=${GOOGLE_DRIVE_CLIENT_EMAIL}
-          GOOGLE_DRIVE_PRIVATE_KEY="${GOOGLE_DRIVE_PRIVATE_KEY}"
-          GOOGLE_DRIVE_TLS_VERIFY=1
-
-          REQUEST_TIMEOUT_MS=60000
-          LOG_LEVEL=${LOG_LEVEL:-info}
-          LOG_RETENTION_DAYS=7
-          LOG_MAX_SIZE_MB=10
-          ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
-          MAX_JSON_SIZE=1048576
-
-          GEMINI_API_KEY=${GEMINI_API_KEY}
-          GEMINI_MODEL=gemini-flash-latest
-          GEMINI_TEMPERATURE=0.0
-          GEMINI_TIMEOUT=300
-          GEMINI_TOP_P=
-          GEMINI_TOP_K=
-          GEMINI_MAX_OUTPUT_TOKENS=8192
-          GEMINI_RESPONSE_MIME=application/json
-          GEMINI_MEDIA_RESOLUTION=
-          GEMINI_THINKING_BUDGET=
-
-          AUDIT_BATCH_MAX_LIMIT=100
-          AUDIT_BATCH_TIMEOUT=3600
-          AUDIT_NGINX_READ_TIMEOUT=${AUDIT_NGINX_READ_TIMEOUT:-3600}
-          AUDIT_FPM_TERMINATE_TIMEOUT=3600
-
-          REDIS_HOST=redis
-          REDIS_PORT=6379
-          REDIS_PASSWORD=${REDIS_PASSWORD:-}
-          REDIS_PREFIX=audfact:
-          AUDIT_CACHE_TTL=86400
-          EOF
-
-          chmod 600 .env
-          echo "Generated .env successfully"
-
-      # CICD-001: Build BEFORE stopping — build failure is non-destructive
-      - name: Build new images (containers stay running)
-        run: |
-          set -euo pipefail
-          echo "Building new images while current containers run..."
-          mkdir -p logs
-          docker compose build
-          echo "New images built successfully"
-
-      - name: Deploy new containers
-        run: |
-          set -euo pipefail
-          echo "Recreating containers with new images..."
-          if docker compose up -d --force-recreate --remove-orphans; then
-            echo "Containers recreated successfully"
-          else
-            echo "Recreation failed. Pruning cache and retrying..."
-            docker builder prune -af || true
-            docker image prune -f || true
-            docker compose up --build -d --force-recreate
-          fi
-
-      - name: Health Check
-        run: |
-          echo "Waiting for containers to start (entrypoint installs vendor if needed)..."
-          sleep 30
-          RETRIES=3
-          for i in $(seq 1 $RETRIES); do
-            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-              echo "Deploy successful — Health check passed"
-              exit 0
-            fi
-            echo "Attempt $i/$RETRIES failed, waiting 10s..."
-            sleep 10
-          done
-          echo "::error::Health check failed after $RETRIES attempts"
-          docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose logs --tail=120 php nginx
-          exit 1
-
-      - name: 🧹 Zero-Source Host Purge (Lean Production 3.0)
-        if: success()
-        run: |
-          echo "Purging all source code and metadata from the deployment host..."
-          if [ -z "$GITHUB_WORKSPACE" ] || [ "$GITHUB_WORKSPACE" = "/" ]; then
-            echo "Invalid GITHUB_WORKSPACE, aborting purge."
-            exit 1
-          fi
-          cd "$GITHUB_WORKSPACE"
-          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 \
-            ! -name 'logs' \
-            ! -name '.env' \
-            ! -name 'docker-compose.yml' \
-            ! -name 'docker-compose.frontend.yml' \
-            ! -name '.git' \
-            ! -name 'docker' \
-            ! -name 'public' \
-            ! -name 'frontend' \
-            ! -name '_temp' \
-            ! -name '_actions' \
-            -print -exec rm -rf {} +
-          echo "Host is now completely clean. Zero-source deployment achieved."

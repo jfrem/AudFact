@@ -8,10 +8,10 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 |---|---|---|---|
 | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
 | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
-| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (Pipeline + Debug) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder` + 4 workers (extraction, normalizer, policy, aggregator) sobre Redis Streams. |
+| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder` + 4 workers (extraction, normalizer, policy, aggregator) sobre Redis Streams. |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
-| `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml` | Entorno Docker y conectividad DB. |
+| `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
 | `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |
@@ -70,7 +70,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/Audit/*.php` | `audfact-audit-gemini` |
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
-| `docker-compose.yml`, `docker/*` | `audfact-runtime-docker` |
+| `docker-compose*.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `public/index.php` | `audfact-runtime-docker` + `audfact-security-guardrails` |

@@ -17,7 +17,7 @@
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
-- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.frontend.yml`
+- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.prod.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
 - **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
@@ -174,6 +174,14 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
 | `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |
+
+### Despliegue Docker/GHCR
+
+| Variable | Default | Requerida | Módulo / Uso |
+|---|---|---|---|
+| `AUDFACT_PHP_IMAGE` | `ghcr.io/jfrem/audfact-php` | ⚠️ Producción | `docker-compose.prod.yml` — imagen PHP-FPM/workers publicada en GHCR |
+| `AUDFACT_NGINX_IMAGE` | `ghcr.io/jfrem/audfact-nginx` | ⚠️ Producción | `docker-compose.prod.yml` — imagen Nginx publicada en GHCR |
+| `AUDFACT_IMAGE_TAG` | `latest` | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual |
 
 ### Base de datos (SQL Server)
 

@@ -33,8 +33,8 @@ AudFact/
 ├── app/
 │   ├── Controllers/     # 11 controladores HTTP (incluye base)
 │   ├── Models/          # 7 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # GoogleDrive + Audit/ (22 archivos: Pipeline/, Debug/, raíz)
-│   ├── Routes/web.php   # 19 endpoints
+│   ├── Services/        # GoogleDrive + Audit/ (29 archivos: Pipeline/ + raíz)
+│   ├── Routes/web.php   # 25 endpoints
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
@@ -46,7 +46,7 @@ AudFact/
 └── logs/                # Logs rotativos por hostname (HA-safe)
 ```
 
-## Endpoints REST (22)
+## Endpoints REST (25)
 
 > Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
@@ -69,6 +69,7 @@ AudFact/
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
+| GET | `/audit/stats` | AuditController::stats |
 | GET | `/audit/documents-history` | AuditController::documentsHistory |
 | POST | `/audit/single` | AuditController::single |
 | POST | `/audit/async` | AuditController::async |

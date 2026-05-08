@@ -21,8 +21,8 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 AudFact/
 ├── frontend/              # Frontend SPA en Next.js (App Router)
 ├── app/
-│   ├── Controllers/       # 8 controladores HTTP (incluye base)
-│   ├── Models/            # 6 modelos SQL Server (incluye base)
+│   ├── Controllers/       # 11 controladores HTTP (incluye base)
+│   ├── Models/            # 7 modelos SQL Server (incluye base)
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
 │   ├── Services/Audit/    # Pipeline/ (workers, policy, agregación y persistencia)
 │   ├── Routes/            # web.php (definición de rutas)
@@ -66,8 +66,10 @@ composer install
 # 3. Levantar backend con Docker
 docker compose up -d
 
-# 4. Levantar frontend
-docker compose -f docker-compose.frontend.yml up -d
+# 4. Levantar frontend en desarrollo
+cd frontend
+npm ci
+NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
 ```
 
 ### Variables de Entorno
@@ -102,6 +104,7 @@ docker compose -f docker-compose.frontend.yml up -d
 - Definir `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` mientras la infraestructura SQL Server siga fallando con TLS.
 - Migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` cuando el servidor tenga certificado verificable.
 - Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en produccion).
+- Para despliegue por GitHub Actions, definir el environment `production`, el runner self-hosted `audfact-prod-lan` y los secrets requeridos por `.github/workflows/deploy-production.yml`.
 
 ## API
 
@@ -144,63 +147,58 @@ de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
 
 ## Docker
 
-### Desarrollo local (recomendado)
+### Desarrollo local
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d --build
+docker compose up -d --build
 
-# Ver estado y logs (dev)
-docker compose -f docker-compose.dev.yml ps
-docker compose -f docker-compose.dev.yml logs -f
+# Ver estado y logs
+docker compose ps
+docker compose logs -f
 
-# Detener entorno dev
-docker compose -f docker-compose.dev.yml down
+# Detener entorno
+docker compose down
 ```
 
-### Modo HA / stress testing
+### Produccion
 
 ```bash
-# Levantar stack HA
-docker compose -f docker-compose.ha.yml up -d --build
-
-# Ver estado y logs (HA)
-docker compose -f docker-compose.ha.yml ps
-docker compose -f docker-compose.ha.yml logs -f
-
-# Detener entorno HA
-wsl docker compose -f docker-compose.ha.yml down
+AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
+AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
-Servicios (dev): `php` + `nginx` (1 replica por servicio).
-Servicios (ha): `php` (5 replicas declaradas) + `nginx` con balanceo via template.
-
-Estado actual de configuración: `docker-compose.yml` conserva la intención de topología HA en su definición, pero el workflow de producción ejecuta `docker compose up --build -d` sobre un runner self-hosted. Eso valida y levanta el stack, pero no debe comunicarse como orquestación HA garantizada por sí sola.
-El build de `php` usa `ENABLE_XDEBUG` por entorno: en `docker-compose.dev.yml` está en `1` (debug activo) y en `docker-compose.yml` / `docker-compose.ha.yml` está en `0` (debug deshabilitado).
-En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose de producción (`docker-compose.yml`) monta únicamente `./logs:/var/www/html/logs` para persistir logs en el host; el código fuente vive dentro de la imagen (Zero-Source).
+`docker-compose.yml` conserva la topología local con build desde el repo. `docker-compose.prod.yml` usa imagenes publicadas en GHCR y no construye en el servidor.
+El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs` y `./responseIA:/var/www/html/responseIA`; el código fuente vive dentro de la imagen (Zero-Source).
 El contenedor PHP usa un healthcheck empaquetado en `/usr/local/bin/audfact-healthcheck.php`, evitando depender de rutas eliminadas durante el build final.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
 
-### Frontend (Deploy Runner)
+### Produccion con GitHub Actions en LAN
 
-El frontend se despliega con un workflow independiente en runner self-hosted:
+El despliegue productivo esta separado en tres workflows:
 
-- Workflow: `.github/workflows/deploy-frontend.yml`
-- Compose: `docker-compose.frontend.yml`
-- Imagen: `frontend/Dockerfile` (Next.js standalone)
-- Puerto: `3000`
-- Gate previo: `lint` + `build` en `ubuntu-latest` antes del deploy al runner self-hosted
+- `.github/workflows/ci.yml`: valida PHP, Composer, estructura, secretos hardcodeados y PHPUnit.
+- `.github/workflows/publish-images.yml`: construye `audfact-php` y `audfact-nginx`, y publica tags `latest` y `${GITHUB_SHA}` en GHCR.
+- `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.prod.yml` y valida `/health`.
+
+El servidor no necesita IP publica ni SSH expuesto. El runner debe vivir dentro de la LAN y tener salida HTTPS a GitHub/GHCR.
+
+Rollback manual:
+
+```bash
+# Desde GitHub Actions > Deploy Production - AudFact > Run workflow
+# image_tag = SHA previamente desplegado
+```
+
+### Frontend
+
+El root repo valida el submodulo frontend con `.github/workflows/frontend-ci.yml`. No hay deploy frontend desde este repo hasta que el submodulo provea una imagen/compose productivo versionado.
 
 ### Seguridad pendiente
 
 La autenticación/autorización de endpoints críticos queda diferida a un sprint posterior. Este release endurece el pipeline de despliegue y el transporte a SQL Server, pero no cambia todavía la exposición funcional de `/clients*`, `/invoices*`, `/dispensation*` y `/audit*`.
 Además, la validación estricta de certificados SQL Server queda temporalmente diferida: el despliegue en este entorno opera sin cifrado SQL Server y con `TrustServerCertificate=yes` hasta que infraestructura remedie TLS correctamente.
-
-Comando manual equivalente:
-
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8080 docker compose -f docker-compose.frontend.yml up --build -d
-```
 
 ## Documentación
 
@@ -212,6 +210,7 @@ Documentación completa disponible en `plans/`:
 - [Flujos de Datos](plans/data-flows.md) — Diagramas de secuencia.
 - [API Endpoints](plans/api-endpoints.md) — Contratos de API.
 - [Database Schema](plans/database-schema.md) — Tablas y relaciones.
+- [Deployment GitHub Actions LAN](plans/deployment-github-actions-lan.md) — Despliegue con runner self-hosted en red privada.
 - [Changelog](plans/changelog.md) — Historial de cambios.
 
 ## Seguridad

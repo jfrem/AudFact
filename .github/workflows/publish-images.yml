@@ -1,0 +1,65 @@
+name: Publish Images - AudFact
+
+on:
+  workflow_run:
+    workflows: ["CI - AudFact"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  PHP_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-php
+  NGINX_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-nginx
+  RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  publish:
+    name: Build and publish backend images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push PHP runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          build-args: |
+            ENABLE_XDEBUG=0
+            WWWUSER_ID=33
+            WWWGROUP_ID=33
+          tags: |
+            ${{ env.PHP_IMAGE }}:${{ env.RELEASE_SHA }}
+            ${{ env.PHP_IMAGE }}:latest
+
+      - name: Build and push Nginx image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/nginx.Dockerfile
+          push: true
+          tags: |
+            ${{ env.NGINX_IMAGE }}:${{ env.RELEASE_SHA }}
+            ${{ env.NGINX_IMAGE }}:latest

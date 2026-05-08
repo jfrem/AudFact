@@ -5,12 +5,12 @@
     {
       "name": "audfact-api-rest",
       "path": ".agent/skills/audfact-api-rest",
-      "description": "Endpoints REST en PHP MVC. Cubre 12 endpoints en web.php, controladores CRUD y validación centralizada."
+      "description": "Endpoints REST en PHP MVC. Cubre 25 endpoints en web.php, controladores REST y validación centralizada."
     },
     {
       "name": "audfact-audit-gemini",
       "path": ".agent/skills/audfact-audit-gemini",
-      "description": "Pipeline de auditoría IA con Gemini. Cubre GeminiAuditService, servicios de auditoría y manejo de adjuntos."
+      "description": "Pipeline de auditoría IA event-driven con Gemini, Redis Streams, extracción documental, normalización, policy y agregación."
     },
     {
       "name": "audfact-sqlsrv-models",

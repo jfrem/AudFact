@@ -148,22 +148,27 @@ Cada campo se audita con un tipo de comparación específico, definido en el `au
 | **Business** | `B` | Lógica de negocio — PHP calcula y compara | `CantidadEntregada` ≤ `CantidadPrescrita` |
 | **Visual** | `V` | Verificación visual en la imagen del documento | `FirmaActaEntrega`: PRESENTE / AUSENTE |
 
-### 7.3 Roles de Campos
+### 7.3 Configuración Runtime de Campos
 
-| Rol | Significado | Impacto |
-|---|---|---|
-| **AUTORITATIVO** | Hallazgo genera glosa potencial. Es evidencia objetiva | Afecta la decisión de aprobación del documento |
-| **INFORMATIVO** | Referencia contextual, no genera hallazgo crítico | Se reporta pero no afecta la aprobación |
+El `audit-config` vigente no persiste roles por campo. Cada fila activa de `AudDispCampo`
+define si un campo se evalúa mediante `CampoNombre`, `TipoCampo`, `Orden`,
+`SeveridadOverride` y, para visuales, `DescripcionOverride`. Si un campo está activo
+en `fields`, el `DocumentPolicyEngine` lo evalúa; no existe hoy una marca runtime
+`INFORMATIVO` para excluirlo de la decisión.
+
+Implicación operativa: un campo como `NombreArticulo` configurado con `TipoCampo = S`
+dispara comparación semántica y puede usar `SemanticMatchJudge` como fallback Gemini
+cuando las heurísticas locales no alcanzan el umbral.
 
 ### 7.4 Resultados Posibles por Campo
 
 | Resultado | Significado | Acción |
 |---|---|---|
 | `COINCIDE` | El valor del documento coincide con la FDV | ✅ Sin hallazgo |
-| `DISCREPANCIA` | El valor difiere — posible error o fraude | 🔴 Hallazgo reportado |
+| `VALOR_DISTINTO` | El valor difiere — posible error o fraude | 🔴 Hallazgo reportado |
 | `NO_ENCONTRADO` | Gemini no pudo extraer el campo del documento | ⚠️ Hallazgo — documento puede estar incompleto o ilegible |
 | `NO_CONCLUYENTE` | Gemini encontró similitud parcial pero no puede confirmar | 🟡 Requiere revisión humana |
-| `OMITIDO` | Campo excluido por regla condicional (`omitirSi`) | ➖ No evaluado |
+| `OMITIDO` | Campo sin valor auditable o no evaluado por condición interna del engine; `omitirSi` no existe en el runtime actual | ➖ No evaluado |
 
 ### 7.5 Visual Checks (Verificaciones Visuales)
 
@@ -179,8 +184,8 @@ Cada documento recibe un veredicto:
 
 | Veredicto | Condición |
 |---|---|
-| `approved: true` | Todos los campos AUTORITATIVOS coinciden, sin discrepancias ni campos faltantes |
-| `approved: false` | Al menos un campo AUTORITATIVO tiene discrepancia, NO_ENCONTRADO o NO_CONCLUYENTE |
+| `approved: true` | Ningún hallazgo del documento tiene resultado fallido (`VALOR_DISTINTO`, `NO_ENCONTRADO` o `NO_CONCLUYENTE`) |
+| `approved: false` | Al menos un hallazgo del documento tiene resultado fallido (`VALOR_DISTINTO`, `NO_ENCONTRADO` o `NO_CONCLUYENTE`) |
 
 ### 7.7 Estado Final de la Auditoría
 

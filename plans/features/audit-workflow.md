@@ -7,7 +7,7 @@
 >
 > **Fuentes de verdad actuales**:
 > - Skill `audfact-audit-gemini` → `.agent/skills/audfact-audit-gemini/SKILL.md`
-> - `plans/architecture.md` (estructura `Pipeline/` con 13 archivos)
+> - `plans/architecture.md` (estructura `Pipeline/` con 17 archivos y servicios raíz de auditoría)
 > - `app/Services/Audit/Pipeline/` (código real)
 >
 > El contenido histórico se preserva intencionalmente; pendiente reescritura completa como TODO separado.

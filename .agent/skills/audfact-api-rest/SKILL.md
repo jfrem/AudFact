@@ -15,43 +15,50 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1.1 KB | Definición de 20 rutas |
-| `app/Controllers/Controller.php` | 2.3 KB | Base: `validate()`, `validateArray()`, `getJsonBody()` |
-| `app/Controllers/AttachmentsController.php` | 6.7 KB | Controlador más complejo (stream/download) |
-| `app/Controllers/AuditController.php` | ~3 KB | Orquestador de auditoría + resultados |
-| `app/Controllers/InvoicesController.php` | 1.4 KB | Búsqueda de facturas |
-| `app/Controllers/ClientsController.php` | 1.1 KB | Gestión de clientes |
-| `app/Controllers/ConfigController.php` | ~0.5 KB | Configuración pública frontend |
-| `app/Controllers/DispensationController.php` | 858 B | Datos de dispensación |
-| `app/Controllers/HealthController.php` | 646 B | Health check |
+| `app/Routes/web.php` | ~1.6 KB | Definición de 25 rutas |
+| `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
+| `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
+| `app/Controllers/AuditConfigController.php` | 6.8 KB | Configuración dinámica de auditoría por cliente |
+| `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resultados, stats, jobs y timings |
+| `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ |
+| `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI |
+| `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
+| `app/Controllers/ClientsController.php` | 1.6 KB | Gestión de clientes y catálogo documental |
+| `app/Controllers/ConfigController.php` | 0.6 KB | Configuración pública frontend |
+| `app/Controllers/DispensationController.php` | 1.0 KB | Datos de dispensación |
+| `app/Controllers/HealthController.php` | 2.8 KB | Health check |
 | `core/Validator.php` | 4 KB | Reglas: required, integer, date, min_value, etc. |
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (21)
+## Endpoints actuales (25)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
 | `GET` | `/` | `Controller::index` |
 | `GET` | `/health` | `HealthController::status` |
+| `GET` | `/metrics/async` | `ObservabilityController::asyncMetrics` |
 | `GET` | `/config/public` | `ConfigController::publicConfig` |
 | `GET` | `/clients` | `ClientsController::index` |
 | `GET` | `/clients/{clientId}` | `ClientsController::show` |
+| `GET` | `/clients/{clientId}/documents` | `ClientsController::documents` |
 | `POST` | `/clients` | `ClientsController::lookup` |
-| `GET` | `/clients/{clientId}/audit-config` | `AuditController::configByClient` |
-| `POST` | `/clients/{clientId}/audit-config` | `AuditController::saveAuditConfig` |
+| `GET` | `/clients/{clientId}/audit-config` | `AuditConfigController::show` |
+| `POST` | `/clients/{clientId}/audit-config` | `AuditConfigController::save` |
 | `GET` | `/invoices` | `InvoicesController::index` |
 | `POST` | `/invoices` | `InvoicesController::search` |
-| `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | `AttachmentsController::showByDispensation` |
 | `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | `AttachmentsController::downloadByDispensation` |
+| `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | `AttachmentsController::showByDispensation` |
 | `GET` | `/dispensation/{DisDetNro}` | `DispensationController::show` |
 | `POST` | `/dispensation` | `DispensationController::lookup` |
 | `GET` | `/audit/results` | `AuditController::results` |
+| `GET` | `/audit/stats` | `AuditController::stats` |
 | `GET` | `/audit/documents-history` | `AuditController::documentsHistory` |
-| `POST` | `/audit` | `AuditController::run` |
 | `POST` | `/audit/single` | `AuditController::single` |
 | `POST` | `/audit/async` | `AuditController::async` |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` |
+| `GET` | `/audit/dlq` | `AuditDlqController::index` |
+| `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |
 
 ## Flujo de trabajo

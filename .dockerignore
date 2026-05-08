@@ -16,6 +16,7 @@ frontend/.turbo
 
 # Logs y Temporales
 logs
+responseIA
 tmp
 *.log
 public/mcp/node_modules
@@ -26,6 +27,8 @@ dist
 build
 
 # Herramientas de Desarrollo y Testing
+.github/
+.claude/
 tests/
 phpunit.xml
 .phpunit.cache

@@ -1,0 +1,145 @@
+services:
+  php:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
+    expose:
+      - "9000"
+    restart: unless-stopped
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "php", "/usr/local/bin/audfact-healthcheck.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: audfact-redis
+    volumes:
+      - redis_data:/data
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000 --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    expose:
+      - "6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+
+  nginx:
+    image: ${AUDFACT_NGINX_IMAGE:-ghcr.io/jfrem/audfact-nginx}:${AUDFACT_IMAGE_TAG:-latest}
+    container_name: audfact-nginx
+    depends_on:
+      - php
+      - redis
+    ports:
+      - "8080:80"
+    environment:
+      NGINX_ENVSUBST_FILTER: "AUDIT_"
+      AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}
+    restart: unless-stopped
+
+  worker-orchestrator:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+      - nginx
+    command: php bin/audit-worker.php orchestrator
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  worker-extraction:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
+    depends_on:
+      - redis
+      - nginx
+    command: php bin/audit-worker.php extraction
+    restart: on-failure
+    deploy:
+      replicas: 5
+      resources:
+        limits:
+          memory: 1G
+          cpus: "0.8"
+
+  worker-normalizer:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+    command: php bin/audit-worker.php normalizer
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  worker-policy:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+      - ./responseIA:/var/www/html/responseIA
+    depends_on:
+      - redis
+    command: php bin/audit-worker.php policy
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  worker-aggregator:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+    command: php bin/audit-worker.php aggregator
+    restart: on-failure
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+volumes:
+  redis_data:

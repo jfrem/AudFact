@@ -33,12 +33,15 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|---|
 | `Controller.php` | Base — `validate()`, manejo de errores | — |
 | `HealthController.php` | Health check (`GET /health`) | — |
+| `ObservabilityController.php` | Métricas async del pipeline Redis (`GET /metrics/async`) | Redis |
 | `ConfigController.php` | Configuración pública del frontend (`GET /config/public`) | — |
 | `ClientsController.php` | CRUD clientes/EPS | `ClientsModel` |
+| `AuditConfigController.php` | Configuración dinámica de auditoría por cliente | `AuditConfigModel` |
 | `InvoicesController.php` | Búsqueda de facturas | `InvoicesModel` |
 | `AttachmentsController.php` | Descarga/previsualización de documentos (BLOB/URL) con detección MIME por magic bytes | `AttachmentsModel` |
 | `DispensationController.php` | Datos de dispensación | `DispensationModel` |
 | `AuditController.php` | Orquestador de auditoría IA + resultados persistidos | Todos los modelos |
+| `AuditDlqController.php` | Consulta y reproceso de eventos DLQ | Redis |
 
 **Dependencias**: `core/Validator`, `core/Response`, `core/Logger`, Modelos.
 **Interfaz**: REST JSON vía `app/Routes/web.php`.
@@ -54,6 +57,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `InvoicesModel.php` | `vw_discolnet_dispensas` + `vw_discolnet_facturas` | `getInvoices()` (pendiente por KarUni=0) |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByInvoiceId()`, `getAttachmentByIdForDispensation()`, `getAttachmentBlobStreamByIdForDispensation()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` |
+| `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
 | `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `getByFacSec()`, `upsertAuditResult()`, `updateAuditResult()` |
 
 **Dependencias**: `core/Database` (PDO sqlsrv).
@@ -66,9 +70,12 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Componente | Responsabilidad |
 |---|---|
 | `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), slots y rollback transaccional |
-
+| `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) + detección de tipo por convención |
+| `AuditFieldValueType.php` | Enum de tipo de dato por campo para normalización y estrategias de comparación |
+| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`) |
 | `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
+| `DocumentQuality.php` | Enum de calidad documental normalizada |
 | `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
 | `GeminiCallMetrics.php` | Normalización de métricas no sensibles de llamadas Gemini (latencia, tokens, cache hits) |
 | `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, factory `create()` y manejo de errores |
@@ -89,7 +96,6 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores) |
 | `BatchJobStore.php` | Claves Redis de estado de jobs/batch (`job:{id}:*`, slots, progreso) |
-| `AuditFindingRules.php` | Reglas estáticas de clasificación de hallazgos y cálculo de risk score |
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
 | `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |

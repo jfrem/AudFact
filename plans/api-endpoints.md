@@ -42,6 +42,10 @@ Estado base del API.
 
 Health check funcional del backend. Devuelve estado global y detalle de base de datos, disco y memoria.
 
+### `GET /metrics/async`
+
+Métricas operativas del pipeline async en Redis: profundidad de cola, DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
+
 ### `GET /config/public`
 
 Configuración pública para el frontend.
@@ -66,6 +70,13 @@ Lista clientes activos.
 ### `GET /clients/{clientId}`
 
 Consulta un cliente por identificador.
+
+Validación:
+- `clientId`: entero `>= 1`
+
+### `GET /clients/{clientId}/documents`
+
+Lista el catálogo documental configurado para un cliente.
 
 Validación:
 - `clientId`: entero `>= 1`
@@ -123,38 +134,22 @@ Comportamiento:
 - con `Accept: application/json`, responde `{ mime, data }` con `data` base64
 - en cualquier otro caso hace streaming binario
 
-### `POST /audit`
-
-Ejecuta auditoría batch síncrona.
-
-```json
-{
-  "facNitSec": 1165,
-  "date": "2025-07-01",
-  "dateTo": "2025-11-30",
-  "limit": 10
-}
-```
-
-Validación:
-- `facNitSec`: entero `>= 1`
-- `date`: fecha requerida
-- `dateTo`: fecha opcional
-- `limit`: entero requerido con máximo definido por `AUDIT_BATCH_MAX_LIMIT`
-
-Respuesta:
-- si no hay facturas: `data.items = []`
-- si hay facturas: `data.items`, `stoppedEarly`, `totalRequested`, `totalProcessed`
-
 ### `POST /audit/single`
 
-Ejecuta auditoría síncrona sobre una sola dispensación.
+Encola auditoría individual sobre una sola dispensación.
 
 ```json
 {
   "DisDetNro": "T38251201552"
 }
 ```
+
+Respuesta exitosa: HTTP `202`.
+
+Campos principales:
+- `audit_id`
+- `status`
+- `dis_det_nro`
 
 ### `POST /audit/async`
 
@@ -213,6 +208,10 @@ Respuesta:
 }
 ```
 
+### `GET /audit/stats`
+
+Consulta resumen agregado de estados de auditoría para dashboard.
+
 ### `GET /audit/documents-history`
 
 Consulta historial documental auditado con paginación.
@@ -240,9 +239,33 @@ Respuesta:
 }
 ```
 
+### `GET /audit/{facNro}/timings`
+
+Consulta métricas persistidas por fase para una auditoría.
+
+Validación:
+- `facNro`: string no vacío en la ruta
+
+### `GET /audit/dlq`
+
+Lista eventos recientes de la Dead Letter Queue del pipeline async.
+
+Parámetros opcionales:
+- `limit`: entero `1..100`, default `20`
+
+### `POST /audit/dlq/reprocess`
+
+Reprocesa un evento de DLQ republicando su evento original al stream canónico.
+
+```json
+{
+  "streamId": "1700000000000-0"
+}
+```
+
 ### `GET /clients/{clientId}/audit-config`
 
-Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema y la lista de campos por documento con sus metadatos (tipo, severidad, descripción).
+Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema, campos de datos por documento y visual checks separados.
 
 Respuesta:
 ```json
@@ -254,13 +277,27 @@ Respuesta:
     "systemPrompt": "...",
     "documents": {
       "DISPENSA": {
+        "docId": 1,
         "fields": [
           {
-            "campoNombre": "FirmaActaEntrega",
-            "tipoCampo": "V",
-            "enabled": true,
-            "descripcionOverride": "Firma o sello...",
-            "severityOverride": "CRITICO"
+            "campoNombre": "NumeroFactura",
+            "tipoCampo": "E",
+            "orden": 1,
+            "severity": "alta"
+          },
+          {
+            "campoNombre": "NombreArticulo",
+            "tipoCampo": "S",
+            "orden": 8,
+            "severity": "alta"
+          }
+        ],
+        "visualChecks": [
+          {
+            "check": "FirmaActaEntrega",
+            "description": "Firma o sello de recibido",
+            "severity": "alta",
+            "orden": 37
           }
         ]
       }
@@ -271,24 +308,38 @@ Respuesta:
 
 ### `POST /clients/{clientId}/audit-config`
 
-Guarda la configuración de auditoría. Permite habilitar/deshabilitar campos y sobrescribir sus propiedades dinámicas.
+Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime.
 
 Body:
 ```json
 {
-  "activo": true,
   "systemPrompt": "...",
-  "documents": {
-    "DISPENSA": {
-      "fields": [
-        {
-          "campoNombre": "FirmaActaEntrega",
-          "tipoCampo": "V",
-          "enabled": true,
-          "severityOverride": "ALTA"
-        }
-      ]
+  "fields": [
+    {
+      "docId": 1,
+      "campoNombre": "NumeroFactura",
+      "tipoCampo": "E",
+      "orden": 1,
+      "severity": "alta"
+    },
+    {
+      "docId": 1,
+      "campoNombre": "FirmaActaEntrega",
+      "tipoCampo": "V",
+      "orden": 37,
+      "description": "Firma o sello de recibido",
+      "severity": "alta"
     }
+  ]
+}
+```
+
+Respuesta:
+```json
+{
+  "success": true,
+  "data": {
+    "fieldCount": 2
   }
 }
 ```

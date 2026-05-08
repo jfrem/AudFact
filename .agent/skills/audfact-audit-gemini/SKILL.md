@@ -26,24 +26,23 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de la extracción (COMPLETED, FAILED, ILLEGIBLE) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
-| `app/Services/Audit/ClientConfigurationService.php` | Servicio que unifica las reglas de auditoría de un cliente combinando base y Base de Datos |
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, upper sin tildes, numéricos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y publica `rules_evaluated` cuando `docs:done == docs:total` |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, **agrega a `auditResultData` + decisiones documentales**, persiste en SQL y publica `audit_completed` / `audit_failed` / `batch_completed(_with_errors)` |
-| `app/Services/Audit/Pipeline/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para sumar métricas y resolver severidad |
+| `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para normalizar valores, sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
 | `app/Services/Audit/AuditFieldValueType.php` | **[AUDIT-016]** Enum strategy-based: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/CODE/PERSON_NAME` + `fromFieldName()`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE). Fuente de verdad única para lógica de comparación diferenciada. |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
-| `app/Services/Audit/Debug/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
-| `app/Services/Audit/Debug/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `responseIA/` para diagnóstico local |
+| `app/Services/Audit/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
+| `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `responseIA/` para diagnóstico local |
 
 ### Workers bootstrap (largas ejecuciones)
 
-Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bin/audit-worker.php` que recibe el rol como primer argumento CLI y selecciona el consumer mediante un registry interno:
+Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bin/audit-worker.php` que recibe el nombre de worker como primer argumento CLI y selecciona el consumer mediante un registry interno:
 
 | Comando | Stream consumido | Consumer group |
 |---|---|---|
@@ -113,38 +112,24 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 6. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType` y `valoresDocumento` (tokens del set `CODE`). Siempre presente en hallazgos de tipo `CODE`. Adaptador `resolveFieldScalar()` normaliza payloads legacy (string) y v1 (`{valor, valores}`).
 7. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
 8. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
-9. **Cadena documental**: Fórmula → Autorización → Dispensa, con autoridad por campo según `rol` del `audit-config` (`AUTORITATIVO` audita, `INFORMATIVO` se omite).
+9. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.
 10. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
-11. **NumeroAutorizacion** no se audita contra `FORMULA MEDICA` (rol `INFORMATIVO` para ese campo en ese documento).
+11. **Exclusiones documentales**: no documentar campos como "informativos" si el `audit-config` real no trae esa marca. Para omitir un campo de auditoría debe no estar activo en `fields`; `omitirSi` no está implementado en el runtime actual.
 12. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
 13. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
 14. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
 15. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
 16. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
-17. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si es `AUTORITATIVO` y falta evidencia suficiente, el resultado agregado es `NO_CONCLUYENTE`.
+17. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
 
-## Mecanismo `omitirSi`
+## Omisiones de campos (runtime actual)
 
-`DocumentPolicyEngine` consulta el campo `omitirSi` del `audit-config` (JSON serializado en BD) y, si dispara, marca el campo como `OMITIDO` sin generar discrepancia. Selectores soportados:
+El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna solo `campoNombre`, `tipoCampo`, `orden`, `severity` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` acepta esos mismos metadatos al guardar.
 
-| Selector | Semántica |
-|---|---|
-| `fdv_has: ["FieldA", ...]` | Omitir si la FDV trae uno o más de esos campos no vacíos |
-| `fdv_missing: ["FieldA", ...]` | Omitir si la FDV NO trae esos campos |
-| `doc_quality: ["ilegible", "parcialmente_legible"]` | Omitir según la calidad declarada por Gemini para el documento |
-
-Ejemplo real (audit-config NitSec 2426, doc `FORMULA MEDICA`):
-
-```json
-{
-  "campoNombre": "CantidadPrescrita",
-  "tipoCampo": "B",
-  "rol": "AUTORITATIVO",
-  "omitirSi": "{\"fdv_has\":[\"NumeroAutorizacion\"]}"
-}
-```
-
-→ La cantidad prescrita en la fórmula se omite cuando la FDV tiene número de autorización (manda la `AUTORIZACION`).
+Implicación operativa:
+- si un campo aparece activo en `fields`, `DocumentPolicyEngine` lo evalúa;
+- si debe excluirse de auditoría, debe removerse del `audit-config`;
+- `OMITIDO` puede aparecer solo por condiciones internas actuales del engine, por ejemplo ausencia simultánea de valor FDV y valor documental auditable, no por reglas condicionales configurables.
 
 ## Agregación de items en reglas `B`
 
@@ -157,7 +142,6 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
 ```json
 {
   "severidad":          "alta|media|baja",
-  "rol":                "AUTORITATIVO|INFORMATIVO",
   "campo":              "<nombre>",
   "documento":          "DISPENSA|AUTORIZACION|FORMULA MEDICA|...",
   "valorDocumento":     "<valor extraído por Gemini>",
@@ -173,7 +157,7 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
 > [!NOTE]
 > `valueType` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. Los payloads v0 (string escalar) son normalizados por `resolveFieldScalar()` antes de evaluar.
 
-Visual checks booleanos emiten un objeto similar y pueden incluir `rol`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
+El contrato runtime actual no incluye `rol` en hallazgos. Visual checks booleanos emiten un objeto similar, sin `valueType`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 
 ## Nota Gemini 3.x — thinking tokens
 

@@ -1,0 +1,246 @@
+name: Deploy Production - AudFact
+
+on:
+  workflow_run:
+    workflows: ["Publish Images - AudFact"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "GHCR image tag to deploy. Use a commit SHA for rollback."
+        required: true
+        default: "latest"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-production-main
+  cancel-in-progress: false
+
+env:
+  DEPLOY_DIR: ${{ vars.AUDFACT_DEPLOY_DIR }}
+  PHP_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-php
+  NGINX_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-nginx
+  IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.image_tag }}
+
+jobs:
+  deploy:
+    name: Deploy to LAN runner
+    runs-on: [self-hosted, audfact-prod-lan]
+    timeout-minutes: 30
+    environment: production
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+
+    steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: false
+
+      - name: Validate required secrets
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB2_HOST: ${{ secrets.DB2_HOST }}
+          DB2_PORT: ${{ secrets.DB2_PORT }}
+          DB2_NAME: ${{ secrets.DB2_NAME }}
+          DB2_USER: ${{ secrets.DB2_USER }}
+          DB2_PASS: ${{ secrets.DB2_PASS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+          MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY ALLOWED_ORIGINS MCP_WEBHOOK_SECRET REDIS_PASSWORD)
+          for key in "${required[@]}"; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required GitHub secret: $key"
+              exit 1
+            fi
+          done
+
+      - name: Prepare deployment directory
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_DIR:-$HOME/audfact-prod}"
+          mkdir -p "$DEPLOY_PATH/logs" "$DEPLOY_PATH/responseIA"
+          cp docker-compose.prod.yml "$DEPLOY_PATH/docker-compose.prod.yml"
+          echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
+
+      - name: Create production environment file
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_ENCRYPT: ${{ secrets.DB_ENCRYPT }}
+          DB_TRUST_SERVER_CERT: ${{ secrets.DB_TRUST_SERVER_CERT }}
+          DB2_HOST: ${{ secrets.DB2_HOST }}
+          DB2_PORT: ${{ secrets.DB2_PORT }}
+          DB2_NAME: ${{ secrets.DB2_NAME }}
+          DB2_USER: ${{ secrets.DB2_USER }}
+          DB2_PASS: ${{ secrets.DB2_PASS }}
+          DB2_ENCRYPT: ${{ secrets.DB2_ENCRYPT }}
+          DB2_TRUST_SERVER_CERT: ${{ secrets.DB2_TRUST_SERVER_CERT }}
+          GOOGLE_DRIVE_CLIENT_EMAIL: ${{ secrets.GOOGLE_DRIVE_CLIENT_EMAIL }}
+          GOOGLE_DRIVE_PRIVATE_KEY: ${{ secrets.GOOGLE_DRIVE_PRIVATE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+          MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
+          AUDIT_NGINX_READ_TIMEOUT: ${{ secrets.AUDIT_NGINX_READ_TIMEOUT }}
+          AUDIT_FPM_TERMINATE_TIMEOUT: ${{ secrets.AUDIT_FPM_TERMINATE_TIMEOUT }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          if [ "${APP_ENV}" != "production" ]; then
+            echo "::error::Production deploy requires APP_ENV=production"
+            exit 1
+          fi
+
+          if [ "${DB_ENCRYPT:-no}" != "no" ] || [ "${DB_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
+            echo "::error::Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
+            exit 1
+          fi
+
+          if [ "${DB2_ENCRYPT:-no}" != "no" ] || [ "${DB2_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
+            echo "::error::Production deploy currently requires DB2_ENCRYPT=no and DB2_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
+            exit 1
+          fi
+
+          cat > "$DEPLOY_PATH/.env" <<EOF
+          AUDFACT_PHP_IMAGE=${PHP_IMAGE}
+          AUDFACT_NGINX_IMAGE=${NGINX_IMAGE}
+          AUDFACT_IMAGE_TAG=${IMAGE_TAG}
+
+          APP_ENV=${APP_ENV}
+          WRAP_API_BASE=http://nginx
+          WEBHOOK_URL=http://localhost:8080/app/wrap/webhook.php
+          CAPABILITIES_URL=http://localhost:8080/app/wrap/capabilities.php
+          MCP_WEBHOOK_SECRET=${MCP_WEBHOOK_SECRET}
+
+          DB_TYPE=sqlsrv
+          DB_HOST=${DB_HOST}
+          DB_PORT=${DB_PORT}
+          DB_NAME=${DB_NAME}
+          DB_USER=${DB_USER}
+          DB_PASS=${DB_PASS}
+
+          DB2_HOST=${DB2_HOST}
+          DB2_PORT=${DB2_PORT}
+          DB2_NAME=${DB2_NAME}
+          DB2_USER=${DB2_USER}
+          DB2_PASS=${DB2_PASS}
+
+          DB_POOLING=1
+          DB_ENCRYPT=${DB_ENCRYPT:-no}
+          DB_TRUST_SERVER_CERT=${DB_TRUST_SERVER_CERT:-yes}
+          DB2_ENCRYPT=${DB2_ENCRYPT:-no}
+          DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-yes}
+
+          GOOGLE_DRIVE_CLIENT_EMAIL=${GOOGLE_DRIVE_CLIENT_EMAIL}
+          GOOGLE_DRIVE_PRIVATE_KEY="${GOOGLE_DRIVE_PRIVATE_KEY}"
+          GOOGLE_DRIVE_TLS_VERIFY=1
+
+          REQUEST_TIMEOUT_MS=60000
+          LOG_LEVEL=${LOG_LEVEL:-warning}
+          LOG_RETENTION_DAYS=7
+          LOG_MAX_SIZE_MB=10
+          ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+          MAX_JSON_SIZE=1048576
+
+          GEMINI_API_KEY=${GEMINI_API_KEY}
+          GEMINI_MODEL=gemini-3-flash-preview
+          GEMINI_TEMPERATURE=0.0
+          GEMINI_TIMEOUT=300
+          GEMINI_TOP_P=1.0
+          GEMINI_TOP_K=1
+          GEMINI_MAX_OUTPUT_TOKENS=8192
+          GEMINI_RESPONSE_MIME=application/json
+          GEMINI_MEDIA_RESOLUTION=MEDIA_RESOLUTION_HIGH
+          GEMINI_THINKING_BUDGET=
+          GEMINI_THINKING_LEVEL=
+          GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS=4096
+          GEMINI_EXTRACTION_THINKING_BUDGET=
+          GEMINI_EXTRACTION_THINKING_LEVEL=MINIMAL
+          GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS=2048
+          GEMINI_SEMANTIC_THINKING_LEVEL=
+          GEMINI_SEMANTIC_THINKING_BUDGET=
+          GEMINI_SEED=42
+
+          AUDIT_BATCH_MAX_LIMIT=100
+          AUDIT_BATCH_TIMEOUT=3600
+          AUDIT_NGINX_READ_TIMEOUT=${AUDIT_NGINX_READ_TIMEOUT:-3600}
+          AUDIT_FPM_TERMINATE_TIMEOUT=${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}
+          AUDIT_CACHE_TTL=86400
+          AUDIT_EXTRACTION_CACHE_TTL=86400
+          AUDIT_STREAM_BLOCK_MS=5000
+          AUDIT_EVENT_MAX_RETRIES=3
+          AUDIT_DLQ_STREAM=audit.dlq
+          AUDIT_INTERNAL_API_BASE=http://nginx
+          AUDIT_VERSION_EXTRACTOR=gemini-3.x-parallel-fc-v1
+          AUDIT_VERSION_NORMALIZER=1.0.0
+          AUDIT_VERSION_RULES=1.0.0
+
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_PASSWORD=${REDIS_PASSWORD}
+          REDIS_PREFIX=audfact:
+          REDIS_MODE=standalone
+          REDIS_PERSISTENT=0
+
+          CB_GEMINI_THRESHOLD=3
+          CB_GEMINI_COOLDOWN=60
+          EOF
+
+          chmod 600 "$DEPLOY_PATH/.env"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull release images
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          docker compose -f docker-compose.prod.yml pull
+
+      - name: Start production stack
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          sleep 30
+          for i in 1 2 3 4 5; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Deploy successful. Health check passed."
+              exit 0
+            fi
+            echo "Attempt $i/5 failed, waiting 10s..."
+            sleep 10
+          done
+
+          cd "$DEPLOY_PATH"
+          echo "::error::Health check failed"
+          docker ps --format "table {{.Names}}\t{{.Status}}"
+          docker compose -f docker-compose.prod.yml logs --tail=120 php nginx worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator
+          exit 1
