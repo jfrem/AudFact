@@ -18,6 +18,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + extraction (5 réplicas) |
 | `docker-compose.prod.yml` | ~5 KB | Producción: imágenes GHCR + runner LAN |
 | `docker/Dockerfile` | ~1.5 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional |
+| `docker/frontend.Dockerfile` | < 1 KB | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | < 1 KB | Config Next.js (debe tener `output: standalone`) |
 | `docker/nginx.Dockerfile` | ~0.4 KB | Nginx 1.25 Alpine con assets estáticos baked-in |
 | `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM |
@@ -28,7 +29,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 ## Arquitectura de red
 
 ```
-Cliente HTTP (Front:3000) ────▶ Next.js (audfact-frontend)
+Cliente HTTP (Front LAN:3100) ─▶ Next.js (audfact-frontend:3000)
                                     │
                                     └────▶ API (nginx:8080) ────▶ PHP-FPM:9000
                                                                      │
@@ -62,6 +63,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `APP_ENV` | `development` | Entorno (development/production) |
 | `DB_HOST` | `host.docker.internal` | Host SQL Server |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | URL API para el browser |
+| `AUDFACT_FRONTEND_HOST_PORT` | `3100` | Puerto LAN dedicado para el frontend productivo |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |

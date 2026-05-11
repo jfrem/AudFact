@@ -2,7 +2,7 @@
 
 - Repo local: `c:\Users\USER\Desktop\AudFact`
 - Idioma de toda interacción: **Español (Latinoamérica)**
-- Runtime: PHP 8.2-FPM + Nginx 1.25 en Docker
+- Runtime: PHP 8.2-FPM + Nginx 1.25 + frontend Next.js en Docker
 - Base de datos: SQL Server (PDO `sqlsrv`)
 - IA: Google Gemini API (multimodal)
 
@@ -17,7 +17,7 @@
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
-- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.prod.yml`
+- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.prod.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
 - **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
@@ -172,6 +172,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
 | `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | ⚠️ Solo Frontend | `frontend` — URL pública base consumida por la app Next.js en build/deploy |
+| `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Solo Frontend | `frontend` — URL interna usada por SSR/API server-side; en producción Docker se inyecta como `http://nginx` |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
 | `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |
@@ -182,7 +183,9 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 |---|---|---|---|
 | `AUDFACT_PHP_IMAGE` | `ghcr.io/jfrem/audfact-php` | ⚠️ Producción | `docker-compose.prod.yml` — imagen PHP-FPM/workers publicada en GHCR |
 | `AUDFACT_NGINX_IMAGE` | `ghcr.io/jfrem/audfact-nginx` | ⚠️ Producción | `docker-compose.prod.yml` — imagen Nginx publicada en GHCR |
+| `AUDFACT_FRONTEND_IMAGE` | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.prod.yml` — imagen frontend Next.js publicada en GHCR |
 | `AUDFACT_IMAGE_TAG` | `latest` | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual |
+| `AUDFACT_FRONTEND_HOST_PORT` | `3100` | ⚠️ Producción | `docker-compose.prod.yml` — puerto LAN dedicado para el frontend AudFact |
 
 ### Base de datos (SQL Server)
 

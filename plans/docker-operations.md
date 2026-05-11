@@ -3,6 +3,12 @@
 ## Arquitectura de contenedores
 
 ```
+┌────────────────┐
+│ Next.js Front  │
+│ :3100→:3000    │
+└───────┬────────┘
+        │ SSR/API interna
+        ▼
 ┌─────────────┐     ┌───────────────┐     ┌──────────────┐
 │   Nginx     │────▶│   PHP-FPM     │────▶│  SQL Server  │
 │  :8080→:80  │     │   :9000       │     │  (externo)   │
@@ -39,6 +45,8 @@ docker login ghcr.io
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 curl -sf http://localhost:8080/health
+curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
+curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 
 El flujo automatizado vive en:
@@ -50,6 +58,7 @@ El flujo automatizado vive en:
 ## Precauciones
 
 - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
+- **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
 - **Volúmenes**: En producción se montan `./logs:/var/www/html/logs` y `./responseIA:/var/www/html/responseIA`; el código vive dentro de la imagen, no en mounts del host.
 - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
 - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells

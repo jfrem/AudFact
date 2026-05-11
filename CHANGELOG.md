@@ -1,5 +1,11 @@
 ## [2026-05-11]
 
+### feat
+- **Frontend Docker productivo**: Se agrega imagen standalone de Next.js, publicacion GHCR y servicio `frontend` en `docker-compose.prod.yml`.
+  - Archivos modificados: `docker/frontend.Dockerfile`, `frontend/.dockerignore`, `frontend/app/api/health/route.ts`, `.github/workflows/publish-images.yml`, `.github/workflows/deploy-production.yml`, `docker-compose.prod.yml`, `.env.example`, `README.md`, `plans/docker-operations.md`, `plans/deployment-github-actions-lan.md`, `AGENTS.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Produccion LAN puede servir el frontend desde `audfact-frontend:<sha>` en un puerto dedicado configurable (`AUDFACT_FRONTEND_HOST_PORT`, default `3100`) sin depender de Node ni codigo fuente en el host.
+
 ### fix
 - **Deploy produccion LAN**: Se corrige la reproducibilidad del pipeline CI/GHCR al remover el gitlink huerfano de `.agent/tmp-impeccable` y definir el default de extraccion Gemini cuando CI no carga `.env`.
   - Archivos modificados: `.gitignore`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`

@@ -1,4 +1,24 @@
 services:
+  frontend:
+    image: ${AUDFACT_FRONTEND_IMAGE:-ghcr.io/jfrem/audfact-frontend}:${AUDFACT_IMAGE_TAG:-latest}
+    container_name: audfact-frontend
+    depends_on:
+      - nginx
+    ports:
+      - "${AUDFACT_FRONTEND_HOST_PORT:-3100}:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      INTERNAL_API_URL: http://nginx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   php:
     image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     env_file:

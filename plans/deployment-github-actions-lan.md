@@ -12,6 +12,7 @@ El despliegue usa un runner self-hosted dentro de la LAN:
 2. `Publish Images - AudFact` construye imagenes inmutables y las publica en GHCR:
    - `ghcr.io/jfrem/audfact-php:<sha>`
    - `ghcr.io/jfrem/audfact-nginx:<sha>`
+   - `ghcr.io/jfrem/audfact-frontend:<sha>`
 3. `Deploy Production - AudFact` corre en `audfact-prod-lan`, descarga esas imagenes y levanta `docker-compose.prod.yml`.
 
 ## Runner LAN
@@ -36,6 +37,8 @@ Variable opcional de GitHub Environment:
 | Variable | Uso |
 |---|---|
 | `AUDFACT_DEPLOY_DIR` | Sobrescribe el directorio persistente del servidor. Si no existe, usa `$HOME/audfact-prod`. |
+| `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN dedicado para publicar el frontend AudFact. Default: `3100`. |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | Origen publico del frontend para CORS. Default: `http://172.16.0.3:${AUDFACT_FRONTEND_HOST_PORT}`. |
 
 ## GitHub Environment
 
@@ -62,7 +65,6 @@ DB2_TRUST_SERVER_CERT
 GEMINI_API_KEY
 ALLOWED_ORIGINS
 MCP_WEBHOOK_SECRET
-REDIS_PASSWORD
 NEXT_PUBLIC_API_URL
 ```
 
@@ -74,6 +76,7 @@ GOOGLE_DRIVE_PRIVATE_KEY
 LOG_LEVEL
 AUDIT_NGINX_READ_TIMEOUT
 AUDIT_FPM_TERMINATE_TIMEOUT
+REDIS_PASSWORD
 ```
 
 ## Flujo de Deploy
@@ -86,6 +89,8 @@ push main
   -> docker compose pull
   -> docker compose up -d
   -> curl http://localhost:8080/health
+  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
+  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 
 ## Rollback
@@ -96,6 +101,7 @@ El workflow actualiza `.env` en el directorio persistente con:
 
 ```text
 AUDFACT_IMAGE_TAG=<sha>
+AUDFACT_FRONTEND_HOST_PORT=<puerto>
 ```
 
 Luego ejecuta:
