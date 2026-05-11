@@ -28,13 +28,20 @@ services:
     volumes:
       - redis_data:/data
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000 --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000 --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000
     expose:
       - "6379"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
       interval: 10s
       timeout: 3s
       retries: 3

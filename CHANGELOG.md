@@ -10,7 +10,7 @@
   - Hallazgo resuelto: ninguno
   - Impacto: GitHub Actions valida el mismo frontend que existe en el repo local, sin depender de un submodulo desalineado.
 - **Deploy Redis sin auth**: Se alinea la validacion de secrets del workflow productivo con `REDIS_PASSWORD` opcional.
-  - Archivos modificados: `.github/workflows/deploy-production.yml`
+  - Archivos modificados: `.github/workflows/deploy-production.yml`, `docker-compose.prod.yml`
   - Hallazgo resuelto: ninguno
   - Impacto: Produccion puede desplegar contra Redis sin autenticacion, como esta documentado en `.env.example` y AGENTS.
 
