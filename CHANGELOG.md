@@ -9,6 +9,10 @@
   - Archivos modificados: `.gitmodules`, `.gitignore`, `.github/workflows/frontend-ci.yml`, `.github/workflows/publish-images.yml`, `frontend/*`
   - Hallazgo resuelto: ninguno
   - Impacto: GitHub Actions valida el mismo frontend que existe en el repo local, sin depender de un submodulo desalineado.
+- **Deploy Redis sin auth**: Se alinea la validacion de secrets del workflow productivo con `REDIS_PASSWORD` opcional.
+  - Archivos modificados: `.github/workflows/deploy-production.yml`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Produccion puede desplegar contra Redis sin autenticacion, como esta documentado en `.env.example` y AGENTS.
 
 ### docs
 - **Skill de operaciones de produccion**: Se agrega `audfact-production-ops` para acceso SSH no interactivo al servidor LAN, diagnosticos de Docker/runner y guias de deploy/rollback.
