@@ -28,6 +28,11 @@
       "description": "Entorno Docker (PHP-FPM + Nginx) y conectividad con SQL Server."
     },
     {
+      "name": "audfact-production-ops",
+      "path": ".agent/skills/audfact-production-ops",
+      "description": "Operaciones de produccion LAN: SSH no interactivo, diagnosticos, runner self-hosted, deploy y rollback."
+    },
+    {
       "name": "audfact-security-guardrails",
       "path": ".agent/skills/audfact-security-guardrails",
       "description": "Políticas de seguridad: Rate Limit (100/min), CORS y sanitización de logs."

@@ -1,7 +1,7 @@
 {
   "baseline": "audfact-skills-validation",
   "version": 1,
-  "updated_at": "2026-02-17",
+  "updated_at": "2026-05-11",
   "root": ".agent/skills",
   "checks": {
     "required_root_files": [
@@ -63,6 +63,14 @@
       "files": [
         ".agent/skills/audfact-runtime-docker/SKILL.md",
         ".agent/skills/audfact-runtime-docker/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-production-ops",
+      "path": ".agent/skills/audfact-production-ops",
+      "files": [
+        ".agent/skills/audfact-production-ops/SKILL.md",
+        ".agent/skills/audfact-production-ops/agents/openai.yaml"
       ]
     },
     {

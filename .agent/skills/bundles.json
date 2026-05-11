@@ -27,6 +27,7 @@
       "name": "audfact-ops",
       "skills": [
         "audfact-runtime-docker",
+        "audfact-production-ops",
         "audfact-security-guardrails"
       ]
     }

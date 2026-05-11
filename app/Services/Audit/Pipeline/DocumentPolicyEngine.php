@@ -298,8 +298,8 @@ class DocumentPolicyEngine
      *
      * Este es el ÚNICO punto donde ExtractedEvidence se convierte a escalares.
      * Todo lo que está downstream (evaluateField, evaluateExactField, etc.) recibe solo strings.
-     * La metadata de evidencia (confianza, estadoExtraccion, evidencia, ubicacion) se extrae
-     * aquí y se propaga al hallazgo canónico por separado.
+     * La metadata de evidencia (estadoExtraccion, valores) se extrae aquí y se propaga
+     * al hallazgo canónico por separado vía `_evidencia`.
      *
      * @param  array<string,mixed> $fields
      * @param  array<int,array<string,mixed>> $items

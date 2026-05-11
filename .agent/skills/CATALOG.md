@@ -12,6 +12,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
+| `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted y despliegues. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
 | `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |
@@ -37,6 +38,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
 | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
 | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
+| `audfact-production-ops` | producción, servidor LAN, SSH, admon@172.16.0.3, runner self-hosted, deploy production, rollback, healthcheck remoto |
 | `audfact-security-guardrails` | rate limit, CORS, sanitización, secretos, hardening, seguridad |
 | `audit-skill-router` | auditoría técnica integral, assessment, review global, scoring, 30/60/90 |
 | `architecture-assessment` | acoplamiento, límites de módulos, escalabilidad, diseño de arquitectura |
@@ -54,7 +56,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-core` | `audfact-api-rest`, `audfact-sqlsrv-models` | Cambios en API + Datos |
 | `audfact-ai-audit` | `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-security-guardrails` | Pipeline de auditoría completo |
 | `audfact-integration` | `audfact-mcp-wrap`, `audfact-api-rest` | Integración con agentes IA |
-| `audfact-ops` | `audfact-runtime-docker`, `audfact-security-guardrails` | Infraestructura y hardening |
+| `audfact-ops` | `audfact-runtime-docker`, `audfact-production-ops`, `audfact-security-guardrails` | Infraestructura, producción LAN y hardening |
 | `audfact-tech-assessment` | `audit-skill-router`, `architecture-assessment`, `code-quality-assessment`, `security-assessment`, `technical-governance-assessment` | Auditorías técnicas integrales con score global |
 
 ## Mapeo Archivo → Skill
@@ -71,6 +73,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose*.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |
+| `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `public/index.php` | `audfact-runtime-docker` + `audfact-security-guardrails` |

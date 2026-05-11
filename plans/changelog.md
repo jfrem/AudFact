@@ -1,5 +1,23 @@
 # Changelog AudFact
 
+## [2026-05-11] - Skill de Operaciones de Produccion
+
+### Docs / Ops
+- **PROD-OPS-SKILL**: Creada la skill `audfact-production-ops` para que agentes accedan por SSH al servidor LAN `admon@172.16.0.3`, ejecuten diagnosticos seguros y sigan runbooks de deploy/rollback con GitHub Actions self-hosted runner.
+  - **Guardrails**: La skill prohibe persistir passwords o imprimir secrets y exige aprobacion explicita para acciones con impacto.
+  - **Automatizacion**: Agregado `Invoke-AudFactProdSsh.ps1`, wrapper PowerShell con OpenSSH explicito y `SSH_ASKPASS` temporal.
+  - **Catalogo**: Sincronizados `CATALOG.md`, `catalog.json`, `aliases.json`, `bundles.json`, `validation-baseline.json`, `AGENTS.md` y `CLAUDE.md`.
+
+## [2026-05-08] — Optimización: Reducción de Payload de Extracción (Gemini v1)
+
+### ⚡ Performance / Cleanup
+- **AUDIT-023**: Eliminación de metadata redundante en el motor de extracción Gemini.
+  - **Poda de Schema**: Se eliminaron los campos `confianza`, `evidencia` y `ubicacion` del JSON schema generado por `DocumentExtractionContractBuilder`. Esto reduce el tamaño de la respuesta y el consumo de tokens.
+  - **Simplificación DTO**: Refactorizado `ExtractedEvidence` para remover los atributos `confidence`, `justification` y `location`. El DTO ahora transporta exclusivamente la información decisional y es retrocompatible ignorando claves legacy.
+  - **Limpieza de Normalización**: Removida lógica obsoleta en `DocumentNormalizer` que procesaba los campos descartados.
+  - **Actualización de Código Base**: Modificados los comentarios y docblocks en `DocumentPolicyEngine` para reflejar la nueva estructura simplificada.
+  - **Validación**: `DocumentNormalizerTest` actualizado para validar la ausencia de los campos eliminados (191 tests exitosos).
+  - **Archivos modificados**: `DocumentExtractionContractBuilder.php`, `ExtractedEvidence.php`, `DocumentNormalizer.php`, `DocumentPolicyEngine.php`, `tests/.../DocumentNormalizerTest.php`
 ## [2026-05-05] — Hardening de Normalización: Cierre de Brechas Anti-Glosa (NORM-001)
 
 ### 🔒 Hardening / Bugfix

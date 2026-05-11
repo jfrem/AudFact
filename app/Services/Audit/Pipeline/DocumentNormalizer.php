@@ -269,10 +269,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             valor: $normalizedValor,
             valores: $normalizedValores !== [] ? $normalizedValores : ($normalizedValor !== null ? [$normalizedValor] : []),
             presente: (bool) ($evidence['presente'] ?? ($normalizedValor !== null)),
-            confianza: AuditFindingRules::normalizeNullableString($evidence['confianza'] ?? null),
             estadoExtraccion: ExtractionState::fromInput($evidence['estadoExtraccion'] ?? null),
-            evidencia: AuditFindingRules::normalizeNullableString($evidence['evidencia'] ?? null),
-            ubicacion: AuditFindingRules::normalizeNullableString($evidence['ubicacion'] ?? null),
         );
 
         $this->appendLog($log, 'v1_evidence_normalized', array_merge($logContext, ['field' => $originalField]));

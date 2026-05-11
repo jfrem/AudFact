@@ -10,6 +10,10 @@
     "wrap": "audfact-mcp-wrap",
     "docker": "audfact-runtime-docker",
     "runtime": "audfact-runtime-docker",
+    "prod": "audfact-production-ops",
+    "production": "audfact-production-ops",
+    "runner": "audfact-production-ops",
+    "deploy-prod": "audfact-production-ops",
     "security": "audfact-security-guardrails",
     "hardening": "audfact-security-guardrails"
   }

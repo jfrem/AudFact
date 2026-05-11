@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Production Ops"
+  short_description: "SSH, diagnosticos y deploy LAN"
+  default_prompt: "Use $audfact-production-ops para diagnosticar produccion o ejecutar un despliegue LAN seguro."

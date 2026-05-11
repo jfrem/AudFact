@@ -338,16 +338,16 @@ final class DocumentExtractionContractBuilder
     }
 
     /**
-     * Construye el JSON Schema de un campo con estructura de evidencia v1.
+     * Construye el JSON Schema de un campo con estructura de evidencia.
      *
-     * Shape: {valor, valores, presente, confianza, estadoExtraccion, evidencia, ubicacion}
+     * Shape: {valor, valores, presente, estadoExtraccion}
      * - `valor`: valor principal (tipo derivado del campo)
      * - `valores`: array de tokens individuales (útil para FOUND_IN_LIST)
      * - `presente`: si el dato fue encontrado en el documento
-     * - `confianza`: nivel de certeza de la extracción
      * - `estadoExtraccion`: clasificación del resultado de búsqueda
-     * - `evidencia`: texto literal visible en el documento
-     * - `ubicacion`: posición aproximada en el documento
+     *
+     * Nota: sub-campos informativos (confianza, evidencia, ubicacion) fueron
+     * eliminados por no participar en ninguna decisión de auditoría.
      */
     private function buildEvidenceFieldSchema(string $fieldName, string $tipoCampo): array
     {
@@ -370,28 +370,14 @@ final class DocumentExtractionContractBuilder
                     'type' => 'boolean',
                     'description' => 'true si el dato fue encontrado visiblemente en el documento.',
                 ],
-                'confianza' => [
-                    'type' => 'string',
-                    'enum' => ['alta', 'media', 'baja'],
-                ],
                 'estadoExtraccion' => [
                     'type' => 'string',
                     'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'],
                     'description' => 'FOUND: valor único claro. FOUND_IN_LIST: múltiples valores separados por coma/barra/punto y coma. NOT_FOUND: no visible. AMBIGUOUS: conflicto. ILLEGIBLE: no legible.',
                 ],
-                'evidencia' => [
-                    'type' => 'string',
-                    'nullable' => true,
-                    'description' => 'Texto literal visible en el documento que sustenta este campo.',
-                ],
-                'ubicacion' => [
-                    'type' => 'string',
-                    'nullable' => true,
-                    'description' => 'Posición aproximada en el documento (ej: "sección Diagnóstico", "tabla fila 2").',
-                ],
             ],
             'required' => ['valor', 'presente', 'estadoExtraccion'],
-            'propertyOrdering' => ['valor', 'valores', 'presente', 'confianza', 'estadoExtraccion', 'evidencia', 'ubicacion'],
+            'propertyOrdering' => ['valor', 'valores', 'presente', 'estadoExtraccion'],
         ];
     }
 

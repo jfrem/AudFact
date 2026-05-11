@@ -35,6 +35,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-sqlsrv-models` | SQL Server | Modelos, queries, BLOBs |
 | `audfact-mcp-wrap` | MCP | Webhook, herramientas, ApiClient |
 | `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
+| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, deploy/rollback |
 | `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
 | `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
 | `architecture-assessment` | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad |

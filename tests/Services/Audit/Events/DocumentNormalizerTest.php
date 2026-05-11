@@ -200,8 +200,8 @@ final class DocumentNormalizerTest extends TestCase
     }
 
     /**
-     * Verifica que el normalizer procesa correctamente objetos de evidencia v1
-     * (como los que produce Gemini con el nuevo schema).
+     * Verifica que el normalizer procesa correctamente objetos de evidencia
+     * (como los que produce Gemini con el schema actual de 4 propiedades).
      */
     public function testNormalizeHandlesV1EvidenceObjects(): void
     {
@@ -216,28 +216,19 @@ final class DocumentNormalizerTest extends TestCase
                         'valor' => 'S202, S273, S224',
                         'valores' => ['S202', 'S273', 'S224'],
                         'presente' => true,
-                        'confianza' => 'alta',
                         'estadoExtraccion' => 'FOUND_IN_LIST',
-                        'evidencia' => 'S202, S273, S224',
-                        'ubicacion' => 'sección Diagnóstico',
                     ],
                     'NombrePaciente' => [
                         'valor' => 'ROBERTO TAPIAS SOCHA',
                         'valores' => ['ROBERTO TAPIAS SOCHA'],
                         'presente' => true,
-                        'confianza' => 'alta',
                         'estadoExtraccion' => 'FOUND',
-                        'evidencia' => 'Roberto Tapias Socha',
-                        'ubicacion' => 'encabezado',
                     ],
                     'FechaFormula' => [
                         'valor' => '22/04/2026',
                         'valores' => ['22/04/2026'],
                         'presente' => true,
-                        'confianza' => 'alta',
                         'estadoExtraccion' => 'FOUND',
-                        'evidencia' => '22/04/2026',
-                        'ubicacion' => 'encabezado',
                     ],
                 ],
                 'items' => [],
@@ -253,10 +244,12 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame('S202, S273, S224', $diag->valor);
         $this->assertSame(['S202', 'S273', 'S224'], $diag->valores);
         $this->assertTrue($diag->presente);
-        $this->assertSame('alta', $diag->confianza);
         $this->assertSame(ExtractionState::FOUND_IN_LIST, $diag->estadoExtraccion);
-        $this->assertSame('S202, S273, S224', $diag->evidencia);
-        $this->assertSame('sección Diagnóstico', $diag->ubicacion);
+
+        // Verificar que los sub-campos no-decisionales ya no existen en el DTO
+        $this->assertFalse(property_exists($diag, 'confianza'));
+        $this->assertFalse(property_exists($diag, 'evidencia'));
+        $this->assertFalse(property_exists($diag, 'ubicacion'));
 
         // NombrePaciente: ExtractedEvidence preservada
         $nombre = $result['fields_normalized']['NombrePaciente'];
