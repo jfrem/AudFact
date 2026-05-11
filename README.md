@@ -21,18 +21,18 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 AudFact/
 ├── frontend/              # Frontend SPA en Next.js (App Router)
 ├── app/
-│   ├── Controllers/       # 11 controladores HTTP (incluye base)
-│   ├── Models/            # 7 modelos SQL Server (incluye base)
-│   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
-│   ├── Services/Audit/    # Pipeline/ (workers, policy, agregación y persistencia)
-│   ├── Routes/            # web.php (definición de rutas)
-│   └── wrap/              # Integración MCP (4 tools)
-├── bin/                   # Workers CLI event-driven
+│   ├── Controllers/       # 11 controladores HTTP (incluye base).
+│   ├── Models/            # 7 modelos SQL Server (incluye base).
+│   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
+│   ├── Services/Audit/    # Pipeline/ (workers, policy, agregación y persistencia).
+│   ├── Routes/            # web.php (definición de rutas).
+│   └── wrap/              # Integración MCP (4 tools).
+├── bin/                   # Workers CLI event-driven.
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient...
-├── public/                # Entry point (index.php API)
-├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck
-├── logs/                  # Logs rotados por fecha
-├── plans/                 # Documentación del proyecto
+├── public/                # Entry point (index.php API).
+├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck.
+├── logs/                  # Logs rotados por fecha.
+├── plans/                 # Documentación del proyecto.
 │   ├── overview.md
 │   ├── architecture.md
 │   ├── architecture-diagrams.md
