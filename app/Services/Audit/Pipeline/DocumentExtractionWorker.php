@@ -192,7 +192,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
             $this->buildToolConfig($contract),
             GeminiGateway::TASK_EXTRACTION,
-            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', []),
+            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                'maxOutputTokens' => 4096,
+            ]),
             [
                 'dis_det_nro' => $disDetNro,
                 'audit_id' => $event->auditId,

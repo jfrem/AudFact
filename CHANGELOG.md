@@ -1,5 +1,11 @@
 ## [2026-05-11]
 
+### fix
+- **Deploy produccion LAN**: Se corrige la reproducibilidad del pipeline CI/GHCR al remover el gitlink huerfano de `.agent/tmp-impeccable` y definir el default de extraccion Gemini cuando CI no carga `.env`.
+  - Archivos modificados: `.gitignore`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
+  - Hallazgo resuelto: ninguno
+  - Impacto: GitHub Actions puede ejecutar checkout, PHPUnit, publicacion de imagenes y deploy desde el estado local esperado.
+
 ### docs
 - **Skill de operaciones de produccion**: Se agrega `audfact-production-ops` para acceso SSH no interactivo al servidor LAN, diagnosticos de Docker/runner y guias de deploy/rollback.
   - Archivos modificados: `.agent/skills/audfact-production-ops/SKILL.md`, `.agent/skills/audfact-production-ops/scripts/Invoke-AudFactProdSsh.ps1`, `.agent/skills/audfact-production-ops/references/runbooks.md`, `.agent/skills/CATALOG.md`, `.agent/skills/catalog.json`, `.agent/skills/aliases.json`, `.agent/skills/bundles.json`, `.agent/skills/validation-baseline.json`, `AGENTS.md`, `CLAUDE.md`

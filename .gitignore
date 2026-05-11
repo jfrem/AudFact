@@ -29,6 +29,7 @@ Thumbs.db
 
 # Agentes de IA
 /.agents/
+/.agent/tmp-impeccable/
 /.agent/skills/ui-ux-pro-max/
 /.agent/skills/ui-ux-pro-max-skill/
 CLAUDE.md
