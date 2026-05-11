@@ -19,6 +19,11 @@ composer.lock
 /frontend/.next/
 /frontend/.turbo/
 /frontend/out/
+/frontend/tsconfig.tsbuildinfo
+/frontend/results.json
+/frontend/docs-history.json
+/frontend/scratch/
+/frontend/UI_UX_AUDIT_REPORT.md
 /.cache/
 
 # IDE, Herramientas y OS

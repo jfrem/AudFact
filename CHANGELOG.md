@@ -5,6 +5,10 @@
   - Archivos modificados: `.gitignore`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`
   - Hallazgo resuelto: ninguno
   - Impacto: GitHub Actions puede ejecutar checkout, PHPUnit, publicacion de imagenes y deploy desde el estado local esperado.
+- **Frontend source-of-truth local**: Se elimina la dependencia del submodulo remoto del frontend y se versiona el codigo fuente local necesario para CI/build.
+  - Archivos modificados: `.gitmodules`, `.gitignore`, `.github/workflows/frontend-ci.yml`, `.github/workflows/publish-images.yml`, `frontend/*`
+  - Hallazgo resuelto: ninguno
+  - Impacto: GitHub Actions valida el mismo frontend que existe en el repo local, sin depender de un submodulo desalineado.
 
 ### docs
 - **Skill de operaciones de produccion**: Se agrega `audfact-production-ops` para acceso SSH no interactivo al servidor LAN, diagnosticos de Docker/runner y guias de deploy/rollback.

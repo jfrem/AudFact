@@ -1,0 +1,374 @@
+import { z } from "zod";
+
+export const ApiEnvelopeSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
+  z.object({
+    success: z.boolean(),
+    message: z.string(),
+    data: dataSchema,
+    errors: z.array(z.string()).optional(),
+  });
+
+const UnknownRecordSchema = z.record(z.string(), z.unknown());
+const ScalarSchema = z.union([z.string(), z.number()]);
+
+export const PublicConfigSchema = z.object({
+  auditBatchMaxLimit: z.number(),
+  auditBatchTimeoutMs: z.number(),
+});
+
+export const HealthSchema = z.object({
+  status: z.string(),
+  timestamp: z.number().optional(),
+  uptime_seconds: z.number().optional(),
+  environment: z.string().optional(),
+  php_version: z.string().optional(),
+  services: z
+    .object({
+      database: z
+        .object({
+          status: z.string(),
+          message: z.string().optional(),
+          latency_ms: z.number().optional(),
+        })
+        .passthrough(),
+      disk: z.object({ status: z.string() }).passthrough(),
+      memory: z.object({ status: z.string() }).passthrough(),
+    })
+    .passthrough(),
+});
+
+export const AsyncMetricsSchema = z.object({
+  queueDepth: z.number().int().nonnegative(),
+  deadLetterDepth: z.number().int().nonnegative(),
+  jobs: z.object({
+    queued: z.number().int().nonnegative(),
+    running: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  retries: z.number().int().nonnegative(),
+  terminalFailures: z.number().int().nonnegative(),
+});
+
+export const ClientSchema = UnknownRecordSchema;
+export const ClientsSchema = z.array(ClientSchema);
+
+export const AuditConfigFieldSchema = z.object({
+  campoNombre: z.string(),
+  tipoCampo: z.string(), // 'E' (exacto), 'S' (semántico), 'V' (visual), 'B' (negocio)
+  enabled: z.boolean().default(true),
+  description: z.string().nullable().optional(),
+  severity: z.string().nullable().optional(),
+  descripcionOverride: z.string().nullable().optional(),
+  severityOverride: z.string().nullable().optional(),
+  orden: z.number().default(0),
+});
+
+export const AuditVisualCheckSchema = z.object({
+  check: z.string(),
+  description: z.string().nullable().optional(),
+  severity: z.string().nullable().optional(),
+  enabled: z.boolean().default(true),
+  orden: z.number().default(0),
+});
+
+export const AuditConfigDocumentSchema = z.object({
+  docId: z.number(),
+  fields: z.array(AuditConfigFieldSchema),
+  visualChecks: z.array(AuditVisualCheckSchema).default([]),
+});
+
+export const AuditConfigSchema = z.object({
+  nitSec: z.string(),
+  activo: z.boolean(),
+  systemPrompt: z.string().nullable(),
+  documents: z.record(z.string(), AuditConfigDocumentSchema),
+});
+
+export const SaveAuditConfigResponseSchema = z.object({
+  success: z.boolean().optional(),
+}).passthrough();
+
+export const InvoiceSchema = UnknownRecordSchema;
+export const InvoicesSchema = z.array(InvoiceSchema);
+
+export const DispensationHeaderSchema = UnknownRecordSchema;
+export const DispensationItemSchema = UnknownRecordSchema;
+export const DispensationDetailSchema = z.object({
+  header: DispensationHeaderSchema,
+  items: z.array(DispensationItemSchema),
+});
+
+export const AttachmentSchema = z.object({
+  dispiensa: ScalarSchema.optional(),
+  factura: z.string().optional(),
+  cliente: ScalarSchema.optional(),
+  id_documento: ScalarSchema.optional(),
+  nombre_documento: z.string().optional(),
+  nombre_alternativo: z.string().optional(),
+  almacenamiento_remoto: z.string().nullable().optional(),
+  TipoAlmacenamiento: z.string().optional(),
+}).passthrough();
+
+export const AttachmentsSchema = z.array(AttachmentSchema);
+
+export const AttachmentPreviewSchema = z.object({
+  mime: z.string(),
+  data: z.string(),
+});
+
+export const AuditDocumentStatusSchema = z.enum(["CONCILIADO", "DISCREPANCIA"]);
+export const AuditFieldStatusSchema = z.enum(["MATCH", "DISCREPANCY", "NOT_FOUND"]);
+export const AuditSeveritySchema = z.enum(["NONE", "CRITICO", "MENOR", "ALTA", "MEDIA", "BAJA"]);
+
+export const AuditFindingSchema = z.object({
+  field: z.string(),
+  status: AuditFieldStatusSchema,
+  severity: AuditSeveritySchema,
+  reason_short: z.string(),
+  observed_value: z.string().nullish(),
+  expected_value: z.string().nullish(),
+  documento: z.string().nullish(),
+});
+
+const LegacyAuditFindingSchema = z
+  .object({
+    field: z.string().nullish(),
+    campo: z.string().nullish(),
+    item: z.string().nullish(),
+    status: z.string().nullish(),
+    resultado: z.string().nullish(),
+    detalle: z.string().nullish(),
+    reason: z.string().nullish(),
+    observed_value: z.string().nullish(),
+    valorDocumento: z.string().nullish(),
+    expected_value: z.string().nullish(),
+    valorFuenteVerdad: z.string().nullish(),
+    observed_value_legacy: z.string().nullish(),
+    source_value: z.string().nullish(),
+    severity: z.string().nullish(),
+    severidad: z.string().nullish(),
+    documento: z.string().nullish(),
+  })
+  .passthrough()
+  .transform((value) => {
+    const rawStatus = String(value.status ?? value.resultado ?? "").toUpperCase();
+    const rawSeverity = String(value.severity ?? value.severidad ?? "").toUpperCase();
+
+    const statusMap: Record<string, z.infer<typeof AuditFieldStatusSchema>> = {
+      MATCH: "MATCH",
+      COINCIDE: "MATCH",
+      DISCREPANCY: "DISCREPANCY",
+      DISCREPA: "DISCREPANCY",
+      ERROR: "DISCREPANCY",
+      HUMAN_REVIEW: "DISCREPANCY",
+      NOT_FOUND: "NOT_FOUND",
+      NO_ENCONTRADO: "NOT_FOUND",
+    };
+
+    const severityMap: Record<string, z.infer<typeof AuditSeveritySchema>> = {
+      NONE: "NONE",
+      CRITICO: "CRITICO",
+      MENOR: "MENOR",
+      ALTA: "ALTA",
+      MEDIA: "MEDIA",
+      BAJA: "BAJA",
+    };
+
+    const reason = String(value.reason ?? value.detalle ?? "").trim();
+
+    return {
+      field: String(value.field ?? value.campo ?? value.item ?? "Campo"),
+      status: statusMap[rawStatus] ?? "DISCREPANCY",
+      severity: severityMap[rawSeverity] ?? "MENOR",
+      reason_short: reason || (statusMap[rawStatus] === "MATCH" ? "Coincide con fuente de verdad" : "Requiere validación"),
+      observed_value: value.observed_value ?? value.valorDocumento ?? value.observed_value_legacy,
+      expected_value: value.expected_value ?? value.valorFuenteVerdad ?? value.source_value,
+      documento: value.documento,
+    };
+  });
+
+const HistoricalAuditFindingSchema = z.union([
+  AuditFindingSchema,
+  LegacyAuditFindingSchema,
+]);
+
+export const AuditTimingSummarySchema = z
+  .object({
+    count: z.number().int().nonnegative().optional().default(0),
+    avg_ms: z.number().nonnegative().nullish(),
+    min_ms: z.number().nonnegative().nullish(),
+    max_ms: z.number().nonnegative().nullish(),
+    p95_ms: z.number().nonnegative().nullish(),
+  })
+  .passthrough();
+
+export const AuditGeminiTimingSummarySchema = AuditTimingSummarySchema.extend({
+  cache_hits: z.number().int().nonnegative().optional().default(0),
+  prompt_tokens: z.number().int().nonnegative().nullish(),
+  output_tokens: z.number().int().nonnegative().nullish(),
+  thoughts_tokens: z.number().int().nonnegative().nullish(),
+  total_tokens: z.number().int().nonnegative().nullish(),
+  finish_reasons: z.record(z.string(), z.number().int().nonnegative()).optional().default({}),
+}).passthrough();
+
+export const AuditPhaseTimingsSchema = z
+  .object({
+    docs_total: z.number().int().nonnegative().optional().default(0),
+    cache_hit_rate: z.number().nonnegative().nullish(),
+    download: AuditTimingSummarySchema.nullish(),
+    gemini: AuditTimingSummarySchema.nullish(),
+    gemini_extraction: AuditGeminiTimingSummarySchema.nullish(),
+    gemini_semantic: AuditGeminiTimingSummarySchema.nullish(),
+    gemini_total: AuditGeminiTimingSummarySchema.nullish(),
+    semantic_calls: z.number().int().nonnegative().nullish(),
+    semantic_cache_hits: z.number().int().nonnegative().nullish(),
+    extraction: AuditTimingSummarySchema.nullish(),
+    normalization: AuditTimingSummarySchema.nullish(),
+    policy: AuditTimingSummarySchema.nullish(),
+  })
+  .passthrough();
+
+export const AuditResultMetaSchema = z
+  .object({
+    source: z.string().nullish(),
+    totalTimeMs: z.number().nonnegative().nullish(),
+    total_duration_ms: z.number().nonnegative().nullish(),
+    documentsProcessed: z.number().int().nonnegative().nullish(),
+    createdAt: z.string().nullish(),
+    updatedAt: z.string().nullish(),
+    auditExecuted: z.boolean().nullish(),
+    metrics: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+    phase_timings: AuditPhaseTimingsSchema.nullish(),
+  })
+  .passthrough();
+
+export const AuditSingleResponseSchema = z.object({
+  audit_id: z.string().nullish(),
+  status: z.union([AuditDocumentStatusSchema, z.literal("pending")]),
+  dis_det_nro: z.string().nullish(),
+  findings: z.array(AuditFindingSchema).default([]),
+  severity: AuditSeveritySchema.nullish(),
+  message: z.string().nullish(),
+  documents: z.array(UnknownRecordSchema).nullish(),
+  metrics: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+  policy: z.object({ policyKey: z.string().nullish() }).passthrough().nullable().optional(),
+  _meta: z
+    .object({
+      totalTimeMs: z.number().nullish(),
+      attempts: z.number().nullish(),
+      acceptedAttempt: z.number().nullish(),
+      promptHash: z.string().nullish(),
+      acceptedPromptHash: z.string().nullish(),
+      phases: z.record(z.string(), z.number()).nullish(),
+    })
+    .passthrough()
+    .nullish(),
+}).passthrough();
+
+export const AuditJobSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  total: z.number().int().nonnegative().optional().default(0),
+  done: z.number().int().nonnegative().optional().default(0),
+  failed: z.number().int().nonnegative().optional().default(0),
+  pending: z.number().int().nonnegative().optional().default(0),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+}).passthrough().transform((val) => {
+  const processed = (val.done || 0) + (val.failed || 0);
+  const total = val.total || 0;
+  const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
+  
+  let status: "queued" | "running" | "completed" | "failed" = "queued";
+  if (val.status === "processing") status = "running";
+  else if (val.status === "completed" || val.status === "completed_with_errors") status = "completed";
+  else if (val.status === "failed") status = "failed";
+
+  return {
+    jobId: val.job_id,
+    status,
+    queueDepth: val.pending || 0,
+    progress,
+    processed,
+    total,
+    createdAt: val.created_at || null,
+    startedAt: val.created_at || null,
+    completedAt: (status === "completed" || status === "failed") ? (val.updated_at || null) : null,
+    result: {
+      succeeded: val.done || 0,
+      failed: val.failed || 0,
+      skipped: 0,
+    },
+    error: null,
+    statusUrl: `/audit/jobs/${val.job_id}`,
+  };
+});
+
+export const AuditResultRecordSchema = z.object({
+  FacSec: ScalarSchema,
+  FacNro: z.string().nullish(),
+  FacNitSec: ScalarSchema.nullish(),
+  EstadoDetallado: z.string().nullish(),
+  Severidad: z.string().nullish(),
+  Hallazgos: z.string().nullish(),
+  HallazgosItems: z.array(HistoricalAuditFindingSchema).nullish(),
+  CriticalFieldDecisions: z.array(HistoricalAuditFindingSchema).nullish(),
+  _meta: AuditResultMetaSchema.nullish(),
+  FechaCreacion: z.string().nullish(),
+  FechaActualizacion: z.string().nullish(),
+}).passthrough();
+
+export const PaginatedAuditResultsSchema = z.object({
+  items: z.array(AuditResultRecordSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+  filters: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+});
+
+export const AuditStatsSchema = z.object({
+  total: z.number(),
+  byState: z.record(z.string(), z.number()),
+  documentsAudited: z.number(),
+  lastAuditAt: z.string().nullable().optional(),
+});
+
+export const AuditDocumentHistoryItemSchema = UnknownRecordSchema;
+export const PaginatedAuditDocumentHistorySchema = z.object({
+  items: z.array(AuditDocumentHistoryItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+  filters: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+});
+
+export type PublicConfig = z.infer<typeof PublicConfigSchema>;
+export type HealthStatus = z.infer<typeof HealthSchema>;
+export type AsyncMetrics = z.infer<typeof AsyncMetricsSchema>;
+export type ClientRecord = z.infer<typeof ClientSchema>;
+export type InvoiceRecord = z.infer<typeof InvoiceSchema>;
+export type DispensationHeader = z.infer<typeof DispensationHeaderSchema>;
+export type DispensationItem = z.infer<typeof DispensationItemSchema>;
+export type DispensationDetail = z.infer<typeof DispensationDetailSchema>;
+export type AttachmentRecord = z.infer<typeof AttachmentSchema>;
+export type AttachmentPreview = z.infer<typeof AttachmentPreviewSchema>;
+export type AuditFinding = z.infer<typeof AuditFindingSchema>;
+export type AuditTimingSummary = z.infer<typeof AuditTimingSummarySchema>;
+export type AuditGeminiTimingSummary = z.infer<typeof AuditGeminiTimingSummarySchema>;
+export type AuditPhaseTimings = z.infer<typeof AuditPhaseTimingsSchema>;
+export type AuditResultMeta = z.infer<typeof AuditResultMetaSchema>;
+export type AuditSingleResponse = z.infer<typeof AuditSingleResponseSchema>;
+export type AuditJob = z.infer<typeof AuditJobSchema>;
+export type AuditResultRecord = z.infer<typeof AuditResultRecordSchema>;
+export type PaginatedAuditResults = z.infer<typeof PaginatedAuditResultsSchema>;
+export type PaginatedAuditDocumentHistory = z.infer<
+  typeof PaginatedAuditDocumentHistorySchema
+>;
+export type AuditConfigField = z.infer<typeof AuditConfigFieldSchema>;
+export type AuditConfigDocument = z.infer<typeof AuditConfigDocumentSchema>;
+export type AuditConfig = z.infer<typeof AuditConfigSchema>;
+export type SaveAuditConfigResponse = z.infer<typeof SaveAuditConfigResponseSchema>;
+export type AuditStats = z.infer<typeof AuditStatsSchema>;
