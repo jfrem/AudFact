@@ -44,6 +44,15 @@ Variable opcional de GitHub Environment:
 
 Crear environment `production` con aprobacion manual.
 
+Para SQL Server en produccion, configurar hosts sin instancia ni puerto embebido. El puerto se define por separado en `DB_PORT` y `DB2_PORT`.
+
+```text
+DB_HOST=169.46.6.53
+DB_PORT=1433
+DB2_HOST=169.46.6.55
+DB2_PORT=1433
+```
+
 Secrets requeridos:
 
 ```text
@@ -86,7 +95,9 @@ push main
   -> CI
   -> publish GHCR images
   -> deploy-production en runner LAN
+  -> generar .env con hosts SQL normalizados
   -> docker compose pull
+  -> preflight SQL con la imagen PHP publicada
   -> docker compose up -d
   -> curl http://localhost:8080/health
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
@@ -118,3 +129,5 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - No construir imagenes en el servidor de produccion.
 - No imprimir `.env` ni secrets en logs.
 - No dejar `responseIA/` dentro del contexto de build Docker.
+- No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
+- El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.

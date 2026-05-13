@@ -7,7 +7,7 @@ El despliegue a producción está automatizado mediante **GitHub Actions**.
 ### Flujo
 
 ```
-Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → generate .env → docker compose up --build → health check → Zero-Source Host Purge)
+Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner: checkout → generate .env → pull GHCR images → SQL preflight → docker compose up → health check)
 ```
 
 ### Configuración
@@ -22,14 +22,14 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 | Secret | Requerido | Descripción |
 |---|---|---|
 | `APP_ENV` | ✅ | Entorno (`production`) |
-| `DB_HOST` | ✅ | Host SQL Server escritura (ej: `169.46.6.53\SQL2022`) |
+| `DB_HOST` | ✅ | Host SQL Server escritura sin instancia ni puerto embebido (ej: `169.46.6.53`) |
 | `DB_PORT` | ✅ | Puerto SQL Server (`1433`) |
 | `DB_NAME` | ✅ | Nombre de base de datos |
 | `DB_USER` | ✅ | Usuario BD escritura |
 | `DB_PASS` | ✅ | Contraseña BD escritura |
 | `DB_ENCRYPT` | ✅ en prod | Cifrado conexión principal (`no` temporal en este entorno; objetivo futuro: `yes`) |
 | `DB_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión principal (`yes` temporal sin certificado válido; objetivo futuro: `no`) |
-| `DB2_HOST` | ✅ | Host SQL Server lectura (ej: `169.46.6.55\SQL2022_REPLICA`) |
+| `DB2_HOST` | ✅ | Host SQL Server lectura sin instancia ni puerto embebido (ej: `169.46.6.55`) |
 | `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
 | `DB2_NAME` | ✅ | Nombre de BD lectura |
 | `DB2_USER` | ✅ | Usuario BD lectura |
@@ -49,13 +49,13 @@ Push a main → CI (lint + tests) → CD (Self-hosted runner: checkout → gener
 
 1. **CI (GitHub-hosted)**: Lint PHP, validación Composer, PHPUnit
 2. **CI Frontend (GitHub-hosted)**: `npm ci`, `npm run lint`, `npm run build`
-3. **CD (Self-hosted runner)**: Fix de permisos Docker + Checkout del código (`clean: true`)
-4. Genera `.env` dinámicamente desde GitHub Secrets (con validación de secrets requeridos)
-5. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
-6. `docker compose down` → `docker compose up --build -d`
-7. **Entrypoint autónomo** (por contenedor): detecta si falta `vendor/autoload.php` o si `composer.lock` cambió → ejecuta `composer install` automáticamente. También repara permisos de `logs/`.
-8. Health check con **retry loop** (3 intentos, 10s entre cada uno)
-9. **Zero-Source Host Purge** (Lean Production 3.0): Elimina todo el código fuente y metadatos del workspace del runner, dejando solo `.env`, `docker-compose.yml`, `logs/` y `.git`
+3. **Publish Images (GitHub-hosted)**: construye y publica imagenes inmutables en GHCR por SHA.
+4. **CD (self-hosted runner)**: checkout de archivos de despliegue (`clean: true`).
+5. Genera `.env` dinámicamente desde GitHub Secrets con hosts SQL normalizados a host/IP limpio.
+6. Ejecuta preflight SQL con la imagen PHP publicada antes de recrear el stack.
+7. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
+8. `docker compose pull` → `docker compose up -d --remove-orphans`
+9. Health check con **retry loop** (5 intentos, 10s entre cada uno)
 
 ### Inconsistencias recurrentes y cómo evitarlas
 
@@ -131,6 +131,7 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 - [ ] Código funciona en entorno local Docker
 - [ ] Health check (`/health`) responde correctamente
 - [ ] GitHub Secrets de producción configurados (ver tabla arriba)
+- [ ] `DB_HOST` y `DB2_HOST` configurados como host/IP limpio, sin instancia ni puerto embebido
 - [ ] `APP_ENV=production` en Secrets
 - [ ] `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no`, `DB2_TRUST_SERVER_CERT=yes`
 - [ ] Existe plan para migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` al disponer de certificado válido
