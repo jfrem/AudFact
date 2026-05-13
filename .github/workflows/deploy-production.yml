@@ -110,8 +110,9 @@ jobs:
           set -euo pipefail
           umask 077
 
+          APP_ENV="${APP_ENV:-production}"
           if [ "${APP_ENV}" != "production" ]; then
-            echo "::error::Production deploy requires APP_ENV=production"
+            echo "::error::Production deploy requires APP_ENV=production (Current: ${APP_ENV})"
             exit 1
           fi
 
