@@ -110,11 +110,8 @@ jobs:
           set -euo pipefail
           umask 077
 
-          APP_ENV="${APP_ENV:-production}"
-          if [ "${APP_ENV}" != "production" ]; then
-            echo "::error::Production deploy requires APP_ENV=production (Current: ${APP_ENV})"
-            exit 1
-          fi
+          # Force production environment for the production deployment workflow
+          APP_ENV="production"
 
           if [ "${DB_ENCRYPT:-no}" != "no" ] || [ "${DB_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
             echo "::error::Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
