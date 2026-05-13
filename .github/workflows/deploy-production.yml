@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_PATH="${DEPLOY_DIR:-$HOME/audfact-prod}"
-          mkdir -p "$DEPLOY_PATH/logs" "$DEPLOY_PATH/responseIA"
+          mkdir -p "$DEPLOY_PATH/logs"
           cp docker-compose.prod.yml "$DEPLOY_PATH/docker-compose.prod.yml"
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
 
@@ -146,8 +146,8 @@ jobs:
           APP_ENV=${APP_ENV}
           NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
           WRAP_API_BASE=http://nginx
-          WEBHOOK_URL=http://localhost:8080/app/wrap/webhook.php
-          CAPABILITIES_URL=http://localhost:8080/app/wrap/capabilities.php
+          WEBHOOK_URL=${NEXT_PUBLIC_API_URL}/app/wrap/webhook.php
+          CAPABILITIES_URL=${NEXT_PUBLIC_API_URL}/app/wrap/capabilities.php
           MCP_WEBHOOK_SECRET=${MCP_WEBHOOK_SECRET}
 
           DB_TYPE=sqlsrv
@@ -170,7 +170,7 @@ jobs:
           DB2_TRUST_SERVER_CERT=${DB2_TRUST_SERVER_CERT:-yes}
 
           GOOGLE_DRIVE_CLIENT_EMAIL=${GOOGLE_DRIVE_CLIENT_EMAIL}
-          GOOGLE_DRIVE_PRIVATE_KEY="${GOOGLE_DRIVE_PRIVATE_KEY}"
+          GOOGLE_DRIVE_PRIVATE_KEY=${GOOGLE_DRIVE_PRIVATE_KEY}
           GOOGLE_DRIVE_TLS_VERIFY=1
 
           REQUEST_TIMEOUT_MS=60000
@@ -193,7 +193,7 @@ jobs:
           GEMINI_THINKING_LEVEL=
           GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS=4096
           GEMINI_EXTRACTION_THINKING_BUDGET=
-          GEMINI_EXTRACTION_THINKING_LEVEL=MINIMAL
+          GEMINI_EXTRACTION_THINKING_LEVEL=${GEMINI_EXTRACTION_THINKING_LEVEL:-MINIMAL}
           GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS=2048
           GEMINI_SEMANTIC_THINKING_LEVEL=
           GEMINI_SEMANTIC_THINKING_BUDGET=
