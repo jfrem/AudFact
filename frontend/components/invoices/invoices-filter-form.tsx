@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import type { ClientRecord } from "@/lib/schemas/domain";
@@ -70,9 +71,8 @@ export function InvoicesFilterForm({
         <label htmlFor="dateFrom-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
           Desde
         </label>
-        <Input
+        <DatePickerInput
           id="dateFrom-input"
-          type="date"
           name="dateFrom"
           defaultValue={initialDateFrom}
         />
@@ -82,9 +82,8 @@ export function InvoicesFilterForm({
         <label htmlFor="dateTo-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
           Hasta
         </label>
-        <Input
+        <DatePickerInput
           id="dateTo-input"
-          type="date"
           name="dateTo"
           defaultValue={initialDateTo}
         />

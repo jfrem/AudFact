@@ -1,6 +1,20 @@
 ## [2026-05-13]
 
+### feat
+- **Calendar shadcn/ui para filtros de fecha**: Se agrega `Calendar` sobre `react-day-picker` y un `DatePickerInput` reutilizable para reemplazar los inputs nativos de fecha en auditoria y facturas.
+  - Archivos modificados: `frontend/package.json`, `frontend/package-lock.json`, `frontend/components/ui/calendar.tsx`, `frontend/components/ui/date-picker-input.tsx`, `frontend/components/audit/audit-batch-console.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Los formularios empiezan a usar el patron shadcn/ui `Popover + Calendar` sin cambiar el contrato HTTP `YYYY-MM-DD` enviado al backend.
+
 ### fix
+- **Modales y confirm con superficie opaca**: Los dialogos Radix/shadcn y el `ConfirmDialog` dejan de usar superficies translucidas que permitian ver contenido del fondo.
+  - Archivos modificados: `frontend/components/ui/dialog.tsx`, `frontend/components/shared/confirm-dialog.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Los modales tienen mejor aislamiento visual, scrim mas fuerte y lectura estable sobre pantallas densas.
+- **Calendario con superficie opaca**: El popover del selector de fecha deja de mostrar el contenido de fondo a traves del calendario.
+  - Archivos modificados: `frontend/components/ui/date-picker-input.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: El calendario conserva legibilidad y reduce ruido visual sobre dashboards y formularios densos.
 - **Bandeja prioritaria con navegación estable**: El botón `Revisar` de `/dashboard` abre el listado de resultados filtrado por factura en vez del detalle inconsistente.
   - Archivos modificados: `frontend/components/dashboard/priority-audit-table.tsx`
   - Hallazgo resuelto: ninguno

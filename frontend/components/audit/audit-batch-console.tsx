@@ -17,6 +17,7 @@ import { SectionCard } from "@/components/shared/section-card";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 
 const batchSchema = z.object({
@@ -149,10 +150,20 @@ export function AuditBatchConsole({
                 <Input {...form.register("limit")} />
               </Field>
               <Field label="Fecha desde" error={form.formState.errors.date?.message}>
-                <Input type="date" {...form.register("date")} />
+                <DatePickerInput
+                  value={form.watch("date")}
+                  onValueChange={(value) =>
+                    form.setValue("date", value, { shouldDirty: true, shouldValidate: true })
+                  }
+                />
               </Field>
               <Field label="Fecha hasta" error={form.formState.errors.dateTo?.message}>
-                <Input type="date" {...form.register("dateTo")} />
+                <DatePickerInput
+                  value={form.watch("dateTo")}
+                  onValueChange={(value) =>
+                    form.setValue("dateTo", value, { shouldDirty: true, shouldValidate: true })
+                  }
+                />
               </Field>
             </div>
 

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import type { ClientRecord } from "@/lib/schemas/domain";
@@ -84,29 +85,29 @@ export function AuditResultsFilterForm({
         />
       </label>
 
-      <label className="min-w-0 space-y-1.5">
-        <span className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <div className="min-w-0 space-y-1.5">
+        <label htmlFor="audit-results-date-from" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
           Desde
-        </span>
-        <Input
-          type="date"
+        </label>
+        <DatePickerInput
+          id="audit-results-date-from"
           name="dateFrom"
           defaultValue={initialDateFrom}
           className="min-w-0"
         />
-      </label>
+      </div>
 
-      <label className="min-w-0 space-y-1.5">
-        <span className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <div className="min-w-0 space-y-1.5">
+        <label htmlFor="audit-results-date-to" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
           Hasta
-        </span>
-        <Input
-          type="date"
+        </label>
+        <DatePickerInput
+          id="audit-results-date-to"
           name="dateTo"
           defaultValue={initialDateTo}
           className="min-w-0"
         />
-      </label>
+      </div>
 
       <div className="flex min-w-0 items-end">
         <Button type="submit" className="w-full">Buscar</Button>

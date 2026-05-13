@@ -91,9 +91,9 @@ export function ConfirmDialog({
           /* ── Size & shape ─────────────────────────────────── */
           "max-h-[96vh] w-[92vw] max-w-md gap-0 overflow-hidden rounded-2xl",
           /* ── Surface ──────────────────────────────────────── */
-          "border border-white/[0.08] bg-slate-900/95 p-0",
-          /* ── Glassmorphism depth ──────────────────────────── */
-          "shadow-2xl shadow-black/50 backdrop-blur-xl",
+          "border border-white/15 bg-[color:var(--popover)] p-0 text-[color:var(--popover-foreground)]",
+          /* ── Modal depth ──────────────────────────────────── */
+          "shadow-2xl shadow-slate-950/75",
           /* ── Entry animation override ─────────────────────── */
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.96]",
           "data-[state=open]:slide-in-from-bottom-3",
