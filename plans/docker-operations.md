@@ -59,7 +59,7 @@ El flujo automatizado vive en:
 
 - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
 - **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
-- **Volúmenes**: En producción se montan `./logs:/var/www/html/logs` y `./responseIA:/var/www/html/responseIA`; el código vive dentro de la imagen, no en mounts del host.
+- **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. El directorio `responseIA/` solo se monta en desarrollo (`docker-compose.yml`).
 - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
 - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells
-- **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.prod.yml`, `logs/`, `responseIA/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.
+- **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.prod.yml`, `logs/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.

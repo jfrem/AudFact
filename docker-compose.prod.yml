@@ -25,7 +25,6 @@ services:
       - .env
     volumes:
       - ./logs:/var/www/html/logs
-      - ./responseIA:/var/www/html/responseIA
     expose:
       - "9000"
     restart: unless-stopped
@@ -106,7 +105,6 @@ services:
       - .env
     volumes:
       - ./logs:/var/www/html/logs
-      - ./responseIA:/var/www/html/responseIA
     depends_on:
       - redis
       - nginx
@@ -141,7 +139,6 @@ services:
       - .env
     volumes:
       - ./logs:/var/www/html/logs
-      - ./responseIA:/var/www/html/responseIA
     depends_on:
       - redis
     command: php bin/audit-worker.php policy

@@ -1,5 +1,22 @@
 # Changelog AudFact
 
+## [2026-05-13] - Eliminación de Artefactos IA en Producción
+
+### 🔒 Security / Infrastructure
+- **INFRA-001**: Eliminación de volúmenes `responseIA/` del compose productivo.
+  - **Problema**: `docker-compose.prod.yml` montaba `./responseIA:/var/www/html/responseIA` en los servicios `php`, `worker-extraction` y `worker-policy`. Aunque el código PHP (`ResponseIADiskStore`, línea 46) ya impedía la escritura en `APP_ENV !== 'development'`, Docker creaba el directorio vacío en el host al levantar los contenedores.
+  - **Corrección**: Eliminados 3 mounts de volumen del compose productivo. Solo `./logs:/var/www/html/logs` persiste como mount en producción.
+  - **Documentación sincronizada**: `plans/docker-operations.md` (sección Precauciones), `README.md` (sección Producción) actualizados para reflejar que `responseIA/` es exclusivo de desarrollo.
+  - **Archivos modificados**: `docker-compose.prod.yml`, `plans/docker-operations.md`, `README.md`
+  - **Validación**: Verificado que `responseIA/` sigue presente en `docker-compose.yml` (desarrollo), `.dockerignore` (excluido del build context) y `.gitignore`.
+
+## [2026-05-11] - Infraestructura & Documentación Visual
+
+### Docs / Diagrams
+- **ARCH-DIAGRAMS**: Actualización completa de `plans/architecture-diagrams.md` para reflejar la arquitectura **Event-Driven** actual (C4 Model Nivel 1, 2 y 3).
+- **Architecture Walkthrough**: Creación de un walkthrough interactivo con diagramas PNG generados vía `mmdc` (Mermaid CLI) para facilitar la inducción técnica.
+- **Secrets Sync**: Sincronización de secretos de producción desde el entorno local `.env` hacia GitHub Secrets para habilitar el despliegue automático.
+
 ## [2026-05-11] - Skill de Operaciones de Produccion
 
 ### Docs / Ops

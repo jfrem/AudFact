@@ -1,0 +1,76 @@
+C4Component
+    title AudFact — C4 Nivel 3: Componentes del Audit Pipeline
+
+    Container_Ext(redis, "Redis 7 Streams", "audit.inbox / audit.documents / audit.results / audit.dlq")
+    Container_Ext(sqlserver, "SQL Server", "Discolnet")
+    Container_Ext(gemini, "Google Gemini API", "Function Calling")
+    Container_Ext(gdrive, "Google Drive", "Adjuntos URL")
+
+    System_Boundary(pipeline, "Audit Pipeline (PHP Workers)") {
+
+        Component(audit_event, "AuditEvent", "PHP final class", "Contrato inmutable de evento.\n11 tipos (audit_created → audit_completed).\nValidación UUID v4 + ISO-8601.\nVersioned: versionExtractor, versionNormalizer, versionRules.")
+
+        Component(event_publisher, "AuditEventPublisher", "PHP class", "Publica eventos al stream correcto.\nMapeo tipo → stream (STREAM_BY_TYPE).\nStream DLQ configurable via AUDIT_DLQ_STREAM.\naudit.inbox | audit.documents | audit.results | audit.dlq")
+
+        Component(event_consumer, "AuditEventConsumer", "PHP abstract class", "Base Template Method para todos los workers.\nXREADGROUP + XACK + retry counter.\nxAutoClaim para pending messages (crash recovery).\nDLQ tras AUDIT_EVENT_MAX_RETRIES (default: 3).\nSIGTERM/SIGINT graceful shutdown.")
+
+        Component(state_store, "AuditStateStore", "PHP class / Lua scripts", "Estado mutable de la auditoría en Redis.\nScripts Lua atómicos: MERGE, REGISTER_DOCUMENT,\nDOCUMENT_TRANSITION, STORE_RULES_EVALUATION, COMPLETE_AUDIT.\nTTL 24h por auditoría.\nEstados: pending → processing → completed/failed.")
+
+        Component(orchestrator, "DocumentAuditOrchestrator", "PHP final class extends AuditEventConsumer", "Consume: audit_created de audit.inbox.\nLee FDV vía AuditDataService.\nConstruye audit-config desde AuditConfigModel.\nCrea extraction_contract con DocumentExtractionContractBuilder.\nPublica N × document_registered.")
+
+        Component(contract_builder, "DocumentExtractionContractBuilder", "PHP class", "Builder dinámico de Function Declarations.\n4 funciones paralelas: extract_fields, extract_items,\ndetect_visual_checks, assess_document_quality.\nHash de contrato para invalidación de cache.")
+
+        Component(extraction_worker, "DocumentExtractionWorker", "PHP class extends AuditEventConsumer", "Consume: document_registered de audit.documents.\nDescarga adjunto (Drive URL o BLOB via sqlsrv).\nsha256(file_content) → ExtractionCache en Redis.\nConstruye prompt + files inline.\nGeminiGateway.sendWithFunctionCalling().\nPublica document_extracted.")
+
+        Component(gemini_gateway, "GeminiGateway", "PHP class / Guzzle HTTP", "Perfil extraction: requiere archivos inline.\nPerfil semantic_match: solo texto.\nRetry exponencial (3 intentos, 429/503/500/502/504).\nCircuit Breaker Redis (cb:gemini:state/fails).\nDebug log en responseIA/ por cada llamada.")
+
+        Component(normalizer, "DocumentNormalizer", "PHP class extends AuditEventConsumer", "Consume: document_extracted de audit.documents.\nNormalización determinista:\n- Fechas → ISO-8601\n- Texto → UPPERCASE sin tildes/diacríticos\n- Numéricos → canonical float\n- Vacíos → null\nPublica document_normalized.")
+
+        Component(policy_engine, "DocumentPolicyEngine", "PHP class / AuditFindingRules", "Compara campos extraídos vs FDV.\n5 veredictos: COINCIDE / VALOR_DISTINTO /\nNO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE.\nAuditFieldValueType para comparación tipada.\nSemanticMatchJudge como fallback de homologación.")
+
+        Component(semantic_judge, "SemanticMatchJudge", "PHP class → GeminiGateway", "Homologación semántica de artículos.\nUsa perfil semantic_match (sin archivos).\nDevuelve: COINCIDE | VALOR_DISTINTO | NO_CONCLUYENTE.")
+
+        Component(rules_worker, "RulesEvaluationWorker", "PHP class extends AuditEventConsumer", "Consume: document_normalized de audit.documents.\nInvoca DocumentPolicyEngine por documento.\nCuando docs_evaluated == docs_total:\nPublica rules_evaluated en audit.results.")
+
+        Component(aggregator, "AuditAggregationWorker", "PHP class extends AuditEventConsumer", "Consume: rules_evaluated de audit.results.\nAuditResultData + documentDecisions por documento.\nAuditStatusModel.persistAuditResultWithAttachments():\n→ MERGE dbo.AudDispEst\n→ UPDATE AdjuntosDispensacionDetalle\nPublica audit_completed | audit_failed.")
+
+        Component(batch_job_store, "BatchJobStore", "PHP class / Redis Hash", "Rastrea progreso de auditorías en lote.\nCampos: total, completed, errors, status.\nTTL configurable via AUDIT_CACHE_TTL.")
+    }
+
+    Rel(orchestrator, audit_event, "Crea eventos audit_created,\ndocument_registered")
+    Rel(orchestrator, event_publisher, "Publica document_registered")
+    Rel(orchestrator, state_store, "initAudit(), registerDocument(),\nsetAuditDocumentsTotal()")
+    Rel(orchestrator, contract_builder, "build(documentName, fields, visualChecks)")
+    Rel(orchestrator, sqlserver, "getDispensation(), getAuditConfig(),\ngetAttachments() via AuditDataService")
+
+    Rel(extraction_worker, event_consumer, "Extiende (Template Method)")
+    Rel(extraction_worker, gemini_gateway, "sendWithFunctionCalling()\ntask: extraction")
+    Rel(extraction_worker, state_store, "markDocumentExtracted()")
+    Rel(extraction_worker, event_publisher, "Publica document_extracted")
+    Rel(extraction_worker, gdrive, "Descarga adjuntos URL")
+    Rel(extraction_worker, sqlserver, "Lee BLOB binario")
+    Rel(extraction_worker, redis, "ExtractionCache: GET/SET por document_hash")
+
+    Rel(normalizer, event_consumer, "Extiende (Template Method)")
+    Rel(normalizer, state_store, "markDocumentNormalized()")
+    Rel(normalizer, event_publisher, "Publica document_normalized")
+
+    Rel(rules_worker, event_consumer, "Extiende (Template Method)")
+    Rel(rules_worker, policy_engine, "evaluate(extractedData, targetContext)")
+    Rel(rules_worker, state_store, "markDocumentEvaluated(), storeRulesEvaluation()")
+    Rel(rules_worker, event_publisher, "Publica rules_evaluated")
+
+    Rel(policy_engine, semantic_judge, "Fallback homologación artículos")
+    Rel(semantic_judge, gemini_gateway, "sendWithFunctionCalling()\ntask: semantic_match")
+    Rel(gemini_gateway, gemini, "POST generateContent\nFunction Calling")
+    Rel(gemini_gateway, redis, "Circuit Breaker state\ncb:gemini:state / cb:gemini:fails")
+
+    Rel(aggregator, event_consumer, "Extiende (Template Method)")
+    Rel(aggregator, state_store, "getAudit(), completeAudit()")
+    Rel(aggregator, sqlserver, "MERGE AudDispEst\nUPDATE AdjuntosDispensacionDetalle")
+    Rel(aggregator, event_publisher, "Publica audit_completed | audit_failed\n| batch_completed[_with_errors]")
+    Rel(aggregator, batch_job_store, "Actualiza progreso del job")
+
+    Rel(event_consumer, redis, "XREADGROUP, XACK, xAutoClaim, XADD")
+    Rel(event_publisher, redis, "XADD a stream correspondiente")
+    Rel(state_store, redis, "GET/SET/SETNX + Lua EVAL atómico")

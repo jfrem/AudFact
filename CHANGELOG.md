@@ -1,3 +1,11 @@
+## [2026-05-13]
+
+### security
+- **Eliminación de `responseIA/` en producción**: Se removieron los volúmenes `./responseIA:/var/www/html/responseIA` de los servicios `php`, `worker-extraction` y `worker-policy` en `docker-compose.prod.yml`. El código (`ResponseIADiskStore`) ya contenía un guardrail (`APP_ENV !== 'development'`), pero el mount de Docker forzaba la creación del directorio vacío en el host de producción.
+  - Archivos modificados: `docker-compose.prod.yml`, `plans/docker-operations.md`, `README.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Elimina la persistencia innecesaria de directorios de debug IA en producción, alineando infraestructura con la política Zero-Source.
+
 ## [2026-05-11]
 
 ### feat

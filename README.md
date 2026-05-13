@@ -173,7 +173,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove
 `docker-compose.yml` conserva la topología local con build desde el repo. `docker-compose.prod.yml` usa imagenes publicadas en GHCR y no construye en el servidor.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
-En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs` y `./responseIA:/var/www/html/responseIA`; el código fuente vive dentro de la imagen (Zero-Source).
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.
 El contenedor PHP usa un healthcheck empaquetado en `/usr/local/bin/audfact-healthcheck.php`, evitando depender de rutas eliminadas durante el build final.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de linea reales (LF) y no secuencias literales `\r\n`.
