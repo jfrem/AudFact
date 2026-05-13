@@ -35,7 +35,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-sqlsrv-models` | SQL Server | Modelos, queries, BLOBs |
 | `audfact-mcp-wrap` | MCP | Webhook, herramientas, ApiClient |
 | `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
-| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, deploy/rollback |
+| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, secrets SQL, deploy/rollback |
 | `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
 | `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
 | `architecture-assessment` | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad |
@@ -146,6 +146,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - **Archivo de referencia**: `.env.example` — mantenerlo actualizado.
 - **Inmutabilidad**: El código en producción NO puede modificarse desde el host (Zero-Source).
 - Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
+- **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben ser host/IP limpio, sin instancia ni puerto embebido. Valores vigentes: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
 
 #### Guardrails de seguridad
 
@@ -192,13 +193,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
 | `DB_TYPE` | `sqlsrv` | ✅ | `Core\Database` — driver PDO |
-| `DB_HOST` | `localhost` | ✅ | `Core\Database` — host del servidor SQL |
+| `DB_HOST` | `localhost` | ✅ | `Core\Database` — host del servidor SQL; en producción usar host/IP limpio sin instancia |
 | `DB_PORT` | `1433` | ✅ | `Core\Database` — puerto SQL Server |
 | `DB_NAME` | `mi_base` | ✅ | `Core\Database` — nombre de la BD |
 | `DB_USER` | `sa` | ✅ | `Core\Database` — usuario |
 | `DB_PASS` | *(vacío)* | ✅ | `Core\Database` — contraseña |
 | `DB_POOLING` | `1` | ❌ | `Core\Database` — connection pooling PDO |
-| `DB2_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta) |
+| `DB2_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta); en producción usar host/IP limpio sin instancia |
 | `DB2_PORT` | `1433` | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `db2` |
 | `DB2_NAME` | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD de consulta |
 | `DB2_USER` | `sa` | ⚠️ Multi-BD | `Core\Database` — usuario de BD de consulta |
@@ -829,6 +830,15 @@ docker exec -it audfact-php composer update vendor/package
 ## Despliegue, CI/CD y Rollback
 
 > 📖 **Ver documento dedicado:** [plans/deployment-and-ci.md](file:///c:/Users/USER/Desktop/AudFact/plans/deployment-and-ci.md)
+
+### Contexto operativo CI/CD vigente
+
+- Producción LAN despliega por GitHub Actions con runner `self-hosted` label `audfact-prod-lan`, imágenes GHCR por SHA y `docker-compose.prod.yml`.
+- El workflow `.github/workflows/deploy-production.yml` regenera `/home/admon/audfact-prod/.env` en cada deploy desde GitHub Secrets.
+- Incidente resuelto el 2026-05-13: `DB_HOST`/`DB2_HOST` llegaron como `169.46.6.53SQL2022` y `169.46.6.55SQL2022_REPLICA`, provocando `Login timeout expired`, `php` unhealthy y workers reiniciando.
+- Corrección permanente: GitHub Secrets `production` quedaron como `DB_HOST=169.46.6.53` y `DB2_HOST=169.46.6.55`.
+- Guardrail actual: el workflow normaliza `host\instancia` a host base, rechaza hosts malformados, ejecuta preflight PDO/sqlsrv antes de recrear contenedores y falla temprano si SQL no conecta.
+- Última verificación conocida: workflow `Deploy Production - AudFact` run `25812026509` completó exitosamente con `Preflight SQL connectivity`, `Start production stack` y `Health check`.
 
 ---
 

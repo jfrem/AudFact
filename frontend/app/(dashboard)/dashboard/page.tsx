@@ -1,22 +1,21 @@
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
-  FileSearch,
-  History,
   ListChecks,
-  Workflow,
+  RefreshCw,
 } from "lucide-react";
 
 import {
+  getAsyncMetrics,
   getAuditDocumentsHistory,
   getAuditResults,
   getHealth,
-  getPublicConfig,
   getAuditStats,
 } from "@/lib/api/audfact";
+import { describeError } from "@/lib/api/errors";
 import {
   formatDateTime,
-  formatDurationMs,
   formatNumber,
 } from "@/lib/formatters";
 import { PageHeader } from "@/components/layout/page-header";
@@ -24,163 +23,186 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { StateDistributionChart } from "@/components/dashboard/state-distribution-chart";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
-import { DashboardResultsTable } from "@/components/dashboard/dashboard-results-table";
+import { AsyncQueueSummary } from "@/components/dashboard/async-queue-summary";
+import { DashboardHealthStrip } from "@/components/dashboard/dashboard-health-strip";
+import {
+  getPriorityAuditItems,
+  PriorityAuditTable,
+} from "@/components/dashboard/priority-audit-table";
 import { Button } from "@/components/ui/button";
 
 export default async function DashboardPage() {
-  const [health, config, auditResults, documentsHistory, auditStats] = await Promise.all([
-    getHealth().catch(() => null),
-    getPublicConfig().catch(() => null),
-    getAuditResults({ page: 1, pageSize: 8 }).catch(() => null),
-    getAuditDocumentsHistory({ page: 1, pageSize: 5 }).catch(() => null),
-    getAuditStats().catch(() => null),
+  const [healthState, asyncMetricsState, auditResultsState, documentsHistoryState, auditStatsState] = await Promise.all([
+    loadDashboardSource(() => getHealth()),
+    loadDashboardSource(() => getAsyncMetrics()),
+    loadDashboardSource(() => getAuditResults({ page: 1, pageSize: 8 })),
+    loadDashboardSource(() => getAuditDocumentsHistory({ page: 1, pageSize: 5 })),
+    loadDashboardSource(() => getAuditStats()),
   ]);
+
+  const health = healthState.data;
+  const asyncMetrics = asyncMetricsState.data;
+  const auditResults = auditResultsState.data;
+  const documentsHistory = documentsHistoryState.data;
+  const auditStats = auditStatsState.data;
 
   const items = auditResults?.items ?? [];
   const documentItems = documentsHistory?.items ?? [];
-  
-  const stats = auditStats ?? { total: 0, byState: {}, documentsAudited: 0, lastAuditAt: null };
-  const visibleDiscrepancies = stats.byState["DISCREPANCIA"] ?? 0;
-  
-  const dbLatency = health?.services?.database?.latency_ms ?? 0;
-  const chartColors = { success: "#16c784", warning: "#ffb84d", danger: "#ff6b7a" } as const;
-  const chartData = [
-    {
-      name: "Conforme",
-      value: (stats.byState["CONCILIADO"] ?? 0) + (stats.byState["MATCH"] ?? 0),
-      color: chartColors.success,
-    },
-    {
-      name: "Discrepancia",
-      value: stats.byState["DISCREPANCIA"] ?? 0,
-      color: chartColors.warning,
-    },
-    {
-      name: "Fallido",
-      value: stats.byState["FAILED"] ?? 0,
-      color: chartColors.danger,
-    },
-  ];
+  const priorityItems = getPriorityAuditItems(items);
+  const documentItemsWithIssues = documentItems.filter((item) => hasDocumentIssue(item));
+
+  const manualReviewCount = auditStats?.byState["MANUAL_REVIEW"] ?? 0;
+  const visibleDiscrepancies = auditStats?.byState["DISCREPANCIA"] ?? 0;
+  const failedAuditCount =
+    (auditStats?.byState["FAILED"] ?? 0) + (auditStats?.byState["ERROR"] ?? 0);
+  const activeQueueCount =
+    (asyncMetrics?.queueDepth ?? 0) +
+    (asyncMetrics?.jobs.running ?? 0) +
+    (asyncMetrics?.jobs.queued ?? 0);
+  const chartData = buildAuditStateChartData(auditStats?.byState ?? {});
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Centro de control"
         title="Dashboard"
-        description="Visión rápida del estado operativo, actividad reciente y accesos a los flujos principales."
+        description="Triage operativo para priorizar revisiones, fallas de auditoría y cola asíncrona."
         actions={
-          <Button asChild variant="secondary">
-            <Link href="/audit/single">Nueva auditoría</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href="/audit/single">Auditar dispensación</Link>
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href="/audit/batch">Encolar batch</Link>
+            </Button>
+          </div>
         }
       />
 
-      {/* ── KPIs ── */}
+      <DashboardHealthStrip
+        health={health}
+        healthError={healthState.error}
+        asyncMetrics={asyncMetrics}
+        asyncError={asyncMetricsState.error}
+      />
+
       <div className="stagger-children grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Estado backend"
-          value={health?.status === "healthy" ? "Operativo" : "Degradado"}
-          hint={`DB ${dbLatency}ms · Disco ${health?.services?.disk?.status ?? "?"}`}
-          tone="emerald"
-        />
-        <StatCard
-          label="Auditorías totales"
-          value={formatNumber(stats.total)}
-          hint={`Batch max: ${formatNumber(config?.auditBatchMaxLimit ?? 0)}`}
-        />
-        <StatCard
-          label="Documentos auditados"
-          value={formatNumber(stats.documentsAudited)}
-          hint={`Timeout: ${formatDurationMs(config?.auditBatchTimeoutMs ?? 0)}`}
-          tone="amber"
+          label="Revisión manual"
+          value={auditStatsState.error ? "No disponible" : formatNumber(manualReviewCount)}
+          hint={
+            auditStatsState.error
+              ? auditStatsState.error
+              : "Casos que requieren decisión del auditor"
+          }
+          tone={auditStatsState.error ? "amber" : "violet"}
         />
         <StatCard
           label="Discrepancias"
-          value={formatNumber(visibleDiscrepancies)}
-          hint={`De ${formatNumber(stats.total)} resultados totales`}
-          tone="violet"
+          value={auditStatsState.error ? "No disponible" : formatNumber(visibleDiscrepancies)}
+          hint={
+            auditStatsState.error
+              ? auditStatsState.error
+              : `De ${formatNumber(auditStats?.total ?? 0)} auditorías históricas`
+          }
+          tone="amber"
+        />
+        <StatCard
+          label="Fallas"
+          value={auditStatsState.error ? "No disponible" : formatNumber(failedAuditCount)}
+          hint={
+            auditStatsState.error
+              ? auditStatsState.error
+              : "Auditorías con estado técnico fallido"
+          }
+          tone="amber"
+        />
+        <StatCard
+          label="Cola async"
+          value={asyncMetricsState.error ? "No disponible" : formatNumber(activeQueueCount)}
+          hint={
+            asyncMetricsState.error
+              ? asyncMetricsState.error
+              : `${formatNumber(asyncMetrics?.jobs.running ?? 0)} running · ${formatNumber(asyncMetrics?.deadLetterDepth ?? 0)} DLQ`
+          }
+          tone={asyncMetricsState.error ? "amber" : activeQueueCount > 0 ? "blue" : "emerald"}
         />
       </div>
 
-      {/* ── Chart + Quick Actions ── */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard title="Distribución de estados">
-          <StateDistributionChart data={chartData} />
-        </SectionCard>
-
-        <SectionCard title="Acciones rápidas">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <QuickAction
-              href="/audit/single"
-              icon={<FileSearch className="h-5 w-5" />}
-              title="Auditoría 1:1"
-              description="Ejecutar auditoría individual."
-              highlighted
-            />
-            <QuickAction
-              href="/audit/results?page=1&pageSize=20"
-              icon={<ListChecks className="h-5 w-5" />}
-              title="Resultados"
-              description="Historial persistido."
-            />
-            <QuickAction
-              href="/audit/documents-history"
-              icon={<History className="h-5 w-5" />}
-              title="Documentos"
-              description="Trazabilidad documental."
-            />
-            <QuickAction
-              href="/audit/jobs"
-              icon={<Workflow className="h-5 w-5" />}
-              title="Jobs async"
-              description="Cola y progreso de batch."
-            />
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* ── Últimos resultados ── */}
       <SectionCard
-        title="Últimos resultados"
+        title="Bandeja prioritaria"
+        description="Casos recientes que requieren revisión humana, diagnóstico de falla o seguimiento de discrepancias."
         actions={
           <Link
             href="/audit/results"
-            className="inline-flex items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
-          >
-            Ver todos <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        }
-      >
-        {items.length === 0 ? (
-          <EmptyState
-            title="Sin resultados"
-            description="No se han encontrado auditorías persistidas."
-          />
-        ) : (
-          <DashboardResultsTable items={items} />
-        )}
-      </SectionCard>
-
-      {/* ── Actividad documental ── */}
-      <SectionCard
-        title="Actividad documental reciente"
-        actions={
-          <Link
-            href="/audit/documents-history"
-            className="inline-flex items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
+            className="inline-flex min-h-10 items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
           >
             Ver historial <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         }
       >
-        {documentItems.length === 0 ? (
+        {auditResultsState.error ? (
+          <DashboardDataError
+            title="No se pudo cargar la bandeja prioritaria"
+            detail={auditResultsState.error}
+          />
+        ) : (
+          <PriorityAuditTable items={priorityItems} />
+        )}
+      </SectionCard>
+
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <SectionCard
+          title="Histórico de estados"
+          description="Distribución agregada de los estados persistidos por el backend."
+        >
+          {auditStatsState.error ? (
+            <DashboardDataError
+              title="No se pudo cargar la distribución"
+              detail={auditStatsState.error}
+            />
+          ) : (
+            <StateDistributionChart data={chartData} />
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Cola asíncrona"
+          description="Lectura operativa de jobs, DLQ y eventos pendientes."
+        >
+          <AsyncQueueSummary
+            metrics={asyncMetrics}
+            error={asyncMetricsState.error}
+          />
+        </SectionCard>
+      </div>
+
+      <SectionCard
+        title="Documentos con observación reciente"
+        description="Soportes recientes que no están conformes o tienen observación de auditoría."
+        actions={
+          <Link
+            href="/audit/documents-history"
+            className="inline-flex min-h-10 items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
+          >
+            Ver historial <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        }
+      >
+        {documentsHistoryState.error ? (
+          <DashboardDataError
+            title="No se pudo cargar la actividad documental"
+            detail={documentsHistoryState.error}
+          />
+        ) : documentItemsWithIssues.length === 0 ? (
           <EmptyState
-            title="Sin actividad"
-            description="No hay documentos auditados recientemente."
+            icon={<ListChecks className="h-6 w-6" />}
+            title="Sin documentos observados recientes"
+            description="El historial reciente no reporta soportes con observación o estado no conforme."
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {documentItems.map((item, index) => (
+            {documentItemsWithIssues.map((item, index) => (
               <div
                 key={`${String(item.AdjuntoID ?? "adj")}-${index}`}
                 className="surface-subtle rounded-lg p-4 transition hover:border-white/12"
@@ -219,41 +241,120 @@ export default async function DashboardPage() {
   );
 }
 
-function QuickAction({
-  href,
-  icon,
+type DashboardLoadState<T> = {
+  data: NonNullable<T> | null;
+  error: string | null;
+};
+
+async function loadDashboardSource<T>(
+  loader: () => Promise<T>,
+): Promise<DashboardLoadState<T>> {
+  try {
+    const data = await loader();
+    if (data == null) {
+      throw new Error("La API no retornó datos para esta sección.");
+    }
+
+    return { data: data as NonNullable<T>, error: null };
+  } catch (error) {
+    return { data: null, error: describeError(error) };
+  }
+}
+
+function DashboardDataError({
   title,
-  description,
-  highlighted = false,
+  detail,
 }: {
-  href: string;
-  icon: React.ReactNode;
   title: string;
-  description: string;
-  highlighted?: boolean;
+  detail: string;
 }) {
   return (
-    <Link
-      href={href}
-      className={`group flex items-start gap-3 rounded-lg border p-3.5 transition ${
-        highlighted
-          ? "border-sky-500/24 bg-white/[0.05] hover:border-sky-400/30"
-          : "border-white/10 bg-white/[0.02] hover:border-white/14 hover:bg-white/[0.04]"
-      }`}
+    <div
+      className="rounded-lg border border-rose-500/20 bg-rose-500/[0.04] px-4 py-4"
+      role="alert"
     >
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-          highlighted
-            ? "border border-sky-500/20 bg-sky-500/12 text-sky-300"
-            : "bg-white/[0.06] text-slate-400"
-        }`}
-      >
-        {icon}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300">
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">{title}</p>
+            <p className="mt-1 text-sm leading-6 text-rose-100/80">{detail}</p>
+          </div>
+        </div>
+        <Button asChild variant="secondary" className="shrink-0 gap-2">
+          <Link href="/dashboard">
+            <RefreshCw className="h-4 w-4" />
+            Reintentar
+          </Link>
+        </Button>
       </div>
-      <div>
-        <p className="text-sm font-medium text-white">{title}</p>
-        <p className="mt-0.5 text-xs text-slate-400">{description}</p>
-      </div>
-    </Link>
+    </div>
   );
+}
+
+function hasDocumentIssue(item: Record<string, unknown>) {
+  const status = String(item.EstadoSoporte ?? "").trim().toUpperCase();
+  const observation = String(item.ObservacionRechazo ?? "").trim();
+
+  return Boolean(observation) || (status !== "" && status !== "C");
+}
+
+const auditStateChartConfig: Record<string, { label: string; color: string; order: number }> = {
+  CONCILIADO: { label: "Conforme", color: "#16c784", order: 10 },
+  MATCH: { label: "Conforme", color: "#16c784", order: 10 },
+  CONCILIADO_PARCIAL: { label: "Parcial", color: "#ffb84d", order: 20 },
+  DISCREPANCIA: { label: "Discrepancia", color: "#ffb84d", order: 30 },
+  MANUAL_REVIEW: { label: "Revisión manual", color: "#a78bfa", order: 40 },
+  FAILED: { label: "Fallido", color: "#ff6b7a", order: 50 },
+  ERROR: { label: "Error", color: "#ff6b7a", order: 50 },
+  PENDIENTE: { label: "Pendiente", color: "#facc15", order: 60 },
+  EN_PROCESO: { label: "En proceso", color: "#38bdf8", order: 70 },
+  UNKNOWN: { label: "Sin estado", color: "#94a3b8", order: 90 },
+};
+
+function buildAuditStateChartData(byState: Record<string, number>) {
+  const grouped = new Map<string, { name: string; value: number; color: string; order: number }>();
+
+  Object.entries(byState).forEach(([state, count]) => {
+    if (count <= 0) return;
+
+    const normalized = normalizeAuditState(state);
+    const config = auditStateChartConfig[normalized] ?? {
+      label: formatUnknownAuditStateLabel(normalized),
+      color: "#94a3b8",
+      order: 80,
+    };
+    const existing = grouped.get(config.label);
+
+    if (existing) {
+      existing.value += count;
+      return;
+    }
+
+    grouped.set(config.label, {
+      name: config.label,
+      value: count,
+      color: config.color,
+      order: config.order,
+    });
+  });
+
+  return [...grouped.values()]
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+    .map(({ order: _order, ...slice }) => slice);
+}
+
+function normalizeAuditState(state: string) {
+  return state.trim().toUpperCase() || "UNKNOWN";
+}
+
+function formatUnknownAuditStateLabel(state: string) {
+  return state
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ") || "Sin estado";
 }

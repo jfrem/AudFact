@@ -384,7 +384,7 @@ export function AuditConfigEditor({
           icon={config.activo ? CheckCircle2 : AlertCircle}
         />
         <StatCard
-          label="Documentos con config"
+          label="Documentos"
           value={`${Object.keys(config.documents).length}`}
           tone="violet"
         />

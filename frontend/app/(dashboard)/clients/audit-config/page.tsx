@@ -1,4 +1,6 @@
-import { getAuditConfig, getClients } from "@/lib/api/audfact";
+import { getAuditConfig, getClientDocuments, getClients } from "@/lib/api/audfact";
+import { ApiError, describeError } from "@/lib/api/errors";
+import type { AuditConfig, ClientDocument, ClientRecord } from "@/lib/schemas/domain";
 import { AuditConfigEditor } from "@/components/audit/audit-config-editor";
 import { AuditConfigPageClient } from "@/components/audit/audit-config-page-client";
 
@@ -16,12 +18,56 @@ export default async function AuditConfigPage({
   const clientId =
     typeof params.clientId === "string" ? params.clientId.trim() : "";
 
-  const [rawClients, config] = await Promise.all([
-    getClients().catch(() => []),
-    clientId
-      ? getAuditConfig(clientId).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  let rawClients: ClientRecord[] = [];
+  let clientsError: string | null = null;
+  let config: AuditConfig | null = null;
+  let configLoadState: "idle" | "loaded" | "not-found" | "error" = clientId
+    ? "error"
+    : "idle";
+  let configError: string | null = null;
+
+  try {
+    rawClients = (await getClients()) ?? [];
+  } catch (error) {
+    clientsError = describeError(error);
+  }
+
+  if (clientId) {
+    try {
+      const loadedConfig = await getAuditConfig(clientId);
+      if (!loadedConfig) {
+        throw new Error("El backend no retornó configuración para el cliente.");
+      }
+
+      config = loadedConfig;
+      configLoadState = "loaded";
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        configLoadState = "not-found";
+      } else {
+        configLoadState = "error";
+        configError = describeError(error);
+      }
+    }
+
+    if (config && Object.keys(config.documents).length === 0) {
+      try {
+        const documents = (await getClientDocuments(clientId)) ?? [];
+        if (documents.length === 0) {
+          throw new Error("El cliente no tiene catálogo documental real para mostrar.");
+        }
+
+        config = {
+          ...config,
+          documents: buildDocumentScaffold(documents),
+        };
+      } catch (error) {
+        config = null;
+        configLoadState = "error";
+        configError = describeError(error);
+      }
+    }
+  }
 
   const clients = (rawClients ?? []).map((c) => ({
     NitSec: String(c.NitSec ?? ""),
@@ -32,6 +78,9 @@ export default async function AuditConfigPage({
     <AuditConfigPageClient
       clients={clients}
       clientId={clientId}
+      clientsError={clientsError}
+      configLoadState={configLoadState}
+      configError={configError}
       hasConfig={!!config}
       editor={
         config ? (
@@ -40,4 +89,18 @@ export default async function AuditConfigPage({
       }
     />
   );
+}
+
+function buildDocumentScaffold(documents: ClientDocument[]): AuditConfig["documents"] {
+  return documents.reduce<AuditConfig["documents"]>((acc, document) => {
+    const docName = document.NitMedDocNom.trim();
+    if (!docName) return acc;
+
+    acc[docName] = {
+      docId: Number(document.NitMedDocId),
+      fields: [],
+      visualChecks: [],
+    };
+    return acc;
+  }, {});
 }

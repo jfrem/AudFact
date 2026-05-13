@@ -12,7 +12,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
-| `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted y despliegues. |
+| `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, secrets SQL y despliegues. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
 | `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |

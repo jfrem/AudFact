@@ -6,6 +6,7 @@ export const endpoints = {
   publicConfig: () => "/config/public",
   clients: () => "/clients",
   clientById: (clientId: string | number) => `/clients/${clientId}`,
+  clientDocuments: (clientId: string | number) => `/clients/${clientId}/documents`,
   auditConfig: (clientId: string | number) => `/clients/${clientId}/audit-config`,
   invoices: (query?: Record<string, string | number | null | undefined>) => {
     const params = buildSearchParams(query ?? {});

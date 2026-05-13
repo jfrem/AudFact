@@ -52,6 +52,13 @@ export const AsyncMetricsSchema = z.object({
 
 export const ClientSchema = UnknownRecordSchema;
 export const ClientsSchema = z.array(ClientSchema);
+export const ClientDocumentSchema = z.object({
+  NitSec: ScalarSchema,
+  NitMedDocId: ScalarSchema,
+  NitMedDocCodAlt: z.string().nullable().optional(),
+  NitMedDocNom: z.string(),
+}).passthrough();
+export const ClientDocumentsSchema = z.array(ClientDocumentSchema);
 
 export const AuditConfigFieldSchema = z.object({
   campoNombre: z.string(),
@@ -319,13 +326,21 @@ export const AuditResultRecordSchema = z.object({
   FechaActualizacion: z.string().nullish(),
 }).passthrough();
 
+const PaginationFiltersSchema = z
+  .union([
+    z.record(z.string(), z.union([z.string(), z.number()])),
+    z.array(UnknownRecordSchema),
+  ])
+  .nullish()
+  .transform((filters) => (filters && !Array.isArray(filters) ? filters : null));
+
 export const PaginatedAuditResultsSchema = z.object({
   items: z.array(AuditResultRecordSchema),
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),
   totalPages: z.number(),
-  filters: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+  filters: PaginationFiltersSchema,
 });
 
 export const AuditStatsSchema = z.object({
@@ -342,13 +357,14 @@ export const PaginatedAuditDocumentHistorySchema = z.object({
   page: z.number(),
   pageSize: z.number(),
   totalPages: z.number(),
-  filters: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+  filters: PaginationFiltersSchema,
 });
 
 export type PublicConfig = z.infer<typeof PublicConfigSchema>;
 export type HealthStatus = z.infer<typeof HealthSchema>;
 export type AsyncMetrics = z.infer<typeof AsyncMetricsSchema>;
 export type ClientRecord = z.infer<typeof ClientSchema>;
+export type ClientDocument = z.infer<typeof ClientDocumentSchema>;
 export type InvoiceRecord = z.infer<typeof InvoiceSchema>;
 export type DispensationHeader = z.infer<typeof DispensationHeaderSchema>;
 export type DispensationItem = z.infer<typeof DispensationItemSchema>;

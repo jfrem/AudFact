@@ -1,8 +1,32 @@
 ## [2026-05-13]
 
 ### fix
+- **Bandeja prioritaria con navegación estable**: El botón `Revisar` de `/dashboard` abre el listado de resultados filtrado por factura en vez del detalle inconsistente.
+  - Archivos modificados: `frontend/components/dashboard/priority-audit-table.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: La revisión desde el dashboard usa `/audit/results?page=1&pageSize=20&facNro=...`, reutilizando la UI estable del historial.
+- **Dashboard operativo de triage**: `/dashboard` se reorganiza alrededor de revisión manual, discrepancias, fallas y cola asíncrona, eliminando accesos rápidos redundantes.
+  - Archivos modificados: `frontend/app/(dashboard)/dashboard/page.tsx`, `frontend/components/dashboard/priority-audit-table.tsx`, `frontend/components/dashboard/async-queue-summary.tsx`, `frontend/components/dashboard/dashboard-health-strip.tsx`, `frontend/components/dashboard/dashboard-results-table.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: El dashboard prioriza casos accionables, muestra estado compacto del sistema y expone métricas async reales sin datos mock.
+- **Fechas estables en hidratación Next.js**: El formateo de fechas evita diferencias de `Intl.DateTimeFormat` entre Node y navegador.
+  - Archivos modificados: `frontend/lib/formatters/index.ts`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Previene errores de hidratación en tablas del dashboard por diferencias como `p. m.` vs `p.m.`.
+- **Distribución de estados del dashboard**: El card de `/dashboard` ahora incluye todos los estados reales de `/audit/stats`, incluyendo `MANUAL_REVIEW`.
+  - Archivos modificados: `frontend/app/(dashboard)/dashboard/page.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: El gráfico ya no queda vacío cuando las auditorías están en revisión manual u otro estado válido distinto de conciliado/discrepancia/fallido.
+- **Dashboard sin estados falsos por API caída**: `/dashboard` deja de reemplazar fallas del backend por métricas en cero, estados vacíos o degradación inferida.
+  - Archivos modificados: `frontend/app/(dashboard)/dashboard/page.tsx`, `frontend/lib/schemas/domain.ts`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Si una fuente del dashboard falla, la sección muestra un error explícito con reintento en vez de datos aparentes; las respuestas paginadas reales con `filters: []` ya no se rechazan como error de contrato.
+- **Configuración de auditoría sin datos falsos**: La UI de configuración de cliente deja de convertir fallas del backend en estados vacíos y ya no precarga campos genéricos al inicializar una configuración.
+  - Archivos modificados: `frontend/app/(dashboard)/clients/audit-config/page.tsx`, `frontend/components/audit/audit-config-page-client.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/components/audit/audit-config-editor.tsx`, `frontend/lib/api/audfact.ts`, `frontend/lib/api/endpoints.ts`, `frontend/lib/schemas/domain.ts`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Si la API no responde, el frontend muestra un error explícito; al crear configuraciones solo valida documentos reales y no siembra campos mock.
 - **Guardrail de hosts SQL en deploy**: Se normaliza `DB_HOST`/`DB2_HOST` a host/IP limpio al generar `.env` productivo y se agrega preflight PDO/sqlsrv antes de recrear el stack.
-  - Archivos modificados: `.github/workflows/deploy-production.yml`, `.env.example`, `plans/deployment-github-actions-lan.md`, `plans/deployment-and-ci.md`
+  - Archivos modificados: `.github/workflows/deploy-production.yml`, `.env.example`, `AGENTS.md`, `.agent/skills/CATALOG.md`, `.agent/skills/catalog.json`, `.agent/skills/audfact-production-ops/SKILL.md`, `.agent/skills/audfact-production-ops/references/runbooks.md`, `plans/deployment-github-actions-lan.md`, `plans/deployment-and-ci.md`
   - Hallazgo resuelto: ninguno
   - Impacto: Evita que un despliegue automatizado regenere hosts inválidos como `169.46.6.53SQL2022` y tumbe la conectividad SQL de producción.
 

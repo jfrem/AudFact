@@ -80,6 +80,18 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
    - Causa: `withConsecutive()` fue removido en PHPUnit 10.
    - Prevención: usar `willReturnCallback()` + contador/aserciones por invocación en mocks.
 
+6. **`DB_HOST appears malformed` en `Create production environment file`**
+   - Causa: GitHub Secret `DB_HOST` o `DB2_HOST` contiene instancia, puerto embebido o un host ya corrupto por escaping.
+   - Valores correctos en `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
+   - Prevención: mantener hosts SQL como host/IP limpio y dejar el puerto en `DB_PORT`/`DB2_PORT`.
+   - Acción: corregir secrets y relanzar `Deploy Production - AudFact`; no parchear el `.env` del host como solución permanente.
+
+7. **`/health` unhealthy con `Login timeout expired`**
+   - Causa probable: conectividad SQL rota desde PHP-FPM o secrets SQL mal escritos.
+   - Evidencia esperada: `php` unhealthy, workers reiniciando y logs con `SQLSTATE[HYT00]`.
+   - Diagnóstico: probar `/health`, `docker compose ps`, logs de `php`/workers y preflight PDO/sqlsrv desde la imagen PHP.
+   - Prevención: el workflow actual ejecuta `Preflight SQL connectivity` antes de recrear el stack.
+
 ### Condiciones de ejecución
 
 - Solo se activa en **push a `main`** (no en PRs ni feature branches)
@@ -160,3 +172,23 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 
 La autenticación/autorización de endpoints críticos permanece fuera de este sprint. Debe tratarse como trabajo P0/P1 del siguiente ciclo y no debe confundirse con una remediación ya implementada por este endurecimiento del pipeline.
 La validación completa del certificado SQL Server también queda diferida temporalmente. En este entorno, el despliegue opera con `Encrypt=no` y `TrustServerCertificate=yes` hasta que infraestructura remedie la conectividad TLS del servidor.
+
+## Registro operativo reciente
+
+### 2026-05-13 — Blindaje de hosts SQL en deploy
+
+Produccion fallo porque el workflow genero hosts SQL invalidos en `/home/admon/audfact-prod/.env`:
+
+```text
+DB_HOST=169.46.6.53SQL2022
+DB2_HOST=169.46.6.55SQL2022_REPLICA
+```
+
+La causa fue el formato de los GitHub Secrets y el manejo del heredoc al escribir `.env`. La correccion permanente fue:
+
+```text
+DB_HOST=169.46.6.53
+DB2_HOST=169.46.6.55
+```
+
+El workflow ahora normaliza hosts SQL, rechaza valores malformados y ejecuta preflight PDO/sqlsrv antes de levantar contenedores. La corrida manual `Deploy Production - AudFact` `25812026509` confirmo el flujo completo exitoso: `Create production environment file`, `Pull release images`, `Preflight SQL connectivity`, `Start production stack` y `Health check`.

@@ -131,3 +131,45 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - No dejar `responseIA/` dentro del contexto de build Docker.
 - No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
 - El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.
+
+## Incidente CI/CD 2026-05-13: hosts SQL malformados
+
+### Sintomas observados
+
+- `GET /health` en produccion respondia `status=unhealthy`.
+- `GET /dispensation/T38250701547` respondia `500` despues de aproximadamente 30 segundos.
+- Los contenedores `php` estaban `unhealthy`.
+- Workers `orchestrator`, `extraction` y `aggregator` reiniciaban por `SQLSTATE[HYT00] Login timeout expired`.
+- Frontend, Nginx, Redis y runner self-hosted estaban activos.
+
+### Causa raiz
+
+El workflow regeneraba `/home/admon/audfact-prod/.env` desde GitHub Secrets. Los secrets de produccion contenian hosts SQL con instancia y el heredoc terminaba generando valores invalidos:
+
+```text
+DB_HOST=169.46.6.53SQL2022
+DB2_HOST=169.46.6.55SQL2022_REPLICA
+```
+
+Desde el contenedor PHP, esos hosts no resolvian/conectaban. Las IP limpias si conectaban por TCP y PDO:
+
+```text
+169.46.6.53:1433 OK
+169.46.6.55:1433 OK
+```
+
+### Resolucion aplicada
+
+- Secrets del GitHub Environment `production` actualizados:
+  - `DB_HOST=169.46.6.53`
+  - `DB2_HOST=169.46.6.55`
+- `.github/workflows/deploy-production.yml` ahora:
+  - normaliza `host\instancia` a host base;
+  - rechaza hosts malformados como `169.46.6.53SQL2022`;
+  - escribe `.env` con `printf`;
+  - ejecuta preflight PDO/sqlsrv con la imagen PHP publicada antes de `docker compose up`.
+- Verificacion: workflow `Deploy Production - AudFact` run `25812026509` paso `Create production environment file`, `Preflight SQL connectivity`, `Start production stack` y `Health check`.
+
+### Regla para agentes
+
+Si vuelve a fallar `Create production environment file` con `DB_HOST appears malformed`, no tocar contenedores por SSH primero. Corregir los GitHub Secrets de `production` y relanzar el workflow.

@@ -102,6 +102,11 @@ Checklist antes de disparar deploy:
 
 - El runner esta `active`.
 - GitHub Environment `production` tiene secrets requeridos.
+- Secrets SQL de produccion usan host/IP limpio:
+  - `DB_HOST=169.46.6.53`
+  - `DB2_HOST=169.46.6.55`
+  - `DB_PORT=1433`
+  - `DB2_PORT=1433`
 - GHCR contiene imagenes `audfact-php:SHA` y `audfact-nginx:SHA`.
 - El usuario aprobo deploy.
 
@@ -155,3 +160,23 @@ Health check falla:
 - Revisar logs de `nginx` y `php`.
 - Confirmar que el puerto `8080` esta publicado.
 - Confirmar que Redis y workers estan activos.
+
+`Create production environment file` falla con `DB_HOST appears malformed`:
+
+- Causa: el secret `DB_HOST` o `DB2_HOST` del environment `production` no es host/IP limpio.
+- Valores correctos actuales:
+  - `DB_HOST=169.46.6.53`
+  - `DB2_HOST=169.46.6.55`
+- Corregir secrets y relanzar el workflow. No editar `/home/admon/audfact-prod/.env` como solucion permanente porque el deploy lo regenera.
+
+`/health` falla con `database unreachable` o `Login timeout expired`:
+
+- Comparar `curl -sS http://localhost:8080/health` desde el host productivo.
+- Revisar `docker compose -f docker-compose.prod.yml ps`; si `php` esta `unhealthy` y workers reinician, sospechar SQL.
+- Inspeccionar solo variables no sensibles:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && grep -E '^(DB_HOST|DB_PORT|DB2_HOST|DB2_PORT)=' .env"
+```
+
+- Ejecutar preflight PDO/sqlsrv desde la imagen PHP publicada si hace falta. No imprimir `DB_PASS` ni `DB2_PASS`.

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { X, Building2, Hash, AlertTriangle, Loader2, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { describeError } from "@/lib/api/errors";
+import { getClientDocuments, saveAuditConfig } from "@/lib/api/audfact";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -47,55 +49,19 @@ export function CreateConfigDialog({
     }
     setLoading(true);
     try {
-      // 1. Obtener documentos del cliente para crear defaults
-      const docsRes = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"}/clients/${trimmed}/documents`
-      );
-      if (!docsRes.ok) {
-        throw new Error("No se pudieron cargar los documentos del cliente");
+      const documents = (await getClientDocuments(trimmed)) ?? [];
+      if (documents.length === 0) {
+        throw new Error("El cliente no tiene catálogo documental real para inicializar.");
       }
-      const docsData = await docsRes.json();
-      const documents = docsData.data || [];
 
-      // 2. Crear campos básicos, evitando duplicar por id de documento legado
-      const uniqueDocs = new Map();
-      for (const d of documents) {
-        if (!uniqueDocs.has(d.NitMedDocId)) {
-          uniqueDocs.set(d.NitMedDocId, d);
-        }
-      }
-      
-      const defaultFields = ["NumeroFactura", "NombrePaciente", "DocumentoPaciente", "NombreArticulo"];
-      const fieldsPayload = Array.from(uniqueDocs.values()).flatMap((doc: any) => 
-        defaultFields.map((f, i) => ({
-          docId: parseInt(doc.NitMedDocId, 10),
-          campoNombre: f,
-          tipoCampo: "E",
-          orden: i + 1,
-          description: null,
-          severity: null
-        }))
-      );
+      await saveAuditConfig(trimmed, { systemPrompt: null, fields: [] });
 
-      // 3. Crear la configuración con los defaults
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"}/clients/${trimmed}/audit-config`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ systemPrompt: null, fields: fieldsPayload }),
-        },
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.message ?? `Error al guardar: ${res.status}`);
-      }
       toast.success(`Configuración inicializada para cliente ${trimmed}`);
       onClose();
       router.push(`/clients/audit-config?clientId=${trimmed}`);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al crear configuración");
+      toast.error(describeError(err));
     } finally {
       setLoading(false);
     }
@@ -146,8 +112,8 @@ export function CreateConfigDialog({
           <div className="flex gap-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.05] px-4 py-3">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
             <p className="text-[13px] leading-relaxed text-amber-200/70">
-              Se creará la estructura base de auditoría. Se precargarán campos comunes para 
-              los documentos que el cliente soporta, para que puedas personalizarlos a continuación.
+              Se validará el catálogo documental del cliente y se creará una configuración sin campos
+              precargados. Después podrás agregar campos desde una factura real o activar verificaciones visuales.
             </p>
           </div>
 

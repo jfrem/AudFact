@@ -5,6 +5,7 @@ import {
   AuditConfigSchema,
   AuditJobSchema,
   AuditSingleResponseSchema,
+  ClientDocumentsSchema,
   ClientsSchema,
   DispensationDetailSchema,
   HealthSchema,
@@ -41,6 +42,10 @@ export function getClients() {
 
 export function getClientById(clientId: string | number) {
   return requestJson(endpoints.clientById(clientId), ClientsSchema.element);
+}
+
+export function getClientDocuments(clientId: string | number) {
+  return requestJson(endpoints.clientDocuments(clientId), ClientDocumentsSchema);
 }
 
 export function getInvoices(query: {
