@@ -3,7 +3,6 @@
 import * as React from "react";
 import {
   Search,
-  Loader2,
   X,
   AlertTriangle,
   CheckCircle2,
@@ -17,7 +16,20 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { getDispensationDetail } from "@/lib/api/audfact";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -266,23 +278,12 @@ export function AddFieldFromDispensaDialog({
   const alreadyExistCount = existingFilteredFields.length;
   const blockedCount = fields.filter((f) => f.auditability === "blocked").length;
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity"
-        onClick={onClose}
-        onKeyDown={(e) => e.key === "Escape" && onClose()}
-        role="button"
-        tabIndex={-1}
-        aria-label="Cerrar modal"
-      />
-
-      {/* Dialog */}
-      <div className="relative mx-auto flex h-[94vh] w-full max-w-[1380px] flex-col overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-[#090e17] shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 duration-200">
-        
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="flex h-[94vh] w-[calc(100vw-1.5rem)] max-w-[1380px] flex-col gap-0 overflow-hidden rounded-[1.75rem] border-white/[0.08] bg-[#090e17] p-0 shadow-black/40 sm:w-[calc(100vw-2.5rem)]"
+      >
         {/* Header - Minimal & Elegant */}
         <div className="flex shrink-0 items-center justify-between border-b border-white/[0.05] bg-slate-900/60 px-5 py-3.5 sm:px-6">
           <div className="flex items-center gap-3">
@@ -290,12 +291,12 @@ export function AddFieldFromDispensaDialog({
               <Search className="h-4.5 w-4.5 text-cyan-400" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-wide sm:text-lg">
+              <DialogTitle className="text-base font-bold tracking-wide text-white sm:text-lg">
                 Descubrir campos
-              </h2>
-              <p className="mt-0.5 text-[11px] font-medium text-slate-400 sm:text-xs">
+              </DialogTitle>
+              <DialogDescription className="mt-0.5 text-[11px] font-medium leading-5 text-slate-400 sm:text-xs">
                 Inspecciona una factura real para extraer sus parámetros.
-              </p>
+              </DialogDescription>
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
@@ -307,14 +308,21 @@ export function AddFieldFromDispensaDialog({
                 {clientId}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="cursor-pointer rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
-              aria-label="Cerrar"
-            >
-              <X className="h-4.5 w-4.5" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="h-10 w-10 rounded-full text-slate-500 hover:bg-slate-800 hover:text-white"
+                  aria-label="Cerrar"
+                >
+                  <X className="h-4.5 w-4.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Cerrar</TooltipContent>
+            </Tooltip>
           </div>
         </div>
 
@@ -336,32 +344,35 @@ export function AddFieldFromDispensaDialog({
                 className="h-11 bg-slate-950/50 pl-11 pr-4 font-mono sm:text-[15px]"
               />
             </div>
-            <button
+            <Button
               type="button"
               onClick={handleSearch}
               disabled={loading || !invoiceNumber.trim()}
               className={cn(
-                "inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-5 font-bold transition-all duration-300 sm:px-7",
+                "h-11 rounded-lg px-5 font-bold transition-transform duration-200 active:scale-[0.98] sm:px-7",
                 loading || !invoiceNumber.trim()
-                  ? "cursor-not-allowed bg-slate-800/50 text-slate-500"
-                  : "bg-cyan-500 text-slate-950 hover:bg-cyan-400 active:scale-[0.98]",
+                  ? "bg-slate-800/50 text-slate-500"
+                  : "bg-cyan-500 text-slate-950 hover:bg-cyan-400",
               )}
             >
               {loading ? (
-                <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                <Spinner className="h-4.5 w-4.5" />
               ) : (
                 <Search className="h-4.5 w-4.5" />
               )}
               Buscar Factura
-            </button>
+            </Button>
           </div>
           
           {/* Error state */}
           {error && (
-            <div className="mx-auto mt-2.5 flex max-w-4xl items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 animate-in fade-in slide-in-from-top-2">
+            <Alert
+              variant="destructive"
+              className="mx-auto mt-2.5 max-w-4xl animate-in fade-in slide-in-from-top-2"
+            >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
-              <p className="text-sm leading-relaxed text-rose-300">{error}</p>
-            </div>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
         </div>
 
@@ -392,32 +403,29 @@ export function AddFieldFromDispensaDialog({
                 <span className="mb-2 shrink-0 text-[10px] font-bold uppercase tracking-widest text-slate-500 sm:text-[11px]">
                   Destino:
                 </span>
-                <div className="flex gap-2 h-full overflow-x-auto scrollbar-hide">
-                  {documents.map((doc) => {
-                    const isActive = doc.docName === selectedDocName;
-                    return (
-                      <button
+                <Tabs
+                  value={selectedDocName}
+                  onValueChange={setSelectedDocName}
+                  className="min-w-0 flex-1"
+                >
+                  <TabsList
+                    aria-label="Documento destino"
+                    className="h-12 min-h-0 max-w-full justify-start gap-1 overflow-x-auto rounded-none border-0 bg-transparent p-0"
+                  >
+                    {documents.map((doc) => (
+                      <TabsTrigger
                         key={doc.docName}
-                        type="button"
-                        onClick={() => setSelectedDocName(doc.docName)}
-                        className={cn(
-                          "relative inline-flex h-full cursor-pointer items-center gap-2 px-4 pb-2.5 pt-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors sm:px-5 sm:text-xs",
-                          isActive
-                            ? "text-cyan-400"
-                            : "text-slate-500 hover:text-slate-300",
-                        )}
+                        value={doc.docName}
+                        className="group h-full rounded-none border-0 bg-transparent px-4 pb-2.5 pt-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 data-[state=active]:bg-transparent data-[state=active]:text-cyan-400 data-[state=active]:after:absolute data-[state=active]:after:bottom-0 data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:h-0.5 data-[state=active]:after:rounded-t-full data-[state=active]:after:bg-cyan-400 sm:px-5 sm:text-xs"
                       >
-                        <span className={cn("transition-colors", isActive ? "text-cyan-400" : "text-slate-600")}>
+                        <span className="text-slate-600 transition-colors group-data-[state=active]:text-cyan-400">
                           {getDocIcon(doc.docName)}
                         </span>
                         {doc.docName}
-                        {isActive && (
-                          <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-cyan-400" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
               </div>
             </div>
 
@@ -442,21 +450,25 @@ export function AddFieldFromDispensaDialog({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => toggleAll(true)}
-                      className="cursor-pointer rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-[11px] font-semibold text-cyan-400 transition hover:bg-white/[0.04] hover:text-cyan-300 sm:px-3 sm:text-xs"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5 text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 sm:px-3 sm:text-xs"
                     >
                       Seleccionar nuevos
-                    </button>
+                    </Button>
                     <span className="text-slate-700">·</span>
-                    <button
+                    <Button
                       type="button"
                       onClick={() => toggleAll(false)}
-                      className="cursor-pointer rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-400 transition hover:bg-white/5 hover:text-slate-300 sm:px-3 sm:text-xs"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2.5 text-[11px] font-semibold text-slate-400 hover:text-slate-300 sm:px-3 sm:text-xs"
                     >
                       Limpiar
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -563,33 +575,34 @@ export function AddFieldFromDispensaDialog({
             {/* Footer */}
             {fields.length > 0 && (
               <div className="flex shrink-0 items-center justify-between border-t border-white/[0.05] bg-slate-950/88 px-5 py-3.5 sm:px-6">
-                <button
+                <Button
                   type="button"
                   onClick={onClose}
-                  className="cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-400 transition hover:bg-white/[0.04] hover:text-white"
+                  variant="ghost"
+                  className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-400 hover:text-white"
                 >
                   Cancelar
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   onClick={handleConfirm}
                   disabled={selectedCount === 0}
                   className={cn(
-                    "inline-flex cursor-pointer items-center gap-2.5 rounded-xl px-6 py-2.5 text-sm font-bold transition-all duration-300 shadow-xl",
+                    "rounded-xl px-6 py-2.5 text-sm font-bold transition-transform duration-200 shadow-xl active:scale-[0.98]",
                     selectedCount > 0
-                      ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400 active:scale-[0.98]"
-                      : "cursor-not-allowed bg-slate-800/40 text-slate-600 shadow-none border border-white/[0.04]",
+                      ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
+                      : "border border-white/[0.04] bg-slate-800/40 text-slate-600 shadow-none",
                   )}
                 >
                     <Plus className="h-4.5 w-4.5" />
                   Agregar {selectedCount} campo(s) a {selectedDocName}
-                </button>
+                </Button>
               </div>
             )}
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -605,12 +618,12 @@ function FieldOption({
   onToggle: () => void;
 }) {
   const isBlocked = field.auditability === "blocked";
+  const checkboxId = React.useId();
+  const isDisabled = isExisting || isBlocked;
+  const isChecked = (field.selected || isExisting) && !isBlocked;
 
   return (
-    <button
-      type="button"
-      onClick={!isExisting && !isBlocked ? onToggle : undefined}
-      disabled={isExisting}
+    <div
       className={cn(
         "group flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-200",
         isExisting
@@ -618,35 +631,39 @@ function FieldOption({
           : isBlocked
             ? "cursor-default border-amber-500/20 bg-amber-500/[0.04]"
           : field.selected
-            ? "cursor-pointer border-cyan-500/30 bg-cyan-500/[0.08] hover:border-cyan-500/50"
-            : "cursor-pointer border-white/[0.04] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.04]",
+            ? "border-cyan-500/30 bg-cyan-500/[0.08] hover:border-cyan-500/50"
+            : "border-white/[0.04] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.04]",
       )}
     >
-      {/* Checkbox visual */}
-      <div
+      <Checkbox
+        id={checkboxId}
+        checked={isChecked}
+        disabled={isDisabled}
+        aria-label={`${field.name}${isBlocked ? " no auditable" : isExisting ? " ya configurado" : ""}`}
+        onCheckedChange={() => {
+          if (!isDisabled) onToggle();
+        }}
         className={cn(
-          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-all duration-200",
+          "mt-0.5 border-cyan-500/40 data-[state=checked]:border-cyan-500 data-[state=checked]:bg-cyan-500 data-[state=checked]:text-slate-950",
           isExisting
-            ? "border-slate-700 bg-slate-800"
+            ? "border-slate-700 bg-slate-800 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-800 data-[state=checked]:text-slate-500"
             : isBlocked
-              ? "border-amber-500/30 bg-amber-500/10"
-            : field.selected
-              ? "border-cyan-500 bg-cyan-500 scale-110"
-              : "border-slate-600 bg-slate-900/50 group-hover:border-slate-500",
+              ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+              : "group-hover:border-cyan-400/70",
         )}
-      >
-        {(field.selected || isExisting) && !isBlocked && (
-          <svg className="h-3 w-3 text-[#090e17]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-        {isBlocked && (
-          <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />
-        )}
-      </div>
+      />
+      {isBlocked ? (
+        <AlertTriangle className="-ml-1 mt-1 h-2.5 w-2.5 shrink-0 text-amber-400" aria-hidden="true" />
+      ) : null}
 
       {/* Field info */}
-      <div className="min-w-0 flex-1">
+      <Label
+        htmlFor={checkboxId}
+        className={cn(
+          "block min-w-0 flex-1 text-left normal-case tracking-normal",
+          isDisabled ? "cursor-default" : "cursor-pointer",
+        )}
+      >
         <div className="flex flex-wrap items-center gap-1.5 leading-none">
           <span
             className={cn(
@@ -684,8 +701,8 @@ function FieldOption({
             {field.reason}
           </p>
         )}
-      </div>
-    </button>
+      </Label>
+    </div>
   );
 }
 

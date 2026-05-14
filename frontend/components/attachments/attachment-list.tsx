@@ -4,6 +4,7 @@ import { FileText, Link2, Paperclip } from "lucide-react";
 
 import type { AttachmentRecord } from "@/lib/schemas/domain";
 import { cn } from "@/lib/utils";
+import { Item, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item";
 
 export function AttachmentList({
   items,
@@ -49,46 +50,47 @@ export function AttachmentList({
           const active = selectedId === id;
 
           return (
-            <button
+            <Item
+              asChild
               key={id}
-              type="button"
-              onClick={() => onSelect(attachment)}
-              className={cn(
-                "flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors",
-                orientation === "horizontal" && "w-[220px] shrink-0",
-                active
-                  ? "border-sky-500/30 bg-sky-500/[0.08]"
-                  : "border-transparent bg-transparent hover:border-white/10 hover:bg-white/[0.04]",
-              )}
+              variant={active ? "default" : "ghost"}
+              size="sm"
+              align="center"
+              className={cn("w-full", orientation === "horizontal" && "w-[220px] shrink-0")}
             >
-              <div
-                className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                  active
-                    ? "bg-sky-500/12 text-sky-300"
-                    : "bg-white/[0.05] text-slate-400",
-                )}
+              <button
+                type="button"
+                onClick={() => onSelect(attachment)}
+                aria-pressed={active}
               >
-                {attachment.TipoAlmacenamiento === "URL" ? (
-                  <Link2 className="h-3.5 w-3.5" />
-                ) : attachment.TipoAlmacenamiento === "BLOB" ? (
-                  <Paperclip className="h-3.5 w-3.5" />
-                ) : (
-                  <FileText className="h-3.5 w-3.5" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium leading-tight text-white">
-                  {attachment.nombre_documento ?? "Adjunto sin nombre"}
-                </p>
-                <p className="mt-0.5 truncate text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                  {attachment.nombre_alternativo ?? "Sin alias"} · {attachment.TipoAlmacenamiento ?? "N/D"}
-                </p>
-              </div>
-              {active ? (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
-              ) : null}
-            </button>
+                <ItemMedia
+                  className={
+                    active
+                      ? "h-8 w-8 border-sky-500/20 bg-sky-500/12 text-sky-300"
+                      : "h-8 w-8"
+                  }
+                >
+                  {attachment.TipoAlmacenamiento === "URL" ? (
+                    <Link2 className="h-3.5 w-3.5" />
+                  ) : attachment.TipoAlmacenamiento === "BLOB" ? (
+                    <Paperclip className="h-3.5 w-3.5" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5" />
+                  )}
+                </ItemMedia>
+                <ItemContent>
+                  <ItemTitle className="text-[13px] leading-tight">
+                    {attachment.nombre_documento ?? "Adjunto sin nombre"}
+                  </ItemTitle>
+                  <p className="mt-0.5 truncate text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                    {attachment.nombre_alternativo ?? "Sin alias"} · {attachment.TipoAlmacenamiento ?? "N/D"}
+                  </p>
+                </ItemContent>
+                {active ? (
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
+                ) : null}
+              </button>
+            </Item>
           );
         })}
       </div>

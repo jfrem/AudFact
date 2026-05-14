@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 const schema = z.object({
@@ -37,21 +38,23 @@ export default function DispensationSearchPage() {
             router.push(`/dispensation/${encodeURIComponent(values.disDetNro)}`);
           })}
         >
-          <div className="space-y-2">
-          <label htmlFor="disDetNro" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
-            DisDetNro
-          </label>
+          <Field>
+            <FieldLabel htmlFor="disDetNro">
+              DisDetNro
+            </FieldLabel>
             <Input
               id="disDetNro"
               placeholder="Ej. X24260300080"
+              aria-invalid={!!form.formState.errors.disDetNro}
+              aria-describedby={form.formState.errors.disDetNro ? "disDetNro-error" : undefined}
               {...form.register("disDetNro")}
             />
             {form.formState.errors.disDetNro ? (
-              <p className="text-sm text-rose-300">
+              <FieldDescription id="disDetNro-error" className="text-rose-300" role="alert">
                 {form.formState.errors.disDetNro.message}
-              </p>
+              </FieldDescription>
             ) : null}
-          </div>
+          </Field>
           <Button type="submit" className="h-11 self-end">
             <ScanSearch className="h-4 w-4" />
             Ver detalle

@@ -1,8 +1,10 @@
 "use client";
 
+import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import type { ClientRecord } from "@/lib/schemas/domain";
@@ -23,18 +25,22 @@ export function InvoicesFilterForm({
   initialLimit = 20,
 }: InvoicesFilterFormProps) {
   const router = useRouter();
+  const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
+
+  React.useEffect(() => {
+    setFacNitSec(initialFacNitSec);
+  }, [initialFacNitSec]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const params = new URLSearchParams();
 
-    const facNitSec = formData.get("facNitSec");
     const dateFrom = formData.get("dateFrom");
     const dateTo = formData.get("dateTo");
     const limit = formData.get("limit");
 
-    if (facNitSec) params.set("facNitSec", String(facNitSec));
+    if (facNitSec.trim()) params.set("facNitSec", facNitSec.trim());
     if (dateFrom) params.set("dateFrom", String(dateFrom));
     if (dateTo) params.set("dateTo", String(dateTo));
     if (limit && limit !== "20") params.set("limit", String(limit));
@@ -44,61 +50,57 @@ export function InvoicesFilterForm({
 
   return (
     <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" onSubmit={handleSubmit}>
-      <div className="space-y-1.5">
-        <label htmlFor="invoices-client-selector" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="invoices-client-selector">
           Cliente
-        </label>
+        </FieldLabel>
         <ClientSelectorCombo
           id="invoices-client-selector"
           clients={allClients}
-          value={initialFacNitSec}
-          onValueChange={(value) => {
-            const input = document.querySelector(
-              'input[name="facNitSec"]'
-            ) as HTMLInputElement;
-            if (input) input.value = value;
-          }}
+          value={facNitSec}
+          onValueChange={setFacNitSec}
           placeholder="Selecciona un cliente"
         />
         <input
           type="hidden"
           name="facNitSec"
-          defaultValue={initialFacNitSec}
+          value={facNitSec}
+          readOnly
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1.5">
-        <label htmlFor="dateFrom-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="dateFrom-input">
           Desde
-        </label>
+        </FieldLabel>
         <DatePickerInput
           id="dateFrom-input"
           name="dateFrom"
           defaultValue={initialDateFrom}
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1.5">
-        <label htmlFor="dateTo-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="dateTo-input">
           Hasta
-        </label>
+        </FieldLabel>
         <DatePickerInput
           id="dateTo-input"
           name="dateTo"
           defaultValue={initialDateTo}
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1.5">
-        <label htmlFor="limit-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="limit-input">
           Límite
-        </label>
+        </FieldLabel>
         <Input
           id="limit-input"
           name="limit"
           defaultValue={String(initialLimit)}
         />
-      </div>
+      </Field>
 
       <div className="flex items-end">
         <Button type="submit" className="w-full">Buscar</Button>

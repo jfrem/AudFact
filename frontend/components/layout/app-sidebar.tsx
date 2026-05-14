@@ -6,8 +6,16 @@ import { usePathname } from "next/navigation";
 import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import { navigationSections, productLabel } from "@/lib/constants/navigation";
-import { useModalA11y } from "@/lib/hooks/use-modal-a11y";
 import { cn } from "@/lib/utils";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 function SidebarContent({ isCollapsed = false }: { isCollapsed?: boolean }) {
   const pathname = usePathname();
@@ -55,11 +63,9 @@ function SidebarContent({ isCollapsed = false }: { isCollapsed?: boolean }) {
                 const Icon = item.icon;
                 const active = item.href === activeHref;
 
-                return (
+                const content = (
                   <Link
-                    key={item.href}
                     href={item.href}
-                    title={isCollapsed ? item.label : undefined}
                     className={cn(
                       "group relative flex min-h-11 items-center rounded-lg border transition-colors",
                       isCollapsed ? "justify-center px-0 py-2.5" : "justify-between px-3 py-2",
@@ -68,7 +74,6 @@ function SidebarContent({ isCollapsed = false }: { isCollapsed?: boolean }) {
                         : "border-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.03] hover:text-slate-100",
                     )}
                   >
-                    {/* Side-stripe eliminada — Impeccable: border-left accent prohibido */}
                     <span className={cn("flex items-center gap-3", isCollapsed && "justify-center")}>
                       <Icon className={cn("h-5 w-5 shrink-0", active ? "text-sky-300" : "text-slate-500 group-hover:text-slate-200")} />
                       {!isCollapsed && (
@@ -89,6 +94,15 @@ function SidebarContent({ isCollapsed = false }: { isCollapsed?: boolean }) {
                       </span>
                     )}
                   </Link>
+                );
+
+                return isCollapsed ? (
+                  <Tooltip key={item.href}>
+                    <TooltipTrigger asChild>{content}</TooltipTrigger>
+                    <TooltipContent side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <React.Fragment key={item.href}>{content}</React.Fragment>
                 );
               })}
             </div>
@@ -111,15 +125,21 @@ export function AppSidebar() {
       )}
     >
       <div className={cn("mb-3 flex items-center", isCollapsed ? "justify-center" : "justify-end px-1")}>
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
-          aria-label={isCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-          title={isCollapsed ? "Expandir" : "Colapsar"}
-        >
-          {isCollapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
+              aria-label={isCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+            >
+              {isCollapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {isCollapsed ? "Expandir" : "Colapsar"}
+          </TooltipContent>
+        </Tooltip>
       </div>
       <SidebarContent isCollapsed={isCollapsed} />
     </aside>
@@ -130,7 +150,6 @@ export function AppSidebar() {
 export function MobileSidebarToggle() {
   const [open, setOpen] = React.useState(false);
   const pathname = usePathname();
-  const drawerRef = useModalA11y(open);
 
   // Cerrar el drawer al navegar
   React.useEffect(() => {
@@ -138,46 +157,48 @@ export function MobileSidebarToggle() {
   }, [pathname]);
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white lg:hidden"
-        aria-label="Abrir menú"
-      >
-        <Menu className="h-5 w-5" />
-      </button>
-
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 z-40 cursor-pointer bg-black/60 backdrop-blur-sm transition-opacity duration-300 lg:hidden ${
-          open
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0"
-        }`}
-        onClick={() => setOpen(false)}
-        aria-hidden="true"
-      />
-
-      {/* Drawer */}
-      <aside
-        ref={drawerRef}
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col rounded-r-xl border-r border-white/10 bg-slate-900 px-4 py-4 transition-transform duration-300 ease-out lg:hidden ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="mb-3 flex justify-end">
+    <Sheet open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={() => setOpen(false)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
-            aria-label="Cerrar menú"
+            onClick={() => setOpen(true)}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white lg:hidden"
+            aria-label="Abrir menú"
           >
-            <X className="h-5 w-5" />
+          <Menu className="h-5 w-5" />
           </button>
+        </TooltipTrigger>
+        <TooltipContent>Abrir menú</TooltipContent>
+      </Tooltip>
+
+      <SheetContent
+        side="left"
+        showCloseButton={false}
+        className="flex w-72 max-w-none flex-col rounded-r-xl bg-slate-900 px-4 py-4 sm:max-w-none lg:hidden"
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>Menú principal</SheetTitle>
+          <SheetDescription>Navegación principal de AudFact.</SheetDescription>
+        </SheetHeader>
+        <div className="mb-3 flex justify-end">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <SheetClose asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
+                  aria-label="Cerrar menú"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </SheetClose>
+            </TooltipTrigger>
+            <TooltipContent>Cerrar menú</TooltipContent>
+          </Tooltip>
         </div>
         <SidebarContent />
-      </aside>
-    </>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
+import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import type { ClientRecord } from "@/lib/schemas/domain";
@@ -25,6 +27,11 @@ export function AuditResultsFilterForm({
   initialPageSize = 20,
 }: AuditResultsFilterFormProps) {
   const router = useRouter();
+  const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
+
+  React.useEffect(() => {
+    setFacNitSec(initialFacNitSec);
+  }, [initialFacNitSec]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -34,12 +41,11 @@ export function AuditResultsFilterForm({
     params.set("page", "1");
     params.set("pageSize", String(initialPageSize));
 
-    const facNitSec = formData.get("facNitSec");
     const facNro = formData.get("facNro");
     const dateFrom = formData.get("dateFrom");
     const dateTo = formData.get("dateTo");
 
-    if (facNitSec) params.set("facNitSec", String(facNitSec));
+    if (facNitSec.trim()) params.set("facNitSec", facNitSec.trim());
     if (facNro) params.set("facNro", String(facNro));
     if (dateFrom) params.set("dateFrom", String(dateFrom));
     if (dateTo) params.set("dateTo", String(dateTo));
@@ -52,62 +58,60 @@ export function AuditResultsFilterForm({
       className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(8rem,0.8fr)]"
       onSubmit={handleSubmit}
     >
-      <div className="min-w-0 space-y-1.5">
-        <label className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="audit-results-client-selector">
           Cliente
-        </label>
+        </FieldLabel>
         <ClientSelectorCombo
+          id="audit-results-client-selector"
           clients={allClients}
-          value={initialFacNitSec}
-          onValueChange={(value) => {
-            const input = document.querySelector(
-              'input[name="facNitSec"]'
-            ) as HTMLInputElement;
-            if (input) input.value = value;
-          }}
+          value={facNitSec}
+          onValueChange={setFacNitSec}
           placeholder="Selecciona un cliente"
         />
         <input
           type="hidden"
           name="facNitSec"
-          defaultValue={initialFacNitSec}
+          value={facNitSec}
+          readOnly
         />
-      </div>
+      </Field>
 
-      <label className="min-w-0 space-y-1.5">
-        <span className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="audit-results-fac-nro">
           Factura
-        </span>
+        </FieldLabel>
         <Input
+          id="audit-results-fac-nro"
           name="facNro"
           defaultValue={initialFacNro}
           className="min-w-0"
         />
-      </label>
+      </Field>
 
-      <div className="min-w-0 space-y-1.5">
-        <label htmlFor="audit-results-date-from" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="audit-results-date-from">
           Desde
-        </label>
+        </FieldLabel>
         <DatePickerInput
           id="audit-results-date-from"
           name="dateFrom"
           defaultValue={initialDateFrom}
           className="min-w-0"
         />
-      </div>
+      </Field>
 
-      <div className="min-w-0 space-y-1.5">
-        <label htmlFor="audit-results-date-to" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="audit-results-date-to">
           Hasta
-        </label>
+        </FieldLabel>
         <DatePickerInput
           id="audit-results-date-to"
           name="dateTo"
           defaultValue={initialDateTo}
           className="min-w-0"
         />
-      </div>
+      </Field>
 
       <div className="flex min-w-0 items-end">
         <Button type="submit" className="w-full">Buscar</Button>

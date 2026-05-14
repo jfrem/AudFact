@@ -8,13 +8,15 @@ import {
   Cpu,
   Server,
   RefreshCw,
-  Loader2,
   AlertTriangle,
 } from "lucide-react";
 
+import { formatDateTime } from "@/lib/formatters";
 import { asyncMetricsQuery, healthQuery } from "@/lib/query/system";
 import { SectionCard } from "@/components/shared/section-card";
 import { PageHeader } from "@/components/layout/page-header";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 
 function deriveServiceStatus(status?: string): "ok" | "warn" | "fail" | "unknown" {
   if (status === "ok") return "ok";
@@ -41,7 +43,7 @@ export default function ObservabilityPage() {
         {header}
         <SectionCard title="Cargando...">
           <div className="flex items-center gap-3 p-4 text-sm text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Spinner />
             Consultando estado del sistema.
           </div>
         </SectionCard>
@@ -54,10 +56,12 @@ export default function ObservabilityPage() {
       <div className="space-y-6">
         {header}
         <SectionCard title="Sin conexión">
-          <div className="flex items-center gap-3 rounded-lg border border-rose-500/20 bg-rose-500/6 p-4 text-sm text-rose-200">
-            <AlertTriangle className="h-4 w-4" />
-            No se pudo conectar al backend. Verifica que el servicio esté activo.
-          </div>
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertDescription>
+              No se pudo conectar al backend. Verifica que el servicio esté activo.
+            </AlertDescription>
+          </Alert>
         </SectionCard>
       </div>
     );
@@ -66,7 +70,7 @@ export default function ObservabilityPage() {
   const db = health.services?.database;
   const disk = health.services?.disk;
   const memory = health.services?.memory;
-  const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("es-CO") : "—";
+  const lastUpdate = dataUpdatedAt ? formatDateTime(dataUpdatedAt) : "—";
 
   return (
     <div className="space-y-6">
@@ -130,7 +134,7 @@ export default function ObservabilityPage() {
         <div className="grid gap-3 md:grid-cols-3">
           <MetricBlock label="Entorno" value={health.environment ?? "—"} />
           <MetricBlock label="PHP" value={health.php_version ?? "—"} />
-          <MetricBlock label="Timestamp" value={health.timestamp ? new Date(health.timestamp * 1000).toLocaleString("es-CO") : "—"} />
+          <MetricBlock label="Timestamp" value={health.timestamp ? formatDateTime(health.timestamp * 1000) : "—"} />
         </div>
       </SectionCard>
 

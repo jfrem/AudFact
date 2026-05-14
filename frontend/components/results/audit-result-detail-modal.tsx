@@ -6,8 +6,7 @@ import {
   CheckCircle2,
   Eye,
   FileWarning,
-  Files,
-  LoaderCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 import type {
@@ -35,6 +34,8 @@ import { AttachmentViewerPanel } from "@/components/attachments/attachment-viewe
 import { formatDurationMs } from "@/lib/formatters";
 import { ResultItemsTable } from "@/components/audit/result-items-table";
 import { AuditTimingsPanel } from "@/components/audit/audit-timings-panel";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -182,6 +183,13 @@ export function AuditResultDetailModal({
                 invoiceId={facNro}
                 attachments={attachments}
                 isLoading={attachmentsQ.isLoading}
+                error={
+                  attachmentsQ.isError
+                    ? attachmentsQ.error instanceof Error
+                      ? attachmentsQ.error.message
+                      : "No se pudieron cargar los adjuntos."
+                    : null
+                }
                 selected={selectedAttachment}
                 onSelect={setSelectedAttachment}
               />
@@ -294,21 +302,32 @@ function AttachmentsTab({
   invoiceId,
   attachments,
   isLoading,
+  error,
   selected,
   onSelect,
 }: {
   invoiceId: string;
   attachments: AttachmentRecord[];
   isLoading: boolean;
+  error: string | null;
   selected?: AttachmentRecord;
   onSelect: (attachment: AttachmentRecord) => void;
 }) {
   if (isLoading) {
     return (
       <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
-        <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+        <Spinner className="mr-2" />
         Cargando adjuntos...
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
     );
   }
 

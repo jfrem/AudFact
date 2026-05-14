@@ -22,26 +22,8 @@ class AuditConfigModel extends Model
     // -------------------------------------------------------------------------
 
     /**
-     * Retorna la configuración completa de auditoría para un cliente,
-     * agrupada por tipo de documento.
-     *
-     * Respuesta ejemplo:
-     * {
-     *   "nitSec": "2426",
-     *   "activo": true,
-     *   "systemPrompt": null,
-     *   "documents": {
-     *     "DISPENSA": {
-     *       "docId": 1,
-     *       "fields": ["NumeroFactura", ...],
-     *       "visualChecks": [
-     *         {"check": "FirmaActaEntrega", "description": "Firma...", "severity": "CRITICO"}
-     *       ]
-     *     }
-     *   }
-     * }
-     *
-     * Retorna null si el cliente no tiene configuración guardada.
+     * @param string $nitSec
+     * @return array|null
      */
     public function getConfig(string $nitSec): ?array
     {
@@ -50,15 +32,15 @@ class AuditConfigModel extends Model
             return null;
         }
 
-        $sql = "
-            SELECT
+        $sql = "SELECT
                 nd.NitMedDocId          AS docId,
                 nd.NitMedDocNom         AS docNombre,
                 ac.CampoNombre,
                 ac.TipoCampo,
                 ac.Orden,
                 ac.DescripcionOverride,
-                ac.SeveridadOverride
+                ac.SeveridadOverride,
+                TipoDato
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN NitDocumentos nd WITH (NOLOCK)
                 ON nd.NitSec       = ac.FacNitSec
@@ -66,8 +48,7 @@ class AuditConfigModel extends Model
             WHERE ac.FacNitSec = :nitSec
               AND ac.Activo    = 1
               AND nd.NitMedDocOpc = 'N'
-            ORDER BY nd.NitMedDocId ASC, ac.TipoCampo ASC, ac.Orden ASC
-        ";
+            ORDER BY nd.NitMedDocId ASC, ac.TipoCampo ASC, ac.Orden ASC";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);

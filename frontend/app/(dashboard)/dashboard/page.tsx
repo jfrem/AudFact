@@ -29,7 +29,9 @@ import {
   getPriorityAuditItems,
   PriorityAuditTable,
 } from "@/components/dashboard/priority-audit-table";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Item, ItemContent, ItemMedia, ItemTitle } from "@/components/ui/item";
 
 export default async function DashboardPage() {
   const [healthState, asyncMetricsState, auditResultsState, documentsHistoryState, auditStatsState] = await Promise.all([
@@ -202,38 +204,61 @@ export default async function DashboardPage() {
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {documentItemsWithIssues.map((item, index) => (
-              <div
-                key={`${String(item.AdjuntoID ?? "adj")}-${index}`}
-                className="surface-subtle rounded-lg p-4 transition hover:border-white/12"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-white">
-                    {String(item.NombreDocumento ?? "Documento")}
-                  </p>
-                  <span
-                    className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ring-inset ${
-                      String(item.EstadoSoporte ?? "").toUpperCase() === "R"
-                        ? "bg-rose-500/14 text-rose-300 ring-rose-500/25"
-                        : "bg-emerald-500/14 text-emerald-300 ring-emerald-500/25"
-                    }`}
+            {documentItemsWithIssues.map((item, index) => {
+              const supportStatus = String(item.EstadoSoporte ?? "").toUpperCase();
+              const isRejected = supportStatus === "R";
+              const statusLabel =
+                supportStatus === "R"
+                  ? "Rechazado"
+                  : supportStatus === "C"
+                    ? "Conforme"
+                    : String(item.EstadoSoporte ?? "—");
+
+              return (
+                <Item
+                  key={`${String(item.AdjuntoID ?? "adj")}-${index}`}
+                  variant="subtle"
+                  size="lg"
+                >
+                  <ItemMedia
+                    className={
+                      isRejected
+                        ? "border-rose-500/20 bg-rose-500/10 text-rose-300"
+                        : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                    }
                   >
-                    {String(item.EstadoSoporte ?? "").toUpperCase() === "R" ? "Rechazado" : String(item.EstadoSoporte ?? "").toUpperCase() === "C" ? "Conforme" : String(item.EstadoSoporte ?? "—")}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-slate-400">
-                  Factura {String(item.NroFactura ?? "N/D")}
-                </p>
-                <p className="mt-1 line-clamp-2 text-sm text-slate-400">
-                  {String(
-                    item.ObservacionRechazo ?? "Sin observación.",
-                  )}
-                </p>
-                <p className="mt-2 text-[11px] text-slate-500">
-                  {formatDateTime(String(item.FechaAuditoria ?? ""))}
-                </p>
-              </div>
-            ))}
+                    <AlertTriangle className="h-4 w-4" />
+                  </ItemMedia>
+                  <ItemContent>
+                    <div className="flex items-start justify-between gap-3">
+                      <ItemTitle title={String(item.NombreDocumento ?? "Documento")}>
+                        {String(item.NombreDocumento ?? "Documento")}
+                      </ItemTitle>
+                      <span
+                        className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ring-1 ring-inset ${
+                          isRejected
+                            ? "bg-rose-500/14 text-rose-300 ring-rose-500/25"
+                            : "bg-emerald-500/14 text-emerald-300 ring-emerald-500/25"
+                        }`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Factura {String(item.NroFactura ?? "N/D")}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-400">
+                      {String(
+                        item.ObservacionRechazo ?? "Sin observación.",
+                      )}
+                    </p>
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      {formatDateTime(String(item.FechaAuditoria ?? ""))}
+                    </p>
+                  </ItemContent>
+                </Item>
+              );
+            })}
           </div>
         )}
       </SectionCard>
@@ -269,18 +294,17 @@ function DashboardDataError({
   detail: string;
 }) {
   return (
-    <div
-      className="rounded-lg border border-rose-500/20 bg-rose-500/[0.04] px-4 py-4"
-      role="alert"
-    >
+    <Alert variant="destructive" className="block px-4 py-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10 text-rose-300">
             <AlertTriangle className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">{title}</p>
-            <p className="mt-1 text-sm leading-6 text-rose-100/80">{detail}</p>
+            <AlertTitle className="text-sm">{title}</AlertTitle>
+            <AlertDescription className="col-auto mt-1 text-sm leading-6 text-rose-100/80">
+              {detail}
+            </AlertDescription>
           </div>
         </div>
         <Button asChild variant="secondary" className="shrink-0 gap-2">
@@ -290,7 +314,7 @@ function DashboardDataError({
           </Link>
         </Button>
       </div>
-    </div>
+    </Alert>
   );
 }
 

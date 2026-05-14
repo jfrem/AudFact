@@ -4,13 +4,15 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ExternalLink, Loader2, XCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle2, ExternalLink, XCircle, AlertTriangle } from "lucide-react";
 
 import { auditJobQuery } from "@/lib/query/audit";
 import { formatNumber } from "@/lib/formatters";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { SectionCard } from "@/components/shared/section-card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function JobDetailClient({ jobId }: { jobId: string }) {
   const { data, isLoading, isError, error } = useQuery(auditJobQuery(jobId));
@@ -19,7 +21,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
     return (
       <SectionCard title="Cargando job...">
         <div className="surface-subtle flex items-center gap-3 rounded-lg p-5 text-sm text-slate-300">
-          <Loader2 className="h-4 w-4 animate-spin text-sky-400" />
+          <Spinner className="text-sky-400" />
           Consultando estado del job.
         </div>
       </SectionCard>
@@ -29,9 +31,12 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
   if (isError) {
     return (
       <SectionCard title="Error">
-        <div className="rounded-lg border border-rose-500/20 bg-rose-500/6 p-5 text-sm text-rose-200">
-          {error instanceof Error ? error.message : "No se pudo consultar el job."}
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>
+            {error instanceof Error ? error.message : "No se pudo consultar el job."}
+          </AlertDescription>
+        </Alert>
       </SectionCard>
     );
   }
@@ -98,9 +103,10 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
       {/* Error si existe */}
       {data?.error && (
         <SectionCard title="Error del job">
-          <div className="rounded-lg border border-rose-500/20 bg-rose-500/6 p-4 text-sm text-rose-200">
-            {data.error}
-          </div>
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertDescription>{data.error}</AlertDescription>
+          </Alert>
         </SectionCard>
       )}
 

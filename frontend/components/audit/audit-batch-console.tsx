@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ExternalLink, LoaderCircle, TimerReset } from "lucide-react";
+import { ExternalLink, TimerReset } from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
 
@@ -16,8 +16,10 @@ import type { ClientRecord } from "@/lib/schemas/domain";
 import { SectionCard } from "@/components/shared/section-card";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
+import { Spinner } from "@/components/ui/spinner";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 
 const batchSchema = z.object({
@@ -130,47 +132,68 @@ export function AuditBatchConsole({
         >
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); requestConfirm(); }}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+              <Field>
+                <FieldLabel htmlFor="batch-client-selector">
                   Cliente
-                </label>
+                </FieldLabel>
                 <ClientSelectorCombo
+                  id="batch-client-selector"
                   clients={clients}
                   value={form.watch("clientNitSec")}
                   onValueChange={(value) => form.setValue("clientNitSec", value)}
                   placeholder="Selecciona un cliente"
                 />
                 {form.formState.errors.clientNitSec && (
-                  <p className="text-xs text-rose-300" role="alert">
+                  <FieldDescription className="text-rose-300" role="alert">
                     {form.formState.errors.clientNitSec.message}
-                  </p>
+                  </FieldDescription>
                 )}
-              </div>
-              <Field label="Límite" error={form.formState.errors.limit?.message}>
-                <Input {...form.register("limit")} />
               </Field>
-              <Field label="Fecha desde" error={form.formState.errors.date?.message}>
+              <Field>
+                <FieldLabel htmlFor="batch-limit">Límite</FieldLabel>
+                <Input id="batch-limit" {...form.register("limit")} />
+                {form.formState.errors.limit?.message ? (
+                  <FieldDescription className="text-rose-300" role="alert">
+                    {form.formState.errors.limit.message}
+                  </FieldDescription>
+                ) : null}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="batch-date-from">Fecha desde</FieldLabel>
                 <DatePickerInput
+                  id="batch-date-from"
                   value={form.watch("date")}
                   onValueChange={(value) =>
                     form.setValue("date", value, { shouldDirty: true, shouldValidate: true })
                   }
                 />
+                {form.formState.errors.date?.message ? (
+                  <FieldDescription className="text-rose-300" role="alert">
+                    {form.formState.errors.date.message}
+                  </FieldDescription>
+                ) : null}
               </Field>
-              <Field label="Fecha hasta" error={form.formState.errors.dateTo?.message}>
+              <Field>
+                <FieldLabel htmlFor="batch-date-to">Fecha hasta</FieldLabel>
                 <DatePickerInput
+                  id="batch-date-to"
                   value={form.watch("dateTo")}
                   onValueChange={(value) =>
                     form.setValue("dateTo", value, { shouldDirty: true, shouldValidate: true })
                   }
                 />
+                {form.formState.errors.dateTo?.message ? (
+                  <FieldDescription className="text-rose-300" role="alert">
+                    {form.formState.errors.dateTo.message}
+                  </FieldDescription>
+                ) : null}
               </Field>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <Button type="submit" disabled={isBusy} aria-busy={isBusy}>
                 {asyncMutation.isPending ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <Spinner />
                 ) : (
                   <TimerReset className="h-4 w-4" />
                 )}
@@ -217,26 +240,5 @@ export function AuditBatchConsole({
         </div>
       </div>
     </>
-  );
-}
-
-function Field({
-  label,
-  error,
-  children,
-}: {
-  label: string;
-  error?: string;
-  children: React.ReactNode;
-}) {
-  const id = React.useId();
-  return (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">{label}</label>
-      {React.isValidElement(children)
-        ? React.cloneElement(children as React.ReactElement<{ id?: string }>, { id })
-        : children}
-      {error ? <span className="text-xs text-rose-300" role="alert">{error}</span> : null}
-    </div>
   );
 }

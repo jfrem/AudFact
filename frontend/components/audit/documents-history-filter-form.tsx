@@ -1,7 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import type { ClientRecord } from "@/lib/schemas/domain";
@@ -18,16 +20,20 @@ export function DocumentsHistoryFilterForm({
   initialFacNro = "",
 }: DocumentsHistoryFilterFormProps) {
   const router = useRouter();
+  const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
+
+  React.useEffect(() => {
+    setFacNitSec(initialFacNitSec);
+  }, [initialFacNitSec]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const params = new URLSearchParams();
 
-    const facNitSec = formData.get("facNitSec");
     const facNro = formData.get("facNro");
 
-    if (facNitSec) params.set("facNitSec", String(facNitSec));
+    if (facNitSec.trim()) params.set("facNitSec", facNitSec.trim());
     if (facNro) params.set("facNro", String(facNro));
 
     router.push(`?${params.toString()}`);
@@ -35,39 +41,35 @@ export function DocumentsHistoryFilterForm({
 
   return (
     <form className="grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={handleSubmit}>
-      <div className="space-y-1.5">
-        <label htmlFor="client-selector" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="client-selector">
           Cliente
-        </label>
+        </FieldLabel>
         <ClientSelectorCombo
           id="client-selector"
           clients={allClients}
-          value={initialFacNitSec}
-          onValueChange={(value) => {
-            const input = document.querySelector(
-              'input[name="facNitSec"]'
-            ) as HTMLInputElement;
-            if (input) input.value = value;
-          }}
+          value={facNitSec}
+          onValueChange={setFacNitSec}
           placeholder="Selecciona un cliente"
         />
         <input
           type="hidden"
           name="facNitSec"
-          defaultValue={initialFacNitSec}
+          value={facNitSec}
+          readOnly
         />
-      </div>
+      </Field>
 
-      <div className="space-y-1.5">
-        <label htmlFor="facNro-input" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="facNro-input">
           Factura (facNro)
-        </label>
+        </FieldLabel>
         <Input
           id="facNro-input"
           name="facNro"
           defaultValue={initialFacNro}
         />
-      </div>
+      </Field>
 
       <div className="flex items-end">
         <Button type="submit" className="w-full">Filtrar</Button>

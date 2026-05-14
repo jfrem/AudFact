@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Clock3, ListRestart } from "lu
 
 import type { AsyncMetrics } from "@/lib/schemas/domain";
 import { formatNumber } from "@/lib/formatters";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 export function AsyncQueueSummary({
@@ -15,18 +16,18 @@ export function AsyncQueueSummary({
 }) {
   if (error) {
     return (
-      <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.04] p-4" role="alert">
-        <div className="flex gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-white">No se pudo cargar la cola</p>
-            <p className="mt-1 text-sm leading-6 text-rose-100/80">{error}</p>
-            <Button asChild variant="secondary" size="sm" className="mt-3">
-              <Link href="/dashboard">Reintentar</Link>
-            </Button>
-          </div>
+      <Alert variant="destructive" className="p-4">
+        <AlertTriangle />
+        <div className="min-w-0">
+          <AlertTitle className="text-sm">No se pudo cargar la cola</AlertTitle>
+          <AlertDescription className="col-auto mt-1 text-sm leading-6 text-rose-100/80">
+            {error}
+          </AlertDescription>
+          <Button asChild variant="secondary" size="sm" className="mt-3">
+            <Link href="/dashboard">Reintentar</Link>
+          </Button>
         </div>
-      </div>
+      </Alert>
     );
   }
 

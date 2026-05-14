@@ -8,24 +8,7 @@ use App\Models\AuditConfigModel;
 use Core\Response;
 
 /**
- * Gestiona la configuración de auditoría por cliente (Sample-Driven).
  *
- * Endpoints:
- *   GET  /clients/{clientId}/audit-config  → Retorna configuración guardada
- *   POST /clients/{clientId}/audit-config  → Guarda/reemplaza configuración
- *
- * Payload POST esperado:
- * {
- *   "fields": [
- *     {"docId": 1, "campoNombre": "NumeroFactura", "tipoCampo": "D", "orden": 1},
- *     {"docId": 1, "campoNombre": "FirmaActaEntrega", "tipoCampo": "V", "orden": 37,
- *      "description": "Firma o sello de recibido", "severity": "CRITICO"}
- *   ],
- *   "systemPrompt": "Instrucción personalizada opcional..."
- * }
- *
- * Campos excluidos siempre (llaves internas de DB, no auditables):
- *   FacSec, NitSec
  */
 class AuditConfigController extends Controller
 {

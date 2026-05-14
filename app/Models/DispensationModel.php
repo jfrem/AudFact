@@ -11,20 +11,50 @@ class DispensationModel extends Model
 {
     /** Campos de la cabecera de la dispensación (uno por factura) */
     public const HEADER_FIELDS = [
-        'FacSec', 'NumeroFactura', 'Cliente', 'NITCliente', 'NitSec',
-        'VlrCobrado', 'IPS', 'IPS_NIT', 'NombrePaciente',
-        'TipoDocumentoPaciente', 'DocumentoPaciente', 'FechaNacimiento',
-        'RegimenPaciente', 'Medico', 'TipoDocumentoMedico', 'DocumentoMedico',
-        'CodigoDiagnostico', 'FechaEntrega', 'FechaFormula', 'FechaAutorizacion',
-        'NumeroAutorizacion', 'FirmaActaEntrega',
+        'FacSec',
+        'NumeroFactura',
+        'Cliente',
+        'NITCliente',
+        'NitSec',
+        'VlrCobrado',
+        'IPS',
+        'IPS_NIT',
+        'NombrePaciente',
+        'TipoDocumentoPaciente',
+        'DocumentoPaciente',
+        'FechaNacimiento',
+        'RegimenPaciente',
+        'Medico',
+        'TipoDocumentoMedico',
+        'DocumentoMedico',
+        'CodigoDiagnostico',
+        'FechaEntrega',
+        'FechaFormula',
+        'FechaAutorizacion',
+        'NITDiscolmets',
+        'NumeroAutorizacion',
+        'FirmaActaEntrega',
     ];
 
     /** Campos de cada ítem/producto dispensado */
     public const ITEM_FIELDS = [
-        'Tipo', 'CodigoArticulo', 'CodigoProducto', 'NombreArticulo',
-        'Laboratorio', 'CUM', 'Lote', 'FechaVencimiento',
-        'CantidadEntregada', 'CantidadPrescrita', 'Mipres',
-        'IdPrincipal', 'IdDirec', 'IdProg', 'IdEntr', 'IdRepEnt', 'IdFact',
+        'Tipo',
+        'CodigoArticulo',
+        'CodigoProducto',
+        'NombreArticulo',
+        'Laboratorio',
+        'CUM',
+        'Lote',
+        'FechaVencimiento',
+        'CantidadEntregada',
+        'CantidadPrescrita',
+        'Mipres',
+        'IdPrincipal',
+        'IdDirec',
+        'IdProg',
+        'IdEntr',
+        'IdRepEnt',
+        'IdFact',
     ];
 
     /**
@@ -118,6 +148,7 @@ class DispensationModel extends Model
                 IdEntr,
                 IdRepEnt,
                 IdFact,
+                '828002423' NITDiscolmets,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
             WHERE Dispensa = :DisDetNro

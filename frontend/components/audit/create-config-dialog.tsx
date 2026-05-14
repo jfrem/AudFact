@@ -2,12 +2,23 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { X, Building2, Hash, AlertTriangle, Loader2, Settings2 } from "lucide-react";
+import { Building2, Hash, InfoIcon, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { describeError } from "@/lib/api/errors";
 import { getClientDocuments, saveAuditConfig } from "@/lib/api/audfact";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 
 export function CreateConfigDialog({
@@ -32,10 +43,6 @@ export function CreateConfigDialog({
       }
     }
   }, [open, initialNitSec]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  };
 
   const handleCreate = async () => {
     const trimmed = nitSec.trim();
@@ -67,62 +74,39 @@ export function CreateConfigDialog({
     }
   };
 
-  if (!open) return null;
-
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-animate"
-      style={{ background: "rgba(0,0,0,0.72)" }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      {/* Modal */}
-      <div
-        className="modal-animate w-full max-w-md rounded-3xl border border-white/[0.08] bg-[#0d1526] shadow-2xl shadow-black/60"
-        onKeyDown={handleKeyDown}
-      >
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-white/[0.06] px-6 py-5">
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md gap-0 overflow-hidden rounded-3xl border-white/[0.08] bg-[#0d1526] p-0">
+        <DialogHeader className="border-b border-white/[0.06] px-6 py-5 pr-16">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-cyan-400">
               <Settings2 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white">
+              <DialogTitle className="text-base font-semibold text-white">
                 Nueva configuración
-              </h2>
-              <p className="text-xs text-slate-500">
+              </DialogTitle>
+              <DialogDescription className="text-xs leading-5 text-slate-500">
                 Inicializar campos auditables para un cliente
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="cursor-pointer rounded-lg p-1.5 text-slate-600 transition-colors hover:bg-white/[0.05] hover:text-slate-300"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        </DialogHeader>
 
-        {/* Body */}
         <div className="space-y-5 px-6 py-6">
-          {/* Notice */}
-          <div className="flex gap-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.05] px-4 py-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-            <p className="text-[13px] leading-relaxed text-amber-200/70">
+          <Alert variant="info" role="status">
+            <InfoIcon />
+            <AlertDescription className="text-[13px] leading-relaxed">
               Se validará el catálogo documental del cliente y se creará una configuración sin campos
               precargados. Después podrás agregar campos desde una factura real o activar verificaciones visuales.
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
 
-          {/* NitSec input */}
-          <div className="space-y-1.5">
-            <label htmlFor="nitsec-input" className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+          <Field>
+            <FieldLabel htmlFor="nitsec-input" className="flex items-center gap-1.5">
               <Hash className="h-3 w-3" />
               NitSec del cliente
-            </label>
+            </FieldLabel>
             <div className="relative">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
                 <Building2 className="h-4 w-4 text-slate-600" />
@@ -133,6 +117,7 @@ export function CreateConfigDialog({
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
+                aria-describedby="nitsec-description"
                 value={nitSec}
                 readOnly={!!initialNitSec}
                 onChange={(e) => setNitSec(e.target.value.replace(/\D/g, ""))}
@@ -144,14 +129,13 @@ export function CreateConfigDialog({
                 )}
               />
             </div>
-            <p className="text-[11px] text-slate-700">
+            <FieldDescription id="nitsec-description" className="text-slate-700">
               El identificador numérico del cliente en el sistema
-            </p>
-          </div>
+            </FieldDescription>
+          </Field>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-white/[0.06] px-6 py-4">
+        <DialogFooter className="flex-row justify-end border-t border-white/[0.06] px-6 py-4">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
@@ -167,14 +151,14 @@ export function CreateConfigDialog({
             )}
           >
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Spinner />
             ) : (
               <Settings2 className="h-4 w-4" />
             )}
             {loading ? "Creando..." : "Crear configuración"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

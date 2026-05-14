@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 const schema = z.object({
@@ -34,21 +35,23 @@ export function JobTracker() {
           router.push(`/audit/jobs/${values.jobId}`);
         })}
       >
-        <div className="space-y-2">
-          <label htmlFor="jobId" className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+        <Field>
+          <FieldLabel htmlFor="jobId">
             Job ID
-          </label>
+          </FieldLabel>
           <Input
             id="jobId"
             placeholder="Pega aquí el jobId"
+            aria-invalid={!!form.formState.errors.jobId}
+            aria-describedby={form.formState.errors.jobId ? "jobId-error" : undefined}
             {...form.register("jobId")}
           />
           {form.formState.errors.jobId ? (
-            <p className="text-xs text-rose-300">
+            <FieldDescription id="jobId-error" className="text-rose-300" role="alert">
               {form.formState.errors.jobId.message}
-            </p>
+            </FieldDescription>
           ) : null}
-        </div>
+        </Field>
         <Button type="submit" className="w-full sm:w-auto h-11 self-end">
           <Search className="h-4 w-4" aria-hidden="true" />
           Abrir tracking

@@ -7,7 +7,6 @@ import {
   Database,
   Plus,
   Trash2,
-  Loader2,
   FileText,
   ClipboardCheck,
   Pill,
@@ -22,9 +21,15 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { AddFieldFromDispensaDialog } from "@/components/audit/add-field-from-dispensa-dialog";
 import { saveAuditConfig, type AuditConfigPayload } from "@/lib/api/audfact";
 import type { AuditConfig } from "@/lib/schemas/domain";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -89,39 +94,6 @@ function normalizeSeverity(value?: string | null, fallback: "ALTA" | "MEDIA" | "
   return normalized === "ALTA" || normalized === "MEDIA" || normalized === "BAJA"
     ? normalized
     : fallback;
-}
-
-// ─── Toggle Switch ───────────────────────────────────────────────────────────
-
-function ToggleSwitch({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={onChange}
-      className={cn(
-        "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50",
-        checked ? "bg-sky-500" : "bg-slate-700/80",
-      )}
-    >
-      <span
-        className={cn(
-          "pointer-events-none inline-block h-4 w-4 translate-y-0.5 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out",
-          checked ? "translate-x-4" : "translate-x-0.5",
-        )}
-      />
-    </button>
-  );
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -613,7 +585,7 @@ export function AuditConfigEditor({
           )}
         >
           {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Spinner />
           ) : (
             <Save className="h-4 w-4" />
           )}
@@ -738,13 +710,19 @@ function VisualCheckPicker({
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {options.map((option) => {
+        const checkboxId = `visual-check-${option.campoNombre}`;
         const checked = selectedFields.some(
           (field) => sameFieldName(field.campoNombre, option.campoNombre) && field.enabled,
         );
 
         return (
-          <label
+          <div
             key={option.campoNombre}
+            onClick={(event) => {
+              const target = event.target as HTMLElement;
+              if (target.closest("label")) return;
+              onToggle(option);
+            }}
             className={cn(
               "flex min-h-14 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-all duration-150",
               checked
@@ -752,13 +730,19 @@ function VisualCheckPicker({
                 : "border-white/[0.06] bg-white/[0.02] text-slate-500 hover:border-white/[0.12] hover:bg-white/[0.04]",
             )}
           >
-            <input
-              type="checkbox"
+            <Checkbox
+              id={checkboxId}
               checked={checked}
-              onChange={() => onToggle(option)}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-slate-600 bg-background accent-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60"
+              onCheckedChange={(nextChecked) => {
+                if (nextChecked !== checked) {
+                  onToggle(option);
+                }
+              }}
+              onClick={(event) => event.stopPropagation()}
+              aria-label={`Seleccionar ${option.label}`}
+              className="mt-0.5"
             />
-            <span className="min-w-0 space-y-1">
+            <Label htmlFor={checkboxId} className="min-w-0 cursor-pointer space-y-1 normal-case tracking-normal">
               <span
                 className={cn(
                   "block text-[12px] font-semibold",
@@ -770,8 +754,8 @@ function VisualCheckPicker({
               <span className="block text-[10px] leading-relaxed text-slate-600">
                 {option.campoNombre}
               </span>
-            </span>
-          </label>
+            </Label>
+          </div>
         );
       })}
     </div>
@@ -789,6 +773,8 @@ function FieldRow({
   onRemove: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
+  const switchId = React.useId();
+
   return (
     <div
       className={cn(
@@ -800,29 +786,40 @@ function FieldRow({
     >
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <ToggleSwitch checked={field.enabled} onChange={onToggle} label={field.campoNombre} />
-          <span
+          <Switch
+            id={switchId}
+            checked={field.enabled}
+            onCheckedChange={() => onToggle()}
+            aria-label={`Activar campo ${field.campoNombre}`}
+          />
+          <Label
+            htmlFor={switchId}
             className={cn(
-              "truncate font-mono text-[12px] transition-colors",
+              "cursor-pointer truncate font-mono text-[12px] normal-case tracking-normal transition-colors",
               field.enabled ? "text-slate-300" : "text-slate-600 line-through",
             )}
           >
             {field.campoNombre}
-          </span>
+          </Label>
           {field.enabled && field.tipoCampo !== "E" && (
             <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400">
               {field.tipoCampo === "S" ? "Semántico" : field.tipoCampo === "B" ? "Negocio" : field.tipoCampo}
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={`Eliminar ${field.campoNombre}`}
-          className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={`Eliminar ${field.campoNombre}`}
+              className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Eliminar campo</TooltipContent>
+        </Tooltip>
       </div>
 
       {field.enabled && (
@@ -878,6 +875,8 @@ function VisualCheckRow({
   onRemove: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
+  const switchId = React.useId();
+
   return (
     <div
       className={cn(
@@ -890,36 +889,47 @@ function VisualCheckRow({
       {/* Row header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <ToggleSwitch checked={field.enabled} onChange={onToggle} label={field.campoNombre} />
-          <span
+          <Switch
+            id={switchId}
+            checked={field.enabled}
+            onCheckedChange={() => onToggle()}
+            aria-label={`Activar verificación visual ${field.campoNombre}`}
+          />
+          <Label
+            htmlFor={switchId}
             className={cn(
-              "truncate font-mono text-[12px] transition-colors",
+              "cursor-pointer truncate font-mono text-[12px] normal-case tracking-normal transition-colors",
               field.enabled ? "text-slate-300" : "text-slate-600 line-through",
             )}
           >
             {field.campoNombre}
-          </span>
+          </Label>
           <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-400">
             Visual
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={`Eliminar ${field.campoNombre}`}
-          className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={`Eliminar ${field.campoNombre}`}
+              className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>Eliminar verificación</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Expanded options when enabled */}
       {field.enabled && (
         <div className="flex flex-col gap-3 border-t border-white/[0.06] px-4 pb-4 pt-3">
-          <label htmlFor={`desc-${field.campoNombre}`} className="space-y-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+          <Field>
+            <FieldLabel htmlFor={`desc-${field.campoNombre}`} className="text-[10px] text-slate-600">
               Descripción / Hint
-            </span>
+            </FieldLabel>
             <Input
               id={`desc-${field.campoNombre}`}
               type="text"
@@ -928,11 +938,11 @@ function VisualCheckRow({
               placeholder="Ej: Verificar firma del médico tratante"
               className="h-10 rounded-xl bg-background/80 px-3"
             />
-          </label>
-          <label htmlFor={`sev-${field.campoNombre}`} className="space-y-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`sev-${field.campoNombre}`} className="text-[10px] text-slate-600">
               Severidad
-            </span>
+            </FieldLabel>
             <Select
               value={field.severityOverride ?? "ALTA"}
               onValueChange={(value) =>
@@ -948,7 +958,7 @@ function VisualCheckRow({
                 <SelectItem value="BAJA">Baja</SelectItem>
               </SelectContent>
             </Select>
-          </label>
+          </Field>
 
         </div>
       )}

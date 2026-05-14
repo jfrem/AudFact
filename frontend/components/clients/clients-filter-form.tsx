@@ -6,6 +6,7 @@ import { RotateCcw, Search } from "lucide-react";
 
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
 import type { ClientRecord } from "@/lib/schemas/domain";
 
 interface ClientsFilterFormProps {
@@ -38,18 +39,19 @@ export function ClientsFilterForm({
       className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
       onSubmit={handleSubmit}
     >
-      <label className="space-y-2">
-        <span className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+      <Field>
+        <FieldLabel htmlFor="clients-client-selector">
           Cliente / NitSec
-        </span>
+        </FieldLabel>
         <ClientSelectorCombo
+          id="clients-client-selector"
           clients={clients}
           value={clientId}
           onValueChange={setClientId}
           placeholder="Busca por nombre o NitSec"
         />
         <input type="hidden" name="clientId" value={clientId} readOnly />
-      </label>
+      </Field>
 
       <div className="flex items-end gap-2 md:col-start-2">
         <Button type="submit" className="w-full md:w-auto">

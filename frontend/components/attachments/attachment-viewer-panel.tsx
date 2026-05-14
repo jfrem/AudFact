@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileText, LoaderCircle } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { attachmentPreviewQuery } from "@/lib/query/audit";
@@ -8,6 +8,7 @@ import { getAttachmentDownloadUrl } from "@/lib/api/audfact";
 import type { AttachmentRecord } from "@/lib/schemas/domain";
 import { AttachmentIframeViewer } from "@/components/attachments/attachment-iframe-viewer";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function AttachmentViewerPanel({
   invoiceId,
@@ -69,7 +70,7 @@ export function AttachmentViewerPanel({
       <div className="pt-3 sm:pt-4">
         {isLoading ? (
           <div className="flex h-[65vh] min-h-[500px] items-center justify-center rounded-lg border border-white/10 bg-slate-950/50 text-slate-400">
-            <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+            <Spinner className="mr-2" />
             Cargando preview del adjunto...
           </div>
         ) : isError ? (

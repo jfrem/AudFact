@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import { LoaderCircle, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
 
@@ -18,7 +18,9 @@ import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 
 const formSchema = z.object({
   disDetNro: z.string().min(1, "Ingresa un DisDetNro válido."),
@@ -105,24 +107,23 @@ export function AuditSingleConsole() {
             className="grid gap-4 md:grid-cols-[1fr_auto]"
             onSubmit={form.handleSubmit(handleSubmit)}
           >
-            <div className="space-y-1.5">
-              <label
-                htmlFor="disDetNro"
-                className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400"
-              >
+            <Field>
+              <FieldLabel htmlFor="disDetNro">
                 DisDetNro
-              </label>
+              </FieldLabel>
               <Input
                 id="disDetNro"
                 placeholder="Ej. X24260300080"
+                aria-invalid={!!form.formState.errors.disDetNro}
+                aria-describedby={form.formState.errors.disDetNro ? "audit-single-disDetNro-error" : undefined}
                 {...form.register("disDetNro")}
               />
               {form.formState.errors.disDetNro && (
-                <p className="text-xs text-rose-300" role="alert">
+                <FieldDescription id="audit-single-disDetNro-error" className="text-rose-300" role="alert">
                   {form.formState.errors.disDetNro.message}
-                </p>
+                </FieldDescription>
               )}
-            </div>
+            </Field>
 
             <div className="flex items-end">
               <Button
@@ -133,7 +134,7 @@ export function AuditSingleConsole() {
               >
                 {mutation.isPending ? (
                   <>
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    <Spinner />
                     Procesando...
                   </>
                 ) : (

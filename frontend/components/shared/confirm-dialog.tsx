@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Info, Loader2, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Info, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 type Variant = "danger" | "warning" | "info";
 
@@ -173,7 +174,7 @@ export function ConfirmDialog({
             )}
           >
             {loading && (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              <Spinner size="sm" className="mr-1.5" />
             )}
             {loading ? "Procesando…" : confirmLabel}
           </Button>

@@ -1,6 +1,42 @@
+## [2026-05-14]
+
+### feat
+- **Descubridor de campos con controles shadcn/ui**: El modal para agregar campos desde una factura real usa `Button`, `Tabs`, `Alert` y `Checkbox` en lugar de controles visuales artesanales.
+  - Archivos modificados: `frontend/components/audit/add-field-from-dispensa-dialog.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: El flujo conserva la validación y selección de campos, pero mejora semántica accesible, estados disabled y consistencia visual con el resto de la configuración de auditoría.
+- **Sheet shadcn/ui y optimización de formularios Next.js**: Se agrega `Sheet`, se migran overlays manuales a primitivas Radix/shadcn y se eliminan accesos DOM imperativos en filtros.
+  - Archivos modificados: `frontend/components/ui/sheet.tsx`, `frontend/components/ui/dialog.tsx`, `frontend/components/layout/app-sidebar.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/components/audit/add-field-from-dispensa-dialog.tsx`, `frontend/components/clients/clients-filter-form.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/audit/documents-history-filter-form.tsx`, `frontend/components/jobs/job-tracker.tsx`, `frontend/app/(dashboard)/dispensation/page.tsx`, `frontend/components/audit/audit-single-console.tsx`, `frontend/components/audit/audit-config-page-client.tsx`, `frontend/components/audit/audit-config-editor.tsx`, `frontend/app/(dashboard)/observability/page.tsx`, `design-system/MASTER.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Drawer móvil, modales, filtros y formularios quedan alineados con shadcn/ui, con foco/ESC/overlay consistentes, sin cambiar contratos HTTP ni nombres de campos.
+- **Tooltip shadcn/ui y consolidación de feedback**: Se agrega `Tooltip` sobre Radix, se centraliza el provider global y se completan migraciones de `Spinner`, `Alert` e `Item` en superficies operativas.
+  - Archivos modificados: `frontend/package.json`, `frontend/package-lock.json`, `frontend/components/ui/tooltip.tsx`, `frontend/providers/app-providers.tsx`, `frontend/components/layout/app-sidebar.tsx`, `frontend/components/audit/audit-config-editor.tsx`, `frontend/components/audit/audit-batch-console.tsx`, `frontend/components/audit/audit-single-console.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`, `frontend/components/results/audit-results-table.tsx`, `frontend/components/attachments/attachment-list.tsx`, `frontend/components/jobs/job-detail-client.tsx`, `frontend/app/(dashboard)/observability/page.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Las acciones icon-only tienen ayuda contextual, los loaders inline usan una primitiva única y los errores operativos usan alertas accesibles sin cambiar lógica, navegación, requests ni payloads.
+- **Item y Spinner shadcn/ui para listas y cargas inline**: Se agrega `Item`, `ItemContent`, `ItemMedia`, `ItemTitle` y `Spinner`, migrando la lista documental del dashboard y loaders inline principales.
+  - Archivos modificados: `frontend/components/ui/item.tsx`, `frontend/components/ui/spinner.tsx`, `frontend/app/(dashboard)/dashboard/page.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/components/audit/add-field-from-dispensa-dialog.tsx`, `frontend/components/shared/confirm-dialog.tsx`, `frontend/components/jobs/job-detail-client.tsx`, `frontend/components/attachments/attachment-viewer-panel.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Las listas compactas y estados de carga usan primitivas reutilizables sin cambiar lógica, navegación, requests ni payloads.
+- **Alert shadcn/ui para avisos operativos**: Se agrega `Alert`, `AlertTitle` y `AlertDescription` y se migran avisos manuales de configuración de cliente y dashboard.
+  - Archivos modificados: `frontend/components/ui/alert.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/components/audit/audit-config-page-client.tsx`, `frontend/app/(dashboard)/dashboard/page.tsx`, `frontend/components/dashboard/async-queue-summary.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Los estados informativos y de error usan una primitiva accesible y consistente sin cambiar navegación, requests ni payloads.
+- **Field shadcn/ui para formularios**: Se agrega `Field`, `FieldLabel` y `FieldDescription` y se migran filtros principales a wrappers de formulario consistentes.
+  - Archivos modificados: `frontend/components/ui/field.tsx`, `frontend/components/audit/audit-batch-console.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/audit/documents-history-filter-form.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Los formularios usan estructura accesible y consistente sin cambiar nombres de campos, `FormData`, `register` ni payloads HTTP.
+
 ## [2026-05-13]
 
 ### feat
+- **Checkbox shadcn/ui para verificaciones visuales**: Se agrega `Checkbox` sobre Radix y se reemplaza el checkbox manual de selección múltiple por `Checkbox + Label`.
+  - Archivos modificados: `frontend/package.json`, `frontend/package-lock.json`, `frontend/components/ui/checkbox.tsx`, `frontend/components/audit/audit-config-editor.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: La selección de verificaciones visuales usa una primitiva accesible sin cambiar la lógica de `selectedFields` ni el payload final.
+- **Switch shadcn/ui para configuración de auditoría**: Se agrega `Switch` sobre Radix y se reemplaza el interruptor manual de campos auditables por `Label + Switch`.
+  - Archivos modificados: `frontend/package.json`, `frontend/package-lock.json`, `frontend/components/ui/switch.tsx`, `frontend/components/audit/audit-config-editor.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Los toggles de campos y verificaciones visuales usan una primitiva accesible sin cambiar el payload `enabled` enviado al backend.
 - **Calendar shadcn/ui para filtros de fecha**: Se agrega `Calendar` sobre `react-day-picker` y un `DatePickerInput` reutilizable para reemplazar los inputs nativos de fecha en auditoria y facturas.
   - Archivos modificados: `frontend/package.json`, `frontend/package-lock.json`, `frontend/components/ui/calendar.tsx`, `frontend/components/ui/date-picker-input.tsx`, `frontend/components/audit/audit-batch-console.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`
   - Hallazgo resuelto: ninguno

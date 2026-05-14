@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { ClientSelector } from "@/components/audit/client-selector";
 import { CreateConfigDialog } from "@/components/audit/create-config-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Field, FieldLabel } from "@/components/ui/field";
 
 /* ─── Types ────────────────────────────────────────────────────── */
 type Client = { NitSec: string; NitCom: string };
@@ -112,11 +114,11 @@ export function AuditConfigPageClient({
         </div>
 
         {/* ── Client Selector ──────────────────────────────────── */}
-        <div className="relative z-50 space-y-2">
-          <label className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+        <Field className="relative z-50">
+          <FieldLabel className="flex items-center gap-2">
             <Users className="h-3.5 w-3.5" />
             EPS / Cliente
-          </label>
+          </FieldLabel>
           <ClientSelector
             clients={clients}
             currentClientId={clientId}
@@ -125,7 +127,7 @@ export function AuditConfigPageClient({
           {clientsError && (
             <DataWarning message={`No se pudo cargar el listado de clientes: ${clientsError}`} />
           )}
-        </div>
+        </Field>
 
         {/* ── No client selected ───────────────────────────────── */}
         {!clientId && clientsError && (
@@ -206,10 +208,10 @@ function StatPill({
 
 function DataWarning({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] px-3 py-2 text-xs leading-5 text-amber-100/80">
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-      <span>{message}</span>
-    </div>
+    <Alert variant="warning" className="px-3 py-2">
+      <AlertTriangle />
+      <AlertDescription className="text-xs leading-5">{message}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -225,20 +227,19 @@ function ErrorPanel({
   onRetry: () => void;
 }) {
   return (
-    <div
-      className="rounded-3xl border border-rose-500/20 bg-rose-500/[0.04]"
-      role="alert"
-    >
+    <Alert variant="destructive" className="block rounded-3xl px-0 py-0">
       <div className="relative flex flex-col items-center gap-5 px-8 py-16 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-rose-500/20 bg-rose-500/10">
           <AlertTriangle className="h-8 w-8 text-rose-300" />
         </div>
         <div className="max-w-xl">
-          <p className="text-lg font-semibold text-white">{title}</p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-400">{description}</p>
-          <p className="mt-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-xs leading-5 text-rose-100/80">
+          <AlertTitle className="text-lg">{title}</AlertTitle>
+          <AlertDescription className="col-auto mt-2 text-sm leading-relaxed text-slate-400">
+            {description}
+          </AlertDescription>
+          <AlertDescription className="col-auto mt-3 rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-xs leading-5 text-rose-100/80">
             {detail}
-          </p>
+          </AlertDescription>
         </div>
         <button
           type="button"
@@ -249,7 +250,7 @@ function ErrorPanel({
           Reintentar
         </button>
       </div>
-    </div>
+    </Alert>
   );
 }
 
@@ -285,20 +286,20 @@ function NoConfigPanel({
   onCreateNew: () => void;
 }) {
   return (
-    <div className="rounded-3xl border border-amber-500/15 bg-amber-500/[0.03]">
+    <Alert variant="warning" role="status" className="block rounded-3xl px-0 py-0">
       <div className="relative flex flex-col items-center gap-5 px-8 py-16 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-amber-500/20 bg-amber-500/10">
           <FileX2 className="h-8 w-8 text-amber-400" />
         </div>
         <div className="max-w-sm">
-          <p className="text-lg font-semibold text-white">
+          <AlertTitle className="text-lg">
             {clientName ?? clientId} no tiene configuración
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
+          </AlertTitle>
+          <AlertDescription className="col-auto mt-2 text-sm leading-relaxed text-slate-500">
             Este cliente no tiene una configuración guardada. La inicialización
             valida primero el catálogo documental real y no precarga campos
             auditables inventados.
-          </p>
+          </AlertDescription>
         </div>
         <button
           type="button"
@@ -308,6 +309,6 @@ function NoConfigPanel({
           Inicializar configuración para {clientName ?? clientId}
         </button>
       </div>
-    </div>
+    </Alert>
   );
 }

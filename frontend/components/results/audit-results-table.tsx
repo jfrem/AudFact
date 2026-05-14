@@ -18,6 +18,7 @@ import { SeverityBadge } from "@/components/shared/severity-badge";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
 import { AuditResultDetailModal } from "@/components/results/audit-result-detail-modal";
+import { Item, ItemContent, ItemTitle } from "@/components/ui/item";
 import { cn } from "@/lib/utils";
 
 export function AuditResultsTable({
@@ -73,61 +74,68 @@ export function AuditResultsTable({
       {/* Mobile cards */}
       <div className="space-y-2 md:hidden">
         {items.map((item) => (
-          <article
-            key={String(item.FacSec)}
-            className="rounded-lg border border-white/8 bg-white/[0.02] p-4 transition-colors hover:bg-white/[0.04] active:bg-white/[0.05]"
-            onClick={() => setSelectedRecord(item)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === "Enter" && setSelectedRecord(item)}
-            aria-label={`Ver detalle de factura ${item.FacNro ?? item.FacSec}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium text-white">{item.FacNro ?? "N/D"}</p>
-                <p className="mt-0.5 font-mono text-[11px] leading-4 text-slate-600 truncate">
-                  {String(item.FacSec)}
-                </p>
-              </div>
-              <SeverityBadge severity={item.Severidad} />
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Estado
-                </p>
-                <div className="mt-1">
-                  <AuditStatusBadge status={item.EstadoDetallado} />
+          <Item asChild key={String(item.FacSec)} variant="subtle" size="lg">
+            <article
+              onClick={() => setSelectedRecord(item)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedRecord(item);
+                }
+              }}
+              aria-label={`Ver detalle de factura ${item.FacNro ?? item.FacSec}`}
+            >
+              <ItemContent>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <ItemTitle>{item.FacNro ?? "N/D"}</ItemTitle>
+                    <p className="mt-0.5 truncate font-mono text-[11px] leading-4 text-slate-600">
+                      {String(item.FacSec)}
+                    </p>
+                  </div>
+                  <SeverityBadge severity={item.Severidad} />
                 </div>
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Campos
-                </p>
-                <p className="mt-1 text-slate-200">
-                  {formatNumber(item.HallazgosItems?.length ?? 0)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Tiempo IA
-                </p>
-                <p className="mt-1 text-slate-200">
-                  {formatDurationMs(resolveAuditDurationMs(item))}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  Fecha
-                </p>
-                <p className="mt-1 text-slate-300">
-                  {formatDateTime(
-                    String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
-                  )}
-                </p>
-              </div>
-            </div>
-          </article>
+                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Estado
+                    </p>
+                    <div className="mt-1">
+                      <AuditStatusBadge status={item.EstadoDetallado} />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Campos
+                    </p>
+                    <p className="mt-1 text-slate-200">
+                      {formatNumber(item.HallazgosItems?.length ?? 0)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Tiempo IA
+                    </p>
+                    <p className="mt-1 text-slate-200">
+                      {formatDurationMs(resolveAuditDurationMs(item))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      Fecha
+                    </p>
+                    <p className="mt-1 text-slate-300">
+                      {formatDateTime(
+                        String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </ItemContent>
+            </article>
+          </Item>
         ))}
       </div>
 
@@ -158,51 +166,56 @@ export function AuditResultsTable({
             {items.map((item) => {
               const duration = formatDurationMs(resolveAuditDurationMs(item));
               return (
-              <TableRow
-                key={String(item.FacSec)}
-                className="group cursor-pointer"
-                onClick={() => setSelectedRecord(item)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && setSelectedRecord(item)}
-                aria-label={`Abrir detalle: ${item.FacNro ?? item.FacSec}`}
-              >
-                <TableCell className="min-w-0">
-                  <p className="truncate font-medium text-white" title={String(item.FacNro ?? "N/D")}>{item.FacNro ?? "N/D"}</p>
-                  <p
-                    className="mt-0.5 font-mono text-[11px] leading-4 text-slate-600 truncate"
-                    title={String(item.FacSec)}
-                  >
-                    {String(item.FacSec)}
-                  </p>
-                </TableCell>
-                <TableCell className="whitespace-nowrap" title={String(item.EstadoDetallado ?? "N/D")}>
-                  <AuditStatusBadge status={item.EstadoDetallado} />
-                </TableCell>
-                <TableCell className="whitespace-nowrap" title={String(item.Severidad ?? "N/D")}>
-                  <SeverityBadge severity={item.Severidad} />
-                </TableCell>
-                <TableCell className="tabular-nums text-slate-300" title={formatNumber(item.HallazgosItems?.length ?? 0)}>
-                  {formatNumber(item.HallazgosItems?.length ?? 0)}
-                </TableCell>
-                <TableCell className="tabular-nums text-slate-300" title={duration}>
-                  {duration}
-                </TableCell>
-                <TableCell className="text-slate-400" title={formatDateTime(String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""))}>
-                  {formatDateTime(
-                    String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Eye
-                    className={cn(
-                      "ml-auto h-4 w-4 text-slate-600 transition-colors",
-                      "group-hover:text-sky-400"
+                <TableRow
+                  key={String(item.FacSec)}
+                  className="group cursor-pointer"
+                  onClick={() => setSelectedRecord(item)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedRecord(item);
+                    }
+                  }}
+                  aria-label={`Abrir detalle: ${item.FacNro ?? item.FacSec}`}
+                >
+                  <TableCell className="min-w-0">
+                    <p className="truncate font-medium text-white" title={String(item.FacNro ?? "N/D")}>{item.FacNro ?? "N/D"}</p>
+                    <p
+                      className="mt-0.5 font-mono text-[11px] leading-4 text-slate-600 truncate"
+                      title={String(item.FacSec)}
+                    >
+                      {String(item.FacSec)}
+                    </p>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap" title={String(item.EstadoDetallado ?? "N/D")}>
+                    <AuditStatusBadge status={item.EstadoDetallado} />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap" title={String(item.Severidad ?? "N/D")}>
+                    <SeverityBadge severity={item.Severidad} />
+                  </TableCell>
+                  <TableCell className="tabular-nums text-slate-300" title={formatNumber(item.HallazgosItems?.length ?? 0)}>
+                    {formatNumber(item.HallazgosItems?.length ?? 0)}
+                  </TableCell>
+                  <TableCell className="tabular-nums text-slate-300" title={duration}>
+                    {duration}
+                  </TableCell>
+                  <TableCell className="text-slate-400" title={formatDateTime(String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""))}>
+                    {formatDateTime(
+                      String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
                     )}
-                    aria-hidden="true"
-                  />
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Eye
+                      className={cn(
+                        "ml-auto h-4 w-4 text-slate-600 transition-colors",
+                        "group-hover:text-sky-400"
+                      )}
+                      aria-hidden="true"
+                    />
+                  </TableCell>
+                </TableRow>
               );
             })}
           </TableBody>
