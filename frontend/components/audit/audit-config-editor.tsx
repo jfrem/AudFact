@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 type FieldToggle = {
   campoNombre: string;
   tipoCampo: string;
+  tipoDato?: string;
   enabled: boolean;
   orden: number;
   descripcionOverride?: string;
@@ -53,6 +54,14 @@ type VisualCheckOption = {
   label: string;
   description: string;
   severity: "ALTA" | "MEDIA" | "BAJA";
+};
+
+type TipoCampoValue = "E" | "S" | "B";
+
+type TipoDatoOption = {
+  value: string;
+  label: string;
+  tipoCampos: readonly TipoCampoValue[];
 };
 
 // ─── Doc icon map ────────────────────────────────────────────────────────────
@@ -85,6 +94,20 @@ const visualCheckOptions: VisualCheckOption[] = [
   },
 ];
 
+const tipoDatoOptions: readonly TipoDatoOption[] = [
+  { value: "text", label: "Texto", tipoCampos: ["E", "S"] },
+  { value: "date", label: "Fecha", tipoCampos: ["E"] },
+  { value: "quantity", label: "Cantidad", tipoCampos: ["E", "B"] },
+  { value: "money", label: "Dinero", tipoCampos: ["E"] },
+  { value: "identity_doc_type", label: "Tipo doc.", tipoCampos: ["E"] },
+  { value: "identity_doc_number", label: "Documento", tipoCampos: ["E"] },
+  { value: "code", label: "Código", tipoCampos: ["E"] },
+  { value: "trace_token", label: "Trazabilidad", tipoCampos: ["E"] },
+  { value: "person_name", label: "Persona", tipoCampos: ["E", "S"] },
+  { value: "institution_name", label: "Institución", tipoCampos: ["E", "S"] },
+  { value: "article_name", label: "Artículo", tipoCampos: ["E", "S"] },
+];
+
 function sameFieldName(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
@@ -94,6 +117,32 @@ function normalizeSeverity(value?: string | null, fallback: "ALTA" | "MEDIA" | "
   return normalized === "ALTA" || normalized === "MEDIA" || normalized === "BAJA"
     ? normalized
     : fallback;
+}
+
+function normalizeTipoCampo(value: string): TipoCampoValue | null {
+  const normalized = value.trim().toUpperCase();
+  return normalized === "E" || normalized === "S" || normalized === "B" ? normalized : null;
+}
+
+function isTipoDatoAllowed(tipoCampo: string, tipoDato?: string) {
+  if (!tipoDato) return false;
+  return tipoDatoOptionsFor(tipoCampo).some((option) => option.value === tipoDato);
+}
+
+function tipoDatoOptionsFor(tipoCampo: string) {
+  const normalizedTipoCampo = normalizeTipoCampo(tipoCampo);
+  return normalizedTipoCampo === null
+    ? tipoDatoOptions
+    : tipoDatoOptions.filter((option) => option.tipoCampos.includes(normalizedTipoCampo));
+}
+
+function fieldValidationError(field: FieldToggle): string | null {
+  if (!field.enabled || field.tipoCampo === "V") return null;
+  if (!field.tipoDato) return "Define el tipo de dato.";
+  if (!isTipoDatoAllowed(field.tipoCampo, field.tipoDato)) {
+    return "Combinación tipo/comparación inválida.";
+  }
+  return null;
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -118,11 +167,11 @@ export function AuditConfigEditor({
       // Unify data fields
       const dataFields: FieldToggle[] = doc.fields.map((f) => {
         let tipo = (f.tipoCampo || "E").trim().toUpperCase();
-        if (tipo === "D") tipo = "E"; // Legacy 'D' mapping to 'E' (Exacto)
         
         return {
           campoNombre: f.campoNombre,
           tipoCampo: tipo,
+          tipoDato: f.tipoDato ?? "",
           enabled: f.enabled,
           orden: f.orden,
           descripcionOverride: f.descripcionOverride ?? f.description ?? undefined,
@@ -212,6 +261,7 @@ export function AuditConfigEditor({
           .map((name, idx) => ({
             campoNombre: name,
             tipoCampo: "E",
+            tipoDato: "",
             enabled: true,
             orden: d.fields.length + idx + 1,
           }));
@@ -298,6 +348,7 @@ export function AuditConfigEditor({
           docId: doc.docId,
           campoNombre: f.campoNombre,
           tipoCampo: f.tipoCampo,
+          tipoDato: f.tipoCampo === "V" ? null : (f.tipoDato ?? null),
           enabled: true,
           description: f.descripcionOverride ?? null,
           severity: f.severityOverride ?? null,
@@ -314,6 +365,12 @@ export function AuditConfigEditor({
 
   const handleSave = async () => {
     setConfirmOpen(false);
+    const errors = validationErrors();
+    if (errors.length > 0) {
+      toast.error(errors[0]);
+      return;
+    }
+
     setSaving(true);
     try {
       await saveAuditConfig(clientId, buildPayload());
@@ -326,6 +383,28 @@ export function AuditConfigEditor({
     } finally {
       setSaving(false);
     }
+  };
+
+  const validationErrors = React.useCallback(() => {
+    const errors: string[] = [];
+    for (const doc of docs) {
+      for (const field of doc.fields) {
+        const error = fieldValidationError(field);
+        if (error !== null) {
+          errors.push(`${doc.docName} · ${field.campoNombre}: ${error}`);
+        }
+      }
+    }
+    return errors;
+  }, [docs]);
+
+  const openConfirmIfValid = () => {
+    const errors = validationErrors();
+    if (errors.length > 0) {
+      toast.error(errors[0]);
+      return;
+    }
+    setConfirmOpen(true);
   };
 
   const activeDoc = docs.find((d) => d.docName === activeTab);
@@ -343,6 +422,7 @@ export function AuditConfigEditor({
   );
   const totalAllFields = docs.reduce((acc, d) => acc + d.fields.length, 0);
   const disabledCount = totalAllFields - totalAllEnabled;
+  const validationErrorCount = validationErrors().length;
 
   return (
     <div className="space-y-6">
@@ -575,7 +655,7 @@ export function AuditConfigEditor({
         </div>
         <button
           type="button"
-          onClick={() => setConfirmOpen(true)}
+          onClick={openConfirmIfValid}
           disabled={saving || !dirty}
           className={cn(
             "inline-flex cursor-pointer items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200",
@@ -592,6 +672,11 @@ export function AuditConfigEditor({
           {saving ? "Guardando..." : "Guardar cambios"}
         </button>
       </div>
+      {validationErrorCount > 0 && (
+        <p className="text-xs font-medium text-amber-300">
+          {validationErrorCount} campo(s) activo(s) requieren corregir tipo de dato antes de guardar.
+        </p>
+      )}
 
       <ConfirmDialog
         open={confirmOpen}
@@ -774,6 +859,8 @@ function FieldRow({
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
   const switchId = React.useId();
+  const validationError = fieldValidationError(field);
+  const allowedTipoDatoOptions = tipoDatoOptionsFor(field.tipoCampo);
 
   return (
     <div
@@ -806,6 +893,11 @@ function FieldRow({
               {field.tipoCampo === "S" ? "Semántico" : field.tipoCampo === "B" ? "Negocio" : field.tipoCampo}
             </span>
           )}
+          {field.enabled && field.tipoDato && (
+            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+              {tipoDatoOptions.find((option) => option.value === field.tipoDato)?.label ?? field.tipoDato}
+            </span>
+          )}
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -824,12 +916,15 @@ function FieldRow({
 
       {field.enabled && (
         <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="space-y-1">
               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Tipo</span>
               <Select
                 value={field.tipoCampo}
-                onValueChange={(val) => onUpdate({ tipoCampo: val })}
+                onValueChange={(val) => {
+                  const nextTipoDato = isTipoDatoAllowed(val, field.tipoDato) ? field.tipoDato : "";
+                  onUpdate({ tipoCampo: val, tipoDato: nextTipoDato });
+                }}
               >
                 <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
                   <SelectValue />
@@ -838,6 +933,29 @@ function FieldRow({
                   <SelectItem value="E">Exacto</SelectItem>
                   <SelectItem value="S">Semántico</SelectItem>
                   <SelectItem value="B">Negocio</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Dato</span>
+              <Select
+                value={field.tipoDato ?? ""}
+                onValueChange={(val) => onUpdate({ tipoDato: val })}
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-8 rounded-lg bg-background/50 text-[11px]",
+                    validationError ? "border-amber-400/50" : "",
+                  )}
+                >
+                  <SelectValue placeholder="Requerido" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allowedTipoDatoOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -858,6 +976,11 @@ function FieldRow({
               </Select>
             </div>
           </div>
+          {validationError && (
+            <p className="text-[11px] font-medium text-amber-300">
+              {validationError}
+            </p>
+          )}
         </div>
       )}
     </div>

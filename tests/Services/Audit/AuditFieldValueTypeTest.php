@@ -5,229 +5,83 @@ declare(strict_types=1);
 namespace Tests\Services\Audit;
 
 use App\Services\Audit\AuditFieldValueType;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
-/**
- * Tests unitarios para AuditFieldValueType (AUDIT-016).
- *
- * Cubre los dos tipos nuevos (CODE, PERSON_NAME) y los métodos de
- * comportamiento que el DocumentPolicyEngine necesita para resolver
- * CAT-2, CAT-3 y CAT-4.
- */
 final class AuditFieldValueTypeTest extends TestCase
 {
-    // ─── fromFieldName — tipos existentes ─────────────────────────────────────
-
-    public function testFromFieldNameReturnsDATEForFechaFields(): void
+    public function testFromInputResolvesEveryConfiguredType(): void
     {
-        $this->assertSame(AuditFieldValueType::DATE, AuditFieldValueType::fromFieldName('FechaEntrega'));
-        $this->assertSame(AuditFieldValueType::DATE, AuditFieldValueType::fromFieldName('FechaFormula'));
-        $this->assertSame(AuditFieldValueType::DATE, AuditFieldValueType::fromFieldName('FechaAutorizacion'));
-        $this->assertSame(AuditFieldValueType::DATE, AuditFieldValueType::fromFieldName('FechaVencimiento'));
+        foreach (AuditFieldValueType::cases() as $valueType) {
+            $this->assertSame($valueType, AuditFieldValueType::fromInput($valueType->value));
+            $this->assertSame($valueType, AuditFieldValueType::fromInput(strtoupper($valueType->value)));
+        }
     }
 
-    public function testFromFieldNameReturnsQUANTITYForCantidadFields(): void
+    public function testFromInputRejectsUnknownType(): void
     {
-        $this->assertSame(AuditFieldValueType::QUANTITY, AuditFieldValueType::fromFieldName('CantidadEntregada'));
-        $this->assertSame(AuditFieldValueType::QUANTITY, AuditFieldValueType::fromFieldName('CantidadPrescrita'));
+        $this->expectException(InvalidArgumentException::class);
+
+        AuditFieldValueType::fromInput('NombrePaciente');
     }
 
-    public function testFromFieldNameReturnsMONEYForVlrFields(): void
-    {
-        $this->assertSame(AuditFieldValueType::MONEY, AuditFieldValueType::fromFieldName('VlrCobrado'));
-        $this->assertSame(AuditFieldValueType::MONEY, AuditFieldValueType::fromFieldName('VlrTotal'));
-    }
-
-    public function testFromFieldNameReturnsIDENTITY_DOC_TYPEForTipoDocumentoFields(): void
-    {
-        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_TYPE, AuditFieldValueType::fromFieldName('TipoDocumentoPaciente'));
-        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_TYPE, AuditFieldValueType::fromFieldName('TipoDocumentoMedico'));
-    }
-
-    public function testFromFieldNameReturnsIDENTITY_DOC_NUMBERForDocumentoFields(): void
-    {
-        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_NUMBER, AuditFieldValueType::fromFieldName('DocumentoPaciente'));
-        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_NUMBER, AuditFieldValueType::fromFieldName('DocumentoMedico'));
-    }
-
-    public function testIdentityFieldClassificationCentralizesAuditIdentityTaxonomy(): void
-    {
-        $this->assertTrue(AuditFieldValueType::isIdentityDocumentNumberField('DocumentoPaciente'));
-        $this->assertTrue(AuditFieldValueType::isIdentityDocumentNumberField('DocumentoMedico'));
-        $this->assertTrue(AuditFieldValueType::isIdentityDocumentTypeField('TipoDocumentoPaciente'));
-        $this->assertTrue(AuditFieldValueType::isIdentityDocumentTypeField('TipoDocumentoMedico'));
-        $this->assertTrue(AuditFieldValueType::isIdentityPersonNameField('NombrePaciente'));
-        $this->assertTrue(AuditFieldValueType::isIdentityPersonNameField('Medico'));
-        $this->assertTrue(AuditFieldValueType::isIdentityField('DocumentoPaciente'));
-        $this->assertTrue(AuditFieldValueType::isIdentityField('TipoDocumentoMedico'));
-        $this->assertTrue(AuditFieldValueType::isIdentityField('Medico'));
-        $this->assertFalse(AuditFieldValueType::isIdentityField('Cliente'));
-        $this->assertFalse(AuditFieldValueType::isIdentityField('NumeroAutorizacion'));
-    }
-
-    public function testHasIdentityFieldDetectsIdentityInConfiguredFieldLists(): void
-    {
-        $this->assertTrue(AuditFieldValueType::hasIdentityField(['NumeroFactura', 'DocumentoPaciente']));
-        $this->assertTrue(AuditFieldValueType::hasIdentityField(['NombreArticulo', 'Medico']));
-        $this->assertFalse(AuditFieldValueType::hasIdentityField(['NumeroFactura', 'NombreArticulo']));
-    }
-
-    public function testFromFieldNameReturnsTEXTAsDefaultFallback(): void
-    {
-        // Campos que no tienen tipo especializado → TEXT genérico
-        $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('NumeroFactura'));
-        $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('NumeroAutorizacion'));
-        $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('Laboratorio'));
-    }
-
-    public function testFromFieldNameReturnsPERSON_NAMEForIPS(): void
-    {
-        // IPS es institución de salud — se compara con token-sort antes de semántico
-        $this->assertSame(AuditFieldValueType::PERSON_NAME, AuditFieldValueType::fromFieldName('IPS'));
-    }
-
-    // ─── fromFieldName — tipos nuevos CAT-2 ───────────────────────────────────
-
-    public function testFromFieldNameReturnsCODEForCodigoDiagnostico(): void
-    {
-        $this->assertSame(AuditFieldValueType::CODE, AuditFieldValueType::fromFieldName('CodigoDiagnostico'));
-    }
-
-    public function testFromFieldNameReturnsCODEForCodigo(): void
-    {
-        // Campos que empiezan con 'Codigo' son tratados como CODE
-        $this->assertSame(AuditFieldValueType::CODE, AuditFieldValueType::fromFieldName('CodigoArticulo'));
-        $this->assertSame(AuditFieldValueType::CODE, AuditFieldValueType::fromFieldName('CodigoProducto'));
-    }
-
-    public function testFromFieldNameReturnsCODEForCUM(): void
-    {
-        // CUM es un código de medicamento — tipo CODE explícito
-        $this->assertSame(AuditFieldValueType::CODE, AuditFieldValueType::fromFieldName('CUM'));
-    }
-
-    public function testFromFieldNameReturnsPERSON_NAMEForNombrePaciente(): void
-    {
-        $this->assertSame(AuditFieldValueType::PERSON_NAME, AuditFieldValueType::fromFieldName('NombrePaciente'));
-    }
-
-    public function testFromFieldNameReturnsPERSON_NAMEForMedico(): void
-    {
-        $this->assertSame(AuditFieldValueType::PERSON_NAME, AuditFieldValueType::fromFieldName('Medico'));
-    }
-
-    public function testFromFieldNameReturnsPERSON_NAMEForCliente(): void
-    {
-        $this->assertSame(AuditFieldValueType::PERSON_NAME, AuditFieldValueType::fromFieldName('Cliente'));
-    }
-
-    // ─── allowsMultiValueDocument — CAT-3 ─────────────────────────────────────
-
-    /**
-     * CODE permite que el documento traiga múltiples valores (lista CIE-10, múltiples CUM, etc.)
-     */
-    public function testCODEAllowsMultiValueDocument(): void
+    public function testMultiValueDocumentTypes(): void
     {
         $this->assertTrue(AuditFieldValueType::CODE->allowsMultiValueDocument());
-    }
-
-    public function testTEXTDoesNotAllowMultiValueDocument(): void
-    {
+        $this->assertTrue(AuditFieldValueType::TRACE_TOKEN->allowsMultiValueDocument());
         $this->assertFalse(AuditFieldValueType::TEXT->allowsMultiValueDocument());
-    }
-
-    public function testDATEDoesNotAllowMultiValueDocument(): void
-    {
-        $this->assertFalse(AuditFieldValueType::DATE->allowsMultiValueDocument());
-    }
-
-    public function testQUANTITYDoesNotAllowMultiValueDocument(): void
-    {
-        $this->assertFalse(AuditFieldValueType::QUANTITY->allowsMultiValueDocument());
-    }
-
-    public function testPERSON_NAMEDoesNotAllowMultiValueDocument(): void
-    {
         $this->assertFalse(AuditFieldValueType::PERSON_NAME->allowsMultiValueDocument());
     }
 
-    // ─── requiresSubsetComparison — CAT-3 ─────────────────────────────────────
-
-    /**
-     * CODE usa comparación de subconjunto: FDV debe estar contenida en el set documental.
-     */
-    public function testCODERequiresSubsetComparison(): void
+    public function testComparisonStrategies(): void
     {
         $this->assertTrue(AuditFieldValueType::CODE->requiresSubsetComparison());
-    }
-
-    public function testTEXTDoesNotRequireSubsetComparison(): void
-    {
-        $this->assertFalse(AuditFieldValueType::TEXT->requiresSubsetComparison());
-    }
-
-    public function testPERSON_NAMEDoesNotRequireSubsetComparison(): void
-    {
-        // PERSON_NAME usa token-sort, no subset
-        $this->assertFalse(AuditFieldValueType::PERSON_NAME->requiresSubsetComparison());
-    }
-
-    // ─── requiresTokenSortComparison — CAT-4 ──────────────────────────────────
-
-    /**
-     * PERSON_NAME compara tokens ordenados alfabéticamente antes de delegar a Gemini.
-     */
-    public function testPERSON_NAMERequiresTokenSortComparison(): void
-    {
+        $this->assertTrue(AuditFieldValueType::TRACE_TOKEN->requiresTraceSetComparison());
         $this->assertTrue(AuditFieldValueType::PERSON_NAME->requiresTokenSortComparison());
+
+        $this->assertFalse(AuditFieldValueType::TEXT->requiresSubsetComparison());
+        $this->assertFalse(AuditFieldValueType::ARTICLE_NAME->requiresTokenSortComparison());
     }
 
-    public function testCODEDoesNotRequireTokenSortComparison(): void
-    {
-        $this->assertFalse(AuditFieldValueType::CODE->requiresTokenSortComparison());
-    }
-
-    public function testTEXTDoesNotRequireTokenSortComparison(): void
-    {
-        $this->assertFalse(AuditFieldValueType::TEXT->requiresTokenSortComparison());
-    }
-
-    // ─── isQuantitySummable — comportamiento existente ────────────────────────
-
-    public function testQUANTITYIsQuantitySummable(): void
+    public function testQuantityAndSchemaCapabilities(): void
     {
         $this->assertTrue(AuditFieldValueType::QUANTITY->isQuantitySummable());
-    }
-
-    public function testMONEYIsNotQuantitySummable(): void
-    {
         $this->assertFalse(AuditFieldValueType::MONEY->isQuantitySummable());
-    }
 
-    public function testCODEIsNotQuantitySummable(): void
-    {
-        $this->assertFalse(AuditFieldValueType::CODE->isQuantitySummable());
-    }
-
-    // ─── isNumericForSchema ───────────────────────────────────────────────────
-
-    public function testQUANTITYIsNumericForSchema(): void
-    {
         $this->assertTrue(AuditFieldValueType::QUANTITY->isNumericForSchema());
-    }
-
-    public function testMONEYIsNumericForSchema(): void
-    {
         $this->assertTrue(AuditFieldValueType::MONEY->isNumericForSchema());
-    }
-
-    public function testCODEIsNotNumericForSchema(): void
-    {
         $this->assertFalse(AuditFieldValueType::CODE->isNumericForSchema());
     }
 
-    public function testPERSON_NAMEIsNotNumericForSchema(): void
+    public function testOnlyArticleNameAllowsSemanticGeminiFallback(): void
     {
-        $this->assertFalse(AuditFieldValueType::PERSON_NAME->isNumericForSchema());
+        $this->assertTrue(AuditFieldValueType::ARTICLE_NAME->allowsSemanticGeminiFallback());
+        $this->assertFalse(AuditFieldValueType::PERSON_NAME->allowsSemanticGeminiFallback());
+        $this->assertFalse(AuditFieldValueType::INSTITUTION_NAME->allowsSemanticGeminiFallback());
+        $this->assertFalse(AuditFieldValueType::TEXT->allowsSemanticGeminiFallback());
+    }
+
+    public function testAllowedTypesDependOnComparisonType(): void
+    {
+        $this->assertSame(['quantity'], AuditFieldValueType::allowedValuesForTipoCampo('B'));
+        $this->assertSame(
+            ['text', 'person_name', 'institution_name', 'article_name'],
+            AuditFieldValueType::allowedValuesForTipoCampo('S')
+        );
+        $this->assertContains('trace_token', AuditFieldValueType::allowedValuesForTipoCampo('E'));
+        $this->assertSame([], AuditFieldValueType::allowedValuesForTipoCampo('V'));
+
+        $this->assertTrue(AuditFieldValueType::QUANTITY->isAllowedForTipoCampo('B'));
+        $this->assertFalse(AuditFieldValueType::MONEY->isAllowedForTipoCampo('B'));
+        $this->assertTrue(AuditFieldValueType::ARTICLE_NAME->isAllowedForTipoCampo('S'));
+        $this->assertFalse(AuditFieldValueType::TRACE_TOKEN->isAllowedForTipoCampo('S'));
+    }
+
+    public function testIdentityPromptValuesAreExplicit(): void
+    {
+        $this->assertTrue(AuditFieldValueType::IDENTITY_DOC_TYPE->isIdentityPromptValue());
+        $this->assertTrue(AuditFieldValueType::IDENTITY_DOC_NUMBER->isIdentityPromptValue());
+        $this->assertTrue(AuditFieldValueType::PERSON_NAME->isIdentityPromptValue());
+        $this->assertFalse(AuditFieldValueType::INSTITUTION_NAME->isIdentityPromptValue());
     }
 }

@@ -16,14 +16,33 @@ final class DocumentPolicyEngineTest extends TestCase
     private static function field(
         string $name,
         string $tipo = 'E',
-        string $severity = 'alta'
+        string $severity = 'alta',
+        ?string $tipoDato = null
     ): array {
         return [
             'campoNombre' => $name,
             'tipoCampo'   => $tipo,
+            'tipoDato'    => $tipoDato ?? self::tipoDatoForTest($name),
             'severity'    => $severity,
             'orden'       => 0,
         ];
+    }
+
+    private static function tipoDatoForTest(string $field): string
+    {
+        return match ($field) {
+            'FechaEntrega', 'FechaFormula', 'FechaAutorizacion', 'FechaVencimiento' => 'date',
+            'CantidadEntregada', 'CantidadPrescrita' => 'quantity',
+            'VlrCobrado', 'VlrTotal' => 'money',
+            'TipoDocumentoPaciente', 'TipoDocumentoMedico' => 'identity_doc_type',
+            'DocumentoPaciente', 'DocumentoMedico' => 'identity_doc_number',
+            'CodigoDiagnostico', 'CodigoArticulo', 'CodigoProducto', 'CUM' => 'code',
+            'Lote' => 'trace_token',
+            'NombrePaciente', 'Medico' => 'person_name',
+            'Cliente', 'IPS' => 'institution_name',
+            'NombreArticulo' => 'article_name',
+            default => 'text',
+        };
     }
 
     private static function baseState(string $docType, array $fieldsConfig, array $fuenteVerdad, array $visualChecks = []): array
@@ -267,6 +286,25 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertCount(1, $result['hallazgos']['items']);
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
         $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testEvaluateMatchesPatientNameWhenEncodingReplacesEnyeWithQuestionMark(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [self::field('NombrePaciente', 'S')],
+                ['header' => ['NombrePaciente' => 'NOREÑA AGUDELO JUAN JOSE'], 'items' => []]
+            ),
+            self::payload('AUTORIZACION', ['NombrePaciente' => 'JUAN JOSE NORE?A AGUDELO'])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('COINCIDE', $hallazgo['resultado']);
+        $this->assertSame('exact', $hallazgo['tipo_auditoria']);
+        $this->assertSame(0, $result['gemini_semantic_metrics']['semantic_calls']);
     }
 
     public function testEvaluateMatchesCantidadWhenAggregatedValueIsCorrect(): void
@@ -552,7 +590,7 @@ final class DocumentPolicyEngineTest extends TestCase
     }
 
     /**
-     * CAT-4: "GARCIA ABSALON" vs "PEREZ JUAN" → tokens distintos → sigue al SemanticMatchJudge.
+     * CAT-4: "GARCIA ABSALON" vs "PEREZ JUAN" → tokens distintos → sigue al fallback local.
      */
     public function testCAT4PersonNameWithDifferentTokensGoesToSemanticJudge(): void
     {

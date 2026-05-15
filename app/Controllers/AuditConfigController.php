@@ -5,19 +5,19 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\AuditConfigModel;
+use App\Services\Audit\AuditFieldValueType;
 use Core\Response;
 
 /**
- *
+ * API REST para leer y reemplazar la configuración de auditoría por cliente.
  */
 class AuditConfigController extends Controller
 {
     /** Campos técnicos internos que la UI nunca debe permitir configurar */
     private const EXCLUDED_FIELDS = ['FacSec', 'NitSec'];
 
-    /** Severidades válidas para visual checks */
+    /** Severidades válidas para campos auditables */
     private const VALID_SEVERITIES = ['ALTA', 'MEDIA', 'BAJA'];
-
 
     public function __construct()
     {
@@ -80,7 +80,7 @@ class AuditConfigController extends Controller
             ? trim($body['systemPrompt'])
             : null;
 
-        $sanitizedFields = $this->sanitizeFields($body['fields'], $clientId);
+        $sanitizedFields = $this->sanitizeFields($body['fields']);
 
         $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt ?: null);
 
@@ -97,15 +97,15 @@ class AuditConfigController extends Controller
     /**
      * Valida y sanitiza el array de campos del payload.
      * - Rechaza campos excluidos (FacSec, NitSec).
-     * - Normaliza tipoCampo a 'E', 'S', 'B', 'V'.
+     * - Valida tipoCampo como 'E', 'S', 'B', 'V'.
+     * - Exige tipoDato para campos no visuales.
      * - Acepta description y severity para todos los campos.
      * - Limita CampoNombre a 100 caracteres alfanuméricos+guiones.
      *
-     * @param array  $rawFields  Body['fields'] sin sanitizar
-     * @param string $clientId   Para logging
-     * @return array             Campos válidos listos para insertar
+     * @param  array $rawFields Body['fields'] sin sanitizar
+     * @return array            Campos válidos listos para insertar
      */
-    private function sanitizeFields(array $rawFields, string $clientId): array
+    private function sanitizeFields(array $rawFields): array
     {
         $sanitized = [];
         $errors    = [];
@@ -113,52 +113,33 @@ class AuditConfigController extends Controller
         foreach ($rawFields as $idx => $field) {
             $pos = $idx + 1;
 
-            if (!isset($field['docId']) || !is_numeric($field['docId'])) {
-                $errors[] = "Campo #{$pos}: 'docId' requerido y numérico.";
+            if (!is_array($field)) {
+                $errors[] = "Campo #{$pos}: debe ser un objeto.";
                 continue;
             }
 
-            if (empty($field['campoNombre']) || !is_string($field['campoNombre'])) {
-                $errors[] = "Campo #{$pos}: 'campoNombre' requerido.";
+            try {
+                $docId       = $this->sanitizeDocId($field);
+                $campoNombre = $this->sanitizeCampoNombre($field);
+                $tipoCampo   = $this->sanitizeTipoCampo($field);
+                $tipoDato    = $this->sanitizeTipoDato($field, $tipoCampo);
+            } catch (\InvalidArgumentException $exception) {
+                $errors[] = "Campo #{$pos}: {$exception->getMessage()}";
                 continue;
             }
 
-            $campoNombre = trim($field['campoNombre']);
-
-            if (in_array($campoNombre, self::EXCLUDED_FIELDS, true)) {
-                $errors[] = "Campo #{$pos}: '{$campoNombre}' no es auditable.";
-                continue;
-            }
-
-            if (!preg_match('/^[A-Za-z0-9_.\-]{1,100}$/', $campoNombre)) {
-                $errors[] = "Campo #{$pos}: '{$campoNombre}' contiene caracteres inválidos.";
-                continue;
-            }
-
-            // tipoCampo: E=Exacto (default), S=Semántico, B=Negocio, V=Visual
-            $tipoCampo = strtoupper(trim((string)($field['tipoCampo'] ?? 'E')));
-            if (!in_array($tipoCampo, ['E', 'S', 'B', 'V'], true)) {
-                $tipoCampo = 'E';
-            }
-
-            // description y severity para todos los campos
             $description = isset($field['description']) && is_string($field['description'])
                 ? trim($field['description'])
                 : null;
-            $severity = isset($field['severity']) && is_string($field['severity'])
-                ? strtoupper(trim($field['severity']))
-                : 'ALTA';
-            if (!in_array($severity, self::VALID_SEVERITIES, true)) {
-                $severity = 'ALTA';
-            }
 
             $sanitized[] = [
-                'docId'       => (int) $field['docId'],
+                'docId'       => $docId,
                 'campoNombre' => $campoNombre,
                 'tipoCampo'   => $tipoCampo,
+                'tipoDato'    => $tipoDato,
                 'orden'       => (int) ($field['orden'] ?? 0),
                 'description' => $description,
-                'severity'    => strtolower($severity), // Guardar como alta, media, baja para consistencia interna
+                'severity'    => $this->sanitizeSeverity($field),
             ];
         }
 
@@ -167,5 +148,93 @@ class AuditConfigController extends Controller
         }
 
         return $sanitized;
+    }
+
+    private function sanitizeDocId(array $field): int
+    {
+        if (!isset($field['docId']) || !is_numeric($field['docId'])) {
+            throw new \InvalidArgumentException("'docId' requerido y numérico.");
+        }
+
+        return (int) $field['docId'];
+    }
+
+    private function sanitizeCampoNombre(array $field): string
+    {
+        if (empty($field['campoNombre']) || !is_string($field['campoNombre'])) {
+            throw new \InvalidArgumentException("'campoNombre' requerido.");
+        }
+
+        $campoNombre = trim($field['campoNombre']);
+
+        if (in_array($campoNombre, self::EXCLUDED_FIELDS, true)) {
+            throw new \InvalidArgumentException("'{$campoNombre}' no es auditable.");
+        }
+
+        if (!preg_match('/^[A-Za-z0-9_.\-]{1,100}$/', $campoNombre)) {
+            throw new \InvalidArgumentException("'{$campoNombre}' contiene caracteres inválidos.");
+        }
+
+        return $campoNombre;
+    }
+
+    private function sanitizeTipoCampo(array $field): string
+    {
+        // tipoCampo: E=Exacto, S=Semántico, B=Negocio, V=Visual
+        $tipoCampo = strtoupper(trim((string)($field['tipoCampo'] ?? '')));
+        if (!in_array($tipoCampo, ['E', 'S', 'B', 'V'], true)) {
+            throw new \InvalidArgumentException("'tipoCampo' inválido.");
+        }
+
+        return $tipoCampo;
+    }
+
+    private function sanitizeTipoDato(array $field, string $tipoCampo): ?string
+    {
+        if ($tipoCampo === 'V') {
+            return null;
+        }
+
+        $rawTipoDato = trim((string) ($field['tipoDato'] ?? ''));
+        if ($rawTipoDato === '') {
+            throw new \InvalidArgumentException("'tipoDato' es requerido para campos no visuales.");
+        }
+
+        try {
+            $valueType = AuditFieldValueType::fromInput($rawTipoDato);
+        } catch (\InvalidArgumentException) {
+            throw new \InvalidArgumentException("'tipoDato' inválido.");
+        }
+
+        if (!$valueType->isAllowedForTipoCampo($tipoCampo)) {
+            throw new \InvalidArgumentException($this->typeCombinationError($tipoCampo));
+        }
+
+        return $valueType->value;
+    }
+
+    private function typeCombinationError(string $tipoCampo): string
+    {
+        $allowedValues = AuditFieldValueType::allowedValuesForTipoCampo($tipoCampo);
+        if ($allowedValues === []) {
+            return "'tipoCampo' inválido.";
+        }
+
+        return "'tipoCampo={$tipoCampo}' solo permite 'tipoDato="
+            . implode("', 'tipoDato=", $allowedValues)
+            . "'.";
+    }
+
+    private function sanitizeSeverity(array $field): string
+    {
+        $severity = isset($field['severity']) && is_string($field['severity'])
+            ? strtoupper(trim($field['severity']))
+            : 'ALTA';
+
+        if (!in_array($severity, self::VALID_SEVERITIES, true)) {
+            $severity = 'ALTA';
+        }
+
+        return strtolower($severity);
     }
 }

@@ -63,6 +63,7 @@ export const ClientDocumentsSchema = z.array(ClientDocumentSchema);
 export const AuditConfigFieldSchema = z.object({
   campoNombre: z.string(),
   tipoCampo: z.string(), // 'E' (exacto), 'S' (semántico), 'V' (visual), 'B' (negocio)
+  tipoDato: z.string(),
   enabled: z.boolean().default(true),
   description: z.string().nullable().optional(),
   severity: z.string().nullable().optional(),

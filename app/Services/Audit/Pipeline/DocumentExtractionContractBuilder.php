@@ -109,7 +109,8 @@ final class DocumentExtractionContractBuilder
 
         foreach ($fields as $field) {
             $name = $this->fieldName($field);
-            $target = $this->isItemField($documentName, $name, (string) ($field['tipoCampo'] ?? 'E'))
+            $valueType = $this->fieldValueType($field);
+            $target = $this->isItemField($documentName, $name, (string) ($field['tipoCampo'] ?? 'E'), $valueType)
                 ? 'items'
                 : 'fields';
 
@@ -132,9 +133,18 @@ final class DocumentExtractionContractBuilder
         return $name;
     }
 
-    public function isItemField(string $documentName, string $fieldName, string $tipoCampo): bool
+    public function isItemField(
+        string $documentName,
+        string $fieldName,
+        string $tipoCampo,
+        ?AuditFieldValueType $valueType = null
+    ): bool
     {
         if (AuditComparisonType::fromTipoCampo($tipoCampo) === AuditComparisonType::BUSINESS) {
+            return true;
+        }
+
+        if ($valueType === AuditFieldValueType::ARTICLE_NAME || $valueType === AuditFieldValueType::TRACE_TOKEN) {
             return true;
         }
 
@@ -328,10 +338,7 @@ final class DocumentExtractionContractBuilder
         $properties = [];
         foreach ($fields as $field) {
             $name = $this->fieldName($field);
-            $properties[$name] = $this->buildEvidenceFieldSchema(
-                $name,
-                (string) ($field['tipoCampo'] ?? 'E')
-            );
+            $properties[$name] = $this->buildEvidenceFieldSchema($field);
         }
 
         return $properties;
@@ -349,9 +356,12 @@ final class DocumentExtractionContractBuilder
      * Nota: sub-campos informativos (confianza, evidencia, ubicacion) fueron
      * eliminados por no participar en ninguna decisión de auditoría.
      */
-    private function buildEvidenceFieldSchema(string $fieldName, string $tipoCampo): array
+    private function buildEvidenceFieldSchema(array $field): array
     {
-        $valorType = $this->schemaTypeForField($fieldName, $tipoCampo);
+        $fieldName = $this->fieldName($field);
+        $tipoCampo = (string) ($field['tipoCampo'] ?? 'E');
+        $valueType = $this->fieldValueType($field);
+        $valorType = $this->schemaTypeForField($valueType, $tipoCampo);
 
         return [
             'type' => 'object',
@@ -359,12 +369,12 @@ final class DocumentExtractionContractBuilder
                 'valor' => [
                     'type' => $valorType,
                     'nullable' => true,
-                    'description' => $this->fieldValueDescription($fieldName),
+                    'description' => $this->fieldValueDescription($fieldName, $valueType),
                 ],
                 'valores' => [
                     'type' => 'array',
                     'items' => ['type' => $valorType],
-                    'description' => $this->fieldValuesDescription($fieldName),
+                    'description' => $this->fieldValuesDescription($fieldName, $valueType),
                 ],
                 'presente' => [
                     'type' => 'boolean',
@@ -381,39 +391,39 @@ final class DocumentExtractionContractBuilder
         ];
     }
 
-    private function schemaTypeForField(string $fieldName, string $tipoCampo): string
+    private function schemaTypeForField(AuditFieldValueType $valueType, string $tipoCampo): string
     {
         if (AuditComparisonType::fromTipoCampo($tipoCampo) === AuditComparisonType::BUSINESS) {
             return 'number';
         }
 
-        return AuditFieldValueType::fromFieldName($fieldName)->isNumericForSchema() ? 'number' : 'string';
+        return $valueType->isNumericForSchema() ? 'number' : 'string';
     }
 
-    private function fieldValueDescription(string $fieldName): string
+    private function fieldValueDescription(string $fieldName, AuditFieldValueType $valueType): string
     {
-        if (AuditFieldValueType::isIdentityDocumentNumberField($fieldName)) {
+        if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
             return $this->identityDocumentNumberDescription($fieldName);
         }
 
-        if (AuditFieldValueType::isIdentityPersonNameField($fieldName)) {
+        if ($valueType === AuditFieldValueType::PERSON_NAME) {
             return $this->identityPersonNameDescription($fieldName);
         }
 
-        if (AuditFieldValueType::isIdentityDocumentTypeField($fieldName)) {
+        if ($valueType === AuditFieldValueType::IDENTITY_DOC_TYPE) {
             return 'Solo tipo de documento de identidad visible en el soporte, como CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC. No incluyas número ni nombre.';
         }
 
         return 'Valor principal extraído del documento tal como aparece visible.';
     }
 
-    private function fieldValuesDescription(string $fieldName): string
+    private function fieldValuesDescription(string $fieldName, AuditFieldValueType $valueType): string
     {
-        if (AuditFieldValueType::isIdentityDocumentNumberField($fieldName)) {
+        if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
             return 'Array de un elemento con el número/token de identificación limpio cuando estadoExtraccion=FOUND. No incluyas nombres concatenados.';
         }
 
-        if (AuditFieldValueType::isIdentityPersonNameField($fieldName)) {
+        if ($valueType === AuditFieldValueType::PERSON_NAME) {
             return 'Array de un elemento con el nombre limpio cuando estadoExtraccion=FOUND. No incluyas tipo ni número de documento.';
         }
 
@@ -436,5 +446,18 @@ final class DocumentExtractionContractBuilder
         }
 
         return 'Solo nombres y apellidos del paciente. No incluyas tipo ni número de documento. Ejemplo: si ves "94229637-NORENA AGUDELO JUAN JOSE", retorna valor="NORENA AGUDELO JUAN JOSE".';
+    }
+
+    /**
+     * @param  array<string,mixed> $field
+     */
+    private function fieldValueType(array $field): AuditFieldValueType
+    {
+        $tipoDato = trim((string) ($field['tipoDato'] ?? ''));
+        if ($tipoDato === '') {
+            throw new InvalidArgumentException('Campo sin tipoDato en extraction contract');
+        }
+
+        return AuditFieldValueType::fromInput($tipoDato);
     }
 }

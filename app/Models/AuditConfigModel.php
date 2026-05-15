@@ -37,10 +37,10 @@ class AuditConfigModel extends Model
                 nd.NitMedDocNom         AS docNombre,
                 ac.CampoNombre,
                 ac.TipoCampo,
+                ac.TipoDato,
                 ac.Orden,
                 ac.DescripcionOverride,
-                ac.SeveridadOverride,
-                TipoDato
+                ac.SeveridadOverride
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN NitDocumentos nd WITH (NOLOCK)
                 ON nd.NitSec       = ac.FacNitSec
@@ -76,6 +76,7 @@ class AuditConfigModel extends Model
                 $documents[$docNombre]['fields'][] = [
                     'campoNombre' => $row['CampoNombre'],
                     'tipoCampo'   => $row['TipoCampo'],
+                    'tipoDato'    => strtolower(trim((string) $row['TipoDato'])),
                     'orden'       => (int) $row['Orden'],
                     'severity'    => $row['SeveridadOverride'] ?? 'media',
                 ];
@@ -128,7 +129,7 @@ class AuditConfigModel extends Model
      * @param string      $nitSec       NIT del cliente
      * @param array       $fields       Lista de campos a activar:
      *                                  [['docId'=>1,'campoNombre'=>'NumeroFactura',
-     *                                    'tipoCampo'=>'D','orden'=>1,
+     *                                    'tipoCampo'=>'E','tipoDato'=>'text','orden'=>1,
      *                                    'description'=>null,'severity'=>null], ...]
      * @param string|null $systemPrompt Prompt personalizado (opcional)
      */
@@ -183,8 +184,7 @@ class AuditConfigModel extends Model
                     FecMod       = GETDATE()
             WHEN NOT MATCHED THEN
                 INSERT (FacNitSec, SystemPrompt, Activo, FecCre, FecMod)
-                VALUES (:nitSecI, :promptI, 1, GETDATE(), GETDATE());
-        ";
+                VALUES (:nitSecI, :promptI, 1, GETDATE(), GETDATE());";
 
         $stmt = $db->prepare($sql);
         $stmt->bindParam(':nitSec',  $nitSec,       PDO::PARAM_STR);
@@ -199,7 +199,8 @@ class AuditConfigModel extends Model
      * borra los anteriores e inserta los nuevos en lote.
      *
      * @param array $fields  [['docId'=>int,'campoNombre'=>string,'tipoCampo'=>string,
-     *                         'orden'=>int,'description'=>?string,'severity'=>?string], ...]
+     *                         'tipoDato'=>?string,'orden'=>int,'description'=>?string,
+     *                         'severity'=>?string], ...]
      */
     private function replaceFields(\PDO $db, string $nitSec, array $fields): void
     {
@@ -214,18 +215,18 @@ class AuditConfigModel extends Model
 
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
-                (FacNitSec, NitMedDocId, CampoNombre, TipoCampo, Activo, Orden,
+                (FacNitSec, NitMedDocId, CampoNombre, TipoCampo, TipoDato, Activo, Orden,
                  DescripcionOverride, SeveridadOverride)
             VALUES
-                (:nitSec, :docId, :campoNombre, :tipoCampo, 1, :orden,
-                 :description, :severity)
-        ";
+                (:nitSec, :docId, :campoNombre, :tipoCampo, :tipoDato, 1, :orden,
+                 :description, :severity)";
         $insStmt = $db->prepare($insSql);
 
         foreach ($fields as $field) {
             $docId       = (int)    $field['docId'];
             $campo       = (string) $field['campoNombre'];
-            $tipo        = (string) ($field['tipoCampo'] ?? 'D');
+            $tipo        = (string) $field['tipoCampo'];
+            $tipoDato    = $field['tipoDato'] ?? null;
             $orden       = (int)    ($field['orden']     ?? 0);
             $description = $field['description'] ?? null;
             $severity    = $field['severity']    ?? null;
@@ -234,6 +235,11 @@ class AuditConfigModel extends Model
             $insStmt->bindParam(':docId',       $docId,       PDO::PARAM_INT);
             $insStmt->bindParam(':campoNombre', $campo,       PDO::PARAM_STR);
             $insStmt->bindParam(':tipoCampo',   $tipo,        PDO::PARAM_STR);
+            if ($tipoDato === null) {
+                $insStmt->bindValue(':tipoDato', null, PDO::PARAM_NULL);
+            } else {
+                $insStmt->bindValue(':tipoDato', (string) $tipoDato, PDO::PARAM_STR);
+            }
             $insStmt->bindParam(':orden',       $orden,       PDO::PARAM_INT);
             $insStmt->bindParam(':description', $description, PDO::PARAM_STR);
             $insStmt->bindParam(':severity',    $severity,    PDO::PARAM_STR);

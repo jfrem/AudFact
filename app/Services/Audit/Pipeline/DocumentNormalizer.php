@@ -100,10 +100,11 @@ final class DocumentNormalizer extends AuditEventConsumer
     {
         $rawType = $this->resolveDocumentType($payload);
         $extraction = $this->resolveExtractionResult($payload);
+        $fieldValueTypes = $this->buildFieldValueTypes($payload['fields_config'] ?? null);
 
         $normalizationLog = [];
-        $fieldsNormalized = $this->normalizeFields($extraction['fields'] ?? [], $normalizationLog);
-        $itemsNormalized = $this->normalizeItems($extraction['items'] ?? [], $normalizationLog);
+        $fieldsNormalized = $this->normalizeFields($extraction['fields'] ?? [], $normalizationLog, $fieldValueTypes);
+        $itemsNormalized = $this->normalizeItems($extraction['items'] ?? [], $normalizationLog, $fieldValueTypes);
         $visualChecksResultado = $this->normalizeVisualChecks(
             $payload['visual_checks'] ?? [],
             $extraction['visual_checks'] ?? [],
@@ -151,10 +152,37 @@ final class DocumentNormalizer extends AuditEventConsumer
     }
 
     /**
+     * @return array<string,AuditFieldValueType>
+     */
+    private function buildFieldValueTypes(mixed $fieldsConfig): array
+    {
+        if (!is_array($fieldsConfig)) {
+            throw new RuntimeException('document_extracted sin fields_config válido');
+        }
+
+        $types = [];
+        foreach ($fieldsConfig as $fieldConfig) {
+            if (!is_array($fieldConfig)) {
+                continue;
+            }
+
+            $field = trim((string) ($fieldConfig['campoNombre'] ?? ''));
+            if ($field === '') {
+                continue;
+            }
+
+            $types[$field] = AuditFieldValueType::fromInput((string) ($fieldConfig['tipoDato'] ?? ''));
+        }
+
+        return $types;
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $normalizationLog
+     * @param array<string,AuditFieldValueType> $fieldValueTypes
      * @return array<string,mixed>
      */
-    private function normalizeFields(mixed $fields, array &$normalizationLog): array
+    private function normalizeFields(mixed $fields, array &$normalizationLog, array $fieldValueTypes): array
     {
         if (!is_array($fields)) {
             throw new RuntimeException('extraction_result.fields debe ser array');
@@ -166,8 +194,14 @@ final class DocumentNormalizer extends AuditEventConsumer
                 continue;
             }
 
+            $canonicalField = trim($field);
+            if (!isset($fieldValueTypes[$canonicalField])) {
+                $this->appendLog($normalizationLog, 'unconfigured_field_dropped', ['field' => $canonicalField]);
+                continue;
+            }
+
             [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
-                trim($field), $value, $normalizationLog
+                $canonicalField, $value, $fieldValueTypes[$canonicalField], $normalizationLog
             );
 
             if (!array_key_exists($canonical, $normalized) || $normalized[$canonical] === null) {
@@ -181,9 +215,10 @@ final class DocumentNormalizer extends AuditEventConsumer
 
     /**
      * @param array<int,array<string,mixed>> $normalizationLog
+     * @param array<string,AuditFieldValueType> $fieldValueTypes
      * @return array<int,array<string,mixed>>
      */
-    private function normalizeItems(mixed $items, array &$normalizationLog): array
+    private function normalizeItems(mixed $items, array &$normalizationLog, array $fieldValueTypes): array
     {
         if (!is_array($items)) {
             return [];
@@ -201,8 +236,20 @@ final class DocumentNormalizer extends AuditEventConsumer
                     continue;
                 }
 
+                $canonicalField = trim($field);
+                if (!isset($fieldValueTypes[$canonicalField])) {
+                    $this->appendLog($normalizationLog, 'unconfigured_item_field_dropped', [
+                        'field' => $canonicalField,
+                        'item_index' => $index,
+                    ]);
+                    continue;
+                }
+
                 [$canonical, $normalizedValue] = $this->normalizeFieldWithLog(
-                    trim($field), $value, $normalizationLog,
+                    $canonicalField,
+                    $value,
+                    $fieldValueTypes[$canonicalField],
+                    $normalizationLog,
                     ['item_index' => $index]
                 );
 
@@ -224,6 +271,7 @@ final class DocumentNormalizer extends AuditEventConsumer
     private function normalizeFieldWithLog(
         string $originalField,
         mixed $value,
+        AuditFieldValueType $valueType,
         array &$log,
         array $logContext = []
     ): array {
@@ -231,7 +279,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             throw new RuntimeException("El campo '{$originalField}' no cumple con shape v1 (se esperaba un array con la clave 'valor').");
         }
 
-        return $this->normalizeEvidenceField($originalField, $value, $log, $logContext);
+        return $this->normalizeEvidenceField($originalField, $valueType, $value, $log, $logContext);
     }
 
     /**
@@ -244,18 +292,19 @@ final class DocumentNormalizer extends AuditEventConsumer
      */
     private function normalizeEvidenceField(
         string $originalField,
+        AuditFieldValueType $valueType,
         array $evidence,
         array &$log,
         array $logContext = []
     ): array {
         $rawValor = $evidence['valor'] ?? null;
-        [$normalizedValor, $valorOps] = $this->normalizeEvidenceScalar($originalField, $rawValor);
+        [$normalizedValor, $valorOps] = $this->normalizeEvidenceScalar($originalField, $valueType, $rawValor);
         $this->appendFieldNormalizationOperations($log, $valorOps, $originalField, 'v1_valor', $logContext);
 
         $rawValores = is_array($evidence['valores'] ?? null) ? $evidence['valores'] : [];
         $normalizedValores = [];
         foreach ($rawValores as $v) {
-            [$normalizedValue, $valueOps] = $this->normalizeEvidenceScalar($originalField, $v);
+            [$normalizedValue, $valueOps] = $this->normalizeEvidenceScalar($originalField, $valueType, $v);
             $this->appendFieldNormalizationOperations($log, $valueOps, $originalField, 'v1_valores', $logContext);
             if ($normalizedValue !== null) {
                 $normalizedValores[] = $normalizedValue;
@@ -277,10 +326,10 @@ final class DocumentNormalizer extends AuditEventConsumer
     /**
      * @return array{0:mixed,1:array<int,string>}
      */
-    private function normalizeEvidenceScalar(string $field, mixed $value): array
+    private function normalizeEvidenceScalar(string $field, AuditFieldValueType $valueType, mixed $value): array
     {
         [$normalized, $scalarOps] = $this->normalizeScalarWithOperations($value);
-        [$normalized, $fieldOps] = $this->normalizeFieldValueWithOperations($field, $normalized);
+        [$normalized, $fieldOps] = $this->normalizeFieldValueWithOperations($field, $valueType, $normalized);
 
         return [$normalized, array_merge($scalarOps, $fieldOps)];
     }
@@ -571,13 +620,11 @@ final class DocumentNormalizer extends AuditEventConsumer
     /**
      * @return array{0:mixed,1:array<int,string>}
      */
-    private function normalizeFieldValueWithOperations(string $field, mixed $value): array
+    private function normalizeFieldValueWithOperations(string $field, AuditFieldValueType $valueType, mixed $value): array
     {
         if (!is_string($value)) {
             return [$value, []];
         }
-
-        $valueType = AuditFieldValueType::fromFieldName($field);
 
         if ($valueType === AuditFieldValueType::DATE) {
             $normalizedDate = AuditFindingRules::normalizeDateToIso($value);
@@ -593,7 +640,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             return [$normalizedDocument, $operations];
         }
 
-        if ($valueType === AuditFieldValueType::PERSON_NAME && AuditFieldValueType::isIdentityPersonNameField($field)) {
+        if ($valueType === AuditFieldValueType::PERSON_NAME) {
             $normalizedName = AuditFindingRules::normalizePersonNameFromMixedIdentityLine($value);
             $operations = $normalizedName === $value ? [] : ['person_name_identity_prefix_removed'];
             return [$normalizedName, $operations];

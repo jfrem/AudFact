@@ -19,12 +19,6 @@ enum DocumentQuality: string
     case PARTIAL           = 'parcialmente_legible';
     case ILLEGIBLE         = 'ilegible';
 
-    /** @return list<string> */
-    public static function values(): array
-    {
-        return array_column(self::cases(), 'value');
-    }
-
     /**
      * Normaliza y valida una calidad documental proveniente de payload o BD.
      *
@@ -40,29 +34,5 @@ enum DocumentQuality: string
         }
 
         return $case;
-    }
-
-    /**
-     * Normaliza sin lanzar excepción — útil para validación opcional.
-     */
-    public static function tryFromString(string $raw): ?self
-    {
-        return self::tryFrom(strtolower(trim($raw)));
-    }
-
-    /**
-     * Indica si la calidad documental permite auditoría con plena confianza.
-     */
-    public function isLegible(): bool
-    {
-        return $this === self::LEGIBLE;
-    }
-
-    /**
-     * Indica si la calidad impide emitir un resultado definitivo.
-     */
-    public function preventsConclusion(): bool
-    {
-        return $this !== self::LEGIBLE;
     }
 }

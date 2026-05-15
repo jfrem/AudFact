@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Services\Audit;
 
 use App\Services\Audit\AuditFindingRules;
+use App\Services\Audit\AuditFieldValueType;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -246,42 +247,42 @@ final class AuditFindingRulesNormalizationTest extends TestCase
 
     public function testNormalizeForComparisonRoutesDateCorrectly(): void
     {
-        $this->assertSame('2026-05-04', AuditFindingRules::normalizeForComparison('FechaEntrega', '04/05/2026'));
+        $this->assertSame('2026-05-04', AuditFindingRules::normalizeForComparison(AuditFieldValueType::DATE, '04/05/2026'));
     }
 
     public function testNormalizeForComparisonRoutesNarrativeDateCorrectly(): void
     {
-        $this->assertSame('2026-05-04', AuditFindingRules::normalizeForComparison('FechaEntrega', '4 de mayo de 2026'));
+        $this->assertSame('2026-05-04', AuditFindingRules::normalizeForComparison(AuditFieldValueType::DATE, '4 de mayo de 2026'));
     }
 
     public function testNormalizeForComparisonRoutesIdentityDocTypeCorrectly(): void
     {
-        $this->assertSame('CC', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Cédula de Ciudadanía'));
-        $this->assertSame('TI', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Tarjeta de Identidad'));
-        $this->assertSame('CE', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Cédula de Extranjería'));
+        $this->assertSame('CC', AuditFindingRules::normalizeForComparison(AuditFieldValueType::IDENTITY_DOC_TYPE, 'Cédula de Ciudadanía'));
+        $this->assertSame('TI', AuditFindingRules::normalizeForComparison(AuditFieldValueType::IDENTITY_DOC_TYPE, 'Tarjeta de Identidad'));
+        $this->assertSame('CE', AuditFindingRules::normalizeForComparison(AuditFieldValueType::IDENTITY_DOC_TYPE, 'Cédula de Extranjería'));
     }
 
     public function testNormalizeForComparisonRoutesIdentityDocNumberCorrectly(): void
     {
         $this->assertSame(
             '94229637',
-            AuditFindingRules::normalizeForComparison('DocumentoPaciente', '94229637-NOREÑA AGUDELO JUAN JOSE')
+            AuditFindingRules::normalizeForComparison(AuditFieldValueType::IDENTITY_DOC_NUMBER, '94229637-NOREÑA AGUDELO JUAN JOSE')
         );
     }
 
     public function testNormalizeForComparisonRoutesQuantityCorrectly(): void
     {
         // Sin separador de miles, directo
-        $this->assertSame('1500', AuditFindingRules::normalizeForComparison('CantidadEntregada', '1500'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::QUANTITY, '1500'));
         // Formato europeo: punto miles + coma decimal → 1500
-        $this->assertSame('1500', AuditFindingRules::normalizeForComparison('CantidadEntregada', '1.500,00'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::QUANTITY, '1.500,00'));
         // Entero simple
-        $this->assertSame('30', AuditFindingRules::normalizeForComparison('CantidadEntregada', '30'));
+        $this->assertSame('30', AuditFindingRules::normalizeForComparison(AuditFieldValueType::QUANTITY, '30'));
     }
 
     public function testNormalizeForComparisonRoutesMoneyCorrectly(): void
     {
-        $this->assertSame('1500', AuditFindingRules::normalizeForComparison('VlrCobrado', '1.500,00'));
-        $this->assertSame('1500', AuditFindingRules::normalizeForComparison('VlrCobrado', '1,500.00'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::MONEY, '1.500,00'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::MONEY, '1,500.00'));
     }
 }

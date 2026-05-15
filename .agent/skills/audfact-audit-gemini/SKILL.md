@@ -33,10 +33,10 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida (PolicyEngine + RulesEvaluationWorker + AggregationWorker) para normalizar valores, sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
-| `app/Services/Audit/AuditFieldValueType.php` | **[AUDIT-016]** Enum strategy-based: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/IDENTITY_DOC_NUMBER/CODE/PERSON_NAME/TRACE_TOKEN` + `fromFieldName()`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTraceSetComparison()` (TRACE_TOKEN), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE, TRACE_TOKEN) y taxonomía centralizada de identidad documental (`isIdentity*`, `hasIdentityField`). Fuente de verdad única para lógica de comparación diferenciada. |
+| `app/Services/Audit/AuditFieldValueType.php` | Enum strategy-based de `TipoDato` explícito en `audit-config`: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/IDENTITY_DOC_NUMBER/CODE/TRACE_TOKEN/PERSON_NAME/INSTITUTION_NAME/ARTICLE_NAME`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTraceSetComparison()` (TRACE_TOKEN), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE, TRACE_TOKEN), `allowsSemanticGeminiFallback()` (solo ARTICLE_NAME). Prohibido inferir tipos por nombre del campo. |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
-| `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
+| `app/Services/Audit/ArticleSemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
 | `app/Services/Audit/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
 | `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `responseIA/` para diagnóstico local |
 
@@ -93,19 +93,20 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
 3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
 4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
-5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `SemanticMatchJudge` solo como fallback text-only de homologación semántica con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
+5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas y `document_decisions`.
 6. `AuditAggregationWorker` agrega a `auditResultData`, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
 
 ## Reglas de implementación (estrictas)
 
 1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`.
-2. **TipoCampo gobierna la comparación y el tipo base de extracción** — fuente de verdad: columna `TipoCampo` en `Discolnet.dbo.AudDispCampo` mapeada por `AuditComparisonType::fromTipoCampo()`:
-   - `E` (default — cualquier código no-S/B/V) → `EXACT` (igualdad normalizada)
-   - `S` → `SEMANTIC` (umbral 0.82, fallback `SemanticMatchJudge`)
-   - `B` → `BUSINESS` (sumatoria de items + comparación numérica)
-   - `V` → `VISUAL` (vive en `visualChecks[]` del `audit-config`; puede ser booleano `presente`/`ausente` o evidencia estructurada opcional `valor`/`unidad`/`fecha_base`)
-   **Tipo de dato del campo** (normalización y schema Gemini) lo determina `AuditFieldValueType::fromFieldName()`: `DATE` (Fecha*), `QUANTITY` (Cantidad* — sumable), `MONEY` (Vlr* — no sumable), `IDENTITY_DOC_TYPE` (TipoDocumento*), `IDENTITY_DOC_NUMBER` (DocumentoPaciente/DocumentoMedico — extrae número sin nombres concatenados), **`CODE` (CodigoDiagnostico, etc.)**, **`PERSON_NAME` (NombrePaciente, Medico, etc.)**, **`TRACE_TOKEN` (Lote)**, `TEXT` (default). La taxonomía de identidad documental vive en los métodos `AuditFieldValueType::isIdentity*()` y `hasIdentityField()`, no en listas locales de workers. Prohibido inferir el tipo de auditoría por nombre del campo. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
+2. **TipoCampo gobierna la comparación y TipoDato gobierna el valor** — fuente de verdad: columnas `TipoCampo` y `TipoDato` en `Discolnet.dbo.AudDispCampo`.
+   - `TipoCampo=E` → `EXACT` (igualdad normalizada)
+   - `TipoCampo=S` → `SEMANTIC` (umbral 0.82; Gemini solo si `TipoDato=article_name`)
+   - `TipoCampo=B` → `BUSINESS` (sumatoria de items + comparación numérica; solo `TipoDato=quantity`)
+   - `TipoCampo=V` → `VISUAL` (vive en `visualChecks[]`; no usa `TipoDato`)
+   - `TipoDato` permitido: `text`, `date`, `quantity`, `money`, `identity_doc_type`, `identity_doc_number`, `code`, `trace_token`, `person_name`, `institution_name`, `article_name`.
+   Prohibido inferir `TipoDato` por nombre del campo. `AuditFieldValueType::fromInput()` debe recibir metadata explícita del `audit-config`. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
 3. **[AUDIT-016] Subset matching para `CODE`**: Campos con `AuditFieldValueType::CODE` usan `evaluateSubsetField()`. Si el FDV tiene un código (ej. `S202`) y el documento lista múltiples (ej. `S202, S273, F432`), se evalúa como `COINCIDE` con `tipo_auditoria=exact`. `tokenizeCodeField()` separa por coma, punto y coma o barra; normaliza a mayúsculas. El hallazgo incluye `valueType=code` y `valoresDocumento` (array de tokens).
 4. **[TRACE_TOKEN] Set-based matching para Trazabilidad**: Campos como `Lote` usan `TRACE_TOKEN`. Aplica lógica matemática de conjuntos $FDV \subseteq Doc$. Si la FDV pide "Lote A", y el documento trae "Lote A" y "Lote B", es `COINCIDE`. Si el documento trae solo una parte de un FDV múltiple, es `NO_CONCLUYENTE` (evidencia parcial). Si trae un lote no registrado, es `VALOR_DISTINTO`.
 4. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico intentan token-sort antes de invocar Gemini. `GARCIA ABSALON` vs `ABSALON GARCIA` → `COINCIDE` con `tipo_auditoria=exact` sin gasto de API.
@@ -125,7 +126,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 ## Omisiones de campos (runtime actual)
 
-El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna solo `campoNombre`, `tipoCampo`, `orden`, `severity` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` acepta esos mismos metadatos al guardar.
+El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna `campoNombre`, `tipoCampo`, `tipoDato`, `orden`, `severity` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` exige `tipoDato` para campos no visuales y acepta `tipoDato = null` solo para `TipoCampo = V`.
 
 Implicación operativa:
 - si un campo aparece activo en `fields`, `DocumentPolicyEngine` lo evalúa;
@@ -150,13 +151,13 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
   "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE",
   "detalle":            "<string|null>",
   "tipo_auditoria":     "exact|semantic|business|visual",
-  "valueType":          "code|person_name|date|quantity|money|identity_doc_type|identity_doc_number|trace_token|text",
+  "valueType":          "text|date|quantity|money|identity_doc_type|identity_doc_number|code|trace_token|person_name|institution_name|article_name",
   "valoresDocumento":   ["S202","S273","F432"]   // solo para CODE; null en otros tipos
 }
 ```
 
 > [!NOTE]
-> `valueType` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. Los payloads v0 (string escalar) son normalizados por `resolveFieldScalar()` antes de evaluar.
+> `valueType` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. `valueType` debe salir del `TipoDato` explícito del `audit-config`, no del nombre del campo.
 
 El contrato runtime actual no incluye `rol` en hallazgos. Visual checks booleanos emiten un objeto similar, sin `valueType`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 
@@ -188,7 +189,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/audit/single" `
   -Method POST -ContentType "application/json" `
   -Body '{"DisDetNro":"T38250701547"}' | ConvertTo-Json -Depth 20
 ```
-Resultado esperado: `EstadoDetallado: "manual_review"`, `risk_score: 15`, 34 coincidencias, 1 discrepancia (NO_ENCONTRADO `CodigoDiagnostico` en FORMULA MEDICA), 1 NO_CONCLUYENTE (`NombreArticulo` en AUTORIZACION por `SemanticMatchJudge`).
+Resultado esperado: `EstadoDetallado: "manual_review"`, 34 coincidencias, 1 discrepancia (NO_ENCONTRADO `CodigoDiagnostico` en FORMULA MEDICA), 1 NO_CONCLUYENTE (`NombreArticulo` por homologación de artículo).
 
 ### Levantar los workers localmente
 ```bash
@@ -212,7 +213,7 @@ curl http://localhost:8080/audit/dlq?limit=20
 4. `rg "AuditQueueService|AuditOrchestrator|lpush|brpop"` sin coincidencias.
 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
 6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
-7. PHPUnit pasa — suite completa 128 tests, 428 assertions.
+7. PHPUnit pasa — suite completa 233 tests, 693 assertions, 10 skipped.
 8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` → 3 tests, 34 assertions (Golden Set D65260408592).
 9. Hallazgos de tipo `CODE` incluyen `valueType` y `valoresDocumento` en el contrato v1.
 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.
@@ -234,5 +235,5 @@ Después de cualquier cambio en el pipeline event-driven:
 - Sprint checkpoints: `plans/checkpoints/`
 - Skill asociada para modelos SQL: `audfact-sqlsrv-models`
 - Mapeo TipoCampo → tipo de comparación: `app/Services/Audit/AuditComparisonType.php`
-- Mapeo fieldName → tipo de dato: `app/Services/Audit/AuditFieldValueType.php`
+- TipoDato explícito y reglas de compatibilidad TipoCampo/TipoDato: `app/Services/Audit/AuditFieldValueType.php`
 - Casos de validación E2E: `plans/changelog.md` (entradas DOCS-SYNC y AUDIT-014/015)

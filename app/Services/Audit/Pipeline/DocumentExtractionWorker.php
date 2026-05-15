@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\GeminiConfig;
+use App\Services\Audit\GeminiCallMetrics;
 use App\Services\Audit\GeminiGateway;
 use Core\Env;
 use Core\Logger;
@@ -178,7 +179,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 'extracted' => $extracted,
                 'cache_hit' => true,
                 'gemini_duration_ms' => 0,
-                'gemini_metrics' => null,
+                'gemini_metrics' => GeminiCallMetrics::cacheHit([
+                    'task_type' => GeminiGateway::TASK_EXTRACTION,
+                    'document_type' => $documentType,
+                ]),
             ];
         }
 
@@ -371,7 +375,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ];
 
         $fieldGroups = $this->contractFieldGroups($contract);
-        if ($this->hasIdentitySeparationFields($fieldGroups)) {
+        if ($this->hasIdentitySeparationFields($payload['fields_config'] ?? [])) {
             $parts[] = 'Regla de identidad: si una línea visible mezcla tipo de documento, número y nombre, separa cada dato en su campo configurado.';
             $parts[] = 'Ejemplo: "CC 94229637 NORENA AGUDELO" implica TipoDocumentoPaciente="CC", DocumentoPaciente="94229637" y NombrePaciente="NORENA AGUDELO" si esos campos están solicitados.';
             $parts[] = 'Ejemplo: "Medico: 12345678-PEREZ ANA MARIA" implica DocumentoMedico="12345678" y Medico="PEREZ ANA MARIA" si esos campos están solicitados.';
@@ -528,13 +532,43 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     }
 
     /**
-     * @param  array{fields:array<int,string>,items:array<int,string>} $fieldGroups
+     * @param  mixed $fieldsConfig
      */
-    private function hasIdentitySeparationFields(array $fieldGroups): bool
+    private function hasIdentitySeparationFields(mixed $fieldsConfig): bool
     {
-        $configured = array_merge($fieldGroups['fields'], $fieldGroups['items']);
+        if (!is_array($fieldsConfig)) {
+            return false;
+        }
 
-        return AuditFieldValueType::hasIdentityField($configured);
+        foreach ($fieldsConfig as $fieldConfig) {
+            if (!is_array($fieldConfig)) {
+                continue;
+            }
+
+            $valueType = $this->optionalFieldValueTypeFromConfig($fieldConfig);
+            if ($valueType?->isIdentityPromptValue()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string,mixed> $fieldConfig
+     */
+    private function optionalFieldValueTypeFromConfig(array $fieldConfig): ?AuditFieldValueType
+    {
+        $tipoDato = trim((string) ($fieldConfig['tipoDato'] ?? ''));
+        if ($tipoDato === '') {
+            return null;
+        }
+
+        try {
+            return AuditFieldValueType::fromInput($tipoDato);
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
     }
 
     /**

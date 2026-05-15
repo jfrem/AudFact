@@ -45,9 +45,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
                     'DISPENSA' => [
                         'docId'        => 1,
                         'fields'       => [
-                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E'],
-                            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S'],
-                            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B'],
+                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
+                            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity'],
                         ],
                         'visualChecks' => [[
                             'check' => 'FirmaActaEntrega',
@@ -57,12 +57,16 @@ final class DocumentAuditOrchestratorTest extends TestCase
                     ],
                     'AUTORIZACION' => [
                         'docId'        => 2,
-                        'fields'       => ['NumeroAutorizacion'],
+                        'fields'       => [
+                            ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'code'],
+                        ],
                         'visualChecks' => [],
                     ],
                     'FORMULA MEDICA' => [
                         'docId'        => 3,
-                        'fields'       => ['NombreArticulo'],
+                        'fields'       => [
+                            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
+                        ],
                         'visualChecks' => [['check' => 'FirmaPrescriptor', 'description' => 'Firma médico', 'severity' => 'CRITICO']],
                     ],
                 ],
@@ -203,7 +207,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 'documents'    => [
                     'FORMULA_MEDICA' => [
                         'docId'        => 3,
-                        'fields'       => ['FirmaActaEntrega'],
+                        'fields'       => [
+                            ['campoNombre' => 'FirmaActaEntrega', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+                        ],
                         'visualChecks' => [],
                     ],
                 ],
@@ -258,7 +264,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 'documents'    => [
                     'DISPENSA' => [
                         'docId'        => 1,
-                        'fields'       => ['DocumentoPaciente'],
+                        'fields'       => [
+                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                        ],
                         'visualChecks' => [],
                     ],
                 ],

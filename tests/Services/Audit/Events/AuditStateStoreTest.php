@@ -95,7 +95,7 @@ final class AuditStateStoreTest extends TestCase
             )
             ->willReturn(1);
 
-        $this->assertTrue($this->store->updateAuditStatus($auditId, 'processing'));
+        $this->assertTrue($this->store->patchAudit($auditId, ['status' => 'processing']));
     }
 
     public function testSetAuditDocumentsTotalMarksAuditAsProcessing(): void

@@ -73,10 +73,7 @@ class AuditStateStore
         return $raw === null ? null : self::decodeJson($raw, 'AuditStateStore');
     }
 
-    public function updateAuditStatus(string $auditId, string $status): bool
-    {
-        return $this->patchAudit($auditId, ['status' => $status]);
-    }
+
 
     public function deleteAudit(string $auditId): bool
     {
@@ -198,20 +195,8 @@ class AuditStateStore
         return "audit:{$auditId}:state";
     }
 
-    private const MERGE_LUA = <<<'LUA'
-        local raw = redis.call('GET', KEYS[1])
-        if not raw then return 0 end
 
-        local state = cjson.decode(raw)
-        local patch = cjson.decode(ARGV[1])
 
-        for k, v in pairs(patch) do
-            state[k] = v
-        end
-
-        redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[2]))
-        return 1
-    LUA;
 
     private const REGISTER_DOCUMENT_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])

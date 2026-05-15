@@ -152,13 +152,20 @@ Cada campo se audita con un tipo de comparación específico, definido en el `au
 
 El `audit-config` vigente no persiste roles por campo. Cada fila activa de `AudDispCampo`
 define si un campo se evalúa mediante `CampoNombre`, `TipoCampo`, `Orden`,
-`SeveridadOverride` y, para visuales, `DescripcionOverride`. Si un campo está activo
-en `fields`, el `DocumentPolicyEngine` lo evalúa; no existe hoy una marca runtime
-`INFORMATIVO` para excluirlo de la decisión.
+`TipoDato`, `SeveridadOverride` y, para visuales, `DescripcionOverride`. Si un campo
+está activo en `fields`, el `DocumentPolicyEngine` lo evalúa; no existe hoy una marca
+runtime `INFORMATIVO` para excluirlo de la decisión.
 
 Implicación operativa: un campo como `NombreArticulo` configurado con `TipoCampo = S`
-dispara comparación semántica y puede usar `SemanticMatchJudge` como fallback Gemini
-cuando las heurísticas locales no alcanzan el umbral.
+dispara comparación semántica y puede usar `ArticleSemanticMatchJudge` como fallback
+Gemini cuando las heurísticas locales no alcanzan el umbral. Ese fallback queda
+limitado a campos con `TipoDato = article_name`; nombres de pacientes, IPS u otros
+textos semánticos se resuelven con reglas locales determinísticas.
+
+`TipoCampo` define la estrategia de comparación (`E`, `S`, `B`, `V`). `TipoDato`
+define cómo se normaliza, extrae y compara el valor. Los tipos vigentes son:
+`text`, `date`, `quantity`, `money`, `identity_doc_type`, `identity_doc_number`,
+`code`, `trace_token`, `person_name`, `institution_name` y `article_name`.
 
 Para cantidades configuradas con `TipoCampo = B`, Gemini solo extrae valores visibles.
 La regla la aplica PHP: suma ítems del documento/FDV y valida el límite documental según
@@ -238,23 +245,27 @@ Auditoría POS para Positiva Compañía de Seguros. Paciente: Garcia Absalon. Pr
 
 ### Caso complementario: trazabilidad multi-lote (`X24260100121`)
 
-Este caso valida que la trazabilidad de producto no se compare como un string plano.
-El campo `Lote` se clasifica como `TRACE_TOKEN` y se evalúa con lógica de conjuntos.
+Este caso valida que la trazabilidad de producto no se compare como un string plano
+y que el pipeline post-refactor preserve las métricas de Gemini en el resultado
+persistido. El campo `Lote` se clasifica como `TRACE_TOKEN` y se evalúa con
+lógica de conjuntos.
 
 | Métrica | Valor |
 |---|---|
 | Estado final | `manual_review` |
 | Documentos procesados | 3 (Fórmula, Autorización, Dispensa) |
-| Total campos auditados | 36 |
-| Coincidencias | 32 |
-| Discrepancias | 1 (`CodigoDiagnostico` distinto en fórmula) |
-| No concluyentes | 3 |
+| Total campos auditados | 37 |
+| Coincidencias | 33 |
+| Discrepancias | 1 (`CodigoDiagnostico` NO_ENCONTRADO en `DISPENSA`) |
+| No concluyentes | 3 (`NombreArticulo` en fórmula, `IPS` en dispensa, `NombreArticulo` en dispensa) |
 | Risk Score | 40 |
 
 Verificaciones clave:
 - **Lote**: FDV `{645B01A, E245513E}` = documento `{645B01A, E245513E}` → `COINCIDE`.
 - **Autorización**: aprobada; `CantidadEntregada` `60` coincide con el techo autorizado registrado.
-- **Dispensa**: no aprobada por revisión semántica de `IPS` y `NombreArticulo`, no por trazabilidad.
+- **Diagnóstico en acta**: el `audit-config` vigente del cliente `2426` activa `CodigoDiagnostico` en `DISPENSA`; Gemini no lo encuentra visible en el acta y el motor lo marca como `NO_ENCONTRADO`.
+- **Dispensa**: no aprobada por `CodigoDiagnostico` ausente y revisión semántica de `IPS` y `NombreArticulo`, no por trazabilidad.
+- **Métricas Gemini**: 3 llamadas de extracción, 2 llamadas semánticas, 5 llamadas remotas en total, `cache_hit_rate = 0` y tokens totales `20044`.
 
 ---
 
@@ -333,6 +344,7 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 | **Testigo a Ruego** | Persona que firma en nombre del paciente cuando este no puede |
 | **Validador de Derechos** | Documento que confirma la afiliación activa del paciente a la EPS |
 | **audit-config** | Configuración por cliente que define qué campos auditar y con qué reglas |
+| **TipoDato** | Tipo explícito del valor auditable; gobierna schema Gemini, normalización y estrategia fina de comparación |
 | **Risk Score** | Puntuación numérica de riesgo calculada por el motor de reglas |
 
 ---

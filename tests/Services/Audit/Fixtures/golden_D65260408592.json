@@ -1,7 +1,7 @@
 {
   "_comment": "Golden Set Fixture — AUDIT-016. Datos redactados/sintéticos. Sin base64.",
   "id": "D65260408592",
-  "description": "FORMULA MEDICA: Acetaminofén prescrito. CodigoDiagnostico FDV=S202, documento lista 6 códigos CIE-10 (S202 presente → COINCIDE por subset). TipoDocumentoPaciente CC. NombreArticulo está activo como TipoCampo=S y debe coincidir por normalización semántica/local.",
+  "description": "FORMULA MEDICA: Acetaminofén prescrito. CodigoDiagnostico FDV=S202, documento lista 6 códigos CIE-10 (S202 presente → COINCIDE por subset). TipoDocumentoPaciente CC. NombreArticulo está activo como TipoCampo=S y TipoDato=article_name.",
   "source_truth": {
     "header": {
       "TipoDocumentoPaciente": "CC",
@@ -27,21 +27,25 @@
         {
           "campoNombre": "TipoDocumentoPaciente",
           "tipoCampo":   "E",
+          "tipoDato":    "identity_doc_type",
           "severity":    "alta"
         },
         {
           "campoNombre": "CodigoDiagnostico",
           "tipoCampo":   "E",
+          "tipoDato":    "code",
           "severity":    "alta"
         },
         {
           "campoNombre": "FechaFormula",
           "tipoCampo":   "E",
+          "tipoDato":    "date",
           "severity":    "alta"
         },
         {
           "campoNombre": "NombreArticulo",
           "tipoCampo":   "S",
+          "tipoDato":    "article_name",
           "severity":    "alta"
         }
       ],
@@ -55,7 +59,7 @@
     }
   ],
   "expected": {
-    "_comment": "NombreArticulo está activo como TipoCampo=S y genera hallazgo COINCIDE. CodigoDiagnostico: S202 ⊂ lista → COINCIDE (CAT-3). TipoDocumentoPaciente: CC=CC → COINCIDE. FechaFormula: exacto → COINCIDE.",
+    "_comment": "NombreArticulo está activo como TipoCampo=S y TipoDato=article_name. CodigoDiagnostico: S202 ⊂ lista → COINCIDE (CAT-3). TipoDocumentoPaciente: CC=CC → COINCIDE. FechaFormula: exacto → COINCIDE.",
     "campo_results": {
       "TipoDocumentoPaciente": "COINCIDE",
       "CodigoDiagnostico":     "COINCIDE",

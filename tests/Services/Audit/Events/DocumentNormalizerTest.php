@@ -17,6 +17,13 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'DISPENSA',
+            'fields_config' => $this->fieldsConfig([
+                'NumeroAutorizacion' => 'text',
+                'DocumentoPaciente' => 'identity_doc_number',
+                'NombrePaciente' => 'person_name',
+                'CodigoArticulo' => 'code',
+                'CantidadEntregada' => 'quantity',
+            ]),
             'visual_checks' => [
                 [
                     'check' => 'FirmaActaEntrega',
@@ -93,6 +100,12 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'DISPENSA',
+            'fields_config' => $this->fieldsConfig([
+                'DocumentoPaciente' => 'identity_doc_number',
+                'NombrePaciente' => 'person_name',
+                'DocumentoMedico' => 'identity_doc_number',
+                'Medico' => 'person_name',
+            ]),
             'extraction_result' => [
                 'fields' => [
                     'DocumentoPaciente' => [
@@ -131,6 +144,9 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'FORMULA MEDICA',
+            'fields_config' => $this->fieldsConfig([
+                'CodigoArticulo' => 'code',
+            ]),
             'visual_checks' => [
                 [
                     'check' => 'FirmaPrescriptor',
@@ -165,6 +181,11 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'DISPENSA',
+            'fields_config' => $this->fieldsConfig([
+                'FechaEntrega' => 'date',
+                'FechaAutorizacion' => 'date',
+                'FechaVencimiento' => 'date',
+            ]),
             'visual_checks' => [],
             'extraction_result' => [
                 'fields' => [
@@ -204,6 +225,7 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'AUTORIZACION',
+            'fields_config' => [],
             'visual_checks' => [
                 [
                     'check' => 'VigenciaEntrega',
@@ -247,6 +269,11 @@ final class DocumentNormalizerTest extends TestCase
 
         $result = $normalizer->normalize([
             'tipo_documento' => 'FORMULA MEDICA',
+            'fields_config' => $this->fieldsConfig([
+                'CodigoDiagnostico' => 'code',
+                'NombrePaciente' => 'person_name',
+                'FechaFormula' => 'date',
+            ]),
             'visual_checks' => [],
             'extraction_result' => [
                 'fields' => [
@@ -302,5 +329,23 @@ final class DocumentNormalizerTest extends TestCase
         // Verificar log operations
         $ops = array_column($result['normalization_log'], 'operation');
         $this->assertContains('v1_evidence_normalized', $ops);
+    }
+
+    /**
+     * @param  array<string,string> $typesByField
+     * @return array<int,array{campoNombre:string,tipoCampo:string,tipoDato:string}>
+     */
+    private function fieldsConfig(array $typesByField): array
+    {
+        $fields = [];
+        foreach ($typesByField as $field => $type) {
+            $fields[] = [
+                'campoNombre' => $field,
+                'tipoCampo' => $type === 'article_name' || $type === 'person_name' ? 'S' : 'E',
+                'tipoDato' => $type,
+            ];
+        }
+
+        return $fields;
     }
 }

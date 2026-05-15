@@ -211,7 +211,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * Construye el FDV-lite (target_context) por documento.
      *
      * Extrae solo los campos configurados para ese documento desde la fuente de verdad,
-     * incluyendo tipoCampo y valueType. Esto permite:
+     * incluyendo tipoCampo y tipoDato. Esto permite:
      * 1. Inyectar contexto mínimo en el prompt de Gemini (anti-sesgo)
      * 2. Calcular target_context_hash para invalidar cache al cambiar FDV
      * 3. Trazar qué datos tenía la FDV al momento de la extracción
@@ -232,13 +232,14 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         foreach ($fieldsConfig as $fieldConfig) {
             $name      = trim((string) ($fieldConfig['campoNombre'] ?? ''));
             $tipoCampo = (string) ($fieldConfig['tipoCampo'] ?? 'E');
+            $tipoDato  = (string) ($fieldConfig['tipoDato'] ?? '');
             if ($name === '') {
                 continue;
             }
 
-            $valueType = AuditFieldValueType::fromFieldName($name);
+            $valueType = AuditFieldValueType::fromInput($tipoDato);
             $isItem    = $this->contractBuilder->isItemField(
-                $documentName, $name, $tipoCampo
+                $documentName, $name, $tipoCampo, $valueType
             );
 
             if ($isItem) {
@@ -251,6 +252,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 }
                 $targetItems[$name] = [
                     'tipoCampo'           => $tipoCampo,
+                    'tipoDato'            => $valueType->value,
                     'valueType'           => $valueType->value,
                     'valoresFuenteVerdad' => $valores,
                 ];
@@ -258,6 +260,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $valor = trim((string) ($header[$name] ?? ''));
                 $targetFields[$name] = [
                     'tipoCampo'          => $tipoCampo,
+                    'tipoDato'           => $valueType->value,
                     'valueType'          => $valueType->value,
                     'valorFuenteVerdad'  => $valor !== '' ? $valor : null,
                 ];
@@ -376,16 +379,10 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         $normalized = [];
         foreach ($fields as $field) {
             if (is_array($field) && isset($field['campoNombre'])) {
-                $normalized[] = array_merge(
-                    [],
-                    $field
-                );
-            } elseif (is_string($field) && trim($field) !== '') {
-                $normalized[] = [
-                    'campoNombre' => trim($field),
-                    'tipoCampo'   => 'E',
-                    'severity'    => 'alta',
-                ];
+                if (trim((string) ($field['tipoDato'] ?? '')) === '') {
+                    throw new InvalidArgumentException('Campo sin tipoDato en fields');
+                }
+                $normalized[] = $field;
             } else {
                 throw new InvalidArgumentException('Campo inválido en fields');
             }

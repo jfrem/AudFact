@@ -53,7 +53,11 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_EXTRACTED, $publisher->published[0]->eventType);
         $this->assertTrue($publisher->published[0]->payload['cache_hit']);
-        $this->assertArrayNotHasKey('gemini_metrics', $publisher->published[0]->payload);
+        $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
+        $this->assertSame('application/pdf', $publisher->published[0]->payload['mime']);
+        $this->assertTrue($publisher->published[0]->payload['gemini_metrics']['cache_hit'] ?? false);
+        $this->assertSame('extraction', $store->lastPatch['gemini_metrics']['task_type'] ?? null);
+        $this->assertTrue($store->lastPatch['gemini_metrics']['cache_hit'] ?? false);
         $this->assertSame($hash, $publisher->published[0]->payload['document_hash']);
         $this->assertSame('extracted', $store->lastPatch['status'] ?? null);
         $this->assertNull($store->forcedResult);
@@ -146,6 +150,11 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
             'extraction_contract' => $contract,
+            'fields_config' => [
+                ['campoNombre' => 'TipoDocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_type'],
+                ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                ['campoNombre' => 'NombrePaciente', 'tipoCampo' => 'S', 'tipoDato' => 'person_name'],
+            ],
             'contract_hash' => hash('sha256', json_encode($contract, JSON_THROW_ON_ERROR)),
         ]));
 
@@ -373,6 +382,10 @@ final class DocumentExtractionWorkerTest extends TestCase
                 'items' => [],
             ],
             'extraction_contract' => $this->extractionContract(),
+            'fields_config' => [
+                ['campoNombre' => 'NumeroFactura', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+                ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
+            ],
             'attempt' => 1,
             'contract_hash' => hash('sha256', json_encode($this->extractionContract(), JSON_THROW_ON_ERROR)),
             'target_context_hash' => hash('sha256', json_encode(['diagnosticos' => ['E119'], 'items' => []], JSON_THROW_ON_ERROR)),

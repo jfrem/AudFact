@@ -7,7 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\GeminiGateway;
-use App\Services\Audit\SemanticMatchJudge;
+use App\Services\Audit\ArticleSemanticMatchJudge;
 use Core\Logger;
 use RuntimeException;
 
@@ -31,7 +31,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         if ($policyEngine === null) {
             $gateway = GeminiGateway::create();
-            $semanticJudge = new SemanticMatchJudge($gateway, $this->redis);
+            $semanticJudge = new ArticleSemanticMatchJudge($gateway, $this->redis);
             $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
         } else {
             $this->policyEngine = $policyEngine;

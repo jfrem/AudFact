@@ -260,11 +260,11 @@ final class AuditFindingRules
 
 
     /**
-     * Normaliza un valor para comparación según el tipo semántico del campo.
+     * Normaliza un valor para comparación según el tipo de dato configurado.
      */
-    public static function normalizeForComparison(string $field, string $value): string
+    public static function normalizeForComparison(AuditFieldValueType $valueType, string $value): string
     {
-        return match (AuditFieldValueType::fromFieldName($field)) {
+        return match ($valueType) {
             AuditFieldValueType::IDENTITY_DOC_TYPE => self::normalizeIdentityDocType($value),
             AuditFieldValueType::IDENTITY_DOC_NUMBER => self::normalizeIdentityDocNumber($value),
             AuditFieldValueType::DATE => self::normalizeDateToIso($value) ?? self::normalizeText($value),
@@ -475,6 +475,54 @@ final class AuditFindingRules
         sort($rightTokens);
 
         return $leftTokens === $rightTokens;
+    }
+
+    public static function samePersonNameTokenSet(string $left, string $right): bool
+    {
+        $leftTokens = self::tokenize(self::normalizePersonNameForTokenSet($left));
+        $rightTokens = self::tokenize(self::normalizePersonNameForTokenSet($right));
+
+        if ($leftTokens === [] || count($leftTokens) !== count($rightTokens)) {
+            return false;
+        }
+
+        sort($leftTokens);
+        sort($rightTokens);
+
+        foreach ($leftTokens as $index => $leftToken) {
+            if (!self::tokensMatchWithWildcard($leftToken, $rightTokens[$index])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function normalizePersonNameForTokenSet(string $value): string
+    {
+        $withoutAccents = self::stripAccents(strtoupper(trim($value)));
+        $normalized = (string) preg_replace('/[^A-Z0-9?]+/', ' ', $withoutAccents);
+        return (string) preg_replace('/\s+/', ' ', trim($normalized));
+    }
+
+    private static function tokensMatchWithWildcard(string $left, string $right): bool
+    {
+        if ($left === $right) {
+            return true;
+        }
+
+        if (strlen($left) !== strlen($right)) {
+            return false;
+        }
+
+        $length = strlen($left);
+        for ($i = 0; $i < $length; $i++) {
+            if ($left[$i] !== $right[$i] && $left[$i] !== '?' && $right[$i] !== '?') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static function similarity(string $left, string $right): float

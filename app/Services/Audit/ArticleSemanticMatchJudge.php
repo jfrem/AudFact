@@ -8,10 +8,10 @@ use App\Services\Audit\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
 
-final class SemanticMatchJudge
+final class ArticleSemanticMatchJudge
 {
     private const CACHE_TTL = 2592000; // 30 dias
-    private const CACHE_NAMESPACE = 'audfact:semantic:match:v2:article';
+    private const CACHE_NAMESPACE = 'audfact:semantic:match:v3:article';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
     private GeminiGateway $gateway;
@@ -37,8 +37,15 @@ final class SemanticMatchJudge
         $cached = $this->getFromCache($hash);
 
         if ($cached !== null) {
-            Logger::info('SemanticMatchJudge: cache hit', ['hash' => $hash]);
+            Logger::info('ArticleSemanticMatchJudge: cache hit', ['hash' => $hash]);
             $cached['cache_hit'] = true;
+            $cached['gemini_metrics'] = $this->enrichMetrics(
+                GeminiCallMetrics::cacheHit([
+                    'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,
+                    'document_type' => (string) ($context['document_type'] ?? ''),
+                ]),
+                $context
+            );
             return $cached;
         }
 
@@ -82,7 +89,7 @@ final class SemanticMatchJudge
                 ];
             }
         } catch (\Throwable $e) {
-            Logger::warning('SemanticMatchJudge: cache read error', ['error' => $e->getMessage()]);
+            Logger::warning('ArticleSemanticMatchJudge: cache read error', ['error' => $e->getMessage()]);
         }
 
         return null;
@@ -101,7 +108,7 @@ final class SemanticMatchJudge
             ];
             $this->redis->set($key, json_encode($payload, JSON_UNESCAPED_UNICODE), self::CACHE_TTL);
         } catch (\Throwable $e) {
-            Logger::warning('SemanticMatchJudge: cache write error', ['error' => $e->getMessage()]);
+            Logger::warning('ArticleSemanticMatchJudge: cache write error', ['error' => $e->getMessage()]);
         }
     }
 
@@ -176,7 +183,16 @@ final class SemanticMatchJudge
         ];
 
         $debugContext = array_filter(
-            array_intersect_key($context, array_flip(['audit_id', 'document_id', 'dis_det_nro', 'document_type'])),
+            array_intersect_key($context, array_flip([
+                'audit_id',
+                'document_id',
+                'dis_det_nro',
+                'document_type',
+                'field',
+                'tipoCampo',
+                'tipoDato',
+                'call_purpose',
+            ])),
             static fn(mixed $v): bool => $v !== null,
         );
 
@@ -200,10 +216,11 @@ final class SemanticMatchJudge
                     'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,
                     'document_type' => (string) ($context['document_type'] ?? ''),
                 ]);
+            $metrics = $this->enrichMetrics($metrics, $context);
 
             $parts = $response['candidates'][0]['content']['parts'] ?? null;
             if (!is_array($parts) || !isset($parts[0]['functionCall']['args'])) {
-                Logger::warning('SemanticMatchJudge: respuesta Gemini sin functionCall válido', [
+                Logger::warning('ArticleSemanticMatchJudge: respuesta Gemini sin functionCall válido', [
                     'finishReason' => (string) ($response['candidates'][0]['finishReason'] ?? ''),
                     'finishMessage' => (string) ($response['candidates'][0]['finishMessage'] ?? ''),
                     'expected' => $expected,
@@ -222,16 +239,32 @@ final class SemanticMatchJudge
             ];
 
         } catch (\Throwable $e) {
-            Logger::error('SemanticMatchJudge: falla al llamar a Gemini', [
+            Logger::error('ArticleSemanticMatchJudge: falla al llamar a Gemini', [
                 'error' => $e->getMessage(),
                 'expected' => $expected,
                 'actual' => $actual,
             ]);
-            return $this->buildFailedResult(GeminiCallMetrics::failed([
+            return $this->buildFailedResult($this->enrichMetrics(GeminiCallMetrics::failed([
                 'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,
                 'document_type' => (string) ($context['document_type'] ?? ''),
-            ]));
+            ]), $context));
         }
+    }
+
+    /**
+     * @param array<string,mixed> $metrics
+     * @param array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    private function enrichMetrics(array $metrics, array $context): array
+    {
+        foreach (['field', 'tipoCampo', 'tipoDato', 'document_type', 'call_purpose'] as $key) {
+            if (isset($context[$key])) {
+                $metrics[$key] = $context[$key];
+            }
+        }
+
+        return $metrics;
     }
 
     /**

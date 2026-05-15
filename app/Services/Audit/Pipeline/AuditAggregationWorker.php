@@ -155,7 +155,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
             'gemini_extraction' => GeminiCallMetrics::summarize($samples['gemini_extraction_metrics']),
             'gemini_semantic'   => GeminiCallMetrics::summarize($samples['gemini_semantic_metrics']),
             'gemini_total'      => GeminiCallMetrics::summarize($allGeminiMetrics),
-            'semantic_calls'    => count($samples['gemini_semantic_metrics']),
+            'semantic_calls'    => $this->countRemoteGeminiMetrics($samples['gemini_semantic_metrics']),
             'semantic_cache_hits' => $samples['semantic_cache_hits'],
             'extraction'     => $this->summarizeTimings($samples['extractions']),
             'normalization'  => $this->summarizeTimings($samples['normalizations']),
@@ -232,6 +232,20 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         return $samples;
+    }
+
+    /**
+     * Cuenta solo llamadas remotas; las muestras cache_hit preservan observabilidad
+     * en los resúmenes, pero no representan una llamada a Gemini.
+     *
+     * @param  array<int,array<string,mixed>> $metrics
+     */
+    private function countRemoteGeminiMetrics(array $metrics): int
+    {
+        return count(array_filter(
+            $metrics,
+            static fn(array $metric): bool => ($metric['cache_hit'] ?? false) !== true
+        ));
     }
 
     /**

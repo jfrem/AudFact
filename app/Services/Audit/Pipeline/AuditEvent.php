@@ -21,7 +21,7 @@ final class AuditEvent
     public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
 
-    private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
+    private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v2-identity-split';
 
     public readonly string $eventId;
     public readonly ?string $parentEventId;
@@ -30,8 +30,11 @@ final class AuditEvent
     public readonly ?string $jobId;
     public readonly ?string $documentId;
     public readonly string $timestamp;
+    /** @internal Metadata de trazabilidad — no participa en decisiones del pipeline */
     public readonly string $versionExtractor;
+    /** @internal Metadata de trazabilidad — no participa en decisiones del pipeline */
     public readonly string $versionNormalizer;
+    /** @internal Metadata de trazabilidad — no participa en decisiones del pipeline */
     public readonly string $versionRules;
     /** @var array<string,mixed> */
     public readonly array $payload;

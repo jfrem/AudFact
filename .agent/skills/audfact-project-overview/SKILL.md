@@ -102,7 +102,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 5. RulesEvaluationWorker (group: policy)
    ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
-   ├─ SemanticMatchJudge como fallback de homologación de artículos
+   ├─ ArticleSemanticMatchJudge como fallback exclusivo de homologación de artículos
    └─ cuando docs_done == docs_total, publica `rules_evaluated` en `audit.results`
 
 6. AuditAggregationWorker (group: aggregator)

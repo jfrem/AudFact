@@ -130,6 +130,7 @@ export type AuditConfigPayload = {
     docId: number;
     campoNombre: string;
     tipoCampo: string;
+    tipoDato?: string | null;
     enabled: boolean;
     description?: string | null;
     severity?: string | null;

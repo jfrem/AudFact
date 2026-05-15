@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Tests\Services\Audit;
 
 use App\Services\Audit\GeminiGateway;
-use App\Services\Audit\SemanticMatchJudge;
+use App\Services\Audit\ArticleSemanticMatchJudge;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
-final class SemanticMatchJudgeTest extends TestCase
+final class ArticleSemanticMatchJudgeTest extends TestCase
 {
     public function testGeminiFailureReturnsCleanNonCacheableFallback(): void
     {
@@ -18,7 +18,7 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis = $this->createStub(RedisClient::class);
         $redis->method('isAvailable')->willReturn(false);
 
-        $judge = new SemanticMatchJudge($gateway, $redis);
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
 
         $result = $judge->evaluate(
             'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5',
@@ -43,7 +43,7 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis = $this->createStub(RedisClient::class);
         $redis->method('isAvailable')->willReturn(false);
 
-        $judge = new SemanticMatchJudge($gateway, $redis);
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
 
         $result = $judge->evaluate(
             'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5',
@@ -76,7 +76,7 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis = $this->createStub(RedisClient::class);
         $redis->method('isAvailable')->willReturn(false);
 
-        $judge = new SemanticMatchJudge($gateway, $redis);
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
 
         $result = $judge->evaluate(
             'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5',
@@ -106,22 +106,61 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->expects($this->once())
             ->method('get')
-            ->with($this->stringContains('audfact:semantic:match:v2:article:'))
+            ->with($this->stringContains('audfact:semantic:match:v3:article:'))
             ->willReturn(null);
         $redis->expects($this->once())
             ->method('set')
             ->with(
-                $this->stringContains('audfact:semantic:match:v2:article:'),
+                $this->stringContains('audfact:semantic:match:v3:article:'),
                 $this->isType('string'),
                 $this->equalTo(2592000)
             )
             ->willReturn(true);
 
-        $judge = new SemanticMatchJudge($gateway, $redis);
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
 
         $result = $judge->evaluate('PRODUCTO A', 'PRODUCTO A');
 
         $this->assertTrue($result['is_match']);
+    }
+
+    public function testSemanticCacheHitReturnsLocalGeminiMetrics(): void
+    {
+        $gateway = new RecordingSemanticGeminiGateway([
+            'is_match' => false,
+            'same_clinical_use' => false,
+            'same_dimensions_or_dose' => false,
+            'same_material_or_technology' => false,
+            'presentation_compatible' => false,
+            'unresolved_differences' => true,
+            'confidence' => 'baja',
+            'reasoning' => 'No debería invocar Gemini.',
+        ]);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->expects($this->once())
+            ->method('get')
+            ->willReturn(json_encode([
+                'is_match' => false,
+                'reasoning' => 'Resultado desde cache.',
+            ]));
+        $redis->expects($this->never())->method('set');
+
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
+
+        $result = $judge->evaluate(
+            'DULOXETINA 60MG C*30 CAPSULA',
+            'DULOXETINA 60 MG-BLISTER 28 unds',
+            ['document_type' => 'DISPENSA', 'field' => 'NombreArticulo']
+        );
+
+        $this->assertFalse($result['is_match']);
+        $this->assertSame('Resultado desde cache.', $result['reasoning']);
+        $this->assertTrue($result['cache_hit'] ?? false);
+        $this->assertSame('semantic_match', $result['gemini_metrics']['task_type'] ?? null);
+        $this->assertSame('DISPENSA', $result['gemini_metrics']['document_type'] ?? null);
+        $this->assertTrue($result['gemini_metrics']['cache_hit'] ?? false);
+        $this->assertSame('', $gateway->lastTaskType);
     }
 }
 

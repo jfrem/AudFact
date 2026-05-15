@@ -51,6 +51,25 @@ final class GeminiCallMetrics
     }
 
     /**
+     * Construye una métrica local cuando el resultado se resuelve desde cache.
+     *
+     * No inventa tokens ni duración remota; solo preserva la visibilidad de la
+     * tarea lógica y permite que los resúmenes reporten cache_hits por perfil.
+     *
+     * @param  array<string,mixed> $context
+     * @return array<string,mixed>
+     */
+    public static function cacheHit(array $context = []): array
+    {
+        return self::withoutNulls([
+            'duration_ms' => 0,
+            'task_type' => self::stringOrNull($context['task_type'] ?? null),
+            'document_type' => self::stringOrNull($context['document_type'] ?? null),
+            'cache_hit' => true,
+        ]);
+    }
+
+    /**
      * @param  array<int,array<string,mixed>> $metrics
      * @return array<string,mixed>
      */

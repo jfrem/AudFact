@@ -38,20 +38,4 @@ enum AuditFindingResult: string
             default => false,
         };
     }
-
-    /**
-     * Indica si el resultado implica que no se puede emitir un veredicto.
-     */
-    public function isInconclusive(): bool
-    {
-        return $this === self::INCONCLUSIVE;
-    }
-
-    /**
-     * Indica si el campo no fue evaluado (omitido por regla condicional).
-     */
-    public function isSkipped(): bool
-    {
-        return $this === self::SKIPPED;
-    }
 }

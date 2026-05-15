@@ -10,18 +10,18 @@ use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
-use App\Services\Audit\SemanticMatchJudge;
+use App\Services\Audit\ArticleSemanticMatchJudge;
 use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private ?SemanticMatchJudge $semanticJudge;
+    private ?ArticleSemanticMatchJudge $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
     private int $semanticCacheHits = 0;
 
     public function __construct(
-        ?SemanticMatchJudge $semanticJudge = null
+        ?ArticleSemanticMatchJudge $semanticJudge = null
     ) {
         $this->semanticJudge = $semanticJudge;
     }
@@ -227,8 +227,9 @@ class DocumentPolicyEngine
                 continue;
             }
 
-            $docResolution = $this->resolveDocumentValue($canonicalField, $fields, $items);
-            $fdvValue      = $this->resolveSourceTruthValue($canonicalField, $sourceTruth);
+            $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
+            $docResolution = $this->resolveDocumentValue($canonicalField, $valueType, $fields, $items);
+            $fdvValue      = $this->resolveSourceTruthValue($canonicalField, $valueType, $sourceTruth);
 
             $docValue    = $docResolution['displayValue'];
             $ambiguous   = $docResolution['ambiguous'];
@@ -241,7 +242,6 @@ class DocumentPolicyEngine
             $tipoCampo    = $fieldConfig['tipoCampo'] ?? 'E';
             $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
 
-            $valueType = AuditFieldValueType::fromFieldName($canonicalField);
             $comparison = $this->evaluateDataFieldComparison(
                 $canonicalField,
                 $fdvValue,
@@ -257,7 +257,7 @@ class DocumentPolicyEngine
 
             $findings[] = $this->buildDataFinding(
                 $canonicalField, $fieldConfig, $comparison, $documentType,
-                $fdvValue, $docValue, $internalType, $evidenceMeta,
+                $fdvValue, $docValue, $internalType, $valueType, $evidenceMeta,
                 $docResolution['values']
             );
         }
@@ -297,7 +297,8 @@ class DocumentPolicyEngine
             $ambiguous,
             $context,
             $internalType,
-            $tipoCampo
+            $tipoCampo,
+            $valueType
         );
     }
 
@@ -329,10 +330,10 @@ class DocumentPolicyEngine
         ?string $fdvValue,
         ?string $docValue,
         string $internalType,
+        AuditFieldValueType $valueType,
         array $evidenceMeta = [],
         array $docValues = []
     ): array {
-        $valueType = AuditFieldValueType::fromFieldName($canonicalField);
         $valoresDocumento = $this->resolveFindingDocumentValues($valueType, $docValue, $docValues);
 
         $finding = [
@@ -390,9 +391,13 @@ class DocumentPolicyEngine
      * @param  array<int,array<string,mixed>> $items
      * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
      */
-    private function resolveDocumentValue(string $field, array $fields, array $items): array
+    private function resolveDocumentValue(
+        string $field,
+        AuditFieldValueType $valueType,
+        array $fields,
+        array $items
+    ): array
     {
-        $valueType = AuditFieldValueType::fromFieldName($field);
         [$itemValues, $evidenceMeta] = $this->extractPresentItemValues($field, $items);
 
         if ($itemValues !== []) {
@@ -490,10 +495,12 @@ class DocumentPolicyEngine
     /**
      * @param  array<string,mixed> $sourceTruth
      */
-    private function resolveSourceTruthValue(string $field, array $sourceTruth): ?string
+    private function resolveSourceTruthValue(
+        string $field,
+        AuditFieldValueType $valueType,
+        array $sourceTruth
+    ): ?string
     {
-        $valueType = AuditFieldValueType::fromFieldName($field);
-
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
 
@@ -561,6 +568,20 @@ class DocumentPolicyEngine
     }
 
     /**
+     * @param array<string,mixed> $fieldConfig
+     */
+    private function fieldValueTypeFromConfig(array $fieldConfig): AuditFieldValueType
+    {
+        $field = trim((string) ($fieldConfig['campoNombre'] ?? ''));
+        $tipoDato = trim((string) ($fieldConfig['tipoDato'] ?? ''));
+        if ($tipoDato === '') {
+            throw new RuntimeException("Campo '{$field}' sin tipoDato — verificar audit-config en BD");
+        }
+
+        return AuditFieldValueType::fromInput($tipoDato);
+    }
+
+    /**
      * @return array{resultado:string,detalle?:string}
      */
     private function evaluateField(
@@ -571,7 +592,8 @@ class DocumentPolicyEngine
         bool $ambiguous,
         array $context = [],
         ?string $forcedType = null,
-        string $tipoCampo = 'E'
+        string $tipoCampo = 'E',
+        ?AuditFieldValueType $valueType = null
     ): array {
         if ($ambiguous) {
             return [
@@ -606,24 +628,24 @@ class DocumentPolicyEngine
             throw new RuntimeException("Campo '{$field}' sin tipo de comparación — verificar audit-config en BD");
         }
 
-        $valueType = AuditFieldValueType::fromFieldName($field);
+        if ($valueType === null) {
+            throw new RuntimeException("Campo '{$field}' sin tipoDato — verificar audit-config en BD");
+        }
 
         if ($valueType->requiresSubsetComparison()) {
             return $this->evaluateSubsetField($field, $fdvValue, $docValue);
         }
         
         if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
-            $normalizedFdv = AuditFindingRules::normalizeText($fdvValue);
-            $normalizedDoc = AuditFindingRules::normalizeText($docValue);
-            if (AuditFindingRules::sameTokenSet($normalizedFdv, $normalizedDoc)) {
+            if (AuditFindingRules::samePersonNameTokenSet($fdvValue, $docValue)) {
                 return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
             }
         }
 
         return match ($forcedType) {
-            AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo),
-            AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue),
-            default                              => $this->evaluateExactField($field, $fdvValue, $docValue),
+            AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo, $valueType),
+            AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue, $valueType),
+            default                              => $this->evaluateExactField($field, $fdvValue, $docValue, $valueType),
         };
     }
 
@@ -748,9 +770,14 @@ class DocumentPolicyEngine
     /**
      * @return array{resultado:string,detalle?:string}
      */
-    private function evaluateExactField(string $field, string $fdvValue, string $docValue): array
+    private function evaluateExactField(
+        string $field,
+        string $fdvValue,
+        string $docValue,
+        AuditFieldValueType $valueType
+    ): array
     {
-        if (AuditFindingRules::normalizeForComparison($field, $fdvValue) === AuditFindingRules::normalizeForComparison($field, $docValue)) {
+        if (AuditFindingRules::normalizeForComparison($valueType, $fdvValue) === AuditFindingRules::normalizeForComparison($valueType, $docValue)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
@@ -763,10 +790,21 @@ class DocumentPolicyEngine
     /**
      * @return array{resultado:string,detalle?:string}
      */
-    private function evaluateSemanticField(string $field, string $fdvValue, string $docValue, array $context, string $tipoCampo = 'S'): array
+    private function evaluateSemanticField(
+        string $field,
+        string $fdvValue,
+        string $docValue,
+        array $context,
+        string $tipoCampo,
+        AuditFieldValueType $valueType
+    ): array
     {
         $normalizedFdv = AuditFindingRules::normalizeText($fdvValue);
         $normalizedDoc = AuditFindingRules::normalizeText($docValue);
+
+        if ($valueType === AuditFieldValueType::PERSON_NAME && AuditFindingRules::samePersonNameTokenSet($fdvValue, $docValue)) {
+            return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
+        }
 
         if (AuditFindingRules::sameTokenSet($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
@@ -783,8 +821,13 @@ class DocumentPolicyEngine
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        if ($this->semanticJudge !== null) {
-            $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, $context);
+        if ($this->semanticJudge !== null && $valueType->allowsSemanticGeminiFallback()) {
+            $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, array_merge($context, [
+                'field' => $field,
+                'tipoCampo' => $tipoCampo,
+                'tipoDato' => $valueType->value,
+                'call_purpose' => 'article_homologation',
+            ]));
             if (is_array($judgeResult['gemini_metrics'] ?? null)) {
                 $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
             }
@@ -810,10 +853,15 @@ class DocumentPolicyEngine
     /**
      * @return array{resultado:string,detalle?:string}
      */
-    private function evaluateBusinessField(string $field, string $fdvValue, string $docValue): array
+    private function evaluateBusinessField(
+        string $field,
+        string $fdvValue,
+        string $docValue,
+        AuditFieldValueType $valueType
+    ): array
     {
-        if (!AuditFieldValueType::fromFieldName($field)->isQuantitySummable()) {
-            return $this->evaluateExactField($field, $fdvValue, $docValue);
+        if (!$valueType->isQuantitySummable()) {
+            return $this->evaluateExactField($field, $fdvValue, $docValue, $valueType);
         }
 
         $fdvNumber = AuditFindingRules::parseNumber($fdvValue);

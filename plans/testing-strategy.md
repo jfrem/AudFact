@@ -7,7 +7,7 @@
 - Suite actual enfocada en servicios de auditoría (12 test files):
   - Core pipeline: `tests/Services/Audit/Events/DocumentAuditOrchestratorTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditAggregationWorkerTest.php`
   - Event infrastructure: `tests/Services/Audit/Events/AuditEventTest.php`, `AuditEventPublisherTest.php`, `AuditEventConsumerTest.php`, `AuditStateStoreTest.php`
-  - Policy & scoring: `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `SemanticMatchJudgeTest.php`, `GeminiConfigTest.php`
+  - Policy & scoring: `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `ArticleSemanticMatchJudgeTest.php`, `GeminiConfigTest.php`
 - CI ejecuta pruebas unitarias con `vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always`.
 
 ## Ejecución local

@@ -125,11 +125,57 @@ final class ResponseIADiskStore
                 'document_id' => $context['document_id'] ?? null,
                 'dis_det_nro' => $disDetNro,
                 'document_type' => $context['document_type'] ?? null,
+                'task_type' => $context['task_type'] ?? null,
+                'field' => $context['field'] ?? null,
+                'tipoCampo' => $context['tipoCampo'] ?? null,
+                'tipoDato' => $context['tipoDato'] ?? null,
+                'call_purpose' => $context['call_purpose'] ?? null,
                 'status' => $status,
             ],
-            'request' => $requestPayload,
+            'request' => $this->redactInlineData($requestPayload),
             'response' => $responseBody,
         ];
+    }
+
+    /**
+     * @param  array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function redactInlineData(array $payload): array
+    {
+        $redacted = [];
+        foreach ($payload as $key => $value) {
+            if ($key === 'inlineData' && is_array($value)) {
+                $redacted[$key] = $this->redactInlineDataBlock($value);
+                continue;
+            }
+
+            if (is_array($value)) {
+                $redacted[$key] = $this->redactInlineData($value);
+                continue;
+            }
+
+            $redacted[$key] = $value;
+        }
+
+        return $redacted;
+    }
+
+    /**
+     * @param  array<string,mixed> $inlineData
+     * @return array<string,mixed>
+     */
+    private function redactInlineDataBlock(array $inlineData): array
+    {
+        $data = is_string($inlineData['data'] ?? null) ? $inlineData['data'] : '';
+        if ($data !== '') {
+            $inlineData['data_sha256'] = hash('sha256', $data);
+            $inlineData['data_base64_bytes'] = strlen($data);
+            $inlineData['data_redacted'] = true;
+        }
+
+        unset($inlineData['data']);
+        return $inlineData;
     }
 
     /**

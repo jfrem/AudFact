@@ -1,3 +1,35 @@
+## [2026-05-15]
+
+### feat
+- **Configuración auditable por TipoDato**: `audit-config` exige, persiste y expone el tipo de dato de cada campo no visual, y el pipeline usa esa metadata para construir schemas Gemini, normalizar, comparar y decidir fallback semántico sin reglas hardcodeadas por nombre ni cliente.
+  - Archivos modificados: `app/Controllers/AuditConfigController.php`, `app/Models/AuditConfigModel.php`, `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/AuditFindingRules.php`, `app/Services/Audit/ArticleSemanticMatchJudge.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/DocumentNormalizer.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/ResponseIADiskStore.php`, `frontend/components/audit/audit-config-editor.tsx`, `frontend/lib/api/audfact.ts`, `frontend/lib/schemas/domain.ts`
+  - Hallazgo resuelto: reglas por nombre de campo que no escalaban a 22+ clientes y llamadas Gemini innecesarias en campos semánticos no-artículo.
+  - Impacto: la configuración del cliente gobierna el comportamiento; Gemini semántico queda limitado a homologación de artículos (`article_name`) y los snapshots `responseIA` ya no guardan base64 inline.
+
+### refactor
+- **Limpieza de helpers legacy sin consumidores**: se eliminan métodos públicos no usados en enums de auditoría y el test de `AuditFieldValueType` itera directamente sobre los cases nativos.
+  - Archivos modificados: `app/Services/Audit/AuditFindingResult.php`, `app/Services/Audit/DocumentQuality.php`, `app/Services/Audit/AuditFieldValueType.php`, `tests/Services/Audit/AuditFieldValueTypeTest.php`
+  - Hallazgo resuelto: DL-001, DL-002, DL-003, DL-004, DL-005, DL-006 y DL-007 del reporte `audit_pipeline_legacy_code_report.md.resolved`.
+  - Impacto: reduce superficie pública interna sin cambiar valores de enum, contratos persistidos ni comportamiento del pipeline.
+- **Métricas Gemini preservadas en cache hits**: extracción documental y homologación semántica ahora emiten métricas locales `cache_hit=true` cuando resuelven desde Redis, sin inventar tokens ni contar cache como llamada remota.
+  - Archivos modificados: `app/Services/Audit/GeminiCallMetrics.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/ArticleSemanticMatchJudge.php`, `app/Services/Audit/Pipeline/AuditAggregationWorker.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `tests/Services/Audit/ArticleSemanticMatchJudgeTest.php`
+  - Hallazgo resuelto: pérdida de visibilidad en `phase_timings.gemini_*` cuando una auditoría reutiliza cache de extracción o semántica.
+  - Impacto: `/audit/results` conserva conteos y `cache_hits` por perfil sin alterar decisiones de auditoría.
+- **Clean Code previo a backfill de TipoDato**: centraliza compatibilidad `TipoCampo`/`TipoDato` en `AuditFieldValueType`, simplifica sanitización del `audit-config` y alinea el editor para derivar opciones desde una sola matriz de tipos.
+  - Archivos modificados: `app/Controllers/AuditConfigController.php`, `app/Models/AuditConfigModel.php`, `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `frontend/components/audit/audit-config-editor.tsx`, `tests/Services/Audit/AuditFieldValueTypeTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+  - Hallazgo resuelto: deuda de mantenibilidad previa al poblamiento de `TipoDato`.
+  - Impacto: reduce duplicación de reglas sin poblar datos ni cambiar la decisión de auditoría esperada.
+- **Pruebas y documentación alineadas al contrato explícito**: tests del pipeline, Golden Set, docs de negocio y skills reflejan `TipoDato`, `ArticleSemanticMatchJudge` y el contrato actual del editor de configuración.
+  - Archivos modificados: `tests/Services/Audit/AuditFieldValueTypeTest.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`, `tests/Services/Audit/ArticleSemanticMatchJudgeTest.php`, `tests/Services/Audit/Events/DocumentAuditOrchestratorTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `tests/Services/Audit/Events/DocumentNormalizerTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `tests/Services/Audit/Fixtures/golden_D65260408592.json`, `BUSINESS.md`, `plans/architecture.md`, `plans/testing-strategy.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/audfact-project-overview/SKILL.md`
+  - Hallazgo resuelto: drift documental sobre inferencia por nombre de campo y juez semántico genérico.
+  - Impacto: futuros cambios de clientes deben configurar metadata en UI/API en vez de agregar excepciones en código.
+
+### docs
+- **Golden case post-refactor actualizado**: `BUSINESS.md` refleja el resultado real de `X24260100121` con 37 campos auditados, `CodigoDiagnostico` activo en `DISPENSA` y métricas Gemini preservadas.
+  - Archivos modificados: `BUSINESS.md`
+  - Hallazgo resuelto: drift entre el golden case documentado y el `audit-config` vigente del cliente `2426`.
+  - Impacto: el diagnóstico esperado queda alineado con `/audit/results` y evita interpretar como regresión un hallazgo configurado.
+
 ## [2026-05-14]
 
 ### feat
