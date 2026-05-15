@@ -21,7 +21,7 @@ final class AuditEvent
     public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
 
-    private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v2-identity-split';
+    private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
 
     public readonly string $eventId;
     public readonly ?string $parentEventId;

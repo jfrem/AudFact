@@ -203,7 +203,7 @@ final class DocumentExtractionContractBuilder
                 . 'Usa estadoExtraccion=FOUND_IN_LIST cuando el campo contiene múltiples valores '
                 . 'separados por coma, barra o punto y coma (ej: códigos diagnósticos). '
                 . 'Usa FOUND para un único valor claro, NOT_FOUND si no es visible, '
-                . 'AMBIGUOUS si hay conflicto y ILLEGIBLE si no es legible.',
+                . 'ILLEGIBLE si no es legible.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -352,9 +352,6 @@ final class DocumentExtractionContractBuilder
      * - `valores`: array de tokens individuales (útil para FOUND_IN_LIST)
      * - `presente`: si el dato fue encontrado en el documento
      * - `estadoExtraccion`: clasificación del resultado de búsqueda
-     *
-     * Nota: sub-campos informativos (confianza, evidencia, ubicacion) fueron
-     * eliminados por no participar en ninguna decisión de auditoría.
      */
     private function buildEvidenceFieldSchema(array $field): array
     {
@@ -382,8 +379,8 @@ final class DocumentExtractionContractBuilder
                 ],
                 'estadoExtraccion' => [
                     'type' => 'string',
-                    'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'],
-                    'description' => 'FOUND: valor único claro. FOUND_IN_LIST: múltiples valores separados por coma/barra/punto y coma. NOT_FOUND: no visible. AMBIGUOUS: conflicto. ILLEGIBLE: no legible.',
+                    'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
+                    'description' => 'FOUND: valor único claro. FOUND_IN_LIST: múltiples valores separados por coma/barra/punto y coma. NOT_FOUND: no visible. ILLEGIBLE: no legible.',
                 ],
             ],
             'required' => ['valor', 'presente', 'estadoExtraccion'],

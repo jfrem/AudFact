@@ -37,7 +37,10 @@ class AuditDataService
     }
 
     /**
-     * {@inheritDoc}
+     * Obtiene los datos de dispensación (FDV) desde SQL Server.
+     *
+     * @return array<string,mixed> Datos formateados de la dispensación con items.
+     * @throws RuntimeException Si la dispensación no existe.
      */
     public function getDispensation(string $disDetNro): array
     {
@@ -60,7 +63,10 @@ class AuditDataService
     }
 
     /**
-     * {@inheritDoc}
+     * Obtiene la configuración de auditoría para un cliente (NitSec).
+     *
+     * @return array<string,mixed> Configuración activa del cliente.
+     * @throws RuntimeException Si la configuración no existe o está inactiva.
      */
     public function getAuditConfig(string $nitSec): array
     {
@@ -84,7 +90,9 @@ class AuditDataService
     }
 
     /**
-     * {@inheritDoc}
+     * Obtiene el catálogo de documentos requeridos para un cliente.
+     *
+     * @return array<int,array<string,mixed>> Lista de tipos documentales del cliente.
      */
     public function getClientDocuments(string $nitSec): array
     {
@@ -101,7 +109,9 @@ class AuditDataService
     }
 
     /**
-     * {@inheritDoc}
+     * Obtiene los adjuntos asociados a una dispensación.
+     *
+     * @return array<int,array<string,mixed>> Lista de adjuntos con metadata y BLOBs.
      */
     public function getAttachments(string $disDetNro, string $nitSec): array
     {

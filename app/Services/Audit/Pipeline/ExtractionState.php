@@ -15,7 +15,6 @@ enum ExtractionState: string
     case FOUND         = 'FOUND';
     case FOUND_IN_LIST = 'FOUND_IN_LIST';
     case NOT_FOUND     = 'NOT_FOUND';
-    case AMBIGUOUS     = 'AMBIGUOUS';
     case ILLEGIBLE     = 'ILLEGIBLE';
 
     /**

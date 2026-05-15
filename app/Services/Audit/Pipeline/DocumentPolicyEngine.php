@@ -353,7 +353,7 @@ class DocumentPolicyEngine
         }
 
         if ($evidenceMeta !== []) {
-            $finding['_evidencia'] = array_filter($evidenceMeta, fn($v) => $v !== null);
+            $finding['extraction_meta'] = array_filter($evidenceMeta, fn($v) => $v !== null);
         }
 
         return $finding;
@@ -385,7 +385,7 @@ class DocumentPolicyEngine
      * Este es el ÚNICO punto donde ExtractedEvidence se convierte a escalares.
      * Todo lo que está downstream (evaluateField, evaluateExactField, etc.) recibe solo strings.
      * La metadata de evidencia (estadoExtraccion, valores) se extrae aquí y se propaga
-     * al hallazgo canónico por separado vía `_evidencia`.
+     * al hallazgo canónico por separado vía `extraction_meta`.
      *
      * @param  array<string,mixed> $fields
      * @param  array<int,array<string,mixed>> $items
@@ -605,7 +605,7 @@ class DocumentPolicyEngine
         if ($documentQuality !== 'legible' && $docValue === null) {
             return [
                 'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle'   => 'La calidad documental no permite concluir el valor con confianza suficiente.',
+                'detalle'   => 'La calidad documental no permite concluir el valor del campo.',
             ];
         }
 

@@ -13,11 +13,17 @@ class AuditStateStore
 {
     use JsonRedisStoreTrait;
 
+    /** Auditoría pendiente de procesamiento */
     public const AUDIT_STATUS_PENDING       = 'pending';
+    /** Auditoría en curso — al menos un documento está siendo procesado */
     public const AUDIT_STATUS_PROCESSING    = 'processing';
+    /** Auditoría completada sin hallazgos críticos */
     public const AUDIT_STATUS_COMPLETED     = 'completed';
+    /** Auditoría completada con hallazgos de alta severidad que requieren revisión humana */
     public const AUDIT_STATUS_MANUAL_REVIEW = 'manual_review';
+    /** Auditoría completada con discrepancias documentales no críticas — requiere análisis posterior */
     public const AUDIT_STATUS_ERROR         = 'error';
+    /** Error fatal de pipeline (timeout, Gemini down, excepción no recuperable) — no se completó el análisis */
     public const AUDIT_STATUS_FAILED        = 'failed';
 
     private const AUDIT_TTL_SECONDS = 86400;

@@ -7,13 +7,10 @@ namespace App\Services\Audit\Pipeline;
 /**
  * Value Object inmutable que representa un campo extraído por Gemini.
  *
- * Shape: {valor, valores, presente, estadoExtraccion}
+ * Shape canónica (contrato v1): {valor, valores, presente, estadoExtraccion}
  *
  * Implementa JsonSerializable para producir JSON compatible con
  * Redis cache y payloads de eventos.
- *
- * Nota: sub-campos informativos (confianza, evidencia, ubicacion) fueron
- * eliminados por no participar en ninguna decisión de auditoría.
  */
 final class ExtractedEvidence implements \JsonSerializable
 {
@@ -32,9 +29,6 @@ final class ExtractedEvidence implements \JsonSerializable
 
     /**
      * Hidrata desde un array (output de Normalizer, cache Redis, payload de evento).
-     *
-     * Tolera silenciosamente campos legacy (confianza, evidencia, ubicacion) que
-     * puedan existir en cache Redis aún no expirado.
      *
      * @param array<string,mixed> $data
      */

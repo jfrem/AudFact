@@ -108,8 +108,7 @@ final class AuditFindingRules
 
         return $normalized !== ''
             && (
-                str_contains($normalized, 'confianza')
-                || str_contains($normalized, 'no permite concluir')
+                str_contains($normalized, 'no permite concluir')
                 || str_contains($normalized, 'incertidumbre')
             );
     }

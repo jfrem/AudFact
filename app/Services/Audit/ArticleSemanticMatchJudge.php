@@ -152,11 +152,6 @@ final class ArticleSemanticMatchJudge
                         'type' => 'boolean',
                         'description' => 'True si existe alguna diferencia relevante sin resolver.'
                     ],
-                    'confidence' => [
-                        'type' => 'string',
-                        'enum' => ['alta', 'media', 'baja'],
-                        'description' => 'Confianza de la homologación.'
-                    ],
                     'reasoning' => [
                         'type' => 'string',
                         'description' => 'Justificación clínica o comercial breve.'
@@ -169,7 +164,6 @@ final class ArticleSemanticMatchJudge
                     'same_material_or_technology',
                     'presentation_compatible',
                     'unresolved_differences',
-                    'confidence',
                     'reasoning',
                 ]
             ]
@@ -277,8 +271,7 @@ final class ArticleSemanticMatchJudge
             && ($args['same_dimensions_or_dose'] ?? null) === true
             && ($args['same_material_or_technology'] ?? null) === true
             && ($args['presentation_compatible'] ?? null) === true
-            && ($args['unresolved_differences'] ?? null) === false
-            && strtolower(trim((string) ($args['confidence'] ?? ''))) === 'alta';
+            && ($args['unresolved_differences'] ?? null) === false;
     }
 
     /**

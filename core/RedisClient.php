@@ -368,51 +368,7 @@ LUA;
         }
     }
 
-    // ── Redis Lists (Queue operations) ──────────────────────────────
-
-    /**
-     * LPUSH — Agrega un elemento al inicio de la lista.
-     *
-     * @param string $key   Lista Redis
-     * @param string $value Valor a insertar
-     * @return int|null Longitud de la lista después del push, o null si falla
-     */
-    public function lpush(string $key, string $value): ?int
-    {
-        if (!$this->isAvailable()) {
-            return null;
-        }
-
-        try {
-            return (int) $this->client->lpush($this->prefix . $key, [$value]);
-        } catch (\Exception $e) {
-            Logger::warning('Redis LPUSH falló', ['key' => $key, 'error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    /**
-     * BRPOP — Bloquea hasta obtener un elemento del final de la lista (o timeout).
-     *
-     * @param string $key     Lista Redis
-     * @param int    $timeout Segundos de espera (0 = indefinido)
-     * @return string|null Valor extraído o null si timeout/falla
-     */
-    public function brpop(string $key, int $timeout = 5): ?string
-    {
-        if (!$this->isAvailable()) {
-            return null;
-        }
-
-        try {
-            $result = $this->client->brpop([$this->prefix . $key], $timeout);
-            // brpop retorna [key, value] o null
-            return is_array($result) ? (string) $result[1] : null;
-        } catch (\Exception $e) {
-            Logger::warning('Redis BRPOP falló', ['key' => $key, 'error' => $e->getMessage()]);
-            return null;
-        }
-    }
+    // ── Redis Streams ─────────────────────────────────────────────
 
     /**
      * EVAL — Ejecuta un script Lua atómico en Redis.
@@ -442,22 +398,6 @@ LUA;
         $evalArgs = array_merge([$script, $numKeys], $prefixedKeys, $serializedArgv);
 
         return $this->client->eval(...$evalArgs);
-    }
-
-    /**
-     * LLEN — Longitud de una lista.
-     */
-    public function llen(string $key): int
-    {
-        if (!$this->isAvailable()) {
-            return 0;
-        }
-
-        try {
-            return (int) $this->client->llen($this->prefix . $key);
-        } catch (\Exception $e) {
-            return 0;
-        }
     }
 
     public function xAdd(string $stream, array $fields): ?string
