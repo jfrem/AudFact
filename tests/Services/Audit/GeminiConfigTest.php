@@ -56,7 +56,6 @@ final class GeminiConfigTest extends TestCase
     {
         $config = new GeminiConfig(
             model: 'gemini-3.1-pro-preview',
-            responseMimeType: 'application/json',
             mediaResolution: 'MEDIA_RESOLUTION_HIGH',
             thinkingBudget: 128,
             thinkingLevel: 'low'
@@ -76,7 +75,6 @@ final class GeminiConfigTest extends TestCase
     {
         $config = new GeminiConfig(
             model: 'gemini-3.1-pro-preview',
-            responseMimeType: 'application/json',
             mediaResolution: 'MEDIA_RESOLUTION_HIGH'
         );
 
@@ -92,7 +90,6 @@ final class GeminiConfigTest extends TestCase
             'test-key',
             new GeminiConfig(
                 model: 'gemini-3.1-pro-preview',
-                responseMimeType: 'application/json',
                 mediaResolution: 'MEDIA_RESOLUTION_HIGH'
             )
         );

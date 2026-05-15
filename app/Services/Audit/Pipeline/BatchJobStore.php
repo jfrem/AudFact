@@ -86,7 +86,7 @@ class BatchJobStore
         $patch['updated_at'] = gmdate('Y-m-d\TH:i:s\Z');
 
         return $this->runScript(
-            self::MERGE_LUA,
+            self::$MERGE_LUA,
             [self::jobKey($jobId)],
             [$patch, self::JOB_TTL_SECONDS],
             'No se pudo actualizar el job en Redis',

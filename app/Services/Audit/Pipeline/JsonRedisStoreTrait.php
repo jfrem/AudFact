@@ -60,7 +60,7 @@ trait JsonRedisStoreTrait
      * Script Lua genérico de merge: lee JSON de una key, aplica un patch, y guarda con TTL.
      * Centralizado aquí para evitar duplicación entre AuditStateStore y BatchJobStore.
      */
-    protected const MERGE_LUA = <<<'LUA'
+    protected static string $MERGE_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
         if not raw then return 0 end
 

@@ -91,7 +91,7 @@ class AuditStateStore
         $patch['updated_at'] = self::nowUtc();
 
         return $this->runScript(
-            self::MERGE_LUA,
+            self::$MERGE_LUA,
             [self::auditKey($auditId)],
             [$patch, self::AUDIT_TTL_SECONDS],
             'No se pudo actualizar la auditoría en Redis',

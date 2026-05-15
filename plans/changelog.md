@@ -1,5 +1,20 @@
 # Changelog AudFact
 
+## [2026-05-15] - Clean Rebuild: Hardening de Pipeline y Erradicación de Legacy
+
+### 🧹 Cleanup / Refactor
+- **PIPELINE-CLEAN-REBUILD**: Ejecución estricta de `clean-rebuild-policy` en el pipeline de auditoría.
+  - **Eliminación de Código Muerto**: Se removió el campo obsoleto `confidence` del schema JSON de `ArticleSemanticMatchJudge` y la lógica híbrida dependiente (`isConservativeMatch()`). Se eliminó `responseMimeType` de `GeminiConfig` al estar desfasado con Gemini 3.1. Se erradicó el estado legacy `AMBIGUOUS` de `ExtractionState`.
+  - **Estabilidad de Hallazgos**: Se eliminó la keyword 'confianza' de `AuditFindingRules::observationRequiresManualReview` para evitar falsos positivos de revisión manual.
+  - **Estandarización Semántica**: Se renombró el array interno `_evidencia` a `extraction_meta` en `DocumentPolicyEngine`. Se documentó claramente la diferencia entre `error` y `failed` en `AuditStateStore`.
+  - **Resolución de Error Técnico**: Se corrigió un fatal error en CLI PHP 8.1 causado por una constante en `JsonRedisStoreTrait`, migrándola a `protected static string`.
+  - **Sincronización de Versiones**: Las versiones por defecto de los extractores en `DocumentExtractionWorker` y `AuditEvent` se sincronizaron con `v1` (eliminando cualquier dependencia futura a `v2-identity-split`).
+  - **Validación E2E**: 236 tests ejecutados, todos pasando (10 skipped), confirmando 0 regresiones.
+  - **Archivos Modificados**: `GeminiConfig.php`, `ExtractionState.php`, `ArticleSemanticMatchJudge.php`, `AuditFindingRules.php`, `DocumentPolicyEngine.php`, `DocumentExtractionContractBuilder.php`, `AuditStateStore.php`, `AuditEvent.php`, `AuditDataService.php`, `DocumentExtractionWorker.php`, `JsonRedisStoreTrait.php`, `BatchJobStore.php`, `GeminiConfigTest.php`, `DocumentAuditOrchestratorTest.php`.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada la documentación de `AGENTS.md` y `.env` removiendo referencias a `GEMINI_RESPONSE_MIME`. Evaluada `audfact-audit-gemini`, que se mantiene vigente con el esquema limpio de la v1.
+
 ## [2026-05-13] - Eliminación de Artefactos IA en Producción
 
 ### 🔒 Security / Infrastructure

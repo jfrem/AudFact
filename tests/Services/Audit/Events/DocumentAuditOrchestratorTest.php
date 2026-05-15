@@ -139,7 +139,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertStringContainsString('94229637-NORENA AGUDELO JUAN JOSE', $docPacSchema['properties']['valor']['description']);
         $this->assertArrayHasKey('estadoExtraccion', $docPacSchema['properties']);
         $this->assertSame(
-            ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'AMBIGUOUS', 'ILLEGIBLE'],
+            ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
             $docPacSchema['properties']['estadoExtraccion']['enum']
         );
         // Schema v1: CantidadEntregada es un objeto de evidencia con valor type=number

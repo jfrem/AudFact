@@ -843,9 +843,11 @@ class DocumentPolicyEngine
         return [
             'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'detalle'   => sprintf(
-                'Similitud %.2f por debajo del umbral %.2f para comparación semántica.',
-                $score,
-                $threshold
+                'El valor extraído del documento ("%s") difiere del valor esperado ("%s") en el campo %s. '
+                . 'La diferencia no pudo resolverse automáticamente — requiere verificación manual.',
+                mb_substr($docValue, 0, 120),
+                mb_substr($fdvValue, 0, 120),
+                $field
             ),
         ];
     }

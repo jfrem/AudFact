@@ -27,7 +27,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     TEXT;
 
     private const DEFAULT_CACHE_TTL = 86400;
-    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v2-identity-split';
+    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v1';
     private const ACCEPTED_FINISH_REASON = 'STOP';
     private const ERROR_MISSING_CANDIDATE = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
     private const ERROR_UNSAFE_FINISH_REASON = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
