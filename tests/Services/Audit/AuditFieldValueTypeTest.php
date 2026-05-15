@@ -44,13 +44,40 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertSame(AuditFieldValueType::IDENTITY_DOC_TYPE, AuditFieldValueType::fromFieldName('TipoDocumentoMedico'));
     }
 
+    public function testFromFieldNameReturnsIDENTITY_DOC_NUMBERForDocumentoFields(): void
+    {
+        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_NUMBER, AuditFieldValueType::fromFieldName('DocumentoPaciente'));
+        $this->assertSame(AuditFieldValueType::IDENTITY_DOC_NUMBER, AuditFieldValueType::fromFieldName('DocumentoMedico'));
+    }
+
+    public function testIdentityFieldClassificationCentralizesAuditIdentityTaxonomy(): void
+    {
+        $this->assertTrue(AuditFieldValueType::isIdentityDocumentNumberField('DocumentoPaciente'));
+        $this->assertTrue(AuditFieldValueType::isIdentityDocumentNumberField('DocumentoMedico'));
+        $this->assertTrue(AuditFieldValueType::isIdentityDocumentTypeField('TipoDocumentoPaciente'));
+        $this->assertTrue(AuditFieldValueType::isIdentityDocumentTypeField('TipoDocumentoMedico'));
+        $this->assertTrue(AuditFieldValueType::isIdentityPersonNameField('NombrePaciente'));
+        $this->assertTrue(AuditFieldValueType::isIdentityPersonNameField('Medico'));
+        $this->assertTrue(AuditFieldValueType::isIdentityField('DocumentoPaciente'));
+        $this->assertTrue(AuditFieldValueType::isIdentityField('TipoDocumentoMedico'));
+        $this->assertTrue(AuditFieldValueType::isIdentityField('Medico'));
+        $this->assertFalse(AuditFieldValueType::isIdentityField('Cliente'));
+        $this->assertFalse(AuditFieldValueType::isIdentityField('NumeroAutorizacion'));
+    }
+
+    public function testHasIdentityFieldDetectsIdentityInConfiguredFieldLists(): void
+    {
+        $this->assertTrue(AuditFieldValueType::hasIdentityField(['NumeroFactura', 'DocumentoPaciente']));
+        $this->assertTrue(AuditFieldValueType::hasIdentityField(['NombreArticulo', 'Medico']));
+        $this->assertFalse(AuditFieldValueType::hasIdentityField(['NumeroFactura', 'NombreArticulo']));
+    }
+
     public function testFromFieldNameReturnsTEXTAsDefaultFallback(): void
     {
         // Campos que no tienen tipo especializado → TEXT genérico
         $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('NumeroFactura'));
         $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('NumeroAutorizacion'));
         $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('Laboratorio'));
-        $this->assertSame(AuditFieldValueType::TEXT, AuditFieldValueType::fromFieldName('DocumentoPaciente'));
     }
 
     public function testFromFieldNameReturnsPERSON_NAMEForIPS(): void

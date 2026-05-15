@@ -249,19 +249,16 @@ final class DocumentNormalizer extends AuditEventConsumer
         array $logContext = []
     ): array {
         $rawValor = $evidence['valor'] ?? null;
-        [$normalizedValor, $scalarOps] = $this->normalizeScalarWithOperations($rawValor);
-        [$normalizedValor, $fieldOps]  = $this->normalizeFieldValueWithOperations($originalField, $normalizedValor);
-
-        foreach (array_merge($scalarOps, $fieldOps) as $op) {
-            $this->appendLog($log, $op, array_merge($logContext, ['field' => $originalField, 'context' => 'v1_valor']));
-        }
+        [$normalizedValor, $valorOps] = $this->normalizeEvidenceScalar($originalField, $rawValor);
+        $this->appendFieldNormalizationOperations($log, $valorOps, $originalField, 'v1_valor', $logContext);
 
         $rawValores = is_array($evidence['valores'] ?? null) ? $evidence['valores'] : [];
         $normalizedValores = [];
         foreach ($rawValores as $v) {
-            [$nv, ] = $this->normalizeScalarWithOperations($v);
-            if ($nv !== null) {
-                $normalizedValores[] = $nv;
+            [$normalizedValue, $valueOps] = $this->normalizeEvidenceScalar($originalField, $v);
+            $this->appendFieldNormalizationOperations($log, $valueOps, $originalField, 'v1_valores', $logContext);
+            if ($normalizedValue !== null) {
+                $normalizedValores[] = $normalizedValue;
             }
         }
 
@@ -275,6 +272,37 @@ final class DocumentNormalizer extends AuditEventConsumer
         $this->appendLog($log, 'v1_evidence_normalized', array_merge($logContext, ['field' => $originalField]));
 
         return [$originalField, $dto];
+    }
+
+    /**
+     * @return array{0:mixed,1:array<int,string>}
+     */
+    private function normalizeEvidenceScalar(string $field, mixed $value): array
+    {
+        [$normalized, $scalarOps] = $this->normalizeScalarWithOperations($value);
+        [$normalized, $fieldOps] = $this->normalizeFieldValueWithOperations($field, $normalized);
+
+        return [$normalized, array_merge($scalarOps, $fieldOps)];
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $log
+     * @param  array<int,string> $operations
+     * @param  array<string,mixed> $logContext
+     */
+    private function appendFieldNormalizationOperations(
+        array &$log,
+        array $operations,
+        string $field,
+        string $context,
+        array $logContext
+    ): void {
+        foreach ($operations as $operation) {
+            $this->appendLog($log, $operation, array_merge($logContext, [
+                'field' => $field,
+                'context' => $context,
+            ]));
+        }
     }
 
 
@@ -459,12 +487,6 @@ final class DocumentNormalizer extends AuditEventConsumer
         return $normalized !== '' ? $normalized : 'CRITICO';
     }
 
-    private function normalizeRole(mixed $value): string
-    {
-        $normalized = strtoupper(trim((string) $value));
-        return $normalized !== '' ? $normalized : 'AUTORITATIVO';
-    }
-
     /**
      * @param array<int,array<string,mixed>> $normalizationLog
      */
@@ -555,12 +577,26 @@ final class DocumentNormalizer extends AuditEventConsumer
             return [$value, []];
         }
 
-        if (AuditFieldValueType::fromFieldName($field) === AuditFieldValueType::DATE) {
+        $valueType = AuditFieldValueType::fromFieldName($field);
+
+        if ($valueType === AuditFieldValueType::DATE) {
             $normalizedDate = AuditFindingRules::normalizeDateToIso($value);
             if ($normalizedDate !== null) {
                 $operations = $normalizedDate === $value ? [] : ['date_normalized_to_iso'];
                 return [$normalizedDate, $operations];
             }
+        }
+
+        if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
+            $normalizedDocument = AuditFindingRules::normalizeIdentityDocNumber($value);
+            $operations = $normalizedDocument === $value ? [] : ['identity_doc_number_normalized'];
+            return [$normalizedDocument, $operations];
+        }
+
+        if ($valueType === AuditFieldValueType::PERSON_NAME && AuditFieldValueType::isIdentityPersonNameField($field)) {
+            $normalizedName = AuditFindingRules::normalizePersonNameFromMixedIdentityLine($value);
+            $operations = $normalizedName === $value ? [] : ['person_name_identity_prefix_removed'];
+            return [$normalizedName, $operations];
         }
 
         return [$value, []];

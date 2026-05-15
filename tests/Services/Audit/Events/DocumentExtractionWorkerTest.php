@@ -119,6 +119,41 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
     }
 
+    public function testExtractionPromptAddsIdentitySeparationRuleWhenIdentityFieldsAreConfigured(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = base64_encode('pdf-data');
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('set')->willReturn(true);
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $contract = $this->extractionContract();
+        $contract['field_groups']['fields'] = ['TipoDocumentoPaciente', 'DocumentoPaciente', 'NombrePaciente'];
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+            'extraction_contract' => $contract,
+            'contract_hash' => hash('sha256', json_encode($contract, JSON_THROW_ON_ERROR)),
+        ]));
+
+        $this->assertStringContainsString('Regla de identidad', $gateway->lastPrompt);
+        $this->assertStringContainsString('DocumentoPaciente="94229637"', $gateway->lastPrompt);
+        $this->assertStringContainsString('NombrePaciente="NORENA AGUDELO"', $gateway->lastPrompt);
+    }
+
     public function testDoesNotPublishWhenStateStoreReturnsFalse(): void
     {
         $publisher = new ExtractionPublisher();
@@ -443,6 +478,7 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $lastTools = [];
     public array $lastToolConfig = [];
+    public string $lastPrompt = '';
     public string $lastTaskType = '';
     public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
@@ -462,6 +498,7 @@ final class StubGeminiGateway extends GeminiGateway
         ?array $debugContext = null
     ): array {
         $this->calls++;
+        $this->lastPrompt = $prompt;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
         $this->lastTaskType = $taskType;

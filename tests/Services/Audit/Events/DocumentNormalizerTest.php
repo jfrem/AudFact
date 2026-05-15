@@ -87,6 +87,44 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertContains('empty_string_to_null', array_column($result['normalization_log'], 'operation'));
     }
 
+    public function testNormalizeSplitsMixedIdentityValuesWithoutLoggingPii(): void
+    {
+        $normalizer = new DocumentNormalizer();
+
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'DISPENSA',
+            'extraction_result' => [
+                'fields' => [
+                    'DocumentoPaciente' => [
+                        'valor' => '94229637-NOREÑA AGUDELO JUAN JOSE',
+                        'valores' => ['94229637-NOREÑA AGUDELO JUAN JOSE'],
+                    ],
+                    'NombrePaciente' => ['valor' => 'CC 94229637 NOREÑA AGUDELO JUAN JOSE'],
+                    'DocumentoMedico' => ['valor' => 'Médico: 12345678-PEREZ ANA MARIA'],
+                    'Medico' => ['valor' => 'Médico: 12345678-PEREZ ANA MARIA'],
+                ],
+                'items' => [],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+            ],
+        ]);
+
+        $this->assertSame('94229637', $result['fields_normalized']['DocumentoPaciente']->valor);
+        $this->assertSame(['94229637'], $result['fields_normalized']['DocumentoPaciente']->valores);
+        $this->assertSame('NOREÑA AGUDELO JUAN JOSE', $result['fields_normalized']['NombrePaciente']->valor);
+        $this->assertSame('12345678', $result['fields_normalized']['DocumentoMedico']->valor);
+        $this->assertSame('PEREZ ANA MARIA', $result['fields_normalized']['Medico']->valor);
+
+        $ops = array_column($result['normalization_log'], 'operation');
+        $this->assertContains('identity_doc_number_normalized', $ops);
+        $this->assertContains('person_name_identity_prefix_removed', $ops);
+
+        $logJson = json_encode($result['normalization_log'], JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString('94229637', $logJson);
+        $this->assertStringNotContainsString('NOREÑA', $logJson);
+    }
+
     public function testNormalizeDropsEmptyRowsAndDefaultsConfiguredVisualCheck(): void
     {
         $normalizer = new DocumentNormalizer();

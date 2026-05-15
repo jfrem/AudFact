@@ -266,6 +266,7 @@ final class AuditFindingRules
     {
         return match (AuditFieldValueType::fromFieldName($field)) {
             AuditFieldValueType::IDENTITY_DOC_TYPE => self::normalizeIdentityDocType($value),
+            AuditFieldValueType::IDENTITY_DOC_NUMBER => self::normalizeIdentityDocNumber($value),
             AuditFieldValueType::DATE => self::normalizeDateToIso($value) ?? self::normalizeText($value),
             AuditFieldValueType::QUANTITY,
             AuditFieldValueType::MONEY => self::normalizeNumberForComparison($value),
@@ -345,6 +346,92 @@ final class AuditFindingRules
         $token = self::normalizeToken($value);
 
         return self::IDENTITY_DOC_ALIASES[$token] ?? $token;
+    }
+
+    /**
+     * Normaliza número/token de identificación sin conservar nombres concatenados.
+     *
+     * Es deliberadamente conservador: solo extrae tokens al inicio del valor
+     * después de etiquetas/tipos documentales esperados. Si no hay patrón claro,
+     * conserva el valor original para que la comparación exacta falle de forma
+     * visible en vez de aprobar por inferencia.
+     */
+    public static function normalizeIdentityDocNumber(string $value): string
+    {
+        $candidate = strtoupper(self::stripAccents(trim($value)));
+        if ($candidate === '') {
+            return '';
+        }
+
+        $labelPattern = self::identityLabelPattern();
+        $typePattern = self::identityDocTypePattern(includeNit: false);
+        $candidate = (string) preg_replace(
+            "/^\\s*(?:(?:{$labelPattern})\\s*[:#\\.\\-]+\\s*)?(?:(?:{$typePattern})\\s*[:#\\.\\-]?\\s*)?/u",
+            '',
+            $candidate,
+            1
+        );
+
+        if (preg_match('/^\\s*(\\d{1,3}(?:[\\.\\s]\\d{3}){1,4})(?=\\D|$)/', $candidate, $matches) === 1) {
+            return (string) preg_replace('/\\D+/', '', $matches[1]);
+        }
+
+        if (preg_match('/^\\s*([A-Z0-9]{4,20})(?=[\\s:;,\\-\\/]|$)/', $candidate, $matches) === 1) {
+            $token = $matches[1];
+            if (preg_match('/\\d/', $token) === 1) {
+                return $token;
+            }
+        }
+
+        $token = self::normalizeToken($candidate);
+        if (preg_match('/^(?=.*\\d)[A-Z0-9]{4,20}$/', $token) === 1) {
+            return $token;
+        }
+
+        return trim($value);
+    }
+
+    /**
+     * Limpia nombres cuando Gemini concatena tipo/documento con la persona.
+     *
+     * Ej: "CC 94229637 NORENA AGUDELO" -> "NORENA AGUDELO".
+     * Si al retirar el prefijo no queda texto alfabético, conserva el original.
+     */
+    public static function normalizePersonNameFromMixedIdentityLine(string $value): string
+    {
+        $candidate = trim($value);
+        if ($candidate === '') {
+            return '';
+        }
+
+        $labelPattern = self::identityLabelPattern();
+        $typePattern = self::identityDocTypePattern(includeNit: true);
+        $numberPattern = '(?:\\d{1,3}(?:[\\.\\s]\\d{3}){1,4}|(?=[A-Z0-9]{0,19}\\d)[A-Z0-9]{4,20})';
+        $cleaned = (string) preg_replace(
+            "/^\\s*(?:(?:{$labelPattern})\\s*[:#\\.\\-]+\\s*)?(?:(?:{$typePattern})\\s*[:#\\.\\-]?\\s*)?{$numberPattern}\\s*[-:\\/\\s]+\\s*/iu",
+            '',
+            $candidate,
+            1,
+            $count
+        );
+
+        $cleaned = trim($cleaned);
+        if ($count === 1 && $cleaned !== '' && preg_match('/[[:alpha:]]/u', $cleaned) === 1) {
+            return $cleaned;
+        }
+
+        return $candidate;
+    }
+
+    private static function identityDocTypePattern(bool $includeNit): string
+    {
+        $types = 'PPT|NUIP|PEP|CC|CE|TI|RC|PA|PE|MS|AS|SC';
+        return $includeNit ? $types . '|NIT' : $types;
+    }
+
+    private static function identityLabelPattern(): string
+    {
+        return 'PACIENTE|M[EÉ]DICO|MEDICO|DOCUMENTO|DOC|IDENTIFICACI[OÓ]N|IDENTIDAD|NUMERO|N[Oº°]?';
     }
 
     /**

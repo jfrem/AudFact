@@ -93,6 +93,61 @@ final class AuditFindingRulesNormalizationTest extends TestCase
         $this->assertSame('DESCONOCIDO', AuditFindingRules::normalizeIdentityDocType('Desconocido'));
     }
 
+    /**
+     * @return array<string,array{string,string}>
+     */
+    public static function identityDocNumberProvider(): array
+    {
+        return [
+            'documento limpio' => ['94229637', '94229637'],
+            'documento con nombre concatenado' => ['94229637-NOREÑA AGUDELO JUAN JOSE', '94229637'],
+            'tipo documento nombre' => ['CC 94229637 NOREÑA AGUDELO JUAN JOSE', '94229637'],
+            'miles con puntos' => ['94.229.637 - NOREÑA AGUDELO', '94229637'],
+            'token alfanumérico' => ['PA AB123456 PEREZ ANA', 'AB123456'],
+        ];
+    }
+
+    #[DataProvider('identityDocNumberProvider')]
+    public function testNormalizeIdentityDocNumber(string $input, string $expected): void
+    {
+        $this->assertSame($expected, AuditFindingRules::normalizeIdentityDocNumber($input));
+    }
+
+    public function testNormalizeIdentityDocNumberPreservesAmbiguousNameFirstValue(): void
+    {
+        $this->assertSame(
+            'NOREÑA AGUDELO 94229637',
+            AuditFindingRules::normalizeIdentityDocNumber('NOREÑA AGUDELO 94229637')
+        );
+    }
+
+    /**
+     * @return array<string,array{string,string}>
+     */
+    public static function mixedIdentityNameProvider(): array
+    {
+        return [
+            'documento guion nombre' => ['94229637-NOREÑA AGUDELO JUAN JOSE', 'NOREÑA AGUDELO JUAN JOSE'],
+            'tipo documento nombre' => ['CC 94229637 NOREÑA AGUDELO JUAN JOSE', 'NOREÑA AGUDELO JUAN JOSE'],
+            'medico label' => ['Médico: 12345678-PEREZ ANA MARIA', 'PEREZ ANA MARIA'],
+            'nit como prefijo removible en nombre' => ['NIT 900123456 DISCOLMETS SA', 'DISCOLMETS SA'],
+        ];
+    }
+
+    #[DataProvider('mixedIdentityNameProvider')]
+    public function testNormalizePersonNameFromMixedIdentityLine(string $input, string $expected): void
+    {
+        $this->assertSame($expected, AuditFindingRules::normalizePersonNameFromMixedIdentityLine($input));
+    }
+
+    public function testNormalizePersonNameFromMixedIdentityLinePreservesCleanName(): void
+    {
+        $this->assertSame(
+            'NOREÑA AGUDELO JUAN JOSE',
+            AuditFindingRules::normalizePersonNameFromMixedIdentityLine('NOREÑA AGUDELO JUAN JOSE')
+        );
+    }
+
     // ─── DATE — Formatos numéricos existentes ────────────────────────────────
 
     /**
@@ -204,6 +259,14 @@ final class AuditFindingRulesNormalizationTest extends TestCase
         $this->assertSame('CC', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Cédula de Ciudadanía'));
         $this->assertSame('TI', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Tarjeta de Identidad'));
         $this->assertSame('CE', AuditFindingRules::normalizeForComparison('TipoDocumentoPaciente', 'Cédula de Extranjería'));
+    }
+
+    public function testNormalizeForComparisonRoutesIdentityDocNumberCorrectly(): void
+    {
+        $this->assertSame(
+            '94229637',
+            AuditFindingRules::normalizeForComparison('DocumentoPaciente', '94229637-NOREÑA AGUDELO JUAN JOSE')
+        );
     }
 
     public function testNormalizeForComparisonRoutesQuantityCorrectly(): void

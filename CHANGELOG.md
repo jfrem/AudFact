@@ -1,6 +1,14 @@
 ## [2026-05-14]
 
 ### feat
+- **Comparación determinística de trazabilidad (TRACE_TOKEN)**: El motor de políticas IA preserva matrices estructuradas extraídas por Gemini para campos multi-ítem como `Lote`, resolviendo falsos positivos ("valores distintos") causados por la concatenación de la lógica anterior (Golden Case `X24260100121`).
+  - Archivos modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`
+  - Hallazgo resuelto: Evidencia parcial reportada falsamente como VALOR_DISTINTO.
+  - Impacto: Introduce lógica formal de conjuntos (Set Theory) logrando determinismo 100% (COINCIDE para $F=D$, NO_CONCLUYENTE para $D \subset F$, VALOR_DISTINTO para divergencia) sobre taxonomía central.
+- **Normalización determinística de identidad documental**: La extracción IA y el normalizador separan números de documento y nombres cuando Gemini devuelve líneas mixtas como `94229637-NOMBRE PACIENTE`.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/DocumentNormalizer.php`, `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/AuditFindingRules.php`
+  - Hallazgo resuelto: ninguno
+  - Impacto: Reduce falsos `VALOR_DISTINTO` en `DocumentoPaciente`/`DocumentoMedico` sin relajar la comparación exacta contra FDV ni registrar datos personales en logs; la taxonomía de identidad queda centralizada en `AuditFieldValueType`.
 - **Descubridor de campos con controles shadcn/ui**: El modal para agregar campos desde una factura real usa `Button`, `Tabs`, `Alert` y `Checkbox` en lugar de controles visuales artesanales.
   - Archivos modificados: `frontend/components/audit/add-field-from-dispensa-dialog.tsx`
   - Hallazgo resuelto: ninguno

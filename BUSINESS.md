@@ -145,7 +145,7 @@ Cada campo se audita con un tipo de comparación específico, definido en el `au
 |---|---|---|---|
 | **Exacto** | `E` | Debe coincidir carácter a carácter (normalizado) | `DocumentoPaciente`: `"12132213"` vs `"12132213"` |
 | **Semántico** | `S` | Similitud textual — Gemini juzga equivalencia | `NombrePaciente`: `"GARCIA ABSALON"` vs `"ABSALON GARCIA"` |
-| **Business** | `B` | Lógica de negocio — PHP calcula y compara | `CantidadEntregada` ≤ `CantidadPrescrita` |
+| **Business** | `B` | Lógica de negocio — PHP calcula sumatorias y límites | `CantidadEntregada` ≤ `CantidadAutorizada` / `CantidadPrescrita` |
 | **Visual** | `V` | Verificación visual en la imagen del documento | `FirmaActaEntrega`: PRESENTE / AUSENTE |
 
 ### 7.3 Configuración Runtime de Campos
@@ -159,6 +159,11 @@ en `fields`, el `DocumentPolicyEngine` lo evalúa; no existe hoy una marca runti
 Implicación operativa: un campo como `NombreArticulo` configurado con `TipoCampo = S`
 dispara comparación semántica y puede usar `SemanticMatchJudge` como fallback Gemini
 cuando las heurísticas locales no alcanzan el umbral.
+
+Para cantidades configuradas con `TipoCampo = B`, Gemini solo extrae valores visibles.
+La regla la aplica PHP: suma ítems del documento/FDV y valida el límite documental según
+el tipo de soporte. En autorización o fórmula, la cantidad visible funciona como techo
+autorizado/prescrito; en dispensa, la cantidad debe reflejar lo efectivamente entregado.
 
 ### 7.4 Resultados Posibles por Campo
 
@@ -208,26 +213,48 @@ Auditoría POS para Positiva Compañía de Seguros. Paciente: Garcia Absalon. Pr
 |---|---|
 | Estado final | `manual_review` |
 | Documentos procesados | 3 (Fórmula, Autorización, Dispensa) |
-| Total campos auditados | 37 |
-| Coincidencias | 35 (94.6%) |
-| Discrepancias | 1 (CódigoDiagnóstico NO_ENCONTRADO en fórmula) |
-| No concluyentes | 1 (NombreArtículo en autorización) |
+| Total campos auditados | 36 |
+| Coincidencias | 34 |
+| Discrepancias | 1 (`CodigoDiagnostico` NO_ENCONTRADO en fórmula) |
+| No concluyentes | 1 (`NombreArticulo` en fórmula) |
 | Risk Score | 20 |
-| Duración | 15.2 segundos |
+| Duración | ~14.6 segundos |
 
 ### Veredicto por documento
 
 | Documento | Aprobado | Observación |
 |---|---|---|
 | DISPENSA | ✅ Sí | Todos los campos coinciden |
-| FORMULA MEDICA | ❌ No | `CodigoDiagnostico` no encontrado en el escaneo. Esperado: `S127` |
-| AUTORIZACION | ❌ No | `NombreArticulo` NO_CONCLUYENTE — producto clínicamente equivalente pero presentación comercial diferente |
+| AUTORIZACION | ✅ Sí | Cantidad autorizada `100` cubre entrega parcial `50`; datos clave coinciden |
+| FORMULA MEDICA | ❌ No | `CodigoDiagnostico` no encontrado y `NombreArticulo` NO_CONCLUYENTE |
 
 ### Verificaciones especiales exitosas
 - **VigenciaEntrega**: FechaAutorización `2025-07-27` + 60 días = `2025-09-25`. Entrega `2025-07-29` ✅ dentro de vigencia.
 - **FirmaActaEntrega**: `PRESENTE` — firma manuscrita visible ✅
 - **FirmaPrescriptor**: `PRESENTE` ✅
-- **Cantidades**: Entregada `50` = Prescrita `50` ✅
+- **Entrega parcial autorizada**: Entregada `50` ≤ Autorizada `100` ✅
+- **Cantidades en dispensa**: Entregada `50` = registrada `50` ✅
+- **Trazabilidad**: Lotes `02041804-25` y `02041806-25` coinciden como set completo ✅
+
+### Caso complementario: trazabilidad multi-lote (`X24260100121`)
+
+Este caso valida que la trazabilidad de producto no se compare como un string plano.
+El campo `Lote` se clasifica como `TRACE_TOKEN` y se evalúa con lógica de conjuntos.
+
+| Métrica | Valor |
+|---|---|
+| Estado final | `manual_review` |
+| Documentos procesados | 3 (Fórmula, Autorización, Dispensa) |
+| Total campos auditados | 36 |
+| Coincidencias | 32 |
+| Discrepancias | 1 (`CodigoDiagnostico` distinto en fórmula) |
+| No concluyentes | 3 |
+| Risk Score | 40 |
+
+Verificaciones clave:
+- **Lote**: FDV `{645B01A, E245513E}` = documento `{645B01A, E245513E}` → `COINCIDE`.
+- **Autorización**: aprobada; `CantidadEntregada` `60` coincide con el techo autorizado registrado.
+- **Dispensa**: no aprobada por revisión semántica de `IPS` y `NombreArticulo`, no por trazabilidad.
 
 ---
 
@@ -242,8 +269,8 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 4. **Número de autorización**: `NumeroAutorizacion` debe coincidir entre autorización y acta.
 
 ### Reglas de cantidades
-5. **CantidadEntregada ≤ CantidadPrescrita**: No se puede entregar más de lo formulado.
-6. **CantidadEntregada = CantidadPrescrita** (ideal): la dispensación completa es preferible.
+5. **CantidadEntregada ≤ techo documental**: No se puede entregar más de lo formulado ni más de lo autorizado. Si hay autorización, `CantidadAutorizada` es techo; si no hay autorización, el techo es `CantidadPrescrita`.
+6. **Entrega completa preferible, entrega parcial válida**: `CantidadEntregada = techo` es ideal; `CantidadEntregada < techo` es válida como entrega parcial; `CantidadEntregada > techo` es `VALOR_DISTINTO`.
 
 ### Reglas de vigencia y temporalidad
 7. **Vigencia de autorización**: La entrega debe ocurrir dentro del plazo de vigencia desde la fecha de autorización (generalmente 60 días, configurable por EPS).
@@ -271,7 +298,7 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 |---|---|---|
 | Acta de entrega sin firma del paciente | Visual — `FirmaActaEntrega: AUSENTE` | Alta |
 | Medicamento entregado ≠ medicamento autorizado | Semántico — `NombreArticulo: DISCREPANCIA` | Alta |
-| Cantidad entregada > cantidad formulada | Business — `CantidadEntregada: DISCREPANCIA` | Alta |
+| Cantidad entregada > cantidad formulada/autorizada | Business — `CantidadEntregada: DISCREPANCIA` | Alta |
 | Autorización vencida al momento de la entrega | Visual — `VigenciaEntrega: DISCREPANCIA` | Alta |
 | Documento de otro paciente | Exacto — `DocumentoPaciente: DISCREPANCIA` | Alta |
 | Diagnóstico no coincide entre documentos | Exacto — `CodigoDiagnostico: DISCREPANCIA` | Alta |

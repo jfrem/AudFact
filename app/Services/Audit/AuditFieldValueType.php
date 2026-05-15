@@ -14,39 +14,79 @@ namespace App\Services\Audit;
  */
 enum AuditFieldValueType: string
 {
-    case TEXT              = 'text';              // default — comparación as-is
-    case DATE              = 'date';              // Fecha* — normalización ISO
-    case QUANTITY          = 'quantity';          // Cantidad* — sumatoria de items
-    case MONEY             = 'money';             // Vlr* — numérico no-sumable
-    case IDENTITY_DOC_TYPE = 'identity_doc_type'; // TipoDocumento* — alias CC/CE/TI/etc
-    case CODE              = 'code';              // Codigo*, CUM — subset comparison, multi-valor documental
-    case PERSON_NAME       = 'person_name';       // NombrePaciente, Medico, Cliente — token-sort antes de semántico
+    case TEXT                = 'text';                // default — comparación as-is
+    case DATE                = 'date';                // Fecha* — normalización ISO
+    case QUANTITY            = 'quantity';            // Cantidad* — sumatoria de items
+    case MONEY               = 'money';               // Vlr* — numérico no-sumable
+    case IDENTITY_DOC_TYPE   = 'identity_doc_type';   // TipoDocumento* — alias CC/CE/TI/etc
+    case IDENTITY_DOC_NUMBER = 'identity_doc_number'; // Documento* — número/token de identificación
+    case CODE                = 'code';                // Codigo*, CUM — subset comparison, multi-valor documental
+    case PERSON_NAME         = 'person_name';         // NombrePaciente, Medico, Cliente — token-sort antes de semántico
+    case TRACE_TOKEN         = 'trace_token';         // Lote — trazabilidad de producto, comparación por set completo
+
+    private const TRACE_TOKEN_FIELDS = [
+        'Lote',
+    ];
+
+    private const IDENTITY_DOCUMENT_NUMBER_FIELDS = [
+        'DocumentoPaciente',
+        'DocumentoMedico',
+    ];
+
+    private const IDENTITY_DOCUMENT_TYPE_FIELDS = [
+        'TipoDocumentoPaciente',
+        'TipoDocumentoMedico',
+    ];
+
+    private const IDENTITY_PERSON_NAME_FIELDS = [
+        'NombrePaciente',
+        'Medico',
+    ];
+
+    private const PERSON_NAME_FIELDS = [
+        'NombrePaciente',
+        'Medico',
+        'Cliente',
+        'IPS',
+    ];
 
     /**
      * Detecta el tipo de dato a partir del nombre del campo.
      *
      * Orden de evaluación (primero el más específico):
-     * 1. Campos de identidad de documento (lista exacta)
-     * 2. Campos de nombre de persona (lista exacta)
-     * 3. Campos de código médico (lista exacta + prefijo 'Codigo')
-     * 4. Prefijo 'Fecha' → DATE
-     * 5. Prefijo 'Cantidad' → QUANTITY
-     * 6. Prefijo 'Vlr' → MONEY
-     * 7. Default → TEXT
+     * 1. Trazabilidad de producto (lista exacta)
+     * 2. Números de documento de identidad (lista exacta)
+     * 3. Tipos de documento de identidad (lista exacta)
+     * 4. Campos de nombre de persona (lista exacta)
+     * 5. Campos de código médico (lista exacta + prefijo 'Codigo')
+     * 6. Prefijo 'Fecha' → DATE
+     * 7. Prefijo 'Cantidad' → QUANTITY
+     * 8. Prefijo 'Vlr' → MONEY
+     * 9. Default → TEXT
      */
     public static function fromFieldName(string $field): self
     {
-        // 1. Tipos de documento — comparación con alias normalizados
-        if (in_array($field, ['TipoDocumentoPaciente', 'TipoDocumentoMedico'], true)) {
+        // 1. Trazabilidad de producto — comparación por set completo
+        if (self::isTraceTokenField($field)) {
+            return self::TRACE_TOKEN;
+        }
+
+        // 2. Números de documento — extrae token de identificación sin nombres
+        if (self::isIdentityDocumentNumberField($field)) {
+            return self::IDENTITY_DOC_NUMBER;
+        }
+
+        // 3. Tipos de documento — comparación con alias normalizados
+        if (self::isIdentityDocumentTypeField($field)) {
             return self::IDENTITY_DOC_TYPE;
         }
 
-        // 2. Nombres de persona — token-sort antes de fallback semántico
-        if (in_array($field, ['NombrePaciente', 'Medico', 'Cliente', 'IPS'], true)) {
+        // 4. Nombres de persona — token-sort antes de fallback semántico
+        if (self::isPersonNameField($field)) {
             return self::PERSON_NAME;
         }
 
-        // 3. Códigos médicos — subset comparison, permite lista documental
+        // 5. Códigos médicos — subset comparison, permite lista documental
         if (in_array($field, ['CodigoDiagnostico', 'CUM'], true)) {
             return self::CODE;
         }
@@ -54,22 +94,80 @@ enum AuditFieldValueType: string
             return self::CODE;
         }
 
-        // 4. Fechas — normalización ISO
+        // 6. Fechas — normalización ISO
         if (str_starts_with($field, 'Fecha')) {
             return self::DATE;
         }
 
-        // 5. Cantidades — sumable en multi-item
+        // 7. Cantidades — sumable en multi-item
         if (str_starts_with($field, 'Cantidad')) {
             return self::QUANTITY;
         }
 
-        // 6. Valores monetarios — numérico no-sumable
+        // 8. Valores monetarios — numérico no-sumable
         if (str_starts_with($field, 'Vlr')) {
             return self::MONEY;
         }
 
         return self::TEXT;
+    }
+
+    /**
+     * Indica si el campo contiene número/token de identificación documental.
+     */
+    public static function isIdentityDocumentNumberField(string $field): bool
+    {
+        return in_array($field, self::IDENTITY_DOCUMENT_NUMBER_FIELDS, true);
+    }
+
+    /**
+     * Indica si el campo contiene tipo de documento de identidad.
+     */
+    public static function isIdentityDocumentTypeField(string $field): bool
+    {
+        return in_array($field, self::IDENTITY_DOCUMENT_TYPE_FIELDS, true);
+    }
+
+    /**
+     * Indica si el campo contiene nombre de persona asociado a identidad documental.
+     */
+    public static function isIdentityPersonNameField(string $field): bool
+    {
+        return in_array($field, self::IDENTITY_PERSON_NAME_FIELDS, true);
+    }
+
+    /**
+     * Indica si el campo pertenece al grupo de identidad documental.
+     */
+    public static function isIdentityField(string $field): bool
+    {
+        return self::isIdentityDocumentNumberField($field)
+            || self::isIdentityDocumentTypeField($field)
+            || self::isIdentityPersonNameField($field);
+    }
+
+    /**
+     * Indica si una lista de campos contiene al menos un campo de identidad documental.
+     *
+     * @param  array<int,string> $fields
+     */
+    public static function hasIdentityField(array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if (self::isIdentityField($field)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Indica si el campo representa un nombre comparable por tokens.
+     */
+    public static function isPersonNameField(string $field): bool
+    {
+        return in_array($field, self::PERSON_NAME_FIELDS, true);
     }
 
     /**
@@ -80,7 +178,7 @@ enum AuditFieldValueType: string
      */
     public function allowsMultiValueDocument(): bool
     {
-        return $this === self::CODE;
+        return $this === self::CODE || $this === self::TRACE_TOKEN;
     }
 
     /**
@@ -126,5 +224,26 @@ enum AuditFieldValueType: string
     public function isQuantitySummable(): bool
     {
         return $this === self::QUANTITY;
+    }
+
+    /**
+     * ¿El campo es un token de trazabilidad (Lote, serial, etc.)?
+     */
+    public static function isTraceTokenField(string $field): bool
+    {
+        return in_array($field, self::TRACE_TOKEN_FIELDS, true);
+    }
+
+    /**
+     * ¿La comparación debe evaluar sets completos de trazabilidad?
+     *
+     * TRACE_TOKEN: FDV = {A, B}, Doc = {A, B} → COINCIDE
+     *              FDV = {A, B}, Doc = {A}    → NO_CONCLUYENTE (evidencia parcial)
+     *              FDV = {A, B}, Doc = {A, C} → VALOR_DISTINTO (C no está en FDV)
+     *              FDV = {A},    Doc = {A, B} → VALOR_DISTINTO (extra no registrado)
+     */
+    public function requiresTraceSetComparison(): bool
+    {
+        return $this === self::TRACE_TOKEN;
     }
 }

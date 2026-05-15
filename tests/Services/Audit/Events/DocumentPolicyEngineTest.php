@@ -199,6 +199,41 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertFalse($result['document_decision']['approved']);
     }
 
+    public function testEvaluateMatchesPatientDocumentNumberWhenGeminiConcatenatesName(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('DocumentoPaciente')],
+                ['header' => ['DocumentoPaciente' => '94229637'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['DocumentoPaciente' => '94229637-NOREÑA AGUDELO JUAN JOSE'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertSame('identity_doc_number', $result['hallazgos']['items'][0]['valueType']);
+    }
+
+    public function testEvaluateKeepsDifferentPatientDocumentNumberAsMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('DocumentoPaciente')],
+                ['header' => ['DocumentoPaciente' => '94229637'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['DocumentoPaciente' => '12345678-NOREÑA AGUDELO JUAN JOSE'])
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('VALOR_DISTINTO', $result['hallazgos']['items'][0]['resultado']);
+    }
+
     public function testEvaluateMarksFormulaDiagnosticAsInconclusiveWhenMissing(): void
     {
         $engine = new DocumentPolicyEngine();
@@ -234,12 +269,10 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
-    public function testEvaluateCantidadPrescritaAsBusinessRuleInFormulaMedica(): void
+    public function testEvaluateMatchesCantidadWhenAggregatedValueIsCorrect(): void
     {
-        // El campo es tipo B (negocio): el documento no puede superar la FDV.
         $engine = new DocumentPolicyEngine();
 
-        // 'DocumentoPaciente' → canónico 'NumeroIdentificacion'; FDV header usa la columna SQL real.
         $result = $engine->evaluate(
             self::baseState(
                 'FORMULA MEDICA',
@@ -263,140 +296,12 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
-    /**
-     * AUDIT-016 CAT-1: campos multi-item con valores distintos NO se saltan silenciosamente.
-     * Lote y FechaVencimiento tienen lotes distintos → NO_CONCLUYENTE.
-     * NombreArticulo es idéntico en todas las filas → COINCIDE (valor único).
-     */
-    public function testEvaluateMultiItemFieldsWithDistinctValuesProduceAmbiguousNotSilentSkip(): void
-    {
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'DISPENSA',
-                [self::field('Lote'), self::field('FechaVencimiento'), self::field('NombreArticulo', 'S')],
-                ['header' => [], 'items' => [
-                    ['Lote' => '02041804-25', 'FechaVencimiento' => '2029-03-30', 'NombreArticulo' => 'GASA ESTERIL'],
-                    ['Lote' => '02041806-25', 'FechaVencimiento' => '2030-05-30', 'NombreArticulo' => 'GASA ESTERIL'],
-                ]]
-            ),
-            self::payload(
-                'DISPENSA',
-                [],
-                [
-                    ['Lote' => '02041804-25', 'FechaVencimiento' => '2029-03-30', 'NombreArticulo' => 'GASA ESTERIL'],
-                    ['Lote' => '02041806-25', 'FechaVencimiento' => '2030-05-30', 'NombreArticulo' => 'GASA ESTERIL'],
-                ]
-            )
-        );
-
-        $campos = array_column($result['hallazgos']['items'], 'campo');
-
-        // CAT-1: Lote y FechaVencimiento producen NO_CONCLUYENTE, no se saltan
-        $this->assertContains('Lote', $campos);
-        $this->assertContains('FechaVencimiento', $campos);
-        $this->assertContains('NombreArticulo', $campos);
-
-        // NombreArticulo es idéntico en todas las filas → COINCIDE
-        $nomIdx = array_search('NombreArticulo', $campos, true);
-        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
-
-        // Lote es ambiguous → NO_CONCLUYENTE
-        $loteIdx = array_search('Lote', $campos, true);
-        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$loteIdx]['resultado']);
-    }
-
-    public function testEvaluateDoesNotEvaluateFieldsAbsentFromConfig(): void
-    {
-        // Sin fields_config, no se generan hallazgos de datos.
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'FORMULA MEDICA',
-                [], // NombreArticulo no está en config
-                ['header' => ['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5'], 'items' => []]
-            ),
-            self::payload('FORMULA MEDICA')
-        );
-
-        $this->assertSame([], $result['hallazgos']['items']);
-        $this->assertTrue($result['document_decision']['approved']);
-    }
-
-    public function testEvaluateKeepsAuthorizationProductAsInconclusiveWhenSimilarityIsInsufficient(): void
-    {
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'AUTORIZACION',
-                [self::field('NombreArticulo', 'S')],
-                ['header' => ['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5'], 'items' => []]
-            ),
-            self::payload('AUTORIZACION', ['NombreArticulo' => 'Cureband premium gasa antiadherente estéril 7.5cm x 7.5cm'])
-        );
-
-        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertStringContainsString('Similitud', (string) $result['hallazgos']['items'][0]['detalle']);
-    }
-
-    public function testEvaluateMatchesDispensaArticleWhenFdvNameIsContainedWithinExtendedText(): void
-    {
-        $engine = new DocumentPolicyEngine();
-
-        $result = $engine->evaluate(
-            self::baseState(
-                'DISPENSA',
-                [self::field('NombreArticulo', 'S')],
-                ['header' => [], 'items' => [['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5']]]
-            ),
-            self::payload(
-                'DISPENSA',
-                [],
-                [['NombreArticulo' => '20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5 -- INV:2018DM-0018580']]
-            )
-        );
-
-        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertTrue($result['document_decision']['approved']);
-    }
-
-    public function testEvaluateMatchesDatesAcrossEquivalentDocumentFormats(): void
-    {
-        $engine = new DocumentPolicyEngine();
-
-        $authorizationResult = $engine->evaluate(
-            self::baseState(
-                'AUTORIZACION',
-                [self::field('FechaAutorizacion')],
-                ['header' => ['FechaAutorizacion' => '2025-07-27'], 'items' => []]
-            ),
-            self::payload('AUTORIZACION', ['FechaAutorizacion' => '27/07/2025'])
-        );
-
-        $dispensaResult = $engine->evaluate(
-            self::baseState(
-                'DISPENSA',
-                [self::field('FechaEntrega')],
-                ['header' => ['FechaEntrega' => '2025-07-29'], 'items' => []]
-            ),
-            self::payload('DISPENSA', ['FechaEntrega' => '29/07/2025'])
-        );
-
-        $this->assertSame('COINCIDE', $authorizationResult['hallazgos']['items'][0]['resultado']);
-        $this->assertSame('COINCIDE', $dispensaResult['hallazgos']['items'][0]['resultado']);
-    }
-
-    // ─── AUDIT-016: CAT-1 — Data loss silencioso en multi-item ────────────────
+    // ─── AUDIT-016: CAT-1 — TRACE_TOKEN set comparison ───────────────────────
 
     /**
-     * CAT-1: Multi-item con lotes distintos NO debe producir skip silencioso.
-     * Antes del fix: resolveDocumentValue() retornaba [null, false] → OMITIDO.
-     * Después del fix: debe retornar NO_CONCLUYENTE con flag ambiguous=true.
+     * CAT-1 + TRACE_TOKEN: Multi-item con lotes distintos produce COINCIDE cuando FDV = Doc.
      */
-    public function testCAT1MultiItemWithDifferentLotesProducesAmbiguousNotSilentSkip(): void
+    public function testCAT1TraceTokenLotesMatchWhenFdvEqualsDoc(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -406,7 +311,7 @@ final class DocumentPolicyEngineTest extends TestCase
                 [self::field('Lote')],
                 ['header' => [], 'items' => [
                     ['Lote' => '02041804-25'],
-                    ['Lote' => '02041806-25'], // distinto al anterior
+                    ['Lote' => '02041806-25'],
                 ]]
             ),
             self::payload(
@@ -422,9 +327,139 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertNotEmpty($result['hallazgos']['items'], 'El hallazgo no debe desaparecer silenciosamente');
         $loteHallazgo = $result['hallazgos']['items'][0];
         $this->assertSame('Lote', $loteHallazgo['campo']);
-        // El resultado debe ser NO_CONCLUYENTE (ambiguous) nunca OMITIDO ni ausente
-        $this->assertSame('NO_CONCLUYENTE', $loteHallazgo['resultado']);
-        $this->assertStringContainsStringIgnoringCase('ambiguous', (string)($loteHallazgo['detalle'] ?? ''));
+        $this->assertSame('COINCIDE', $loteHallazgo['resultado']);
+        $this->assertSame('trace_token', $loteHallazgo['valueType']);
+        $this->assertArrayHasKey('valoresDocumento', $loteHallazgo);
+        $this->assertContains('02041804-25', $loteHallazgo['valoresDocumento']);
+        $this->assertContains('02041806-25', $loteHallazgo['valoresDocumento']);
+    }
+
+    /**
+     * FDV = {A, B}, Doc = {A} → evidencia parcial → NO_CONCLUYENTE.
+     */
+    public function testTraceTokenPartialEvidenceProducesInconclusive(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Lote')],
+                ['header' => [], 'items' => [
+                    ['Lote' => '645B01A'],
+                    ['Lote' => 'E245513E'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '645B01A'],
+                ]
+            )
+        );
+
+        $lote = $result['hallazgos']['items'][0];
+        $this->assertSame('Lote', $lote['campo']);
+        $this->assertSame('NO_CONCLUYENTE', $lote['resultado']);
+        $this->assertStringContainsString('E245513E', (string) $lote['detalle']);
+        $this->assertSame(['645B01A'], $lote['valoresDocumento']);
+    }
+
+    /**
+     * FDV = {A, B}, Doc = {A, C} → C no está en FDV → VALOR_DISTINTO.
+     */
+    public function testTraceTokenUnknownBatchProducesMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Lote')],
+                ['header' => [], 'items' => [
+                    ['Lote' => '645B01A'],
+                    ['Lote' => 'E245513E'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '645B01A'],
+                    ['Lote' => 'FRAUDULENTO99'],
+                ]
+            )
+        );
+
+        $lote = $result['hallazgos']['items'][0];
+        $this->assertSame('Lote', $lote['campo']);
+        $this->assertSame('VALOR_DISTINTO', $lote['resultado']);
+        $this->assertStringContainsString('FRAUDULENTO99', (string) $lote['detalle']);
+    }
+
+    /**
+     * FDV = {A}, Doc = {A, B} → documento trae lote extra no registrado → VALOR_DISTINTO.
+     */
+    public function testTraceTokenExtraDocBatchProducesMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Lote')],
+                ['header' => [], 'items' => [
+                    ['Lote' => '645B01A'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '645B01A'],
+                    ['Lote' => 'EXTRA_LOTE'],
+                ]
+            )
+        );
+
+        $lote = $result['hallazgos']['items'][0];
+        $this->assertSame('Lote', $lote['campo']);
+        $this->assertSame('VALOR_DISTINTO', $lote['resultado']);
+        $this->assertStringContainsString('EXTRA LOTE', (string) $lote['detalle']);
+    }
+
+    /**
+     * Non-TRACE_TOKEN multi-item (ej: Laboratorio como TEXT) con valores distintos
+     * sigue produciendo NO_CONCLUYENTE (guardrail ambiguous).
+     */
+    public function testNonTraceTokenMultiItemFieldStaysAmbiguous(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Laboratorio')],
+                ['header' => [], 'items' => [
+                    ['Laboratorio' => 'BUSSIE'],
+                    ['Laboratorio' => 'SEVEN PHARMA'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Laboratorio' => 'BUSSIE'],
+                    ['Laboratorio' => 'SEVEN PHARMA'],
+                ]
+            )
+        );
+
+        $lab = $result['hallazgos']['items'][0];
+        $this->assertSame('Laboratorio', $lab['campo']);
+        $this->assertSame('NO_CONCLUYENTE', $lab['resultado']);
+        $this->assertStringContainsString('ambiguous', (string) $lab['detalle']);
     }
 
     // ─── AUDIT-016: CAT-3 — Comparación de subconjunto para CODE ─────────────
@@ -624,5 +659,128 @@ final class DocumentPolicyEngineTest extends TestCase
 
         $this->assertCount(1, $result['hallazgos']['items']);
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+    }
+
+    public function testEvaluateMultiItemLoteMatchesWhenFdvAndDocSetsAreEqual(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('Lote'), self::field('FechaVencimiento'), self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['Lote' => '02041804-25', 'FechaVencimiento' => '2029-03-30', 'NombreArticulo' => 'GASA ESTERIL'],
+                    ['Lote' => '02041806-25', 'FechaVencimiento' => '2030-05-30', 'NombreArticulo' => 'GASA ESTERIL'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '02041804-25', 'FechaVencimiento' => '2029-03-30', 'NombreArticulo' => 'GASA ESTERIL'],
+                    ['Lote' => '02041806-25', 'FechaVencimiento' => '2030-05-30', 'NombreArticulo' => 'GASA ESTERIL'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+
+        // Lote (TRACE_TOKEN): FDV = Doc = {02041804-25, 02041806-25} → COINCIDE
+        $this->assertContains('Lote', $campos);
+        $loteIdx = array_search('Lote', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$loteIdx]['resultado']);
+        $this->assertSame('trace_token', $result['hallazgos']['items'][$loteIdx]['valueType']);
+
+        // FechaVencimiento (DATE) multi-item con valores distintos → NO_CONCLUYENTE (ambiguous)
+        $this->assertContains('FechaVencimiento', $campos);
+        $fvIdx = array_search('FechaVencimiento', $campos, true);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$fvIdx]['resultado']);
+
+        // NombreArticulo: idéntico en todas las filas → COINCIDE
+        $this->assertContains('NombreArticulo', $campos);
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateDoesNotEvaluateFieldsAbsentFromConfig(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [],
+                ['header' => ['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA')
+        );
+
+        $this->assertSame([], $result['hallazgos']['items']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testEvaluateKeepsAuthorizationProductAsInconclusiveWhenSimilarityIsInsufficient(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => ['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5'], 'items' => []]
+            ),
+            self::payload('AUTORIZACION', ['NombreArticulo' => 'Cureband premium gasa antiadherente estéril 7.5cm x 7.5cm'])
+        );
+
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertStringContainsString('Similitud', (string) $result['hallazgos']['items'][0]['detalle']);
+    }
+
+    public function testEvaluateMatchesDispensaArticleWhenFdvNameIsContainedWithinExtendedText(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5']]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [['NombreArticulo' => '20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5 -- INV:2018DM-0018580']]
+            )
+        );
+
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testEvaluateMatchesDatesAcrossEquivalentDocumentFormats(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $authorizationResult = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [self::field('FechaAutorizacion')],
+                ['header' => ['FechaAutorizacion' => '2025-07-27'], 'items' => []]
+            ),
+            self::payload('AUTORIZACION', ['FechaAutorizacion' => '27/07/2025'])
+        );
+
+        $dispensaResult = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('FechaEntrega')],
+                ['header' => ['FechaEntrega' => '2025-07-29'], 'items' => []]
+            ),
+            self::payload('DISPENSA', ['FechaEntrega' => '29/07/2025'])
+        );
+
+        $this->assertSame('COINCIDE', $authorizationResult['hallazgos']['items'][0]['resultado']);
+        $this->assertSame('COINCIDE', $dispensaResult['hallazgos']['items'][0]['resultado']);
     }
 }

@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\DocumentQuality;
-use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\GeminiConfig;
+use App\Services\Audit\GeminiGateway;
 use Core\Env;
 use Core\Logger;
 use Core\RedisUnavailableException;
@@ -25,7 +26,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     TEXT;
 
     private const DEFAULT_CACHE_TTL = 86400;
-    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v1';
+    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v2-identity-split';
     private const ACCEPTED_FINISH_REASON = 'STOP';
     private const ERROR_MISSING_CANDIDATE = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
     private const ERROR_UNSAFE_FINISH_REASON = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
@@ -370,6 +371,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ];
 
         $fieldGroups = $this->contractFieldGroups($contract);
+        if ($this->hasIdentitySeparationFields($fieldGroups)) {
+            $parts[] = 'Regla de identidad: si una línea visible mezcla tipo de documento, número y nombre, separa cada dato en su campo configurado.';
+            $parts[] = 'Ejemplo: "CC 94229637 NORENA AGUDELO" implica TipoDocumentoPaciente="CC", DocumentoPaciente="94229637" y NombrePaciente="NORENA AGUDELO" si esos campos están solicitados.';
+            $parts[] = 'Ejemplo: "Medico: 12345678-PEREZ ANA MARIA" implica DocumentoMedico="12345678" y Medico="PEREZ ANA MARIA" si esos campos están solicitados.';
+            $parts[] = 'No completes campos de identidad que no estén visibles en el documento.';
+        }
+
         if ($fieldGroups['fields'] !== []) {
             $parts[] = 'Campos para `extract_fields`: ' . implode(', ', $fieldGroups['fields']) . '.';
         } else {
@@ -517,6 +525,16 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'fields' => $this->stringList($groups['fields'] ?? []),
             'items' => $this->stringList($groups['items'] ?? []),
         ];
+    }
+
+    /**
+     * @param  array{fields:array<int,string>,items:array<int,string>} $fieldGroups
+     */
+    private function hasIdentitySeparationFields(array $fieldGroups): bool
+    {
+        $configured = array_merge($fieldGroups['fields'], $fieldGroups['items']);
+
+        return AuditFieldValueType::hasIdentityField($configured);
     }
 
     /**

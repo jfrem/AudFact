@@ -359,12 +359,12 @@ final class DocumentExtractionContractBuilder
                 'valor' => [
                     'type' => $valorType,
                     'nullable' => true,
-                    'description' => 'Valor principal extraído del documento tal como aparece visible.',
+                    'description' => $this->fieldValueDescription($fieldName),
                 ],
                 'valores' => [
                     'type' => 'array',
                     'items' => ['type' => $valorType],
-                    'description' => 'Tokens individuales cuando el campo contiene múltiples valores (FOUND_IN_LIST). Array de un elemento cuando es FOUND.',
+                    'description' => $this->fieldValuesDescription($fieldName),
                 ],
                 'presente' => [
                     'type' => 'boolean',
@@ -388,5 +388,53 @@ final class DocumentExtractionContractBuilder
         }
 
         return AuditFieldValueType::fromFieldName($fieldName)->isNumericForSchema() ? 'number' : 'string';
+    }
+
+    private function fieldValueDescription(string $fieldName): string
+    {
+        if (AuditFieldValueType::isIdentityDocumentNumberField($fieldName)) {
+            return $this->identityDocumentNumberDescription($fieldName);
+        }
+
+        if (AuditFieldValueType::isIdentityPersonNameField($fieldName)) {
+            return $this->identityPersonNameDescription($fieldName);
+        }
+
+        if (AuditFieldValueType::isIdentityDocumentTypeField($fieldName)) {
+            return 'Solo tipo de documento de identidad visible en el soporte, como CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC. No incluyas número ni nombre.';
+        }
+
+        return 'Valor principal extraído del documento tal como aparece visible.';
+    }
+
+    private function fieldValuesDescription(string $fieldName): string
+    {
+        if (AuditFieldValueType::isIdentityDocumentNumberField($fieldName)) {
+            return 'Array de un elemento con el número/token de identificación limpio cuando estadoExtraccion=FOUND. No incluyas nombres concatenados.';
+        }
+
+        if (AuditFieldValueType::isIdentityPersonNameField($fieldName)) {
+            return 'Array de un elemento con el nombre limpio cuando estadoExtraccion=FOUND. No incluyas tipo ni número de documento.';
+        }
+
+        return 'Tokens individuales cuando el campo contiene múltiples valores (FOUND_IN_LIST). Array de un elemento cuando es FOUND.';
+    }
+
+    private function identityDocumentNumberDescription(string $fieldName): string
+    {
+        if ($fieldName === 'DocumentoMedico') {
+            return 'Solo número/token de identificación del médico o prescriptor. No incluyas nombre, registro médico ni tipo de documento. Ejemplo: si ves "Medico: 12345678-PEREZ ANA MARIA", retorna valor="12345678".';
+        }
+
+        return 'Solo número/token de identificación del paciente. No incluyas tipo de documento ni nombres. Ejemplo: si ves "94229637-NORENA AGUDELO JUAN JOSE", retorna valor="94229637". Si ves "CC 94229637 NORENA AGUDELO", retorna valor="94229637".';
+    }
+
+    private function identityPersonNameDescription(string $fieldName): string
+    {
+        if ($fieldName === 'Medico') {
+            return 'Solo nombres y apellidos del médico o prescriptor. No incluyas número de documento, registro médico ni tipo. Ejemplo: si ves "Medico: 12345678-PEREZ ANA MARIA", retorna valor="PEREZ ANA MARIA".';
+        }
+
+        return 'Solo nombres y apellidos del paciente. No incluyas tipo ni número de documento. Ejemplo: si ves "94229637-NORENA AGUDELO JUAN JOSE", retorna valor="NORENA AGUDELO JUAN JOSE".';
     }
 }
