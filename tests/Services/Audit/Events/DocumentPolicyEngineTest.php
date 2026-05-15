@@ -772,7 +772,7 @@ final class DocumentPolicyEngineTest extends TestCase
         );
 
         $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertStringContainsString('Similitud', (string) $result['hallazgos']['items'][0]['detalle']);
+        $this->assertStringContainsString('verificación manual', (string) $result['hallazgos']['items'][0]['detalle']);
     }
 
     public function testEvaluateMatchesDispensaArticleWhenFdvNameIsContainedWithinExtendedText(): void
