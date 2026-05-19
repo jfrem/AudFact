@@ -1,10 +1,10 @@
 ## [2026-05-19]
 
 ### fix
-- **Batch async encola facturas pendientes**: `InvoicesModel::getInvoices()` devuelve `FacSec` con el alias esperado por `AuditBatchOrchestrator`, evitando que `/audit/async` descarte facturas válidas como inválidas y cierre jobs con `total=0`.
+- **Batch async persiste una fila por factura auditada**: `InvoicesModel::getInvoices()` usa `Factura.FacSec` como llave de auditoría y alinea el filtro contra `AudDispEst`, evitando tanto descartes por alias como sobrescrituras cuando varias dispensas comparten `DisId`.
   - Archivos modificados: `app/Models/InvoicesModel.php`, `tests/Models/InvoicesModelTest.php`
-  - Hallazgo resuelto: inconsistencia de contrato `facsec` vs `FacSec` detectada en batch `facNitSec=2426`.
-  - Impacto: los jobs async vuelven a registrar auditorías cuando la consulta SQL retorna dispensas pendientes.
+  - Hallazgo resuelto: inconsistencia de contrato `facsec` vs `FacSec` y colisión `DisId` vs `Factura.FacSec` detectadas en batch `facNitSec=2426`.
+  - Impacto: los jobs async registran y persisten auditorías con una llave única por factura seleccionada.
 
 ## [2026-05-15]
 

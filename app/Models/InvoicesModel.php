@@ -36,13 +36,13 @@ class InvoicesModel extends Model
             : "tb1.DisFecSol = :dateFromD";
 
         $safeLimit = (int) $limit;
-        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb2.DisId FacSec,tb2.DisDetNro Dispensa
+        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb3.FacSec FacSec,tb2.DisDetNro Dispensa
                 FROM Dispensacion tb1 WITH(NOLOCK) 
                 left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
                 left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
                 left JOIN FacturaKardex tb4 WITH(NOLOCK) on tb4.FacSec=tb3.FacSec
                 left join tipos t with(nolock) on t.TipCod=tb3.FacTipCod
-                LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb2.DisId
+                LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb3.FacSec
                 LEFT JOIN (
                     SELECT f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where f.Fecha >= :dateFromF
                     GROUP BY f.DisId,f.DisdetId,f.artsec,f.Documento
@@ -68,7 +68,7 @@ class InvoicesModel extends Model
                     AND (a.EstAud IS NULL)
                     AND isnull(aud.c,0)<isnull(aud.ca,0)
                     AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
-                GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro
+                GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro
                 having sum(tb4.KarUniCP-tb4.KarUni) = 0";
 
         $stmt = $this->readDb->prepare($sql);
