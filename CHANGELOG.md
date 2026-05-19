@@ -1,6 +1,12 @@
 ## [2026-05-19]
 
 ### fix
+- **Frontend usa proxy runtime para API**: el navegador deja de consumir una URL absoluta horneada en el bundle y llama `/api/backend/*`, mientras Next.js reenvía al backend con `INTERNAL_API_URL` en runtime.
+  - Archivos modificados: `frontend/lib/api/config.ts`, `frontend/lib/api/client.ts`, `frontend/lib/api/server-config.ts`, `frontend/app/api/backend/[[...path]]/route.ts`, `docker/frontend.Dockerfile`, `.github/workflows/frontend-ci.yml`, `.github/workflows/publish-images.yml`, `.github/workflows/deploy-production.yml`, `.env.example`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/deployment-github-actions-lan.md`, `plans/deployment-and-ci.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`
+  - Hallazgo resuelto: bundle productivo del frontend contenía `http://localhost:8080` y enviaba acciones del navegador al backend local del operador.
+  - Impacto: el mismo frontend puede desplegarse por entorno sin reconstruir URLs públicas y CI/CD bloquea bundles con URLs locales embebidas.
+
+### fix
 - **Batch async persiste una fila por factura auditada**: `InvoicesModel::getInvoices()` usa `Factura.FacSec` como llave de auditoría y alinea el filtro contra `AudDispEst`, evitando tanto descartes por alias como sobrescrituras cuando varias dispensas comparten `DisId`.
   - Archivos modificados: `app/Models/InvoicesModel.php`, `tests/Models/InvoicesModelTest.php`
   - Hallazgo resuelto: inconsistencia de contrato `facsec` vs `FacSec` y colisión `DisId` vs `Factura.FacSec` detectadas en batch `facNitSec=2426`.

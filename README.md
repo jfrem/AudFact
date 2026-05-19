@@ -63,7 +63,7 @@ docker compose up -d
 # 4. Levantar frontend en desarrollo
 cd frontend
 npm ci
-NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
+npm run dev
 ```
 
 ### Variables de Entorno
@@ -71,8 +71,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
 | Variable | Descripción |
 |---|---|
 | `APP_ENV` | Entorno (`development`, `production`) |
-| `NEXT_PUBLIC_API_URL` | URL pública de la API consumida por el frontend Next.js |
-| `INTERNAL_API_URL` | URL interna usada por Next.js para SSR/API server-side |
+| `AUDFACT_API_PUBLIC_URL` | URL pública del backend usada para URLs MCP/webhook generadas en deploy |
+| `INTERNAL_API_URL` | URL interna usada por el proxy Next.js `/api/backend`; en producción Docker usa `http://nginx` |
 | `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN del host para publicar el frontend productivo (default: `3100`) |
 | `DB_TYPE` | Tipo de BD (`sqlsrv`) |
 | `DB_HOST` / `DB2_HOST` | Host de SQL Server (escritura / lectura) |
@@ -206,9 +206,9 @@ Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `dock
 El despliegue productivo está separado en cuatro workflows:
 
 - `.github/workflows/ci.yml`: valida PHP, Composer, estructura, secretos hardcodeados y PHPUnit.
-- `.github/workflows/frontend-ci.yml`: valida build del frontend Next.js.
+- `.github/workflows/frontend-ci.yml`: valida build del frontend Next.js y bloquea bundles con URLs locales de backend embebidas.
 - `.github/workflows/publish-images.yml`: construye `audfact-php`, `audfact-nginx` y `audfact-frontend`, y publica tags `latest` y `${GITHUB_SHA}` en GHCR.
-- `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.prod.yml` y valida `/health` + `/clients`.
+- `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.prod.yml` y valida `/health`, `/api/backend/health` + `/clients`.
 
 El servidor no necesita IP pública ni SSH expuesto. El runner debe vivir dentro de la LAN y tener salida HTTPS a GitHub/GHCR.
 
@@ -227,8 +227,8 @@ El frontend Next.js vive versionado dentro de `frontend/`. En CI se valida con `
 - Puerto LAN por defecto del proyecto: `3100`.
 - URL productiva actual: `http://172.16.0.3:3100`.
 - Healthcheck interno del frontend: `/api/health`.
-- `INTERNAL_API_URL=http://nginx` se inyecta en compose para que SSR consuma la API dentro de la red Docker.
-- `NEXT_PUBLIC_API_URL` queda baked en el build para llamadas desde el navegador.
+- `INTERNAL_API_URL=http://nginx` se inyecta en compose para que el proxy `/api/backend/*` consuma la API dentro de la red Docker.
+- El navegador y SSR llaman rutas relativas `/api/backend/*`; Next.js reenvía al backend en runtime.
 
 ### Seguridad pendiente
 

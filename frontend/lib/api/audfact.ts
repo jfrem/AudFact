@@ -22,7 +22,7 @@ import {
   requestAttachmentPreview,
   requestJson,
 } from "@/lib/api/client";
-import { buildApiUrl, buildPublicApiUrl } from "@/lib/api/config";
+import { buildPublicApiUrl } from "@/lib/api/config";
 
 export function getHealth() {
   return requestJson(endpoints.health(), HealthSchema);

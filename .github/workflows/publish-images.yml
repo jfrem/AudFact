@@ -64,24 +64,12 @@ jobs:
             ${{ env.NGINX_IMAGE }}:${{ env.RELEASE_SHA }}
             ${{ env.NGINX_IMAGE }}:latest
 
-      - name: Validate frontend build configuration
-        env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-        run: |
-          set -euo pipefail
-          if [ -z "${NEXT_PUBLIC_API_URL}" ]; then
-            echo "::error::Missing required GitHub secret: NEXT_PUBLIC_API_URL"
-            exit 1
-          fi
-
       - name: Build and push Next.js frontend image
         uses: docker/build-push-action@v6
         with:
           context: frontend
           file: docker/frontend.Dockerfile
           push: true
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ env.RELEASE_SHA }}
             ${{ env.FRONTEND_IMAGE }}:latest

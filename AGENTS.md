@@ -172,8 +172,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 |---|---|---|---|
 | `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
 | `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | ⚠️ Solo Frontend | `frontend` — URL pública base consumida por la app Next.js en build/deploy |
-| `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Solo Frontend | `frontend` — URL interna usada por SSR/API server-side; en producción Docker se inyecta como `http://nginx` |
+| `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | ⚠️ Deploy/MCP | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
+| `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx` |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
 | `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |

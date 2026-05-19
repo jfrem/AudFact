@@ -44,6 +44,14 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 | `LOG_LEVEL` | — | Nivel de log (`info`, default: `info`) |
 | `AUDIT_NGINX_READ_TIMEOUT` | — | Timeout lectura Nginx (default: `3600`) |
 
+### GitHub Variables opcionales
+
+| Variable | Requerido | Descripción |
+|---|---|---|
+| `AUDFACT_FRONTEND_HOST_PORT` | — | Puerto LAN del frontend productivo (`3100` por defecto) |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | — | Origen público del frontend para CORS |
+| `AUDFACT_API_PUBLIC_URL` | — | URL pública del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL` |
+
 
 ### Qué hace el deploy
 
@@ -149,7 +157,7 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 - [ ] Existe plan para migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` al disponer de certificado válido
 - [ ] Tests unitarios pasan (CI automático)
 - [ ] `vendor/` se instala automáticamente por el entrypoint (no requiere paso manual)
-- [ ] `NEXT_PUBLIC_API_URL` configurado para el workflow del frontend
+- [ ] Build frontend no contiene URLs locales de backend embebidas; el navegador consume `/api/backend/*`
 
 ---
 

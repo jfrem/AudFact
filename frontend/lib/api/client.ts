@@ -21,12 +21,31 @@ async function parseJson(response: Response) {
   }
 }
 
+async function resolveApiUrl(path: string) {
+  const proxyPath = buildApiUrl(path);
+
+  if (typeof window !== "undefined") {
+    return proxyPath;
+  }
+
+  const { headers } = await import("next/headers");
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+
+  if (host) {
+    const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+    return `${protocol}://${host}${proxyPath}`;
+  }
+
+  return `http://127.0.0.1:${process.env.PORT ?? "3000"}${proxyPath}`;
+}
+
 export async function requestEnvelope<TSchema extends ZodType>(
   path: string,
   schema: TSchema,
   init?: RequestOptions,
 ) {
-  const response = await fetch(buildApiUrl(path), {
+  const response = await fetch(await resolveApiUrl(path), {
     cache: "no-store",
     ...init,
     headers: {
@@ -77,7 +96,7 @@ export async function requestAttachmentPreview<TSchema extends ZodType>(
   path: string,
   schema: TSchema,
 ) {
-  const response = await fetch(buildApiUrl(path), {
+  const response = await fetch(await resolveApiUrl(path), {
     cache: "no-store",
     headers: {
       Accept: "application/json",

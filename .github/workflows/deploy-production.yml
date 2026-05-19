@@ -58,10 +58,10 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
           MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
         run: |
           set -euo pipefail
-          required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET NEXT_PUBLIC_API_URL)
+          required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET)
           for key in "${required[@]}"; do
             if [ -z "${!key}" ]; then
               echo "::error::Missing required GitHub secret: $key"
@@ -99,7 +99,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
           MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
           AUDFACT_FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT }}
           AUDFACT_FRONTEND_PUBLIC_URL: ${{ vars.AUDFACT_FRONTEND_PUBLIC_URL }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
@@ -155,6 +155,7 @@ jobs:
 
           FRONTEND_HOST_PORT="${AUDFACT_FRONTEND_HOST_PORT:-3100}"
           FRONTEND_PUBLIC_URL="${AUDFACT_FRONTEND_PUBLIC_URL:-http://172.16.0.3:${FRONTEND_HOST_PORT}}"
+          API_PUBLIC_URL="${AUDFACT_API_PUBLIC_URL:-http://172.16.0.3:8080}"
           if [ -n "${ALLOWED_ORIGINS}" ]; then
             case ",${ALLOWED_ORIGINS}," in
               *",${FRONTEND_PUBLIC_URL},"*) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" ;;
@@ -172,10 +173,10 @@ jobs:
             printf 'AUDFACT_FRONTEND_HOST_PORT=%s\n' "$FRONTEND_HOST_PORT"
             printf '\n'
             printf 'APP_ENV=%s\n' "$APP_ENV"
-            printf 'NEXT_PUBLIC_API_URL=%s\n' "$NEXT_PUBLIC_API_URL"
+            printf 'AUDFACT_API_PUBLIC_URL=%s\n' "$API_PUBLIC_URL"
             printf 'WRAP_API_BASE=http://nginx\n'
-            printf 'WEBHOOK_URL=%s/app/wrap/webhook.php\n' "$NEXT_PUBLIC_API_URL"
-            printf 'CAPABILITIES_URL=%s/app/wrap/capabilities.php\n' "$NEXT_PUBLIC_API_URL"
+            printf 'WEBHOOK_URL=%s/app/wrap/webhook.php\n' "$API_PUBLIC_URL"
+            printf 'CAPABILITIES_URL=%s/app/wrap/capabilities.php\n' "$API_PUBLIC_URL"
             printf 'MCP_WEBHOOK_SECRET=%s\n' "$MCP_WEBHOOK_SECRET"
             printf '\n'
             printf 'DB_TYPE=sqlsrv\n'
@@ -326,8 +327,14 @@ jobs:
         run: |
           set -euo pipefail
           sleep 30
+          cd "$DEPLOY_PATH"
+          if docker exec audfact-frontend sh -lc "grep -R -E 'localhost:8080|127\\.0\\.0\\.1:8080' .next/static 2>/dev/null"; then
+            echo "::error::Frontend bundle contains a local backend URL"
+            exit 1
+          fi
+
           for i in 1 2 3 4 5; do
-            if curl -sf http://localhost:8080/health > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/clients" > /dev/null 2>&1; then
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/backend/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/clients" > /dev/null 2>&1; then
               echo "Deploy successful. API and frontend health checks passed."
               exit 0
             fi

@@ -39,6 +39,7 @@ Variable opcional de GitHub Environment:
 | `AUDFACT_DEPLOY_DIR` | Sobrescribe el directorio persistente del servidor. Si no existe, usa `$HOME/audfact-prod`. |
 | `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN dedicado para publicar el frontend AudFact. Default: `3100`. |
 | `AUDFACT_FRONTEND_PUBLIC_URL` | Origen publico del frontend para CORS. Default: `http://172.16.0.3:${AUDFACT_FRONTEND_HOST_PORT}`. |
+| `AUDFACT_API_PUBLIC_URL` | URL publica del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL`. Default: `http://172.16.0.3:8080`. |
 
 ## GitHub Environment
 
@@ -74,7 +75,6 @@ DB2_TRUST_SERVER_CERT
 GEMINI_API_KEY
 ALLOWED_ORIGINS
 MCP_WEBHOOK_SECRET
-NEXT_PUBLIC_API_URL
 ```
 
 Secrets condicionales:
@@ -101,6 +101,7 @@ push main
   -> docker compose up -d
   -> curl http://localhost:8080/health
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
+  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/backend/health
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 

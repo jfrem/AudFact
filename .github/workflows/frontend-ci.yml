@@ -37,11 +37,14 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
-        env:
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
         run: |
-          if [ -z "$NEXT_PUBLIC_API_URL" ]; then
-            echo "::error::Missing required GitHub secret: NEXT_PUBLIC_API_URL"
+          npm run build
+
+      - name: Verify frontend bundle does not embed local API URL
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          if grep -R -E "localhost:8080|127\\.0\\.0\\.1:8080" .next/static 2>/dev/null; then
+            echo "::error::Frontend bundle must not embed local backend URLs"
             exit 1
           fi
-          npm run build

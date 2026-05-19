@@ -62,7 +62,8 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 |---|---|---|
 | `APP_ENV` | `development` | Entorno (development/production) |
 | `DB_HOST` | `host.docker.internal` | Host SQL Server |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8080` | URL API para el browser |
+| `INTERNAL_API_URL` | `http://nginx` | URL interna usada por el proxy Next.js `/api/backend/*` en producción |
+| `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | URL pública del backend para generar URLs MCP/webhook en deploy |
 | `AUDFACT_FRONTEND_HOST_PORT` | `3100` | Puerto LAN dedicado para el frontend productivo |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
@@ -79,6 +80,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 1. Mantener volúmenes para `logs/`.
 2. **No hardcodear secretos** — usar `.env`.
 3. SQL Server es **externo** al entorno Docker.
+4. No hornear URLs absolutas del backend en bundles `NEXT_PUBLIC_*`; el navegador y SSR deben usar `/api/backend/*`, y solo el route handler debe resolver `INTERNAL_API_URL` en runtime.
 
 ## Anti-patterns ⚠️
 1. **No agregar SQL Server a Docker Compose**.
