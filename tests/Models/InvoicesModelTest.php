@@ -23,6 +23,7 @@ final class InvoicesModelTest extends TestCase
         $result = $model->getInvoices(2426, '2025-07-01', null, 100);
 
         $this->assertSame([['FacSec' => '1']], $result);
+        $this->assertStringContainsString('tb2.DisId FacSec', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol = :dateFromD', $pdo->preparedSql);
         $this->assertStringContainsString('f.Fecha >= :dateFromF', $pdo->preparedSql);
         // La consulta ahora siempre usa having sum(isnull(f.KarUni,0))=0

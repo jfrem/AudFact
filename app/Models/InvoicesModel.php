@@ -36,7 +36,7 @@ class InvoicesModel extends Model
             : "tb1.DisFecSol = :dateFromD";
 
         $safeLimit = (int) $limit;
-        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb2.DisId facsec,tb2.DisDetNro Dispensa
+        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb2.DisId FacSec,tb2.DisDetNro Dispensa
                 FROM Dispensacion tb1 WITH(NOLOCK) 
                 left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
                 left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
