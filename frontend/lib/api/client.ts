@@ -26,8 +26,19 @@ async function resolveApiUrl(path: string) {
     return buildApiUrl(path);
   }
 
-  const { buildInternalApiUrl } = await import("@/lib/api/server-config");
-  return buildInternalApiUrl(path);
+  const internalBase = process.env.INTERNAL_API_URL?.trim();
+  if (!internalBase) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("INTERNAL_API_URL debe estar configurada para el frontend en producción.");
+    }
+    const localBase = "http://127.0.0.1:8080";
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    return `${localBase}${normalizedPath}`;
+  }
+
+  const normalizedBase = internalBase.replace(/\/$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
 }
 
 export async function requestEnvelope<TSchema extends ZodType>(
