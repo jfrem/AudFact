@@ -11,6 +11,7 @@ use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\ArticleSemanticMatchJudge;
+use App\Services\Audit\TextNormalization;
 use RuntimeException;
 
 class DocumentPolicyEngine
@@ -39,16 +40,16 @@ class DocumentPolicyEngine
         $context = $this->buildEvaluationContext($documentState, $documentType);
         $sourceTruth = $this->resolveSourceTruth($documentState);
 
-        $fields        = $this->normalizeAssociative($normalizedPayload['fields_normalized'] ?? []);
-        $items         = $this->normalizeRows($normalizedPayload['items_normalized'] ?? []);
-        $visualChecks  = $this->normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
+        $fields        = FieldValueResolver::normalizeAssociative($normalizedPayload['fields_normalized'] ?? []);
+        $items         = FieldValueResolver::normalizeRows($normalizedPayload['items_normalized'] ?? []);
+        $visualChecks  = VisualCheckEvaluator::normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
         $documentQuality = $this->resolveDocumentQuality($normalizedPayload);
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
         $findings = array_merge(
             $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context),
-            $this->evaluateVisualChecks($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
+            VisualCheckEvaluator::evaluate($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
         );
 
         $metrics = AuditFindingRules::summarizeMetrics($findings);
@@ -105,12 +106,7 @@ class DocumentPolicyEngine
      */
     private function resolveSourceTruth(array $documentState): array
     {
-        $sourceTruth = $documentState['fuente_verdad'] ?? null;
-        if (!is_array($sourceTruth)) {
-            throw new RuntimeException('document_normalized sin fuente_verdad válida');
-        }
-
-        return $sourceTruth;
+        return FieldValueResolver::resolveSourceTruth($documentState);
     }
 
     /**
@@ -121,86 +117,7 @@ class DocumentPolicyEngine
         return DocumentQuality::fromString((string) ($normalizedPayload['document_quality'] ?? ''))->value;
     }
 
-    /**
-     * @return array<string,ExtractedEvidence>
-     */
-    private function normalizeAssociative(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-        $hydrated = [];
-        foreach ($value as $k => $v) {
-            if (is_array($v)) {
-                $hydrated[$k] = ExtractedEvidence::fromArray($v);
-            } elseif ($v instanceof ExtractedEvidence) {
-                $hydrated[$k] = $v;
-            }
-        }
-        return $hydrated;
-    }
 
-    /**
-     * @return array<int,array<string,ExtractedEvidence>>
-     */
-    private function normalizeRows(mixed $value): array
-    {
-        if (!is_array($value)) {
-            return [];
-        }
-
-        $rows = [];
-        foreach ($value as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $hydratedRow = [];
-            foreach ($row as $k => $v) {
-                if (is_array($v)) {
-                    $hydratedRow[$k] = ExtractedEvidence::fromArray($v);
-                } elseif ($v instanceof ExtractedEvidence) {
-                    $hydratedRow[$k] = $v;
-                }
-            }
-            $rows[] = $hydratedRow;
-        }
-
-        return $rows;
-    }
-
-    /**
-     * @return array<string,array{check:string,presente:bool,detalle:?string,severidad:string}>
-     */
-    private function normalizeVisualCheckResults(mixed $value): array
-    {
-        $indexed = [];
-        if (!is_array($value)) {
-            return $indexed;
-        }
-
-        foreach ($value as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-
-            $check = trim((string) ($row['check'] ?? ''));
-            if ($check === '') {
-                continue;
-            }
-
-            $indexed[$check] = [
-                'check'    => $check,
-                'presente' => (bool) ($row['presente'] ?? false),
-                'detalle'  => AuditFindingRules::normalizeNullableString($row['detalle'] ?? null),
-                'severidad' => AuditSeverity::fromInput((string) ($row['severidad'] ?? ''))->value,
-                'valor' => $row['valor'] ?? null,
-                'unidad' => $row['unidad'] ?? null,
-                'fecha_base' => $row['fecha_base'] ?? null,
-            ];
-        }
-
-        return $indexed;
-    }
 
     private function indexFieldsByCanonicalName(array $fieldsConfig): array
     {
@@ -228,8 +145,8 @@ class DocumentPolicyEngine
             }
 
             $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
-            $docResolution = $this->resolveDocumentValue($canonicalField, $valueType, $fields, $items);
-            $fdvValue      = $this->resolveSourceTruthValue($canonicalField, $valueType, $sourceTruth);
+            $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
+            $fdvValue      = FieldValueResolver::resolveSourceTruthValue($canonicalField, $valueType, $sourceTruth);
 
             $docValue    = $docResolution['displayValue'];
             $ambiguous   = $docResolution['ambiguous'];
@@ -334,7 +251,7 @@ class DocumentPolicyEngine
         array $evidenceMeta = [],
         array $docValues = []
     ): array {
-        $valoresDocumento = $this->resolveFindingDocumentValues($valueType, $docValue, $docValues);
+        $valoresDocumento = FieldValueResolver::resolveFindingDocumentValues($valueType, $docValue, $docValues);
 
         $finding = [
             'campo'              => $canonicalField,
@@ -359,213 +276,7 @@ class DocumentPolicyEngine
         return $finding;
     }
 
-    /**
-     * @param  array<int,string> $docValues
-     * @return array<int,string>|null
-     */
-    private function resolveFindingDocumentValues(
-        AuditFieldValueType $valueType,
-        ?string $docValue,
-        array $docValues
-    ): ?array {
-        if ($valueType === AuditFieldValueType::CODE && $docValue !== null) {
-            return AuditFindingRules::tokenizeCodeField($docValue);
-        }
 
-        if ($valueType === AuditFieldValueType::TRACE_TOKEN && $docValues !== []) {
-            return $docValues;
-        }
-
-        return null;
-    }
-
-    /**
-     * Boundary de conversión DTO→escalar.
-     *
-     * Este es el ÚNICO punto donde ExtractedEvidence se convierte a escalares.
-     * Todo lo que está downstream (evaluateField, evaluateExactField, etc.) recibe solo strings.
-     * La metadata de evidencia (estadoExtraccion, valores) se extrae aquí y se propaga
-     * al hallazgo canónico por separado vía `extraction_meta`.
-     *
-     * @param  array<string,mixed> $fields
-     * @param  array<int,array<string,mixed>> $items
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
-     */
-    private function resolveDocumentValue(
-        string $field,
-        AuditFieldValueType $valueType,
-        array $fields,
-        array $items
-    ): array
-    {
-        [$itemValues, $evidenceMeta] = $this->extractPresentItemValues($field, $items);
-
-        if ($itemValues !== []) {
-            return $this->resolveItemDocumentValue($valueType, $itemValues, $evidenceMeta);
-        }
-
-        return $this->resolveHeaderDocumentValue($field, $fields, $evidenceMeta);
-    }
-
-    /**
-     * @param  array<int,array<string,mixed>> $items
-     * @return array{0:array<int,string>,1:array<string,mixed>}
-     */
-    private function extractPresentItemValues(string $field, array $items): array
-    {
-        $itemValues = [];
-        $evidenceMeta = [];
-
-        foreach ($items as $row) {
-            if (!array_key_exists($field, $row)) {
-                continue;
-            }
-
-            $cell = $row[$field];
-            if (!$cell instanceof ExtractedEvidence || !AuditFindingRules::isPresent($cell->valor)) {
-                continue;
-            }
-
-            $itemValues[] = AuditFindingRules::scalarToString($cell->valor);
-            if ($evidenceMeta === []) {
-                $evidenceMeta = $cell->extractMeta();
-            }
-        }
-
-        return [$itemValues, $evidenceMeta];
-    }
-
-    /**
-     * @param  array<int,string> $itemValues
-     * @param  array<string,mixed> $evidenceMeta
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
-     */
-    private function resolveItemDocumentValue(
-        AuditFieldValueType $valueType,
-        array $itemValues,
-        array $evidenceMeta
-    ): array {
-        if ($valueType->isQuantitySummable()) {
-            $total = AuditFindingRules::sumNumericValues($itemValues);
-            if ($total !== null) {
-                $formatted = AuditFindingRules::formatNumber($total);
-                return ['displayValue' => $formatted, 'values' => [$formatted], 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
-            }
-        }
-
-        $unique = array_values(array_unique($itemValues));
-        sort($unique);
-
-        if (count($unique) === 1) {
-            return ['displayValue' => $unique[0], 'values' => $unique, 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
-        }
-
-        return [
-            'displayValue'  => implode(', ', $unique),
-            'values'        => $unique,
-            'ambiguous'     => !$valueType->requiresTraceSetComparison(),
-            'evidenceMeta'  => $evidenceMeta,
-        ];
-    }
-
-    /**
-     * @param  array<string,mixed> $fields
-     * @param  array<string,mixed> $evidenceMeta
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
-     */
-    private function resolveHeaderDocumentValue(string $field, array $fields, array $evidenceMeta): array
-    {
-        if (array_key_exists($field, $fields)) {
-            $cell = $fields[$field];
-            if ($cell instanceof ExtractedEvidence && AuditFindingRules::isPresent($cell->valor)) {
-                $displayValue = AuditFindingRules::scalarToString($cell->valor);
-                return [
-                    'displayValue' => $displayValue,
-                    'values' => [$displayValue],
-                    'ambiguous' => false,
-                    'evidenceMeta' => $cell->extractMeta(),
-                ];
-            }
-        }
-
-        return ['displayValue' => null, 'values' => [], 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
-    }
-
-
-    /**
-     * @param  array<string,mixed> $sourceTruth
-     */
-    private function resolveSourceTruthValue(
-        string $field,
-        AuditFieldValueType $valueType,
-        array $sourceTruth
-    ): ?string
-    {
-        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
-        $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
-
-        $headerValue = $this->extractRowValue($header, $field);
-        if ($headerValue !== null) {
-            return $headerValue;
-        }
-
-        if ($items === []) {
-            return null;
-        }
-
-        $itemValues = $this->extractItemValues($items, $field);
-
-        if ($valueType->isQuantitySummable()) {
-            $total = AuditFindingRules::sumNumericValues($itemValues);
-            return $total !== null ? AuditFindingRules::formatNumber($total) : null;
-        }
-
-        if ($itemValues === []) {
-            return null;
-        }
-
-        $unique = array_values(array_unique($itemValues));
-        sort($unique);
-        if (count($unique) === 1) {
-            return $unique[0];
-        }
-
-        // TRACE_TOKEN: concatenar para display, los valores individuales se usan en evaluateTraceSetField
-        if ($valueType->requiresTraceSetComparison()) {
-            return implode(', ', $unique);
-        }
-
-        // Otros tipos multi-item con valores distintos: no hay valor único representativo
-        return null;
-    }
-
-    private function extractItemValues(array $items, string $field): array
-    {
-        $values = [];
-        foreach ($items as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $value = $this->extractRowValue($item, $field);
-            if ($value !== null) {
-                $values[] = $value;
-            }
-        }
-        return $values;
-    }
-
-    /**
-     * @param  array<string,mixed> $row
-     */
-    private function extractRowValue(array $row, string $field): ?string
-    {
-        $candidate = $row[$field] ?? null;
-        if (!AuditFindingRules::isPresent($candidate)) {
-            return null;
-        }
-
-        return AuditFindingRules::scalarToString($candidate);
-    }
 
     /**
      * @param array<string,mixed> $fieldConfig
@@ -637,7 +348,7 @@ class DocumentPolicyEngine
         }
         
         if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
-            if (AuditFindingRules::samePersonNameTokenSet($fdvValue, $docValue)) {
+            if (TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
                 return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
             }
         }
@@ -659,8 +370,8 @@ class DocumentPolicyEngine
      */
     private function evaluateSubsetField(string $field, string $fdvValue, string $docValue): array
     {
-        $fdvTokens = AuditFindingRules::tokenizeCodeField(AuditFindingRules::normalizeText($fdvValue));
-        $docTokens = AuditFindingRules::tokenizeCodeField(AuditFindingRules::normalizeText($docValue));
+        $fdvTokens = AuditFindingRules::tokenizeCodeField(TextNormalization::normalizeText($fdvValue));
+        $docTokens = AuditFindingRules::tokenizeCodeField(TextNormalization::normalizeText($docValue));
         $docSet    = array_flip($docTokens); // O(1) lookup
 
         $missing = [];
@@ -740,7 +451,7 @@ class DocumentPolicyEngine
     private function normalizeTraceTokenSet(array $tokens): array
     {
         $normalized = array_values(array_unique(array_map(
-            fn(string $token): string => AuditFindingRules::normalizeText($token),
+            fn(string $token): string => TextNormalization::normalizeText($token),
             $tokens
         )));
         sort($normalized);
@@ -777,7 +488,8 @@ class DocumentPolicyEngine
         AuditFieldValueType $valueType
     ): array
     {
-        if (AuditFindingRules::normalizeForComparison($valueType, $fdvValue) === AuditFindingRules::normalizeForComparison($valueType, $docValue)) {
+        if (AuditFindingRules::normalizeForComparison($valueType, $fdvValue)
+            === AuditFindingRules::normalizeForComparison($valueType, $docValue)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
@@ -799,22 +511,22 @@ class DocumentPolicyEngine
         AuditFieldValueType $valueType
     ): array
     {
-        $normalizedFdv = AuditFindingRules::normalizeText($fdvValue);
-        $normalizedDoc = AuditFindingRules::normalizeText($docValue);
+        $normalizedFdv = TextNormalization::normalizeText($fdvValue);
+        $normalizedDoc = TextNormalization::normalizeText($docValue);
 
-        if ($valueType === AuditFieldValueType::PERSON_NAME && AuditFindingRules::samePersonNameTokenSet($fdvValue, $docValue)) {
+        if ($valueType === AuditFieldValueType::PERSON_NAME && TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
             return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
         }
 
-        if (AuditFindingRules::sameTokenSet($normalizedFdv, $normalizedDoc)) {
+        if (TextNormalization::sameTokenSet($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && AuditFindingRules::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
+        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && TextNormalization::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        $score     = AuditFindingRules::similarity($normalizedFdv, $normalizedDoc);
+        $score     = TextNormalization::similarity($normalizedFdv, $normalizedDoc);
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
         if ($score >= $threshold) {
@@ -886,87 +598,7 @@ class DocumentPolicyEngine
         ];
     }
 
-    private function evaluateVisualChecks(
-        string $documentType,
-        mixed $visualChecksExpected,
-        mixed $visualChecksResults,
-        string $documentQuality
-    ): array {
-        if (!is_array($visualChecksExpected)) {
-            return [];
-        }
 
-        $results  = is_array($visualChecksResults) ? $visualChecksResults : [];
-        $findings = [];
-
-        foreach ($visualChecksExpected as $checkExpected) {
-            if (!is_array($checkExpected)) {
-                continue;
-            }
-
-            $checkName = trim((string) ($checkExpected['check'] ?? ''));
-            if ($checkName === '') {
-                continue;
-            }
-
-            if (AuditFindingRules::isCalculatedVisualCheck($checkName)) {
-                continue;
-            }
-
-            $severity       = AuditSeverity::fromInput((string) ($checkExpected['severity'] ?? ''))->value;
-
-            if ($documentQuality !== 'legible') {
-                $findings[] = $this->buildVisualFinding(
-                    $documentType, $checkName, $severity,
-                    'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'La calidad documental no permite concluir la validación visual.'
-                );
-                continue;
-            }
-
-            $foundResult = $results[$checkName] ?? null;
-            if (!is_array($foundResult)) {
-                $findings[] = $this->buildVisualFinding(
-                    $documentType, $checkName, $severity,
-                    'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'Check visual esperado no fue evaluado por el modelo.'
-                );
-                continue;
-            }
-
-            $isPresent  = (bool) ($foundResult['presente'] ?? false);
-            $findings[] = $this->buildVisualFinding(
-                $documentType, $checkName, $severity,
-                $isPresent ? 'PRESENTE' : 'AUSENTE',
-                $isPresent ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
-                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null)
-            );
-        }
-
-        return $findings;
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    private function buildVisualFinding(
-        string $documentType,
-        string $displayField,
-        string $severity,
-        string $valorDocumento,
-        string $resultado,
-        ?string $detalle
-    ): array {
-        return [
-            'valorFuenteVerdad' => 'OBLIGATORIO',
-            'valorDocumento'    => $valorDocumento,
-            'resultado'         => $resultado,
-            'detalle'           => $detalle,
-            'campo'             => $displayField,
-            'severidad'         => $severity,
-            'documento'         => $documentType,
-        ];
-    }
 
     /**
      * @param  array<int,array<string,mixed>> $findings

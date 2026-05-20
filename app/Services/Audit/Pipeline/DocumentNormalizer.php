@@ -7,6 +7,8 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\DocumentQuality;
+use App\Services\Audit\IdentityDocNormalizer;
+use App\Services\Audit\TextNormalization;
 use Core\Logger;
 use RuntimeException;
 
@@ -571,7 +573,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             return null;
         }
 
-        $normalized = AuditFindingRules::normalizeToken($value);
+        $normalized = TextNormalization::normalizeToken($value);
         if (in_array($normalized, ['DIA', 'DIAS'], true)) {
             if ($normalized !== 'DIAS') {
                 $this->appendLog($normalizationLog, 'visual_unit_normalized', ['check' => $check]);
@@ -592,7 +594,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             return null;
         }
 
-        $normalized = AuditFindingRules::normalizeToken($value);
+        $normalized = TextNormalization::normalizeToken($value);
         $map = [
             'FECHAAUTORIZACION' => 'FechaAutorizacion',
             'FECHADEAUTORIZACION' => 'FechaAutorizacion',
@@ -635,13 +637,13 @@ final class DocumentNormalizer extends AuditEventConsumer
         }
 
         if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
-            $normalizedDocument = AuditFindingRules::normalizeIdentityDocNumber($value);
+            $normalizedDocument = IdentityDocNormalizer::normalizeDocNumber($value);
             $operations = $normalizedDocument === $value ? [] : ['identity_doc_number_normalized'];
             return [$normalizedDocument, $operations];
         }
 
         if ($valueType === AuditFieldValueType::PERSON_NAME) {
-            $normalizedName = AuditFindingRules::normalizePersonNameFromMixedIdentityLine($value);
+            $normalizedName = IdentityDocNormalizer::normalizePersonNameFromMixedIdentityLine($value);
             $operations = $normalizedName === $value ? [] : ['person_name_identity_prefix_removed'];
             return [$normalizedName, $operations];
         }

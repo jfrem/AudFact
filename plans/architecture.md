@@ -101,7 +101,10 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
 | `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy, publica `rules_evaluated` |
-| `DocumentPolicyEngine.php` | Motor determinista de evaluación por documento |
+| `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
+| `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
+| `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
+| `AuditTimingSummarizer.php` | Cálculo y normalización de latencias en los metadatos |
 | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, agrega resultados, persiste en SQL, publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.

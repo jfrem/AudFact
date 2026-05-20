@@ -1,5 +1,21 @@
 # Changelog AudFact
 
+## [2026-05-20] - Clean Rebuild: Service Oriented Pipeline Phase 5
+
+### 🔵 Architecture / Refactor
+- **AUDIT-026**: Culminación de la refactorización arquitectónica del pipeline de auditoría orientada a servicios (Fase 5).
+  - **Extracción de Lógica**: Lógica legacy extraída de `AuditFindingRules` hacia los nuevos servicios `VisualCheckEvaluator` y `FieldValueResolver`.
+  - **Métricas Independientes**: Creación de `AuditTimingSummarizer` para calcular latencias en el ciclo de agregación.
+  - **Limpieza de Delegados**: Eliminados métodos estáticos obsoletos `isFailureResult` y `isDiscrepancyResult` en favor del enum tipado `AuditFindingResult::tryFrom()->isFailure()`.
+  - **Encapsulación Final**: Simplificación de `AuditAggregationWorker` delegando la validación del schema, normalización, severidad y latencias.
+  - **Persistencia Aislada**: Simplificación de `ResponseIADiskStore`.
+  - **Validación E2E**: Ejecución exitosa de la suite completa (244 tests), asegurando 0 regresiones.
+  - **Archivos Modificados**: `AuditFindingRules.php`, `RulesEvaluationWorker.php`, `AuditAggregationWorker.php`, `ResponseIADiskStore.php`.
+  - **Archivos Creados**: `VisualCheckEvaluator.php`, `FieldValueResolver.php`, `AuditTimingSummarizer.php`.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizada `plans/architecture.md` con los nuevos servicios del orquestador. Skills y tareas actualizadas.
+
 ## [2026-05-15] - Clean Rebuild: Hardening de Pipeline y Erradicación de Legacy
 
 ### 🧹 Cleanup / Refactor

@@ -6,6 +6,7 @@ namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
+use App\Services\Audit\DeliveryValidityEvaluator;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\ArticleSemanticMatchJudge;
 use Core\Logger;
@@ -179,7 +180,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function aggregateRulesEvaluation(array $audit): array
     {
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
-        $calculatedFindings = AuditFindingRules::evaluateDeliveryValidity($audit, $allFindings);
+        $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
 
         return [
@@ -234,8 +235,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function mergeCalculatedFindingsIntoDecisions(array $documentDecisions, array $calculatedFindings): array
     {
         foreach ($calculatedFindings as $finding) {
-            $result = (string) ($finding['resultado'] ?? '');
-            if (!AuditFindingRules::isFailureResult($result)) {
+            $resultEnum = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
+            if ($resultEnum === null || !$resultEnum->isFailure()) {
                 continue;
             }
 
