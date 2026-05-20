@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppTopbar } from "@/components/layout/app-topbar";
 
+export const dynamic = "force-dynamic";
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh w-full min-w-0 overflow-x-hidden px-2 py-2 text-slate-100 sm:px-3 sm:py-3 md:px-4 md:py-4">

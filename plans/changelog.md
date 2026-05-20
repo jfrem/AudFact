@@ -1,5 +1,15 @@
 # Changelog AudFact
 
+## [2026-05-20] - Hotfix: Conectividad Frontend-to-Backend en Producción y server-only
+
+### 🟢 Infrastructure / Bugfix
+- **INFRA-002**: Solución definitiva a la conectividad entre el frontend Next.js y el backend PHP-FPM/Nginx en producción.
+  - **Evitación del Bucle Local de Red**: Configurado enrutamiento directo contenedor-a-contenedor a través de la red interna de Docker (`http://nginx`) para llamadas SSR y componentes de servidor (RSC/SSR) en el frontend.
+  - **Resolución de Error de Compilación**: Se corrigió el error estático de compilación `You're importing a component that needs "server-only" which is not supported in the pages/ directory` en `frontend/lib/api/client.ts`. Se eliminó la importación estática de `@/lib/api/server-config` en favor de la lectura dinámica inline de `process.env.INTERNAL_API_URL`.
+  - **Pipeline de Secrets robustecido**: Integrado pipeline automático de GitHub Actions para inyectar `INTERNAL_API_URL=http://nginx` en el workflow de despliegue productivo y sincronización de secretos de producción locales.
+  - **Archivos Modificados**: `frontend/lib/api/client.ts`, `.github/workflows/deploy-production.yml`.
+  - **Verificación**: Confirmación E2E en producción vía SSH en `172.16.0.3` con respuestas exitosas (200 OK) en `/api/backend/health` y `/api/backend/clients` a través del puerto `3100`.
+
 ## [2026-05-20] - Clean Rebuild: Service Oriented Pipeline Phase 5
 
 ### 🔵 Architecture / Refactor

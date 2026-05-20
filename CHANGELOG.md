@@ -1,3 +1,11 @@
+## [2026-05-20]
+
+### fix
+- **Dashboard operativo dinámico en producción**: el layout del grupo dashboard fuerza render en runtime para evitar artefactos RSC prerenderizados durante build sin `INTERNAL_API_URL`.
+  - Archivos modificados: `frontend/app/(dashboard)/layout.tsx`
+  - Hallazgo resuelto: ninguno
+  - Impacto: `/dashboard` y las vistas operativas vuelven a leer backend con variables de entorno runtime del contenedor frontend.
+
 ## [2026-05-19]
 
 ### fix
