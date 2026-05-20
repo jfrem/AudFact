@@ -8,7 +8,7 @@
 | Término | Significado | Tabla/Vista en BD | Campo clave |
 |---|---|---|---|
 | **Factura** | Documento de cobro emitido por la farmacia a la EPS | `dbo.factura` | `FacSec`, `FacNro` |
-| **Dispensa / Dispensación** | Acto de entregar medicamentos a un paciente bajo una fórmula médica. Una factura puede tener múltiples dispensaciones | `vw_discolnet_dispensas` | `Dispensa` (= `DisDetNro`) |
+| **Dispensa / Dispensación** | Acto de entregar medicamentos a un paciente bajo una fórmula médica. Una factura puede tener múltiples dispensaciones | `vw_discolnet_dispensas` | `Dispensa` (= `DisDetNro`), `facsecF` (= `Factura.FacSec`) |
 | **Cliente / EPS** | Entidad Promotora de Salud que contrata los servicios. Es el "cliente" del sistema | `Clientes`, `NIT` | `NitSec`, `NitCom` |
 | **Paciente** | Persona que recibe los medicamentos dispensados | (dentro de la dispensa) | `Paciente_doc`, `Paciente_doct` |
 | **Attachment / Adjunto** | Documento digitalizado asociado a una dispensa (fórmula médica, autorización, acta de entrega) | Modelo `AttachmentsModel` | `attachmentId` |
@@ -18,10 +18,12 @@
 
 | Campo | Significado | Ejemplo |
 |---|---|---|
-| `FacSec` | ID secuencial interno de la factura | `89549114` |
-| `FacNro` | Número de factura visible | `D19251100113` |
+| `FacSec` | Llave canónica de auditoría; equivale a `Factura.FacSec`, `vw_discolnet_dispensas.facsecF` y `AudDispEst.FacSec` | `89549114` |
+| `FacNro` | En `AudDispEst`, almacena el `DisDetNro` auditado para búsqueda operativa | `D19251100113` |
 | `FacNitSec` | ID del cliente/EPS asociado a la factura | `1165` |
 | `DisDetNro` | Número del detalle de dispensación (= `Dispensa`) | `D19251100113` |
+| `facsecF` | Campo de la FDV que debe mapearse como `FacSec` canónico | `89549114` |
+| `facsec` | Identificador legacy/de agrupación en la FDV; no usar como llave de auditoría | `DIS26-...` |
 | `NitSec` | ID secuencial del NIT en el sistema | `1165` |
 | `NitCom` | Número de NIT comercial de la EPS | `ENTIDAD PROMOTORA DE SALUD SANITAS S.A.S.` |
 | `DisId` | ID de la dispensación vinculada a la factura | `89549114` |

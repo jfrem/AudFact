@@ -50,7 +50,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `FacFec` | date | Fecha de facturación |
 | `DisId` | varchar | Identificador de dispensación |
 
-**Usada por**: ~~`InvoicesModel`~~ (migrado a `vw_discolnet_dispensas` en v2026-02-24). Tabla de referencia del ERP.
+**Usada por**: `InvoicesModel` para seleccionar la llave canónica `Factura.FacSec` del batch y alinear el filtro contra `AudDispEst`.
 
 ---
 
@@ -60,7 +60,8 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 | Columna | Alias | Descripción |
 |---|---|---|
-| `facsec` | FacSec | Secuencial de factura |
+| `facsecF` | FacSec | Llave canónica de factura; equivale a `Factura.FacSec` y a `AudDispEst.FacSec` |
+| `facsec` | — | Identificador legacy/de agrupación; no usar como llave de auditoría |
 | `Dispensa` | NumeroFactura | Número de dispensación |
 | `Cliente` | Cliente | Nombre del cliente/EPS |
 | `Nit` | NITCliente | NIT del cliente |
@@ -98,7 +99,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `IdRepEnt` | — | ID reporte entrega |
 | `IdFact` | — | ID facturación |
 
-**Usada por**: `DispensationModel`, `InvoicesModel` (columnas `NitSec`, `FacSec`, `Dispensa`)
+**Usada por**: `DispensationModel` como FDV (`facsecF AS FacSec`, `Dispensa AS NumeroFactura`).
 
 ---
 
@@ -163,7 +164,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `FacSec` | int (FK) | Referencia a `vw_discolnet_dispensas.FacSec` |
+| `FacSec` | int (FK) | Llave canónica de auditoría; referencia `Factura.FacSec` / `vw_discolnet_dispensas.facsecF` |
 | `EstAud` | varchar | Estado de auditoría (NULL = no auditada) |
 
 **Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas), `AuditStatusModel` (MERGE para guardar resultados)
@@ -178,8 +179,8 @@ erDiagram
     NIT ||--o{ NitDocumentos : "NitSec"
     NIT ||--o{ factura : "FacNitSec"
 
-    vw_discolnet_dispensas ||--o| AudDispEst : "FacSec"
-    factura ||--o| AudDispEst : "DisId = FacSec"
+    vw_discolnet_dispensas ||--o| AudDispEst : "facsecF = FacSec"
+    factura ||--o| AudDispEst : "FacSec"
 
     DispensacionDetalleServicio ||--o{ AdjuntosDispensacion : "DisId"
     NitDocumentos ||--o{ AdjuntosDispensacion : "NitMedDocId = AdjDisId"

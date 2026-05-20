@@ -355,15 +355,15 @@ Tabla puente entre conceptos de negocio y su implementación técnica:
 
 | Concepto de Negocio | Implementación Técnica | Archivo(s) Clave |
 |---|---|---|
-| Dispensación | Vista `vw_discolnet_dispensas` | `app/Models/DispensationModel.php` |
-| Factura | Campo `FacSec` / `FacNro` | `app/Models/InvoicesModel.php` |
+| Dispensación | Vista `vw_discolnet_dispensas`: `Dispensa` = `DisDetNro` | `app/Models/DispensationModel.php` |
+| Factura | `Factura.FacSec` = `vw_discolnet_dispensas.facsecF` = `AudDispEst.FacSec` | `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php` |
 | Documentos del expediente | Tabla `AdjuntosDispensacion` | `app/Models/AttachmentsModel.php` |
 | Catálogo de documentos por EPS | Tabla `NitDocumentos` | `app/Models/AttachmentsModel.php` |
 | Configuración de auditoría | Tablas `NitDocumentos` + `NitMedDoc*` | Endpoint `/clients/{id}/audit-config` |
 | Extracción IA de documentos | Google Gemini API (multimodal) | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` |
 | Comparación exacta / semántica | Motor de reglas PHP | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` |
 | Verificaciones visuales | Gemini detecta + PHP decide | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php` |
-| Resultado de auditoría | Tabla `AudDispEst` | `app/Models/AuditStatusModel.php` |
+| Resultado de auditoría | Tabla `AudDispEst`: `FacSec` llave canónica, `FacNro` = `DisDetNro` | `app/Models/AuditStatusModel.php` |
 | Decisión por documento | `affected_documents` en resultado | `AuditAggregationWorker.php` |
 | Vigencia de entrega | Cálculo PHP: `FechaAutorizacion + N días` | `RulesEvaluationWorker.php` |
 | Glosa (prevención) | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO` | Dashboard frontend |

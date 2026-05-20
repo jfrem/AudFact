@@ -108,8 +108,8 @@ export const DispensationDetailSchema = z.object({
 });
 
 export const AttachmentSchema = z.object({
-  dispiensa: ScalarSchema.optional(),
-  factura: z.string().optional(),
+  dispensacion_id: ScalarSchema.optional(),
+  dis_det_nro: z.string().optional(),
   cliente: ScalarSchema.optional(),
   id_documento: ScalarSchema.optional(),
   nombre_documento: z.string().optional(),

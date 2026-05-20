@@ -30,8 +30,8 @@ Mantener interoperabilidad estable entre asistentes IA y endpoints REST internos
 |---|---|---|
 | `GetClients` | GET | `/clients` o `/clients/{clientId}` |
 | `GetInvoices` | GET | `/invoices` |
-| `GetDispensation` | GET | `/dispensation/{invoiceId}` |
-| `GetAttachments` | GET | `/dispensation/{invoiceId}/attachments/{nitSec}` o `/dispensation/{invoiceId}/attachments/download/{attachmentId}` |
+| `GetDispensation` | GET | `/dispensation/{DisDetNro}` |
+| `GetAttachments` | GET | `/dispensation/{DisDetNro}/attachments/{nitSec}` o `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` |
 
 ## Flujo MCP
 1. Recibir payload con `tools[]` en `webhook.php`.
@@ -84,8 +84,8 @@ class GetDispensation
     public function execute(array $params): array
     {
         $client = new \App\wrap\core\ApiClient();
-        $invoiceId = $params['invoiceId'] ?? null;
-        return $client->get('/dispensation/' . urlencode((string)$invoiceId));
+        $disDetNro = $params['DisDetNro'] ?? null;
+        return $client->get('/dispensation/' . urlencode((string)$disDetNro));
     }
 }
 ```

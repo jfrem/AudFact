@@ -90,7 +90,12 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
             auditId:   AuditEvent::uuidV4(),
-            payload:   ['dis_det_nro' => 'T38250701547']
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'fac_sec' => '87723098',
+                'source' => 'batch',
+            ]
         );
 
         $orchestrator->processEvent($event);
@@ -167,6 +172,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertNull($payload['system_prompt']);
         $this->assertSame('T38250701547', $payload['dis_det_nro']);
         $this->assertSame('T38250701547', $payload['numero_factura']);
+        $this->assertSame('87723098', $payload['fac_sec']);
+        $this->assertSame('2426', $payload['fac_nit_sec']);
+        $this->assertSame('87723098', $store->patches[0]['fac_sec'] ?? null);
         $this->assertSame('T38250701547', $store->patches[0]['numero_factura'] ?? null);
         $this->assertArrayNotHasKey('dis_det_nro', $store->patches[0] ?? []);
 
@@ -292,6 +300,95 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Adjuntos no encontrados');
         $orchestrator->processEvent($event);
+    }
+
+    public function testBatchFacSecMismatchThrowsIdentityMismatch(): void
+    {
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService());
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'fac_sec' => 'LEGACY-FACSEC',
+                'source' => 'batch',
+            ]
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.fac_sec');
+        $orchestrator->processEvent($event);
+    }
+
+    public function testDisDetNroMismatchThrowsIdentityMismatch(): void
+    {
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService([
+            'NumeroFactura' => 'OTHER-DISPENSA',
+        ]));
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'fac_sec' => '87723098',
+                'source' => 'batch',
+            ]
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.dis_det_nro');
+        $orchestrator->processEvent($event);
+    }
+
+    /**
+     * @param array<string,string> $headerOverrides
+     */
+    private function makeSingleDocumentDataService(array $headerOverrides = []): StubAuditDataService
+    {
+        return new StubAuditDataService(
+            dispensation: [
+                'header' => array_merge([
+                    'NitSec'        => '2426',
+                    'FacSec'        => '87723098',
+                    'NumeroFactura' => 'T38250701547',
+                ], $headerOverrides),
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
+            ],
+            auditConfig: [
+                'nitSec'    => '2426',
+                'activo'    => true,
+                'documents' => [
+                    'DISPENSA' => [
+                        'docId'        => 1,
+                        'fields'       => [
+                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                        ],
+                        'visualChecks' => [],
+                    ],
+                ],
+            ],
+            attachments: [
+                ['id_documento' => '1', 'nombre_documento' => 'DISPENSA', 'nombre_alternativo' => 'ANE', 'TipoAlmacenamiento' => 'URL'],
+            ],
+        );
+    }
+
+    private function makeOrchestrator(StubAuditDataService $dataService): DocumentAuditOrchestrator
+    {
+        return new DocumentAuditOrchestrator(
+            stateStore:   new RecordingStateStore(),
+            dataService:  $dataService,
+            redis:        $this->createMock(RedisClient::class),
+            publisher:    new InMemoryPublisher(),
+            consumerName: 'test-orchestrator'
+        );
     }
 }
 

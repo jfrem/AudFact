@@ -180,7 +180,7 @@ export function AuditResultDetailModal({
             </TabsContent>
             <TabsContent value="adjuntos" className="mt-0">
               <AttachmentsTab
-                invoiceId={facNro}
+                disDetNro={facNro}
                 attachments={attachments}
                 isLoading={attachmentsQ.isLoading}
                 error={
@@ -299,14 +299,14 @@ function FieldStatusLabel({ status }: { status: string }) {
 }
 
 function AttachmentsTab({
-  invoiceId,
+  disDetNro,
   attachments,
   isLoading,
   error,
   selected,
   onSelect,
 }: {
-  invoiceId: string;
+  disDetNro: string;
   attachments: AttachmentRecord[];
   isLoading: boolean;
   error: string | null;
@@ -351,7 +351,7 @@ function AttachmentsTab({
         onSelect={onSelect}
         orientation="horizontal"
       />
-      <AttachmentViewerPanel invoiceId={invoiceId} attachment={selected} />
+      <AttachmentViewerPanel disDetNro={disDetNro} attachment={selected} />
     </div>
   );
 }

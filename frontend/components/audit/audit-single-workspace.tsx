@@ -298,7 +298,7 @@ export function AuditSingleWorkspace({
                 onSelect={setSelectedAttachment}
               />
               <AttachmentViewerPanel
-                invoiceId={disDetNro}
+                disDetNro={disDetNro}
                 attachment={selectedAttachment}
               />
             </div>

@@ -54,9 +54,9 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|---|
 | `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `vw_discolnet_dispensas` + `vw_discolnet_facturas` | `getInvoices()` (pendiente por KarUni=0) |
-| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByInvoiceId()`, `getAttachmentByIdForDispensation()`, `getAttachmentBlobStreamByIdForDispensation()` |
-| `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` |
+| `InvoicesModel.php` | `Factura` + dispensación/kardex | `getInvoices()` selecciona `Factura.FacSec` como llave canónica |
+| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByDisDetNro()`, `getAttachmentByIdForDisDetNro()`, `getAttachmentBlobStreamByIdForDisDetNro()` |
+| `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
 | `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `getByFacSec()`, `upsertAuditResult()`, `updateAuditResult()` |
 

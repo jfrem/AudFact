@@ -13,31 +13,31 @@ class AttachmentsController extends Controller
         $this->model = new AttachmentsModel();
     }
 
-    public function showByDispensation(string $invoiceId, string $nitSec): void
+    public function showByDispensation(string $disDetNro, string $nitSec): void
     {
-        $this->validateArray(['invoiceId' => $invoiceId, 'nitSec' => $nitSec], [
-            'invoiceId' => 'required|string|max:255',
+        $this->validateArray(['disDetNro' => $disDetNro, 'nitSec' => $nitSec], [
+            'disDetNro' => 'required|string|max:255',
             'nitSec' => 'required|string|max:255'
         ]);
-        $invoiceId = trim($invoiceId);
+        $disDetNro = trim($disDetNro);
         $nitSec = trim($nitSec);
-        $attachments = $this->model->getAttachmentsByInvoiceId($invoiceId, $nitSec);
+        $attachments = $this->model->getAttachmentsByDisDetNro($disDetNro, $nitSec);
         Response::success($attachments);
     }
 
-    public function downloadByDispensation(string $invoiceId, string $attachmentId): void
+    public function downloadByDispensation(string $disDetNro, string $attachmentId): void
     {
-        $this->validateArray(['invoiceId' => $invoiceId, 'attachmentId' => $attachmentId], [
-            'invoiceId' => 'required|string|max:255',
+        $this->validateArray(['disDetNro' => $disDetNro, 'attachmentId' => $attachmentId], [
+            'disDetNro' => 'required|string|max:255',
             'attachmentId' => 'required|string|max:255'
         ]);
-        $invoiceId = trim($invoiceId);
+        $disDetNro = trim($disDetNro);
         $attachmentId = trim($attachmentId);
-        $this->handleDownloadForDispensation($attachmentId, $invoiceId);
+        $this->handleDownloadForDispensation($attachmentId, $disDetNro);
     }
 
 
-    private function handleDownloadForDispensation(string $attachmentId, string $invoiceId): void
+    private function handleDownloadForDispensation(string $attachmentId, string $disDetNro): void
     {
         $accept    = $_SERVER['HTTP_ACCEPT'] ?? '';
         $wantsJson = stripos($accept, 'application/json') !== false;
@@ -45,13 +45,13 @@ class AttachmentsController extends Controller
         if ($wantsJson) {
             // Pipeline de auditoría: delega al servicio de dominio y retorna JSON
             $downloader = new AttachmentDownloadService();
-            $result     = $downloader->download($attachmentId, $invoiceId);
+            $result     = $downloader->download($attachmentId, $disDetNro);
             Response::json(['mime' => $result['mime'], 'data' => $result['data']]);
             return;
         }
 
         // Descarga directa al navegador: obtiene metadatos y hace streaming HTTP
-        $attachment = $this->model->getAttachmentByIdForDispensation($attachmentId, $invoiceId);
+        $attachment = $this->model->getAttachmentByIdForDisDetNro($attachmentId, $disDetNro);
         if (!$attachment) {
             Response::error('Adjunto no encontrado', 404);
         }
@@ -80,7 +80,7 @@ class AttachmentsController extends Controller
         }
 
         if ($attachment['TipoAlmacenamiento'] === 'BLOB') {
-            $blob   = $this->model->getAttachmentBlobStreamByIdForDispensation($attachmentId, $invoiceId);
+            $blob   = $this->model->getAttachmentBlobStreamByIdForDisDetNro($attachmentId, $disDetNro);
             $stream = $blob['stream'] ?? null;
             if (!is_resource($stream)) {
                 Response::error('Adjunto no disponible', 404);

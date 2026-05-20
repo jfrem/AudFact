@@ -61,25 +61,25 @@ export function getDispensationDetail(disDetNro: string) {
   return requestJson(endpoints.dispensationById(disDetNro), DispensationDetailSchema);
 }
 
-export function getAttachments(invoiceId: string, nitSec: string | number) {
+export function getAttachments(disDetNro: string, nitSec: string | number) {
   return requestJson(
-    endpoints.dispensationAttachments(invoiceId, nitSec),
+    endpoints.dispensationAttachments(disDetNro, nitSec),
     AttachmentsSchema,
   );
 }
 
-export function getAttachmentPreview(invoiceId: string, attachmentId: string | number) {
+export function getAttachmentPreview(disDetNro: string, attachmentId: string | number) {
   return requestAttachmentPreview(
-    endpoints.attachmentDownload(invoiceId, attachmentId),
+    endpoints.attachmentDownload(disDetNro, attachmentId),
     AttachmentPreviewSchema,
   );
 }
 
 export function getAttachmentDownloadUrl(
-  invoiceId: string,
+  disDetNro: string,
   attachmentId: string | number,
 ) {
-  return buildPublicApiUrl(endpoints.attachmentDownload(invoiceId, attachmentId));
+  return buildPublicApiUrl(endpoints.attachmentDownload(disDetNro, attachmentId));
 }
 
 export function runAuditSingle(disDetNro: string) {

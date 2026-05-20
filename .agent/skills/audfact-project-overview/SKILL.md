@@ -64,8 +64,8 @@ AudFact/
 | POST | `/clients/{clientId}/audit-config` | AuditConfigController::save |
 | GET | `/invoices` | InvoicesController::index |
 | POST | `/invoices` | InvoicesController::search |
-| GET | `/dispensation/{invoiceId}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
-| GET | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | AttachmentsController::downloadByDispensation |
+| GET | `/dispensation/{disDetNro}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
+| GET | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | AttachmentsController::downloadByDispensation |
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |

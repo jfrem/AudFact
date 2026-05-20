@@ -122,11 +122,15 @@ Obtiene detalle técnico de una dispensación.
 
 Busca una dispensación por body JSON.
 
-### `GET /dispensation/{invoiceId}/attachments/{nitSec}`
+### `GET /dispensation/{DisDetNro}/attachments/{nitSec}`
 
 Lista metadatos de adjuntos para una dispensación.
 
-### `GET /dispensation/{invoiceId}/attachments/download/{attachmentId}`
+Campos de identidad en la respuesta:
+- `dispensacion_id`: `AdjuntosDispensacion.DisId`
+- `dis_det_nro`: `DispensacionDetalleServicio.DisDetNro`
+
+### `GET /dispensation/{DisDetNro}/attachments/download/{attachmentId}`
 
 Descarga o previsualiza un adjunto.
 

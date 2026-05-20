@@ -54,6 +54,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         $disDetNro = $this->assertAuditCreated($event);
         $context = $this->buildAuditContext($disDetNro);
+        $this->assertIdentityContract($event, $disDetNro, $context);
 
         $this->stateStore->patchAudit($event->auditId, [
             'fac_nit_sec' => $context['nitSec'],
@@ -77,6 +78,86 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         return $disDetNro;
+    }
+
+    /**
+     * Valida el contrato de identidad entre el evento de entrada y la FDV.
+     *
+     * Contrato canónico:
+     * - payload.fac_sec viene de Factura.FacSec en lotes async.
+     * - FDV.header.FacSec viene de vw_discolnet_dispensas.facsecF.
+     * - payload.dis_det_nro debe coincidir con FDV.header.NumeroFactura.
+     *
+     * @param  array{
+     *   nitSec:string,
+     *   facSec:string,
+     *   numeroFactura:string
+     * } $context
+     * @throws RuntimeException Si el evento y la FDV representan identidades distintas.
+     */
+    private function assertIdentityContract(AuditEvent $event, string $disDetNro, array $context): void
+    {
+        $this->assertIdentityValue(
+            'payload.dis_det_nro',
+            $disDetNro,
+            'FDV.NumeroFactura',
+            (string) ($context['numeroFactura'] ?? ''),
+        );
+
+        $this->assertOptionalIdentityValue(
+            'payload.fac_sec',
+            $event->payload['fac_sec'] ?? null,
+            'FDV.FacSec',
+            (string) ($context['facSec'] ?? ''),
+            $disDetNro,
+        );
+
+        $this->assertOptionalIdentityValue(
+            'payload.fac_nit_sec',
+            $event->payload['fac_nit_sec'] ?? null,
+            'FDV.NitSec',
+            (string) ($context['nitSec'] ?? ''),
+            $disDetNro,
+        );
+    }
+
+    private function assertOptionalIdentityValue(
+        string $eventLabel,
+        mixed $eventValue,
+        string $fdvLabel,
+        string $fdvValue,
+        string $disDetNro
+    ): void {
+        $eventValue = trim((string) ($eventValue ?? ''));
+        if ($eventValue === '') {
+            return;
+        }
+
+        $this->assertIdentityValue($eventLabel, $eventValue, $fdvLabel, $fdvValue, $disDetNro);
+    }
+
+    private function assertIdentityValue(
+        string $eventLabel,
+        string $eventValue,
+        string $fdvLabel,
+        string $fdvValue,
+        ?string $disDetNro = null
+    ): void {
+        $eventValue = trim($eventValue);
+        $fdvValue = trim($fdvValue);
+        if ($eventValue === $fdvValue) {
+            return;
+        }
+
+        $suffix = $disDetNro !== null ? sprintf(' para DisDetNro "%s"', $disDetNro) : '';
+        throw new RuntimeException(sprintf(
+            'AUDIT_IDENTITY_MISMATCH: %s "%s" difiere de %s "%s"%s',
+            $eventLabel,
+            $eventValue,
+            $fdvLabel,
+            $fdvValue,
+            $suffix
+        ));
     }
 
     /**

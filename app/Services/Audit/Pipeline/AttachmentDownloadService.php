@@ -32,7 +32,7 @@ class AttachmentDownloadService
     public function download(string $attachmentId, string $disDetNro): array
     {
         $start      = microtime(true);
-        $attachment = $this->model->getAttachmentByIdForDispensation($attachmentId, $disDetNro);
+        $attachment = $this->model->getAttachmentByIdForDisDetNro($attachmentId, $disDetNro);
 
         if (!$attachment) {
             throw new RuntimeException(
@@ -102,7 +102,7 @@ class AttachmentDownloadService
         array  $attachment,
         float  $start
     ): array {
-        $blob   = $this->model->getAttachmentBlobStreamByIdForDispensation($attachmentId, $disDetNro);
+        $blob   = $this->model->getAttachmentBlobStreamByIdForDisDetNro($attachmentId, $disDetNro);
         $stream = $blob['stream'] ?? null;
 
         if (!is_resource($stream)) {

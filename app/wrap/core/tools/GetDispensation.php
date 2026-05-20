@@ -8,13 +8,13 @@ class GetDispensation
 {
     public function execute(array $params): array
     {
-        $invoiceId = $params['invoiceId'] ?? null;
-        if ($invoiceId === null || trim((string)$invoiceId) === '') {
-            return ['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido'];
+        $disDetNro = $params['DisDetNro'] ?? null;
+        if ($disDetNro === null || trim((string)$disDetNro) === '') {
+            return ['success' => false, 'status' => 400, 'error' => 'DisDetNro es requerido'];
         }
 
         $client = new ApiClient();
 
-        return $client->get('/dispensation/' . urlencode((string)$invoiceId));
+        return $client->get('/dispensation/' . urlencode((string)$disDetNro));
     }
 }

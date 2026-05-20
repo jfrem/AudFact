@@ -13,10 +13,10 @@ export const endpoints = {
     return params.size ? `/invoices?${params.toString()}` : "/invoices";
   },
   dispensationById: (disDetNro: string) => `/dispensation/${disDetNro}`,
-  dispensationAttachments: (invoiceId: string, nitSec: string | number) =>
-    `/dispensation/${invoiceId}/attachments/${nitSec}`,
-  attachmentDownload: (invoiceId: string, attachmentId: string | number) =>
-    `/dispensation/${invoiceId}/attachments/download/${attachmentId}`,
+  dispensationAttachments: (disDetNro: string, nitSec: string | number) =>
+    `/dispensation/${disDetNro}/attachments/${nitSec}`,
+  attachmentDownload: (disDetNro: string, attachmentId: string | number) =>
+    `/dispensation/${disDetNro}/attachments/download/${attachmentId}`,
   auditSingle: () => "/audit/single",
   auditAsync: () => "/audit/async",
   auditJob: (jobId: string) => `/audit/jobs/${jobId}`,

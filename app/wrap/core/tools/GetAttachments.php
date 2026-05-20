@@ -8,33 +8,42 @@ class GetAttachments
 {
     public function execute(array $params): array
     {
-        $client = new ApiClient();
-
         if (!empty($params['attachmentId'])) {
-            $invoiceId = $params['invoiceId'] ?? null;
-            if ($invoiceId === null || trim((string)$invoiceId) === '') {
-                return ['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido para descargar por attachmentId'];
+            $disDetNro = $this->requiredString($params, 'DisDetNro');
+            if ($disDetNro === null) {
+                return $this->validationError('DisDetNro es requerido para descargar por attachmentId');
             }
 
-            return $client->get(
-                '/dispensation/' . urlencode((string)$invoiceId) . '/attachments/download/' . urlencode((string)$params['attachmentId']),
+            return (new ApiClient())->get(
+                '/dispensation/' . urlencode($disDetNro) . '/attachments/download/' . urlencode((string)$params['attachmentId']),
                 [],
                 ['Accept: application/json']
             );
         }
 
-        $invoiceId = $params['invoiceId'] ?? null;
-        if ($invoiceId === null || trim((string)$invoiceId) === '') {
-            return ['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido'];
+        $disDetNro = $this->requiredString($params, 'DisDetNro');
+        if ($disDetNro === null) {
+            return $this->validationError('DisDetNro es requerido');
         }
 
-        $nitSec = $params['nitSec'] ?? null;
-        if ($nitSec === null || trim((string)$nitSec) === '') {
-            return ['success' => false, 'status' => 400, 'error' => 'nitSec es requerido para listar adjuntos'];
+        $nitSec = $this->requiredString($params, 'nitSec');
+        if ($nitSec === null) {
+            return $this->validationError('nitSec es requerido para listar adjuntos');
         }
 
-        return $client->get(
-            '/dispensation/' . urlencode((string)$invoiceId) . '/attachments/' . urlencode((string)$nitSec)
+        return (new ApiClient())->get(
+            '/dispensation/' . urlencode($disDetNro) . '/attachments/' . urlencode($nitSec)
         );
+    }
+
+    private function requiredString(array $params, string $key): ?string
+    {
+        $value = trim((string) ($params[$key] ?? ''));
+        return $value === '' ? null : $value;
+    }
+
+    private function validationError(string $message): array
+    {
+        return ['success' => false, 'status' => 400, 'error' => $message];
     }
 }

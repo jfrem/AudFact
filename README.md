@@ -125,8 +125,8 @@ Base URL: `http://localhost:8080`
 | `POST` | `/invoices` | Buscar facturas por body JSON |
 | `GET` | `/dispensation/{DisDetNro}` | Datos de dispensación |
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
-| `GET` | `/dispensation/{invoiceId}/attachments/{nitSec}` | Listar adjuntos |
-| `GET` | `/dispensation/{invoiceId}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
+| `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
+| `GET` | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
 | `POST` | `/audit/single` | Auditoría individual |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
@@ -147,8 +147,24 @@ de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
 
 - Objetivo: reducir I/O y volumen de documentos procesados por la IA.
 - Alcance: solo flujo interno de auditoría.
-- Importante: el endpoint público `GET /dispensation/{invoiceId}/attachments/{nitSec}`
+- Importante: el endpoint público `GET /dispensation/{DisDetNro}/attachments/{nitSec}`
   conserva el listado completo de adjuntos para UX/operación.
+
+### Contrato de Identidad de Auditoría
+
+La llave canónica de auditoría es `FacSec`:
+
+```text
+Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec
+```
+
+La llave operativa de dispensación/documentos es `DisDetNro`:
+
+```text
+DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
+```
+
+Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
 
 ## Pipeline de Auditoría IA
 

@@ -9,17 +9,17 @@ use PHPUnit\Framework\TestCase;
 
 final class GetDispensationTest extends TestCase
 {
-    public function testRejectsMissingInvoiceId(): void
+    public function testRejectsMissingDisDetNro(): void
     {
         $result = (new GetDispensation())->execute([]);
 
-        $this->assertSame(['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido'], $result);
+        $this->assertSame(['success' => false, 'status' => 400, 'error' => 'DisDetNro es requerido'], $result);
     }
 
-    public function testRejectsLegacyAliasWithoutCallingApi(): void
+    public function testRejectsInvoiceIdAliasWithoutCallingApi(): void
     {
-        $result = (new GetDispensation())->execute(['DisDetNro' => 'T38250701547']);
+        $result = (new GetDispensation())->execute(['invoiceId' => 'T38250701547']);
 
-        $this->assertSame(['success' => false, 'status' => 400, 'error' => 'invoiceId es requerido'], $result);
+        $this->assertSame(['success' => false, 'status' => 400, 'error' => 'DisDetNro es requerido'], $result);
     }
 }

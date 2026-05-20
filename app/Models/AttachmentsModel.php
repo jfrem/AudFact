@@ -11,22 +11,23 @@ class AttachmentsModel extends Model
 {
 
     /**
-     * Summary of getAttachmentsByInvoiceId
-     * @param string $invoiceId (DisDetNro) X18251205308
+     * Obtiene documentos adjuntos de una dispensación por DisDetNro.
+     *
+     * @param string $disDetNro Identificador operativo de dispensación (ej: X18251205308)
      * @param string $nitSec 1165
      * @return array
-     * Este método obtiene los documentos adjuntos relacionados con una factura específica,
-     * validando que se cumplan los requisitos de documentos necesarios para la dispensación.
+     * Este método obtiene los documentos adjuntos relacionados con una dispensación específica,
+     * validando que se cumplan los requisitos documentales configurados para el cliente.
      * Devuelve un array con la información de cada documento, incluyendo el
      * tipo de almacenamiento (BLOB, URL o SIN_DOCUMENTOS) y la URL si aplica.
      * Además, registra en el log la cantidad de documentos encontrados y
      * cuántos de ellos no cumplen con los requisitos.
      */
-    public function getAttachmentsByInvoiceId(string $invoiceId, string $nitSec): array
+    public function getAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
     {
         $sql = "SELECT
-                a.DisId AS [dispiensa],
-                d.DisDetNro AS [factura],
+                a.DisId AS [dispensacion_id],
+                d.DisDetNro AS [dis_det_nro],
                 n.NitSec AS [cliente],
                 NitMedDocId AS [id_documento],
                 NitMedDocNom AS [nombre_documento],
@@ -40,16 +41,16 @@ class AttachmentsModel extends Model
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
-                WHERE d.DisDetNro = :invoiceId AND n.NitSec = :nitSec";
+                WHERE d.DisDetNro = :disDetNro AND n.NitSec = :nitSec";
 
         $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
+        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
         $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         Logger::info("Documentos adjuntos obtenidos", [
-            'invoiceId' => $invoiceId,
+            'disDetNro' => $disDetNro,
             'resultCount' => count($result)
         ]);
 
@@ -63,15 +64,15 @@ class AttachmentsModel extends Model
      * Este método se usa solo en prevalidación de auditoría y no afecta el endpoint público
      * de listado completo de adjuntos.
      *
-     * @param string $invoiceId DisDetNro / factura
+     * @param string $disDetNro Identificador operativo de dispensación.
      * @param string $nitSec NIT del cliente
      * @return array
      */
-    public function getRequiredAttachmentsByInvoiceId(string $invoiceId, string $nitSec): array
+    public function getRequiredAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
     {
         $sql = "SELECT
-                a.DisId AS [dispiensa],
-                d.DisDetNro AS [factura],
+                a.DisId AS [dispensacion_id],
+                d.DisDetNro AS [dis_det_nro],
                 n.NitSec AS [cliente],
                 a.AdjDisId AS [id_documento],
                 NitMedDocNom AS [nombre_documento],
@@ -85,18 +86,18 @@ class AttachmentsModel extends Model
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
-                WHERE d.DisDetNro = :invoiceId
+                WHERE d.DisDetNro = :disDetNro
                   AND n.NitMedDocOpc = 'N'
                 ORDER BY n.NitMedDocId ASC, a.AdjDisId ASC";
 
         $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
+        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
         $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         Logger::info("Documentos adjuntos requeridos obtenidos", [
-            'invoiceId' => $invoiceId,
+            'disDetNro' => $disDetNro,
             'resultCount' => count($result)
         ]);
 
@@ -106,10 +107,10 @@ class AttachmentsModel extends Model
     /**
      * Obtiene un documento adjunto por ID para dispensas
      * @param string $attachmentId ID del tipo de documento (NitMedDocId - 1)
-     * @param string $invoiceId Identificador de la dispensa (DisDetNro - X18251205308)
+     * @param string $disDetNro Identificador operativo de dispensación (DisDetNro - X18251205308)
      * @return array|false
      */
-    public function getAttachmentByIdForDispensation(string $attachmentId, string $invoiceId): array|false
+    public function getAttachmentByIdForDisDetNro(string $attachmentId, string $disDetNro): array|false
     {
         $sql = "SELECT
                     a.AdjDisId,
@@ -123,16 +124,16 @@ class AttachmentsModel extends Model
                     DATALENGTH(a.AdjDisDoc) AS BlobSize
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
+                WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :disDetNro";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
-        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
+        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
         $stmt->execute();
 
         Logger::info("Fetching attachment for dispensation", [
             'attachmentId' => $attachmentId,
-            'invoiceId' => $invoiceId
+            'disDetNro' => $disDetNro
         ]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
@@ -141,18 +142,18 @@ class AttachmentsModel extends Model
     /**
      * Obtiene el stream del BLOB de un documento adjunto para dispensas
      * @param string $attachmentId ID del tipo de documento (NitMedDocId - 1)
-     * @param string $invoiceId Identificador de la dispensa (DisDetNro - X18251205308)
+     * @param string $disDetNro Identificador operativo de dispensación (DisDetNro - X18251205308)
      * @return array Array con 'stream' y función 'close'
      */
-    public function getAttachmentBlobStreamByIdForDispensation(string $attachmentId, string $invoiceId): array
+    public function getAttachmentBlobStreamByIdForDisDetNro(string $attachmentId, string $disDetNro): array
     {
         $sql = "SELECT a.AdjDisDoc FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :invoiceId";
+                WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :disDetNro";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
-        $stmt->bindParam(':invoiceId', $invoiceId, PDO::PARAM_STR);
+        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
         $stmt->execute();
 
         $stream = null;
@@ -169,7 +170,7 @@ class AttachmentsModel extends Model
 
         Logger::info("Fetching attachment BLOB stream for dispensation", [
             'attachmentId' => $attachmentId,
-            'invoiceId' => $invoiceId
+            'disDetNro' => $disDetNro
         ]);
 
         return [

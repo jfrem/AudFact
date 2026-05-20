@@ -9,7 +9,13 @@ use Core\Logger;
 
 class DispensationModel extends Model
 {
-    /** Campos de la cabecera de la dispensación (uno por factura) */
+    /**
+     * Campos de cabecera de la FDV.
+     *
+     * Contrato de identidad:
+     * - FacSec es la llave canónica de auditoría y se lee desde facsecF.
+     * - NumeroFactura es la llave operativa de dispensación y se lee desde Dispensa.
+     */
     public const HEADER_FIELDS = [
         'FacSec',
         'NumeroFactura',
@@ -80,15 +86,21 @@ class DispensationModel extends Model
     }
 
     /**
-     * Obtiene los datos de dispensación para una factura
-     * @param string $DisDetNro Identificador de la factura
+     * Obtiene la fuente de verdad de una dispensación.
+     *
+     * `FacSec` debe mapear siempre `vw_discolnet_dispensas.facsecF`, porque ese
+     * valor equivale a `Factura.FacSec` y es la llave de persistencia en AudDispEst.
+     * `Dispensa` se expone como `NumeroFactura` y equivale al `DisDetNro` usado
+     * para resolver la entrega y sus adjuntos.
+     *
+     * @param string $DisDetNro Identificador operativo de la dispensación.
      * @return array Array con los registros de dispensación (vacío si no se encuentra)
      */
     public function getDispensationData(string $DisDetNro): array
     {
         $sql = "SELECT DISTINCT
-                -- Identificación de la dispensación
-                facsec AS FacSec,
+                -- Identidad: llave canónica de auditoría y llave operativa de dispensación
+                facsecF AS FacSec,
                 Dispensa AS NumeroFactura,
 
                 -- Cliente/EPS

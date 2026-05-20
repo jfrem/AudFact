@@ -16,21 +16,21 @@ export const dispensationQuery = (disDetNro: string) =>
     enabled: Boolean(disDetNro),
   });
 
-export const attachmentsQuery = (invoiceId: string, nitSec: string | number) =>
+export const attachmentsQuery = (disDetNro: string, nitSec: string | number) =>
   queryOptions({
-    queryKey: queryKeys.attachments(invoiceId, nitSec),
-    queryFn: () => getAttachments(invoiceId, nitSec),
-    enabled: Boolean(invoiceId) && Boolean(nitSec),
+    queryKey: queryKeys.attachments(disDetNro, nitSec),
+    queryFn: () => getAttachments(disDetNro, nitSec),
+    enabled: Boolean(disDetNro) && Boolean(nitSec),
   });
 
 export const attachmentPreviewQuery = (
-  invoiceId: string,
+  disDetNro: string,
   attachmentId: string | number,
 ) =>
   queryOptions({
-    queryKey: queryKeys.attachmentPreview(invoiceId, attachmentId),
-    queryFn: () => getAttachmentPreview(invoiceId, attachmentId),
-    enabled: Boolean(invoiceId) && Boolean(attachmentId),
+    queryKey: queryKeys.attachmentPreview(disDetNro, attachmentId),
+    queryFn: () => getAttachmentPreview(disDetNro, attachmentId),
+    enabled: Boolean(disDetNro) && Boolean(attachmentId),
   });
 
 export const auditJobQuery = (jobId: string) =>

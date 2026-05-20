@@ -89,6 +89,17 @@ sequenceDiagram
 ### Descripción
 Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares y observabilidad total por fase (Timings).
 
+### Contrato de Identidad
+
+El batch transporta dos identificadores con roles distintos:
+
+| Campo | Origen | Rol |
+|---|---|---|
+| `fac_sec` | `Factura.FacSec` / `vw_discolnet_dispensas.facsecF` | Llave canónica de auditoría y persistencia (`AudDispEst.FacSec`) |
+| `dis_det_nro` | `DispensacionDetalleServicio.DisDetNro` / `vw_discolnet_dispensas.Dispensa` | Llave operativa de dispensación y adjuntos (`AudDispEst.FacNro`) |
+
+`DocumentAuditOrchestrator` valida que el `fac_sec` recibido por el batch coincida con el `FacSec` devuelto por la FDV. Si no coincide, falla con `AUDIT_IDENTITY_MISMATCH`.
+
 ### Flujo
 
 ```mermaid

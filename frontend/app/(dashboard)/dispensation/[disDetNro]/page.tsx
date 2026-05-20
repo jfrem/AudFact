@@ -24,7 +24,7 @@ export default async function DispensationDetailPage({
       />
       <div className="mt-6">
         <AttachmentResultDetailClient
-          invoiceId={disDetNro}
+          disDetNro={disDetNro}
           attachments={attachments}
           dispensation={dispensation}
           items={items}

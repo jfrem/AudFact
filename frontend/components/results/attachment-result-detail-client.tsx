@@ -9,12 +9,12 @@ import { AttachmentList } from "@/components/attachments/attachment-list";
 import { AttachmentViewerPanel } from "@/components/attachments/attachment-viewer-panel";
 
 export function AttachmentResultDetailClient({
-  invoiceId,
+  disDetNro,
   attachments,
   dispensation,
   items,
 }: {
-  invoiceId: string;
+  disDetNro: string;
   attachments: AttachmentRecord[];
   dispensation: DispensationDetail | null;
   items: any[];
@@ -78,7 +78,7 @@ export function AttachmentResultDetailClient({
 
       {/* Main Workspace: PDF Viewer */}
       <Card className="flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#111c2b] p-4 md:p-5">
-        <AttachmentViewerPanel invoiceId={invoiceId} attachment={selected} />
+        <AttachmentViewerPanel disDetNro={disDetNro} attachment={selected} />
       </Card>
     </div>
   );

@@ -34,14 +34,14 @@ export default async function AuditResultDetailPage({
     resultsResponse?.items.find((item) => String(item.FacSec) === facSec) ??
     null;
 
-  const invoiceId = facNro || record?.FacNro || "";
+  const disDetNro = facNro || record?.FacNro || "";
   const nitSec = facNitSec || String(record?.FacNitSec ?? "");
   const [dispensationResult, attachments] = await Promise.all([
-    invoiceId
-      ? getDispensationDetail(invoiceId).catch(() => null)
+    disDetNro
+      ? getDispensationDetail(disDetNro).catch(() => null)
       : Promise.resolve<null>(null),
-    invoiceId && nitSec
-      ? getAttachments(invoiceId, nitSec).catch(() => [])
+    disDetNro && nitSec
+      ? getAttachments(disDetNro, nitSec).catch(() => [])
       : Promise.resolve([]),
   ]);
   const dispensation = dispensationResult ?? null;
@@ -94,7 +94,7 @@ export default async function AuditResultDetailPage({
           </div>
 
           <AttachmentResultDetailClient
-            invoiceId={invoiceId}
+            disDetNro={disDetNro}
             attachments={attachments ?? []}
             dispensation={dispensation}
             items={dispensation?.items ?? []}

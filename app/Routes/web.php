@@ -19,8 +19,8 @@ $router->get('/invoices', 'InvoicesController', 'index');
 $router->post('/invoices', 'InvoicesController', 'search');
 
 // Attachments (download route MUST come first — {nitSec} wildcard matches 'download')
-$router->get('/dispensation/{invoiceId}/attachments/download/{attachmentId}', 'AttachmentsController', 'downloadByDispensation');
-$router->get('/dispensation/{invoiceId}/attachments/{nitSec}', 'AttachmentsController', 'showByDispensation');
+$router->get('/dispensation/{disDetNro}/attachments/download/{attachmentId}', 'AttachmentsController', 'downloadByDispensation');
+$router->get('/dispensation/{disDetNro}/attachments/{nitSec}', 'AttachmentsController', 'showByDispensation');
 
 
 // Dispensation

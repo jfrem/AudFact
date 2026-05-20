@@ -29,11 +29,22 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | Modelo | Tabla BD | Responsabilidad |
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
-| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas de dispensación por NIT, fecha, límite (LEFT JOIN `AdjDisOpc='N'` + `aud.c<aud.ca`) |
-| `DispensationModel` | Dispensación | Datos de referencia (source of truth) |
-| `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByInvoiceId` para prefiltrado en auditoría IA |
+| `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT, fecha y límite; selecciona `Factura.FacSec` como llave canónica de auditoría |
+| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura` |
+| `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
+
+## Contrato de identidad de auditoría
+
+Fuente completa: [`plans/audit-identity-contract.md`](file:///c:/Users/USER/Desktop/AudFact/plans/audit-identity-contract.md).
+
+```text
+Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec
+DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
+```
+
+`vw_discolnet_dispensas.facsec` es legacy/de agrupación y no debe mapearse como `FacSec`.
 
 ## Database.php — Capacidades
 
@@ -176,9 +187,9 @@ return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
 ### Ejemplo 2: lectura de BLOB como stream
 ```php
-$stmt = $this->db->prepare("SELECT a.AdjDisDoc FROM AdjuntosDispensacion a LEFT JOIN DispensacionDetalleServicio d ON d.DisId=a.DisId WHERE a.AdjDisId=:id AND d.DisDetNro=:invoiceId");
+$stmt = $this->db->prepare("SELECT a.AdjDisDoc FROM AdjuntosDispensacion a LEFT JOIN DispensacionDetalleServicio d ON d.DisId=a.DisId WHERE a.AdjDisId=:id AND d.DisDetNro=:disDetNro");
 $stmt->bindParam(':id', $attachmentId, \PDO::PARAM_STR);
-$stmt->bindParam(':invoiceId', $invoiceId, \PDO::PARAM_STR);
+$stmt->bindParam(':disDetNro', $disDetNro, \PDO::PARAM_STR);
 $stmt->execute();
 $stmt->bindColumn(1, $stream, \PDO::PARAM_LOB);
 ```

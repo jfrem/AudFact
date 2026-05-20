@@ -116,7 +116,7 @@ class AuditDataService
     public function getAttachments(string $disDetNro, string $nitSec): array
     {
         $start = microtime(true);
-        $atts  = $this->attachmentsModel->getRequiredAttachmentsByInvoiceId($disDetNro, $nitSec);
+        $atts  = $this->attachmentsModel->getRequiredAttachmentsByDisDetNro($disDetNro, $nitSec);
 
         Logger::info('AuditDataService::getAttachments', [
             'dis_det_nro' => $disDetNro,

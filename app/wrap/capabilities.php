@@ -22,18 +22,18 @@ echo json_encode([
             ],
             [
                 "name" => "GetDispensation",
-                "description" => "Obtiene dispensación por invoiceId.",
+                "description" => "Obtiene dispensación por DisDetNro.",
                 "parameters" => [
-                    ["name" => "invoiceId", "type" => "string", "required" => true, "description" => "Identificador de factura/dispensación (DisDetNro/FacNro)."]
+                    ["name" => "DisDetNro", "type" => "string", "required" => true, "description" => "Identificador operativo de dispensación."]
                 ]
             ],
             [
                 "name" => "GetAttachments",
-                "description" => "Lista adjuntos por invoiceId+nitSec o descarga por invoiceId+attachmentId.",
+                "description" => "Lista adjuntos por DisDetNro+nitSec o descarga por DisDetNro+attachmentId.",
                 "parameters" => [
-                    ["name" => "invoiceId", "type" => "string", "required" => true, "description" => "Identificador de factura/dispensación."],
+                    ["name" => "DisDetNro", "type" => "string", "required" => true, "description" => "Identificador operativo de dispensación."],
                     ["name" => "nitSec", "type" => "string", "required" => false, "description" => "NIT del cliente. Requerido para listar adjuntos."],
-                    ["name" => "attachmentId", "type" => "string", "required" => false, "description" => "ID del adjunto. Si se envía, ejecuta descarga del adjunto para ese invoiceId."]
+                    ["name" => "attachmentId", "type" => "string", "required" => false, "description" => "ID del adjunto. Si se envía, ejecuta descarga del adjunto para ese DisDetNro."]
                 ]
             ]
         ]

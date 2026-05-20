@@ -11,10 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
 export function AttachmentViewerPanel({
-  invoiceId,
+  disDetNro,
   attachment,
 }: {
-  invoiceId: string;
+  disDetNro: string;
   attachment?: AttachmentRecord;
 }) {
   const attachmentId = attachment?.id_documento;
@@ -22,8 +22,8 @@ export function AttachmentViewerPanel({
   const attachmentAlias = attachment?.nombre_alternativo ?? "Sin alias";
   const storageType = attachment?.TipoAlmacenamiento ?? "N/D";
   const { data, isLoading, isError, error } = useQuery({
-    ...attachmentPreviewQuery(invoiceId, attachmentId ?? ""),
-    enabled: Boolean(invoiceId) && Boolean(attachmentId),
+    ...attachmentPreviewQuery(disDetNro, attachmentId ?? ""),
+    enabled: Boolean(disDetNro) && Boolean(attachmentId),
   });
 
   if (!attachment) {
@@ -55,7 +55,7 @@ export function AttachmentViewerPanel({
             </span>
             <Button asChild variant="secondary" size="sm">
               <a
-                href={getAttachmentDownloadUrl(invoiceId, attachmentId ?? "")}
+                href={getAttachmentDownloadUrl(disDetNro, attachmentId ?? "")}
                 target="_blank"
                 rel="noreferrer"
               >
