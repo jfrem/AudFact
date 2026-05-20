@@ -22,22 +22,12 @@ async function parseJson(response: Response) {
 }
 
 async function resolveApiUrl(path: string) {
-  const proxyPath = buildApiUrl(path);
-
   if (typeof window !== "undefined") {
-    return proxyPath;
+    return buildApiUrl(path);
   }
 
-  const { headers } = await import("next/headers");
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
-
-  if (host) {
-    const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-    return `${protocol}://${host}${proxyPath}`;
-  }
-
-  return `http://127.0.0.1:${process.env.PORT ?? "3000"}${proxyPath}`;
+  const { buildInternalApiUrl } = await import("@/lib/api/server-config");
+  return buildInternalApiUrl(path);
 }
 
 export async function requestEnvelope<TSchema extends ZodType>(
