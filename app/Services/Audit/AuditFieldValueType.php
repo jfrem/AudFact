@@ -98,7 +98,8 @@ enum AuditFieldValueType: string
      */
     public function allowsSemanticGeminiFallback(): bool
     {
-        return $this === self::ARTICLE_NAME;
+        return $this === self::ARTICLE_NAME
+            || $this === self::PERSON_NAME;
     }
 
     /**

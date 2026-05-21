@@ -91,13 +91,13 @@ export function PriorityAuditTable({
                 </p>
               </TableCell>
               <TableCell className="tabular-nums text-slate-300">
-                {formatDurationMs(Number(item._meta?.totalTimeMs ?? 0))}
+                {formatDurationMs(Number(item.DuracionProcesamientoMs ?? 0))}
               </TableCell>
               <TableCell
                 className="whitespace-nowrap text-slate-400"
-                title={formatDateTime(String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""))}
+                title={formatDateTime(String(item.FechaActualizacion ?? ""))}
               >
-                {formatDateTime(String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""))}
+                {formatDateTime(String(item.FechaActualizacion ?? ""))}
               </TableCell>
               <TableCell className="text-right">
                 <Button asChild size="sm" variant="secondary">
@@ -184,15 +184,7 @@ function getPrimaryIssue(item: AuditResultRecord) {
 }
 
 function buildResultHref(item: AuditResultRecord) {
-  const params = new URLSearchParams({
-    page: "1",
-    pageSize: "20",
-  });
-  const facNro = String(item.FacNro ?? "").trim();
-
-  if (facNro) params.set("facNro", facNro);
-
-  return `/audit/results?${params.toString()}`;
+  return `/audit/results/${String(item.FacSec)}`;
 }
 
 function normalizeState(value?: string | null) {

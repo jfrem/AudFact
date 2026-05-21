@@ -58,7 +58,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByDisDetNro()`, `getAttachmentByIdForDisDetNro()`, `getAttachmentBlobStreamByIdForDisDetNro()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
-| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `getByFacSec()`, `upsertAuditResult()`, `updateAuditResult()` |
+| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `searchAuditSummaries()`, `getAuditDetailByFacSec()`, `persistAuditResultWithAttachments()` |
 
 **Dependencias**: `core/Database` (PDO sqlsrv).
 **Interfaz**: Invocados por Controllers y Worker.

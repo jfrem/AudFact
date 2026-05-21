@@ -98,7 +98,7 @@ Busca facturas por query params.
 Parámetros:
 - `facNitSec` requerido
 - `dateFrom` requerido, `YYYY-MM-DD`
-- `dateTo` opcional, `YYYY-MM-DD`
+- `dateTo` opcional, `YYYY-MM-DD` (si se omite, se iguala a `dateFrom`)
 - `limit` opcional, entero `1..1000`
 
 ### `POST /invoices`
@@ -113,6 +113,8 @@ Busca facturas por body JSON.
   "limit": 10
 }
 ```
+
+Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `dateFrom`.
 
 ### `GET /dispensation/{DisDetNro}`
 
@@ -167,6 +169,7 @@ Encola una auditoría batch asíncrona.
   "limit": 10
 }
 ```
+Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `date`.
 
 Respuesta exitosa: HTTP `202`.
 
@@ -191,7 +194,7 @@ Parámetros opcionales:
 - `facNitSec`
 - `facNro`
 - `dateFrom`
-- `dateTo`
+- `dateTo` (si se omite, se iguala a `dateFrom`)
 - `page`
 - `pageSize`
 

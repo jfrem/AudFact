@@ -18,22 +18,20 @@ use Core\Logger;
 class InvoicesModel extends Model
 {
     /**
-     * Obtiene facturas pendientes de auditoría por NIT y fecha o rango de fechas.
+     * Obtiene facturas pendientes de auditoría por NIT y rango de fechas.
      *
-     * @param  int         $facNitSec  Identificador del cliente/NIT.
-     * @param  string      $dateFrom   Fecha inicial en formato YYYY-MM-DD.
-     * @param  string|null $dateTo     Fecha final opcional en formato YYYY-MM-DD.
-     * @param  int         $limit      Máximo de resultados (1-1000).
-     * @return array                   Facturas encontradas.
+     * El SQL siempre filtra por rango cerrado: DisFecSol >= :dateFromD AND DisFecSol <= :dateToD.
+     * Para consultar un solo día, pasar dateFrom == dateTo.
+     *
+     * @param  int    $facNitSec  Identificador del cliente/NIT.
+     * @param  string $dateFrom   Fecha inicial en formato YYYY-MM-DD.
+     * @param  string $dateTo     Fecha final en formato YYYY-MM-DD.
+     * @param  int    $limit      Máximo de resultados (1-1000).
+     * @return array              Facturas encontradas.
      */
-    public function getInvoices(int $facNitSec, string $dateFrom, ?string $dateTo = null, int $limit = 100): array
+    public function getInvoices(int $facNitSec, string $dateFrom, string $dateTo, int $limit = 100): array
     {
         $limit = min(max($limit, 1), 1000);
-
-        // Determinar condición de fecha principal
-        $dateConditionD = $dateTo
-            ? "tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD"
-            : "tb1.DisFecSol = :dateFromD";
 
         $safeLimit = (int) $limit;
         $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb3.FacSec FacSec,tb2.DisDetNro Dispensa
@@ -44,8 +42,12 @@ class InvoicesModel extends Model
                 left join tipos t with(nolock) on t.TipCod=tb3.FacTipCod
                 LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb3.FacSec
                 LEFT JOIN (
-                    SELECT f.DisId,f.DisdetId,f.artsec,f.Documento,sum(f.KarUni)KarUni from vw_discolnet_facturas f with(nolock) where f.Fecha >= :dateFromF
-                    GROUP BY f.DisId,f.DisdetId,f.artsec,f.Documento
+                    select f.facnro Documento,k.artsec,f.DisId,f.DisDetId,sum(k.KarUni)KarUni
+                    from Factura f WITH(NOLOCK)
+                    inner JOIN FacturaKardex k WITH(NOLOCK) on k.FacSec=f.FacSec
+                    inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
+                    Where t.FueCod='FACT' and f.FacEst='A'
+                    group by f.facnro,k.artsec,f.DisId,f.DisDetId
                 )f on f.DisId=tb2.DisId and f.DisdetId=tb2.DisDetId and f.artsec=tb4.artsec
                 LEFT JOIN(
                     SELECT DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
@@ -60,8 +62,8 @@ class InvoicesModel extends Model
                     left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
                     GROUP BY a.DisId,a.DisDetId
                 )docadj on docadj.DisId=tb2.DisId and docadj.DisDetId=tb2.DisDetId
-                WHERE t.FueCod='DISP' and tb2.DisDetEst in ('A','P') and tb4.KarUni>0
-                and {$dateConditionD}
+                WHERE t.FueCod='DISP' and tb2.DisDetEst in ('A','P') and tb4.KarUni>0 and f.Documento is null
+                    and tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD
                     AND tb3.FacNitSec = :facNitSec
                     AND tb2.DisTip in ('P','M')
                     AND tb2.DisDetEst = 'A'
@@ -74,10 +76,8 @@ class InvoicesModel extends Model
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':facNitSec', $facNitSec, PDO::PARAM_INT);
         $stmt->bindParam(':dateFromD', $dateFrom);
-        $stmt->bindParam(':dateFromF', $dateFrom);
-        if ($dateTo) {
-            $stmt->bindParam(':dateToD', $dateTo);
-        }
+        $stmt->bindParam(':dateToD', $dateTo);
+
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

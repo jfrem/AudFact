@@ -534,11 +534,16 @@ class DocumentPolicyEngine
         }
 
         if ($this->semanticJudge !== null && $valueType->allowsSemanticGeminiFallback()) {
+            $callPurpose = match ($valueType) {
+                AuditFieldValueType::PERSON_NAME  => 'person_name_match',
+                AuditFieldValueType::ARTICLE_NAME => 'article_homologation',
+                default                           => 'generic_semantic',
+            };
             $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, array_merge($context, [
                 'field' => $field,
                 'tipoCampo' => $tipoCampo,
                 'tipoDato' => $valueType->value,
-                'call_purpose' => 'article_homologation',
+                'call_purpose' => $callPurpose,
             ]));
             if (is_array($judgeResult['gemini_metrics'] ?? null)) {
                 $this->semanticMetrics[] = $judgeResult['gemini_metrics'];

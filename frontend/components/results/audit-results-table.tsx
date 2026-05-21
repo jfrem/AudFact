@@ -111,7 +111,7 @@ export function AuditResultsTable({
                       Campos
                     </p>
                     <p className="mt-1 text-slate-200">
-                      {formatNumber(item.HallazgosItems?.length ?? 0)}
+                      {formatNumber(item.findingsCount ?? 0)}
                     </p>
                   </div>
                   <div>
@@ -128,7 +128,7 @@ export function AuditResultsTable({
                     </p>
                     <p className="mt-1 text-slate-300">
                       {formatDateTime(
-                        String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
+                        String(item.FechaActualizacion ?? ""),
                       )}
                     </p>
                   </div>
@@ -195,15 +195,15 @@ export function AuditResultsTable({
                   <TableCell className="whitespace-nowrap" title={String(item.Severidad ?? "N/D")}>
                     <SeverityBadge severity={item.Severidad} />
                   </TableCell>
-                  <TableCell className="tabular-nums text-slate-300" title={formatNumber(item.HallazgosItems?.length ?? 0)}>
-                    {formatNumber(item.HallazgosItems?.length ?? 0)}
+                  <TableCell className="tabular-nums text-slate-300" title={formatNumber(item.findingsCount ?? 0)}>
+                    {formatNumber(item.findingsCount ?? 0)}
                   </TableCell>
                   <TableCell className="tabular-nums text-slate-300" title={duration}>
                     {duration}
                   </TableCell>
-                  <TableCell className="text-slate-400" title={formatDateTime(String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""))}>
+                  <TableCell className="text-slate-400" title={formatDateTime(String(item.FechaActualizacion ?? ""))}>
                     {formatDateTime(
-                      String(item._meta?.updatedAt ?? item.FechaActualizacion ?? ""),
+                      String(item.FechaActualizacion ?? ""),
                     )}
                   </TableCell>
                   <TableCell className="text-right">
@@ -236,5 +236,5 @@ export function AuditResultsTable({
 }
 
 function resolveAuditDurationMs(item: AuditResultRecord) {
-  return Number(item._meta?.total_duration_ms ?? item._meta?.totalTimeMs ?? 0);
+  return Number(item.DuracionProcesamientoMs ?? 0);
 }

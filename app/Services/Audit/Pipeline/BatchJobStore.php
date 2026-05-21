@@ -32,7 +32,7 @@ class BatchJobStore
         string $jobId,
         int $facNitSec,
         string $dateFrom,
-        ?string $dateTo,
+        string $dateTo,
         int $limit
     ): bool {
         $now = gmdate('Y-m-d\TH:i:s\Z');
@@ -116,7 +116,7 @@ class BatchJobStore
         );
     }
 
-    public function claimBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo, string $jobId): bool
+    public function claimBatchSlot(int $facNitSec, string $dateFrom, string $dateTo, string $jobId): bool
     {
         return $this->redis->setnx(
             self::batchLockKey($facNitSec, $dateFrom, $dateTo),
@@ -125,7 +125,7 @@ class BatchJobStore
         );
     }
 
-    public function getActiveBatchJobId(int $facNitSec, string $dateFrom, ?string $dateTo): ?string
+    public function getActiveBatchJobId(int $facNitSec, string $dateFrom, string $dateTo): ?string
     {
         try {
             return $this->redis->get(self::batchLockKey($facNitSec, $dateFrom, $dateTo));
@@ -134,7 +134,7 @@ class BatchJobStore
         }
     }
 
-    public function releaseBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo): bool
+    public function releaseBatchSlot(int $facNitSec, string $dateFrom, string $dateTo): bool
     {
         return $this->redis->del(self::batchLockKey($facNitSec, $dateFrom, $dateTo));
     }
@@ -144,10 +144,9 @@ class BatchJobStore
         return "job:{$jobId}:state";
     }
 
-    public static function batchLockKey(int $facNitSec, string $dateFrom, ?string $dateTo): string
+    public static function batchLockKey(int $facNitSec, string $dateFrom, string $dateTo): string
     {
-        $to = $dateTo ?? $dateFrom;
-        return "job:active:{$facNitSec}:{$dateFrom}:{$to}";
+        return "job:active:{$facNitSec}:{$dateFrom}:{$dateTo}";
     }
 
 

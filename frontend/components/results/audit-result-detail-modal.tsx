@@ -12,9 +12,10 @@ import {
 import type {
   AttachmentRecord,
   AuditFinding,
+  AuditResultDetail,
   AuditResultRecord,
 } from "@/lib/schemas/domain";
-import { getAttachments, getDispensationDetail } from "@/lib/api/audfact";
+import { getAttachments, getAuditResultDetail, getDispensationDetail } from "@/lib/api/audfact";
 import {
   Dialog,
   DialogContent,
@@ -63,6 +64,13 @@ export function AuditResultDetailModal({
 
   const facNro = record.FacNro ?? "";
   const facNitSec = String(record.FacNitSec ?? "");
+  const facSec = String(record.FacSec);
+
+  const detailQ = useQuery<AuditResultDetail>({
+    queryKey: ["audit-result-detail", facSec],
+    queryFn: () => getAuditResultDetail(facSec),
+    enabled: open && Boolean(facSec),
+  });
 
   const attachmentsQ = useQuery({
     queryKey: ["modal-attachments", facNro, facNitSec],
@@ -77,6 +85,7 @@ export function AuditResultDetailModal({
   });
 
   const attachments = attachmentsQ.data ?? [];
+  const detail = detailQ.data;
   const patientName = String(
     dispensationQ.data?.header.NombrePaciente ?? "Paciente no disponible",
   );
@@ -96,14 +105,13 @@ export function AuditResultDetailModal({
     }
   }, [tab, attachments, selectedAttachment]);
 
-  const allFindings = record.HallazgosItems ?? [];
-  const findings = allFindings.filter((item) => item.status !== "MATCH");
-  const fieldDecisions = record.CriticalFieldDecisions ?? [];
-  const meta = record._meta;
+  const allFindings = detail?.findings ?? [];
+  const findings = allFindings.filter((item) => item.resultado !== "COINCIDE");
+  const fieldDecisions = detail?.fieldDecisions ?? [];
   const findingCount = findings.length;
-  const criticalCount = findings.filter((item) => item.severity === "CRITICO").length;
-  const documentCount = Number(meta?.documentsProcessed ?? 0);
-  const updatedAt = String(meta?.updatedAt ?? record.FechaActualizacion ?? "");
+  const criticalCount = findings.filter((item) => normalizeSeverity(item.severidad) === "ALTA").length;
+  const documentCount = Number((detail ?? record).DocumentosProcesados ?? 0);
+  const updatedAt = String((detail ?? record).FechaActualizacion ?? "");
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -138,18 +146,18 @@ export function AuditResultDetailModal({
                 <span className="text-slate-600">Incidencias</span>{" "}
                 <span className="tabular-nums text-slate-300">{findingCount}</span>
                 {criticalCount > 0 && (
-                  <span className="ml-1 text-rose-400">({criticalCount} crít.)</span>
+                  <span className="ml-1 text-rose-400">({criticalCount} alta)</span>
                 )}
               </span>
               <span>
                 <span className="text-slate-600">Docs</span>{" "}
                 <span className="tabular-nums text-slate-300">{documentCount > 0 ? documentCount : "—"}</span>
               </span>
-              {(meta?.total_duration_ms ?? meta?.totalTimeMs) != null && (
+              {Number((detail ?? record).DuracionProcesamientoMs ?? 0) > 0 && (
                 <span>
                   <span className="text-slate-600">IA</span>{" "}
                   <span className="tabular-nums text-slate-300">
-                    {formatDurationMs(Number(meta?.total_duration_ms ?? meta?.totalTimeMs))}
+                    {formatDurationMs(Number((detail ?? record).DuracionProcesamientoMs ?? 0))}
                   </span>
                 </span>
               )}
@@ -169,14 +177,26 @@ export function AuditResultDetailModal({
           </TabsList>
 
           <div className="max-h-[calc(96vh-160px)] flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-5">
+            {detailQ.isError ? (
+              <Alert variant="destructive" className="mb-4">
+                <AlertTriangle />
+                <AlertDescription>
+                  No se pudo cargar el detalle persistido de esta auditoría.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <TabsContent value="incidencias" className="mt-0">
-              <FindingsTab findings={findings} />
+              <FindingsTab findings={findings} isLoading={detailQ.isLoading} />
             </TabsContent>
             <TabsContent value="campos" className="mt-0">
-              <FieldDecisionsTab items={fieldDecisions} />
+              <FieldDecisionsTab items={fieldDecisions} isLoading={detailQ.isLoading} />
             </TabsContent>
             <TabsContent value="rendimiento" className="mt-0">
-              <AuditTimingsPanel meta={record._meta} />
+              <AuditTimingsPanel
+                timings={detail?.timings ?? null}
+                totalDurationMs={Number((detail ?? record).DuracionProcesamientoMs ?? 0)}
+                documentsProcessed={documentCount}
+              />
             </TabsContent>
             <TabsContent value="adjuntos" className="mt-0">
               <AttachmentsTab
@@ -201,7 +221,22 @@ export function AuditResultDetailModal({
   );
 }
 
-function FindingsTab({ findings }: { findings: AuditFinding[] }) {
+function FindingsTab({
+  findings,
+  isLoading,
+}: {
+  findings: AuditFinding[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
+        <Spinner className="mr-2" />
+        Cargando detalle...
+      </div>
+    );
+  }
+
   if (findings.length === 0) {
     return (
       <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-emerald-500/20 bg-emerald-500/[0.04] px-6 text-center">
@@ -219,8 +254,8 @@ function FindingsTab({ findings }: { findings: AuditFinding[] }) {
       <section className="rounded-lg border border-white/8 bg-[#09111d]/40 px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
           <span>{findings.length} incidencias estructuradas</span>
-          <span>{findings.filter((item) => item.severity === "CRITICO").length} críticos</span>
-          <span>{findings.filter((item) => item.status === "NOT_FOUND").length} no encontrados</span>
+          <span>{findings.filter((item) => normalizeSeverity(item.severidad) === "ALTA").length} alta severidad</span>
+          <span>{findings.filter((item) => item.resultado === "NO_ENCONTRADO").length} no encontrados</span>
         </div>
       </section>
       <ResultItemsTable items={findings} />
@@ -228,7 +263,22 @@ function FindingsTab({ findings }: { findings: AuditFinding[] }) {
   );
 }
 
-function FieldDecisionsTab({ items }: { items: AuditFinding[] }) {
+function FieldDecisionsTab({
+  items,
+  isLoading,
+}: {
+  items: AuditFinding[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
+        <Spinner className="mr-2" />
+        Cargando campos...
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#09111d]/30 px-6 text-center">
@@ -256,8 +306,8 @@ function FieldDecisionsTab({ items }: { items: AuditFinding[] }) {
         </TableHeader>
         <TableBody>
           {items.map((item, index) => (
-            <TableRow key={`${item.field}-${index}`}>
-              <TableCell className="font-medium text-white" title={item.field}>{item.field}</TableCell>
+            <TableRow key={`${item.campo}-${index}`}>
+              <TableCell className="font-medium text-white" title={item.campo}>{item.campo}</TableCell>
               <TableCell className="text-slate-400 text-xs" title={item.documento ?? "N/D"}>
                 {item.documento ? (
                   <span className="inline-flex items-center rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
@@ -267,17 +317,17 @@ function FieldDecisionsTab({ items }: { items: AuditFinding[] }) {
                   "—"
                 )}
               </TableCell>
-              <TableCell title={item.status}>
-                <FieldStatusLabel status={item.status} />
+              <TableCell title={item.resultado}>
+                <FieldStatusLabel status={item.resultado} />
               </TableCell>
-              <TableCell className="max-w-[220px] truncate font-mono text-xs text-slate-400" title={item.expected_value ?? "N/D"}>
-                {item.expected_value ?? "—"}
+              <TableCell className="max-w-[220px] truncate font-mono text-xs text-slate-400" title={item.valorFuenteVerdad ?? "N/D"}>
+                {item.valorFuenteVerdad ?? "—"}
               </TableCell>
-              <TableCell className="max-w-[220px] truncate font-mono text-xs text-slate-400" title={item.observed_value ?? "N/D"}>
-                {item.observed_value ?? "—"}
+              <TableCell className="max-w-[220px] truncate font-mono text-xs text-slate-400" title={item.valorDocumento ?? "N/D"}>
+                {item.valorDocumento ?? "—"}
               </TableCell>
-              <TableCell title={item.severity}>
-                <SeverityBadge severity={item.severity} />
+              <TableCell title={item.severidad}>
+                <SeverityBadge severity={item.severidad} />
               </TableCell>
             </TableRow>
           ))}
@@ -290,12 +340,18 @@ function FieldDecisionsTab({ items }: { items: AuditFinding[] }) {
 /** Semantic coloring for field comparison status */
 function FieldStatusLabel({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    MATCH: { label: "Coincide", className: "text-emerald-400" },
-    DISCREPANCY: { label: "Discrepancia", className: "text-rose-400" },
-    NOT_FOUND: { label: "No encontrado", className: "text-amber-400" },
+    COINCIDE: { label: "Coincide", className: "text-emerald-400" },
+    VALOR_DISTINTO: { label: "Valor distinto", className: "text-rose-400" },
+    NO_ENCONTRADO: { label: "No encontrado", className: "text-amber-400" },
+    OMITIDO: { label: "Omitido", className: "text-slate-400" },
+    NO_CONCLUYENTE: { label: "No concluyente", className: "text-violet-300" },
   };
   const entry = config[status] ?? { label: status, className: "text-slate-400" };
   return <span className={`text-xs font-medium ${entry.className}`}>{entry.label}</span>;
+}
+
+function normalizeSeverity(value?: string | null) {
+  return String(value ?? "").trim().toUpperCase();
 }
 
 function AttachmentsTab({

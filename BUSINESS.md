@@ -364,7 +364,7 @@ Tabla puente entre conceptos de negocio y su implementación técnica:
 | Comparación exacta / semántica | Motor de reglas PHP | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` |
 | Verificaciones visuales | Gemini detecta + PHP decide | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php` |
 | Resultado de auditoría | Tabla `AudDispEst`: `FacSec` llave canónica, `FacNro` = `DisDetNro` | `app/Models/AuditStatusModel.php` |
-| Decisión por documento | `affected_documents` en resultado | `AuditAggregationWorker.php` |
+| Decisión por documento | `document_decisions` en resultado | `RulesEvaluationWorker.php` |
 | Vigencia de entrega | Cálculo PHP: `FechaAutorizacion + N días` | `RulesEvaluationWorker.php` |
 | Glosa (prevención) | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO` | Dashboard frontend |
 | Clientes (EPS) | Tablas `NIT` + `Clientes` | `app/Models/ClientsModel.php` |

@@ -126,80 +126,32 @@ export const AttachmentPreviewSchema = z.object({
 });
 
 export const AuditDocumentStatusSchema = z.enum(["CONCILIADO", "DISCREPANCIA"]);
-export const AuditFieldStatusSchema = z.enum(["MATCH", "DISCREPANCY", "NOT_FOUND"]);
-export const AuditSeveritySchema = z.enum(["NONE", "CRITICO", "MENOR", "ALTA", "MEDIA", "BAJA"]);
+export const AuditFindingResultSchema = z.enum([
+  "COINCIDE",
+  "VALOR_DISTINTO",
+  "NO_ENCONTRADO",
+  "OMITIDO",
+  "NO_CONCLUYENTE",
+]);
+export const AuditSeveritySchema = z.string();
+
+const FindingValueSchema = z
+  .union([z.string(), z.number(), z.boolean()])
+  .nullish()
+  .transform((value) => (value == null ? null : String(value)));
 
 export const AuditFindingSchema = z.object({
-  field: z.string(),
-  status: AuditFieldStatusSchema,
-  severity: AuditSeveritySchema,
-  reason_short: z.string(),
-  observed_value: z.string().nullish(),
-  expected_value: z.string().nullish(),
+  campo: z.string(),
+  resultado: AuditFindingResultSchema,
+  severidad: z.string(),
+  detalle: z.unknown().nullish(),
+  valorDocumento: FindingValueSchema,
+  valorFuenteVerdad: FindingValueSchema,
   documento: z.string().nullish(),
-});
-
-const LegacyAuditFindingSchema = z
-  .object({
-    field: z.string().nullish(),
-    campo: z.string().nullish(),
-    item: z.string().nullish(),
-    status: z.string().nullish(),
-    resultado: z.string().nullish(),
-    detalle: z.string().nullish(),
-    reason: z.string().nullish(),
-    observed_value: z.string().nullish(),
-    valorDocumento: z.string().nullish(),
-    expected_value: z.string().nullish(),
-    valorFuenteVerdad: z.string().nullish(),
-    observed_value_legacy: z.string().nullish(),
-    source_value: z.string().nullish(),
-    severity: z.string().nullish(),
-    severidad: z.string().nullish(),
-    documento: z.string().nullish(),
-  })
-  .passthrough()
-  .transform((value) => {
-    const rawStatus = String(value.status ?? value.resultado ?? "").toUpperCase();
-    const rawSeverity = String(value.severity ?? value.severidad ?? "").toUpperCase();
-
-    const statusMap: Record<string, z.infer<typeof AuditFieldStatusSchema>> = {
-      MATCH: "MATCH",
-      COINCIDE: "MATCH",
-      DISCREPANCY: "DISCREPANCY",
-      DISCREPA: "DISCREPANCY",
-      ERROR: "DISCREPANCY",
-      HUMAN_REVIEW: "DISCREPANCY",
-      NOT_FOUND: "NOT_FOUND",
-      NO_ENCONTRADO: "NOT_FOUND",
-    };
-
-    const severityMap: Record<string, z.infer<typeof AuditSeveritySchema>> = {
-      NONE: "NONE",
-      CRITICO: "CRITICO",
-      MENOR: "MENOR",
-      ALTA: "ALTA",
-      MEDIA: "MEDIA",
-      BAJA: "BAJA",
-    };
-
-    const reason = String(value.reason ?? value.detalle ?? "").trim();
-
-    return {
-      field: String(value.field ?? value.campo ?? value.item ?? "Campo"),
-      status: statusMap[rawStatus] ?? "DISCREPANCY",
-      severity: severityMap[rawSeverity] ?? "MENOR",
-      reason_short: reason || (statusMap[rawStatus] === "MATCH" ? "Coincide con fuente de verdad" : "Requiere validación"),
-      observed_value: value.observed_value ?? value.valorDocumento ?? value.observed_value_legacy,
-      expected_value: value.expected_value ?? value.valorFuenteVerdad ?? value.source_value,
-      documento: value.documento,
-    };
-  });
-
-const HistoricalAuditFindingSchema = z.union([
-  AuditFindingSchema,
-  LegacyAuditFindingSchema,
-]);
+  tipo_auditoria: z.string().nullish(),
+  valueType: z.string().nullish(),
+  valoresDocumento: z.array(z.string()).nullish(),
+}).passthrough();
 
 export const AuditTimingSummarySchema = z
   .object({
@@ -234,20 +186,6 @@ export const AuditPhaseTimingsSchema = z
     extraction: AuditTimingSummarySchema.nullish(),
     normalization: AuditTimingSummarySchema.nullish(),
     policy: AuditTimingSummarySchema.nullish(),
-  })
-  .passthrough();
-
-export const AuditResultMetaSchema = z
-  .object({
-    source: z.string().nullish(),
-    totalTimeMs: z.number().nonnegative().nullish(),
-    total_duration_ms: z.number().nonnegative().nullish(),
-    documentsProcessed: z.number().int().nonnegative().nullish(),
-    createdAt: z.string().nullish(),
-    updatedAt: z.string().nullish(),
-    auditExecuted: z.boolean().nullish(),
-    metrics: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
-    phase_timings: AuditPhaseTimingsSchema.nullish(),
   })
   .passthrough();
 
@@ -317,15 +255,35 @@ export const AuditResultRecordSchema = z.object({
   FacSec: ScalarSchema,
   FacNro: z.string().nullish(),
   FacNitSec: ScalarSchema.nullish(),
+  EstAud: z.number().int().nullish(),
   EstadoDetallado: z.string().nullish(),
+  RequiereRevisionHumana: z.number().int().nullish(),
   Severidad: z.string().nullish(),
-  Hallazgos: z.string().nullish(),
-  HallazgosItems: z.array(HistoricalAuditFindingSchema).nullish(),
-  CriticalFieldDecisions: z.array(HistoricalAuditFindingSchema).nullish(),
-  _meta: AuditResultMetaSchema.nullish(),
+  DetalleError: z.string().nullish(),
+  DocumentosProcesados: z.number().int().nonnegative().optional().default(0),
+  DocumentoFallido: z.string().nullish(),
+  DuracionProcesamientoMs: z.number().int().nonnegative().optional().default(0),
+  metrics: z.record(z.string(), z.number()).optional().default({}),
+  findingsCount: z.number().int().nonnegative().optional().default(0),
+  failedFindingsCount: z.number().int().nonnegative().optional().default(0),
+  inconclusiveFindingsCount: z.number().int().nonnegative().optional().default(0),
+  auditExecuted: z.boolean().optional().default(false),
   FechaCreacion: z.string().nullish(),
   FechaActualizacion: z.string().nullish(),
 }).passthrough();
+
+export const AuditDocumentDecisionSchema = z.object({
+  documentName: z.string(),
+  approved: z.boolean(),
+  observation: z.string().nullable().optional(),
+}).passthrough();
+
+export const AuditResultDetailSchema = AuditResultRecordSchema.extend({
+  findings: z.array(AuditFindingSchema).optional().default([]),
+  fieldDecisions: z.array(AuditFindingSchema).optional().default([]),
+  documentDecisions: z.array(AuditDocumentDecisionSchema).optional().default([]),
+  timings: AuditPhaseTimingsSchema.nullish(),
+});
 
 const PaginationFiltersSchema = z
   .union([
@@ -376,10 +334,11 @@ export type AuditFinding = z.infer<typeof AuditFindingSchema>;
 export type AuditTimingSummary = z.infer<typeof AuditTimingSummarySchema>;
 export type AuditGeminiTimingSummary = z.infer<typeof AuditGeminiTimingSummarySchema>;
 export type AuditPhaseTimings = z.infer<typeof AuditPhaseTimingsSchema>;
-export type AuditResultMeta = z.infer<typeof AuditResultMetaSchema>;
 export type AuditSingleResponse = z.infer<typeof AuditSingleResponseSchema>;
 export type AuditJob = z.infer<typeof AuditJobSchema>;
 export type AuditResultRecord = z.infer<typeof AuditResultRecordSchema>;
+export type AuditResultDetail = z.infer<typeof AuditResultDetailSchema>;
+export type AuditDocumentDecision = z.infer<typeof AuditDocumentDecisionSchema>;
 export type PaginatedAuditResults = z.infer<typeof PaginatedAuditResultsSchema>;
 export type PaginatedAuditDocumentHistory = z.infer<
   typeof PaginatedAuditDocumentHistorySchema

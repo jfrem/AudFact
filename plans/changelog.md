@@ -1,5 +1,22 @@
 # Changelog AudFact
 
+## [2026-05-21] - Bugfix: Normalización de Fechas Numéricas con Espacios
+
+### 🟢 Bugfix / Refactor
+- **Normalización de Fechas Numéricas**: Mejoras en `AuditFindingRules::normalizeDateToIso` para admitir formatos numéricos con separador de espacios (ej. `'25 3 2026'`) y descartar horas o minutos sufijos (incluyendo formatos AM/PM de 12 horas).
+  - **AuditFindingRules**: Se implementó una limpieza robusta mediante expresiones regulares para remover horas de 12 o 24 horas y normalizar los espacios como guiones.
+  - **Tests Unitarios**: Adición de múltiples casos de prueba a la suite `AuditFindingRulesNormalizationTest` cubriendo ambigüedades numéricas con espacios, años de dos dígitos y horas con formatos narrativos.
+  - **Verificación**: Ejecución exitosa de la suite completa de pruebas unitarias locales (267 tests pasados, 0 regresiones).
+
+## [2026-05-20] - Refactor: Estandarización de Contratos de Fechas (AudFact)
+
+### 🔵 Architecture / Bugfix
+- **Refactorización de Contratos de Fechas**: Se eliminó la complejidad dinámica en el manejo de fechas en `InvoicesModel` para garantizar que el contrato `dateTo` sea obligatorio en toda la cadena de ejecución, previniendo errores de comparación `NULL` en SQL Server.
+  - **Modelos (`InvoicesModel`)**: Se eliminó el código muerto relacionado con la lógica de fechas dinámica y se actualizó la firma de `getInvoices` para requerir `string $dateTo`.
+  - **Controladores (`InvoicesController`, `AuditController`)**: Implementación de autocompletado para `dateTo` cuando el parámetro viene vacío, usando `dateFrom`.
+  - **Servicios (`AuditBatchOrchestrator`, `BatchJobStore`)**: Actualización de firmas para eliminar nulabilidad de `$dateTo` y requerir tipos estrictos en todo momento.
+  - **Tests**: Reescritura completa de los tests en `InvoicesModelTest`, `InvoicesControllerTest`, y `AuditControllerTest` para validar los nuevos contratos. Se corrigió una regresión que causaba que `testResultDetailReturnsPersistedAuditDetail` fallara al no encontrar el método `resultDetail` en el controlador (se agregó nuevamente el método faltante).
+
 ## [2026-05-20] - Hotfix: Conectividad Frontend-to-Backend en Producción y server-only
 
 ### 🟢 Infrastructure / Bugfix

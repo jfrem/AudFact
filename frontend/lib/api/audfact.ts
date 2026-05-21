@@ -3,6 +3,7 @@ import {
   AsyncMetricsSchema,
   AttachmentsSchema,
   AuditConfigSchema,
+  AuditResultDetailSchema,
   AuditJobSchema,
   AuditSingleResponseSchema,
   ClientDocumentsSchema,
@@ -16,6 +17,7 @@ import {
   SaveAuditConfigResponseSchema,
   AuditStatsSchema,
 } from "@/lib/schemas/domain";
+import type { AuditResultDetail } from "@/lib/schemas/domain";
 import { endpoints } from "@/lib/api/endpoints";
 import {
   postJson,
@@ -105,6 +107,10 @@ export function getAuditJob(jobId: string) {
 
 export function getAuditResults(query?: Record<string, string | number | undefined>) {
   return requestJson(endpoints.auditResults(query), PaginatedAuditResultsSchema);
+}
+
+export function getAuditResultDetail(facSec: string | number): Promise<AuditResultDetail> {
+  return requestJson(endpoints.auditResultDetail(facSec), AuditResultDetailSchema) as Promise<AuditResultDetail>;
 }
 
 export function getAuditStats() {

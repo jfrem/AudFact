@@ -34,7 +34,7 @@ final class AuditBatchOrchestrator
      * @return array{job_id:string, status:string, total:int}
      * @throws RuntimeException Si el lote ya está activo o si hay falla persistiendo estado
      */
-    public function enqueueBatch(int $facNitSec, string $dateFrom, ?string $dateTo, int $limit): array
+    public function enqueueBatch(int $facNitSec, string $dateFrom, string $dateTo, int $limit): array
     {
         $jobId = AuditEvent::uuidV4();
         $batchSlotClaimed = false;
@@ -166,7 +166,7 @@ final class AuditBatchOrchestrator
     private function cleanupAsyncEnqueueState(
         int $facNitSec,
         string $dateFrom,
-        ?string $dateTo,
+        string $dateTo,
         string $jobId,
         bool $batchSlotClaimed,
         bool $jobInitialized,

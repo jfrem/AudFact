@@ -53,10 +53,10 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertFalse(AuditFieldValueType::CODE->isNumericForSchema());
     }
 
-    public function testOnlyArticleNameAllowsSemanticGeminiFallback(): void
+    public function testSemanticGeminiFallbackAllowedTypes(): void
     {
         $this->assertTrue(AuditFieldValueType::ARTICLE_NAME->allowsSemanticGeminiFallback());
-        $this->assertFalse(AuditFieldValueType::PERSON_NAME->allowsSemanticGeminiFallback());
+        $this->assertTrue(AuditFieldValueType::PERSON_NAME->allowsSemanticGeminiFallback());
         $this->assertFalse(AuditFieldValueType::INSTITUTION_NAME->allowsSemanticGeminiFallback());
         $this->assertFalse(AuditFieldValueType::TEXT->allowsSemanticGeminiFallback());
     }

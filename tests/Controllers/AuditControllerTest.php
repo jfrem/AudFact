@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Controllers;
 
 use App\Controllers\AuditController;
+use App\Models\AuditStatusModel;
 use App\Models\InvoicesModel;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
@@ -177,7 +178,7 @@ final class AuditControllerTest extends TestCase
         $response = self::captureResponse(static fn() => $controller->async());
 
         $this->assertSame(503, $response->getCode());
-        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
+        $this->assertSame([[2426, '2025-07-29', '2025-07-29']], $jobStore->releasedBatchSlots);
         $this->assertSame([], $jobStore->deletedJobIds);
     }
 
@@ -196,7 +197,7 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(503, $response->getCode());
         $this->assertCount(1, $jobStore->deletedJobIds);
-        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
+        $this->assertSame([[2426, '2025-07-29', '2025-07-29']], $jobStore->releasedBatchSlots);
     }
 
     public function testAsyncReturns503AndCleansPartialAuditsWhenAuditPublishFails(): void
@@ -222,7 +223,7 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(503, $response->getCode());
         $this->assertCount(2, $store->deletedAuditIds);
         $this->assertCount(1, $jobStore->deletedJobIds);
-        $this->assertSame([[2426, '2025-07-29', null]], $jobStore->releasedBatchSlots);
+        $this->assertSame([[2426, '2025-07-29', '2025-07-29']], $jobStore->releasedBatchSlots);
     }
 
     public function testAsyncReturnsCompletedWhenBatchIsEmpty(): void
@@ -309,6 +310,36 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(503, $response->getCode());
     }
 
+    public function testResultDetailReturnsPersistedAuditDetail(): void
+    {
+        $controller = new TestableAuditController(
+            auditStatusModel: new StubAuditStatusModel([
+                'FacSec' => '87723098',
+                'FacNro' => 'T38250701547',
+                'findings' => [],
+                'fieldDecisions' => [],
+                'documentDecisions' => [],
+                'timings' => null,
+            ])
+        );
+
+        $response = self::captureResponse(static fn() => $controller->resultDetail('87723098'));
+
+        $this->assertSame(200, $response->getCode());
+        $this->assertSame('87723098', $response->getData()['data']['FacSec']);
+    }
+
+    public function testResultDetailReturns404WhenAuditIsMissing(): void
+    {
+        $controller = new TestableAuditController(
+            auditStatusModel: new StubAuditStatusModel(null)
+        );
+
+        $response = self::captureResponse(static fn() => $controller->resultDetail('87723098'));
+
+        $this->assertSame(404, $response->getCode());
+    }
+
     // ── Helpers ────────────────────────────────────────────────
 
     private function newStoreStub(
@@ -351,6 +382,7 @@ final class TestableAuditController extends AuditController
         private ?AuditStateStore $stateStore = null,
         private ?BatchJobStore $jobStore = null,
         private ?AuditEventPublisher $publisher = null,
+        private ?AuditStatusModel $auditStatusModel = null,
     ) {
     }
 
@@ -378,6 +410,11 @@ final class TestableAuditController extends AuditController
     {
         return $this->publisher ?? new InMemoryAuditEventPublisher();
     }
+
+    protected function buildAuditStatusModel(): AuditStatusModel
+    {
+        return $this->auditStatusModel ?? new StubAuditStatusModel(null);
+    }
 }
 
 final class StubInvoicesModel extends InvoicesModel
@@ -387,7 +424,7 @@ final class StubInvoicesModel extends InvoicesModel
     {
     }
 
-    public function getInvoices(int $facNitSec, string $dateFrom, ?string $dateTo = null, int $limit = 100): array
+    public function getInvoices(int $facNitSec, string $dateFrom, string $dateTo, int $limit = 100): array
     {
         return $this->invoices;
     }
@@ -420,6 +457,18 @@ final class StubAuditStateStore extends AuditStateStore
     }
 }
 
+final class StubAuditStatusModel extends AuditStatusModel
+{
+    public function __construct(private ?array $detail)
+    {
+    }
+
+    public function getAuditDetailByFacSec(string $facSec): ?array
+    {
+        return $this->detail;
+    }
+}
+
 final class StubBatchJobStore extends BatchJobStore
 {
     /** @var array<int,string> */
@@ -437,7 +486,7 @@ final class StubBatchJobStore extends BatchJobStore
     ) {
     }
 
-    public function claimBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo, string $jobId): bool
+    public function claimBatchSlot(int $facNitSec, string $dateFrom, string $dateTo, string $jobId): bool
     {
         return $this->claimReturns;
     }
@@ -446,7 +495,7 @@ final class StubBatchJobStore extends BatchJobStore
         string $jobId,
         int $facNitSec,
         string $dateFrom,
-        ?string $dateTo,
+        string $dateTo,
         int $limit
     ): bool {
         return $this->initJobReturns;
@@ -472,7 +521,7 @@ final class StubBatchJobStore extends BatchJobStore
         return true;
     }
 
-    public function releaseBatchSlot(int $facNitSec, string $dateFrom, ?string $dateTo): bool
+    public function releaseBatchSlot(int $facNitSec, string $dateFrom, string $dateTo): bool
     {
         $this->releasedBatchSlots[] = [$facNitSec, $dateFrom, $dateTo];
         return true;

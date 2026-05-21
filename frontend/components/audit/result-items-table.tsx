@@ -9,11 +9,13 @@ import {
 import type { AuditFinding } from "@/lib/schemas/domain";
 import { SeverityBadge } from "@/components/shared/severity-badge";
 
-function FindingStatusLabel({ status }: { status: AuditFinding["status"] }) {
-  const config: Record<AuditFinding["status"], { label: string; className: string }> = {
-    MATCH: { label: "Coincide", className: "text-emerald-400" },
-    DISCREPANCY: { label: "Discrepancia", className: "text-rose-400" },
-    NOT_FOUND: { label: "No encontrado", className: "text-amber-400" },
+function FindingStatusLabel({ status }: { status: AuditFinding["resultado"] }) {
+  const config: Record<AuditFinding["resultado"], { label: string; className: string }> = {
+    COINCIDE: { label: "Coincide", className: "text-emerald-400" },
+    VALOR_DISTINTO: { label: "Valor distinto", className: "text-rose-400" },
+    NO_ENCONTRADO: { label: "No encontrado", className: "text-amber-400" },
+    OMITIDO: { label: "Omitido", className: "text-slate-400" },
+    NO_CONCLUYENTE: { label: "No concluyente", className: "text-violet-300" },
   };
   const entry = config[status];
 
@@ -44,8 +46,8 @@ export function ResultItemsTable({ items }: { items: AuditFinding[] }) {
         </TableHeader>
         <TableBody>
           {items.map((item, index) => (
-            <TableRow key={`${item.field}-${index}`} className="align-top">
-              <TableCell className="text-white" title={item.field}>{item.field}</TableCell>
+            <TableRow key={`${item.campo}-${index}`} className="align-top">
+              <TableCell className="text-white" title={item.campo}>{item.campo}</TableCell>
               <TableCell className="text-slate-400 text-xs" title={item.documento ?? "N/D"}>
                 {item.documento ? (
                   <span className="inline-flex items-center rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
@@ -55,27 +57,27 @@ export function ResultItemsTable({ items }: { items: AuditFinding[] }) {
                   "—"
                 )}
               </TableCell>
-              <TableCell className="min-w-[100px]" title={item.status}>
-                <FindingStatusLabel status={item.status} />
+              <TableCell className="min-w-[100px]" title={item.resultado}>
+                <FindingStatusLabel status={item.resultado} />
               </TableCell>
-              <TableCell className="min-w-[100px]" title={item.severity}>
-                <SeverityBadge severity={item.severity} />
+              <TableCell className="min-w-[100px]" title={item.severidad}>
+                <SeverityBadge severity={item.severidad} />
               </TableCell>
-              <TableCell className="min-w-[200px] leading-6 text-slate-300" title={item.reason_short}>
-                {item.reason_short}
+              <TableCell className="min-w-[200px] leading-6 text-slate-300" title={formatFindingDetail(item)}>
+                {formatFindingDetail(item)}
               </TableCell>
               <TableCell className="min-w-[200px] space-y-1 text-xs leading-5 text-slate-400">
-                {item.expected_value ? (
-                  <div title={item.expected_value}>
-                    <span className="text-slate-500">Esperado:</span> {item.expected_value}
+                {item.valorFuenteVerdad ? (
+                  <div title={item.valorFuenteVerdad}>
+                    <span className="text-slate-500">Esperado:</span> {item.valorFuenteVerdad}
                   </div>
                 ) : null}
-                {item.observed_value ? (
-                  <div title={item.observed_value}>
-                    <span className="text-slate-500">Observado:</span> {item.observed_value}
+                {item.valorDocumento ? (
+                  <div title={item.valorDocumento}>
+                    <span className="text-slate-500">Observado:</span> {item.valorDocumento}
                   </div>
                 ) : null}
-                {!item.expected_value && !item.observed_value ? (
+                {!item.valorFuenteVerdad && !item.valorDocumento ? (
                   <div title="Sin valores adjuntos">Sin valores adjuntos</div>
                 ) : null}
               </TableCell>
@@ -85,4 +87,18 @@ export function ResultItemsTable({ items }: { items: AuditFinding[] }) {
       </Table>
     </div>
   );
+}
+
+function formatFindingDetail(item: AuditFinding) {
+  if (typeof item.detalle === "string" && item.detalle.trim() !== "") {
+    return item.detalle;
+  }
+
+  if (item.detalle && typeof item.detalle === "object") {
+    return JSON.stringify(item.detalle);
+  }
+
+  return item.resultado === "COINCIDE"
+    ? "Coincide con fuente de verdad"
+    : "Requiere validación";
 }

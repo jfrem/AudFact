@@ -108,28 +108,103 @@ final class TextNormalization
         return $leftTokens === $rightTokens;
     }
 
+    /**
+     * Compara dos nombres de persona con tolerancia estructural.
+     *
+     * Algoritmo puramente estructural (sin diccionarios hardcodeados):
+     * - Tokens sobrantes del lado largo se ignoran (títulos, conectores, etc.)
+     * - Iniciales (tokens de 1 letra) matchean por primera letra
+     * - Se requiere que TODOS los tokens completos (len>1) del lado más corto
+     *   tengan correspondencia, con un mínimo de 2 full-token matches.
+     */
     public static function samePersonNameTokenSet(string $left, string $right): bool
     {
         $leftTokens = self::tokenize(self::normalizePersonNameForTokenSet($left));
         $rightTokens = self::tokenize(self::normalizePersonNameForTokenSet($right));
 
-        if ($leftTokens === [] || count($leftTokens) !== count($rightTokens)) {
+        if ($leftTokens === [] || $rightTokens === []) {
             return false;
         }
 
-        sort($leftTokens);
-        sort($rightTokens);
+        // El lado con menos tokens es el "corto" (perspectiva de verificación)
+        if (count($leftTokens) <= count($rightTokens)) {
+            return self::personNameTokensMatch($leftTokens, $rightTokens);
+        }
 
-        foreach ($leftTokens as $index => $leftToken) {
-            if (!self::tokensMatchWithWildcard($leftToken, $rightTokens[$index])) {
-                return false;
+        return self::personNameTokensMatch($rightTokens, $leftTokens);
+    }
+
+    /**
+     * Verifica que todos los tokens completos del lado corto tengan correspondencia
+     * en el lado largo, usando matching exacto/wildcard e iniciales.
+     *
+     * @param string[] $shortTokens Lado con menos tokens
+     * @param string[] $longTokens  Lado con más tokens
+     */
+    private static function personNameTokensMatch(array $shortTokens, array $longTokens): bool
+    {
+        // Identificar tokens completos (length > 1) del lado corto
+        $shortFullIndices = [];
+        foreach ($shortTokens as $i => $token) {
+            if (strlen($token) > 1) {
+                $shortFullIndices[] = $i;
             }
+        }
+
+        // Mínimo 1 token completo para matching confiable
+        if (count($shortFullIndices) < 1) {
+            return false;
+        }
+
+        /** @var array<int,true> */
+        $usedLong = [];
+        /** @var array<int,true> */
+        $matchedShort = [];
+
+        // Pass 1: Exact matches y wildcard (prioridad más alta)
+        foreach ($shortTokens as $si => $st) {
+            foreach ($longTokens as $li => $lt) {
+                if (isset($usedLong[$li])) {
+                    continue;
+                }
+                if (self::tokensMatchWithWildcard($st, $lt)) {
+                    $usedLong[$li] = true;
+                    $matchedShort[$si] = true;
+                    break;
+                }
+            }
+        }
+
+        // Pass 2: Initial matches para tokens restantes sin match
+        foreach ($shortTokens as $si => $st) {
+            if (isset($matchedShort[$si])) {
+                continue;
+            }
+
+            foreach ($longTokens as $li => $lt) {
+                if (isset($usedLong[$li])) {
+                    continue;
+                }
+
+                // Inicial en cualquiera de los dos lados matchea por primera letra
+                if ((strlen($st) === 1 || strlen($lt) === 1) && $st[0] === $lt[0]) {
+                    $usedLong[$li] = true;
+                    $matchedShort[$si] = true;
+                    break;
+                }
+            }
+        }
+
+        // TODOS los tokens del lado corto deben haber matcheado (completos o iniciales)
+        // para garantizar que sea un subconjunto válido.
+        if (count($matchedShort) !== count($shortTokens)) {
+            return false;
         }
 
         return true;
     }
 
-    private static function normalizePersonNameForTokenSet(string $value): string
+    public static function normalizePersonNameForTokenSet(string $value): string
     {
         $withoutAccents = self::stripAccents(strtoupper(trim($value)));
         $normalized = (string) preg_replace('/[^A-Z0-9?]+/', ' ', $withoutAccents);

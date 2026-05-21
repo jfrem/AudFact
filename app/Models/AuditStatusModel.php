@@ -126,58 +126,37 @@ class AuditStatusModel extends Model
             return null;
         }
 
-        $raw = isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null;
-        $decoded = ($raw !== null) ? json_decode($raw, true) : null;
-        $meta = is_array($decoded['_meta'] ?? null) ? $decoded['_meta'] : null;
+        $payload = $this->decodeAuditPayload(
+            isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null
+        );
 
         return [
             'fac_nro'           => (string) ($row['FacNro'] ?? ''),
             'fac_nit_sec'       => (string) ($row['FacNitSec'] ?? ''),
             'estado'            => (string) ($row['EstadoDetallado'] ?? ''),
-            'phase_timings'     => is_array($meta['phase_timings'] ?? null) ? $meta['phase_timings'] : null,
-            'total_duration_ms' => (int) ($meta['total_duration_ms'] ?? $row['DuracionProcesamientoMs'] ?? 0),
+            'phase_timings'     => $payload['timings'],
+            'total_duration_ms' => (int) ($payload['total_duration_ms'] ?? $row['DuracionProcesamientoMs'] ?? 0),
         ];
     }
 
     /**
-     * Busca un registro de auditoría por FacSec (PK).
-     * @param string $facSec Secuencia única de la factura
-     * @return array|false
+     * Obtiene el detalle público de auditoría por FacSec.
+     *
+     * @param  string  $facSec  Secuencia única de la factura.
+     * @return array<string,mixed>|null Detalle con hallazgos, métricas, timings y decisiones documentales.
      */
-    public function getByFacSec(string $facSec): array|false
+    public function getAuditDetailByFacSec(string $facSec): ?array
     {
-        $sql = "SELECT
-                    [FacSec],
-                    [FacNro],
-                    [EstAud],
-                    [EstadoDetallado],
-                    [RequiereRevisionHumana],
-                    [Severidad],
-                    [Hallazgos],
-                    [DetalleError],
-                    [DocumentosProcesados],
-                    [DocumentoFallido],
-                    [DuracionProcesamientoMs],
-                    [FacNitSec],
-                    [FechaCreacion],
-                    [FechaActualizacion]
-                FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
-                WHERE [FacSec] = :facSec";
-
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
-        $stmt->execute();
+        $row = $this->fetchAuditRowByFacSec($this->readDb, $facSec);
+        if ($row === null) {
+            return null;
+        }
 
         Logger::info("AuditStatus: búsqueda por FacSec", [
             'facSec' => $facSec
         ]);
 
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row === false || !is_array($row)) {
-            return false;
-        }
-
-        return $this->normalizeAuditRecord($row);
+        return $this->normalizeAuditDetail($row);
     }
 
     /**
@@ -202,13 +181,17 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Busca auditorías con filtros opcionales y paginación server-side.
-     * @param array $filters  Filtros: facNitSec, facNro, dateFrom, dateTo
-     * @param int   $page     Página actual (1-indexed)
-     * @param int   $pageSize Registros por página (default 20)
-     * @return array
+     * Busca auditorías con filtros opcionales y retorna summaries paginados.
+     *
+     * El listado no expone el JSON persistido ni hallazgos completos; sólo
+     * escalares, conteos y métricas necesarias para tabla/dashboard.
+     *
+     * @param  array<string,mixed>  $filters  Filtros: facNitSec, facNro, dateFrom, dateTo.
+     * @param  int  $page  Página actual (1-indexed).
+     * @param  int  $pageSize  Registros por página.
+     * @return array<int,array<string,mixed>>
      */
-    public function searchAudits(array $filters, int $page = 1, int $pageSize = 20): array
+    public function searchAuditSummaries(array $filters, int $page = 1, int $pageSize = 20): array
     {
         [$where, $params] = $this->buildWhereClause($filters);
 
@@ -235,7 +218,7 @@ class AuditStatusModel extends Model
         }
         $stmt->execute();
 
-        Logger::info("AuditStatus: searchAudits", [
+        Logger::info("AuditStatus: searchAuditSummaries", [
             'filters' => array_keys($filters),
             'page'    => $page,
             'pageSize' => $pageSize,
@@ -244,7 +227,7 @@ class AuditStatusModel extends Model
 
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return array_map(fn(array $row): array => $this->normalizeAuditRecord($row), $rows ?: []);
+        return array_map(fn(array $row): array => $this->normalizeAuditSummary($row), $rows ?: []);
     }
 
     /**
@@ -359,32 +342,6 @@ class AuditStatusModel extends Model
             ]);
             throw $e;
         }
-    }
-
-    /**
-     * Busca una auditoría ya persistida para la misma tarea lógica.
-     *
-     * @return array{finalStatus:string,facSec:string,error:?string}|null
-     */
-    public function findTaskOutcome(string $facSec, string $taskId): ?array
-    {
-        $record = $this->getByFacSecFromConnection($this->getWriteDb(), $facSec);
-        if ($record === false) {
-            return null;
-        }
-
-        $payloadMeta = is_array($record['_meta'] ?? null) ? $record['_meta'] : [];
-        if (($payloadMeta['taskId'] ?? null) !== $taskId) {
-            return null;
-        }
-
-        $status = strtoupper(trim((string) ($record['EstadoDetallado'] ?? '')));
-
-        return [
-            'finalStatus' => $status === 'FAILED' ? 'failed' : 'completed',
-            'facSec' => trim((string) ($record['FacSec'] ?? $facSec)),
-            'error' => isset($record['DetalleError']) ? trim((string) $record['DetalleError']) ?: null : null,
-        ];
     }
 
     /**
@@ -624,6 +581,21 @@ class AuditStatusModel extends Model
 
     private function getByFacSecFromConnection(PDO $connection, string $facSec): array|false
     {
+        $row = $this->fetchAuditRowByFacSec($connection, $facSec);
+        if ($row === null) {
+            return false;
+        }
+
+        return $this->normalizeAuditDetail($row);
+    }
+
+    /**
+     * Obtiene una fila cruda de AudDispEst por FacSec.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function fetchAuditRowByFacSec(PDO $connection, string $facSec): ?array
+    {
         $sql = "SELECT
                     [FacSec],
                     [FacNro],
@@ -646,100 +618,190 @@ class AuditStatusModel extends Model
         $stmt->bindParam(':facSec', $facSec, PDO::PARAM_STR);
         $stmt->execute();
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row === false || !is_array($row)) {
-            return false;
-        }
 
-        return $this->normalizeAuditRecord($row);
+        return is_array($row) ? $row : null;
     }
 
     /**
-     * Normaliza el payload persistido para preservar compatibilidad del campo Hallazgos.
+     * Normaliza una fila de auditoría a summary público.
      *
-     * Mantiene `Hallazgos` como JSON array legacy de items cuando sea posible y expone
-     * además `HallazgosRaw`, `HallazgosItems` y `CriticalFieldDecisions`.
-     *
-     * @param array<string,mixed> $row
+     * @param  array<string,mixed>  $row
      * @return array<string,mixed>
      */
-    private function normalizeAuditRecord(array $row): array
+    private function normalizeAuditSummary(array $row): array
     {
-        $raw = isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null;
-        [$items, $criticalFieldDecisions, $affectedDocuments, $payloadMeta] = $this->decodeFindingsPayload($raw);
+        $payload = $this->decodeAuditPayload(
+            isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null
+        );
 
-        $row['HallazgosRaw'] = $raw;
-        $row['HallazgosItems'] = $items;
-        $row['CriticalFieldDecisions'] = $criticalFieldDecisions;
-        $row['AffectedDocuments'] = $affectedDocuments;
-
-        if ($raw !== null) {
-            $row['Hallazgos'] = json_encode($items, JSON_UNESCAPED_UNICODE) ?: '[]';
-        }
-
-        $row['_meta'] = array_merge([
-            'source' => 'AudDispEst',
-            'totalTimeMs' => (int) ($row['DuracionProcesamientoMs'] ?? 0),
-            'documentsProcessed' => (int) ($row['DocumentosProcesados'] ?? 0),
-            'createdAt' => $row['FechaCreacion'] ?? null,
-            'updatedAt' => $row['FechaActualizacion'] ?? null,
-            'auditExecuted' => ((int) ($row['EstAud'] ?? 0)) === 1,
-        ], $payloadMeta);
-
-        return $row;
+        return $this->buildAuditSummary($row, $payload);
     }
 
     /**
-     * @return array{0:array<int,mixed>,1:array<int,mixed>,2:array<int,mixed>,3:array<string,mixed>}
+     * Normaliza una fila de auditoría a detalle público.
+     *
+     * @param  array<string,mixed>  $row
+     * @return array<string,mixed>
      */
-    private function decodeFindingsPayload(?string $raw): array
+    private function normalizeAuditDetail(array $row): array
     {
+        $payload = $this->decodeAuditPayload(
+            isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null
+        );
+
+        return array_merge($this->buildAuditSummary($row, $payload), [
+            'findings' => $payload['findings'],
+            'fieldDecisions' => $payload['field_decisions'],
+            'documentDecisions' => $payload['document_decisions'],
+            'timings' => $payload['timings'],
+        ]);
+    }
+
+    /**
+     * @param  array<string,mixed>  $row
+     * @param  array<string,mixed>  $payload
+     * @return array<string,mixed>
+     */
+    private function buildAuditSummary(array $row, array $payload): array
+    {
+        $findings = $payload['findings'];
+
+        return [
+            'FacSec' => (string) ($row['FacSec'] ?? ''),
+            'FacNro' => (string) ($row['FacNro'] ?? ''),
+            'EstAud' => (int) ($row['EstAud'] ?? 0),
+            'EstadoDetallado' => (string) ($row['EstadoDetallado'] ?? ''),
+            'RequiereRevisionHumana' => (int) ($row['RequiereRevisionHumana'] ?? 0),
+            'Severidad' => (string) ($row['Severidad'] ?? ''),
+            'DetalleError' => $this->nullableString($row['DetalleError'] ?? null),
+            'DocumentosProcesados' => (int) ($row['DocumentosProcesados'] ?? 0),
+            'DocumentoFallido' => $this->nullableString($row['DocumentoFallido'] ?? null),
+            'DuracionProcesamientoMs' => (int) ($row['DuracionProcesamientoMs'] ?? 0),
+            'FacNitSec' => (string) ($row['FacNitSec'] ?? ''),
+            'FechaCreacion' => $this->stringifyDate($row['FechaCreacion'] ?? null),
+            'FechaActualizacion' => $this->stringifyDate($row['FechaActualizacion'] ?? null),
+            'metrics' => $payload['metrics'],
+            'findingsCount' => count($findings),
+            'failedFindingsCount' => $this->countFindingsByOutcome($findings, ['VALOR_DISTINTO', 'NO_ENCONTRADO']),
+            'inconclusiveFindingsCount' => $this->countFindingsByOutcome($findings, ['NO_CONCLUYENTE']),
+            'auditExecuted' => ((int) ($row['EstAud'] ?? 0)) === 1,
+        ];
+    }
+
+    /**
+     * Decodifica el contrato persistido actual de Hallazgos.
+     *
+     * @return array{
+     *   findings:array<int,array<string,mixed>>,
+     *   field_decisions:array<int,array<string,mixed>>,
+     *   document_decisions:array<int,array<string,mixed>>,
+     *   metrics:array<string,int>,
+     *   timings:?array<string,mixed>,
+     *   total_duration_ms:?int,
+     * }
+     */
+    private function decodeAuditPayload(?string $raw): array
+    {
+        $empty = [
+            'findings' => [],
+            'field_decisions' => [],
+            'document_decisions' => [],
+            'metrics' => $this->normalizeMetrics([]),
+            'timings' => null,
+            'total_duration_ms' => null,
+        ];
+
         if ($raw === null || trim($raw) === '') {
-            return [[], [], [], []];
+            return $empty;
         }
 
         $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
-            return [[], [], [], []];
+        if (!is_array($decoded) || array_is_list($decoded)) {
+            return $empty;
         }
 
-        if (array_is_list($decoded)) {
-            return [$decoded, [], [], []];
+        $findings = $this->normalizeArrayList($decoded['items'] ?? []);
+
+        return [
+            'findings' => $findings,
+            'field_decisions' => $this->normalizeArrayList($decoded['field_decisions'] ?? []),
+            'document_decisions' => $this->normalizeArrayList($decoded['document_decisions'] ?? []),
+            'metrics' => $this->normalizeMetrics($decoded['metrics'] ?? []),
+            'timings' => is_array($decoded['timings'] ?? null) ? $decoded['timings'] : null,
+            'total_duration_ms' => isset($decoded['total_duration_ms']) ? (int) $decoded['total_duration_ms'] : null,
+        ];
+    }
+
+    /**
+     * @return array<string,int>
+     */
+    private function normalizeMetrics(mixed $metrics): array
+    {
+        $base = [
+            'total_campos' => 0,
+            'coincidencias' => 0,
+            'discrepancias' => 0,
+            'omitidos' => 0,
+            'no_concluyentes' => 0,
+            'risk_score' => 0,
+        ];
+
+        if (!is_array($metrics)) {
+            return $base;
         }
 
-        $items = is_array($decoded['items'] ?? null) ? $decoded['items'] : [];
-        $criticalFieldDecisions = is_array($decoded['critical_field_decisions'] ?? null)
-            ? $decoded['critical_field_decisions']
-            : $items;
-        $affectedDocuments = is_array($decoded['affected_documents'] ?? null)
-            ? array_values($decoded['affected_documents'])
-            : [];
-        $meta = [];
-
-        if (is_array($decoded['metrics'] ?? null)) {
-            $meta['metrics'] = $decoded['metrics'];
+        foreach (array_keys($base) as $key) {
+            $base[$key] = (int) ($metrics[$key] ?? 0);
         }
 
-        if (is_array($decoded['_meta'] ?? null)) {
-            $meta = array_merge($meta, $decoded['_meta']);
+        return $base;
+    }
+
+    /**
+     * @return array<int,array<string,mixed>>
+     */
+    private function normalizeArrayList(mixed $items): array
+    {
+        if (!is_array($items)) {
+            return [];
         }
 
-        if (is_array($decoded['documents'] ?? null)) {
-            $meta['documents'] = $decoded['documents'];
+        return array_values(array_filter($items, 'is_array'));
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>>  $findings
+     * @param  array<int,string>  $outcomes
+     */
+    private function countFindingsByOutcome(array $findings, array $outcomes): int
+    {
+        $count = 0;
+        foreach ($findings as $finding) {
+            if (in_array((string) ($finding['resultado'] ?? ''), $outcomes, true)) {
+                $count++;
+            }
         }
 
-        if (isset($decoded['status'])) {
-            $meta['status'] = $decoded['status'];
+        return $count;
+    }
+
+    private function nullableString(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
         }
 
-        if (isset($decoded['severity'])) {
-            $meta['severity'] = $decoded['severity'];
+        $trimmed = trim((string) $value);
+        return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function stringifyDate(mixed $value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
         }
 
-        if (isset($decoded['message'])) {
-            $meta['message'] = $decoded['message'];
-        }
-
-        return [$items, $criticalFieldDecisions, $affectedDocuments, $meta];
+        return $this->nullableString($value);
     }
 
     /**

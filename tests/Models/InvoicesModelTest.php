@@ -14,26 +14,29 @@ use ReflectionProperty;
 
 final class InvoicesModelTest extends TestCase
 {
-    public function testGetInvoicesBuildsSingleDateQueryWhenDateToIsNull(): void
+    public function testGetInvoicesAlwaysUsesRangeQuery(): void
     {
         $pdo = new FakePdo();
         $model = $this->makeModelWithReadDb($pdo);
         $pdo->nextResult = [['FacSec' => '1']];
 
-        $result = $model->getInvoices(2426, '2025-07-01', null, 100);
+        // Testing single day using same date for from and to
+        $result = $model->getInvoices(2426, '2025-07-01', '2025-07-01', 100);
 
         $this->assertSame([['FacSec' => '1']], $result);
         $this->assertStringContainsString('tb3.FacSec FacSec', $pdo->preparedSql);
         $this->assertStringContainsString('ON a.FacSec = tb3.FacSec', $pdo->preparedSql);
         $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('tb1.DisFecSol = :dateFromD', $pdo->preparedSql);
-        $this->assertStringContainsString('f.Fecha >= :dateFromF', $pdo->preparedSql);
-        // La consulta ahora siempre usa having sum(isnull(f.KarUni,0))=0
+        $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
+        
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
-        $this->assertArrayHasKey(':dateFromF', $pdo->statement->boundValues);
-        $this->assertArrayNotHasKey(':dateToD', $pdo->statement->boundValues);
-        $this->assertArrayNotHasKey(':dateToF', $pdo->statement->boundValues);
+        $this->assertArrayHasKey(':dateToD', $pdo->statement->boundValues);
+        $this->assertArrayHasKey(':facNitSec', $pdo->statement->boundValues);
+        
+        $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
+        $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateToD']);
+        $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
     }
 
     public function testGetInvoicesBuildsRangeQueryWhenDateToIsPresent(): void
@@ -44,11 +47,10 @@ final class InvoicesModelTest extends TestCase
         $model->getInvoices(2426, '2025-07-01', '2025-07-30', 900);
 
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('f.Fecha >= :dateFromF', $pdo->preparedSql);
         $this->assertStringContainsString('SELECT TOP(900)', $pdo->preparedSql);
+        
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
-        $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromF']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
     }
 

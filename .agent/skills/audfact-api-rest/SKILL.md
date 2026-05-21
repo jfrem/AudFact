@@ -15,11 +15,11 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1.6 KB | Definición de 25 rutas |
+| `app/Routes/web.php` | ~1.6 KB | Definición de 26 rutas |
 | `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 6.8 KB | Configuración dinámica de auditoría por cliente |
-| `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resultados, stats, jobs y timings |
+| `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
 | `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ |
 | `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI |
 | `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
@@ -31,7 +31,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (25)
+## Endpoints actuales (26)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -52,6 +52,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/dispensation/{DisDetNro}` | `DispensationController::show` |
 | `POST` | `/dispensation` | `DispensationController::lookup` |
 | `GET` | `/audit/results` | `AuditController::results` |
+| `GET` | `/audit/results/{facSec}` | `AuditController::resultDetail` |
 | `GET` | `/audit/stats` | `AuditController::stats` |
 | `GET` | `/audit/documents-history` | `AuditController::documentsHistory` |
 | `POST` | `/audit/single` | `AuditController::single` |

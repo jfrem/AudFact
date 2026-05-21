@@ -24,6 +24,7 @@ export const endpoints = {
     const params = buildSearchParams(query ?? {});
     return params.size ? `/audit/results?${params.toString()}` : "/audit/results";
   },
+  auditResultDetail: (facSec: string | number) => `/audit/results/${facSec}`,
   auditStats: () => "/audit/stats",
   auditDocumentsHistory: (
     query?: Record<string, string | number | null | undefined>,

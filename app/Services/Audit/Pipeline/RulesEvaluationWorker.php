@@ -6,6 +6,7 @@ namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
+use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DeliveryValidityEvaluator;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\ArticleSemanticMatchJudge;
@@ -182,13 +183,46 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
         $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
+        $documentDecisions = $this->normalizeDocumentDecisions($documentDecisions);
+        $documentDecisions = $this->mergeCalculatedFindingsIntoDecisions($documentDecisions, $calculatedFindings);
+        $metrics = AuditFindingRules::summarizeMetrics($allFindings);
+
+        $finalStatus = $this->resolveFinalStatus($allFindings, $documentDecisions);
+        $requiresManualReview = $this->requiresManualReview($finalStatus);
+        $severity = $this->resolveOverallSeverity($allFindings);
+        $failedDocument = $this->resolveFailedDocument($allFindings);
+        $detailMessage = $this->buildDetailMessage($finalStatus, $metrics);
+        $auditResultData = $this->buildAuditResultData(
+            $audit,
+            $allFindings,
+            $metrics,
+            $documentDecisions,
+            $finalStatus,
+            $requiresManualReview,
+            $severity,
+            $failedDocument,
+            $detailMessage
+        );
 
         return [
             'hallazgos' => [
                 'items' => $allFindings,
-                'metrics' => AuditFindingRules::summarizeMetrics($allFindings),
+                'metrics' => $metrics,
             ],
-            'document_decisions' => $this->mergeCalculatedFindingsIntoDecisions($documentDecisions, $calculatedFindings),
+            'document_decisions' => $documentDecisions,
+            'final_status' => $finalStatus,
+            'requires_manual_review' => $requiresManualReview,
+            'severity' => $severity,
+            'detail_message' => $detailMessage,
+            'failed_document' => $failedDocument,
+            'audit_result_data' => $auditResultData,
+            'completion_payload' => $this->buildCompletionPayload(
+                $finalStatus,
+                $requiresManualReview,
+                $allFindings,
+                $metrics,
+                $documentDecisions
+            ),
         ];
     }
 
@@ -225,6 +259,220 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         return [$allFindings, $documentDecisions];
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $decisions
+     * @return array<int,array{documentName:string,approved:bool,observation:?string}>
+     */
+    private function normalizeDocumentDecisions(array $decisions): array
+    {
+        $normalized = [];
+        foreach ($decisions as $decision) {
+            $name = DocumentExtractionContractBuilder::normalizeDocumentName((string) ($decision['documentName'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $observation = trim((string) ($decision['observation'] ?? ''));
+            $normalized[] = [
+                'documentName' => $name,
+                'approved' => (bool) ($decision['approved'] ?? false),
+                'observation' => $observation === '' ? null : $observation,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function requiresManualReview(string $finalStatus): bool
+    {
+        return in_array($finalStatus, [
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
+            AuditStateStore::AUDIT_STATUS_FAILED,
+        ], true);
+    }
+
+    /**
+     * @param  array<string,mixed> $audit
+     * @param  array<int,array<string,mixed>> $findings
+     * @param  array<string,int> $metrics
+     * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
+     * @return array<string,mixed>
+     */
+    private function buildAuditResultData(
+        array $audit,
+        array $findings,
+        array $metrics,
+        array $documentDecisions,
+        string $finalStatus,
+        bool $requiresManualReview,
+        string $severity,
+        ?string $failedDocument,
+        string $detailMessage
+    ): array {
+        return [
+            'FacSec' => (string) ($audit['fac_sec'] ?? ''),
+            'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
+            'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_FAILED ? 0 : 1,
+            'EstadoDetallado' => $finalStatus,
+            'RequiereRevisionHumana' => $requiresManualReview ? 1 : 0,
+            'Severidad' => $severity,
+            'Hallazgos' => json_encode([
+                'items' => $findings,
+                'field_decisions' => $findings,
+                'document_decisions' => $documentDecisions,
+                'metrics' => $metrics,
+                'timings' => AuditTimingSummarizer::buildPhaseTimings($audit),
+                'total_duration_ms' => AuditTimingSummarizer::resolveDurationMs($audit),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'DetalleError' => $detailMessage,
+            'DocumentosProcesados' => count(is_array($audit['documents'] ?? null) ? $audit['documents'] : []),
+            'DocumentoFallido' => $failedDocument,
+            'DuracionProcesamientoMs' => AuditTimingSummarizer::resolveDurationMs($audit),
+            'FacNitSec' => (string) ($audit['fac_nit_sec'] ?? ''),
+        ];
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     * @param  array<string,int> $metrics
+     * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
+     * @return array<string,mixed>
+     */
+    private function buildCompletionPayload(
+        string $finalStatus,
+        bool $requiresManualReview,
+        array $findings,
+        array $metrics,
+        array $documentDecisions
+    ): array {
+        return [
+            'status' => $finalStatus,
+            'requires_manual_review' => $requiresManualReview,
+            'audit_result' => [
+                'hallazgos' => [
+                    'items' => $findings,
+                    'metrics' => $metrics,
+                ],
+                'document_decisions' => $documentDecisions,
+            ],
+            'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
+        ];
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
+     */
+    private function resolveFinalStatus(array $findings, array $documentDecisions): string
+    {
+        $hasHighSeverityFailure = false;
+        $hasNonCriticalFailure = false;
+
+        foreach ($findings as $finding) {
+            $resultEnum = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
+            if ($resultEnum === null || !$resultEnum->isFailure()) {
+                continue;
+            }
+
+            $severity = AuditSeverity::fromInput((string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value))->value;
+            if ($severity === AuditSeverity::HIGH->value) {
+                $hasHighSeverityFailure = true;
+            } else {
+                $hasNonCriticalFailure = true;
+            }
+        }
+
+        foreach ($documentDecisions as $decision) {
+            if ($decision['approved'] === true) {
+                continue;
+            }
+
+            if (AuditFindingRules::observationRequiresManualReview($decision['observation'] ?? null)) {
+                $hasHighSeverityFailure = true;
+            }
+        }
+
+        if ($hasHighSeverityFailure) {
+            return AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW;
+        }
+
+        if ($hasNonCriticalFailure) {
+            return AuditStateStore::AUDIT_STATUS_ERROR;
+        }
+
+        return AuditStateStore::AUDIT_STATUS_COMPLETED;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     */
+    private function resolveOverallSeverity(array $findings): string
+    {
+        $highest = AuditSeverity::LOW->value;
+        foreach ($findings as $finding) {
+            $severity = AuditSeverity::fromInput((string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value))->value;
+            if ($severity === AuditSeverity::HIGH->value) {
+                return AuditSeverity::HIGH->value;
+            }
+            if ($severity === AuditSeverity::MEDIUM->value) {
+                $highest = AuditSeverity::MEDIUM->value;
+            }
+        }
+
+        return $highest;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $findings
+     */
+    private function resolveFailedDocument(array $findings): ?string
+    {
+        $bestDocument = null;
+        $bestPriority = -1;
+
+        foreach ($findings as $finding) {
+            $resultEnum = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
+            if ($resultEnum === null || !$resultEnum->isFailure()) {
+                continue;
+            }
+
+            $document = DocumentExtractionContractBuilder::normalizeDocumentName((string) ($finding['documento'] ?? ''));
+            if ($document === '') {
+                continue;
+            }
+
+            $severity = AuditSeverity::fromInput((string) ($finding['severidad'] ?? AuditSeverity::MEDIUM->value))->value;
+            $priority = AuditFindingRules::findingPriority($severity, $resultEnum->value);
+            if ($bestDocument === null || $priority > $bestPriority) {
+                $bestDocument = $document;
+                $bestPriority = $priority;
+            }
+        }
+
+        return $bestDocument;
+    }
+
+    /**
+     * @param  array<string,int> $metrics
+     */
+    private function buildDetailMessage(string $finalStatus, array $metrics): string
+    {
+        return match ($finalStatus) {
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => sprintf(
+                'Auditoria completada con incertidumbre documental: %d campos no concluyentes requieren revision humana.',
+                $metrics['no_concluyentes']
+            ),
+            AuditStateStore::AUDIT_STATUS_ERROR => sprintf(
+                'Auditoria completada con discrepancias documentales: %d discrepancias requieren analisis posterior.',
+                $metrics['discrepancias']
+            ),
+            default => sprintf(
+                'Auditoria completada sin hallazgos criticos: %d campos evaluados.',
+                $metrics['total_campos']
+            ),
+        };
     }
 
     /**

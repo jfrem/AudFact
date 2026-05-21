@@ -3,14 +3,16 @@ import type { ReactNode } from "react";
 
 import type {
   AuditGeminiTimingSummary,
-  AuditResultMeta,
+  AuditPhaseTimings,
   AuditTimingSummary,
 } from "@/lib/schemas/domain";
 import { formatDurationMs, formatNumber } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 type AuditTimingsPanelProps = {
-  meta?: AuditResultMeta | null;
+  timings?: AuditPhaseTimings | null;
+  totalDurationMs?: number | null;
+  documentsProcessed?: number | null;
   className?: string;
 };
 
@@ -26,9 +28,12 @@ type GeminiRow = {
   timing?: AuditGeminiTimingSummary | null;
 };
 
-export function AuditTimingsPanel({ meta, className }: AuditTimingsPanelProps) {
-  const timings = meta?.phase_timings;
-
+export function AuditTimingsPanel({
+  timings,
+  totalDurationMs = null,
+  documentsProcessed = null,
+  className,
+}: AuditTimingsPanelProps) {
   if (!timings) {
     return (
       <div
@@ -49,8 +54,7 @@ export function AuditTimingsPanel({ meta, className }: AuditTimingsPanelProps) {
   const phaseRows = buildPhaseRows(timings);
   const geminiRows = buildGeminiRows(timings);
   const dominantPhase = getDominantPhase(phaseRows);
-  const totalDurationMs = meta?.total_duration_ms ?? meta?.totalTimeMs ?? 0;
-  const docsTotal = timings.docs_total || meta?.documentsProcessed || 0;
+  const docsTotal = timings.docs_total || documentsProcessed || 0;
   const geminiTotal = timings.gemini_total;
 
   return (
@@ -283,7 +287,7 @@ function SectionTitle({
   );
 }
 
-function buildPhaseRows(timings: NonNullable<AuditResultMeta["phase_timings"]>): PhaseRow[] {
+function buildPhaseRows(timings: AuditPhaseTimings): PhaseRow[] {
   return [
     { id: "download", label: "Descarga", timing: timings.download },
     { id: "extraction", label: "Extracción", timing: timings.extraction },
@@ -292,7 +296,7 @@ function buildPhaseRows(timings: NonNullable<AuditResultMeta["phase_timings"]>):
   ];
 }
 
-function buildGeminiRows(timings: NonNullable<AuditResultMeta["phase_timings"]>): GeminiRow[] {
+function buildGeminiRows(timings: AuditPhaseTimings): GeminiRow[] {
   return [
     { id: "gemini_extraction", label: "Extracción", timing: timings.gemini_extraction },
     { id: "gemini_semantic", label: "Semántica", timing: timings.gemini_semantic },

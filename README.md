@@ -27,7 +27,7 @@ AudFact/
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
 │   │   └── Audit/         # 12 archivos raíz + Pipeline/ (17 archivos).
 │   │       └── Pipeline/  # Workers, policy engine, normalización, agregación.
-│   ├── Routes/            # web.php — 25 rutas registradas.
+│   ├── Routes/            # web.php — 26 rutas registradas.
 │   └── wrap/              # Integración MCP (4 tools).
 ├── bin/                   # audit-worker.php — launcher unificado de workers.
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient (12 archivos).
@@ -35,7 +35,7 @@ AudFact/
 ├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck.
 ├── logs/                  # Logs rotados por fecha.
 ├── plans/                 # Documentación del proyecto (16 documentos).
-└── tests/                 # 24 archivos de test — 236 tests, 717 assertions.
+└── tests/                 # 27 archivos de test — 246 tests, 741 assertions.
 ```
 
 ## Inicio Rápido
@@ -130,7 +130,8 @@ Base URL: `http://localhost:8080`
 | `POST` | `/audit/single` | Auditoría individual |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
-| `GET` | `/audit/results` | Resultados persistidos de auditoría |
+| `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
+| `GET` | `/audit/results/{facSec}` | Detalle persistido por FacSec |
 | `GET` | `/audit/stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | Historial de documentos auditados |
 | `GET` | `/audit/{facNro}/timings` | Timings detallados por factura |
@@ -179,8 +180,8 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 
 - **Extracción**: Descarga de adjuntos + análisis multimodal con Gemini (parallel function calling).
 - **Normalización**: Estandarización de valores extraídos (fechas, cantidades, tipos de documento).
-- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV) con reglas determinísticas.
-- **Agregación**: Consolidación de hallazgos, cálculo de risk score y persistencia en SQL Server.
+- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV), consolidación de outcome final y cálculo de risk score.
+- **Agregación**: Validación del outcome, persistencia en SQL Server y publicación de eventos terminales.
 
 Características:
 - Cache de extracción por `document_hash` (idempotencia).

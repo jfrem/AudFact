@@ -6,6 +6,8 @@ namespace Tests\Services\Audit;
 
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditFieldValueType;
+use App\Services\Audit\IdentityDocNormalizer;
+use App\Services\Audit\TextNormalization;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -84,14 +86,14 @@ final class AuditFindingRulesNormalizationTest extends TestCase
     #[DataProvider('identityDocTypeProvider')]
     public function testNormalizeIdentityDocType(string $input, string $expected): void
     {
-        $this->assertSame($expected, AuditFindingRules::normalizeIdentityDocType($input));
+        $this->assertSame($expected, IdentityDocNormalizer::normalizeDocType($input));
     }
 
     public function testNormalizeIdentityDocTypePreservesUnknownCodes(): void
     {
         // Códigos desconocidos se retornan normalizados pero no mapeados
-        $this->assertSame('XX', AuditFindingRules::normalizeIdentityDocType('XX'));
-        $this->assertSame('DESCONOCIDO', AuditFindingRules::normalizeIdentityDocType('Desconocido'));
+        $this->assertSame('XX', IdentityDocNormalizer::normalizeDocType('XX'));
+        $this->assertSame('DESCONOCIDO', IdentityDocNormalizer::normalizeDocType('Desconocido'));
     }
 
     /**
@@ -111,14 +113,14 @@ final class AuditFindingRulesNormalizationTest extends TestCase
     #[DataProvider('identityDocNumberProvider')]
     public function testNormalizeIdentityDocNumber(string $input, string $expected): void
     {
-        $this->assertSame($expected, AuditFindingRules::normalizeIdentityDocNumber($input));
+        $this->assertSame($expected, IdentityDocNormalizer::normalizeDocNumber($input));
     }
 
     public function testNormalizeIdentityDocNumberPreservesAmbiguousNameFirstValue(): void
     {
         $this->assertSame(
             'NOREÑA AGUDELO 94229637',
-            AuditFindingRules::normalizeIdentityDocNumber('NOREÑA AGUDELO 94229637')
+            IdentityDocNormalizer::normalizeDocNumber('NOREÑA AGUDELO 94229637')
         );
     }
 
@@ -138,14 +140,14 @@ final class AuditFindingRulesNormalizationTest extends TestCase
     #[DataProvider('mixedIdentityNameProvider')]
     public function testNormalizePersonNameFromMixedIdentityLine(string $input, string $expected): void
     {
-        $this->assertSame($expected, AuditFindingRules::normalizePersonNameFromMixedIdentityLine($input));
+        $this->assertSame($expected, IdentityDocNormalizer::normalizePersonNameFromMixedIdentityLine($input));
     }
 
     public function testNormalizePersonNameFromMixedIdentityLinePreservesCleanName(): void
     {
         $this->assertSame(
             'NOREÑA AGUDELO JUAN JOSE',
-            AuditFindingRules::normalizePersonNameFromMixedIdentityLine('NOREÑA AGUDELO JUAN JOSE')
+            IdentityDocNormalizer::normalizePersonNameFromMixedIdentityLine('NOREÑA AGUDELO JUAN JOSE')
         );
     }
 
@@ -157,12 +159,20 @@ final class AuditFindingRulesNormalizationTest extends TestCase
     public static function numericDateProvider(): array
     {
         return [
-            'ISO Y-m-d'           => ['2026-05-04', '2026-05-04'],
-            'Y/m/d'               => ['2026/05/04', '2026-05-04'],
-            'd/m/Y'               => ['04/05/2026', '2026-05-04'],
-            'd-m-Y'               => ['04-05-2026', '2026-05-04'],
-            'd.m.Y'               => ['04.05.2026', '2026-05-04'],
-            'ISO con hora'        => ['2026-05-04 14:30:00', '2026-05-04'],
+            'ISO Y-m-d'                 => ['2026-05-04', '2026-05-04'],
+            'Y/m/d'                     => ['2026/05/04', '2026-05-04'],
+            'd/m/Y'                     => ['04/05/2026', '2026-05-04'],
+            'd-m-Y'                     => ['04-05-2026', '2026-05-04'],
+            'd.m.Y'                     => ['04.05.2026', '2026-05-04'],
+            'ISO con hora'              => ['2026-05-04 14:30:00', '2026-05-04'],
+            'Separador espacios d m Y'   => ['25 3 2026', '2026-03-25'],
+            'Separador espacios Y m d'   => ['2026 3 25', '2026-03-25'],
+            'Separador espacios padded'  => ['25 03 2026', '2026-03-25'],
+            'Año 2 dígitos d m y'       => ['25 3 26', '2026-03-25'],
+            'Ambigüedad d m Y (año fin)' => ['10 11 2026', '2026-11-10'],
+            'Ambigüedad Y m d (año ini)' => ['2026 10 11', '2026-10-11'],
+            'Hora 12H con PM'           => ['2026-05-04 2:30 PM', '2026-05-04'],
+            'Narrativa con hora'        => ['25 de marzo de 2026 10:00', '2026-03-25'],
         ];
     }
 
@@ -240,7 +250,7 @@ final class AuditFindingRulesNormalizationTest extends TestCase
     #[DataProvider('stripAccentsProvider')]
     public function testStripAccents(string $input, string $expected): void
     {
-        $this->assertSame($expected, AuditFindingRules::stripAccents($input));
+        $this->assertSame($expected, TextNormalization::stripAccents($input));
     }
 
     // ─── normalizeForComparison — Integración ────────────────────────────────

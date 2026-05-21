@@ -66,7 +66,7 @@ final class InvoicesControllerTest extends TestCase
         $this->assertSame('dateFrom no puede ser mayor que dateTo', $response->getData()['message']);
     }
 
-    public function testSearchOmitsMissingDateToAsNull(): void
+    public function testSearchAutocompletesDateToWhenMissing(): void
     {
         $model = new InvoicesControllerFakeModel();
         $controller = new TestableInvoicesController($model, [
@@ -78,7 +78,7 @@ final class InvoicesControllerTest extends TestCase
         $response = $this->captureHttpResponse(static fn() => $controller->search());
 
         $this->assertSame(200, $response->getCode());
-        $this->assertSame([2426, '2025-07-01', null, 100], $model->lastCall);
+        $this->assertSame([2426, '2025-07-01', '2025-07-01', 100], $model->lastCall);
         $this->assertTrue($response->getData()['success']);
     }
 
@@ -112,7 +112,7 @@ final class InvoicesControllerFakeModel
     public array $returnValue = [];
     public array $lastCall = [];
 
-    public function getInvoices(int $facNitSec, string $date, ?string $dateTo = null, int $limit = 100): array
+    public function getInvoices(int $facNitSec, string $date, string $dateTo, int $limit = 100): array
     {
         $this->lastCall = [$facNitSec, $date, $dateTo, $limit];
         return $this->returnValue;

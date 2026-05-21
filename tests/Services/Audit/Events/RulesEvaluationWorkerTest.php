@@ -84,6 +84,8 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_RULES_EVALUATED, $publisher->published[0]->eventType);
         $this->assertSame(1, $publisher->published[0]->payload['hallazgos']['metrics']['total_campos']);
+        $this->assertSame('completed', $publisher->published[0]->payload['final_status']);
+        $this->assertSame('87723098', $publisher->published[0]->payload['audit_result_data']['FacSec']);
     }
 
     public function testDoesNotPublishRulesEvaluatedWhenStateStoreFailsPolicyPersistence(): void
@@ -315,6 +317,9 @@ class RulesReadyStateStore extends AuditStateStore
     {
         $this->audit = [
             'audit_id' => $auditId,
+            'fac_sec' => '87723098',
+            'dis_det_nro' => 'T38250701547',
+            'fac_nit_sec' => '2426',
             'docs_total' => 1,
             'docs_done' => 1,
             'docs_evaluated' => 0,
@@ -376,6 +381,9 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
         $dispensaDocumentId = AuditEvent::uuidV4();
         $this->audit = [
             'audit_id' => $auditId,
+            'fac_sec' => '87723098',
+            'dis_det_nro' => 'T38250701547',
+            'fac_nit_sec' => '2426',
             'docs_total' => 2,
             'docs_done' => 2,
             'docs_evaluated' => 1,

@@ -6,12 +6,6 @@ namespace App\Services\Audit;
 
 /**
  * Reglas de auditoría: scoring, métricas y helpers de normalización.
- *
- * Post-refactor: esta clase retiene la lógica de scoring/métricas
- * y actúa como fachada de transición para métodos migrados a:
- * - TextNormalization (texto, similitud, tokenización)
- * - IdentityDocNormalizer (docs identidad RIPS/BDUA)
- * - DeliveryValidityEvaluator (vigencia de entrega)
  */
 final class AuditFindingRules
 {
@@ -170,21 +164,116 @@ final class AuditFindingRules
             return null;
         }
 
-        $datePortion = preg_split('/\s+/', $candidate, 2)[0] ?? $candidate;
-        if ($datePortion === '') {
+        // 1. Limpieza de hora al final del string si existe (ej: "2026-05-04 14:30:00" -> "2026-05-04")
+        $dateOnly = (string) preg_replace('/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[a-zA-Z]+)?$/', '', $candidate);
+        $dateOnly = trim($dateOnly);
+        if ($dateOnly === '') {
             return null;
         }
 
-        // 1. Formatos numéricos estrictos
+        // 2. Intentar parsear como fecha numérica separada por espacios/delimitadores variables
+        $numericParsed = self::parseNumericDatePattern($dateOnly);
+        if ($numericParsed !== null) {
+            return $numericParsed;
+        }
+
+        // 3. Formatos numéricos estrictos (como fallback si no coincidió en el paso anterior)
         foreach (['Y-m-d', 'Y/m/d', 'd/m/Y', 'd-m-Y', 'd.m.Y'] as $format) {
-            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $datePortion);
-            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $datePortion) {
+            $parsed = \DateTimeImmutable::createFromFormat('!' . $format, $dateOnly);
+            if ($parsed instanceof \DateTimeImmutable && $parsed->format($format) === $dateOnly) {
                 return $parsed->format('Y-m-d');
             }
         }
 
-        // 2. Fechas narrativas en español (fallback)
-        return self::parseSpanishNarrativeDate($candidate);
+        // 4. Fechas narrativas en español (fallback)
+        return self::parseSpanishNarrativeDate($dateOnly);
+    }
+
+    /**
+     * Parsea fechas puramente numéricas de 3 componentes separadas por espacios, guiones, puntos o barras.
+     * Determina inteligentemente día, mes y año según rangos lógicos y posición.
+     */
+    private static function parseNumericDatePattern(string $value): ?string
+    {
+        $clean = (string) preg_replace('/[^0-9\s]/', ' ', $value);
+        $clean = trim((string) preg_replace('/\s+/', ' ', $clean));
+        if ($clean === '') {
+            return null;
+        }
+
+        $parts = explode(' ', $clean);
+        $parts = array_values(array_filter($parts, static fn(string $p): bool => $p !== ''));
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        $nums = array_map('intval', $parts);
+        $year = null;
+        $yearIndex = null;
+
+        // 1. Identificar el año
+        // Intentar encontrar primero un año de 4 dígitos (entre 1900 y 2100)
+        foreach ($nums as $idx => $num) {
+            if ($num >= 1900 && $num <= 2100) {
+                $year = $num;
+                $yearIndex = $idx;
+                break;
+            }
+        }
+
+        // Si no se encuentra un año de 4 dígitos, asumir por convención que el tercer elemento es el año
+        if ($year === null) {
+            $lastIndex = 2;
+            $num = $nums[$lastIndex];
+            if ($num >= 0 && $num <= 99) {
+                $year = $num + ($num < 50 ? 2000 : 1900);
+                $yearIndex = $lastIndex;
+            }
+        }
+
+        if ($year === null || $yearIndex === null) {
+            return null;
+        }
+
+        // 2. Identificar día y mes con los dos elementos restantes
+        $remainingIndices = array_values(array_diff([0, 1, 2], [$yearIndex]));
+        $valA = $nums[$remainingIndices[0]];
+        $valB = $nums[$remainingIndices[1]];
+
+        $day = null;
+        $month = null;
+
+        if ($valA > 12 && $valB <= 12) {
+            $day = $valA;
+            $month = $valB;
+        } elseif ($valB > 12 && $valA <= 12) {
+            $day = $valB;
+            $month = $valA;
+        } elseif ($valA <= 12 && $valB <= 12) {
+            // Ambigüedad: ambos <= 12. Desempatar usando la posición del año
+            if ($yearIndex === 0) {
+                // Año al inicio (Y m d) -> valA es mes, valB es día
+                $month = $valA;
+                $day = $valB;
+            } else {
+                // Año al final o al medio (d m Y) -> valA es día, valB es mes
+                $day = $valA;
+                $month = $valB;
+            }
+        } else {
+            // Ambos > 12, lo cual no es posible para una combinación día/mes válida
+            return null;
+        }
+
+        if ($day < 1 || $day > 31 || $month < 1 || $month > 12) {
+            return null;
+        }
+
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
     /**
@@ -336,82 +425,5 @@ final class AuditFindingRules
             $hasNumeric  = true;
         }
         return $hasNumeric ? $sum : null;
-    }
-
-    // ──────────────────────────────────────────────
-    // Fachada de transición: delega a clases extraídas
-    // Los callers directos se migrarán progresivamente.
-    // ──────────────────────────────────────────────
-
-    /** @deprecated Usar TextNormalization::normalizeText() directamente */
-    public static function normalizeText(string $value): string
-    {
-        return TextNormalization::normalizeText($value);
-    }
-
-    /** @deprecated Usar TextNormalization::normalizeToken() directamente */
-    public static function normalizeToken(string $value): string
-    {
-        return TextNormalization::normalizeToken($value);
-    }
-
-    /** @deprecated Usar TextNormalization::stripAccents() directamente */
-    public static function stripAccents(string $value): string
-    {
-        return TextNormalization::stripAccents($value);
-    }
-
-    /** @deprecated Usar TextNormalization::tokenize() directamente */
-    public static function tokenize(string $text): array
-    {
-        return TextNormalization::tokenize($text);
-    }
-
-    /** @deprecated Usar TextNormalization::sameTokenSet() directamente */
-    public static function sameTokenSet(string $left, string $right): bool
-    {
-        return TextNormalization::sameTokenSet($left, $right);
-    }
-
-    /** @deprecated Usar TextNormalization::samePersonNameTokenSet() directamente */
-    public static function samePersonNameTokenSet(string $left, string $right): bool
-    {
-        return TextNormalization::samePersonNameTokenSet($left, $right);
-    }
-
-    /** @deprecated Usar TextNormalization::containsNormalizedSubstring() directamente */
-    public static function containsNormalizedSubstring(string $normalizedFdv, string $normalizedDoc): bool
-    {
-        return TextNormalization::containsNormalizedSubstring($normalizedFdv, $normalizedDoc);
-    }
-
-    /** @deprecated Usar TextNormalization::similarity() directamente */
-    public static function similarity(string $left, string $right): float
-    {
-        return TextNormalization::similarity($left, $right);
-    }
-
-    /** @deprecated Usar IdentityDocNormalizer::normalizeDocType() directamente */
-    public static function normalizeIdentityDocType(string $value): string
-    {
-        return IdentityDocNormalizer::normalizeDocType($value);
-    }
-
-    /** @deprecated Usar IdentityDocNormalizer::normalizeDocNumber() directamente */
-    public static function normalizeIdentityDocNumber(string $value): string
-    {
-        return IdentityDocNormalizer::normalizeDocNumber($value);
-    }
-
-    /** @deprecated Usar IdentityDocNormalizer::normalizePersonNameFromMixedIdentityLine() directamente */
-    public static function normalizePersonNameFromMixedIdentityLine(string $value): string
-    {
-        return IdentityDocNormalizer::normalizePersonNameFromMixedIdentityLine($value);
-    }
-
-    /** @deprecated Usar DeliveryValidityEvaluator::evaluate() directamente */
-    public static function evaluateDeliveryValidity(array $audit, array $findings): array
-    {
-        return DeliveryValidityEvaluator::evaluate($audit, $findings);
     }
 }

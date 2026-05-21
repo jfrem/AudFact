@@ -1,5 +1,11 @@
 ## [2026-05-20]
 
+### refactor
+- **Contrato canónico de resultados de auditoría**: `/audit/results` queda como summary paginado y se agrega `GET /audit/results/{facSec}` para detalle; el frontend consume hallazgos/timings sólo desde el detalle y deja de depender de estructuras legacy.
+  - Archivos modificados: `app/Routes/web.php`, `app/Controllers/AuditController.php`, `app/Models/AuditStatusModel.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/AuditAggregationWorker.php`, `app/Services/Audit/AuditFindingRules.php`, `frontend/lib/api/endpoints.ts`, `frontend/lib/api/audfact.ts`, `frontend/lib/schemas/domain.ts`, `frontend/components/results/audit-results-table.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`, `frontend/components/dashboard/priority-audit-table.tsx`, `frontend/components/audit/audit-timings-panel.tsx`, `frontend/components/audit/result-items-table.tsx`, `frontend/app/(dashboard)/audit/results/[facSec]/page.tsx`, `tests/Controllers/AuditControllerTest.php`, `tests/Services/Audit/Events/RulesEvaluationWorkerTest.php`, `tests/Services/Audit/Events/AuditAggregationWorkerTest.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`, `README.md`, `plans/api-endpoints.md`, `plans/architecture.md`, `plans/audit-findings.md`, `BUSINESS.md`, `AGENTS.md`, `CLAUDE.md`, `.agent/skills/audfact-api-rest/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+  - Hallazgo resuelto: REF-01, REF-02, REF-03, REF-04, REF-05
+  - Impacto: reduce payload público, elimina indirection legacy en frontend y deja al agregador como persistidor terminal sin lógica funcional de decisión.
+
 ### fix
 - **Dashboard operativo dinámico en producción**: el layout del grupo dashboard fuerza render en runtime para evitar artefactos RSC prerenderizados durante build sin `INTERNAL_API_URL`.
   - Archivos modificados: `frontend/app/(dashboard)/layout.tsx`

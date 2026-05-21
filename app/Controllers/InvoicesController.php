@@ -31,15 +31,16 @@ class InvoicesController extends Controller
             ]
         );
 
-        if ($dateTo !== null && $dateTo !== '') {
-            $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
-            $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
-            if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
-                Response::error('dateFrom no puede ser mayor que dateTo', 422);
-            }
+        // Normalizar: si dateTo ausente, consultar un solo día
+        $dateTo = ($dateTo !== null && $dateTo !== '') ? $dateTo : $dateFrom;
+
+        $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
+        $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
+        if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
+            Response::error('dateFrom no puede ser mayor que dateTo', 422);
         }
 
-        $invoices = $this->model->getInvoices($facNitSec, $dateFrom, $dateTo !== '' ? $dateTo : null, $limit);
+        $invoices = $this->model->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
         Response::success($invoices);
     }
 
@@ -52,16 +53,15 @@ class InvoicesController extends Controller
             'limit' => 'nullable|integer|min_value:1|max_value:1000'
         ]);
 
-        if (isset($data['dateTo']) && $data['dateTo'] !== '') {
-            $dtFrom = \DateTime::createFromFormat('Y-m-d', $data['dateFrom']);
-            $dtTo = \DateTime::createFromFormat('Y-m-d', $data['dateTo']);
-            if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
-                Response::error('dateFrom no puede ser mayor que dateTo', 422);
-            }
-        }
-
         $limit = isset($data['limit']) ? (int)$data['limit'] : 100;
-        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string)$data['dateTo'] : null;
+        // Normalizar: si dateTo ausente, consultar un solo día
+        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string)$data['dateTo'] : (string)$data['dateFrom'];
+
+        $dtFrom = \DateTime::createFromFormat('Y-m-d', (string)$data['dateFrom']);
+        $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
+        if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
+            Response::error('dateFrom no puede ser mayor que dateTo', 422);
+        }
 
         $invoices = $this->model->getInvoices((int)$data['facNitSec'], (string)$data['dateFrom'], $dateTo, $limit);
         Response::success($invoices);

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { getAttachments, getAuditResults, getDispensationDetail } from "@/lib/api/audfact";
+import { getAttachments, getAuditResultDetail, getDispensationDetail } from "@/lib/api/audfact";
 import { PageHeader } from "@/components/layout/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { AuditStatusBadge } from "@/components/audit/status-badge";
@@ -11,31 +11,14 @@ import { AttachmentResultDetailClient } from "@/components/results/attachment-re
 
 export default async function AuditResultDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ facSec: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { facSec } = await params;
-  const search = await searchParams;
-  const facNro = typeof search.facNro === "string" ? search.facNro : "";
-  const facNitSec = typeof search.facNitSec === "string" ? search.facNitSec : "";
-  const dateFrom = typeof search.dateFrom === "string" ? search.dateFrom : "";
-  const dateTo = typeof search.dateTo === "string" ? search.dateTo : "";
+  const record = await getAuditResultDetail(facSec).catch(() => null);
 
-  const resultsResponse = await getAuditResults({
-    facNro: facNro || undefined,
-    facNitSec: facNitSec || undefined,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
-    pageSize: 100,
-  }).catch(() => null);
-  const record =
-    resultsResponse?.items.find((item) => String(item.FacSec) === facSec) ??
-    null;
-
-  const disDetNro = facNro || record?.FacNro || "";
-  const nitSec = facNitSec || String(record?.FacNitSec ?? "");
+  const disDetNro = record?.FacNro || "";
+  const nitSec = String(record?.FacNitSec ?? "");
   const [dispensationResult, attachments] = await Promise.all([
     disDetNro
       ? getDispensationDetail(disDetNro).catch(() => null)
@@ -73,22 +56,26 @@ export default async function AuditResultDetailPage({
               title="Hallazgos persistidos"
               description="Hallazgos persistidos usando el schema canonico del motor de auditoria."
             >
-              <ResultItemsTable items={record.HallazgosItems ?? []} />
+              <ResultItemsTable items={record.findings ?? []} />
             </SectionCard>
 
             <SectionCard
               title="Rendimiento del pipeline"
               description="Timings persistidos por fase y consumo Gemini incluidos en el resultado histórico."
             >
-              <AuditTimingsPanel meta={record._meta} />
+              <AuditTimingsPanel
+                timings={record.timings}
+                totalDurationMs={record.DuracionProcesamientoMs}
+                documentsProcessed={record.DocumentosProcesados}
+              />
             </SectionCard>
 
-            {record._meta?.metrics ? (
+            {record.metrics ? (
               <SectionCard
                 title="Métricas funcionales"
                 description="Conteos calculados por el motor de reglas sobre los hallazgos de auditoría."
               >
-                <AuditMetricsPanel metrics={record._meta.metrics} />
+                <AuditMetricsPanel metrics={record.metrics} />
               </SectionCard>
             ) : null}
           </div>
@@ -103,7 +90,7 @@ export default async function AuditResultDetailPage({
       ) : (
         <SectionCard
           title="Sin contexto suficiente"
-          description="La búsqueda no encontró el `FacSec` solicitado dentro de la consulta actual del historial. Reabre el detalle desde la tabla de resultados o agrega más contexto en la URL."
+          description="El backend no encontró el FacSec solicitado en el historial persistido."
         >
           <p className="text-sm text-slate-400">
             No se pudo reconstruir el registro solicitado.

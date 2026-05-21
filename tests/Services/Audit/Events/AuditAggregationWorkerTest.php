@@ -38,33 +38,17 @@ final class AuditAggregationWorkerTest extends TestCase
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
             auditId: $auditId,
             jobId: $jobId,
-            payload: [
-                'hallazgos' => [
-                    'items' => [
-                        [
-                            'campo' => 'FirmaActaEntrega',
-                            'resultado' => 'NO_CONCLUYENTE',
-                            'severidad' => 'alta'
-                        ]
-                    ], 
-                    'metrics' => ['risk_score' => 20]
-                ],
-                'document_decisions' => [[
-                    'documentName' => 'FORMULA MEDICA',
-                    'approved' => false,
-                    'observation' => 'La calidad documental no permite concluir el valor con confianza suficiente.',
-                ]],
-            ]
+            payload: self::rulesOutcomePayload('manual_review')
         ));
 
         $this->assertSame('manual_review', $store->lastCompletion['status'] ?? null);
         $this->assertSame('87723098', $model->lastAuditResultData['FacSec'] ?? null);
         $this->assertSame('FORMULA MEDICA', $model->lastDocumentDecisions[0]['documentName'] ?? null);
         $hallazgos = json_decode((string) $model->lastAuditResultData['Hallazgos'], true);
-        $this->assertSame(1, $hallazgos['_meta']['phase_timings']['gemini_extraction']['count'] ?? null);
-        $this->assertSame(1, $hallazgos['_meta']['phase_timings']['gemini_semantic']['count'] ?? null);
-        $this->assertSame(300, $hallazgos['_meta']['phase_timings']['gemini_total']['total_tokens'] ?? null);
-        $this->assertArrayNotHasKey('token_usage', $hallazgos['_meta']['phase_timings']);
+        $this->assertSame(1, $hallazgos['timings']['gemini_extraction']['count'] ?? null);
+        $this->assertSame(1, $hallazgos['timings']['gemini_semantic']['count'] ?? null);
+        $this->assertSame(300, $hallazgos['timings']['gemini_total']['total_tokens'] ?? null);
+        $this->assertArrayNotHasKey('token_usage', $hallazgos['timings']);
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
         $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
@@ -97,23 +81,7 @@ final class AuditAggregationWorkerTest extends TestCase
                 eventType: AuditEvent::TYPE_RULES_EVALUATED,
                 auditId: $auditId,
                 jobId: $jobId,
-                payload: [
-                    'hallazgos' => [
-                        'items' => [
-                            [
-                                'campo' => 'NumeroFactura',
-                                'resultado' => 'NO_ENCONTRADO',
-                                'severidad' => 'baja'
-                            ]
-                        ], 
-                        'metrics' => ['risk_score' => 0]
-                    ],
-                    'document_decisions' => [[
-                        'documentName' => 'DISPENSA',
-                        'approved' => true,
-                        'observation' => null,
-                    ]],
-                ]
+                payload: self::rulesOutcomePayload('error')
             ));
         } finally {
             $this->assertSame('failed', $store->lastCompletion['status'] ?? null);
@@ -123,6 +91,86 @@ final class AuditAggregationWorkerTest extends TestCase
             $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $publisher->published[0]->eventType);
             $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
         }
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private static function rulesOutcomePayload(string $status): array
+    {
+        $isManualReview = $status === 'manual_review';
+        $documentDecisions = [[
+            'documentName' => $isManualReview ? 'FORMULA MEDICA' : 'DISPENSA',
+            'approved' => !$isManualReview,
+            'observation' => $isManualReview
+                ? 'La calidad documental no permite concluir el valor con confianza suficiente.'
+                : null,
+        ]];
+        $findings = [[
+            'campo' => $isManualReview ? 'FirmaActaEntrega' : 'NumeroFactura',
+            'resultado' => $isManualReview ? 'NO_CONCLUYENTE' : 'NO_ENCONTRADO',
+            'severidad' => $isManualReview ? 'alta' : 'baja',
+            'documento' => $documentDecisions[0]['documentName'],
+        ]];
+        $metrics = [
+            'total_campos' => 1,
+            'coincidencias' => 0,
+            'discrepancias' => $isManualReview ? 0 : 1,
+            'omitidos' => 0,
+            'no_concluyentes' => $isManualReview ? 1 : 0,
+            'risk_score' => $isManualReview ? 20 : 1,
+        ];
+        $hallazgos = [
+            'items' => $findings,
+            'field_decisions' => $findings,
+            'document_decisions' => $documentDecisions,
+            'metrics' => $metrics,
+            'timings' => [
+                'gemini_extraction' => ['count' => 1],
+                'gemini_semantic' => ['count' => 1],
+                'gemini_total' => ['total_tokens' => 300],
+            ],
+            'total_duration_ms' => 42000,
+        ];
+
+        return [
+            'hallazgos' => [
+                'items' => $findings,
+                'metrics' => $metrics,
+            ],
+            'document_decisions' => $documentDecisions,
+            'final_status' => $status,
+            'requires_manual_review' => $isManualReview,
+            'severity' => $isManualReview ? 'alta' : 'baja',
+            'detail_message' => 'Resultado final construido por policy.',
+            'failed_document' => $documentDecisions[0]['documentName'],
+            'audit_result_data' => [
+                'FacSec' => '87723098',
+                'FacNro' => 'T38250701547',
+                'EstAud' => 1,
+                'EstadoDetallado' => $status,
+                'RequiereRevisionHumana' => $isManualReview ? 1 : 0,
+                'Severidad' => $isManualReview ? 'alta' : 'baja',
+                'Hallazgos' => json_encode($hallazgos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'DetalleError' => 'Resultado final construido por policy.',
+                'DocumentosProcesados' => 2,
+                'DocumentoFallido' => $documentDecisions[0]['documentName'],
+                'DuracionProcesamientoMs' => 42000,
+                'FacNitSec' => '2426',
+            ],
+            'completion_payload' => [
+                'status' => $status,
+                'requires_manual_review' => $isManualReview,
+                'audit_result' => [
+                    'hallazgos' => [
+                        'items' => $findings,
+                        'metrics' => $metrics,
+                    ],
+                    'document_decisions' => $documentDecisions,
+                ],
+                'persistence_target' => 'AudDispEst+AdjuntosDispensacion',
+            ],
+        ];
     }
 }
 

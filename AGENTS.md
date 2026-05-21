@@ -65,7 +65,8 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por ID |
 | `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | Descargar BLOB de adjunto |
-| `GET` | `/audit/results` | `AuditController` | `results` | Historial persistido de auditorías |
+| `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
+| `GET` | `/audit/results/{facSec}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacSec |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
 | `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisDetNro (Punto Dispensación) |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
@@ -454,10 +455,11 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Pipeline de auditoría IA
 
-- **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/AuditAggregationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
+- **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
 - **Pipeline event-driven actual**: `audit_created -> document_registered -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
 - **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
-- **Agregación final**: `AuditAggregationWorker` transforma `rules_evaluated` + estado Redis a `auditResultData` y `documentDecisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
+- **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
+- **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy) y `docs_evaluated`
 - **Cierre de auditoría**: solo el agregador final puede marcar `completed`, `manual_review`, `error` o `failed`; extracción y normalización nunca deben cerrar la auditoría
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal

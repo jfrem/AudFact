@@ -156,7 +156,7 @@ class AuditController extends Controller
             $payload = Cache::remember($cacheKey, function () use ($filters, $page, $pageSize) {
                 $model = $this->buildAuditStatusModel();
                 $total = $model->countAudits($filters);
-                $results = $model->searchAudits($filters, $page, $pageSize);
+                $results = $model->searchAuditSummaries($filters, $page, $pageSize);
                 $totalPages = (int)ceil($total / $pageSize);
 
                 return [
@@ -177,6 +177,28 @@ class AuditController extends Controller
                 'exception' => $e,
             ]);
             Response::error('Resultados de auditoría temporalmente no disponibles', 503);
+        }
+    }
+
+    public function resultDetail(string $facSec): void
+    {
+        try {
+            $model = $this->buildAuditStatusModel();
+            $detail = $model->getAuditDetailByFacSec($facSec);
+
+            if (empty($detail)) {
+                Response::error('Auditoría no encontrada para la factura proporcionada', 404);
+            }
+
+            Response::success($detail, 'Detalle de auditoría');
+        } catch (\Core\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\RuntimeException $e) {
+            Logger::error('Excepción en AuditController::resultDetail: ' . $e->getMessage(), [
+                'exception' => $e,
+                'facSec' => $facSec,
+            ]);
+            Response::error('Detalle de auditoría temporalmente no disponible', 503);
         }
     }
 
@@ -235,14 +257,13 @@ class AuditController extends Controller
         ]);
 
         $dateFrom = (string) $data['date'];
-        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string) $data['dateTo'] : null;
+        // Normalizar: si dateTo ausente, consultar un solo dia
+        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string) $data['dateTo'] : $dateFrom;
 
-        if ($dateTo !== null) {
-            $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
-            $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
-            if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
-                Response::error('dateTo debe ser mayor o igual a date', 422);
-            }
+        $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
+        $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
+        if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
+            Response::error('dateTo debe ser mayor o igual a date', 422);
         }
 
         $facNitSec = (int) $data['facNitSec'];
