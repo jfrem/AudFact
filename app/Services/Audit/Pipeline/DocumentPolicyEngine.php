@@ -306,17 +306,19 @@ class DocumentPolicyEngine
         string $tipoCampo = 'E',
         ?AuditFieldValueType $valueType = null
     ): array {
+        $humanField = TextNormalization::humanizeFieldName($field);
+
         if ($ambiguous) {
             return [
                 'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle'   => 'El campo es ambiguous: el documento contiene múltiples valores distintos para el mismo campo.',
+                'detalle'   => "Se encontraron múltiples valores distintos para '{$humanField}' en el mismo documento, lo que impide determinar cuál es el correcto.",
             ];
         }
 
         if ($documentQuality !== 'legible' && $docValue === null) {
             return [
                 'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle'   => 'La calidad documental no permite concluir el valor del campo.',
+                'detalle'   => "No fue posible verificar '{$humanField}' porque la calidad de la imagen del documento no permite leer el valor con certeza.",
             ];
         }
 
@@ -327,12 +329,12 @@ class DocumentPolicyEngine
         if ($docValue === null) {
             return [
                 'resultado' => AuditFindingResult::NOT_FOUND->value,
-                'detalle'   => "El campo '{$field}' no se encontró en el documento. Valor esperado según registro de dispensación: '{$fdvValue}'."
+                'detalle'   => "No se encontró '{$humanField}' en el documento soporte. Según el registro de dispensación debería figurar: '{$fdvValue}'."
             ];
         }
 
         if ($fdvValue === null) {
-            return ['resultado' => AuditFindingResult::SKIPPED->value, 'detalle' => 'Sin valor auditable en registro de dispensación.'];
+            return ['resultado' => AuditFindingResult::SKIPPED->value, 'detalle' => "El registro de dispensación no contiene un valor de referencia para '{$humanField}', por lo que no se evaluó."];
         }
 
         if ($forcedType === null) {
@@ -389,7 +391,7 @@ class DocumentPolicyEngine
             'resultado'      => AuditFindingResult::MISMATCH->value,
             'tipo_auditoria' => 'exact',
             'detalle'        => sprintf(
-                "Código(s) FDV '%s' no encontrado(s) en el set documental '%s'.",
+                "El código '%s' del registro de dispensación no aparece en el documento soporte, donde solo se encontró: '%s'.",
                 implode(', ', $missing),
                 $docValue
             ),
@@ -424,8 +426,8 @@ class DocumentPolicyEngine
                 'resultado'      => AuditFindingResult::MISMATCH->value,
                 'tipo_auditoria' => 'exact',
                 'detalle'        => sprintf(
-                    "%s documental '%s' no registrado(s) en FDV.",
-                    $field,
+                    "El documento soporte contiene %s '%s' que no figura en el registro de dispensación.",
+                    TextNormalization::humanizeFieldName($field),
                     implode(', ', $extraInDoc)
                 ),
             ];
@@ -437,8 +439,8 @@ class DocumentPolicyEngine
             'resultado'      => AuditFindingResult::INCONCLUSIVE->value,
             'tipo_auditoria' => 'exact',
             'detalle'        => sprintf(
-                "Evidencia documental parcial: falta %s '%s' registrado(s) en FDV.",
-                $field,
+                "El documento soporte solo muestra parte de la información: falta %s '%s' que sí aparece en el registro de dispensación.",
+                TextNormalization::humanizeFieldName($field),
                 implode(', ', $missingInDoc)
             ),
         ];
@@ -495,7 +497,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => "Registro de Dispensación '{$fdvValue}' difiere de Documento soporte '{$docValue}'.",
+            'detalle'   => "El valor en el documento soporte ('{$docValue}') no coincide con el registro de dispensación ('{$fdvValue}').",
         ];
     }
 
@@ -560,11 +562,11 @@ class DocumentPolicyEngine
         return [
             'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'detalle'   => sprintf(
-                'El valor extraído del documento ("%s") difiere del valor esperado ("%s") en el campo %s. '
-                . 'La diferencia no pudo resolverse automáticamente — requiere verificación manual.',
+                'En el campo %s, el documento soporte indica "%s" mientras que el registro de dispensación tiene "%s". '
+                . 'La diferencia requiere verificación por parte del auditor.',
+                TextNormalization::humanizeFieldName($field),
                 mb_substr($docValue, 0, 120),
-                mb_substr($fdvValue, 0, 120),
-                $field
+                mb_substr($fdvValue, 0, 120)
             ),
         ];
     }
@@ -587,9 +589,10 @@ class DocumentPolicyEngine
         $docNumber = AuditFindingRules::parseNumber($docValue);
 
         if ($fdvNumber === null || $docNumber === null) {
+            $humanField = TextNormalization::humanizeFieldName($field);
             return [
                 'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle'   => 'Valores no numéricos en campo de negocio.',
+                'detalle'   => "No fue posible comparar '{$humanField}' porque uno de los valores no es numérico. Registro de dispensación: '{$fdvValue}', documento soporte: '{$docValue}'.",
             ];
         }
         
@@ -599,7 +602,7 @@ class DocumentPolicyEngine
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf('Cantidad en documento soporte (%.2f) excede cantidad registrada en registro de dispensación (%.2f).', $docNumber, $fdvNumber),
+            'detalle'   => sprintf('La cantidad en el documento soporte (%.2f) no corresponde con la cantidad del registro de dispensación (%.2f).', $docNumber, $fdvNumber),
         ];
     }
 

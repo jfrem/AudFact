@@ -1,3 +1,11 @@
+## [2026-05-23]
+
+### refactor
+- **Métricas limpias de latencia async**: separa espera en cola, procesamiento activo y tiempo total; hace idempotente `started_at`, centraliza el cálculo de duración y evita persistir `JobId` sin columna documentada en `AudDispEst`.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `app/Services/Audit/Pipeline/AuditStateStore.php`, `app/Services/Audit/Pipeline/AuditTimingSummarizer.php`, `app/Services/Audit/Pipeline/BatchJobStore.php`, `app/Services/Audit/Pipeline/AuditAggregationWorker.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Models/AuditStatusModel.php`, `frontend/lib/schemas/domain.ts`, `frontend/components/audit/audit-timings-panel.tsx`, `frontend/components/jobs/job-detail-client.tsx`, `tests/Controllers/AuditControllerTest.php`, `tests/Services/Audit/Events/AuditAggregationWorkerTest.php`, `tests/Services/Audit/Pipeline/AuditTimingSummarizerTest.php`, `plans/api-endpoints.md`
+  - Hallazgo resuelto: ninguno
+  - Impacto: los jobs async reportan rendimiento sin duplicar métricas por reintentos y la persistencia SQL conserva el contrato real de la tabla.
+
 ## [2026-05-20]
 
 ### refactor

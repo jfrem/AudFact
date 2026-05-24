@@ -322,11 +322,43 @@ class GeminiGateway
                 'role' => 'user',
                 'parts' => $parts,
             ]],
-            'tools' => $tools,
+            'tools' => self::normalizeSchemaProperties($tools),
             'toolConfig' => $toolConfig,
             'generationConfig' => $generationConfig,
             'safetySettings' => $this->getSafetySettings(),
         ];
+    }
+
+    /**
+     * Normaliza recursivamente el árbol de tools/schema para Gemini.
+     *
+     * La API de Gemini exige que `"properties"` sea un JSON object (`{}`),
+     * pero el contrato pasa por Redis Streams (json_encode → json_decode($raw, true))
+     * que convierte `{}` en `[]` (array vacío PHP). json_encode codifica `[]` como
+     * un JSON array, no como un JSON object, provocando un 400.
+     *
+     * Este método recorre el árbol y convierte cada `"properties" => []` en
+     * `"properties" => new \stdClass()` que se serializa correctamente como `{}`.
+     */
+    private static function normalizeSchemaProperties(mixed $data): mixed
+    {
+        if (!is_array($data)) {
+            return $data;
+        }
+
+        // Si la key "properties" existe y es un array vacío, convertir a stdClass
+        if (array_key_exists('properties', $data) && $data['properties'] === []) {
+            $data['properties'] = new \stdClass();
+        }
+
+        // Recorrer recursivamente todos los valores del array
+        foreach ($data as $key => $value) {
+            if (is_array($value)) {
+                $data[$key] = self::normalizeSchemaProperties($value);
+            }
+        }
+
+        return $data;
     }
 
     /**

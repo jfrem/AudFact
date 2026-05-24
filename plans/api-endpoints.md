@@ -184,7 +184,14 @@ Campos principales:
 Consulta el estado de un job async.
 
 Validación:
-- `jobId`: hexadecimal de 32 a 64 caracteres
+- `jobId`: UUID v4
+
+Campos principales de la respuesta:
+- `job_id`, `status`, `total`, `done`, `failed`, `pending`
+- `avg_duration_ms`: duración activa promedio de las auditorías terminales
+- `accumulated_duration_ms`: duración activa acumulada del lote
+- `throughput_per_sec`: auditorías terminales por segundo activo acumulado
+- `audits`: resumen por auditoría en el job
 
 ### `GET /audit/results`
 
@@ -252,6 +259,11 @@ Consulta métricas persistidas por fase para una auditoría.
 
 Validación:
 - `facNro`: string no vacío en la ruta
+
+Campos de latencia:
+- `processing_duration_ms`: tiempo activo desde `started_at` hasta cierre de reglas
+- `queue_wait_ms`: espera entre encolamiento (`created_at`) e inicio activo (`started_at`)
+- `total_elapsed_ms`: tiempo total desde encolamiento hasta cierre de reglas
 
 ### `GET /audit/dlq`
 

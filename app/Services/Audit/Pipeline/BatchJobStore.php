@@ -46,6 +46,8 @@ class BatchJobStore
             'total'       => 0,
             'done'        => 0,
             'failed'      => 0,
+            'accumulated_duration_ms' => 0,
+            'avg_duration_ms' => 0,
             'created_at'  => $now,
             'updated_at'  => $now,
             'audits'      => new \stdClass(),
@@ -94,12 +96,24 @@ class BatchJobStore
         );
     }
 
-    public function markAuditCompletedInJob(string $jobId, string $auditId, string $auditStatus): bool
-    {
+    /**
+     * Marca una auditoría del job como terminal y actualiza métricas agregadas.
+     *
+     * @param  string  $jobId  UUID del job batch.
+     * @param  string  $auditId  UUID de la auditoría.
+     * @param  string  $auditStatus  Estado terminal de la auditoría.
+     * @param  int  $auditDurationMs  Duración activa de la auditoría en milisegundos.
+     */
+    public function markAuditCompletedInJob(
+        string $jobId,
+        string $auditId,
+        string $auditStatus,
+        int $auditDurationMs = 0
+    ): bool {
         return $this->runScript(
             self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
             [self::jobKey($jobId)],
-            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS],
+            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS, max(0, $auditDurationMs)],
             'No se pudo actualizar el progreso del job en Redis',
             ['job_id' => $jobId, 'audit_id' => $auditId]
         );
@@ -181,6 +195,7 @@ local auditId = ARGV[1]
 local auditStatus = ARGV[2]
 local now = ARGV[3]
 local ttl = tonumber(ARGV[4])
+local auditDurationMs = math.max(0, tonumber(ARGV[5]) or 0)
 
 if type(job['audits']) ~= 'table' or type(job['audits'][auditId]) ~= 'table' then
     return 0
@@ -188,18 +203,24 @@ end
 
 local auditState = job['audits'][auditId]
 local previousStatus = tostring(auditState['status'] or '')
+local wasTerminal = previousStatus == 'completed'
+or previousStatus == 'manual_review'
+or previousStatus == 'error'
+or previousStatus == 'failed'
+
+if wasTerminal then
+    return 1
+end
 
 auditState['status'] = auditStatus
 auditState['completed_at'] = now
+auditState['duration_ms'] = auditDurationMs
 job['audits'][auditId] = auditState
 
-if previousStatus ~= 'completed' and previousStatus ~= 'manual_review'
-and previousStatus ~= 'error' and previousStatus ~= 'failed' then
-    if auditStatus == 'failed' then
-        job['failed'] = (tonumber(job['failed']) or 0) + 1
-    else
-        job['done'] = (tonumber(job['done']) or 0) + 1
-    end
+if auditStatus == 'failed' then
+    job['failed'] = (tonumber(job['failed']) or 0) + 1
+else
+    job['done'] = (tonumber(job['done']) or 0) + 1
 end
 
 local processed = (tonumber(job['done']) or 0) + (tonumber(job['failed']) or 0)
@@ -213,6 +234,12 @@ if processed >= total and total > 0 then
     end
 else
     job['status'] = 'processing'
+end
+
+job['accumulated_duration_ms'] = (tonumber(job['accumulated_duration_ms']) or 0) + auditDurationMs
+
+if processed > 0 then
+    job['avg_duration_ms'] = math.floor((tonumber(job['accumulated_duration_ms']) or 0) / processed)
 end
 
 job['updated_at'] = now

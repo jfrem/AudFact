@@ -264,4 +264,21 @@ final class TextNormalization
         $composite = ($levenshteinScore * 0.6) + ($jaccard * 0.4);
         return max($similarScore, $composite);
     }
+
+    /**
+     * Convierte un nombre de campo técnico (camelCase o PascalCase) a una cadena
+     * legible para humanos (ej. "TipoDocumentoPaciente" -> "Tipo Documento Paciente").
+     */
+    public static function humanizeFieldName(string $fieldName): string
+    {
+        if ($fieldName === '') {
+            return '';
+        }
+
+        // Inserta un espacio antes de cada mayúscula que no esté al inicio de la cadena
+        $humanized = (string) preg_replace('/(?<!^)(?=[A-Z])/', ' ', $fieldName);
+        
+        // Asegura que la primera letra siempre sea mayúscula (para casos de camelCase inicial)
+        return ucfirst(trim($humanized));
+    }
 }

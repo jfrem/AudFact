@@ -96,7 +96,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
         }
 
         if ($event->jobId !== null) {
-            $this->jobStore->markAuditCompletedInJob($event->jobId, $event->auditId, $aggregate['final_status']);
+            $this->jobStore->markAuditCompletedInJob(
+                $event->jobId,
+                $event->auditId,
+                $aggregate['final_status'],
+                self::resolveAggregateDurationMs($aggregate)
+            );
         }
 
         $this->publisher->publish(AuditEvent::create(
@@ -185,7 +190,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $this->stateStore->completeAudit($event->auditId ?? '', $failedPayload);
 
         if ($event->jobId !== null && $event->auditId !== null) {
-            $this->jobStore->markAuditCompletedInJob($event->jobId, $event->auditId, AuditStateStore::AUDIT_STATUS_FAILED);
+            $this->jobStore->markAuditCompletedInJob(
+                $event->jobId,
+                $event->auditId,
+                AuditStateStore::AUDIT_STATUS_FAILED,
+                self::resolveAggregateDurationMs($aggregate)
+            );
         }
 
         $this->publisher->publish(AuditEvent::create(
@@ -232,7 +242,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $facNitSec = isset($job['fac_nit_sec']) ? (int) $job['fac_nit_sec'] : 0;
         $dateFrom = isset($job['date_from']) ? trim((string) $job['date_from']) : '';
         $dateTo = isset($job['date_to']) ? trim((string) $job['date_to']) : '';
-        $normalizedDateTo = $dateTo !== '' ? $dateTo : null;
+        $normalizedDateTo = $dateTo !== '' ? $dateTo : $dateFrom;
         if ($facNitSec > 0 && $dateFrom !== '') {
             $this->jobStore->releaseBatchSlot($facNitSec, $dateFrom, $normalizedDateTo);
         }
@@ -249,5 +259,13 @@ final class AuditAggregationWorker extends AuditEventConsumer
             ],
             parentEventId: $parentEventId,
         ));
+    }
+
+    /**
+     * @param  array<string,mixed> $aggregate
+     */
+    private static function resolveAggregateDurationMs(array $aggregate): int
+    {
+        return max(0, (int) ($aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0));
     }
 }

@@ -52,7 +52,12 @@ final class AuditAggregationWorkerTest extends TestCase
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
         $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
-        $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'manual_review'], $jobStore->lastJobCompletion);
+        $this->assertSame([
+            'job_id' => $jobId,
+            'audit_id' => $auditId,
+            'status' => 'manual_review',
+            'duration_ms' => 42000,
+        ], $jobStore->lastJobCompletion);
     }
 
     public function testDoesNotPublishAuditCompletedWhenSqlPersistenceFails(): void
@@ -86,7 +91,12 @@ final class AuditAggregationWorkerTest extends TestCase
         } finally {
             $this->assertSame('failed', $store->lastCompletion['status'] ?? null);
             $this->assertTrue($store->lastCompletion['requires_manual_review'] ?? false);
-            $this->assertSame(['job_id' => $jobId, 'audit_id' => $auditId, 'status' => 'failed'], $jobStore->lastJobCompletion);
+            $this->assertSame([
+                'job_id' => $jobId,
+                'audit_id' => $auditId,
+                'status' => 'failed',
+                'duration_ms' => 42000,
+            ], $jobStore->lastJobCompletion);
             $this->assertCount(2, $publisher->published);
             $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $publisher->published[0]->eventType);
             $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
@@ -237,12 +247,18 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
     {
     }
 
-    public function markAuditCompletedInJob(string $jobId, string $auditId, string $auditStatus): bool
+    public function markAuditCompletedInJob(
+        string $jobId,
+        string $auditId,
+        string $auditStatus,
+        int $auditDurationMs = 0
+    ): bool
     {
         $this->lastJobCompletion = [
             'job_id' => $jobId,
             'audit_id' => $auditId,
             'status' => $auditStatus,
+            'duration_ms' => $auditDurationMs,
         ];
         return true;
     }

@@ -319,6 +319,7 @@ class AuditController extends Controller
         $done = (int) ($state['done'] ?? 0);
         $failed = (int) ($state['failed'] ?? 0);
         $pending = max(0, $total - $done - $failed);
+        $performance = self::formatJobPerformance($state, $done + $failed);
 
         $audits = [];
         $auditsMap = is_array($state['audits'] ?? null) ? $state['audits'] : [];
@@ -340,13 +341,35 @@ class AuditController extends Controller
             'done'       => $done,
             'failed'     => $failed,
             'pending'    => $pending,
+            'avg_duration_ms' => $performance['avg_duration_ms'],
+            'accumulated_duration_ms' => $performance['accumulated_duration_ms'],
+            'throughput_per_sec' => $performance['throughput_per_sec'],
             'created_at' => (string) ($state['created_at'] ?? ''),
             'updated_at' => (string) ($state['updated_at'] ?? ''),
             'audits'     => $audits,
         ];
     }
 
+    /**
+     * @param  array<string,mixed> $state
+     * @return array{avg_duration_ms:int,accumulated_duration_ms:int,throughput_per_sec:float}
+     */
+    private static function formatJobPerformance(array $state, int $processed): array
+    {
+        $accumulatedDurationMs = max(0, (int) ($state['accumulated_duration_ms'] ?? 0));
+        $avgDurationMs = max(0, (int) ($state['avg_duration_ms'] ?? 0));
+        $throughput = 0.0;
 
+        if ($processed > 0 && $accumulatedDurationMs > 0) {
+            $throughput = round($processed / ($accumulatedDurationMs / 1000), 2);
+        }
+
+        return [
+            'avg_duration_ms' => $avgDurationMs,
+            'accumulated_duration_ms' => $accumulatedDurationMs,
+            'throughput_per_sec' => $throughput,
+        ];
+    }
 
     public function timings(string $facNro): void
     {

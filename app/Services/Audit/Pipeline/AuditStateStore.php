@@ -107,6 +107,22 @@ class AuditStateStore
         ]);
     }
 
+    /**
+     * Marca el inicio del procesamiento activo de una auditoría.
+     *
+     * @param  string  $auditId  Identificador UUID de la auditoría.
+     */
+    public function markAuditStarted(string $auditId): bool
+    {
+        return $this->runScript(
+            self::MARK_AUDIT_STARTED_LUA,
+            [self::auditKey($auditId)],
+            [self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            'No se pudo marcar el inicio de la auditoría en Redis',
+            ['audit_id' => $auditId]
+        );
+    }
+
     public function registerDocument(string $auditId, string $documentId, array $documentState): bool
     {
         return $this->runScript(
@@ -222,6 +238,32 @@ class AuditStateStore
         audit['updated_at'] = now
 
         redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
+
+    private const MARK_AUDIT_STARTED_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+
+        local audit = cjson.decode(raw)
+        local status = tostring(audit['status'] or '')
+
+        if status == 'completed'
+        or status == 'manual_review'
+        or status == 'error'
+        or status == 'failed' then
+            return 1
+        end
+
+        local now = ARGV[1]
+        if tostring(audit['started_at'] or '') == '' then
+            audit['started_at'] = now
+        end
+
+        audit['status'] = 'processing'
+        audit['updated_at'] = now
+
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', tonumber(ARGV[2]))
         return 1
     LUA;
 

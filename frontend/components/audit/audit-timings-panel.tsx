@@ -61,9 +61,21 @@ export function AuditTimingsPanel({
     <div className={cn("space-y-5", className)}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-white/10 pb-4">
         <InlineMetric
-          icon={<Timer className="h-4 w-4" />}
-          label="Duración total"
-          value={formatMaybeDuration(totalDurationMs)}
+          icon={<Timer className="h-4 w-4 text-emerald-400" />}
+          label="Procesamiento activo"
+          value={formatMaybeDuration(timings.processing_duration_ms ?? totalDurationMs)}
+        />
+        {(timings.queue_wait_ms ?? 0) > 0 && (
+          <InlineMetric
+            icon={<Timer className="h-4 w-4 text-amber-400" />}
+            label="Espera en cola"
+            value={formatMaybeDuration(timings.queue_wait_ms)}
+          />
+        )}
+        <InlineMetric
+          icon={<Timer className="h-4 w-4 text-slate-400" />}
+          label="Total transcurrido"
+          value={formatMaybeDuration(timings.total_elapsed_ms ?? totalDurationMs)}
         />
         <InlineMetric
           icon={<Gauge className="h-4 w-4" />}

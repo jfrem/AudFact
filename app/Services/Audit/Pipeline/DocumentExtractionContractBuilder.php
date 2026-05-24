@@ -193,8 +193,6 @@ final class DocumentExtractionContractBuilder
      */
     private function buildExtractFieldsDeclaration(array $fields): array
     {
-        $properties = $this->buildFieldProperties($fields);
-
         return [
             'name' => self::FN_EXTRACT_FIELDS,
             'description' => 'Extrae campos administrativos y documentales visibles del documento. '
@@ -207,11 +205,7 @@ final class DocumentExtractionContractBuilder
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
-                    'fields' => [
-                        'type' => 'object',
-                        'properties' => $properties,
-                        'propertyOrdering' => array_keys($properties),
-                    ],
+                    'fields' => $this->buildObjectSchema($fields),
                 ],
                 'required' => ['fields'],
                 'propertyOrdering' => ['fields'],
@@ -225,8 +219,6 @@ final class DocumentExtractionContractBuilder
      */
     private function buildExtractItemsDeclaration(array $fields): array
     {
-        $properties = $this->buildFieldProperties($fields);
-
         return [
             'name' => self::FN_EXTRACT_ITEMS,
             'description' => 'Extrae filas de producto o prescripción visibles, una entrada por línea documental. '
@@ -237,11 +229,7 @@ final class DocumentExtractionContractBuilder
                 'properties' => [
                     'items' => [
                         'type' => 'array',
-                        'items' => [
-                            'type' => 'object',
-                            'properties' => $properties,
-                            'propertyOrdering' => array_keys($properties),
-                        ],
+                        'items' => $this->buildObjectSchema($fields),
                     ],
                 ],
                 'required' => ['items'],
@@ -257,31 +245,46 @@ final class DocumentExtractionContractBuilder
     private function buildDetectVisualChecksDeclaration(array $visualChecks): array
     {
         $checkNames = [];
+        $descriptions = [];
         foreach ($visualChecks as $check) {
             $name = trim((string) ($check['check'] ?? ''));
+            $desc = trim((string) ($check['description'] ?? ''));
             if ($name !== '') {
                 $checkNames[] = $name;
+                if ($desc !== '') {
+                    $descriptions[] = "{$name} ({$desc})";
+                }
             }
         }
 
-        $checkProperty = ['type' => 'string'];
+        $checkProperty = [
+            'type' => 'string',
+            'description' => 'Nombre del check visual a evaluar.',
+        ];
         if ($checkNames !== []) {
             $checkProperty['enum'] = array_values(array_unique($checkNames));
+        }
+        if ($descriptions !== []) {
+            $checkProperty['description'] .= ' Definiciones esperadas: ' . implode(' | ', $descriptions);
         }
 
         return [
             'name' => self::FN_DETECT_VISUAL_CHECKS,
-            'description' => 'Detecta checks visuales configurados para el documento.',
+            'description' => 'Analiza la imagen del documento para detectar características visuales (firmas, sellos, vigencias). ¡IMPORTANTE! Debes inspeccionar visualmente la imagen para cada check.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
                     'visual_checks' => [
                         'type' => 'array',
+                        'description' => 'Lista de resultados de evaluación visual. Retorna un objeto por cada check solicitado.',
                         'items' => [
                             'type' => 'object',
                             'properties' => [
                                 'check' => $checkProperty,
-                                'presente' => ['type' => 'boolean'],
+                                'presente' => [
+                                    'type' => 'boolean',
+                                    'description' => 'true si la característica visual (firma, sello, etc.) se observa claramente en la imagen. false si no está presente o es ilegible.'
+                                ],
                                 'valor' => ['type' => 'number', 'nullable' => true],
                                 'unidad' => [
                                     'type' => 'string',
@@ -289,11 +292,15 @@ final class DocumentExtractionContractBuilder
                                     'nullable' => true,
                                 ],
                                 'fecha_base' => ['type' => 'string', 'nullable' => true],
-                                'detalle' => ['type' => 'string', 'nullable' => true],
+                                'detalle' => [
+                                    'type' => 'string',
+                                    'nullable' => true,
+                                    'description' => 'Justificación obligatoria de por qué marcaste presente como true o false basándote en la evidencia visual.'
+                                ],
                                 'severidad' => ['type' => 'string', 'nullable' => true],
                             ],
-                            'required' => ['check', 'presente'],
-                            'propertyOrdering' => ['check', 'presente', 'valor', 'unidad', 'fecha_base', 'detalle', 'severidad'],
+                            'required' => ['check', 'presente', 'detalle'],
+                            'propertyOrdering' => ['check', 'presente', 'detalle', 'valor', 'unidad', 'fecha_base', 'severidad'],
                         ],
                     ],
                 ],
@@ -327,6 +334,30 @@ final class DocumentExtractionContractBuilder
                 'propertyOrdering' => ['document_quality', 'quality_notes'],
             ],
         ];
+    }
+
+    /**
+     * Construye un nodo JSON Schema `{type: 'object', properties: {...}}` seguro.
+     * Centraliza la garantía de que `properties` se serialice siempre como
+     * un objeto JSON (`{}`) y nunca como un array (`[]`), independientemente
+     * de si hay campos configurados. Gemini rechaza con 400 si recibe un array.
+     * @param  array<int,array<string,mixed>> $fields  Campos del audit-config.
+     * @return array<string,mixed>  Nodo schema listo para embebir en la declaración.
+     */
+    private function buildObjectSchema(array $fields): array
+    {
+        $properties = $this->buildFieldProperties($fields);
+
+        $schema = [
+            'type' => 'object',
+            'properties' => $properties,
+        ];
+
+        if ($properties !== []) {
+            $schema['propertyOrdering'] = array_keys($properties);
+        }
+
+        return $schema;
     }
 
     /**

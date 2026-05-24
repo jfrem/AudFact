@@ -186,6 +186,9 @@ export const AuditPhaseTimingsSchema = z
     extraction: AuditTimingSummarySchema.nullish(),
     normalization: AuditTimingSummarySchema.nullish(),
     policy: AuditTimingSummarySchema.nullish(),
+    processing_duration_ms: z.number().int().nonnegative().nullish(),
+    queue_wait_ms: z.number().int().nonnegative().nullish(),
+    total_elapsed_ms: z.number().int().nonnegative().nullish(),
   })
   .passthrough();
 
@@ -219,6 +222,9 @@ export const AuditJobSchema = z.object({
   done: z.number().int().nonnegative().optional().default(0),
   failed: z.number().int().nonnegative().optional().default(0),
   pending: z.number().int().nonnegative().optional().default(0),
+  avg_duration_ms: z.number().int().nonnegative().optional().default(0),
+  accumulated_duration_ms: z.number().int().nonnegative().optional().default(0),
+  throughput_per_sec: z.number().nonnegative().optional().default(0),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 }).passthrough().transform((val) => {
@@ -248,6 +254,11 @@ export const AuditJobSchema = z.object({
     },
     error: null,
     statusUrl: `/audit/jobs/${val.job_id}`,
+    performance: {
+      avgDurationMs: val.avg_duration_ms || 0,
+      accumulatedDurationMs: val.accumulated_duration_ms || 0,
+      throughputPerSec: val.throughput_per_sec || 0,
+    },
   };
 });
 

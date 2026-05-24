@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
+use App\Services\Audit\TextNormalization;
 
 /**
  * Encapsula la evaluación de checks visuales (Visual Checks).
@@ -84,11 +85,13 @@ final class VisualCheckEvaluator
 
             $severity = AuditSeverity::fromInput((string) ($checkExpected['severity'] ?? ''))->value;
 
+            $humanCheck = TextNormalization::humanizeFieldName($checkName);
+
             if ($documentQuality !== 'legible') {
                 $findings[] = self::buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'La calidad documental no permite concluir la validación visual.'
+                    "No fue posible verificar '{$humanCheck}' porque la calidad de la imagen no permite una inspección visual confiable."
                 );
                 continue;
             }
@@ -98,7 +101,7 @@ final class VisualCheckEvaluator
                 $findings[] = self::buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    'Check visual esperado no fue evaluado por el modelo.'
+                    "El check visual '{$humanCheck}' estaba configurado pero no pudo ser evaluado durante el análisis del documento."
                 );
                 continue;
             }

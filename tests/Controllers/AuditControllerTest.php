@@ -278,6 +278,8 @@ final class AuditControllerTest extends TestCase
             'total'      => 5,
             'done'       => 2,
             'failed'     => 1,
+            'accumulated_duration_ms' => 60000,
+            'avg_duration_ms' => 20000,
             'created_at' => '2026-04-23T10:00:00Z',
             'updated_at' => '2026-04-23T10:05:00Z',
             'audits'     => [
@@ -296,6 +298,9 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(2, $data['done']);
         $this->assertSame(1, $data['failed']);
         $this->assertSame(2, $data['pending']);
+        $this->assertSame(60000, $data['accumulated_duration_ms']);
+        $this->assertSame(20000, $data['avg_duration_ms']);
+        $this->assertSame(0.05, $data['throughput_per_sec']);
         $this->assertCount(1, $data['audits']);
         $this->assertSame($auditId, $data['audits'][0]['audit_id']);
     }

@@ -52,6 +52,10 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             return;
         }
 
+        if (!$this->stateStore->markAuditStarted($event->auditId)) {
+            throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
+        }
+
         $disDetNro = $this->assertAuditCreated($event);
         $context = $this->buildAuditContext($disDetNro);
         $this->assertIdentityContract($event, $disDetNro, $context);

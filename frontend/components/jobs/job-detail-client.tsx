@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ExternalLink, XCircle, AlertTriangle } from "lucide-react";
 
 import { auditJobQuery } from "@/lib/query/audit";
-import { formatNumber } from "@/lib/formatters";
+import { formatNumber, formatDurationMs } from "@/lib/formatters";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,6 +16,7 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function JobDetailClient({ jobId }: { jobId: string }) {
   const { data, isLoading, isError, error } = useQuery(auditJobQuery(jobId));
+  const hasPerformanceMetrics = Number(data?.performance.accumulatedDurationMs ?? 0) > 0;
 
   if (isLoading) {
     return (
@@ -71,7 +72,6 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         </div>
       </SectionCard>
 
-      {/* Métricas del job */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Metric label="Job ID" value={jobId} mono />
         <Metric
@@ -91,7 +91,6 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         />
       </div>
 
-      {/* Timestamps */}
       <SectionCard title="Tiempos">
         <div className="grid gap-4 md:grid-cols-3">
           <Metric label="Creado" value={String(data?.createdAt ?? "—")} />
@@ -100,7 +99,16 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         </div>
       </SectionCard>
 
-      {/* Error si existe */}
+      {hasPerformanceMetrics && data?.performance && (
+        <SectionCard title="Rendimiento del Lote">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Metric label="Auditorías/s" value={formatNumber(data.performance.throughputPerSec)} />
+            <Metric label="Promedio activo" value={formatDurationMs(data.performance.avgDurationMs)} />
+            <Metric label="Activo acumulado" value={formatDurationMs(data.performance.accumulatedDurationMs)} />
+          </div>
+        </SectionCard>
+      )}
+
       {data?.error && (
         <SectionCard title="Error del job">
           <Alert variant="destructive">
@@ -110,7 +118,6 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         </SectionCard>
       )}
 
-      {/* Link a resultados si completó */}
       {isTerminal && status !== "failed" && (
         <div className="flex justify-end">
           <Button asChild>

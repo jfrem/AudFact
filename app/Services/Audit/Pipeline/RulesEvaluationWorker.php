@@ -311,6 +311,9 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         ?string $failedDocument,
         string $detailMessage
     ): array {
+        $phaseTimings = AuditTimingSummarizer::buildPhaseTimings($audit);
+        $processingDurationMs = (int) ($phaseTimings['processing_duration_ms'] ?? 0);
+
         return [
             'FacSec' => (string) ($audit['fac_sec'] ?? ''),
             'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
@@ -323,13 +326,13 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 'field_decisions' => $findings,
                 'document_decisions' => $documentDecisions,
                 'metrics' => $metrics,
-                'timings' => AuditTimingSummarizer::buildPhaseTimings($audit),
-                'total_duration_ms' => AuditTimingSummarizer::resolveDurationMs($audit),
+                'timings' => $phaseTimings,
+                'total_duration_ms' => $processingDurationMs,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'DetalleError' => $detailMessage,
             'DocumentosProcesados' => count(is_array($audit['documents'] ?? null) ? $audit['documents'] : []),
             'DocumentoFallido' => $failedDocument,
-            'DuracionProcesamientoMs' => AuditTimingSummarizer::resolveDurationMs($audit),
+            'DuracionProcesamientoMs' => $processingDurationMs,
             'FacNitSec' => (string) ($audit['fac_nit_sec'] ?? ''),
         ];
     }
