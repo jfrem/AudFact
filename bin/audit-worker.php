@@ -33,6 +33,10 @@ $registry = [
         'class' => \App\Services\Audit\Pipeline\AuditAggregationWorker::class,
         'requiredEnv' => [],
     ],
+    'batch' => [
+        'class' => \App\Services\Audit\Pipeline\BatchRequestedWorker::class,
+        'requiredEnv' => [],
+    ],
 ];
 
 // ─── Resolve worker from CLI argument ────────────────────────────────────────

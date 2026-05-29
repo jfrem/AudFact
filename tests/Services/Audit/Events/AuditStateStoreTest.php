@@ -308,4 +308,31 @@ final class AuditStateStoreTest extends TestCase
             'requires_manual_review' => true,
         ]));
     }
+
+    public function testRecordEventTelemetryAppendsScalarTiming(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+
+        $this->redis
+            ->expects($this->once())
+            ->method('eval')
+            ->with(
+                $this->stringContains("event_timings"),
+                [AuditStateStore::auditKey($auditId)],
+                $this->callback(function (array $args): bool {
+                    $this->assertSame('audit_created', $args[0]['event_type']);
+                    $this->assertSame('audit.inbox', $args[0]['stream']);
+                    $this->assertSame(123, $args[0]['queue_wait_ms']);
+                    $this->assertSame(86400, $args[2]);
+                    return true;
+                })
+            )
+            ->willReturn(1);
+
+        $this->assertTrue($this->store->recordEventTelemetry($auditId, [
+            'event_type' => 'audit_created',
+            'stream' => 'audit.inbox',
+            'queue_wait_ms' => 123,
+        ]));
+    }
 }

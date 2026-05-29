@@ -35,6 +35,25 @@ final class DispensationModelTest extends TestCase
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':DisDetNro']);
     }
 
+    public function testGetDispensationDataByFacSecFiltersByCanonicalFacSec(): void
+    {
+        $pdo = new DispensationFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [
+            [
+                'FacSec' => '87723098',
+                'NumeroFactura' => 'T38250701547',
+            ],
+        ];
+
+        $result = $model->getDispensationDataByFacSec('87723098');
+
+        $this->assertSame($pdo->nextResult, $result);
+        $this->assertStringContainsString('facsecF AS FacSec', $pdo->preparedSql);
+        $this->assertStringContainsString('WHERE facsecF = :FacSec', $pdo->preparedSql);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':FacSec']);
+    }
+
     private function makeModelWithReadDb(DispensationFakePdo $pdo): DispensationModel
     {
         $reflection = new ReflectionClass(DispensationModel::class);
@@ -80,6 +99,12 @@ final class DispensationFakePdoStatement extends PDOStatement
         return true;
     }
 
+    public function bindValue(string|int $param, mixed $value, int $type = PDO::PARAM_STR): bool
+    {
+        $this->boundValues[$param] = $value;
+        return true;
+    }
+
     public function execute(?array $params = null): bool
     {
         if (is_array($params)) {
@@ -94,5 +119,10 @@ final class DispensationFakePdoStatement extends PDOStatement
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return $this->result;
+    }
+
+    public function closeCursor(): bool
+    {
+        return true;
     }
 }

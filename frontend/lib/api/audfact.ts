@@ -84,10 +84,10 @@ export function getAttachmentDownloadUrl(
   return buildPublicApiUrl(endpoints.attachmentDownload(disDetNro, attachmentId));
 }
 
-export function runAuditSingle(disDetNro: string) {
+export function runAuditSingle(facSec: string) {
   return postJson(
     endpoints.auditSingle(),
-    { DisDetNro: disDetNro },
+    { FacSec: facSec },
     AuditSingleResponseSchema,
   );
 }

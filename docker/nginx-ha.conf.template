@@ -5,16 +5,8 @@ limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
 # Zona para auditoría IA: 2 requests/segundo por IP (costoso en recursos)
 limit_req_zone $binary_remote_addr zone=audit_limit:10m rate=2r/s;
 
-upstream php_pool {
-    # Least Connections strategy es critica ante latencia asimetrica de IA
-    least_conn;
-
-    # Docker Compose DNS resuelve a todas las replicas
-    server php:9000;
-
-    # Mantener conexiones persistentes con FPM
-    keepalive 32;
-}
+# Docker DNS se debe resolver en runtime: las replicas PHP se recrean en cada rebuild.
+resolver 127.0.0.11 valid=10s ipv6=off;
 
 server {
     listen 80;
@@ -68,8 +60,9 @@ server {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
 
-        # Apuntar al balanceador en lugar de una replica directa
-        fastcgi_pass php_pool;
+        # Variable requerida para que Nginx no conserve IPs viejas de PHP-FPM.
+        set $php_fpm_upstream php:9000;
+        fastcgi_pass $php_fpm_upstream;
 
         # Keepalive con FPM
         fastcgi_keep_conn on;

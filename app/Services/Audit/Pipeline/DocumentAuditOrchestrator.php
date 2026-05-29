@@ -23,12 +23,12 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         ?AuditEventPublisher              $publisher       = null,
         ?string                           $consumerName    = null
     ) {
-        parent::__construct($redis, $publisher);
+        parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore      = $stateStore      ?? new AuditStateStore($this->redis);
         $this->dataService     = $dataService     ?? new AuditDataService();
         $this->contractBuilder = $contractBuilder ?? new DocumentExtractionContractBuilder();
-        $this->consumerName    = $consumerName    ?? ('orchestrator-' . getmypid());
+        $this->consumerName    = $consumerName    ?? self::defaultConsumerName('orchestrator');
     }
 
     protected function stream(): string
@@ -56,9 +56,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
         }
 
-        $disDetNro = $this->assertAuditCreated($event);
-        $context = $this->buildAuditContext($disDetNro);
-        $this->assertIdentityContract($event, $disDetNro, $context);
+        $identity = $this->assertAuditCreated($event);
+        $context = $this->buildAuditContext($identity['fac_sec']);
+        $this->assertIdentityContract($event, $identity, $context);
 
         $this->stateStore->patchAudit($event->auditId, [
             'fac_nit_sec' => $context['nitSec'],
@@ -67,13 +67,21 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         ]);
         $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
 
-        $this->registerDocuments($event, $disDetNro, $context);
+        $this->registerDocuments($event, $context['numeroFactura'], $context);
     }
 
-    private function assertAuditCreated(AuditEvent $event): string
+    /**
+     * @return array{fac_sec:string,dis_det_nro:string}
+     */
+    private function assertAuditCreated(AuditEvent $event): array
     {
         if ($event->auditId === null) {
             throw new RuntimeException('audit_created sin audit_id');
+        }
+
+        $facSec = trim((string) ($event->payload['fac_sec'] ?? ''));
+        if ($facSec === '') {
+            throw new RuntimeException('audit_created sin fac_sec');
         }
 
         $disDetNro = trim((string) ($event->payload['dis_det_nro'] ?? ''));
@@ -81,17 +89,21 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             throw new RuntimeException('audit_created sin dis_det_nro');
         }
 
-        return $disDetNro;
+        return [
+            'fac_sec' => $facSec,
+            'dis_det_nro' => $disDetNro,
+        ];
     }
 
     /**
      * Valida el contrato de identidad entre el evento de entrada y la FDV.
      *
      * Contrato canónico:
-     * - payload.fac_sec viene de Factura.FacSec en lotes async.
+     * - payload.fac_sec viene de Factura.FacSec y selecciona la FDV.
      * - FDV.header.FacSec viene de vw_discolnet_dispensas.facsecF.
      * - payload.dis_det_nro debe coincidir con FDV.header.NumeroFactura.
      *
+     * @param  array{fac_sec:string,dis_det_nro:string} $identity
      * @param  array{
      *   nitSec:string,
      *   facSec:string,
@@ -99,21 +111,24 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * } $context
      * @throws RuntimeException Si el evento y la FDV representan identidades distintas.
      */
-    private function assertIdentityContract(AuditEvent $event, string $disDetNro, array $context): void
+    private function assertIdentityContract(AuditEvent $event, array $identity, array $context): void
     {
+        $facSec = $identity['fac_sec'];
+        $disDetNro = $identity['dis_det_nro'];
+
+        $this->assertIdentityValue(
+            'payload.fac_sec',
+            $facSec,
+            'FDV.FacSec',
+            (string) ($context['facSec'] ?? ''),
+            $disDetNro,
+        );
+
         $this->assertIdentityValue(
             'payload.dis_det_nro',
             $disDetNro,
             'FDV.NumeroFactura',
             (string) ($context['numeroFactura'] ?? ''),
-        );
-
-        $this->assertOptionalIdentityValue(
-            'payload.fac_sec',
-            $event->payload['fac_sec'] ?? null,
-            'FDV.FacSec',
-            (string) ($context['facSec'] ?? ''),
-            $disDetNro,
         );
 
         $this->assertOptionalIdentityValue(
@@ -173,9 +188,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      *   attachments:array<int,array<string,mixed>>
      * }
      */
-    private function buildAuditContext(string $disDetNro): array
+    private function buildAuditContext(string $requestedFacSec): array
     {
-        $fuenteVerdad  = $this->dataService->getDispensation($disDetNro);
+        $fuenteVerdad  = $this->dataService->getDispensationByFacSec($requestedFacSec);
         $header        = $fuenteVerdad['header'];
         $nitSec        = trim((string) ($header['NitSec']        ?? ''));
         $facSec        = trim((string) ($header['FacSec']        ?? ''));
@@ -191,9 +206,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             throw new RuntimeException("Catálogo documental vacío para NitSec {$nitSec}");
         }
 
-        $attachments = $this->dataService->getAttachments($disDetNro, $nitSec);
+        $attachments = $this->dataService->getAttachments($numeroFactura, $nitSec);
         if ($attachments === []) {
-            throw new RuntimeException("Adjuntos no encontrados para {$disDetNro}");
+            throw new RuntimeException("Adjuntos no encontrados para {$numeroFactura}");
         }
 
         return [
@@ -222,6 +237,14 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             $attachment = $this->matchAttachment($configuredDocument, $catalogDocument, $context['attachments']);
             if ($attachment === null) {
                 throw new RuntimeException('REQUIRED_ATTACHMENT_MISSING: ' . $configuredDocument['document_name']);
+            }
+
+            $storage = (string) ($attachment['TipoAlmacenamiento'] ?? '');
+            if ($storage !== 'BLOB' && $storage !== 'URL') {
+                throw new RuntimeException(
+                    'ATTACHMENT_NO_CONTENT: ' . $configuredDocument['document_name']
+                    . " (TipoAlmacenamiento='{$storage}')"
+                );
             }
 
             $documentId = AuditEvent::uuidV4();

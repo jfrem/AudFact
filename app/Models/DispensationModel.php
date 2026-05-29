@@ -63,6 +63,9 @@ class DispensationModel extends Model
         'IdFact',
     ];
 
+    private const WHERE_DIS_DET_NRO = 'Dispensa = :DisDetNro';
+    private const WHERE_FAC_SEC = 'facsecF = :FacSec';
+
     /**
      * Transforma filas planas de la BD en el contrato canónico {header, items}.
      * Método estático puro — reutilizable por el Controlador HTTP y por AuditDataService.
@@ -86,7 +89,7 @@ class DispensationModel extends Model
     }
 
     /**
-     * Obtiene la fuente de verdad de una dispensación.
+     * Obtiene la fuente de verdad de una dispensación por llave operativa.
      *
      * `FacSec` debe mapear siempre `vw_discolnet_dispensas.facsecF`, porque ese
      * valor equivale a `Factura.FacSec` y es la llave de persistencia en AudDispEst.
@@ -98,6 +101,41 @@ class DispensationModel extends Model
      */
     public function getDispensationData(string $DisDetNro): array
     {
+        return $this->getDispensationRows(
+            self::WHERE_DIS_DET_NRO,
+            ':DisDetNro',
+            $DisDetNro,
+            'DisDetNro'
+        );
+    }
+
+    /**
+     * Obtiene la fuente de verdad de una factura por llave canónica de auditoría.
+     *
+     * @param  string  $facSec  Identificador canónico `Factura.FacSec` / `facsecF`.
+     * @return array<int,array<string,mixed>> Filas de FDV asociadas al FacSec.
+     */
+    public function getDispensationDataByFacSec(string $facSec): array
+    {
+        return $this->getDispensationRows(
+            self::WHERE_FAC_SEC,
+            ':FacSec',
+            $facSec,
+            'FacSec'
+        );
+    }
+
+    /**
+     * Ejecuta la consulta FDV con un predicado de identidad fijo.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function getDispensationRows(
+        string $whereClause,
+        string $paramName,
+        string $paramValue,
+        string $logKey
+    ): array {
         $sql = "SELECT DISTINCT
                 -- Identidad: llave canónica de auditoría y llave operativa de dispensación
                 facsecF AS FacSec,
@@ -163,16 +201,17 @@ class DispensationModel extends Model
                 '828002423' NITDiscolmets,
                 'Obligatorio' FirmaActaEntrega
             FROM vw_discolnet_dispensas
-            WHERE Dispensa = :DisDetNro
+            WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
 
         $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':DisDetNro', $DisDetNro, PDO::PARAM_STR);
+        $stmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
 
         Logger::info("Executed SQL: ", [
-            'DisDetNro' => $DisDetNro,
+            $logKey => $paramValue,
             'result'    => count($result ?? []),
         ]);
 

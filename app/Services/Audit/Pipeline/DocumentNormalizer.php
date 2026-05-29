@@ -23,10 +23,10 @@ final class DocumentNormalizer extends AuditEventConsumer
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null
     ) {
-        parent::__construct($redis, $publisher);
+        parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
-        $this->consumerName = $consumerName ?? ('normalizer-' . getmypid());
+        $this->consumerName = $consumerName ?? self::defaultConsumerName('normalizer');
     }
 
     protected function stream(): string

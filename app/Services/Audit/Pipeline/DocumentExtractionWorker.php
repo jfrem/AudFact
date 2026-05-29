@@ -52,12 +52,12 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ?string                             $consumerName = null,
         ?int                                $cacheTtl     = null
     ) {
-        parent::__construct($redis, $publisher);
+        parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore   = $stateStore ?? new AuditStateStore($this->redis);
         $this->downloader   = $downloader ?? new AttachmentDownloadService();
         $this->gateway      = $gateway    ?? GeminiGateway::create();
-        $this->consumerName = $consumerName ?? ('extractor-' . getmypid());
+        $this->consumerName = $consumerName ?? self::defaultConsumerName('extractor');
 
         $resolvedTtl          = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
         $this->cacheTtl       = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;

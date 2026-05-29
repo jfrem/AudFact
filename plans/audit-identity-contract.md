@@ -27,14 +27,15 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 1. `InvoicesModel::getInvoices()` selecciona `tb3.FacSec AS FacSec` y `tb2.DisDetNro AS Dispensa`.
 2. `AuditBatchOrchestrator` inicializa Redis con `fac_sec = FacSec` y `dis_det_nro = Dispensa`.
-3. `DocumentAuditOrchestrator` resuelve la FDV por `dis_det_nro`.
-4. `DispensationModel::getDispensationData()` expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`.
-5. `DocumentAuditOrchestrator` valida el contrato:
-   - si el evento trae `fac_sec`, debe coincidir con `FDV.header.FacSec`;
+3. `POST /audit/single` recibe `FacSec`, resuelve la FDV por `facsecF` y deriva `DisDetNro` desde `NumeroFactura`.
+4. `DocumentAuditOrchestrator` resuelve la FDV por `fac_sec`; `dis_det_nro` solo se valida y luego se usa para adjuntos.
+5. `DispensationModel::getDispensationDataByFacSec()` expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`.
+6. `DocumentAuditOrchestrator` valida el contrato:
+   - `payload.fac_sec` debe coincidir con `FDV.header.FacSec`;
    - `payload.dis_det_nro` debe coincidir con `FDV.header.NumeroFactura`;
    - si el evento trae `fac_nit_sec`, debe coincidir con `FDV.header.NitSec`.
-6. `AuditAggregationWorker` persiste `FacSec = audit.fac_sec` y `FacNro = audit.dis_det_nro`.
-7. `AuditStatusModel` hace `MERGE` con `ON target.FacSec = source.FacSec`.
+7. `AuditAggregationWorker` persiste `FacSec = audit.fac_sec` y `FacNro = audit.dis_det_nro`.
+8. `AuditStatusModel` hace `MERGE` con `ON target.FacSec = source.FacSec`.
 
 ## Adjuntos
 
@@ -44,7 +45,7 @@ Esto no contradice la llave canonica: `FacSec` identifica la auditoria; `DisDetN
 
 ## Fallos Esperados
 
-Si el batch envia una factura y la FDV devuelve otra identidad, el orquestador debe fallar con:
+Si un evento envia una factura y la FDV devuelve otra identidad, el orquestador debe fallar con:
 
 ```text
 AUDIT_IDENTITY_MISMATCH

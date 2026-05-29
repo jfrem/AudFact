@@ -345,6 +345,56 @@ class AuditStatusModel extends Model
     }
 
     /**
+     * Actualiza exclusivamente los timings finales de una auditoría ya persistida.
+     *
+     * @param  string  $facSec  Identificador canónico de la factura auditada.
+     * @param  array<string,mixed>  $timings  Métricas finales del pipeline.
+     * @param  int  $durationMs  Duración final en milisegundos.
+     */
+    public function updateAuditTimings(string $facSec, array $timings, int $durationMs): bool
+    {
+        $facSec = trim($facSec);
+        if ($facSec === '') {
+            throw new \InvalidArgumentException('FacSec es obligatorio para actualizar timings.');
+        }
+
+        $writeDb = $this->getWriteDb();
+        $row = $this->fetchAuditRowByFacSec($writeDb, $facSec);
+        if ($row === null) {
+            return false;
+        }
+
+        $rawHallazgos = isset($row['Hallazgos']) && is_string($row['Hallazgos'])
+            ? $row['Hallazgos']
+            : '';
+        $payload = json_decode($rawHallazgos, true);
+        if (!is_array($payload) || array_is_list($payload)) {
+            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$facSec}.");
+        }
+
+        $payload['timings'] = $timings;
+        $payload['total_duration_ms'] = max(0, $durationMs);
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) {
+            throw new \RuntimeException('No se pudieron serializar los timings finales: ' . json_last_error_msg());
+        }
+
+        $sql = "UPDATE Discolnet.dbo.AudDispEst
+                SET [Hallazgos] = :Hallazgos,
+                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs
+                WHERE [FacSec] = :FacSec";
+
+        $stmt = $writeDb->prepare($sql);
+        $stmt->bindValue(':Hallazgos', $encoded, PDO::PARAM_STR);
+        $stmt->bindValue(':DuracionProcesamientoMs', max(0, $durationMs), PDO::PARAM_INT);
+        $stmt->bindValue(':FacSec', $facSec, PDO::PARAM_STR);
+        $stmt->execute();
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
      * @param \PDO $writeDb
      * @param array<string,mixed> $data
      */

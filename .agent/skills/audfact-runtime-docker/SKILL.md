@@ -21,7 +21,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | `docker/frontend.Dockerfile` | < 1 KB | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | < 1 KB | Config Next.js (debe tener `output: standalone`) |
 | `docker/nginx.Dockerfile` | ~0.4 KB | Nginx 1.25 Alpine con assets estáticos baked-in |
-| `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM |
+| `docker/nginx-ha.conf.template` / `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM con DNS Docker runtime |
 | `public/index.php` | 2 KB | Bootstrap: env, CORS, rate limit, dispatch |
 | `.env` | 2.5 KB | Variables de entorno (secretos) |
 | `.env.example` | ~3 KB | Template de variables, incluyendo perfiles Gemini por tarea |
@@ -69,6 +69,11 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
+| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
 
 ## Flujo de revisión
 1. Verificar servicios en `docker-compose.yml` y `docker-compose.prod.yml`.
@@ -81,6 +86,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 2. **No hardcodear secretos** — usar `.env`.
 3. SQL Server es **externo** al entorno Docker.
 4. No hornear URLs absolutas del backend en bundles `NEXT_PUBLIC_*`; el navegador y SSR deben usar `/api/backend/*`, y solo el route handler debe resolver `INTERNAL_API_URL` en runtime.
+5. Escalar workers por variables `.env`, no editando números fijos en `docker-compose*.yml`.
+6. No bajar `AUDIT_PENDING_RECLAIM_IDLE_MS` por debajo del peor caso de duración Gemini.
+7. Nginx debe resolver `php:9000` en runtime vía `resolver 127.0.0.11`; no volver a upstream estático que cachee IPs de contenedores recreados.
 
 ## Anti-patterns ⚠️
 1. **No agregar SQL Server a Docker Compose**.
@@ -93,6 +101,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 ```bash
 # Rebuild API Backend local
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
+
+# Inspeccionar réplicas reales de workers
+wsl docker compose top worker-orchestrator worker-extraction worker-policy
 
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull

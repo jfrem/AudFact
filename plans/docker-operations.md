@@ -36,6 +36,34 @@ wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && dock
 wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Desktop/AudFact && docker compose up -d"
 ```
 
+## Escalado de workers async
+
+El pipeline usa Redis Streams con consumer groups y nombres de consumer únicos por host + PID. Esto evita que varias réplicas del mismo servicio colapsen en un único nombre lógico al inspeccionar Redis.
+
+Variables de capacidad inicial:
+
+| Variable | Default | Servicio |
+|---|---:|---|
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
+| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | escaneo de pending |
+
+Comandos de diagnóstico:
+
+```bash
+wsl docker compose top worker-orchestrator worker-extraction worker-policy
+wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.inbox
+wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
+```
+
+Estrategia: subir primero `worker-extraction` cuando `event_telemetry.by_stream.audit.documents.queue_wait.avg_ms` crece y Gemini no está devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini.
+
+Si `XINFO GROUPS` muestra `pending > 0` con `lag=0`, hay eventos entregados a un consumer que no hizo `XACK`. Los workers reclaman esos eventos periódicamente cuando superan `AUDIT_PENDING_RECLAIM_IDLE_MS`; no bajar este valor por debajo del peor caso de duración Gemini, porque puede duplicar procesamiento legítimo en curso.
+
+Nginx resuelve `php:9000` mediante DNS Docker (`127.0.0.11`) en runtime. Esto evita que conserve IPs FastCGI obsoletas cuando `docker compose up -d --build` recrea las réplicas PHP-FPM sin recrear Nginx.
+
 ## Despliegue Produccion LAN
 
 Produccion usa imagenes publicadas en GHCR y `docker-compose.prod.yml`; no construye en el servidor.

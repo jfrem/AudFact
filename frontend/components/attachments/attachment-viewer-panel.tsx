@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileText } from "lucide-react";
+import { Download, FileText, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { attachmentPreviewQuery } from "@/lib/query/audit";
@@ -44,7 +44,6 @@ export function AttachmentViewerPanel({
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
               <span>Alias: {attachmentAlias}</span>
-              <span>Tipo: {storageType}</span>
               <span>ID: {String(attachmentId ?? "N/D")}</span>
             </div>
           </div>
@@ -74,9 +73,14 @@ export function AttachmentViewerPanel({
             Cargando preview del adjunto...
           </div>
         ) : isError ? (
-          <div className="flex h-[65vh] min-h-[500px] items-center justify-center rounded-lg border border-dashed border-rose-500/20 bg-rose-500/[0.05] px-6 text-center text-sm text-rose-200">
-            No fue posible preparar la visualización embebida.
-            {error instanceof Error ? ` ${error.message}` : ""}
+          <div className="flex h-[65vh] min-h-[500px] flex-col items-center justify-center space-y-3 rounded-lg border border-dashed border-white/5 bg-white/[0.02] px-6 text-center">
+            <AlertTriangle className="h-8 w-8 text-rose-500/50" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-300">No se pudo cargar el documento</p>
+              <p className="max-w-md text-[11px] font-mono text-slate-500">
+                {error instanceof Error ? error.message : "Error interno del servidor"}
+              </p>
+            </div>
           </div>
         ) : (
           <AttachmentIframeViewer title={attachmentName} preview={data ?? null} />

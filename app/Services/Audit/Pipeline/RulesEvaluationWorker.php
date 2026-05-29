@@ -27,7 +27,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null
     ) {
-        parent::__construct($redis, $publisher);
+        parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
 
@@ -39,7 +39,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             $this->policyEngine = $policyEngine;
         }
 
-        $this->consumerName = $consumerName ?? ('policy-' . getmypid());
+        $this->consumerName = $consumerName ?? self::defaultConsumerName('policy');
     }
 
     protected function stream(): string

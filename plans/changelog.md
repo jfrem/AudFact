@@ -1,5 +1,46 @@
 # Changelog AudFact
 
+## [2026-05-29] - Refactor: Pipeline de Auditoría Async Real e Idempotencia Absoluta
+
+### 🔵 Architecture / High Concurrency / Idempotency
+- **Erradicación del Falso Asíncrono en `POST /audit/async`**:
+  - **Desacoplamiento HTTP**: El endpoint en `AuditController::async()` ya no ejecuta la costosa consulta SQL de facturas ni la orquestación en el hilo del request web. Ahora valida parámetros, obtiene/calcula la llave de idempotencia, registra el Job en estado `pending` en `BatchJobStore` y publica el evento `batch_requested` al nuevo stream `audit.batch.inbox` en Redis, respondiendo `202 Accepted` de inmediato en menos de 100 ms.
+  - **Idempotencia Absoluta por Job/Batch**: Implementación de políticas rigurosas en `BatchJobStore`. Si llega una petición idéntica con el mismo hash o `X-Idempotency-Key`, se reutiliza atómicamente el job existente. Si llega con el mismo hash pero con diferentes parámetros, se aborta con `409 Conflict`, evitando colisiones y duplicación de carga bajo alta concurrencia.
+  - **Procesamiento en Segundo Plano**: El nuevo worker `BatchRequestedWorker` (lanzado con `php bin/audit-worker.php batch`) consume de `audit.batch.inbox`, ejecuta la consulta pesada a SQL Server para obtener las facturas correspondientes, adquiere la reserva de idempotencia por `FacSec` en Redis y publica secuencialmente los eventos `audit_created` a `audit.inbox`.
+  - **Robusted de Tests**: Removida la palabra clave `final` de la clase de prueba auxiliar `StubBatchJobStore` en `tests/Controllers/AuditControllerTest.php` para posibilitar el mockeo robusto de PHPUnit y Mockery. Las aserciones fueron actualizadas para validar el contrato asíncrono real y los payloads/streams correctos.
+  - **Resultados**: Cero regresiones y paso exitoso de todas las pruebas automatizadas (100% verde).
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizados `plans/api-endpoints.md`, `plans/data-flows.md`, `plans/architecture.md`, `CHANGELOG.md` y la skill principal `.agent/skills/audfact-audit-gemini/SKILL.md` para reflejar la topología de 6 servicios y el flujo asíncrono real.
+
+## [2026-05-25] - Refactor: Observabilidad final y escalado controlado del pipeline async
+
+
+### 🔵 Architecture / Performance / Observability
+- **Telemetría por evento**: `AuditEventConsumer` registra por auditoría el stream, consumer, evento, espera en cola, tiempo de ejecución del handler, tiempo de ack y estado final del evento.
+  - **Recuperación de pending**: el consumer reclama periódicamente mensajes Redis Streams abandonados con `AUDIT_PENDING_RECLAIM_IDLE_MS` alto para no duplicar llamadas largas a Gemini.
+  - **Estado Redis**: `AuditStateStore` agrega `event_timings` y `aggregation_timings` como parte del estado de auditoría.
+  - **Timings finales**: `AuditAggregationWorker` mide construcción de agregado, persistencia SQL y cierre Redis; después de `completeAudit()` recalcula los timings con `completed_at` real y actualiza `AudDispEst` por `FacSec`.
+  - **Reporte**: `AuditTimingSummarizer` conserva las métricas existentes y agrega bloques `pipeline`, `event_telemetry` y `aggregation`.
+  - **Nginx runtime**: la plantilla usa resolver Docker (`127.0.0.11`) y `fastcgi_pass` por variable para no conservar IPs PHP-FPM obsoletas después de recrear réplicas.
+  - **Runtime**: `docker-compose.yml` y `docker-compose.prod.yml` parametrizan réplicas iniciales: orquestadores `3`, extractores `8`, policy `2`; `.env.example` documenta reclaim idle/interval.
+  - **Verificación**: tests focales verdes para consumer, state store, summarizer y aggregator.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizados `CHANGELOG.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `.agent/skills/CATALOG.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-runtime-docker/SKILL.md`.
+
+## [2026-05-25] - Fix: Identidad canónica de FDV por FacSec
+
+### 🟢 Bugfix / API / Pipeline
+- **FacSec como selector canónico E2E**: `POST /audit/single` ahora recibe `FacSec`; `DocumentAuditOrchestrator` resuelve la FDV por `facsecF` y valida `DisDetNro` únicamente como llave operativa para adjuntos y `FacNro`.
+  - **Modelos**: `DispensationModel` agrega consulta explícita por `facsecF = :FacSec`, reutilizando el SELECT FDV sin duplicación.
+  - **Pipeline**: `AuditDataService` expone `getDispensationByFacSec()` y el orquestador exige `payload.fac_sec` en `audit_created`.
+  - **Frontend**: la auditoría individual y el deep-link desde facturas envían `FacSec`.
+  - **Verificación**: PHPUnit completo verde (276 tests, 815 assertions, 10 skipped), typecheck frontend verde, dos lotes concurrentes del cliente `2426` completaron 20/20 sin nuevos DLQ.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizados `README.md`, `AGENTS.md`, `plans/api-endpoints.md`, `plans/audit-identity-contract.md`, `plans/data-flows.md`, `CHANGELOG.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-sqlsrv-models/SKILL.md`.
+
 ## [2026-05-21] - Bugfix: Normalización de Fechas Numéricas con Espacios
 
 ### 🟢 Bugfix / Refactor

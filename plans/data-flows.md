@@ -87,18 +87,20 @@ sequenceDiagram
 ## 3. Pipeline de Auditoría Asíncrono (Event-Driven) 🚀
 
 ### Descripción
-Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares y observabilidad total por fase (Timings).
+Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares, observabilidad total por fase (Timings) y reserva idempotente por `FacSec` para que batches concurrentes del mismo cliente no dupliquen auditorías.
 
 ### Contrato de Identidad
 
-El batch transporta dos identificadores con roles distintos:
+El batch y la auditoría individual transportan dos identificadores con roles distintos:
 
 | Campo | Origen | Rol |
 |---|---|---|
 | `fac_sec` | `Factura.FacSec` / `vw_discolnet_dispensas.facsecF` | Llave canónica de auditoría y persistencia (`AudDispEst.FacSec`) |
 | `dis_det_nro` | `DispensacionDetalleServicio.DisDetNro` / `vw_discolnet_dispensas.Dispensa` | Llave operativa de dispensación y adjuntos (`AudDispEst.FacNro`) |
 
-`DocumentAuditOrchestrator` valida que el `fac_sec` recibido por el batch coincida con el `FacSec` devuelto por la FDV. Si no coincide, falla con `AUDIT_IDENTITY_MISMATCH`.
+`DocumentAuditOrchestrator` resuelve la FDV por `fac_sec` y valida que `FDV.header.FacSec`, `payload.dis_det_nro` y `payload.fac_nit_sec` apunten a la misma factura. Si no coinciden, falla con `AUDIT_IDENTITY_MISMATCH`.
+
+Antes de publicar `audit_created`, el API reserva `FacSec` en Redis con un owner token. `DisDetNro` se conserva como llave operativa de adjuntos y como `FacNro` persistido. Si una auditoría cae a DLQ antes del agregador, el consumidor marca la auditoría como `failed`, actualiza el job si existe y libera la reserva por owner token.
 
 ### Flujo
 
@@ -106,15 +108,35 @@ El batch transporta dos identificadores con roles distintos:
 sequenceDiagram
     participant API as AuditController
     participant R as Redis (Streams)
+    participant BW as BatchRequestedWorker
+    participant DB as SQL Server
     participant AO as DocumentAuditOrchestrator
     participant EW as DocumentExtractionWorker
     participant G as Google Gemini API
     participant NW as DocumentNormalizer
     participant RW as RulesEvaluationWorker
     participant AW as AuditAggregationWorker
-    participant DB as SQL Server
 
-    API->>R: XADD audit.inbox {audit_created}
+    Note over API,R: Fase HTTP Express (< 100ms)
+    API->>R: Guarda/Chequea Job en Redis (BatchJobStore)
+    API->>R: XADD audit.batch.inbox {batch_requested}
+    API-->>API: Retorna 202 Accepted de inmediato
+
+    Note over R,BW: Fase Asíncrona en Background
+    R->>BW: Consume batch_requested
+    BW->>DB: Consulta pesada de facturas que califican
+    DB-->>BW: Lista de Facturas (FacSec, DisDetNro)
+    
+    loop Por cada Factura en el Lote
+        BW->>R: SETNX audit:reservation:facsec:{FacSec} (Reserva de Idempotencia)
+        alt Reserva Exitosa
+            BW->>R: XADD audit.inbox {audit_created}
+        else Reserva Fallida (Ya procesándose/procesada)
+            BW-->>BW: Ignorar factura en este job
+        end
+    end
+    BW->>R: Actualiza metadata del job (Total facturas)
+
     R->>AO: xReadGroup (Consumer: orchestrator)
     AO->>R: XADD audit.documents {document_registered}
     
@@ -136,16 +158,19 @@ sequenceDiagram
     R->>AW: xReadGroup (Consumer: aggregator)
     AW->>DB: Persistencia Final (AudDispEst)
     AW->>R: XADD audit.results {audit_completed}
+    AW->>R: DEL audit:reservation:facsec:{FacSec} (owner token)
 ```
 
 ### Eventos Clave (Redis Streams)
 
-| Evento | Origen | Destino | Propósito |
-|---|---|---|---|
-| `audit_created` | Controller | Orchestrator | Inicia la orquestación del lote |
-| `document_registered` | Orchestrator | Extractor | Registra un adjunto para extracción |
-| `document_extracted` | Extractor | Normalizer | Transporta datos crudos de Gemini |
-| `document_normalized` | Normalizer | Rule Engine | Transporta datos estandarizados |
-| `rules_evaluated` | Rule Engine | Aggregator | Transporta veredicto de reglas |
-| `audit_completed` | Aggregator | Bus Global | Notifica fin de la auditoría |
-| `dead_letter` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual |
+| Evento | Stream | Origen | Destino | Propósito |
+|---|---|---|---|---|
+| `batch_requested` | `audit.batch.inbox` | Controller | Batch Worker | Encola la solicitud del lote para consulta de base de datos pesada |
+| `audit_created` | `audit.inbox` | Batch Worker / Sync Controller | Orchestrator | Inicia la orquestación de una auditoría individual |
+| `document_registered` | `audit.documents` | Orchestrator | Extractor | Registra un adjunto para extracción por IA |
+| `document_extracted` | `audit.documents` | Extractor | Normalizer | Transporta datos crudos extraídos de Gemini |
+| `document_normalized` | `audit.documents` | Normalizer | Rule Engine | Transporta datos estandarizados listos para reglas |
+| `rules_evaluated` | `audit.results` | Rule Engine | Aggregator | Transporta veredicto de reglas y auditoría |
+| `audit_completed` | `audit.results` | Aggregator | Bus Global / Job Store | Persiste en DB y notifica fin del proceso |
+| `dead_letter` | `audit.dlq` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual administrativamente |
+

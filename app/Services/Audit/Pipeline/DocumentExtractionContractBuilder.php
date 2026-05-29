@@ -196,6 +196,7 @@ final class DocumentExtractionContractBuilder
         return [
             'name' => self::FN_EXTRACT_FIELDS,
             'description' => 'Extrae campos administrativos y documentales visibles del documento. '
+                . '¡IMPORTANTE! Debes inspeccionar visualmente de forma minuciosa la imagen para cada dato. '
                 . 'Para cada campo, reporta el valor literal visible, si está presente, '
                 . 'y el estado de extracción. '
                 . 'Usa estadoExtraccion=FOUND_IN_LIST cuando el campo contiene múltiples valores '
@@ -222,6 +223,7 @@ final class DocumentExtractionContractBuilder
         return [
             'name' => self::FN_EXTRACT_ITEMS,
             'description' => 'Extrae filas de producto o prescripción visibles, una entrada por línea documental. '
+                . '¡IMPORTANTE! Debes inspeccionar visualmente de forma minuciosa la imagen para cada dato de la fila. '
                 . 'No colapses cantidades, lotes, fechas de vencimiento ni códigos distintos entre filas. '
                 . 'Cada fila del documento debe ser un item independiente.',
             'parameters' => [

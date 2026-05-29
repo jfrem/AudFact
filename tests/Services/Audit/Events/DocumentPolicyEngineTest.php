@@ -267,7 +267,7 @@ final class DocumentPolicyEngineTest extends TestCase
         );
 
         $this->assertSame('NO_ENCONTRADO', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertStringContainsString('no se encontró', (string) $result['hallazgos']['items'][0]['detalle']);
+        $this->assertStringContainsString('No se encontró', (string) $result['hallazgos']['items'][0]['detalle']);
     }
 
     public function testEvaluateMatchesPatientNameWhenTokensOnlyChangeOrder(): void
@@ -497,7 +497,7 @@ final class DocumentPolicyEngineTest extends TestCase
         $lab = $result['hallazgos']['items'][0];
         $this->assertSame('Laboratorio', $lab['campo']);
         $this->assertSame('NO_CONCLUYENTE', $lab['resultado']);
-        $this->assertStringContainsString('ambiguous', (string) $lab['detalle']);
+        $this->assertStringContainsString('múltiples valores distintos', (string) $lab['detalle']);
     }
 
     // ─── AUDIT-016: CAT-3 — Comparación de subconjunto para CODE ─────────────
@@ -772,7 +772,7 @@ final class DocumentPolicyEngineTest extends TestCase
         );
 
         $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
-        $this->assertStringContainsString('verificación manual', (string) $result['hallazgos']['items'][0]['detalle']);
+        $this->assertStringContainsString('verificación por parte del auditor', (string) $result['hallazgos']['items'][0]['detalle']);
     }
 
     public function testEvaluateMatchesDispensaArticleWhenFdvNameIsContainedWithinExtendedText(): void

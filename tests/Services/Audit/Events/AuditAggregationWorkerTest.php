@@ -48,6 +48,8 @@ final class AuditAggregationWorkerTest extends TestCase
         $this->assertSame(1, $hallazgos['timings']['gemini_extraction']['count'] ?? null);
         $this->assertSame(1, $hallazgos['timings']['gemini_semantic']['count'] ?? null);
         $this->assertSame(300, $hallazgos['timings']['gemini_total']['total_tokens'] ?? null);
+        $this->assertArrayHasKey('sql_persist_ms', $hallazgos['timings']['aggregation'] ?? []);
+        $this->assertSame(42000, $model->lastUpdatedDurationMs);
         $this->assertArrayNotHasKey('token_usage', $hallazgos['timings']);
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
@@ -190,21 +192,21 @@ class AggregationRecordingStateStore extends AuditStateStore
     public array $lastCompletion = [];
     /** @var array<string,mixed> */
     public array $lastJobCompletion = [];
-    private bool $batchTerminalClaimed = false;
+    /** @var array<string,mixed> */
+    private array $auditState;
 
     public function __construct(private string $auditId, private ?string $jobId)
     {
-    }
-
-    public function getAudit(string $auditId): ?array
-    {
-        return [
+        $this->auditState = [
             'audit_id' => $this->auditId,
             'status' => 'processing',
             'fac_sec' => '87723098',
+            'reservation_token' => 'reservation-token',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
-            'created_at' => (new \DateTimeImmutable('-42 seconds', new \DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.u\Z'),
+            'created_at' => '2026-05-23T10:00:00.000000Z',
+            'started_at' => '2026-05-23T10:00:00.000000Z',
+            'rules_evaluated_at' => '2026-05-23T10:00:41.500000Z',
             'documents' => [
                 'doc-1' => ['tipo_documento' => 'DISPENSA'],
                 'doc-2' => [
@@ -230,9 +232,23 @@ class AggregationRecordingStateStore extends AuditStateStore
         ];
     }
 
+    public function getAudit(string $auditId): ?array
+    {
+        return $this->auditState;
+    }
+
+    public function patchAudit(string $auditId, array $patch): bool
+    {
+        $this->auditState = array_merge($this->auditState, $patch);
+        return true;
+    }
+
     public function completeAudit(string $auditId, array $completionState): bool
     {
         $this->lastCompletion = $completionState;
+        $this->auditState = array_merge($this->auditState, $completionState, [
+            'completed_at' => '2026-05-23T10:00:42.000000Z',
+        ]);
         return true;
     }
 
@@ -242,9 +258,16 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
 {
     public array $lastJobCompletion = [];
     private bool $batchTerminalClaimed = false;
+    public array $releasedReservations = [];
 
     public function __construct(private AggregationRecordingStateStore $stateStore)
     {
+    }
+
+    public function releaseAuditReservation(string $facSec, string $ownerToken): bool
+    {
+        $this->releasedReservations[] = [$facSec, $ownerToken];
+        return true;
     }
 
     public function markAuditCompletedInJob(
@@ -291,6 +314,9 @@ final class RecordingAuditStatusModel extends AuditStatusModel
     public array $lastAuditResultData = [];
     /** @var array<int,array{documentName:string,approved:bool,observation:?string}> */
     public array $lastDocumentDecisions = [];
+    /** @var array<string,mixed> */
+    public array $lastUpdatedTimings = [];
+    public int $lastUpdatedDurationMs = 0;
 
     public function __construct()
     {
@@ -301,6 +327,21 @@ final class RecordingAuditStatusModel extends AuditStatusModel
         $this->lastAuditResultData = $auditResultData;
         $this->lastDocumentDecisions = $documentDecisions;
         return ['FacSec' => $auditResultData['FacSec']];
+    }
+
+    public function updateAuditTimings(string $facSec, array $timings, int $durationMs): bool
+    {
+        $this->lastUpdatedTimings = $timings;
+        $this->lastUpdatedDurationMs = $durationMs;
+        $payload = json_decode((string) $this->lastAuditResultData['Hallazgos'], true);
+        if (is_array($payload)) {
+            $payload['timings'] = $timings;
+            $payload['total_duration_ms'] = $durationMs;
+            $this->lastAuditResultData['Hallazgos'] = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
+        $this->lastAuditResultData['DuracionProcesamientoMs'] = $durationMs;
+
+        return true;
     }
 }
 

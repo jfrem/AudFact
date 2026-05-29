@@ -68,7 +68,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
 | `GET` | `/audit/results/{facSec}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacSec |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisDetNro (Punto Dispensación) |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por FacSec |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 | `GET` | `/audit/dlq` | `AuditDlqController` | `index` | Listado administrativo de eventos `dead_letter` |
@@ -271,6 +271,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController` — máximo de facturas por batch (sync y async) |
 | `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
 | `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
+| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | ❌ | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | ❌ | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending` |
 | `AUDIT_NGINX_READ_TIMEOUT` | `3600` | ❌ | Timeout de lectura Nginx para endpoints de auditoría |
 | `AUDIT_FPM_TERMINATE_TIMEOUT` | `3600` | ❌ | Timeout de terminación PHP-FPM para procesos de auditoría |
 
@@ -285,6 +290,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 ## Docker y Operaciones Runtime
 
 > 📖 **Ver documento dedicado:** [plans/docker-operations.md](file:///c:/Users/USER/Desktop/AudFact/plans/docker-operations.md)
+
+- Nginx debe resolver `php:9000` con DNS Docker en runtime (`resolver 127.0.0.11`) para evitar upstreams FastCGI obsoletos después de recrear réplicas PHP-FPM.
 
 ---
 
@@ -460,8 +467,13 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
 - **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
 - **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
+- **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `FacSec` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `FacSec` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy) y `docs_evaluated`
-- **Cierre de auditoría**: solo el agregador final puede marcar `completed`, `manual_review`, `error` o `failed`; extracción y normalización nunca deben cerrar la auditoría
+- **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
+- **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
+- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacSec` sin reescribir adjuntos
+- **Escalado inicial de workers**: defaults Docker `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
+- **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)

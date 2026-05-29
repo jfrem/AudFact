@@ -184,7 +184,7 @@ function getPrimaryIssue(item: AuditResultRecord) {
 }
 
 function buildResultHref(item: AuditResultRecord) {
-  return `/audit/results/${String(item.FacSec)}`;
+  return `/audit/results?facNro=${encodeURIComponent(String(item.FacNro ?? ""))}`;
 }
 
 function normalizeState(value?: string | null) {

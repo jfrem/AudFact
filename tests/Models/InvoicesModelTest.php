@@ -29,6 +29,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY MIN(tb1.DisFecSol) ASC, tb3.FacSec ASC, tb2.DisDetNro ASC', $pdo->preparedSql);
         
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
         $this->assertArrayHasKey(':dateToD', $pdo->statement->boundValues);
@@ -52,6 +53,26 @@ final class InvoicesModelTest extends TestCase
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
+    }
+
+    public function testGetInvoicesForAuditBatchUsesKeysetPagination(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 50, [
+            'date' => '2025-07-10T00:00:00',
+            'facSec' => '87723098',
+            'dispensa' => 'T38250701547',
+        ]);
+
+        $this->assertStringContainsString('WITH candidates AS', $pdo->preparedSql);
+        $this->assertStringContainsString('SELECT TOP(50)', $pdo->preparedSql);
+        $this->assertStringContainsString('DisFecSol > :cursorDate', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate']);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec']);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa']);
     }
 
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel
@@ -99,6 +120,12 @@ final class FakePdoStatement extends PDOStatement
         return true;
     }
 
+    public function bindValue(string|int $param, mixed $value, int $type = PDO::PARAM_STR): bool
+    {
+        $this->boundValues[$param] = $value;
+        return true;
+    }
+
     public function execute(?array $params = null): bool
     {
         if (is_array($params)) {
@@ -113,5 +140,10 @@ final class FakePdoStatement extends PDOStatement
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return $this->result;
+    }
+
+    public function closeCursor(): bool
+    {
+        return true;
     }
 }

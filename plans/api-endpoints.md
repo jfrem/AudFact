@@ -142,25 +142,33 @@ Comportamiento:
 
 ### `POST /audit/single`
 
-Encola auditoría individual sobre una sola dispensación.
+Encola auditoría individual sobre una sola factura usando `FacSec` como identidad canónica.
 
 ```json
 {
-  "DisDetNro": "T38251201552"
+  "FacSec": "87723098"
 }
 ```
+
+Respuesta exitosa: HTTP `202`.
+
 
 Respuesta exitosa: HTTP `202`.
 
 Campos principales:
 - `audit_id`
 - `status`
+- `fac_sec`
 - `dis_det_nro`
 
 ### `POST /audit/async`
 
-Encola una auditoría batch asíncrona.
+Encola una auditoría batch asíncrona mediante un pipeline 100% no bloqueante, delegando el procesamiento pesado a workers y garantizando alta concurrencia e idempotencia absoluta.
 
+#### Cabeceras
+- `X-Idempotency-Key` (Opcional): Clave para garantizar la idempotencia de la petición. Si no se proporciona, el backend autogenerará una basada en el hash de los parámetros de entrada (`sha256(json_encode(params))`).
+
+#### Parámetros (Body JSON)
 ```json
 {
   "facNitSec": 1165,
@@ -169,22 +177,48 @@ Encola una auditoría batch asíncrona.
   "limit": 10
 }
 ```
-Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `date`.
+*Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `date`. `date` también puede enviarse como `dateFrom`.*
 
-Respuesta exitosa: HTTP `202`.
+#### Respuestas
 
-Campos principales:
-- `jobId`
-- `status`
-- `statusUrl`
-- `queueDepth`
+##### 🟢 HTTP 202 Accepted (Nuevo Job Creado o Reutilizado)
+Se retorna si el lote fue encolado con éxito, o si ya existía un job en progreso con el mismo payload/idempotency key (reutilización atómica del job id).
 
-### `GET /audit/jobs/{jobId}`
+```json
+{
+  "success": true,
+  "message": "Auditoría batch encolada con éxito",
+  "data": {
+    "job_id": "e8d6411d-872f-4886-905c-e58f0ee2b453",
+    "status": "pending",
+    "idempotency_key": "61a7a0b5f1cd73d8a9bb2c6e61234bc57bfa3982cd6b931cb7f10bcf2e20ffac"
+  }
+}
+```
+
+##### 🔴 HTTP 409 Conflict (Colisión de Idempotencia)
+Se retorna si se intenta realizar una petición concurrente con el mismo `X-Idempotency-Key` (o hash equivalente) pero con parámetros de consulta diferentes.
+
+```json
+{
+  "success": false,
+  "message": "Conflicto de Idempotencia: La llave provista pertenece a un lote con parámetros distintos.",
+  "errors": []
+}
+```
+
+##### 🔴 HTTP 400 Bad Request
+Se retorna si hay errores de validación de campos.
+
+---
+
+### `GET /audit/jobs/{job_id}`
 
 Consulta el estado de un job async.
 
-Validación:
-- `jobId`: UUID v4
+#### Parámetros
+- `job_id`: Path parameter, UUID v4.
+
 
 Campos principales de la respuesta:
 - `job_id`, `status`, `total`, `done`, `failed`, `pending`

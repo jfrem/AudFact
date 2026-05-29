@@ -14,6 +14,24 @@ final class AuditTimingSummarizerTest extends TestCase
         $audit = [
             'created_at' => '2026-05-23T10:00:00.000000Z',
             'started_at' => '2026-05-23T10:00:02.500000Z',
+            'rules_evaluated_at' => '2026-05-23T10:00:10.000000Z',
+            'aggregation_timings' => [
+                'sql_persist_ms' => 250,
+                'redis_complete_ms' => 25,
+            ],
+            'event_timings' => [[
+                'event_type' => 'audit_created',
+                'stream' => 'audit.inbox',
+                'queue_wait_ms' => 2500,
+                'handle_duration_ms' => 40,
+                'ack_duration_ms' => 2,
+            ], [
+                'event_type' => 'document_registered',
+                'stream' => 'audit.documents',
+                'queue_wait_ms' => 1200,
+                'handle_duration_ms' => 100,
+                'ack_duration_ms' => 3,
+            ]],
             'documents' => [
                 [
                     'extraction_duration_ms' => 100,
@@ -39,6 +57,13 @@ final class AuditTimingSummarizerTest extends TestCase
         $this->assertSame(10000, $summary['processing_duration_ms']);
         $this->assertSame(2500, $summary['queue_wait_ms']);
         $this->assertSame(12500, $summary['total_elapsed_ms']);
+        $this->assertSame(12500, $summary['pipeline']['created_to_completed_ms']);
+        $this->assertSame(2500, $summary['pipeline']['created_to_started_ms']);
+        $this->assertSame(2500, $summary['pipeline']['rules_to_completed_ms']);
+        $this->assertSame(2, $summary['event_telemetry']['count']);
+        $this->assertSame(2500, $summary['event_telemetry']['by_stream']['audit.inbox']['queue_wait']['avg_ms']);
+        $this->assertSame(1200, $summary['event_telemetry']['by_stream']['audit.documents']['queue_wait']['avg_ms']);
+        $this->assertSame(250, $summary['aggregation']['sql_persist_ms']);
         $this->assertSame(1.0, $summary['cache_hit_rate']);
         $this->assertSame(1, $summary['extraction']['count']);
         $this->assertSame(15, $summary['gemini_total']['total_tokens']);

@@ -15,21 +15,40 @@ export default async function DispensationDetailPage({
     nitSec ? ((await getAttachments(disDetNro, nitSec).catch(() => [])) ?? []) : [];
   const items = dispensation?.items ?? [];
 
+  const facSec = dispensation?.header?.FacSec ? String(dispensation.header.FacSec) : null;
+  const numFactura = dispensation?.header?.NumeroFactura ? String(dispensation.header.NumeroFactura) : null;
+  const copagoRaw = dispensation?.header?.VlrCobrado;
+  const copagoNum = copagoRaw && !isNaN(Number(copagoRaw)) ? Number(copagoRaw) : null;
+  const copago = copagoNum !== null
+    ? new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(copagoNum)
+    : null;
+  const isCopagoZero = copagoNum === 0;
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Detalle técnico"
-        title={`Dispensación ${disDetNro}`}
-        description="Contexto técnico de la dispensación con sus ítems y la misma política de visor embebido para adjuntos asociados."
+        eyebrow="Identificación"
+        title={`Factura ${numFactura ?? disDetNro}`}
+        description={facSec ? `FacSec ${facSec}` : undefined}
+        actions={
+          copago ? (
+            <div className="text-right">
+              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500">
+                Copago
+              </p>
+              <p className={`text-xl font-semibold tabular-nums ${isCopagoZero ? "text-slate-400" : "text-white"}`}>
+                {copago}
+              </p>
+            </div>
+          ) : null
+        }
       />
-      <div className="mt-6">
-        <AttachmentResultDetailClient
-          disDetNro={disDetNro}
-          attachments={attachments}
-          dispensation={dispensation}
-          items={items}
-        />
-      </div>
+      <AttachmentResultDetailClient
+        disDetNro={disDetNro}
+        attachments={attachments}
+        dispensation={dispensation}
+        items={items}
+      />
     </div>
   );
 }

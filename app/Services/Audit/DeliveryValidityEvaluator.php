@@ -7,12 +7,19 @@ namespace App\Services\Audit;
 /**
  * Evaluación de la vigencia de entrega para auditorías documentales.
  *
- * Extraída de AuditFindingRules para cohesión (SRP).
  * Dominio autocontenido: calcula si FechaEntrega está dentro
- * de la vigencia visible del documento.
+ * de la vigencia de la autorización.
+ *
+ * Estrategia de resolución:
+ * 1. Parámetros de vigencia: evidencia visual de Gemini → defaults globales
+ * 2. Fechas del cálculo: Fuente de Verdad (FDV) del sistema transaccional
  */
 final class DeliveryValidityEvaluator
 {
+    private const DEFAULT_VALIDITY_DAYS = 60;
+    private const DEFAULT_VALIDITY_UNIT = 'dias';
+    private const DEFAULT_VALIDITY_BASE_FIELD = 'FechaAutorizacion';
+
     /**
      * Evalúa hallazgos calculados de vigencia de entrega para una auditoría completa.
      *
@@ -27,25 +34,18 @@ final class DeliveryValidityEvaluator
             return [];
         }
 
-        $visual = $candidate['visual'];
-        if (!is_array($visual) || ($visual['presente'] ?? false) !== true) {
-            return [self::buildInconclusiveFinding($candidate, 'No se encontró una vigencia de entrega visible y estructurada.')];
+        $params = self::resolveValidityParams($candidate['visual']);
+        if ($params === null) {
+            return [self::buildInconclusiveFinding($candidate, 'No se pudo determinar los parámetros de vigencia de entrega.')];
         }
 
-        $days = self::resolvePositiveInteger($visual['valor'] ?? null);
-        $unit = (string) ($visual['unidad'] ?? '');
-        $baseField = trim((string) ($visual['fecha_base'] ?? ''));
-        if ($days === null || $unit !== 'dias' || $baseField === '') {
-            return [self::buildInconclusiveFinding($candidate, 'La vigencia visible no contiene valor, unidad o fecha base suficiente para calcular.')];
-        }
-
-        $deliveryDate = self::resolveMatchedDate($findings, 'FechaEntrega');
-        $baseDate = self::resolveMatchedDate($findings, $baseField);
+        $deliveryDate = self::resolveFdvDate($audit, 'FechaEntrega');
+        $baseDate     = self::resolveFdvDate($audit, $params['baseField']);
         if ($deliveryDate === null || $baseDate === null) {
-            return [self::buildInconclusiveFinding($candidate, 'FechaEntrega o fecha base no tienen resultado COINCIDE para validar la vigencia.')];
+            return [self::buildInconclusiveFinding($candidate, 'FechaEntrega o fecha base no disponibles en la fuente de verdad.')];
         }
 
-        return [self::buildFinding($candidate, $days, $baseField, $baseDate, $deliveryDate)];
+        return [self::buildFinding($candidate, $params, $baseDate, $deliveryDate)];
     }
 
     /**
@@ -60,7 +60,7 @@ final class DeliveryValidityEvaluator
                 continue;
             }
 
-            $documentName = (string) ($document['tipo_documento'] ?? '');
+            $documentName  = (string) ($document['tipo_documento'] ?? '');
             $visualResults = self::indexVisualResults($document['normalized_result']['visual_checks_resultado'] ?? []);
 
             foreach (($document['visual_checks'] ?? []) as $expected) {
@@ -75,8 +75,8 @@ final class DeliveryValidityEvaluator
 
                 $candidate = [
                     'document_name' => $documentName,
-                    'expected' => $expected,
-                    'visual' => $visualResults[$checkName] ?? null,
+                    'expected'      => $expected,
+                    'visual'        => $visualResults[$checkName] ?? null,
                 ];
 
                 if (is_array($candidate['visual']) && ($candidate['visual']['presente'] ?? false) === true) {
@@ -88,6 +88,54 @@ final class DeliveryValidityEvaluator
         }
 
         return $fallback;
+    }
+
+    /**
+     * Resuelve los parámetros de vigencia priorizando evidencia visual sobre defaults globales.
+     *
+     * @return array{days:int,baseField:string,source:string}|null
+     */
+    private static function resolveValidityParams(?array $visual): ?array
+    {
+        if (is_array($visual) && ($visual['presente'] ?? false) === true) {
+            $days      = self::resolvePositiveInteger($visual['valor'] ?? null);
+            $unit      = (string) ($visual['unidad'] ?? '');
+            $baseField = trim((string) ($visual['fecha_base'] ?? ''));
+
+            if ($days !== null && $unit === self::DEFAULT_VALIDITY_UNIT && $baseField !== '') {
+                return ['days' => $days, 'baseField' => $baseField, 'source' => 'visual'];
+            }
+        }
+
+        return [
+            'days'      => self::DEFAULT_VALIDITY_DAYS,
+            'baseField' => self::DEFAULT_VALIDITY_BASE_FIELD,
+            'source'    => 'default',
+        ];
+    }
+
+    /**
+     * Resuelve una fecha directamente desde la Fuente de Verdad del audit state.
+     */
+    private static function resolveFdvDate(array $audit, string $field): ?\DateTimeImmutable
+    {
+        foreach ($audit['documents'] ?? [] as $document) {
+            if (!is_array($document)) {
+                continue;
+            }
+
+            $header = $document['fuente_verdad']['header'] ?? [];
+            if (!is_array($header)) {
+                continue;
+            }
+
+            $date = self::parseIsoDate($header[$field] ?? null);
+            if ($date !== null) {
+                return $date;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -123,27 +171,6 @@ final class DeliveryValidityEvaluator
         return $value;
     }
 
-    /**
-     * @param  array<int,array<string,mixed>> $findings
-     */
-    private static function resolveMatchedDate(array $findings, string $field): ?\DateTimeImmutable
-    {
-        foreach ($findings as $finding) {
-            if (($finding['campo'] ?? null) !== $field || ($finding['resultado'] ?? null) !== AuditFindingResult::MATCH->value) {
-                continue;
-            }
-
-            foreach (['valorFuenteVerdad', 'valorDocumento'] as $key) {
-                $date = self::parseIsoDate($finding[$key] ?? null);
-                if ($date !== null) {
-                    return $date;
-                }
-            }
-        }
-
-        return null;
-    }
-
     private static function parseIsoDate(mixed $value): ?\DateTimeImmutable
     {
         if (!is_string($value) || trim($value) === '') {
@@ -159,31 +186,39 @@ final class DeliveryValidityEvaluator
         return $date;
     }
 
+    /**
+     * @param array{days:int,baseField:string,source:string} $params
+     */
     private static function buildFinding(
         array $candidate,
-        int $days,
-        string $baseField,
+        array $params,
         \DateTimeImmutable $baseDate,
         \DateTimeImmutable $deliveryDate
     ): array {
-        $limitDate = $baseDate->modify("+{$days} days");
-        $matches = $deliveryDate <= $limitDate;
-        $baseDateText = $baseDate->format('Y-m-d');
+        $days             = $params['days'];
+        $baseField        = $params['baseField'];
+        $limitDate        = $baseDate->modify("+{$days} days");
+        $matches          = $deliveryDate <= $limitDate;
+        $baseDateText     = $baseDate->format('Y-m-d');
         $deliveryDateText = $deliveryDate->format('Y-m-d');
-        $limitDateText = $limitDate->format('Y-m-d');
-        $severity = AuditSeverity::fromInput((string) ($candidate['expected']['severity'] ?? AuditSeverity::MEDIUM->value))->value;
+        $limitDateText    = $limitDate->format('Y-m-d');
+        $severity         = AuditSeverity::fromInput((string) ($candidate['expected']['severity'] ?? AuditSeverity::MEDIUM->value))->value;
+
+        $sourceNote = $params['source'] === 'visual'
+            ? ''
+            : ' (vigencia por defecto del sistema)';
 
         return [
-            'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
-            'valorFuenteVerdad' => "{$baseField} {$baseDateText} + {$days} dias = {$limitDateText}",
-            'valorDocumento' => "{$deliveryDateText} dentro de {$days} dias",
-            'resultado' => $matches ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
-            'severidad' => $severity,
-            'documento' => $candidate['document_name'],
-            'detalle' => $matches
-                ? "FechaEntrega {$deliveryDateText} dentro de la vigencia hasta {$limitDateText}."
-                : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}.",
-            'tipo_auditoria' => 'visual',
+            'campo'              => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
+            'valorFuenteVerdad'  => "{$baseField} {$baseDateText} + {$days} dias = {$limitDateText}",
+            'valorDocumento'     => "{$deliveryDateText} dentro de {$days} dias",
+            'resultado'          => $matches ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
+            'severidad'          => $severity,
+            'documento'          => $candidate['document_name'],
+            'detalle'            => $matches
+                ? "FechaEntrega {$deliveryDateText} dentro de la vigencia hasta {$limitDateText}{$sourceNote}."
+                : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}{$sourceNote}.",
+            'tipo_auditoria'     => 'visual',
         ];
     }
 
@@ -192,14 +227,14 @@ final class DeliveryValidityEvaluator
         $severity = AuditSeverity::fromInput((string) ($candidate['expected']['severity'] ?? AuditSeverity::MEDIUM->value))->value;
 
         return [
-            'campo' => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
-            'valorFuenteVerdad' => 'Vigencia calculable requerida',
-            'valorDocumento' => null,
-            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-            'severidad' => $severity,
-            'documento' => $candidate['document_name'],
-            'detalle' => $detail,
-            'tipo_auditoria' => 'visual',
+            'campo'              => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
+            'valorFuenteVerdad'  => 'Vigencia calculable requerida',
+            'valorDocumento'     => null,
+            'resultado'          => AuditFindingResult::INCONCLUSIVE->value,
+            'severidad'          => $severity,
+            'documento'          => $candidate['document_name'],
+            'detalle'            => $detail,
+            'tipo_auditoria'     => 'visual',
         ];
     }
 }

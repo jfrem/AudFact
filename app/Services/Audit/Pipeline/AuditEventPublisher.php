@@ -14,7 +14,8 @@ class AuditEventPublisher
 {
     public const STREAM_INBOX     = 'audit.inbox';
     public const STREAM_DOCUMENTS = 'audit.documents';
-    public const STREAM_RESULTS   = 'audit.results';
+    public const STREAM_RESULTS     = 'audit.results';
+    public const STREAM_BATCH_INBOX = 'audit.batch.inbox';
 
     private const STREAM_BY_TYPE = [
         AuditEvent::TYPE_AUDIT_CREATED       => self::STREAM_INBOX,
@@ -27,6 +28,7 @@ class AuditEventPublisher
         AuditEvent::TYPE_AUDIT_FAILED        => self::STREAM_RESULTS,
         AuditEvent::TYPE_BATCH_COMPLETED     => self::STREAM_RESULTS,
         AuditEvent::TYPE_BATCH_COMPLETED_ERR => self::STREAM_RESULTS,
+        AuditEvent::TYPE_BATCH_REQUESTED     => self::STREAM_BATCH_INBOX,
     ];
 
     private RedisClient $redis;

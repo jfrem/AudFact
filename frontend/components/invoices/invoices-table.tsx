@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 
 type InvoiceItem = Record<string, unknown>;
+type AuditTarget = { facSec: string };
 
 export function InvoicesTable({
   invoices,
@@ -25,7 +26,15 @@ export function InvoicesTable({
   canQuery: boolean;
 }) {
   const router = useRouter();
-  const [auditTarget, setAuditTarget] = React.useState<string | null>(null);
+  const [auditTarget, setAuditTarget] = React.useState<AuditTarget | null>(null);
+
+  const rows = invoices.map((item, index) => {
+    const dispensa = String(item.Dispensa ?? "N/D");
+    const nitSec = String(item.NitSec ?? "N/D");
+    const facSec = String(item.facsec ?? item.FacSec ?? "N/D");
+
+    return { dispensa, nitSec, facSec, index };
+  });
 
   return (
     <>
@@ -33,11 +42,11 @@ export function InvoicesTable({
         open={auditTarget !== null}
         variant="info"
         title="Ejecutar auditoría"
-        description={`Se ejecutará la auditoría IA sobre la dispensación ${auditTarget ?? ""}. El proceso puede tomar entre 10 y 60 segundos.`}
+        description={`Se ejecutará la auditoría IA sobre la factura ${auditTarget?.facSec ?? ""}. El proceso puede tomar entre 10 y 60 segundos.`}
         confirmLabel="Auditar"
         onConfirm={() => {
           if (auditTarget) {
-            router.push(`/audit/single?disDetNro=${auditTarget}`);
+            router.push(`/audit/single?facSec=${encodeURIComponent(auditTarget.facSec)}`);
           }
           setAuditTarget(null);
         }}
@@ -55,11 +64,7 @@ export function InvoicesTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoices.map((item, index) => {
-                const dispensa = String(item.Dispensa ?? "N/D");
-                const nitSec = String(item.NitSec ?? "N/D");
-                const facSec = String(item.facsec ?? item.FacSec ?? "N/D");
-                
+              {rows.map(({ dispensa, nitSec, facSec, index }) => {
                 return (
                   <TableRow 
                     key={`${facSec}-${index}`}
@@ -82,7 +87,7 @@ export function InvoicesTable({
                         <Button
                           type="button"
                           size="sm"
-                          onClick={() => setAuditTarget(dispensa)}
+                          onClick={() => setAuditTarget({ facSec })}
                           className="h-8 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 hover:text-blue-300 border border-blue-500/20"
                         >
                           Auditar

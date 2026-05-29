@@ -194,8 +194,9 @@ export const AuditPhaseTimingsSchema = z
 
 export const AuditSingleResponseSchema = z.object({
   audit_id: z.string().nullish(),
-  status: z.union([AuditDocumentStatusSchema, z.literal("pending")]),
+  status: z.union([AuditDocumentStatusSchema, z.literal("pending"), z.literal("completed")]),
   dis_det_nro: z.string().nullish(),
+  fac_sec: z.string().nullish(),
   findings: z.array(AuditFindingSchema).default([]),
   severity: AuditSeveritySchema.nullish(),
   message: z.string().nullish(),

@@ -69,7 +69,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Componente | Responsabilidad |
 |---|---|
-| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), slots y rollback transaccional |
+| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), reservas por `FacSec`, sellado de job y rollback transaccional |
 | `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) desde `TipoCampo` |
 | `AuditFieldValueType.php` | Enum de `TipoDato` explícito por campo para schema Gemini, normalización y estrategias de comparación |
@@ -92,11 +92,12 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Worker / Componente | Responsabilidad |
 |---|---|
 | `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
-| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
-| `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores) |
-| `BatchJobStore.php` | Claves Redis de estado de jobs/batch (`job:{id}:*`, slots, progreso) |
+| `AuditEventPublisher.php` | Publica a `audit.batch.inbox`, `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
+| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, recuperación de `pending`, ack, reintentos, envío a DLQ, cierre terminal de auditorías fallidas y telemetría por evento |
+| `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
+| `BatchJobStore.php` | Claves Redis de jobs y reservas idempotentes (`job:{id}:*`, `audit:reservation:facsec:*`, progreso, idempotency keys) |
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
+| `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `FacSec`, y publica eventos `audit_created` en `audit.inbox` |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
 | `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
@@ -104,11 +105,12 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
-| `AuditTimingSummarizer.php` | Cálculo y normalización de latencias en los metadatos |
-| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, agrega resultados, persiste en SQL, publica `audit_completed` |
+| `AuditTimingSummarizer.php` | Cálculo de latencias de pipeline, telemetría por stream y tiempos de agregación |
+| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`).
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En Docker, el launcher `bin/audit-worker.php` levanta 6 servicios independientes parametrizados por `.env`: `batch=1`, `orchestrator=3`, `extraction=8`, `policy=2`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+
 
 ---
 

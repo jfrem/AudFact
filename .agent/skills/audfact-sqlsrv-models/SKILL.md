@@ -30,7 +30,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
 | `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT, fecha y límite; selecciona `Factura.FacSec` como llave canónica de auditoría |
-| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura` |
+| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`; pipeline selecciona por `facsecF` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |

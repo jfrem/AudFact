@@ -22,12 +22,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null
     ) {
-        parent::__construct($redis, $publisher);
+        parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->jobStore = $jobStore ?? new BatchJobStore($this->redis);
         $this->auditStatusModel = $auditStatusModel ?? new AuditStatusModel();
-        $this->consumerName = $consumerName ?? ('aggregator-' . getmypid());
+        $this->consumerName = $consumerName ?? self::defaultConsumerName('aggregator');
     }
 
     protected function stream(): string
@@ -55,80 +55,123 @@ final class AuditAggregationWorker extends AuditEventConsumer
             throw new RuntimeException('rules_evaluated sin audit_id');
         }
 
-        $audit = $this->stateStore->getAudit($event->auditId);
+        $audit = $this->requireAuditState($event->auditId);
+        $finalAudit = $audit;
+        $terminalReached = false;
+
+        try {
+            $aggregateStart = hrtime(true);
+            $aggregate = $this->aggregate($audit, $event->payload);
+            $aggregationTimings = [
+                'aggregate_build_ms' => self::elapsedMs($aggregateStart),
+            ];
+
+            $persistStart = hrtime(true);
+            try {
+                $persisted = $this->auditStatusModel->persistAuditResultWithAttachments(
+                    $aggregate['audit_result_data'],
+                    $aggregate['document_decisions']
+                );
+            } catch (\Throwable $e) {
+                $this->handleFinalFailure($event, $aggregate, $e);
+                $terminalReached = true;
+                throw new RuntimeException('No se pudo persistir el resultado final de auditoría', 0, $e);
+            }
+
+            $persistDurationMs = self::elapsedMs($persistStart);
+            $aggregationTimings['sql_persist_ms'] = $persistDurationMs;
+
+            if ($persisted === false) {
+                $failure = new RuntimeException('persistAuditResultWithAttachments retornó false');
+                $this->handleFinalFailure($event, $aggregate, $failure);
+                $terminalReached = true;
+                throw new RuntimeException('No se pudo persistir el resultado final de auditoría', 0, $failure);
+            }
+
+            $redisCompleteStart = hrtime(true);
+            if (!$this->stateStore->completeAudit($event->auditId, $aggregate['completion_payload'])) {
+                if ($this->auditAlreadyTerminal($event->auditId)) {
+                    $terminalReached = true;
+                    return;
+                }
+
+                throw new RuntimeException('No se pudo cerrar la auditoría en Redis después de persistir SQL');
+            }
+            $aggregationTimings['redis_complete_ms'] = self::elapsedMs($redisCompleteStart);
+            $terminalReached = true;
+
+            $finalAudit = $this->stateStore->getAudit($event->auditId) ?? $finalAudit;
+            $finalAudit['aggregation_timings'] = $aggregationTimings;
+            $this->stateStore->patchAudit($event->auditId, ['aggregation_timings' => $aggregationTimings]);
+
+            $aggregate['audit_result_data'] = $this->refreshPersistedTimings(
+                $aggregate['audit_result_data'],
+                $finalAudit
+            );
+
+            if ($event->jobId !== null) {
+                $this->jobStore->markAuditCompletedInJob(
+                    $event->jobId,
+                    $event->auditId,
+                    $aggregate['final_status'],
+                    self::resolveAggregateDurationMs($aggregate)
+                );
+            }
+            
+            $this->publisher->publish(AuditEvent::create(
+                eventType: AuditEvent::TYPE_AUDIT_COMPLETED,
+                auditId: $event->auditId,
+                jobId: $event->jobId,
+                payload: array_merge($aggregate['completion_payload'], [
+                    'audit_result_data' => $aggregate['audit_result_data'],
+                    'document_decisions' => $aggregate['document_decisions'],
+                    'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                ]),
+                parentEventId: $event->eventId,
+            ));
+
+            if ($event->jobId !== null) {
+                $this->publishBatchTerminalEventIfNeeded($this->jobStore, $event->jobId, $event->auditId, $event->eventId);
+            }
+
+            \Core\Logger::info('Audit aggregation completed', [
+                'auditId'             => $event->auditId,
+                'final_status'        => $aggregate['final_status'],
+                'persistence_ms'      => $persistDurationMs,
+                'total_duration_ms'   => $aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0,
+            ]);
+        } finally {
+            if ($terminalReached) {
+                $this->jobStore->releaseAuditReservationFromAudit($audit);
+            }
+        }
+    }
+
+    private function auditAlreadyTerminal(string $auditId): bool
+    {
+        $latestAudit = $this->stateStore->getAudit($auditId);
+        $currentStatus = is_array($latestAudit) ? (string) ($latestAudit['status'] ?? '') : '';
+
+        return in_array($currentStatus, [
+            AuditStateStore::AUDIT_STATUS_COMPLETED,
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
+            AuditStateStore::AUDIT_STATUS_ERROR,
+            AuditStateStore::AUDIT_STATUS_FAILED,
+        ], true);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function requireAuditState(string $auditId): array
+    {
+        $audit = $this->stateStore->getAudit($auditId);
         if ($audit === null) {
             throw new RuntimeException('Auditoría no encontrada para agregación final');
         }
 
-        $aggregate = $this->aggregate($audit, $event->payload);
-        $persistStart = microtime(true);
-        try {
-            $persisted = $this->auditStatusModel->persistAuditResultWithAttachments(
-                $aggregate['audit_result_data'],
-                $aggregate['document_decisions']
-            );
-        } catch (\Throwable $e) {
-            $this->handleFinalFailure($event, $aggregate, $e);
-            throw new RuntimeException('No se pudo persistir el resultado final de auditoría', 0, $e);
-        }
-
-        $persistDurationMs = (int) ((microtime(true) - $persistStart) * 1000);
-
-        if ($persisted === false) {
-            $failure = new RuntimeException('persistAuditResultWithAttachments retornó false');
-            $this->handleFinalFailure($event, $aggregate, $failure);
-            throw new RuntimeException('No se pudo persistir el resultado final de auditoría', 0, $failure);
-        }
-
-        if (!$this->stateStore->completeAudit($event->auditId, $aggregate['completion_payload'])) {
-            $latestAudit = $this->stateStore->getAudit($event->auditId);
-            $currentStatus = is_array($latestAudit) ? (string) ($latestAudit['status'] ?? '') : '';
-            if (in_array($currentStatus, [
-                AuditStateStore::AUDIT_STATUS_COMPLETED,
-                AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
-                AuditStateStore::AUDIT_STATUS_ERROR,
-                AuditStateStore::AUDIT_STATUS_FAILED,
-            ], true)) {
-                return;
-            }
-
-            throw new RuntimeException('No se pudo cerrar la auditoría en Redis después de persistir SQL');
-        }
-
-        if ($event->jobId !== null) {
-            $this->jobStore->markAuditCompletedInJob(
-                $event->jobId,
-                $event->auditId,
-                $aggregate['final_status'],
-                self::resolveAggregateDurationMs($aggregate)
-            );
-        }
-
-        $this->publisher->publish(AuditEvent::create(
-            eventType: AuditEvent::TYPE_AUDIT_COMPLETED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
-            payload: array_merge($aggregate['completion_payload'], [
-                'audit_result_data' => $aggregate['audit_result_data'],
-                'document_decisions' => $aggregate['document_decisions'],
-                'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            ]),
-            parentEventId: $event->eventId,
-        ));
-
-        if ($event->jobId !== null) {
-            $this->publishBatchTerminalEventIfNeeded($event->jobId, $event->auditId, $event->eventId);
-        }
-
-        \Core\Logger::info('Audit aggregation completed', [
-            'auditId'             => $event->auditId,
-            'final_status'        => $aggregate['final_status'],
-            'persistence_ms'      => $persistDurationMs,
-            'total_duration_ms'   => $aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0,
-        ]);
+        return $audit;
     }
-
-
 
     /**
      * Valida el outcome canónico construido por RulesEvaluationWorker.
@@ -169,8 +212,6 @@ final class AuditAggregationWorker extends AuditEventConsumer
         ];
     }
 
-
-
     /**
      * Maneja el fallo final de la auditoría, actualizando el estado y persistiendo los resultados.
      * @param  array<string,mixed> $aggregate
@@ -207,58 +248,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
         ));
 
         if ($event->jobId !== null && $event->auditId !== null) {
-            $this->publishBatchTerminalEventIfNeeded($event->jobId, $event->auditId, $event->eventId);
+            $this->publishBatchTerminalEventIfNeeded($this->jobStore, $event->jobId, $event->auditId, $event->eventId);
         }
-    }
-
-    /**
-     * Publica un evento terminal del batch si se cumplen las condiciones.
-     * @param string $jobId
-     * @param string $auditId
-     * @param string $parentEventId
-     */
-    private function publishBatchTerminalEventIfNeeded(string $jobId, string $auditId, string $parentEventId): void
-    {
-        $job = $this->jobStore->getJob($jobId);
-        if ($job === null) {
-            return;
-        }
-
-        $jobStatus = (string) ($job['status'] ?? '');
-        $eventType = match ($jobStatus) {
-            BatchJobStore::JOB_STATUS_COMPLETED => AuditEvent::TYPE_BATCH_COMPLETED,
-            BatchJobStore::JOB_STATUS_COMPLETED_WITH_ERR => AuditEvent::TYPE_BATCH_COMPLETED_ERR,
-            default => null,
-        };
-
-        if ($eventType === null) {
-            return;
-        }
-
-        if (!$this->jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
-            return;
-        }
-
-        $facNitSec = isset($job['fac_nit_sec']) ? (int) $job['fac_nit_sec'] : 0;
-        $dateFrom = isset($job['date_from']) ? trim((string) $job['date_from']) : '';
-        $dateTo = isset($job['date_to']) ? trim((string) $job['date_to']) : '';
-        $normalizedDateTo = $dateTo !== '' ? $dateTo : $dateFrom;
-        if ($facNitSec > 0 && $dateFrom !== '') {
-            $this->jobStore->releaseBatchSlot($facNitSec, $dateFrom, $normalizedDateTo);
-        }
-
-        $this->publisher->publish(AuditEvent::create(
-            eventType: $eventType,
-            auditId: $auditId,
-            jobId: $jobId,
-            payload: [
-                'status' => $jobStatus,
-                'total' => (int) ($job['total'] ?? 0),
-                'done' => (int) ($job['done'] ?? 0),
-                'failed' => (int) ($job['failed'] ?? 0),
-            ],
-            parentEventId: $parentEventId,
-        ));
     }
 
     /**
@@ -267,5 +258,48 @@ final class AuditAggregationWorker extends AuditEventConsumer
     private static function resolveAggregateDurationMs(array $aggregate): int
     {
         return max(0, (int) ($aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0));
+    }
+
+    /**
+     * Recalcula y persiste los timings definitivos después de completed_at.
+     *
+     * @param  array<string,mixed> $auditResultData
+     * @param  array<string,mixed> $finalAudit
+     * @return array<string,mixed>
+     */
+    private function refreshPersistedTimings(array $auditResultData, array $finalAudit): array
+    {
+        $timings = AuditTimingSummarizer::buildPhaseTimings($finalAudit);
+        $durationMs = (int) ($timings['processing_duration_ms'] ?? 0);
+        $facSec = (string) ($auditResultData['FacSec'] ?? '');
+
+        try {
+            $this->auditStatusModel->updateAuditTimings($facSec, $timings, $durationMs);
+        } catch (\Throwable $error) {
+            \Core\Logger::error('Audit aggregation: no se pudieron persistir timings finales', [
+                'FacSec' => $facSec,
+                'error_class' => get_class($error),
+                'error' => $error->getMessage(),
+            ]);
+        }
+
+        $payload = json_decode((string) ($auditResultData['Hallazgos'] ?? ''), true);
+        if (is_array($payload) && !array_is_list($payload)) {
+            $payload['timings'] = $timings;
+            $payload['total_duration_ms'] = $durationMs;
+            $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($encoded !== false) {
+                $auditResultData['Hallazgos'] = $encoded;
+            }
+        }
+
+        $auditResultData['DuracionProcesamientoMs'] = $durationMs;
+
+        return $auditResultData;
+    }
+
+    private static function elapsedMs(int $start): int
+    {
+        return max(0, (int) round((hrtime(true) - $start) / 1_000_000));
     }
 }

@@ -50,6 +50,9 @@ final class AuditTimingSummarizer
             'processing_duration_ms' => self::resolveDurationMs($audit, $now),
             'queue_wait_ms'          => self::resolveQueueWaitMs($audit),
             'total_elapsed_ms'       => self::resolveTotalElapsedMs($audit, $now),
+            'pipeline'               => self::summarizePipelineTimings($audit, $now),
+            'event_telemetry'        => self::summarizeEventTelemetry($audit['event_timings'] ?? []),
+            'aggregation'            => self::normalizeAggregationTimings($audit['aggregation_timings'] ?? []),
         ];
     }
 
@@ -219,6 +222,112 @@ final class AuditTimingSummarizer
             $metrics,
             static fn(array $metric): bool => ($metric['cache_hit'] ?? false) !== true
         ));
+    }
+
+    /**
+     * @param  array<string,mixed> $audit
+     * @return array<string,int>
+     */
+    private static function summarizePipelineTimings(array $audit, ?\DateTimeImmutable $now): array
+    {
+        return [
+            'created_to_started_ms' => self::resolveQueueWaitMs($audit),
+            'started_to_completed_ms' => self::resolveDurationMs($audit, $now),
+            'created_to_completed_ms' => self::resolveTotalElapsedMs($audit, $now),
+            'rules_to_completed_ms' => self::resolveRulesToCompletedMs($audit, $now),
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $audit
+     */
+    private static function resolveRulesToCompletedMs(array $audit, ?\DateTimeImmutable $now): int
+    {
+        $rulesEvaluatedAt = self::readTimestamp($audit, 'rules_evaluated_at');
+        if ($rulesEvaluatedAt === null) {
+            return 0;
+        }
+
+        return self::diffMs($rulesEvaluatedAt, self::resolveEndTimestamp($audit, $now));
+    }
+
+    /**
+     * @return array{count:int,by_stream:array<string,array<string,mixed>>}
+     */
+    private static function summarizeEventTelemetry(mixed $eventTimings): array
+    {
+        if (!is_array($eventTimings)) {
+            return ['count' => 0, 'by_stream' => []];
+        }
+
+        $byStream = [];
+        $count = 0;
+        foreach ($eventTimings as $eventTiming) {
+            if (!is_array($eventTiming)) {
+                continue;
+            }
+
+            $stream = trim((string) ($eventTiming['stream'] ?? 'unknown'));
+            if ($stream === '') {
+                $stream = 'unknown';
+            }
+
+            $byStream[$stream] ??= [
+                'count' => 0,
+                'queue_wait_values' => [],
+                'handle_values' => [],
+                'ack_values' => [],
+                'event_types' => [],
+            ];
+
+            $byStream[$stream]['count']++;
+            $count++;
+            $byStream[$stream]['queue_wait_values'][] = max(0, (int) ($eventTiming['queue_wait_ms'] ?? 0));
+            $byStream[$stream]['handle_values'][] = max(0, (int) ($eventTiming['handle_duration_ms'] ?? 0));
+            $byStream[$stream]['ack_values'][] = max(0, (int) ($eventTiming['ack_duration_ms'] ?? 0));
+
+            $eventType = trim((string) ($eventTiming['event_type'] ?? 'unknown'));
+            $eventType = $eventType !== '' ? $eventType : 'unknown';
+            $byStream[$stream]['event_types'][$eventType] = ($byStream[$stream]['event_types'][$eventType] ?? 0) + 1;
+        }
+
+        $summary = [];
+        foreach ($byStream as $stream => $streamData) {
+            $summary[$stream] = [
+                'count' => $streamData['count'],
+                'event_types' => $streamData['event_types'],
+                'queue_wait' => self::summarizeTimings($streamData['queue_wait_values']),
+                'handle' => self::summarizeTimings($streamData['handle_values']),
+                'ack' => self::summarizeTimings($streamData['ack_values']),
+            ];
+        }
+
+        ksort($summary);
+
+        return ['count' => $count, 'by_stream' => $summary];
+    }
+
+    /**
+     * @return array<string,int>
+     */
+    private static function normalizeAggregationTimings(mixed $timings): array
+    {
+        if (!is_array($timings)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($timings as $key => $value) {
+            if (!is_string($key)) {
+                continue;
+            }
+
+            $normalized[$key] = max(0, (int) $value);
+        }
+
+        ksort($normalized);
+
+        return $normalized;
     }
 
     /**

@@ -85,6 +85,11 @@ npm run dev
 | `GEMINI_API_KEY` | API Key de Google Gemini |
 | `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3-flash-preview`) |
 | `REDIS_HOST` / `REDIS_PORT` | Host y puerto de Redis para pipeline async |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | Réplicas de orquestadores async (default: `3`) |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS` | Réplicas de extractores Gemini (default: `8`) |
+| `AUDIT_WORKER_POLICY_REPLICAS` | Réplicas de evaluación de reglas (default: `2`) |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS` | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`) |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | Intervalo de escaneo de pending por worker (default: `30000`) |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | Clave privada |
 | `LOG_LEVEL` | Nivel de log (`error`, `warning`, `info`) |
@@ -127,7 +132,7 @@ Base URL: `http://localhost:8080`
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
 | `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
 | `GET` | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
-| `POST` | `/audit/single` | Auditoría individual |
+| `POST` | `/audit/single` | Auditoría individual por FacSec |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
 | `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
@@ -165,7 +170,7 @@ La llave operativa de dispensación/documentos es `DisDetNro`:
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
+`POST /audit/single` y `POST /audit/async` seleccionan la FDV por `FacSec`. Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
 
 ## Pipeline de Auditoría IA
 
@@ -187,6 +192,9 @@ Características:
 - Cache de extracción por `document_hash` (idempotencia).
 - Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
+- Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
+- Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
+- Escalado por variables para `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `FacSec`.
 
 ## Docker
 
@@ -202,6 +210,8 @@ docker compose logs -f
 # Detener entorno
 docker compose down
 ```
+
+Nginx resuelve `php:9000` con DNS Docker en runtime para evitar `502` por IPs PHP-FPM obsoletas después de un rebuild.
 
 ### Producción
 

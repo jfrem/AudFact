@@ -203,7 +203,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['observation']);
     }
 
-    public function testCalculatedDeliveryValidityIsInconclusiveWhenAuthoritativeEvidenceIsIncomplete(): void
+    public function testCalculatedDeliveryValidityFallsBackToDefaultWhenAuthoritativeEvidenceIsIncomplete(): void
     {
         $auditId = AuditEvent::uuidV4();
         $authorizationDocumentId = AuditEvent::uuidV4();
@@ -234,9 +234,9 @@ final class RulesEvaluationWorkerTest extends TestCase
 
         $payload = $publisher->published[0]->payload;
         $vigencia = end($payload['hallazgos']['items']);
-        $this->assertSame('NO_CONCLUYENTE', $vigencia['resultado']);
-        $this->assertSame(1, $payload['hallazgos']['metrics']['no_concluyentes']);
-        $this->assertFalse($payload['document_decisions'][1]['approved']);
+        $this->assertSame('COINCIDE', $vigencia['resultado']);
+        $this->assertSame(3, $payload['hallazgos']['metrics']['coincidencias']);
+        $this->assertStringContainsString('por defecto del sistema', $vigencia['detalle']);
     }
 
     /**
@@ -391,7 +391,10 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
                 $dispensaDocumentId => [
                     'tipo_documento' => 'DISPENSA',
                     'status' => 'evaluated',
-                    'fuente_verdad' => ['header' => [], 'items' => []],
+                    'fuente_verdad' => [
+                        'header' => ['FechaEntrega' => $deliveryDate, 'FechaAutorizacion' => '2025-07-27'],
+                        'items' => []
+                    ],
                     'visual_checks' => [],
                     'policy_result' => [
                         'document_name' => 'DISPENSA',
@@ -415,7 +418,10 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
                 $authorizationDocumentId => [
                     'tipo_documento' => 'AUTORIZACION',
                     'status' => 'normalized',
-                    'fuente_verdad' => ['header' => [], 'items' => []],
+                    'fuente_verdad' => [
+                        'header' => ['FechaEntrega' => $deliveryDate, 'FechaAutorizacion' => '2025-07-27'],
+                        'items' => []
+                    ],
                     'visual_checks' => [[
                         'check' => 'VigenciaEntrega',
                         'description' => 'Vigencia visible',

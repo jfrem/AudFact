@@ -1,3 +1,33 @@
+## [2026-05-29]
+
+### refactor
+- **Pipeline de Auditoría Async Real e Idempotencia Absoluta**: Desacoplamiento HTTP express real del endpoint `POST /audit/async` que ahora solo valida, registra el job y encola `batch_requested` en menos de 100ms. El procesamiento en segundo plano lo asume `BatchRequestedWorker` (`php bin/audit-worker.php batch`), consumiendo de `audit.batch.inbox`, consultando SQL Server, reservando idempotencia por `FacSec` en Redis y publicando `audit_created` en `audit.inbox`. Implementación de validaciones atómicas robustas para reutilización y prevención de colisiones en `BatchJobStore`, y eliminación de `final` en `StubBatchJobStore` para posibilitar mocks en tests.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `app/Services/Audit/Pipeline/BatchJobStore.php`, `app/Services/Audit/Pipeline/BatchRequestedWorker.php`, `tests/Controllers/AuditControllerTest.php`, `plans/architecture.md`, `plans/data-flows.md`, `plans/changelog.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
+  - Hallazgo resuelto: falso asíncrono y bloqueo síncrono del backend web por procesamiento largo de consultas en el hilo HTTP.
+  - Impacto: respuesta inmediata de encolado (<100ms) con concurrencia robusta de batches paralelos e idempotencia a nivel de `FacSec`.
+
+## [2026-05-25]
+
+### refactor
+- **Observabilidad real y escalado controlado del pipeline async**: registra telemetría por evento (`queue_wait`, `handle`, `ack`) en Redis, recupera periódicamente mensajes pendientes abandonados, recalcula timings finales después de `completed_at`, evita upstreams PHP-FPM obsoletos en Nginx y parametriza réplicas de workers sin hardcodear capacidad.
+  - Archivos modificados: `app/Services/Audit/Pipeline/AuditEventConsumer.php`, `app/Services/Audit/Pipeline/AuditStateStore.php`, `app/Services/Audit/Pipeline/AuditTimingSummarizer.php`, `app/Services/Audit/Pipeline/AuditAggregationWorker.php`, `app/Models/AuditStatusModel.php`, `docker/nginx-ha.conf.template`, `docker/nginx.conf`, `docker-compose.yml`, `docker-compose.prod.yml`, `.env.example`, `tests/Services/Audit/Events/AuditEventConsumerTest.php`, `tests/Services/Audit/Events/AuditStateStoreTest.php`, `tests/Services/Audit/Events/AuditAggregationWorkerTest.php`, `tests/Services/Audit/Pipeline/AuditTimingSummarizerTest.php`
+  - Hallazgo resuelto: latencia alta no atribuible por falta de métricas de cola/worker/persistencia.
+  - Impacto: permite distinguir backlog Redis, procesamiento Gemini, persistencia SQL y cierre Redis sin romper idempotencia por `FacSec`.
+
+### fix
+- **Identidad canónica de FDV por FacSec**: `/audit/single` recibe `FacSec`, el pipeline resuelve la fuente de verdad por `facsecF` y valida `DisDetNro` solo como llave operativa de adjuntos.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `app/Models/DispensationModel.php`, `app/Services/Audit/AuditBatchOrchestrator.php`, `app/Services/Audit/Pipeline/AuditDataService.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `frontend/lib/api/audfact.ts`, `frontend/lib/schemas/domain.ts`, `frontend/components/audit/audit-single-console.tsx`, `frontend/components/invoices/invoices-table.tsx`, `tests/Controllers/AuditControllerTest.php`, `tests/Models/DispensationModelTest.php`, `tests/Services/Audit/Events/DocumentAuditOrchestratorTest.php`
+  - Hallazgo resuelto: selección ambigua de FDV cuando un mismo `DisDetNro` apunta a más de un `FacSec`.
+  - Impacto: evita `AUDIT_IDENTITY_MISMATCH` por consultar la FDV equivocada y mantiene idempotencia/trazabilidad por factura.
+
+## [2026-05-24]
+
+### refactor
+- **Idempotencia global y concurrencia real en auditoría async**: reemplaza el bloqueo por lote/documento por reservas Redis con owner token por `FacSec`, aplica la misma idempotencia a `/audit/single`, sella jobs antes de publicar eventos y cierra auditorías que caen a DLQ.
+  - Archivos modificados: `app/Controllers/AuditController.php`, `app/Services/Audit/AuditBatchOrchestrator.php`, `app/Services/Audit/Pipeline/BatchJobStore.php`, `app/Services/Audit/Pipeline/AuditStateStore.php`, `app/Services/Audit/Pipeline/AuditEventConsumer.php`, `app/Services/Audit/Pipeline/AuditAggregationWorker.php`, `app/Models/InvoicesModel.php`, `tests/Controllers/AuditControllerTest.php`, `tests/Services/Audit/Events/AuditAggregationWorkerTest.php`, `tests/Models/InvoicesModelTest.php`
+  - Hallazgo resuelto: bloqueo por cliente/rango, locks huérfanos ante DLQ e idempotencia incompleta entre auditoría individual y batch.
+  - Impacto: múltiples batches del mismo cliente pueden avanzar en paralelo sobre `FacSec` distintos sin duplicar auditorías activas ni dejar jobs pendientes por fallos terminales.
+
 ## [2026-05-23]
 
 ### refactor

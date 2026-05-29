@@ -100,6 +100,8 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
         $orchestrator->processEvent($event);
 
+        $this->assertSame(['87723098'], $dataService->requestedFacSecs);
+
         // Comportamiento esperado: 3 documentos registrados y publicados
         $this->assertSame(3, $store->docsTotal);
         $this->assertCount(3, $store->registeredDocuments);
@@ -156,7 +158,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             $payload['extraction_contract']['function_declarations'][3]['parameters']['properties']['document_quality']['enum']
         );
         $this->assertSame(
-            ['check', 'presente'],
+            ['check', 'presente', 'detalle'],
             $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['required']
         );
         $visualProperties = $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['properties'];
@@ -239,7 +241,10 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
             auditId:   AuditEvent::uuidV4(),
-            payload:   ['dis_det_nro' => 'T38250701547']
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_sec' => '87723098',
+            ]
         );
 
         $orchestrator->processEvent($event);
@@ -294,11 +299,29 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
             auditId:   AuditEvent::uuidV4(),
-            payload:   ['dis_det_nro' => 'T38250701547']
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_sec' => '87723098',
+            ]
         );
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Adjuntos no encontrados');
+        $orchestrator->processEvent($event);
+    }
+
+    public function testMissingFacSecThrowsRuntimeException(): void
+    {
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService());
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   ['dis_det_nro' => 'T38250701547']
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('audit_created sin fac_sec');
         $orchestrator->processEvent($event);
     }
 
@@ -396,6 +419,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
 final class StubAuditDataService extends AuditDataService
 {
+    /** @var array<int,string> */
+    public array $requestedFacSecs = [];
+
     /**
      * @param array<string,mixed>            $dispensation
      * @param array<int,array<string,mixed>> $clientDocuments
@@ -410,8 +436,9 @@ final class StubAuditDataService extends AuditDataService
     ) {
     }
 
-    public function getDispensation(string $disDetNro): array
+    public function getDispensationByFacSec(string $facSec): array
     {
+        $this->requestedFacSecs[] = $facSec;
         return $this->dispensation;
     }
 
@@ -446,6 +473,11 @@ final class RecordingStateStore extends AuditStateStore
     public function patchAudit(string $auditId, array $patch): bool
     {
         $this->patches[] = $patch;
+        return true;
+    }
+
+    public function markAuditStarted(string $auditId): bool
+    {
         return true;
     }
 

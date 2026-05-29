@@ -20,6 +20,7 @@ final class AuditEvent
     public const TYPE_BATCH_COMPLETED      = 'batch_completed';
     public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
+    public const TYPE_BATCH_REQUESTED      = 'batch_requested';
 
     private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
 

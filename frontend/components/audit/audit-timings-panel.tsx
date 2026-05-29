@@ -1,5 +1,12 @@
-import { Activity, Cpu, FileText, Gauge, Timer } from "lucide-react";
+import { Activity, Cpu, FileText, Gauge, HelpCircle, Timer } from "lucide-react";
 import type { ReactNode } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type {
   AuditGeminiTimingSummary,
@@ -58,47 +65,55 @@ export function AuditTimingsPanel({
   const geminiTotal = timings.gemini_total;
 
   return (
+    <TooltipProvider delayDuration={250}>
     <div className={cn("space-y-5", className)}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-white/10 pb-4">
         <InlineMetric
           icon={<Timer className="h-4 w-4 text-emerald-400" />}
           label="Procesamiento activo"
           value={formatMaybeDuration(timings.processing_duration_ms ?? totalDurationMs)}
+          tooltip="Tiempo neto desde que un worker tomó la tarea de la cola hasta que finalizó la evaluación. Fórmula: completed_at − started_at."
         />
         {(timings.queue_wait_ms ?? 0) > 0 && (
           <InlineMetric
             icon={<Timer className="h-4 w-4 text-amber-400" />}
             label="Espera en cola"
             value={formatMaybeDuration(timings.queue_wait_ms)}
+            tooltip="Tiempo que la auditoría permaneció en el stream de Redis esperando ser tomada por un worker disponible. Fórmula: started_at − created_at."
           />
         )}
         <InlineMetric
           icon={<Timer className="h-4 w-4 text-slate-400" />}
           label="Total transcurrido"
           value={formatMaybeDuration(timings.total_elapsed_ms ?? totalDurationMs)}
+          tooltip="Duración total del ciclo de vida: desde el encolamiento hasta el cierre. Incluye espera en cola + procesamiento activo."
         />
         <InlineMetric
           icon={<Gauge className="h-4 w-4" />}
           label="Fase dominante"
           value={dominantPhase ? dominantPhase.label : "N/D"}
           detail={dominantPhase ? formatMaybeDuration(dominantPhase.timing?.avg_ms) : undefined}
+          tooltip="La fase del pipeline que consumió más tiempo promedio por documento. Útil para identificar cuellos de botella."
         />
         <InlineMetric
           icon={<FileText className="h-4 w-4" />}
           label="Documentos"
           value={formatMaybeNumber(docsTotal)}
+          tooltip="Cantidad total de documentos adjuntos procesados en esta auditoría (fórmulas, actas, soportes, etc.)."
         />
         <InlineMetric
           icon={<Cpu className="h-4 w-4" />}
           label="Tokens Gemini"
           value={formatMaybeNumber(geminiTotal?.total_tokens)}
           detail={formatFinishReasons(geminiTotal)}
+          tooltip="Consumo total de tokens de la API de Google Gemini (prompt + output + razonamiento). El indicador STOP muestra cuántas llamadas finalizaron exitosamente."
         />
         <InlineMetric
           icon={<Activity className="h-4 w-4" />}
           label="Cache"
           value={formatPercent(timings.cache_hit_rate)}
           detail={`${formatMaybeNumber(timings.semantic_cache_hits)} hits semánticos`}
+          tooltip="Tasa de aciertos de caché de extracción documental (0% = todos procesados desde cero). Los hits semánticos indican cuántas homologaciones de códigos médicos se resolvieron sin llamar a Gemini."
         />
       </div>
 
@@ -115,19 +130,19 @@ export function AuditTimingsPanel({
                   Fase
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Docs
+                  <HeaderTooltip label="Docs" tip="Cantidad de documentos que pasaron por esta fase." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Promedio
+                  <HeaderTooltip label="Promedio" tip="Duración promedio por documento en esta fase." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  P95
+                  <HeaderTooltip label="P95" tip="Percentil 95: el 95% de los documentos se procesaron en este tiempo o menos." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Máximo
+                  <HeaderTooltip label="Máximo" tip="Tiempo máximo registrado para un solo documento en esta fase." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Lectura
+                  <HeaderTooltip label="Lectura" tip="Clasificación automática: Rápido (<1s), Normal (1–5s), Lento (>5s), basada en el P95." />
                 </th>
               </tr>
             </thead>
@@ -137,7 +152,7 @@ export function AuditTimingsPanel({
                 return (
                   <tr key={row.id}>
                     <th scope="row" className="px-4 py-3 text-left font-medium text-slate-200">
-                      {row.label}
+                      <PhaseLabel phase={row.id} label={row.label} />
                     </th>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-400">
                       {formatMaybeNumber(row.timing?.count)}
@@ -182,31 +197,31 @@ export function AuditTimingsPanel({
                   Tarea
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Llamadas
+                  <HeaderTooltip label="Llamadas" tip="Número total de peticiones HTTP enviadas a la API de Gemini para esta tarea." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Cache
+                  <HeaderTooltip label="Cache" tip="Llamadas resueltas desde caché local sin consultar a Gemini." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Prom.
+                  <HeaderTooltip label="Prom." tip="Latencia promedio de ida y vuelta con la API de Gemini." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  P95
+                  <HeaderTooltip label="P95" tip="Percentil 95 de la latencia de Gemini." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Prompt
+                  <HeaderTooltip label="Prompt" tip="Tokens de entrada enviados a Gemini (instrucciones + contenido del documento)." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Output
+                  <HeaderTooltip label="Output" tip="Tokens de salida generados por Gemini (datos extraídos o resultados semánticos)." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Thinking
+                  <HeaderTooltip label="Thinking" tip="Tokens de razonamiento interno del modelo (thinking mode). Solo aplica a modelos con capacidad de razonamiento." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Total
+                  <HeaderTooltip label="Total" tip="Suma de tokens: Prompt + Output + Thinking. Representa el consumo total facturado por la API." />
                 </th>
                 <th scope="col" className="px-4 py-3 text-right font-semibold">
-                  Finish
+                  <HeaderTooltip label="Finish" tip="Razón de finalización de Gemini. STOP = generación completa. MAX_TOKENS = límite alcanzado." />
                 </th>
               </tr>
             </thead>
@@ -250,6 +265,7 @@ export function AuditTimingsPanel({
         </div>
       </section>
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -258,20 +274,23 @@ function InlineMetric({
   label,
   value,
   detail,
+  tooltip,
 }: {
   icon: ReactNode;
   label: string;
   value: string;
   detail?: string;
+  tooltip?: string;
 }) {
-  return (
+  const content = (
     <div className="flex min-w-[10rem] items-center gap-2.5">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-500/20">
         {icon}
       </span>
       <span className="min-w-0">
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           {label}
+          {tooltip && <HelpCircle className="h-2.5 w-2.5 text-slate-600" />}
         </span>
         <span className="mt-0.5 block truncate text-sm font-semibold tabular-nums text-white">
           {value}
@@ -281,6 +300,21 @@ function InlineMetric({
         ) : null}
       </span>
     </div>
+  );
+
+  if (!tooltip) return content;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="cursor-help text-left">
+          {content}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-xs text-[11px] leading-relaxed">
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -296,6 +330,56 @@ function SectionTitle({
       <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
       <p className="mt-1 text-sm text-slate-400">{description}</p>
     </div>
+  );
+}
+
+/** Tooltip inline en headers de tabla */
+function HeaderTooltip({ label, tip }: { label: string; tip: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex cursor-help items-center gap-1"
+        >
+          {label}
+          <HelpCircle className="h-2.5 w-2.5 text-slate-600" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-xs text-left text-[11px] font-normal normal-case tracking-normal leading-relaxed">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Tooltip descriptivo para cada fase del pipeline */
+const PHASE_TIPS: Record<string, string> = {
+  download: "Tiempo para descargar el archivo binario desde su almacenamiento original (BD o Google Drive).",
+  extraction: "Tiempo de inferencia de Gemini para extraer datos estructurados del documento (OCR + Function Calling).",
+  normalization: "Tiempo para estandarizar y formatear el payload JSON de salida de los datos extraídos.",
+  policy: "Tiempo para evaluar las reglas de negocio y políticas documentales contra los datos normalizados.",
+};
+
+function PhaseLabel({ phase, label }: { phase: string; label: string }) {
+  const tip = PHASE_TIPS[phase];
+  if (!tip) return <>{label}</>;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex cursor-help items-center gap-1.5"
+        >
+          {label}
+          <HelpCircle className="h-2.5 w-2.5 text-slate-600" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-xs text-left text-[11px] font-normal leading-relaxed">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

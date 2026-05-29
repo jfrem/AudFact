@@ -26,6 +26,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de la extracción (COMPLETED, FAILED, ILLEGIBLE) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
+| `app/Services/Audit/Pipeline/BatchRequestedWorker.php` | Worker que consume `batch_requested` de `audit.batch.inbox`, realiza consultas pesadas en SQL Server y reserva idempotencia por `FacSec` en Redis |
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, identidad documental, numéricos canónicos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
@@ -49,26 +50,28 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 
 | Comando | Stream consumido | Consumer group |
 |---|---|---|
+| `php bin/audit-worker.php batch` | `audit.batch.inbox` | `batch-workers` |
 | `php bin/audit-worker.php orchestrator` | `audit.inbox` | `orchestrator` |
 | `php bin/audit-worker.php extraction` | `audit.documents` | `extractors` |
 | `php bin/audit-worker.php normalizer` | `audit.documents` | `normalizers` |
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
 | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. `docker-compose.yml` levanta los 5 servicios con este mismo binario y argumento distinto (extraction tiene 5 réplicas).
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 6 servicios con este mismo binario y argumento distinto (extraction tiene 8 réplicas, orchestrator 3, policy 2, batch 1).
 
 ### Controllers y endpoints
 
 | Archivo | Endpoints |
 |---|---|
-| `app/Controllers/AuditController.php` | `POST /audit/single` (202), `POST /audit/async` (202), `GET /audit/jobs/{jobId}` |
+| `app/Controllers/AuditController.php` | `POST /audit/single` (202), `POST /audit/async` (202), `GET /audit/jobs/{job_id}` |
 | `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess` (listar y republicar `dead_letter`) |
 
 ## Streams y eventos
 
 | Stream | Productor | Eventos |
 |---|---|---|
-| `audit.inbox` | `AuditController` | `audit_created`, `batch_created` |
+| `audit.batch.inbox` | `AuditController` | `batch_requested` |
+| `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
 | `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |

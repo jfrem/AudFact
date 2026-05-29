@@ -212,6 +212,23 @@ class AuditStateStore
         );
     }
 
+    /**
+     * Registra telemetría mínima de un evento procesado por un consumer.
+     *
+     * @param  string  $auditId  Identificador UUID de la auditoría.
+     * @param  array<string,mixed>  $telemetry  Métricas escalares del evento, sin payload documental.
+     */
+    public function recordEventTelemetry(string $auditId, array $telemetry): bool
+    {
+        return $this->runScript(
+            self::RECORD_EVENT_TELEMETRY_LUA,
+            [self::auditKey($auditId)],
+            [$telemetry, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            'No se pudo registrar telemetría del evento en Redis',
+            ['audit_id' => $auditId]
+        );
+    }
+
     public static function auditKey(string $auditId): string
     {
         return "audit:{$auditId}:state";
@@ -225,6 +242,14 @@ class AuditStateStore
         if not raw then return 0 end
 
         local audit = cjson.decode(raw)
+        local status = tostring(audit['status'] or '')
+        if status == 'completed'
+        or status == 'manual_review'
+        or status == 'error'
+        or status == 'failed' then
+            return 1
+        end
+
         local documentId = ARGV[1]
         local documentState = cjson.decode(ARGV[2])
         local now = ARGV[3]
@@ -272,6 +297,14 @@ class AuditStateStore
         if not raw then return 0 end
 
         local audit = cjson.decode(raw)
+        local auditStatus = tostring(audit['status'] or '')
+        if auditStatus == 'completed'
+        or auditStatus == 'manual_review'
+        or auditStatus == 'error'
+        or auditStatus == 'failed' then
+            return 1
+        end
+
         local documentId = ARGV[1]
         local patch = cjson.decode(ARGV[2])
         local now = ARGV[3]
@@ -346,6 +379,26 @@ class AuditStateStore
         end
 
         audit['completed_at'] = now
+        audit['updated_at'] = now
+
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
+
+    private const RECORD_EVENT_TELEMETRY_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+
+        local audit = cjson.decode(raw)
+        local telemetry = cjson.decode(ARGV[1])
+        local now = ARGV[2]
+        local ttl = tonumber(ARGV[3])
+
+        if type(audit['event_timings']) ~= 'table' then
+            audit['event_timings'] = {}
+        end
+
+        table.insert(audit['event_timings'], telemetry)
         audit['updated_at'] = now
 
         redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
