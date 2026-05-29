@@ -4,16 +4,13 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
-use App\Models\InvoicesModel;
-use App\Services\Audit\AuditBatchOrchestrator;
+use App\Services\Audit\Pipeline\AuditDataService;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\BatchJobStore;
-use Core\Exceptions\HttpResponseException;
 use Core\Cache;
 use Core\Response;
 use Core\Logger;
@@ -24,22 +21,43 @@ class AuditController extends Controller
     public function single(): void
     {
         $data = $this->validate([
-            'DisDetNro' => 'required|string|max:255',
+            'FacSec' => 'required|string|max:255',
         ]);
 
-        $disDetNro = trim((string) $data['DisDetNro']);
+        $facSec = trim((string) $data['FacSec']);
+        if ($facSec === '') {
+            Response::error('FacSec es requerido', 422);
+        }
+
+        // Resolver identidad completa desde la FDV
+        $dataService = $this->buildAuditDataService();
+        try {
+            $fdv = $dataService->getDispensationByFacSec($facSec);
+        } catch (RuntimeException $e) {
+            Response::error(
+                'No se encontró la dispensación correspondiente a la factura proporcionada',
+                404
+            );
+        }
+
+        $disDetNro = (string) ($fdv['header']['NumeroFactura'] ?? '');
+        $facNitSec = (string) ($fdv['header']['NitSec'] ?? '');
+
         if ($disDetNro === '') {
-            Response::error('DisDetNro es requerido', 422);
+            Response::error('La FDV no contiene NumeroFactura (DisDetNro) para esta factura', 422);
         }
 
         $stateStore = $this->buildStateStore();
-        $publisher = $this->buildEventPublisher();
+        $publisher  = $this->buildEventPublisher();
 
         $auditId = AuditEvent::uuidV4();
         $auditInitialized = false;
 
         try {
-            $initialized = $stateStore->initAudit($auditId, $disDetNro);
+            $initialized = $stateStore->initAudit(
+                $auditId, $disDetNro,
+                jobId: null, facNitSec: $facNitSec, facSec: $facSec
+            );
             if (!$initialized) {
                 Logger::error('AuditController::single no se pudo inicializar estado', [
                     'audit_id' => $auditId,
@@ -55,7 +73,8 @@ class AuditController extends Controller
                 documentId: null,
                 payload: [
                     'dis_det_nro'  => $disDetNro,
-                    'fac_nit_sec'  => null,
+                    'fac_sec'      => $facSec,
+                    'fac_nit_sec'  => $facNitSec,
                     'source'       => 'single',
                 ],
             );
@@ -77,6 +96,7 @@ class AuditController extends Controller
                 'audit_id'    => $auditId,
                 'status'      => AuditStateStore::AUDIT_STATUS_PENDING,
                 'dis_det_nro' => $disDetNro,
+                'fac_sec'     => $facSec,
             ],
             'Auditoría encolada',
             202,
@@ -451,9 +471,9 @@ class AuditController extends Controller
         return new AuditStatusModel();
     }
 
-    protected function getInvoicesModel(): InvoicesModel
+    protected function buildAuditDataService(): AuditDataService
     {
-        return new InvoicesModel();
+        return new AuditDataService();
     }
 
     protected function buildStateStore(): AuditStateStore

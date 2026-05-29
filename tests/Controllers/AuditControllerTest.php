@@ -6,7 +6,6 @@ namespace Tests\Controllers;
 
 use App\Controllers\AuditController;
 use App\Models\AuditStatusModel;
-use App\Models\InvoicesModel;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditDataService;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
@@ -24,7 +23,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['DisDetNro' => 'T38250701547'],
+            body: ['FacSec' => '87723098'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -36,12 +35,15 @@ final class AuditControllerTest extends TestCase
         $this->assertTrue(AuditEvent::isUuidV4($data['audit_id']));
         $this->assertSame('pending', $data['status']);
         $this->assertSame('T38250701547', $data['dis_det_nro']);
+        $this->assertSame('87723098', $data['fac_sec']);
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[0]->eventType);
         $this->assertSame('T38250701547', $publisher->published[0]->payload['dis_det_nro']);
+        $this->assertSame('87723098', $publisher->published[0]->payload['fac_sec']);
+        $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
     }
 
-    public function testSingleReturns422WhenDisDetNroMissing(): void
+    public function testSingleReturns422WhenFacSecMissing(): void
     {
         $controller = new TestableAuditController(body: []);
 
@@ -56,7 +58,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['DisDetNro' => 'T38250701547'],
+            body: ['FacSec' => '87723098'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -65,6 +67,18 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(503, $response->getCode());
         $this->assertCount(1, $store->deletedAuditIds);
+    }
+
+    public function testSingleReturns404WhenDispensationNotFound(): void
+    {
+        $controller = new TestableAuditController(
+            body: ['FacSec' => '99999999'],
+            auditDataService: new NotFoundAuditDataService(),
+        );
+
+        $response = self::captureResponse(static fn() => $controller->single());
+
+        $this->assertSame(404, $response->getCode());
     }
 
     public function testAsyncReturns202AndPublishesBatchRequested(): void
@@ -306,7 +320,6 @@ final class TestableAuditController extends AuditController
 {
     public function __construct(
         private array $body = [],
-        private ?InvoicesModel $invoicesModel = null,
         private ?AuditStateStore $stateStore = null,
         private ?BatchJobStore $jobStore = null,
         private ?AuditEventPublisher $publisher = null,
@@ -318,11 +331,6 @@ final class TestableAuditController extends AuditController
     protected function getBody(): array
     {
         return $this->body;
-    }
-
-    protected function getInvoicesModel(): InvoicesModel
-    {
-        return $this->invoicesModel ?? new StubInvoicesModel([]);
     }
 
     protected function buildStateStore(): AuditStateStore
@@ -348,38 +356,6 @@ final class TestableAuditController extends AuditController
     protected function buildAuditDataService(): AuditDataService
     {
         return $this->auditDataService ?? new StubAuditDataService();
-    }
-}
-
-final class StubInvoicesModel extends InvoicesModel
-{
-    /** @param array<int,array<string,mixed>> $invoices */
-    private int $batchCalls = 0;
-
-    public function __construct(private array $invoices = [])
-    {
-    }
-
-    public function getInvoices(int $facNitSec, string $dateFrom, string $dateTo, int $limit = 100): array
-    {
-        return $this->invoices;
-    }
-
-    public function getInvoicesForAuditBatch(
-        int $facNitSec,
-        string $dateFrom,
-        string $dateTo,
-        int $limit = 100,
-        ?array $cursor = null
-    ): array {
-        if ($this->batchCalls++ > 0) {
-            return [];
-        }
-
-        return array_map(static function (array $invoice): array {
-            $invoice['DisFecSol'] ??= '2025-07-29T00:00:00';
-            return $invoice;
-        }, $this->invoices);
     }
 }
 
@@ -453,6 +429,16 @@ final class StubAuditDataService extends AuditDataService
                 'nombre_alternativo' => 'Receta_medica',
             ]
         ];
+    }
+}
+
+final class NotFoundAuditDataService extends AuditDataService
+{
+    public function __construct() {}
+
+    public function getDispensationByFacSec(string $facSec): array
+    {
+        throw new RuntimeException("FDV vacía: no existe FacSec '{$facSec}'", 404);
     }
 }
 

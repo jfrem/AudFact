@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-05-29] - Fix: Incompatibilidad de placeholders nombrados en CTEs con pdo_sqlsrv
+
+### 🟢 Bugfix / SQL / Async Jobs Stability
+- **Resolución de Error `SQLSTATE[07002]`**:
+  - **Incompatibilidad del Driver SQLSRV**: Corregido el fallo crítico en `InvoicesModel::getInvoicesForAuditBatch` donde el parser de parámetros de `pdo_sqlsrv` fallaba al procesar placeholders nombrados dentro de una Expresión de Tabla Común (CTE `WITH candidates AS ...`), lanzando `SQLSTATE[07002]: COUNT field incorrect or syntax error`.
+  - **Refactorización a Subquery Derivada**: Reemplazada la estructura de consulta con CTE por una subquery derivada estándar (`FROM (SELECT ...) candidates`). Esto preserva el rendimiento de ejecución de la paginación keyset y la lógica semántica pero asegura compatibilidad nativa absoluta con el driver PDO de SQL Server.
+  - **Estabilización de Jobs en Redis**: Al eliminar las excepciones de base de datos durante la orquestación, se previene que `AuditBatchOrchestrator` ejecute el flujo destructivo de limpieza de estado de Redis (eliminando el `jobId`), resolviendo de forma definitiva los molestos errores `404` al consultar el progreso del job.
+  - **Actualización de Tests**: Sincronizada la clase `InvoicesModelTest` para validar los assertions contra la nueva sintaxis de subquery derivada. La suite completa de PHPUnit se encuentra en estado verde con paso exitoso de todas las aserciones.
+
+### Docs Sync (Post-Implementación)
+- **DOCS-SYNC**: Sincronizados `plans/changelog.md`, la skill principal de base de datos `.agent/skills/audfact-sqlsrv-models/SKILL.md` para añadir el guardrail de CTEs, y actualizados los artefactos de progreso.
+
 ## [2026-05-29] - Refactor: Pipeline de Auditoría Async Real e Idempotencia Absoluta
 
 ### 🔵 Architecture / High Concurrency / Idempotency

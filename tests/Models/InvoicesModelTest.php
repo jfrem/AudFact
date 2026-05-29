@@ -66,13 +66,16 @@ final class InvoicesModelTest extends TestCase
             'dispensa' => 'T38250701547',
         ]);
 
-        $this->assertStringContainsString('WITH candidates AS', $pdo->preparedSql);
+        $this->assertStringContainsString('FROM (', $pdo->preparedSql);
         $this->assertStringContainsString('SELECT TOP(50)', $pdo->preparedSql);
-        $this->assertStringContainsString('DisFecSol > :cursorDate', $pdo->preparedSql);
+        $this->assertStringContainsString('DisFecSol > :cursorDate1', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC', $pdo->preparedSql);
-        $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate']);
-        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec']);
-        $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa']);
+        $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate1']);
+        $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate2']);
+        $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate3']);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec1']);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec2']);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa1']);
     }
 
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel

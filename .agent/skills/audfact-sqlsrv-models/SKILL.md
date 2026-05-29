@@ -164,6 +164,7 @@ public function countItems(array $filters = []): int
 5. **No dejar conexiones abiertas innecesariamente** — el Singleton las cache pero `closeConnection()` existe.
 6. **No hardcodear valores de filtros** — usar siempre el array `$filters` inyectado desde el controlador.
 7. **No bindear arrays directamente a parámetros PDO** — El driver SQLSRV lo interpreta como *Table-Valued Parameter* y lanza error `SQLSTATE[IMSSP]`. Itera el array y mapea variables escalares con `bindValue`.
+8. **No usar Expresiones de Tabla Comunes (CTEs / `WITH`) con placeholders nombrados en pdo_sqlsrv**: El driver de SQL Server para PDO falla al mapear y contar descriptores de parámetros nombrados dentro de CTEs, lanzando el error `SQLSTATE[07002]: COUNT field incorrect or syntax error`. En su lugar, usa subqueries convencionales derivadas en la cláusula `FROM`, las cuales son completamente compatibles con placeholders nombrados y semánticamente idénticas para el optimizador de SQL Server.
 
 ## Cross-references
 - **`audfact-audit-gemini`**: `DispensationModel` y `AttachmentsModel` son consumidos por el Worker.

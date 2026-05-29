@@ -118,13 +118,18 @@ class InvoicesModel extends Model
         $cursorWhere = '';
         if ($cursor !== null && isset($cursor['date'], $cursor['facSec'], $cursor['dispensa'])) {
             $cursorWhere = "WHERE (
-                    DisFecSol > :cursorDate
-                    OR (DisFecSol = :cursorDate AND FacSec > :cursorFacSec)
-                    OR (DisFecSol = :cursorDate AND FacSec = :cursorFacSec AND Dispensa > :cursorDispensa)
+                    DisFecSol > :cursorDate1
+                    OR (DisFecSol = :cursorDate2 AND FacSec > :cursorFacSec1)
+                    OR (DisFecSol = :cursorDate3 AND FacSec = :cursorFacSec2 AND Dispensa > :cursorDispensa1)
                 )";
         }
 
-        $sql = "WITH candidates AS (
+        $sql = "SELECT TOP({$safeLimit})
+                    NitSec,
+                    FacSec,
+                    Dispensa,
+                    CONVERT(varchar(33), DisFecSol, 126) AS DisFecSol
+                FROM (
                     SELECT
                         tb3.FacNitSec NitSec,
                         tb3.FacSec FacSec,
@@ -167,13 +172,7 @@ class InvoicesModel extends Model
                         AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
                     GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro
                     having sum(tb4.KarUniCP-tb4.KarUni) = 0
-                )
-                SELECT TOP({$safeLimit})
-                    NitSec,
-                    FacSec,
-                    Dispensa,
-                    CONVERT(varchar(33), DisFecSol, 126) AS DisFecSol
-                FROM candidates
+                ) candidates
                 {$cursorWhere}
                 ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC";
 
@@ -183,9 +182,14 @@ class InvoicesModel extends Model
         $stmt->bindValue(':dateToD', $dateTo);
 
         if ($cursorWhere !== '') {
-            $stmt->bindValue(':cursorDate', (string) $cursor['date']);
-            $stmt->bindValue(':cursorFacSec', (string) $cursor['facSec']);
-            $stmt->bindValue(':cursorDispensa', (string) $cursor['dispensa']);
+            $stmt->bindValue(':cursorDate1', (string) $cursor['date']);
+            $stmt->bindValue(':cursorDate2', (string) $cursor['date']);
+            $stmt->bindValue(':cursorDate3', (string) $cursor['date']);
+
+            $stmt->bindValue(':cursorFacSec1', (string) $cursor['facSec']);
+            $stmt->bindValue(':cursorFacSec2', (string) $cursor['facSec']);
+
+            $stmt->bindValue(':cursorDispensa1', (string) $cursor['dispensa']);
         }
 
         $stmt->execute();
