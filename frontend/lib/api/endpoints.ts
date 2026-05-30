@@ -20,6 +20,7 @@ export const endpoints = {
   auditSingle: () => "/audit/single",
   auditAsync: () => "/audit/async",
   auditJob: (jobId: string) => `/audit/jobs/${jobId}`,
+  auditStatus: (auditId: string) => `/audit/status/${auditId}`,
   auditResults: (query?: Record<string, string | number | null | undefined>) => {
     const params = buildSearchParams(query ?? {});
     return params.size ? `/audit/results?${params.toString()}` : "/audit/results";

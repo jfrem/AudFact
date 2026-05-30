@@ -16,6 +16,7 @@ import {
   PublicConfigSchema,
   SaveAuditConfigResponseSchema,
   AuditStatsSchema,
+  AuditLiveStatusSchema,
 } from "@/lib/schemas/domain";
 import type { AuditResultDetail } from "@/lib/schemas/domain";
 import { endpoints } from "@/lib/api/endpoints";
@@ -103,6 +104,10 @@ export function enqueueAuditBatch(payload: {
 
 export function getAuditJob(jobId: string) {
   return requestJson(endpoints.auditJob(jobId), AuditJobSchema);
+}
+
+export function getAuditLiveStatus(auditId: string) {
+  return requestJson(endpoints.auditStatus(auditId), AuditLiveStatusSchema);
 }
 
 export function getAuditResults(query?: Record<string, string | number | undefined>) {

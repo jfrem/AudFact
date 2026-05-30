@@ -103,6 +103,53 @@ class AuditController extends Controller
         );
     }
 
+    public function status(string $auditId): void
+    {
+        if (!AuditEvent::isUuidV4($auditId)) {
+            Response::error('auditId inválido', 422);
+        }
+
+        try {
+            $state = $this->buildStateStore()->getAudit($auditId);
+        } catch (RuntimeException $e) {
+            Logger::error('AuditController::status falló', [
+                'audit_id' => $auditId,
+                'error' => $e->getMessage(),
+            ]);
+            Response::error('No se pudo consultar el estado de la auditoría', 503);
+        }
+
+        if ($state === null) {
+            Response::error('Auditoría no encontrada o expirada', 404);
+        }
+
+        $status = (string) ($state['status'] ?? AuditStateStore::AUDIT_STATUS_PENDING);
+        $isTerminal = in_array($status, [
+            AuditStateStore::AUDIT_STATUS_COMPLETED,
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
+            AuditStateStore::AUDIT_STATUS_ERROR,
+            AuditStateStore::AUDIT_STATUS_FAILED,
+        ], true);
+
+        Response::success([
+            'audit_id'       => $auditId,
+            'status'         => $status,
+            'dis_det_nro'    => (string) ($state['dis_det_nro'] ?? ''),
+            'fac_sec'        => (string) ($state['fac_sec'] ?? ''),
+            'docs_total'     => (int) ($state['docs_total'] ?? 0),
+            'docs_done'      => (int) ($state['docs_done'] ?? 0),
+            'docs_extracted' => (int) ($state['docs_extracted'] ?? 0),
+            'docs_evaluated' => (int) ($state['docs_evaluated'] ?? 0),
+            'is_terminal'    => $isTerminal,
+            'error_message'  => $isTerminal && in_array($status, [
+                AuditStateStore::AUDIT_STATUS_ERROR,
+                AuditStateStore::AUDIT_STATUS_FAILED,
+            ], true) ? (string) ($state['error_message'] ?? '') : null,
+            'created_at'     => (string) ($state['created_at'] ?? ''),
+            'updated_at'     => (string) ($state['updated_at'] ?? ''),
+        ], 'Estado de la auditoría');
+    }
+
     public function stats(): void
     {
         try {

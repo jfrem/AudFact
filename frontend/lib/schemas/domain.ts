@@ -314,6 +314,21 @@ export const PaginatedAuditResultsSchema = z.object({
   filters: PaginationFiltersSchema,
 });
 
+export const AuditLiveStatusSchema = z.object({
+  audit_id: z.string(),
+  status: z.string(),
+  dis_det_nro: z.string().default(""),
+  fac_sec: z.string().default(""),
+  docs_total: z.number().int().nonnegative().default(0),
+  docs_done: z.number().int().nonnegative().default(0),
+  docs_extracted: z.number().int().nonnegative().default(0),
+  docs_evaluated: z.number().int().nonnegative().default(0),
+  is_terminal: z.boolean(),
+  error_message: z.string().nullable().optional(),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+});
+
 export const AuditStatsSchema = z.object({
   total: z.number(),
   byState: z.record(z.string(), z.number()),
@@ -359,4 +374,5 @@ export type AuditConfigField = z.infer<typeof AuditConfigFieldSchema>;
 export type AuditConfigDocument = z.infer<typeof AuditConfigDocumentSchema>;
 export type AuditConfig = z.infer<typeof AuditConfigSchema>;
 export type SaveAuditConfigResponse = z.infer<typeof SaveAuditConfigResponseSchema>;
+export type AuditLiveStatus = z.infer<typeof AuditLiveStatusSchema>;
 export type AuditStats = z.infer<typeof AuditStatsSchema>;
