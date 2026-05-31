@@ -1,5 +1,33 @@
 # Changelog AudFact
 
+## [2026-05-30] - Docs: Expansión Arquitectónica Forense, Alineación E2E, Matiz de Métricas (ROI) y Auditoría de TTL en Redis
+
+### 📚 Documentation / Architecture / Resiliencia / Redis TTL / ROI Refinement
+- **Apéndice Técnico de Persistencia en Redis (TTL)**:
+  - Se realizó una auditoría forense completa de los Time-To-Live (TTL) y políticas de expiración en la capa de datos en caliente de Redis.
+  - Se documentaron formalmente todos los tiempos de expiración reales en el Apéndice Técnico (sección 7) de [architecture-executive-report.md](file:///c:/Users/USER/Desktop/AudFact/plans/architecture-executive-report.md), detallando: Caché de Extracción Documental (24h), Homologación Semántica (30d), Estado Transitorio de Auditorías (24h), Estado de Batch Jobs (24h), Caché de Hash de Dispensación (24h), Barrera de Idempotencia HTTP (5min), Caché de Consultas Públicas (60s) y Distributed Locks (10s).
+  - Esta formalización erradica las "cajas negras" y provee total transparencia operativa para el dimensionamiento del consumo de memoria y optimización de rendimiento bajo alta concurrencia.
+
+- **Refinamiento de Métricas de ROI e Impacto de Negocio**:
+  - Se sustituyeron las afirmaciones absolutas y categóricas ("Cero Glosas", "Reducción del 98%", "Incremento de velocidad del 400%") por aserciones estadísticas y rigurosas basadas en mitigación activa de riesgos bajo validación continua y revisión manual de casos complejos.
+  - Se incorporó la métrica operativa real del auditor de **3 minutos por dispensa (hora-hombre)** como línea de base manual de comparación de tiempos, proyectando una optimización potencial de hasta el 83% gracias al pipeline asíncrono distribuidor de workers.
+  - Se proyectó un ahorro potencial de costos de tokens en APIs multimodales de hasta el 85% a través del SHA256 Extraction Cache, basado en la tasa de redundancia del portafolio del cliente.
+
+- **Formalización de los 6 Pilares de Alta Eficiencia y Resiliencia**:
+  - **Redis Streams & Idempotencia (Pilar 1)**: Documentación en profundidad de la topología event-driven utilizando Redis Streams, la adquisición de bloqueos concurrentes atómicos, la re-reclamación defensiva de eventos huérfanos vía `XAUTOCLAIM` (idle > 10 min) y la política fail-closed con envío a Dead Letter Queue (`audit.dlq`).
+  - **Gemini Parallel Function Calling (Pilar 2)**: Detalle del flujo de invocación de herramientas, Structured Outputs y mitigación estricta de errores HTTP `400 Bad Request` mediante el método recursivo de sanitización de esquemas JSON `normalizeSchemaProperties()` en `GeminiGateway`.
+  - **Patrones de Resiliencia Industrial (Pilar 3)**: Documentación de la máquina de estados distribuida en Redis (`cb:gemini:*`) para implementar el Circuit Breaker y estrategias de Backoff Exponencial con Jitter.
+  - **Modelo Híbrido de Auditoría (Pilar 4)**: Justificación del desacoplamiento entre el motor cognitivo de IA (comprensión y traducción semántica de adjuntos) y el motor determinista local en PHP (`DocumentPolicyEngine` para validaciones de leyes y normativas colombianas sin alucinaciones).
+  - **Lazy Downloading en Memoria (Pilar 5)**: Detalle del consumo de adjuntos binarios mediante streams de memoria en PHP a partir de Google Drive API, evitando la I/O a almacenamiento físico en disco.
+  - **Telemetría y Métricas en Cola (Pilar 6)**: Explicación de los timings acumulados del pipeline asíncrono y los metadatos almacenados de ejecución.
+
+- **Paridad y Sincronización Dual (Protocolo `audfact-docs-sync`)**:
+  - Sincronización absoluta del reporte ejecutivo del repositorio (`plans/architecture-executive-report.md`) con el reporte del brain técnico del agente (`technical_architecture_report.md`).
+  - Configuración minuciosa de enrutamientos de diagramas: rutas relativas para el repositorio local y rutas absolutas compatibles con el visor de la IA en el reporte del brain.
+  - Actualización de las directrices y repositorios de conocimiento en las skills `audfact-audit-gemini` y `audfact-project-overview` para reflejar la topología exacta del código.
+  - Registro formal del walkthrough en el artefacto final `walkthrough.md`.
+
+
 ## [2026-05-29] - Fix: Incompatibilidad de placeholders nombrados en CTEs con pdo_sqlsrv
 
 ### 🟢 Bugfix / SQL / Async Jobs Stability

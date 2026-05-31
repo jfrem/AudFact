@@ -271,12 +271,12 @@ class RedisClient
         }
 
         $lua = <<<'LUA'
-local val = redis.call('INCR', KEYS[1])
-if val == 1 then
-    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
-end
-return val
-LUA;
+                local val = redis.call('INCR', KEYS[1])
+                if val == 1 then
+                    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
+                end
+                return val
+                LUA;
 
         try {
             $result = $this->eval($lua, [$key], [(string) $ttl]);
