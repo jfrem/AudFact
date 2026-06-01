@@ -1,15 +1,16 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ScanSearch } from "lucide-react";
 import { z } from "zod";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 const schema = z.object({
   disDetNro: z.string().min(1, "Ingresa un DisDetNro válido."),
@@ -18,7 +19,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export default function DispensationSearchPage() {
-  const router = useRouter();
+  const navigation = usePendingNavigation();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { disDetNro: "" },
@@ -33,9 +34,10 @@ export default function DispensationSearchPage() {
       />
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
         <form
+          aria-busy={navigation.isPending}
           className="grid gap-4 md:grid-cols-[1fr_auto]"
           onSubmit={form.handleSubmit((values) => {
-            router.push(`/dispensation/${encodeURIComponent(values.disDetNro)}`);
+            navigation.push(`/dispensation/${encodeURIComponent(values.disDetNro)}`);
           })}
         >
           <Field>
@@ -55,12 +57,24 @@ export default function DispensationSearchPage() {
               </FieldDescription>
             ) : null}
           </Field>
-          <Button type="submit" className="h-11 self-end">
+          <Button
+            type="submit"
+            className="h-11 self-end"
+            loading={navigation.isPending}
+            loadingLabel="Consultando"
+          >
             <ScanSearch className="h-4 w-4" />
             Ver detalle
           </Button>
         </form>
       </div>
+      {navigation.isPending ? (
+        <BackendRequestSkeleton
+          description="El backend está cargando el detalle técnico y los adjuntos."
+          title="Consultando dispensación"
+          variant="detail"
+        />
+      ) : null}
     </div>
   );
 }

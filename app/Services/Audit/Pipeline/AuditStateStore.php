@@ -59,6 +59,7 @@ class AuditStateStore
             'docs_done'   => 0,
             'docs_extracted' => 0,
             'docs_evaluated' => 0,
+            'docs_rejected'  => 0,
             'documents'   => new \stdClass(),
             'created_at'  => $now,
             'updated_at'  => $now,
@@ -167,6 +168,26 @@ class AuditStateStore
             'docs_evaluated',
             'evaluated',
             'No se pudo actualizar la evaluación del documento en Redis'
+        );
+    }
+
+    /**
+     * Marca un documento como rechazado por validación de integridad.
+     *
+     * Incrementa atómicamente `docs_rejected`. La evaluación funcional del
+     * rechazo ocurre después en `RulesEvaluationWorker`, que incrementa
+     * `docs_evaluated` al persistir el `policy_result` canónico.
+     *
+     * @param  array<string,mixed> $patch  Metadata del rechazo (rejection_reason, document_type, mime, etc.)
+     */
+    public function markDocumentRejected(string $auditId, string $documentId, array $patch): bool
+    {
+        return $this->runScript(
+            self::DOCUMENT_REJECTION_LUA,
+            [self::auditKey($auditId)],
+            [$documentId, $patch, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            'No se pudo marcar el documento como rechazado en Redis',
+            ['audit_id' => $auditId, 'document_id' => $documentId]
         );
     }
 
@@ -319,6 +340,10 @@ class AuditStateStore
         local document = audit['documents'][documentId]
         local previousStatus = tostring(document['status'] or '')
 
+        if previousStatus == 'evaluated' then
+            return 1
+        end
+
         for k, v in pairs(patch) do
             document[k] = v
         end
@@ -328,6 +353,55 @@ class AuditStateStore
 
         if previousStatus ~= expectedStatus then
             audit[counterField] = (tonumber(audit[counterField]) or 0) + 1
+        end
+
+        audit['status'] = 'processing'
+        audit['updated_at'] = now
+
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
+
+    private const DOCUMENT_REJECTION_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+
+        local audit = cjson.decode(raw)
+        local auditStatus = tostring(audit['status'] or '')
+        if auditStatus == 'completed'
+        or auditStatus == 'manual_review'
+        or auditStatus == 'error'
+        or auditStatus == 'failed' then
+            return 1
+        end
+
+        local documentId = ARGV[1]
+        local patch = cjson.decode(ARGV[2])
+        local now = ARGV[3]
+        local ttl = tonumber(ARGV[4])
+
+        if type(audit['documents']) ~= 'table'
+        or type(audit['documents'][documentId]) ~= 'table' then
+            return 0
+        end
+
+        local document = audit['documents'][documentId]
+        local previousStatus = tostring(document['status'] or '')
+
+        if previousStatus == 'evaluated' then
+            return 1
+        end
+
+        for k, v in pairs(patch) do
+            document[k] = v
+        end
+
+        document['status'] = 'rejected'
+        document['updated_at'] = now
+        audit['documents'][documentId] = document
+
+        if previousStatus ~= 'rejected' then
+            audit['docs_rejected'] = (tonumber(audit['docs_rejected']) or 0) + 1
         end
 
         audit['status'] = 'processing'

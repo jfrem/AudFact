@@ -5,7 +5,8 @@
       "skills": [
         "audfact-api-rest",
         "audfact-sqlsrv-models",
-        "audfact-project-overview"
+        "audfact-project-overview",
+        "audfact-docs-sync"
       ]
     },
     {
@@ -13,14 +14,16 @@
       "skills": [
         "audfact-audit-gemini",
         "audfact-sqlsrv-models",
-        "audfact-security-guardrails"
+        "audfact-security-guardrails",
+        "audfact-docs-sync"
       ]
     },
     {
       "name": "audfact-integration",
       "skills": [
         "audfact-mcp-wrap",
-        "audfact-api-rest"
+        "audfact-api-rest",
+        "audfact-docs-sync"
       ]
     },
     {
@@ -28,7 +31,35 @@
       "skills": [
         "audfact-runtime-docker",
         "audfact-production-ops",
-        "audfact-security-guardrails"
+        "audfact-security-guardrails",
+        "audfact-docs-sync"
+      ]
+    },
+    {
+      "name": "audfact-tech-assessment",
+      "skills": [
+        "audit-skill-router",
+        "architecture-assessment",
+        "code-quality-assessment",
+        "security-assessment",
+        "technical-governance-assessment",
+        "audfact-docs-sync"
+      ]
+    },
+    {
+      "name": "audfact-frontend",
+      "skills": [
+        "next-best-practices",
+        "ui-ux-pro-max",
+        "impeccable",
+        "audfact-docs-sync"
+      ]
+    },
+    {
+      "name": "audfact-docs",
+      "skills": [
+        "audfact-docs-sync",
+        "audfact-project-overview"
       ]
     }
   ]

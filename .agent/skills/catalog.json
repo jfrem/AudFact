@@ -1,11 +1,11 @@
 {
   "catalog": "audfact-skills",
-  "generated_at": "2026-03-02",
+  "generated_at": "2026-06-01",
   "skills": [
     {
       "name": "audfact-api-rest",
       "path": ".agent/skills/audfact-api-rest",
-      "description": "Endpoints REST en PHP MVC. Cubre 25 endpoints en web.php, controladores REST y validación centralizada."
+      "description": "Endpoints REST en PHP MVC. Cubre 27 rutas en web.php, controladores REST y validación centralizada."
     },
     {
       "name": "audfact-audit-gemini",
@@ -38,6 +38,11 @@
       "description": "Políticas de seguridad: Rate Limit (100/min), CORS y sanitización de logs."
     },
     {
+      "name": "audfact-docs-sync",
+      "path": ".agent/skills/audfact-docs-sync",
+      "description": "Sincronización de documentación y skills para evitar documentation drift tras cambios de código."
+    },
+    {
       "name": "audfact-project-overview",
       "path": ".agent/skills/audfact-project-overview",
       "description": "Visión general, arquitectura y flujos de datos principales del sistema AudFact."
@@ -68,6 +73,21 @@
       "name": "technical-governance-assessment"
     },
     {
+      "path": ".agent/skills/next-best-practices",
+      "description": "Convenciones Next.js para frontend AudFact en App Router y Server Components.",
+      "name": "next-best-practices"
+    },
+    {
+      "path": ".agent/skills/next-cache-components",
+      "description": "Guías de caché/PPR para migraciones Next.js 16+; no aplicar al runtime actual 15.5.15 salvo upgrade.",
+      "name": "next-cache-components"
+    },
+    {
+      "path": ".agent/skills/next-upgrade",
+      "description": "Protocolos y herramientas para actualizar Next.js de forma segura.",
+      "name": "next-upgrade"
+    },
+    {
       "path": ".agent/skills/clean-rebuild-policy",
       "description": "Política para reconstrucción desde cero (clean rebuild) orientada a arquitectura limpia, eliminación de legacy y un MVP estricto.",
       "name": "clean-rebuild-policy"
@@ -76,6 +96,11 @@
       "path": ".agent/skills/ui-ux-pro-max",
       "description": "Inteligencia de diseño UI/UX para web y móvil: estilos, colores, tipografía y accesibilidad.",
       "name": "ui-ux-pro-max"
+    },
+    {
+      "path": ".agent/skills/impeccable",
+      "description": "Diseño frontend distintivo y producción de interfaces pulidas para AudFact.",
+      "name": "impeccable"
     }
   ]
 }

@@ -112,6 +112,7 @@ sequenceDiagram
     participant DB as SQL Server
     participant AO as DocumentAuditOrchestrator
     participant EW as DocumentExtractionWorker
+    participant IV as DocumentIntegrityValidator
     participant G as Google Gemini API
     participant NW as DocumentNormalizer
     participant RW as RulesEvaluationWorker
@@ -142,13 +143,19 @@ sequenceDiagram
     
     par Paralelo por cada Documento
         R->>EW: xReadGroup (Consumer: extractors)
-        EW->>G: generateContent (IA Extraction)
-        G-->>EW: JSON Result
-        EW->>R: XADD audit.documents {document_extracted}
-        
-        R->>NW: xReadGroup (Consumer: normalizers)
-        NW->>NW: Estandarización de datos (ISO/UTC)
-        NW->>R: XADD audit.documents {document_normalized}
+        EW->>IV: valida tamaño, MIME y magic bytes
+        alt Documento no procesable
+            EW->>R: XADD audit.documents {document_rejected}
+            R->>RW: xReadGroup (Consumer: policy-engine)
+            RW->>RW: Genera hallazgo RECHAZADO tipo_auditoria=integrity
+        else Documento válido
+            EW->>G: generateContent (IA Extraction)
+            G-->>EW: JSON Result
+            EW->>R: XADD audit.documents {document_extracted}
+            R->>NW: xReadGroup (Consumer: normalizers)
+            NW->>NW: Estandarización de datos (ISO/UTC)
+            NW->>R: XADD audit.documents {document_normalized}
+        end
     end
 
     R->>RW: xReadGroup (Consumer: policy-engine)
@@ -169,8 +176,8 @@ sequenceDiagram
 | `audit_created` | `audit.inbox` | Batch Worker / Sync Controller | Orchestrator | Inicia la orquestación de una auditoría individual |
 | `document_registered` | `audit.documents` | Orchestrator | Extractor | Registra un adjunto para extracción por IA |
 | `document_extracted` | `audit.documents` | Extractor | Normalizer | Transporta datos crudos extraídos de Gemini |
+| `document_rejected` | `audit.documents` | Extractor | Rule Engine | Transporta rechazo preventivo de adjuntos vacíos, corruptos, con MIME inconsistente o no soportados, sin consumir Gemini |
 | `document_normalized` | `audit.documents` | Normalizer | Rule Engine | Transporta datos estandarizados listos para reglas |
 | `rules_evaluated` | `audit.results` | Rule Engine | Aggregator | Transporta veredicto de reglas y auditoría |
 | `audit_completed` | `audit.results` | Aggregator | Bus Global / Job Store | Persiste en DB y notifica fin del proceso |
 | `dead_letter` | `audit.dlq` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual administrativamente |
-

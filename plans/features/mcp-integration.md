@@ -13,7 +13,7 @@ Capa de integración que expone los datos del sistema a asistentes de IA (Claude
 | `app/wrap/core/MCPServer.php` | Servidor MCP — routing de tools, manejo de errores |
 | `app/wrap/core/ApiClient.php` | Cliente HTTP interno — llama a la API REST |
 | `app/wrap/core/tools/GetClients.php` | Tool: obtener listado de clientes |
-| `app/wrap/core/tools/GetInvoices.php` | Tool: buscar facturas por cliente/fecha |
+| `app/wrap/core/tools/GetInvoices.php` | Tool: buscar facturas paginadas por cliente/fecha |
 | `app/wrap/core/tools/GetDispensation.php` | Tool: obtener datos de dispensación |
 | `app/wrap/core/tools/GetAttachments.php` | Tool: listar documentos adjuntos |
 
@@ -36,7 +36,7 @@ Capa de integración que expone los datos del sistema a asistentes de IA (Claude
 
 ## Configuración
 
-No requiere configuración adicional. Las tools usan la URL base interna para conectarse a la API REST.
+El webhook requiere autenticación con header `X-API-KEY`, comparado contra `MCP_WEBHOOK_SECRET`. Las tools usan `WRAP_API_BASE` como URL base interna para conectarse a la API REST.
 
 ## Notas Técnicas
 
@@ -44,3 +44,4 @@ No requiere configuración adicional. Las tools usan la URL base interna para co
 - **Sin duplicación**: La lógica de negocio vive en Controllers/Models. MCP solo traduce el protocolo
 - **JSON-RPC 2.0**: El protocolo sigue el estándar con `jsonrpc`, `method`, `params`, `id`
 - **Extensibilidad**: Agregar una nueva tool requiere crear un archivo en `core/tools/` y registrarla en `capabilities.php`
+- **Paginación de facturas**: `GetInvoices` recibe `facNitSec`, `date`, `page` y `pageSize`; internamente traduce `date` a `dateFrom` para `GET /invoices`. El backend completa `dateTo = dateFrom` cuando no se envía rango. `limit` no pertenece al contrato interactivo.

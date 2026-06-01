@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Settings2,
   Users,
@@ -16,8 +15,11 @@ import {
 } from "lucide-react";
 import { ClientSelector } from "@/components/audit/client-selector";
 import { CreateConfigDialog } from "@/components/audit/create-config-dialog";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 /* ─── Types ────────────────────────────────────────────────────── */
 type Client = { NitSec: string; NitCom: string };
@@ -43,7 +45,7 @@ export function AuditConfigPageClient({
   hasConfig,
   editor,
 }: Props) {
-  const router = useRouter();
+  const navigation = usePendingNavigation();
   const [createOpen, setCreateOpen] = React.useState<string | boolean>(false);
 
   const selected = clients.find((c) => c.NitSec === clientId) ?? null;
@@ -135,7 +137,8 @@ export function AuditConfigPageClient({
             title="No se pudo cargar la configuración"
             description="El backend no respondió al cargar clientes. No se muestran datos de respaldo para evitar información falsa."
             detail={clientsError}
-            onRetry={() => router.refresh()}
+            retryPending={navigation.isPending}
+            onRetry={() => navigation.refresh()}
           />
         )}
 
@@ -152,7 +155,8 @@ export function AuditConfigPageClient({
             title="No se pudo cargar la configuración del cliente"
             description="La UI bloqueó la vista editable porque la configuración no fue confirmada por el backend."
             detail={configError ?? "Error de API no especificado."}
-            onRetry={() => router.refresh()}
+            retryPending={navigation.isPending}
+            onRetry={() => navigation.refresh()}
           />
         )}
 
@@ -220,11 +224,13 @@ function ErrorPanel({
   description,
   detail,
   onRetry,
+  retryPending = false,
 }: {
   title: string;
   description: string;
   detail: string;
   onRetry: () => void;
+  retryPending?: boolean;
 }) {
   return (
     <Alert variant="destructive" className="block rounded-3xl px-0 py-0">
@@ -241,14 +247,24 @@ function ErrorPanel({
             {detail}
           </AlertDescription>
         </div>
-        <button
+        <Button
           type="button"
           onClick={onRetry}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-rose-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 active:scale-[0.98]"
+          loading={retryPending}
+          loadingLabel="Reintentando"
+          className="cursor-pointer rounded-lg bg-rose-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 active:scale-[0.98]"
         >
           <RefreshCw className="h-4 w-4" />
           Reintentar
-        </button>
+        </Button>
+        {retryPending ? (
+          <BackendRequestSkeleton
+            className="w-full max-w-xl text-left"
+            description="El backend está intentando cargar la configuración nuevamente."
+            title="Reintentando carga"
+            variant="compact"
+          />
+        ) : null}
       </div>
     </Alert>
   );

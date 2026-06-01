@@ -1,163 +1,226 @@
-# Diagramas de Arquitectura — AudFact (C4 Model)
+# Diagramas de Arquitectura - AudFact
 
-> **[OBSOLETO POST-AUDIT-013/014/015]** Este documento describe la arquitectura monolítica anterior.  
-> **Arquitectura actual**: Pipeline event-driven con Redis Streams y 5 workers independientes.  
-> **Referencias actualizadas**:
->
-> - Skill: [`.agent/skills/audfact-audit-gemini/SKILL.md`](./.agent/skills/audfact-audit-gemini/SKILL.md) — flujo completo y workers
-> - Architecture: [`plans/architecture.md`](./architecture.md) — diagrama event-driven
-> - Project overview: [`.agent/skills/audfact-project-overview/SKILL.md`](./.agent/skills/audfact-project-overview/SKILL.md) — endpoints y flujo
->
-> Si necesitas diagramas C4 de la arquitectura actual, abre un ticket DOCS-\*.
+> Estado actual: backend PHP 8.2-FPM + Nginx, frontend Next.js 15.5.15,
+> Redis Streams para auditoria asíncrona y SQL Server externo. Fuente
+> operativa: `app/Routes/web.php`, `docker-compose.yml`,
+> `docker-compose.prod.yml` y `app/Services/Audit/Pipeline/*`.
 
 ---
 
-## Level 1 — System Context
+## Level 1 - System Context
 
 ```mermaid
 C4Context
-    title AudFact — Contexto del Sistema
+    title AudFact - Contexto del Sistema
 
-    Person(auditor, "Auditor / Frontend", "Interactúa vía frontend Next.js")
-    Person(aiAssistant, "Asistente IA", "Interactúa vía protocolo MCP")
+    Person(auditor, "Auditor / Usuario", "Opera el frontend AudFact")
+    Person(aiAssistant, "Asistente IA", "Consulta datos via MCP")
 
-    System(audfact, "AudFact", "Sistema de auditoría documental automatizada para el sector salud")
+    System(audfact, "AudFact", "Auditoria documental automatizada para dispensacion farmaceutica")
 
-    System_Ext(sqlserver, "SQL Server", "Base de datos de dispensación farmacéutica")
-    System_Ext(gemini, "Google Gemini API", "Motor de análisis multimodal IA + OCR con modelo configurable")
-    System_Ext(gdrive, "Google Drive", "Almacenamiento de documentos escaneados")
+    System_Ext(sqlserver, "SQL Server", "Datos legacy de dispensacion, facturacion, adjuntos y resultados")
+    System_Ext(gemini, "Google Gemini API", "Extraccion multimodal por function calling")
+    System_Ext(gdrive, "Google Drive", "Documentos escaneados por URL")
 
-    Rel(auditor, audfact, "Solicita auditorías", "HTTPS/REST")
-    Rel(aiAssistant, audfact, "Consulta datos", "MCP/JSON-RPC")
-    Rel(audfact, sqlserver, "Lee datos de dispensación", "PDO sqlsrv")
-    Rel(audfact, gemini, "Envía documentos + prompt", "HTTPS REST")
-    Rel(audfact, gdrive, "Descarga/sube documentos", "HTTPS REST + JWT")
+    Rel(auditor, audfact, "Gestiona clientes, facturas y auditorias", "HTTP/JSON")
+    Rel(aiAssistant, audfact, "Invoca tools MCP", "JSON-RPC")
+    Rel(audfact, sqlserver, "Lee FDV/config y persiste resultados", "PDO sqlsrv")
+    Rel(audfact, gemini, "Extrae evidencia documental", "HTTPS")
+    Rel(audfact, gdrive, "Descarga adjuntos por URL", "HTTPS/JWT")
 ```
 
 ---
 
-## Level 2 — Container Diagram
+## Level 2 - Container Diagram
 
 ```mermaid
 C4Container
-    title AudFact — Contenedores
+    title AudFact - Contenedores
 
-    Person(user, "Usuario/Auditor")
-    Person(mcp, "Asistente IA (MCP)")
+    Person(user, "Usuario")
+    Person(mcp, "Asistente IA")
 
-    Container_Boundary(docker, "Docker Compose") {
-        Container(nginx, "Nginx 1.25", "Reverse proxy", "Proxy inverso, sirve archivos estáticos, reescritura de URLs")
-        Container(phpfpm, "PHP 8.2-FPM", "Application Server", "Framework MVC custom, API REST, Worker IA")
+    Container(frontend, "Frontend", "Next.js 15.5.15", "UI y proxy /api/backend/* hacia la API")
+    Container(nginx, "Nginx 1.25", "Reverse proxy", "Sirve la API en :8080 y enruta FastCGI")
+    Container(php, "PHP-FPM", "PHP 8.2", "API REST MVC")
+    Container(redis, "Redis 7", "Streams/Cache", "Estado de auditorias, jobs, idempotencia y DLQ")
+
+    Container_Boundary(workers, "Workers CLI PHP") {
+        Container(batch, "worker-batch", "BatchRequestedWorker", "Consume batch_requested")
+        Container(orchestrator, "worker-orchestrator", "DocumentAuditOrchestrator", "Consume audit_created")
+        Container(extraction, "worker-extraction", "DocumentExtractionWorker", "Consume document_registered")
+        Container(normalizer, "worker-normalizer", "DocumentNormalizer", "Consume document_extracted")
+        Container(policy, "worker-policy", "RulesEvaluationWorker", "Consume document_normalized/document_rejected")
+        Container(aggregator, "worker-aggregator", "AuditAggregationWorker", "Consume rules_evaluated")
     }
 
-    ContainerDb(sqlsrv, "SQL Server", "Database", "Datos de dispensación, facturas, clientes, adjuntos")
-    Container_Ext(gemini, "Gemini Flash API", "IA Service", "Análisis multimodal de documentos")
-    Container_Ext(gdrive, "Google Drive API", "Storage", "Documentos escaneados")
+    ContainerDb(sqlsrv, "SQL Server", "External DB", "Discolnet legacy + auditoria")
+    Container_Ext(gemini, "Gemini API", "External AI", "Function calling multimodal")
+    Container_Ext(gdrive, "Google Drive", "External storage", "Adjuntos por URL")
 
-    Rel(user, nginx, "HTTPS", "REST JSON")
-    Rel(mcp, nginx, "HTTPS", "JSON-RPC 2.0")
-    Rel(nginx, phpfpm, "FastCGI", "least_conn load balancing hacia pool")
-    Rel(phpfpm, sqlsrv, "PDO", "sqlsrv")
-    Rel(phpfpm, gemini, "HTTPS", "Guzzle")
-    Rel(phpfpm, gdrive, "HTTPS", "JWT + Guzzle")
+    Rel(user, frontend, "HTTP")
+    Rel(frontend, nginx, "Proxy server-side", "INTERNAL_API_URL")
+    Rel(mcp, nginx, "JSON-RPC / wrap")
+    Rel(nginx, php, "FastCGI", "php:9000")
+    Rel(php, sqlsrv, "PDO sqlsrv")
+    Rel(php, redis, "Redis")
+    Rel(php, batch, "Publica batch_requested", "Redis Stream")
+    Rel(php, orchestrator, "Publica audit_created", "Redis Stream")
+    Rel(batch, redis, "XREADGROUP/XADD")
+    Rel(orchestrator, redis, "XREADGROUP/XADD")
+    Rel(extraction, redis, "XREADGROUP/XADD + cache")
+    Rel(normalizer, redis, "XREADGROUP/XADD")
+    Rel(policy, redis, "XREADGROUP/XADD")
+    Rel(aggregator, redis, "XREADGROUP/XADD + cierre")
+    Rel(batch, sqlsrv, "Consulta candidatas batch")
+    Rel(orchestrator, sqlsrv, "FDV/config/adjuntos")
+    Rel(extraction, gdrive, "Descarga documentos")
+    Rel(extraction, gemini, "Extraccion IA")
+    Rel(aggregator, sqlsrv, "Persistencia final")
 ```
 
 ---
 
-## Level 3 — Component Diagram (PHP-FPM)
+## Level 3 - Component Diagram (API PHP)
 
 ```mermaid
 C4Component
-    title AudFact — Componentes del Application Server
+    title AudFact - Componentes del backend PHP
 
-    Container_Boundary(phpfpm, "PHP 8.2-FPM (Pool N Replicas + static)") {
-        Component(router, "Router + Route", "core/", "Despacho de rutas HTTP con middleware pipeline")
-        Component(middleware, "Middleware Pipeline", "core/", "Rate limit, CORS, validación")
-        Component(controllers, "Controllers", "app/Controllers/", "11 controladores HTTP: base, health, observability, config, clients, audit config, invoices, attachments, dispensation, audit, DLQ")
-        Component(models, "Models", "app/Models/", "7 modelos PDO: base, clients, invoices, attachments, dispensation, audit config, audit status")
-        Component(auditWorker, "AuditOrchestrator", "app/Services/Audit/", "Orquestador del pipeline de auditoría IA")
-        Component(auditServices, "Audit Services", "app/Services/Audit/", "FileManager, PromptBuilder, ResponseSchema, ResultValidator, JsonRepair, JsonParser")
-        Component(driveService, "GoogleDriveAuthService", "app/Services/", "Autenticación JWT + streaming de archivos")
-        Component(mcpServer, "MCP Server", "app/wrap/", "Servidor JSON-RPC con 4 tools")
-        Component(response, "Response + Logger", "core/", "Respuestas JSON estandarizadas + logging estructurado")
-        Component(database, "Database", "core/", "Singleton PDO (sqlsrv)")
+    Container_Boundary(api, "PHP-FPM API") {
+        Component(router, "Router + Middleware", "core/", "Despacho HTTP, CORS, rate limit y validacion")
+        Component(controllers, "Controllers", "app/Controllers/", "11 controladores HTTP")
+        Component(models, "Models", "app/Models/", "7 modelos PDO sqlsrv")
+        Component(auditController, "AuditController", "app/Controllers/", "Auditorias, jobs, resultados, status y timings")
+        Component(auditBatch, "AuditBatchOrchestrator", "app/Services/Audit/", "Reserva jobs batch y publica eventos")
+        Component(publisher, "AuditEventPublisher", "app/Services/Audit/Pipeline/", "Publica eventos Redis Streams")
+        Component(mcpServer, "MCP Wrap", "app/wrap/", "Tools GetClients, GetInvoices, GetDispensation, GetAttachments")
+        Component(response, "Response + Logger", "core/", "Salida JSON y logging")
+        Component(redisClient, "RedisClient", "core/", "Cache, streams, locks e idempotencia")
+        Component(database, "Database", "core/", "Conexiones PDO default/db2")
     }
 
+    Container(redis, "Redis", "")
     ContainerDb(sqlsrv, "SQL Server", "")
-    Container_Ext(gemini, "Gemini API", "")
-    Container_Ext(gdrive, "Google Drive", "")
 
-    Rel(router, middleware, "Pipeline")
-    Rel(middleware, controllers, "Despacha")
-    Rel(controllers, models, "Consulta datos")
-    Rel(controllers, auditWorker, "Inicia auditoría")
-    Rel(auditWorker, auditServices, "Usa servicios")
-    Rel(auditWorker, models, "Lee dispensación + adjuntos")
-    Rel(auditServices, driveService, "Descarga archivos")
-    Rel(mcpServer, controllers, "Reutiliza vía ApiClient")
+    Rel(router, controllers, "Despacha")
+    Rel(controllers, models, "Consulta/persiste")
+    Rel(auditController, auditBatch, "POST /audit/async")
+    Rel(auditController, publisher, "POST /audit/single")
+    Rel(auditBatch, publisher, "batch_requested")
+    Rel(publisher, redisClient, "XADD")
+    Rel(mcpServer, controllers, "via ApiClient HTTP")
     Rel(models, database, "PDO")
     Rel(database, sqlsrv, "sqlsrv")
-    Rel(auditWorker, gemini, "Guzzle HTTP")
-    Rel(driveService, gdrive, "JWT + Guzzle")
+    Rel(redisClient, redis, "RESP")
+    Rel(controllers, response, "JSON")
 ```
 
 ---
 
-## Level 4 — Code Diagram (Pipeline de Auditoría)
+## Level 4 - Pipeline de Auditoria IA
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant API as AuditController
+    participant Redis as Redis Streams/State
+    participant Batch as BatchRequestedWorker
+    participant Orchestrator as DocumentAuditOrchestrator
+    participant Extractor as DocumentExtractionWorker
+    participant Gemini as Gemini API
+    participant Normalizer as DocumentNormalizer
+    participant Policy as RulesEvaluationWorker
+    participant Aggregator as AuditAggregationWorker
+    participant SQL as SQL Server
+
+    API->>Redis: batch_requested o audit_created
+    Batch->>SQL: getInvoicesForAuditBatch()
+    Batch->>Redis: audit_created por FacSec reservado
+    Orchestrator->>SQL: FDV + audit-config + adjuntos
+    Orchestrator->>Redis: document_registered por adjunto
+    Extractor->>Redis: descarga + DocumentIntegrityValidator
+    alt Documento no procesable
+        Extractor->>Redis: document_rejected
+    else Documento valido
+        Extractor->>Gemini: function calling paralelo
+        Extractor->>Redis: document_extracted
+        Normalizer->>Redis: document_normalized
+    end
+    Policy->>Redis: policy_result por documento
+    Policy->>Redis: rules_evaluated cuando docs_done + docs_rejected == docs_total
+    Aggregator->>SQL: persistAuditResultWithAttachments()
+    Aggregator->>Redis: audit_completed o audit_failed
+```
+
+---
+
+## Level 4 - Componentes del Pipeline
 
 ```mermaid
 classDiagram
-    class AuditController {
-        +runAuditBatch(Request) Response
-        -validateBatchInput(data) array
+    class AuditEventPublisher {
+        +publish(AuditEvent) string
+        +publishDeadLetter(AuditEvent) string
     }
 
-    class AuditOrchestrator {
-        -fileManager: AuditFileManager
-        -extractionPrompt: ExtractionPromptBuilder
-        -embeddingGateway: EmbeddingGateway
-        -comparator: SemanticComparator
-        -classifier: FieldClassifier
-        -ruleEngine: RuleEngine
-        +auditInvoice(invoiceData, dispensationData, attachments) AuditResult
+    class AuditEventConsumer {
+        +run() void
+        #handle(AuditEvent) void
+        #ackAfterSuccess()
+        #sendToDlqAfterRetries()
     }
 
-    class AuditFileManager {
-        +resolveFiles(attachments) FileCollection
-        +downloadFromDrive(url) base64
-        +extractFromBlob(blobData) base64
+    class BatchRequestedWorker {
+        +handle(batch_requested) void
     }
 
-    class ExtractionPromptBuilder {
-        +getSystemInstruction() string
-        +buildUserPrompt(auditConfig, dispensationData, documentLabels) string
-        +resolveFieldsFromConfig(auditConfig) array
+    class DocumentAuditOrchestrator {
+        +handle(audit_created) void
     }
 
-    class ExtractionResponseSchema {
-        +getToolsBlock(fields, visualChecks, docTypes) array
-        +getToolConfig() array
-        +parseExtractionResponse(response) array
+    class DocumentExtractionContractBuilder {
+        +build(config) array
     }
 
-    class SemanticComparator {
-        +compareBatch(pairs, embeddingGateway) array
+    class DocumentIntegrityValidator {
+        +validate(bytes, mime) ValidationResult
     }
 
-    class RuleEngine {
-        +evaluate(fdv, documents, visualChecks, semanticResults, config, classifier) array
+    class DocumentExtractionWorker {
+        +handle(document_registered) void
     }
 
-    class FieldClassifier {
-        +getFieldsByType(type) array
-        +getAuthoritativeDoc(field) string
+    class DocumentNormalizer {
+        +handle(document_extracted) void
     }
 
-    AuditController --> AuditOrchestrator : invoca
-    AuditOrchestrator --> AuditFileManager : resuelve archivos
-    AuditOrchestrator --> ExtractionPromptBuilder : construye prompt
-    AuditOrchestrator --> ExtractionResponseSchema : define function call
-    AuditOrchestrator --> SemanticComparator : compara semántica
-    AuditOrchestrator --> RuleEngine : evalúa reglas
-    RuleEngine --> FieldClassifier : clasifica campos
+    class RulesEvaluationWorker {
+        +handle(document_normalized) void
+        +handle(document_rejected) void
+    }
+
+    class DocumentPolicyEngine {
+        +evaluate(document, fdv, config) array
+    }
+
+    class AuditAggregationWorker {
+        +handle(rules_evaluated) void
+    }
+
+    AuditEventConsumer <|-- BatchRequestedWorker
+    AuditEventConsumer <|-- DocumentAuditOrchestrator
+    AuditEventConsumer <|-- DocumentExtractionWorker
+    AuditEventConsumer <|-- DocumentNormalizer
+    AuditEventConsumer <|-- RulesEvaluationWorker
+    AuditEventConsumer <|-- AuditAggregationWorker
+    DocumentAuditOrchestrator --> DocumentExtractionContractBuilder
+    DocumentExtractionWorker --> DocumentIntegrityValidator
+    RulesEvaluationWorker --> DocumentPolicyEngine
+    BatchRequestedWorker --> AuditEventPublisher
+    DocumentAuditOrchestrator --> AuditEventPublisher
+    DocumentExtractionWorker --> AuditEventPublisher
+    DocumentNormalizer --> AuditEventPublisher
+    RulesEvaluationWorker --> AuditEventPublisher
+    AuditAggregationWorker --> AuditEventPublisher
 ```

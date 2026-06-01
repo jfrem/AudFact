@@ -1,5 +1,42 @@
 # Changelog AudFact
 
+## [2026-06-01] - Docs: Sincronización documental con código actual
+
+### 📚 Documentation / API / Pipeline / Skills
+- **Alineación de endpoints y contratos REST**:
+  - Sincronizadas las tablas de rutas con `app/Routes/web.php` (27 rutas), incluyendo `/metrics/async`, `/clients/{clientId}/documents`, audit-config, `/audit/stats`, `/audit/status/{auditId}`, `/audit/results/{facSec}` y `/audit/{facNro}/timings`.
+  - Actualizado el contrato de `/invoices`: búsqueda interactiva paginada con `page` y `pageSize`; `limit` queda restringido al batch interno de auditoría.
+  - Ajustada la documentación de `/audit/async` al comportamiento real de idempotencia: `X-Idempotency-Key` opcional, autogeneración UUID y `409` con `success=true` cuando la llave ya existe.
+
+- **Alineación de arquitectura y pipeline IA**:
+  - Reescrito `plans/features/audit-workflow.md` para eliminar referencias al pipeline monolítico obsoleto y documentar el flujo event-driven actual.
+  - Reescritos `plans/architecture-diagrams.md` y `plans/high-availability.md` para reflejar la topología actual con Redis Streams, workers CLI y Compose vigente, eliminando referencias a `docker-compose.dev.yml`, `docker-compose.ha.yml` y clases legacy.
+  - Incorporado `document_rejected` y `DocumentIntegrityValidator` en el flujo documental: rechazo pre-Gemini, hallazgo `RECHAZADO` y `tipo_auditoria=integrity`.
+  - Actualizados conteos y runtime: Next.js 15.5.15, 27 rutas, 31 archivos PHP de test, workers base `batch=2`, `orchestrator=3`, `extraction=8`, `policy=2`; se documentó que `docker-compose.prod.yml` no define `worker-batch` en su estado actual.
+
+- **Sincronización de skills y catálogo**:
+  - Agregada `audfact-docs-sync` al catálogo humano y JSON de skills, aliases y bundles.
+  - Actualizadas referencias MCP y SQL Server para remover ejemplos legacy con `limit` en búsqueda interactiva y aclarar que `GetInvoices` recibe `date` y lo traduce a `dateFrom`.
+  - Sincronizadas skills `audfact-runtime-docker`, `audfact-project-overview`, `audfact-audit-gemini`, `audfact-mcp-wrap` y `audfact-docs-sync` con los contratos actuales.
+
+## [2026-05-31] - Feature: Validación Preventiva de Integridad Documental y Rechazo Temprano (Clean Rebuild)
+
+### 🔴 Resiliencia / IA Pipeline / Integrity / Clean Rebuild
+- **Introducción de `DocumentIntegrityValidator`**:
+  - Implementación del nuevo servicio de integridad preventiva `DocumentIntegrityValidator` en `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`.
+  - Diseñado bajo la **Clean Rebuild Policy** para interceptar adjuntos antes de su envío a Gemini. Detecta de forma proactiva archivos vacíos (0 bytes) y firmas de archivos corruptos.
+  - Genera una bifurcación de flujo limpia en `DocumentExtractionWorker`. Al detectar un adjunto corrupto/vacío, no se consume API de Gemini ni se emiten datos de extracción sintéticos. En su lugar, el estado documental se marca como `rejected` en `AuditStateStore`, se incrementa `docs_rejected` y se publica el evento explícito `document_rejected`.
+
+- **Adaptación y Consolidación del Pipeline**:
+  - **`AuditStateStore`**: Soportado el registro explícito e idempotente del estado documental `rejected`, evitando inyectar lógica de negocio o placeholders en componentes intermedios.
+  - **`DocumentExtractionWorker`**: Integrado el validador de integridad justo después de descargar el adjunto. Si la validación falla, se evita el consumo de Gemini y se publica `document_rejected`.
+  - **`RulesEvaluationWorker`**: Consume `document_rejected` como entrada de policy, genera un `policy_result` canónico con hallazgo de severidad `alta`, resultado `RECHAZADO` y `tipo_auditoria=integrity`, y usa `docs_done + docs_rejected` para el readiness de agregación.
+  - **`AuditFindingResult`**: Registrado el resultado `"RECHAZADO"` en la lista de resultados de auditoría válidos para cumplir de forma determinista con el contrato runtime de auditoría.
+
+- **Formalización de Documentación y Skills**:
+  - **`plans/architecture.md`**: Actualizado para reflejar la introducción de `DocumentIntegrityValidator` y el flujo de bifurcación de eventos del pipeline.
+  - **`audfact-audit-gemini`**: Sincronizada la skill del agente para incluir la validación preventiva de integridad, la bifurcación de flujo `REJECTED` y el nuevo validador documental en la tabla de servicios clave.
+
 ## [2026-05-30] - Docs: Expansión Arquitectónica Forense, Alineación E2E, Matiz de Métricas (ROI) y Auditoría de TTL en Redis
 
 ### 📚 Documentation / Architecture / Resiliencia / Redis TTL / ROI Refinement

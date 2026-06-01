@@ -99,7 +99,35 @@ Parámetros:
 - `facNitSec` requerido
 - `dateFrom` requerido, `YYYY-MM-DD`
 - `dateTo` opcional, `YYYY-MM-DD` (si se omite, se iguala a `dateFrom`)
-- `limit` opcional, entero `1..1000`
+- `page` opcional, entero `>= 1` (default `1`)
+- `pageSize` opcional, entero `1..100` (default `20`)
+
+Respuesta:
+
+```json
+{
+  "success": true,
+  "message": "Facturas encontradas",
+  "data": {
+    "items": [
+      {
+        "NitSec": 1165,
+        "FacSec": 87172329,
+        "Dispensa": "X24250700021"
+      }
+    ],
+    "total": 125,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 7,
+    "filters": {
+      "facNitSec": 1165,
+      "dateFrom": "2025-07-01",
+      "dateTo": "2025-07-01"
+    }
+  }
+}
+```
 
 ### `POST /invoices`
 
@@ -110,11 +138,12 @@ Busca facturas por body JSON.
   "facNitSec": 1165,
   "dateFrom": "2025-07-01",
   "dateTo": "2025-11-30",
-  "limit": 10
+  "page": 1,
+  "pageSize": 20
 }
 ```
 
-Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `dateFrom`.
+Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `dateFrom`. La respuesta usa el mismo contrato paginado de `GET /invoices`.
 
 ### `GET /dispensation/{DisDetNro}`
 
@@ -152,9 +181,6 @@ Encola auditoría individual sobre una sola factura usando `FacSec` como identid
 
 Respuesta exitosa: HTTP `202`.
 
-
-Respuesta exitosa: HTTP `202`.
-
 Campos principales:
 - `audit_id`
 - `status`
@@ -166,7 +192,7 @@ Campos principales:
 Encola una auditoría batch asíncrona mediante un pipeline 100% no bloqueante, delegando el procesamiento pesado a workers y garantizando alta concurrencia e idempotencia absoluta.
 
 #### Cabeceras
-- `X-Idempotency-Key` (Opcional): Clave para garantizar la idempotencia de la petición. Si no se proporciona, el backend autogenerará una basada en el hash de los parámetros de entrada (`sha256(json_encode(params))`).
+- `X-Idempotency-Key` (opcional): clave para evitar doble encolamiento por reintentos rápidos del cliente. Si no se proporciona, el backend genera un UUID temporal y lo devuelve en la respuesta.
 
 #### Parámetros (Body JSON)
 ```json
@@ -181,8 +207,8 @@ Encola una auditoría batch asíncrona mediante un pipeline 100% no bloqueante, 
 
 #### Respuestas
 
-##### 🟢 HTTP 202 Accepted (Nuevo Job Creado o Reutilizado)
-Se retorna si el lote fue encolado con éxito, o si ya existía un job en progreso con el mismo payload/idempotency key (reutilización atómica del job id).
+##### HTTP 202 Accepted (nuevo job creado)
+Se retorna si el lote fue encolado con éxito.
 
 ```json
 {
@@ -191,19 +217,23 @@ Se retorna si el lote fue encolado con éxito, o si ya existía un job en progre
   "data": {
     "job_id": "e8d6411d-872f-4886-905c-e58f0ee2b453",
     "status": "pending",
-    "idempotency_key": "61a7a0b5f1cd73d8a9bb2c6e61234bc57bfa3982cd6b931cb7f10bcf2e20ffac"
+    "idempotency_key": "4a74a67c-f7e4-4d17-8e2c-227508ce4e9b"
   }
 }
 ```
 
-##### 🔴 HTTP 409 Conflict (Colisión de Idempotencia)
-Se retorna si se intenta realizar una petición concurrente con el mismo `X-Idempotency-Key` (o hash equivalente) pero con parámetros de consulta diferentes.
+`idempotency_key` solo se incluye cuando el backend tuvo que autogenerar la llave.
+
+##### HTTP 409 Conflict (solicitud duplicada)
+Se retorna si la misma `X-Idempotency-Key` ya fue reclamada por un job vigente.
 
 ```json
 {
-  "success": false,
-  "message": "Conflicto de Idempotencia: La llave provista pertenece a un lote con parámetros distintos.",
-  "errors": []
+  "success": true,
+  "message": "Solicitud ya registrada",
+  "data": {
+    "job_id": "e8d6411d-872f-4886-905c-e58f0ee2b453"
+  }
 }
 ```
 
@@ -226,6 +256,36 @@ Campos principales de la respuesta:
 - `accumulated_duration_ms`: duración activa acumulada del lote
 - `throughput_per_sec`: auditorías terminales por segundo activo acumulado
 - `audits`: resumen por auditoría en el job
+
+### `GET /audit/status/{audit_id}`
+
+Consulta el estado transitorio de una auditoría individual en Redis.
+
+#### Parámetros
+- `audit_id`: Path parameter, UUID v4.
+
+Respuesta:
+
+```json
+{
+  "success": true,
+  "message": "Estado de la auditoría",
+  "data": {
+    "audit_id": "8e4efc63-2e14-4d91-a8f0-85efdd0491bf",
+    "status": "processing",
+    "dis_det_nro": "X24250700021",
+    "fac_sec": "87172329",
+    "docs_total": 4,
+    "docs_done": 2,
+    "docs_extracted": 2,
+    "docs_evaluated": 1,
+    "is_terminal": false,
+    "error_message": null,
+    "created_at": "2026-06-01T13:00:00Z",
+    "updated_at": "2026-06-01T13:00:10Z"
+  }
+}
+```
 
 ### `GET /audit/results`
 
@@ -252,6 +312,29 @@ Respuesta:
     "pageSize": 20,
     "totalPages": 0,
     "filters": {}
+  }
+}
+```
+
+### `GET /audit/results/{facSec}`
+
+Consulta el detalle persistido de una auditoría por la llave canónica `FacSec`.
+
+Validación:
+- `facSec`: string no vacío en ruta.
+
+Respuesta:
+
+```json
+{
+  "success": true,
+  "message": "Detalle de auditoría",
+  "data": {
+    "FacSec": "87723098",
+    "findings": [],
+    "fieldDecisions": [],
+    "documentDecisions": [],
+    "timings": {}
   }
 }
 ```

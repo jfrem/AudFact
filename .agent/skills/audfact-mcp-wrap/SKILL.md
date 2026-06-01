@@ -13,16 +13,16 @@ Mantener interoperabilidad estable entre asistentes IA y endpoints REST internos
 
 ## Archivos clave
 
-| Archivo | Tamaño | Rol |
-|---|---|---|
-| `app/wrap/webhook.php` | 888 B | Punto de entrada MCP |
-| `app/wrap/capabilities.php` | 1.8 KB | Declaración de capacidades y params |
-| `app/wrap/core/MCPServer.php` | 890 B | Servidor MCP: registro y dispatch de tools |
-| `app/wrap/core/ApiClient.php` | 2.1 KB | Cliente HTTP interno → API REST AudFact |
-| `app/wrap/core/tools/GetClients.php` | 370 B | Tool: obtener clientes |
-| `app/wrap/core/tools/GetInvoices.php` | 720 B | Tool: buscar facturas |
-| `app/wrap/core/tools/GetDispensation.php` | 449 B | Tool: datos de dispensación |
-| `app/wrap/core/tools/GetAttachments.php` | 720 B | Tool: adjuntos de dispensación |
+| Archivo | Rol |
+|---|---|
+| `app/wrap/webhook.php` | Punto de entrada MCP |
+| `app/wrap/capabilities.php` | Declaración de capacidades y params |
+| `app/wrap/core/MCPServer.php` | Servidor MCP: registro y dispatch de tools |
+| `app/wrap/core/ApiClient.php` | Cliente HTTP interno → API REST AudFact |
+| `app/wrap/core/tools/GetClients.php` | Tool: obtener clientes |
+| `app/wrap/core/tools/GetInvoices.php` | Tool: buscar facturas paginadas |
+| `app/wrap/core/tools/GetDispensation.php` | Tool: datos de dispensación |
+| `app/wrap/core/tools/GetAttachments.php` | Tool: adjuntos de dispensación |
 
 ## Mapeo Tool → Endpoint REST
 
@@ -69,8 +69,9 @@ Mantener interoperabilidad estable entre asistentes IA y endpoints REST internos
       "tool": "GetInvoices",
       "params": {
         "facNitSec": 1165,
-        "date": "2025-12-30",
-        "limit": 5
+        "date": "2026-05-30",
+        "page": 1,
+        "pageSize": 20
       }
     }
   ]

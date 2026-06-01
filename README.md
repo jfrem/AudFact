@@ -9,11 +9,11 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Backend | PHP 8.2-FPM — Framework MVC custom |
 | Base de datos | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`) |
 | IA | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`) |
-| Pipeline | Event-driven sobre Redis Streams (5 workers especializados) |
+| Pipeline | Event-driven sobre Redis Streams (6 servicios de worker especializados) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 → PHP-FPM |
 | Contenedores | Docker Compose (dev) / GHCR + docker-compose.prod.yml (prod) |
-| Frontend | Next.js 16 (React 19) + Tailwind CSS + shadcn/ui |
+| Frontend | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui |
 | Dependencias | Guzzle 7.x, firebase/php-jwt 7.x |
 
 ## Estructura del Proyecto
@@ -25,17 +25,17 @@ AudFact/
 │   ├── Controllers/       # 11 controladores HTTP (incluye base).
 │   ├── Models/            # 7 modelos SQL Server (incluye base).
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
-│   │   └── Audit/         # 12 archivos raíz + Pipeline/ (17 archivos).
+│   │   └── Audit/         # 15 archivos raíz + Pipeline/ (22 archivos).
 │   │       └── Pipeline/  # Workers, policy engine, normalización, agregación.
-│   ├── Routes/            # web.php — 26 rutas registradas.
+│   ├── Routes/            # web.php — 27 rutas registradas.
 │   └── wrap/              # Integración MCP (4 tools).
 ├── bin/                   # audit-worker.php — launcher unificado de workers.
 ├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient (12 archivos).
 ├── public/                # Entry point (index.php API).
 ├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck.
 ├── logs/                  # Logs rotados por fecha.
-├── plans/                 # Documentación del proyecto (16 documentos).
-└── tests/                 # 27 archivos de test — 246 tests, 741 assertions.
+├── plans/                 # Documentación del proyecto.
+└── tests/                 # 31 archivos PHP de test — PHPUnit.
 ```
 
 ## Inicio Rápido
@@ -84,10 +84,14 @@ npm run dev
 | `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server (`yes` temporal) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
 | `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3-flash-preview`) |
+| `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN` | Umbral y cooldown del circuit breaker Gemini |
 | `REDIS_HOST` / `REDIS_PORT` | Host y puerto de Redis para pipeline async |
+| `REDIS_PASSWORD` / `REDIS_MODE` | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`) |
+| `AUDIT_WORKER_BATCH_REPLICAS` | Réplicas del worker de batches (default: `2`) |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | Réplicas de orquestadores async (default: `3`) |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | Réplicas de extractores Gemini (default: `8`) |
 | `AUDIT_WORKER_POLICY_REPLICAS` | Réplicas de evaluación de reglas (default: `2`) |
+| `AUDIT_IDEMPOTENCY_KEY_TTL` | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`) |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`) |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | Intervalo de escaneo de pending por worker (default: `30000`) |
 | `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
@@ -126,8 +130,8 @@ Base URL: `http://localhost:8080`
 | `POST` | `/clients` | Buscar cliente por `clientId` |
 | `GET` | `/clients/{clientId}/audit-config` | Configuración de auditoría por cliente |
 | `POST` | `/clients/{clientId}/audit-config` | Guardar configuración de auditoría |
-| `GET` | `/invoices` | Buscar facturas |
-| `POST` | `/invoices` | Buscar facturas por body JSON |
+| `GET` | `/invoices` | Buscar facturas pendientes con paginación `page`/`pageSize` |
+| `POST` | `/invoices` | Buscar facturas por body JSON con el mismo contrato paginado |
 | `GET` | `/dispensation/{DisDetNro}` | Datos de dispensación |
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
 | `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
@@ -135,6 +139,7 @@ Base URL: `http://localhost:8080`
 | `POST` | `/audit/single` | Auditoría individual por FacSec |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
+| `GET` | `/audit/status/{auditId}` | Estado Redis de una auditoría individual encolada |
 | `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
 | `GET` | `/audit/results/{facSec}` | Detalle persistido por FacSec |
 | `GET` | `/audit/stats` | Conteos agregados para dashboard |
@@ -174,18 +179,18 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 ## Pipeline de Auditoría IA
 
-El sistema utiliza un pipeline event-driven sobre Redis Streams con 5 workers especializados:
+El sistema utiliza un pipeline event-driven sobre Redis Streams con 6 servicios de worker especializados:
 
 ```
-DocumentAuditOrchestrator → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditAggregationWorker
-     (orchestrator)            (extraction)              (normalizer)         (policy)               (aggregator)
+BatchRequestedWorker → DocumentAuditOrchestrator → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditAggregationWorker
+      (batch)              (orchestrator)            (extraction)              (normalizer)         (policy)               (aggregator)
 ```
 
 Cada worker consume eventos del stream correspondiente, procesa su etapa y publica el resultado al siguiente. El flujo incluye:
 
-- **Extracción**: Descarga de adjuntos + análisis multimodal con Gemini (parallel function calling).
+- **Extracción**: Descarga de adjuntos, validación estructural con `DocumentIntegrityValidator` y análisis multimodal con Gemini (parallel function calling).
 - **Normalización**: Estandarización de valores extraídos (fechas, cantidades, tipos de documento).
-- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV), consolidación de outcome final y cálculo de risk score.
+- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV), conversión de `document_rejected` en hallazgo canónico `RECHAZADO`, consolidación de outcome final y cálculo de risk score.
 - **Agregación**: Validación del outcome, persistencia en SQL Server y publicación de eventos terminales.
 
 Características:
@@ -194,7 +199,7 @@ Características:
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
-- Escalado por variables para `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `FacSec`.
+- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `FacSec`.
 
 ## Docker
 
@@ -220,7 +225,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
-`docker-compose.yml` conserva la topología local con build desde el repo. `docker-compose.prod.yml` usa imágenes publicadas en GHCR y no construye en el servidor.
+`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR y no construye en el servidor; en el estado actual del archivo productivo no existe servicio `worker-batch`, por lo que el procesamiento batch de `/audit/async` requiere agregarlo o levantarlo por override antes de usarlo en producción.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
 En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.

@@ -44,6 +44,7 @@ Variables de capacidad inicial:
 
 | Variable | Default | Servicio |
 |---|---:|---|
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` en `docker-compose.yml` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
@@ -53,7 +54,8 @@ Variables de capacidad inicial:
 Comandos de diagnóstico:
 
 ```bash
-wsl docker compose top worker-orchestrator worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-extraction worker-policy
+wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
 ```

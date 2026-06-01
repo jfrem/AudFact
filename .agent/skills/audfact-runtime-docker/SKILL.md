@@ -1,6 +1,6 @@
 ---
 name: audfact-runtime-docker
-description: Operar y depurar el runtime local de AudFact con Docker. Usar cuando se cambien docker-compose.yml, docker/Dockerfile, docker/nginx.conf, variables .env o conectividad entre Nginx, PHP-FPM, SQL Server y APIs externas.
+description: Operar y depurar el runtime Docker de AudFact. Usar cuando se cambien docker-compose.yml, docker-compose.prod.yml, docker/Dockerfile, docker/nginx.conf, variables .env o conectividad entre frontend, Nginx, PHP-FPM, Redis, SQL Server y APIs externas.
 ---
 
 # AudFact Runtime Docker
@@ -13,18 +13,18 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 ## Archivos clave
 
-| Archivo | Tamaño | Rol |
-|---|---|---|
-| `docker-compose.yml` | ~1.4 KB | HA: php (5 réplicas) + extraction (5 réplicas) |
-| `docker-compose.prod.yml` | ~5 KB | Producción: imágenes GHCR + runner LAN |
-| `docker/Dockerfile` | ~1.5 KB | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional |
-| `docker/frontend.Dockerfile` | < 1 KB | Next.js standalone productivo, publicado como `audfact-frontend` |
-| `frontend/next.config.ts` | < 1 KB | Config Next.js (debe tener `output: standalone`) |
-| `docker/nginx.Dockerfile` | ~0.4 KB | Nginx 1.25 Alpine con assets estáticos baked-in |
-| `docker/nginx-ha.conf.template` / `docker/nginx.conf` | ~0.7 KB | Reverse proxy → PHP-FPM con DNS Docker runtime |
-| `public/index.php` | 2 KB | Bootstrap: env, CORS, rate limit, dispatch |
-| `.env` | 2.5 KB | Variables de entorno (secretos) |
-| `.env.example` | ~3 KB | Template de variables, incluyendo perfiles Gemini por tarea |
+| Archivo | Rol |
+|---|---|
+| `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator` |
+| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR y frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` |
+| `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
+| `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
+| `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
+| `docker/nginx.Dockerfile` | Nginx 1.25 Alpine con assets estáticos baked-in |
+| `docker/nginx-ha.conf.template` / `docker/nginx.conf` | Reverse proxy hacia PHP-FPM con DNS Docker runtime |
+| `public/index.php` | Bootstrap: env, CORS, rate limit, dispatch |
+| `.env` | Variables de entorno locales/secretos; no commitear |
+| `.env.example` | Template de variables, incluyendo perfiles Gemini, Redis y workers |
 
 ## Arquitectura de red
 
@@ -49,12 +49,15 @@ Cliente HTTP (Front LAN:3100) ─▶ Next.js (audfact-frontend:3000)
 ### Desarrollo (Frontend)
 El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount completo si se desea Docker-Dev. Para producción local, se usa **Zero-Source** (código baked).
 
-### Producción (Backend)
+### Runtime base local
 | Host | Container | Uso |
 |---|---|---|
 | `./logs` | `/var/www/html/logs` | Logs rotativos |
-| `./responseIA` | `/var/www/html/responseIA` | Respuestas crudas Gemini generadas en runtime; no entran al build context |
+| `./responseIA` | `/var/www/html/responseIA` | Snapshots Gemini solo para diagnóstico local/desarrollo |
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
+
+### Producción
+`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción.
 
 ## Variables .env obligatorias
 
@@ -70,6 +73,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` en `docker-compose.yml` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
@@ -103,7 +107,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
 # Inspeccionar réplicas reales de workers
-wsl docker compose top worker-orchestrator worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-extraction worker-policy
 
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull

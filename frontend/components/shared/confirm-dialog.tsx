@@ -12,7 +12,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 
 type Variant = "danger" | "warning" | "info";
 
@@ -165,6 +164,8 @@ export function ConfirmDialog({
             variant={tokens.buttonVariant}
             onClick={onConfirm}
             disabled={loading}
+            loading={loading}
+            loadingLabel="Procesando..."
             className={cn(
               "h-9 rounded-lg px-5 text-[13px] font-semibold",
               "transition-all duration-150",
@@ -173,10 +174,7 @@ export function ConfirmDialog({
               loading && "pointer-events-none opacity-70",
             )}
           >
-            {loading && (
-              <Spinner size="sm" className="mr-1.5" />
-            )}
-            {loading ? "Procesando…" : confirmLabel}
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

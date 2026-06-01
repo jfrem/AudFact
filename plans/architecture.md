@@ -54,7 +54,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|---|
 | `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `Factura` + dispensación/kardex | `getInvoices()` selecciona `Factura.FacSec` como llave canónica |
+| `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `Factura.FacSec` como llave canónica |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByDisDetNro()`, `getAttachmentByIdForDisDetNro()`, `getAttachmentBlobStreamByIdForDisDetNro()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
@@ -73,7 +73,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) desde `TipoCampo` |
 | `AuditFieldValueType.php` | Enum de `TipoDato` explícito por campo para schema Gemini, normalización y estrategias de comparación |
-| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`) |
+| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`, `RECHAZADO`) |
 | `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
 | `DocumentQuality.php` | Enum de calidad documental normalizada |
 | `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
@@ -99,9 +99,10 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
 | `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `FacSec`, y publica eventos `audit_created` en `audit.inbox` |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
-| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
+| `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos post-descarga y pre-Gemini |
+| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, valida integridad estructural, publica `document_rejected` para adjuntos no procesables o extrae con Gemini y publica `document_extracted` |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
-| `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy, publica `rules_evaluated` |
+| `RulesEvaluationWorker.php` | Worker: consume `document_normalized` y `document_rejected`, evalúa policy o genera hallazgo de integridad, publica `rules_evaluated` |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
@@ -109,7 +110,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En Docker, el launcher `bin/audit-worker.php` levanta 6 servicios independientes parametrizados por `.env`: `batch=1`, `orchestrator=3`, `extraction=8`, `policy=2`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 
 ---
@@ -133,9 +134,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Modo | Compose | Descripción |
 |---|---|---|
-| Desarrollo | `docker-compose.dev.yml` | Topología simple (1 PHP-FPM + 1 Nginx con `docker/nginx.conf`). |
-| HA / Stress | `docker-compose.ha.yml` | Topología HA (5 réplicas PHP-FPM + Nginx con `docker/nginx-ha.conf.template`). |
-| Base actual | `docker-compose.yml` | Mantiene la topología HA. Implementa **Lean Production 3.0**: Nginx es un bundle inmutable (incluye assets) y PHP se purga de artefactos tras el build. El host de producción es **Zero-Source** (solo orquestación y secretos). |
+| Base local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`. |
+| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y workers. En el estado actual del archivo no existe servicio `worker-batch`; si se requiere procesar `/audit/async` en producción, debe agregarse o escalarse por override. |
 
 ---
 

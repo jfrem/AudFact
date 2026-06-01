@@ -14,14 +14,17 @@ use ReflectionProperty;
 
 final class InvoicesModelTest extends TestCase
 {
-    public function testGetInvoicesAlwaysUsesRangeQuery(): void
+    public function testSearchInvoicesAlwaysUsesPagedRangeQuery(): void
     {
         $pdo = new FakePdo();
         $model = $this->makeModelWithReadDb($pdo);
         $pdo->nextResult = [['FacSec' => '1']];
 
-        // Testing single day using same date for from and to
-        $result = $model->getInvoices(2426, '2025-07-01', '2025-07-01', 100);
+        $result = $model->searchInvoices([
+            'facNitSec' => 2426,
+            'dateFrom' => '2025-07-01',
+            'dateTo' => '2025-07-01',
+        ], 2, 50);
 
         $this->assertSame([['FacSec' => '1']], $result);
         $this->assertStringContainsString('tb3.FacSec FacSec', $pdo->preparedSql);
@@ -29,26 +32,39 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
-        $this->assertStringContainsString('ORDER BY MIN(tb1.DisFecSol) ASC, tb3.FacSec ASC, tb2.DisDetNro ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
         
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
         $this->assertArrayHasKey(':dateToD', $pdo->statement->boundValues);
         $this->assertArrayHasKey(':facNitSec', $pdo->statement->boundValues);
+        $this->assertArrayHasKey(':offset', $pdo->statement->boundValues);
+        $this->assertArrayHasKey(':pageSize', $pdo->statement->boundValues);
         
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateToD']);
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
+        $this->assertSame(50, $pdo->statement->boundValues[':offset']);
+        $this->assertSame(50, $pdo->statement->boundValues[':pageSize']);
     }
 
-    public function testGetInvoicesBuildsRangeQueryWhenDateToIsPresent(): void
+    public function testCountInvoicesUsesSameCandidateFilters(): void
     {
         $pdo = new FakePdo();
         $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [['total' => 7]];
 
-        $model->getInvoices(2426, '2025-07-01', '2025-07-30', 900);
+        $total = $model->countInvoices([
+            'facNitSec' => 2426,
+            'dateFrom' => '2025-07-01',
+            'dateTo' => '2025-07-30',
+        ]);
 
+        $this->assertSame(7, $total);
+        $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('SELECT TOP(900)', $pdo->preparedSql);
+        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
+        $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
         
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
@@ -143,6 +159,11 @@ final class FakePdoStatement extends PDOStatement
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return $this->result;
+    }
+
+    public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
+    {
+        return $this->result[0] ?? false;
     }
 
     public function closeCursor(): bool

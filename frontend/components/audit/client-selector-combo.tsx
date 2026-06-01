@@ -25,6 +25,8 @@ interface ClientSelectorComboProps {
   onValueChange: (value: string) => void;
   placeholder?: string;
   id?: string;
+  invalid?: boolean;
+  ariaDescribedBy?: string;
 }
 
 export function ClientSelectorCombo({
@@ -33,6 +35,8 @@ export function ClientSelectorCombo({
   onValueChange,
   placeholder = "Seleccionar cliente...",
   id,
+  invalid = false,
+  ariaDescribedBy,
 }: ClientSelectorComboProps) {
   const [open, setOpen] = React.useState(false);
   const selected = clients.find((c) => String(extractClient(c).nitSec) === value) ?? null;
@@ -46,11 +50,15 @@ export function ClientSelectorCombo({
           id={id}
           role="combobox"
           aria-expanded={open}
+          aria-invalid={invalid || undefined}
+          aria-describedby={ariaDescribedBy}
           className={cn(
             "group flex h-11 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left text-sm transition-all duration-200",
-            open
-              ? "border-sky-500/40 bg-white/[0.04]"
-              : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.05]",
+            invalid
+              ? "border-rose-400/70 bg-rose-500/[0.06] hover:border-rose-300/80"
+              : open
+                ? "border-sky-500/40 bg-white/[0.04]"
+                : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.05]",
           )}
         >
           {/* Icon */}

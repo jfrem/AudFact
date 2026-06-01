@@ -17,7 +17,8 @@ echo json_encode([
                 "parameters" => [
                     ["name" => "facNitSec", "type" => "integer", "required" => true, "description" => "NIT del cliente."],
                     ["name" => "date", "type" => "string", "required" => true, "description" => "Fecha YYYY-MM-DD."],
-                    ["name" => "limit", "type" => "integer", "required" => false, "description" => "Límite 1..1000."]
+                    ["name" => "page", "type" => "integer", "required" => false, "description" => "Página 1-indexed."],
+                    ["name" => "pageSize", "type" => "integer", "required" => false, "description" => "Registros por página 1..100."]
                 ]
             ],
             [

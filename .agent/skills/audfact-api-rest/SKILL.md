@@ -15,7 +15,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1.6 KB | Definición de 26 rutas |
+| `app/Routes/web.php` | ~1.6 KB | Definición de 27 rutas |
 | `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 6.8 KB | Configuración dinámica de auditoría por cliente |
@@ -31,7 +31,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (26)
+## Endpoints actuales (27)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -58,6 +58,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `POST` | `/audit/single` | `AuditController::single` |
 | `POST` | `/audit/async` | `AuditController::async` |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` |
+| `GET` | `/audit/status/{auditId}` | `AuditController::status` |
 | `GET` | `/audit/dlq` | `AuditDlqController::index` |
 | `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |

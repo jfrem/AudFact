@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Building2, Hash, InfoIcon, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { describeError } from "@/lib/api/errors";
 import { getClientDocuments, saveAuditConfig } from "@/lib/api/audfact";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Dialog,
@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
+import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 export function CreateConfigDialog({
   open,
@@ -30,10 +30,11 @@ export function CreateConfigDialog({
   initialNitSec?: string;
   onClose: () => void;
 }) {
-  const router = useRouter();
+  const navigation = usePendingNavigation();
   const [nitSec, setNitSec] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const isBusy = loading || navigation.isPending;
 
   React.useEffect(() => {
     if (open) {
@@ -65,8 +66,8 @@ export function CreateConfigDialog({
 
       toast.success(`Configuración inicializada para cliente ${trimmed}`);
       onClose();
-      router.push(`/clients/audit-config?clientId=${trimmed}`);
-      router.refresh();
+      navigation.push(`/clients/audit-config?clientId=${trimmed}`);
+      navigation.refresh();
     } catch (err) {
       toast.error(describeError(err));
     } finally {
@@ -133,6 +134,14 @@ export function CreateConfigDialog({
               El identificador numérico del cliente en el sistema
             </FieldDescription>
           </Field>
+
+          {isBusy ? (
+            <BackendRequestSkeleton
+              description="Se valida el catálogo documental y se crea la configuración base."
+              title="Creando configuración"
+              variant="compact"
+            />
+          ) : null}
         </div>
 
         <DialogFooter className="flex-row justify-end border-t border-white/[0.06] px-6 py-4">
@@ -142,20 +151,18 @@ export function CreateConfigDialog({
           <Button
             type="button"
             onClick={handleCreate}
-            disabled={loading || !nitSec.trim()}
+            disabled={isBusy || !nitSec.trim()}
+            loading={isBusy}
+            loadingLabel="Creando..."
             className={cn(
               "gap-2 rounded-xl px-5 py-2.5",
-              nitSec.trim() && !loading
+              nitSec.trim() && !isBusy
                 ? "bg-cyan-500 text-white hover:bg-cyan-400"
                 : "cursor-not-allowed bg-slate-800/60 text-slate-600",
             )}
           >
-            {loading ? (
-              <Spinner />
-            ) : (
-              <Settings2 className="h-4 w-4" />
-            )}
-            {loading ? "Creando..." : "Crear configuración"}
+            <Settings2 className="h-4 w-4" />
+            Crear configuración
           </Button>
         </DialogFooter>
       </DialogContent>

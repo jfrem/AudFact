@@ -7,8 +7,8 @@ import { attachmentPreviewQuery } from "@/lib/query/audit";
 import { getAttachmentDownloadUrl } from "@/lib/api/audfact";
 import type { AttachmentRecord } from "@/lib/schemas/domain";
 import { AttachmentIframeViewer } from "@/components/attachments/attachment-iframe-viewer";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 
 export function AttachmentViewerPanel({
   disDetNro,
@@ -68,10 +68,12 @@ export function AttachmentViewerPanel({
 
       <div className="pt-3 sm:pt-4">
         {isLoading ? (
-          <div className="flex h-[65vh] min-h-[500px] items-center justify-center rounded-lg border border-white/10 bg-slate-950/50 text-slate-400">
-            <Spinner className="mr-2" />
-            Cargando preview del adjunto...
-          </div>
+          <BackendRequestSkeleton
+            className="min-h-[500px]"
+            description="El backend está preparando el preview del documento."
+            title="Cargando preview"
+            variant="detail"
+          />
         ) : isError ? (
           <div className="flex h-[65vh] min-h-[500px] flex-col items-center justify-center space-y-3 rounded-lg border border-dashed border-white/5 bg-white/[0.02] px-6 text-center">
             <AlertTriangle className="h-8 w-8 text-rose-500/50" strokeWidth={1.5} />

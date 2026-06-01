@@ -23,7 +23,7 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 | IA | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 (vía Docker) |
-| Contenedores | Docker Compose (php + nginx) |
+| Contenedores | Docker Compose (`php`, `nginx`, `redis`, workers y frontend en producción) |
 
 ## Estructura
 
@@ -33,20 +33,20 @@ AudFact/
 ├── app/
 │   ├── Controllers/     # 11 controladores HTTP (incluye base)
 │   ├── Models/          # 7 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # GoogleDrive + Audit/ (29 archivos: Pipeline/ + raíz)
-│   ├── Routes/web.php   # 25 endpoints
+│   ├── Services/        # GoogleDrive + Audit/ (37 archivos: Pipeline/ + raíz)
+│   ├── Routes/web.php   # 27 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (orchestrator, extraction×5, normalizer, policy, aggregator)
+├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, extraction×8, normalizer, policy×2, aggregator)
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
 ├── responseIA/          # Snapshots de request/response Gemini (debug)
 └── logs/                # Logs rotativos por hostname (HA-safe)
 ```
 
-## Endpoints REST (25)
+## Endpoints REST (27)
 
 > Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
@@ -64,16 +64,18 @@ AudFact/
 | POST | `/clients/{clientId}/audit-config` | AuditConfigController::save |
 | GET | `/invoices` | InvoicesController::index |
 | POST | `/invoices` | InvoicesController::search |
-| GET | `/dispensation/{disDetNro}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
 | GET | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | AttachmentsController::downloadByDispensation |
+| GET | `/dispensation/{disDetNro}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
+| GET | `/audit/results/{facSec}` | AuditController::resultDetail |
 | GET | `/audit/stats` | AuditController::stats |
 | GET | `/audit/documents-history` | AuditController::documentsHistory |
 | POST | `/audit/single` | AuditController::single |
 | POST | `/audit/async` | AuditController::async |
 | GET | `/audit/jobs/{jobId}` | AuditController::jobStatus |
+| GET | `/audit/status/{auditId}` | AuditController::status |
 | GET | `/audit/{facNro}/timings` | AuditController::timings |
 | GET | `/audit/dlq` | AuditDlqController::index |
 | POST | `/audit/dlq/reprocess` | AuditDlqController::reprocess |
@@ -91,10 +93,12 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ construye `extraction_contract` con cuatro function declarations paralelas desde audit-config
    └─ publica N × `document_registered` en `audit.documents`
 
-3. DocumentExtractionWorker (group: extractors, ×5 réplicas)
+3. DocumentExtractionWorker (group: extractors, ×8 réplicas)
    ├─ descarga adjunto (Drive URL o BLOB)
+   ├─ valida integridad estructural con `DocumentIntegrityValidator`
+   ├─ si no es procesable → publica `document_rejected` sin consumir Gemini
    ├─ document_hash = sha256(file) → cache Redis
-   └─ Gemini function calling → publica `document_extracted`
+   └─ si es válido: Gemini function calling → publica `document_extracted`
 
 4. DocumentNormalizer (group: normalizers)
    ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío
@@ -102,6 +106,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 5. RulesEvaluationWorker (group: policy)
    ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
+   ├─ `document_rejected` → hallazgo `RECHAZADO` con `tipo_auditoria=integrity`
    ├─ ArticleSemanticMatchJudge como fallback exclusivo de homologación de artículos
    └─ cuando docs_done == docs_total, publica `rules_evaluated` en `audit.results`
 

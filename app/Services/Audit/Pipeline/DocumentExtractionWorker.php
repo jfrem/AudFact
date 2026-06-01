@@ -107,6 +107,12 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $document = $downloaded['document'];
         $documentHash = $downloaded['document_hash'];
 
+        $integrity = DocumentIntegrityValidator::validate($document);
+        if (!$integrity['valid']) {
+            $this->handleRejectedDocument($event, $payload, $document, $integrity);
+            return;
+        }
+
         $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $targetContextHash);
 
         $extraction = $this->resolveExtraction(
@@ -299,6 +305,67 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'gemini_duration_ms' => $geminiDurationMs,
             'local_cpu_duration_ms' => (int) $localCpuDurationMs,
         ]);
+    }
+
+    /**
+     * Maneja el rechazo de un documento por fallo de validación de integridad.
+     *
+     * Marca el documento como rechazado en Redis y publica un evento explícito
+     * para que la etapa de reglas genere el hallazgo canónico sin invocar Gemini.
+     *
+     * @param array<string,mixed> $integrity
+     */
+    private function handleRejectedDocument(
+        AuditEvent $event,
+        array $payload,
+        array $document,
+        array $integrity
+    ): void {
+        $documentType = $this->resolveDocumentType($payload);
+        $reason = (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
+
+        $patch = [
+            'rejection_reason'    => $reason,
+            'document_type'       => $documentType,
+            'mime'                => (string) ($integrity['declared_mime'] ?? $document['mime'] ?? ''),
+            'detected_mime'       => $integrity['detected_mime'] ?? null,
+            'size_bytes'          => (int) ($integrity['size_bytes'] ?? 0),
+            'download_duration_ms' => (int) ($document['duration_ms'] ?? 0),
+            'rejected_at'         => gmdate('Y-m-d\TH:i:s\Z'),
+        ];
+
+        if (!$this->stateStore->markDocumentRejected(
+            (string) $event->auditId,
+            (string) $event->documentId,
+            $patch
+        )) {
+            throw new RuntimeException('No se pudo marcar el documento como rechazado en Redis');
+        }
+
+        $this->publishDocumentRejected($event, $payload, $patch);
+
+        Logger::info('Document rejected by integrity validation', [
+            'auditId'    => $event->auditId,
+            'documentId' => $event->documentId,
+            'reason'     => $reason,
+            'mime'       => $patch['mime'],
+        ]);
+    }
+
+    /**
+     * @param array<string,mixed> $payload
+     * @param array<string,mixed> $rejectionState
+     */
+    private function publishDocumentRejected(AuditEvent $event, array $payload, array $rejectionState): void
+    {
+        $this->publisher->publish(AuditEvent::create(
+            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
+            auditId: $event->auditId,
+            jobId: $event->jobId,
+            documentId: $event->documentId,
+            payload: array_merge($payload, $rejectionState),
+            parentEventId: $event->eventId,
+        ));
     }
 
     private function cacheGet(string $cacheKey): ?array

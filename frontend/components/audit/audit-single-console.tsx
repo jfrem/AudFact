@@ -20,13 +20,13 @@ import { describeError, isRetryableError } from "@/lib/api/errors";
 import { runAuditSingle, getAuditLiveStatus } from "@/lib/api/audfact";
 import type { AuditSingleResponse, AuditLiveStatus } from "@/lib/schemas/domain";
 import { AuditSingleWorkspace } from "@/components/audit/audit-single-workspace";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
@@ -198,13 +198,10 @@ export function AuditSingleConsole() {
                 disabled={mutation.isPending || isPolling}
                 aria-busy={mutation.isPending || isPolling}
                 className="w-full sm:w-auto min-w-32"
+                loading={mutation.isPending}
+                loadingLabel="Procesando..."
               >
-                {mutation.isPending ? (
-                  <>
-                    <Spinner />
-                    Procesando...
-                  </>
-                ) : isPolling ? (
+                {isPolling ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     En curso...
@@ -221,7 +218,13 @@ export function AuditSingleConsole() {
         </SectionCard>
 
         {/* ── Estado: Polling en curso ── */}
-        {(isPolling || terminalStatus) && latestResult?.status === "pending" ? (
+        {mutation.isPending ? (
+          <BackendRequestSkeleton
+            description="El backend está reservando la factura e iniciando el pipeline IA."
+            title="Ejecutando auditoría IA"
+            variant="detail"
+          />
+        ) : (isPolling || terminalStatus) && latestResult?.status === "pending" ? (
           <AuditProgressCard
             liveStatus={liveStatus.data ?? null}
             isPolling={isPolling}

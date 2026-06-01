@@ -1,9 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Building2, Plus, Search, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import {
   Popover,
   PopoverTrigger,
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/command";
 import type { ClientRecord } from "@/lib/schemas/domain";
 import { extractClient } from "@/lib/helpers/extract-client";
+import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 export function ClientSelector({
   clients,
@@ -30,24 +31,35 @@ export function ClientSelector({
   currentClientId: string;
   onCreateNew?: () => void;
 }) {
-  const router = useRouter();
+  const navigation = usePendingNavigation();
   const [open, setOpen] = React.useState(false);
+  const [pendingClientId, setPendingClientId] = React.useState<string | null>(null);
 
   const selected = clients.find((c) => extractClient(c).nitSec === currentClientId) ?? null;
   const selectedDisplay = selected ? extractClient(selected) : null;
 
+  React.useEffect(() => {
+    if (!navigation.isPending) {
+      setPendingClientId(null);
+    }
+  }, [navigation.isPending]);
+
   const handleSelect = (record: ClientRecord) => {
+    const nextClientId = extractClient(record).nitSec;
     setOpen(false);
-    router.push(`/clients/audit-config?clientId=${extractClient(record).nitSec}`);
+    setPendingClientId(nextClientId);
+    navigation.push(`/clients/audit-config?clientId=${nextClientId}`);
   };
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
           role="combobox"
           aria-expanded={open}
+          aria-busy={navigation.isPending}
           aria-label="Seleccionar cliente EPS"
           className={cn(
             "group flex h-14 w-full cursor-pointer items-center gap-3 rounded-lg border px-4 text-left transition-all duration-200",
@@ -150,6 +162,7 @@ export function ClientSelector({
                         isSelected
                           ? "border border-white/[0.08] bg-white/[0.04] text-white"
                           : "text-slate-300 hover:bg-white/[0.04] hover:text-white",
+                        pendingClientId === c.nitSec && "pointer-events-none bg-sky-500/[0.08] text-sky-200",
                       )}
                     >
                       {/* Avatar */}
@@ -177,6 +190,8 @@ export function ClientSelector({
                       {/* Check */}
                       {isSelected ? (
                         <Check className="h-4 w-4 shrink-0 text-cyan-400" />
+                      ) : pendingClientId === c.nitSec ? (
+                        <span className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-sky-400" />
                       ) : (
                         <div className="h-4 w-4 shrink-0" />
                       )}
@@ -185,7 +200,6 @@ export function ClientSelector({
                 })}
               </CommandGroup>
             )}
-
             {/* Create new */}
             {onCreateNew && (
               <>
@@ -216,5 +230,14 @@ export function ClientSelector({
         </Command>
       </PopoverContent>
     </Popover>
+    {navigation.isPending ? (
+      <BackendRequestSkeleton
+        className="mt-3"
+        description="El backend está cargando la configuración del cliente."
+        title="Cambiando cliente"
+        variant="compact"
+      />
+    ) : null}
+    </>
   );
 }

@@ -68,6 +68,24 @@ final class AuditEventPublisherTest extends TestCase
         $this->publisher->publish($event);
     }
 
+    public function testDocumentRejectedRoutesToDocumentsStream(): void
+    {
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
+            auditId: AuditEvent::uuidV4(),
+            documentId: '1',
+            payload: ['rejection_reason' => 'UNKNOWN_FILE_SIGNATURE'],
+        );
+
+        $this->redis
+            ->expects($this->once())
+            ->method('xAdd')
+            ->with(AuditEventPublisher::STREAM_DOCUMENTS, $this->anything())
+            ->willReturn('1700000000001-1');
+
+        $this->publisher->publish($event);
+    }
+
     public function testRulesEvaluatedRoutesToResultsStream(): void
     {
         $event = AuditEvent::create(

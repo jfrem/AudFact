@@ -13,13 +13,13 @@ import { describeError, isRetryableError } from "@/lib/api/errors";
 
 import { getClients, enqueueAuditBatch } from "@/lib/api/audfact";
 import type { ClientRecord } from "@/lib/schemas/domain";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { SectionCard } from "@/components/shared/section-card";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
-import { Spinner } from "@/components/ui/spinner";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
 
 const batchSchema = z.object({
@@ -191,12 +191,14 @@ export function AuditBatchConsole({
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button type="submit" disabled={isBusy} aria-busy={isBusy}>
-                {asyncMutation.isPending ? (
-                  <Spinner />
-                ) : (
-                  <TimerReset className="h-4 w-4" />
-                )}
+              <Button
+                type="submit"
+                disabled={isBusy}
+                aria-busy={isBusy}
+                loading={isBusy}
+                loadingLabel="Encolando"
+              >
+                <TimerReset className="h-4 w-4" />
                 Encolar batch
               </Button>
             </div>
@@ -220,22 +222,30 @@ export function AuditBatchConsole({
           </SectionCard>
 
           <SectionCard title="Última ejecución">
-            <div className="space-y-2">
-              <div className="surface-subtle rounded-lg p-4">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Job batch</p>
-                {lastAsyncJob ? (
-                  <Link
-                    href={lastAsyncJob.statusUrl}
-                    className="mt-2 inline-flex items-center gap-2 text-sm text-sky-300 transition hover:text-sky-200"
-                  >
-                    Abrir seguimiento
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Link>
-                ) : (
-                  <p className="mt-2 text-sm text-white">Sin job encolado en esta sesión.</p>
-                )}
+            {isBusy ? (
+              <BackendRequestSkeleton
+                description="El backend está creando el job asíncrono."
+                title="Encolando batch"
+                variant="compact"
+              />
+            ) : (
+              <div className="space-y-2">
+                <div className="surface-subtle rounded-lg p-4">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Job batch</p>
+                  {lastAsyncJob ? (
+                    <Link
+                      href={lastAsyncJob.statusUrl}
+                      className="mt-2 inline-flex items-center gap-2 text-sm text-sky-300 transition hover:text-sky-200"
+                    >
+                      Abrir seguimiento
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : (
+                    <p className="mt-2 text-sm text-white">Sin job encolado en esta sesión.</p>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </SectionCard>
         </div>
       </div>

@@ -13,10 +13,11 @@ import {
 
 import { formatDateTime } from "@/lib/formatters";
 import { asyncMetricsQuery, healthQuery } from "@/lib/query/system";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { SectionCard } from "@/components/shared/section-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Spinner } from "@/components/ui/spinner";
+import { Button } from "@/components/ui/button";
 
 function deriveServiceStatus(status?: string): "ok" | "warn" | "fail" | "unknown" {
   if (status === "ok") return "ok";
@@ -26,7 +27,7 @@ function deriveServiceStatus(status?: string): "ok" | "warn" | "fail" | "unknown
 }
 
 export default function ObservabilityPage() {
-  const { data: health, isLoading, isError, refetch, dataUpdatedAt } = useQuery(healthQuery());
+  const { data: health, isFetching, isLoading, isError, refetch, dataUpdatedAt } = useQuery(healthQuery());
   const { data: asyncMetrics } = useQuery(asyncMetricsQuery());
 
   const header = (
@@ -42,10 +43,11 @@ export default function ObservabilityPage() {
       <div className="space-y-6">
         {header}
         <SectionCard title="Cargando...">
-          <div className="flex items-center gap-3 p-4 text-sm text-slate-400">
-            <Spinner />
-            Consultando estado del sistema.
-          </div>
+          <BackendRequestSkeleton
+            description="El backend está reportando vitales del sistema."
+            title="Consultando estado"
+            variant="panel"
+          />
         </SectionCard>
       </div>
     );
@@ -80,16 +82,27 @@ export default function ObservabilityPage() {
       <SectionCard
         title="Estado del sistema"
         actions={
-          <button
+          <Button
             type="button"
             onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-300 transition hover:border-sky-400/30 hover:text-white"
+            loading={isFetching}
+            loadingLabel="Actualizando"
+            variant="secondary"
+            size="sm"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Actualizar
-          </button>
+          </Button>
         }
       >
+        {isFetching ? (
+          <BackendRequestSkeleton
+            className="mb-4"
+            description="El backend está refrescando los vitales operativos."
+            title="Actualizando estado"
+            variant="compact"
+          />
+        ) : null}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {/* Base de Datos */}
           <VitalCard

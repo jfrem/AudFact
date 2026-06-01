@@ -1,3 +1,45 @@
+## [2026-06-01]
+
+### docs
+- **Sincronización documental con el estado actual del código**: se alinearon endpoints, contratos `/invoices` y `/audit/async`, flujo `document_rejected`, conteos de rutas/tests/workers, versión real de Next.js y catálogo de skills.
+  - Archivos modificados: `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/api-endpoints.md`, `plans/architecture.md`, `plans/architecture-diagrams.md`, `plans/data-flows.md`, `plans/database-schema.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/features/audit-workflow.md`, `plans/features/mcp-integration.md`, `plans/overview.md`, `plans/testing-strategy.md`, `plans/changelog.md`, `.agent/skills/CATALOG.md`, `.agent/skills/catalog.json`, `.agent/skills/aliases.json`, `.agent/skills/bundles.json`, `.agent/skills/audfact-api-rest/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/audfact-docs-sync/SKILL.md`, `.agent/skills/audfact-mcp-wrap/SKILL.md`, `.agent/skills/audfact-mcp-wrap/references/examples.md`, `.agent/skills/audfact-project-overview/SKILL.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`, `.agent/skills/audfact-sqlsrv-models/SKILL.md`, `.agent/skills/audfact-sqlsrv-models/references/examples.md`, `.agent/skills/audfact-sqlsrv-models/references/test-cases.md`
+  - Hallazgo resuelto: drift documental posterior a paginación de facturas, rechazo pre-Gemini, endpoint de estado Redis y runtime frontend.
+  - Impacto: agentes y humanos consultan documentación coherente con el código vigente.
+
+### refactor
+- **Paginación real en búsqueda de facturas**: `/invoices` deja de exponer `limit` y usa contrato paginado uniforme con `items`, `total`, `page`, `pageSize`, `totalPages` y `filters`; la UI de facturas muestra selector de tamaño de página, paginador y skeleton durante cada búsqueda o cambio de página.
+  - Archivos modificados: `app/Controllers/InvoicesController.php`, `app/Models/InvoicesModel.php`, `app/wrap/core/tools/GetInvoices.php`, `app/wrap/capabilities.php`, `frontend/app/(dashboard)/invoices/page.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/invoices/invoices-table.tsx`, `frontend/lib/api/audfact.ts`, `frontend/lib/schemas/domain.ts`, `tests/Controllers/InvoicesControllerTest.php`, `tests/Models/InvoicesModelTest.php`, `plans/api-endpoints.md`, `.agent/skills/audfact-mcp-wrap/SKILL.md`, `.agent/skills/audfact-sqlsrv-models/SKILL.md`
+  - Hallazgo resuelto: `/invoices` solo limitaba resultados con `SELECT TOP` y no permitía navegar páginas reales.
+  - Impacto: los usuarios pueden recorrer facturas por páginas estables y los consumidores internos quedan alineados al contrato estándar de listas.
+
+### fix
+- **Render SSR estable en shell del dashboard**: evita que componentes con `asChild` entreguen contenido ambiguo a Radix `Slot`, manteniendo un único elemento hijo en botones renderizados como child y en el cierre del menú mobile.
+  - Archivos modificados: `frontend/components/ui/button.tsx`, `frontend/components/layout/app-sidebar.tsx`
+  - Hallazgo resuelto: Next.js caía a client rendering por `React.Children.only expected to receive a single React element child`.
+  - Impacto: el dashboard conserva render server estable y el menú mobile mantiene el mismo comportamiento de apertura/cierre.
+
+## [2026-05-31]
+
+### feat
+- **Skeletons contextuales para peticiones backend del frontend**: las acciones de búsqueda, navegación, paginación, auditoría, configuración, observabilidad y carga de adjuntos muestran feedback inmediato con skeletons accesibles mientras el backend responde.
+  - Archivos modificados: `frontend/components/ui/button.tsx`, `frontend/components/shared/backend-request-skeleton.tsx`, `frontend/lib/hooks/use-pending-navigation.ts`, `frontend/components/shared/pending-pagination-controls.tsx`, `frontend/components/shared/pagination.tsx`, `frontend/components/clients/clients-filter-form.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/invoices/invoices-table.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`, `frontend/components/audit/documents-history-filter-form.tsx`, `frontend/components/audit/audit-single-console.tsx`, `frontend/components/audit/audit-batch-console.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/components/audit/add-field-from-dispensa-dialog.tsx`, `frontend/components/audit/audit-config-editor.tsx`, `frontend/components/audit/audit-config-page-client.tsx`, `frontend/components/audit/client-selector.tsx`, `frontend/components/jobs/job-tracker.tsx`, `frontend/components/jobs/job-detail-client.tsx`, `frontend/components/attachments/attachment-viewer-panel.tsx`, `frontend/app/(dashboard)/dispensation/page.tsx`, `frontend/app/(dashboard)/observability/page.tsx`
+  - Hallazgo resuelto: ausencia de feedback visual consistente en botones y flujos que esperan respuesta del backend.
+  - Impacto: el usuario ve que su solicitud sigue en proceso, los botones conservan estado ocupado accesible y se reduce la percepción de bloqueo en consultas lentas.
+
+### fix
+- **Rechazo temprano robusto de documentos no procesables**: el pipeline de auditoría separa la validación de integridad pre-Gemini (`DocumentIntegrityValidator`) de la evaluación funcional del rechazo. El extractor publica `document_rejected` sin invocar Gemini ni cachear extracción, y `RulesEvaluationWorker` genera el hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity`, permitiendo que `rules_evaluated` se publique sin bloquear el readiness de la auditoría.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/AuditStateStore.php`, `app/Services/Audit/Pipeline/AuditEvent.php`, `app/Services/Audit/Pipeline/AuditEventPublisher.php`, `app/Services/Audit/AuditFindingResult.php`, `tests/Services/Audit/Events/DocumentIntegrityValidatorTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `tests/Services/Audit/Events/RulesEvaluationWorkerTest.php`, `tests/Services/Audit/Events/AuditStateStoreTest.php`, `tests/Services/Audit/Events/AuditEventPublisherTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/CATALOG.md`, `plans/architecture.md`, `plans/changelog.md`
+  - Hallazgo resuelto: bloqueo potencial del pipeline por documentos rechazados sin evento de policy.
+  - Impacto: los adjuntos vacíos, corruptos o con MIME inconsistente quedan auditados como hallazgos de integridad sin consumir tokens de Gemini ni dejar auditorías pendientes.
+- **Validación robusta de query params en `GET /invoices`**: el endpoint valida los valores crudos de `facNitSec`, `dateFrom`, `dateTo` y `limit` antes de castear, evitando que entradas inválidas como `limit=abc` o `facNitSec=abc` se conviertan silenciosamente a enteros.
+  - Archivos modificados: `app/Controllers/InvoicesController.php`, `tests/Controllers/InvoicesControllerTest.php`
+  - Hallazgo resuelto: validación débil por casteo previo de query params.
+  - Impacto: el endpoint rechaza solicitudes malformadas con `422` antes de consultar SQL Server.
+- **Alineación robusta del frontend de facturas con `/invoices`**: la búsqueda de facturas valida cliente, fecha inicial, rango y límite antes de navegar, muestra errores del backend en vez de convertirlos en listas vacías y usa `limit=100` como default compartido con el backend.
+  - Archivos modificados: `frontend/app/(dashboard)/invoices/page.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/invoices/invoices-table.tsx`, `frontend/components/audit/client-selector-combo.tsx`, `frontend/lib/api/audfact.ts`, `frontend/lib/api/errors.ts`
+  - Hallazgo resuelto: frontend permitía búsquedas incompletas y ocultaba errores `422` como ausencia de resultados.
+  - Impacto: el usuario recibe validación local clara y los errores reales de API quedan visibles sin ejecutar consultas inválidas.
+
 ## [2026-05-29]
 
 ### refactor

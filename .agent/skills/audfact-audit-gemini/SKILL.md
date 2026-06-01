@@ -1,6 +1,6 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
 ---
 
 # AudFact Audit Gemini (Event-Driven)
@@ -20,10 +20,11 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
 | `app/Services/Audit/Pipeline/AuditDataService.php` / `AuditDataServiceInterface.php` | Acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
 | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` / `AttachmentDownloadServiceInterface.php` | Descarga del adjunto (Drive/BLOB) por audit-id + document-id |
+| `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye las cuatro function declarations Gemini (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y agrupa campos dinámicos por responsabilidad |
 | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por hash, invoca Gemini con parallel function calling y publica `document_extracted` |
-| `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de la extracción (COMPLETED, FAILED, ILLEGIBLE) |
+| `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
 | `app/Services/Audit/Pipeline/BatchRequestedWorker.php` | Worker que consume `batch_requested` de `audit.batch.inbox`, realiza consultas pesadas en SQL Server y reserva idempotencia por `FacSec` en Redis |
@@ -31,7 +32,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items) resolviendo dependencias de normalización cruzada. |
-| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando `docs:done == docs:total` |
+| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
@@ -57,7 +58,7 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
 | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 6 servicios con este mismo binario y argumento distinto (extraction tiene 8 réplicas, orchestrator 3, policy 2, batch 1).
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
 
 ### Controllers y endpoints
 
@@ -72,7 +73,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 |---|---|---|
 | `audit.batch.inbox` | `AuditController` | `batch_requested` |
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
-| `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized` |
+| `audit.documents` | Orchestrator / Extractor / Normalizer / Policy | `document_registered`, `document_extracted`, `document_rejected`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
@@ -97,9 +98,9 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.fac_sec` = `FDV.header.FacSec` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
-3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
+3. `DocumentExtractionWorker` descarga el adjunto por URL interna y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si el documento está corrupto, vacío, tiene MIME no soportado o la firma binaria no coincide, se marca como `rejected` atómicamente en Redis incrementando `docs_rejected`, se publica `document_rejected` y se omite Gemini. Si es válido, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
 4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
-5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
+5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV y convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
 6. `AuditAggregationWorker` valida el outcome recibido, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
 
@@ -155,9 +156,9 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
   "documento":          "DISPENSA|AUTORIZACION|FORMULA MEDICA|...",
   "valorDocumento":     "<valor extraído por Gemini>",
   "valorFuenteVerdad":  "<valor de la FDV>",
-  "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE",
+  "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE|RECHAZADO",
   "detalle":            "<string|null>",
-  "tipo_auditoria":     "exact|semantic|business|visual",
+  "tipo_auditoria":     "exact|semantic|business|visual|integrity",
   "valueType":          "text|date|quantity|money|identity_doc_type|identity_doc_number|code|trace_token|person_name|institution_name|article_name",
   "valoresDocumento":   ["S202","S273","F432"]   // solo para CODE; null en otros tipos
 }
@@ -217,11 +218,11 @@ curl http://localhost:8080/audit/dlq?limit=20
 1. `POST /audit/single` responde 202 con `audit_id`.
 2. `POST /audit/async` responde 202 con `job_id`.
 3. Workers procesan el flujo completo para `T38250701547` (cliente 2426).
-4. `rg "AuditQueueService|AuditOrchestrator|lpush|brpop"` sin coincidencias.
+4. Búsqueda de nombres legacy de cola y llamadas Redis list (`LPUSH`/`BRPOP`) sin coincidencias; tampoco debe existir orquestador monolítico anterior en `app/Services/Audit/`.
 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
 6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
-7. PHPUnit completo verde antes de merge — suite actual: 246 tests, 741 assertions, 10 skipped.
-8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` → 3 tests, 34 assertions (Golden Set D65260408592).
+7. PHPUnit completo verde antes de merge; suite actual organizada en 31 archivos PHP bajo `tests/`.
+8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` valida los fixtures golden.
 9. Hallazgos de tipo `CODE` incluyen `valueType` y `valoresDocumento` en el contrato v1.
 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.
 

@@ -27,25 +27,41 @@ final class InvoicesControllerTest extends TestCase
         $_SERVER = $this->originalServer;
     }
 
-    public function testIndexPassesDateRangeToModel(): void
+    public function testIndexReturnsPaginatedPayloadAndPassesPageToModel(): void
     {
         $_GET = [
             'facNitSec' => '2426',
             'dateFrom' => '2025-07-01',
             'dateTo' => '2025-07-30',
-            'limit' => '900',
+            'page' => '2',
+            'pageSize' => '50',
         ];
 
         $model = new InvoicesControllerFakeModel();
+        $model->total = 121;
         $model->returnValue = [['FacSec' => '87172329', 'Dispensa' => 'X24250700021']];
         $controller = new TestableInvoicesController($model);
 
         $response = $this->captureHttpResponse(static fn() => $controller->index());
 
         $this->assertSame(200, $response->getCode());
-        $this->assertSame([2426, '2025-07-01', '2025-07-30', 900], $model->lastCall);
+        $this->assertSame(
+            ['facNitSec' => 2426, 'dateFrom' => '2025-07-01', 'dateTo' => '2025-07-30'],
+            $model->lastCountFilters
+        );
+        $this->assertSame(
+            [['facNitSec' => 2426, 'dateFrom' => '2025-07-01', 'dateTo' => '2025-07-30'], 2, 50],
+            $model->lastSearchCall
+        );
         $this->assertTrue($response->getData()['success']);
-        $this->assertSame($model->returnValue, $response->getData()['data']);
+        $this->assertSame([
+            'items' => $model->returnValue,
+            'total' => 121,
+            'page' => 2,
+            'pageSize' => 50,
+            'totalPages' => 3,
+            'filters' => ['facNitSec' => 2426, 'dateFrom' => '2025-07-01', 'dateTo' => '2025-07-30'],
+        ], $response->getData()['data']);
     }
 
     public function testIndexRejectsInvalidDateRange(): void
@@ -54,32 +70,125 @@ final class InvoicesControllerTest extends TestCase
             'facNitSec' => '2426',
             'dateFrom' => '2025-07-30',
             'dateTo' => '2025-07-01',
-            'limit' => '10',
+            'pageSize' => '10',
         ];
 
-        $controller = new TestableInvoicesController(new InvoicesControllerFakeModel());
+        $model = new InvoicesControllerFakeModel();
+        $controller = new TestableInvoicesController($model);
 
         $response = $this->captureHttpResponse(static fn() => $controller->index());
 
         $this->assertSame(422, $response->getCode());
         $this->assertFalse($response->getData()['success']);
         $this->assertSame('dateFrom no puede ser mayor que dateTo', $response->getData()['message']);
+        $this->assertSame([], $model->lastCountFilters);
+        $this->assertSame([], $model->lastSearchCall);
+    }
+
+    public function testIndexRejectsNonIntegerPageSizeBeforeCallingModel(): void
+    {
+        $_GET = [
+            'facNitSec' => '2426',
+            'dateFrom' => '2025-07-01',
+            'dateTo' => '2025-07-30',
+            'pageSize' => 'abc',
+        ];
+
+        $model = new InvoicesControllerFakeModel();
+        $controller = new TestableInvoicesController($model);
+
+        $response = $this->captureHttpResponse(static fn() => $controller->index());
+
+        $this->assertSame(422, $response->getCode());
+        $this->assertFalse($response->getData()['success']);
+        $this->assertArrayHasKey('pageSize', $response->getData()['errors']);
+        $this->assertSame([], $model->lastCountFilters);
+        $this->assertSame([], $model->lastSearchCall);
+    }
+
+    public function testIndexRejectsNonIntegerFacNitSecBeforeCallingModel(): void
+    {
+        $_GET = [
+            'facNitSec' => 'abc',
+            'dateFrom' => '2025-07-01',
+            'dateTo' => '2025-07-30',
+            'pageSize' => '100',
+        ];
+
+        $model = new InvoicesControllerFakeModel();
+        $controller = new TestableInvoicesController($model);
+
+        $response = $this->captureHttpResponse(static fn() => $controller->index());
+
+        $this->assertSame(422, $response->getCode());
+        $this->assertFalse($response->getData()['success']);
+        $this->assertArrayHasKey('facNitSec', $response->getData()['errors']);
+        $this->assertSame([], $model->lastCountFilters);
+        $this->assertSame([], $model->lastSearchCall);
+    }
+
+    public function testIndexRejectsInvalidDateBeforeCallingModel(): void
+    {
+        $_GET = [
+            'facNitSec' => '2426',
+            'dateFrom' => '2025-02-30',
+            'pageSize' => '100',
+        ];
+
+        $model = new InvoicesControllerFakeModel();
+        $controller = new TestableInvoicesController($model);
+
+        $response = $this->captureHttpResponse(static fn() => $controller->index());
+
+        $this->assertSame(422, $response->getCode());
+        $this->assertFalse($response->getData()['success']);
+        $this->assertArrayHasKey('dateFrom', $response->getData()['errors']);
+        $this->assertSame([], $model->lastCountFilters);
+        $this->assertSame([], $model->lastSearchCall);
     }
 
     public function testSearchAutocompletesDateToWhenMissing(): void
     {
         $model = new InvoicesControllerFakeModel();
+        $model->total = 1;
         $controller = new TestableInvoicesController($model, [
             'facNitSec' => 2426,
             'dateFrom' => '2025-07-01',
-            'limit' => 100,
+            'pageSize' => 20,
         ]);
 
         $response = $this->captureHttpResponse(static fn() => $controller->search());
 
         $this->assertSame(200, $response->getCode());
-        $this->assertSame([2426, '2025-07-01', '2025-07-01', 100], $model->lastCall);
+        $this->assertSame(
+            [['facNitSec' => 2426, 'dateFrom' => '2025-07-01', 'dateTo' => '2025-07-01'], 1, 20],
+            $model->lastSearchCall
+        );
         $this->assertTrue($response->getData()['success']);
+    }
+
+    public function testIndexClampsOutOfRangePageToLastAvailablePage(): void
+    {
+        $_GET = [
+            'facNitSec' => '2426',
+            'dateFrom' => '2025-07-01',
+            'page' => '99',
+            'pageSize' => '20',
+        ];
+
+        $model = new InvoicesControllerFakeModel();
+        $model->total = 45;
+        $controller = new TestableInvoicesController($model);
+
+        $response = $this->captureHttpResponse(static fn() => $controller->index());
+
+        $this->assertSame(200, $response->getCode());
+        $this->assertSame(
+            [['facNitSec' => 2426, 'dateFrom' => '2025-07-01', 'dateTo' => '2025-07-01'], 3, 20],
+            $model->lastSearchCall
+        );
+        $this->assertSame(3, $response->getData()['data']['page']);
+        $this->assertSame(3, $response->getData()['data']['totalPages']);
     }
 
     private function captureHttpResponse(callable $callback): HttpResponseException
@@ -110,11 +219,26 @@ final class TestableInvoicesController extends InvoicesController
 final class InvoicesControllerFakeModel
 {
     public array $returnValue = [];
-    public array $lastCall = [];
+    public int $total = 0;
+    public array $lastCountFilters = [];
+    public array $lastSearchCall = [];
 
-    public function getInvoices(int $facNitSec, string $date, string $dateTo, int $limit = 100): array
+    /**
+     * @param array{facNitSec:int,dateFrom:string,dateTo:string} $filters
+     */
+    public function countInvoices(array $filters): int
     {
-        $this->lastCall = [$facNitSec, $date, $dateTo, $limit];
+        $this->lastCountFilters = $filters;
+        return $this->total;
+    }
+
+    /**
+     * @param array{facNitSec:int,dateFrom:string,dateTo:string} $filters
+     * @return array<int,array<string,mixed>>
+     */
+    public function searchInvoices(array $filters, int $page = 1, int $pageSize = 20): array
+    {
+        $this->lastSearchCall = [$filters, $page, $pageSize];
         return $this->returnValue;
     }
 }

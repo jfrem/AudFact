@@ -13,6 +13,7 @@ final class AuditEvent
     public const TYPE_BATCH_CREATED        = 'batch_created';
     public const TYPE_DOCUMENT_REGISTERED  = 'document_registered';
     public const TYPE_DOCUMENT_EXTRACTED   = 'document_extracted';
+    public const TYPE_DOCUMENT_REJECTED    = 'document_rejected';
     public const TYPE_DOCUMENT_NORMALIZED  = 'document_normalized';
     public const TYPE_RULES_EVALUATED      = 'rules_evaluated';
     public const TYPE_AUDIT_COMPLETED      = 'audit_completed';

@@ -1,0 +1,1093 @@
+diff --git a/.agent/skills/CATALOG.md b/.agent/skills/CATALOG.md
+index 592cfe9..b3a96ec 100644
+--- a/.agent/skills/CATALOG.md
++++ b/.agent/skills/CATALOG.md
+@@ -8,7 +8,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
+ |---|---|---|---|
+ | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
+ | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
+-| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder`, reservas idempotentes por `FacSec`, telemetría por evento y workers sobre Redis Streams. |
++| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder`, `DocumentIntegrityValidator`, reservas idempotentes por `FacSec`, telemetría por evento y workers sobre Redis Streams. |
+ | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
+ | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
+ | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
+@@ -34,7 +34,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
+ |---|---|
+ | `audfact-project-overview` | overview, visión general, arquitectura, cómo está organizado, mapear dependencias, estructura del proyecto |
+ | `audfact-api-rest` | endpoint, ruta, controller, request/response, validación HTTP, web.php, API REST |
+-| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, extraction_contract, parallel function calling, retry/backoff, DocumentAuditOrchestrator, workers, Pipeline event-driven, DLQ, idempotencia FacSec, event_timings, phase_timings |
++| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, extraction_contract, parallel function calling, retry/backoff, DocumentAuditOrchestrator, DocumentIntegrityValidator, document_rejected, workers, Pipeline event-driven, DLQ, idempotencia FacSec, event_timings, phase_timings |
+ | `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
+ | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
+ | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
+diff --git a/.agent/skills/audfact-audit-gemini/SKILL.md b/.agent/skills/audfact-audit-gemini/SKILL.md
+index b846bf5..b180451 100644
+--- a/.agent/skills/audfact-audit-gemini/SKILL.md
++++ b/.agent/skills/audfact-audit-gemini/SKILL.md
+@@ -1,6 +1,6 @@
+ ---
+ name: audfact-audit-gemini
+-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
++description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+ ---
+ 
+ # AudFact Audit Gemini (Event-Driven)
+@@ -20,10 +20,11 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
+ | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
+ | `app/Services/Audit/Pipeline/AuditDataService.php` / `AuditDataServiceInterface.php` | Acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
+ | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` / `AttachmentDownloadServiceInterface.php` | Descarga del adjunto (Drive/BLOB) por audit-id + document-id |
++| `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
+ | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
+ | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye las cuatro function declarations Gemini (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y agrupa campos dinámicos por responsabilidad |
+ | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por hash, invoca Gemini con parallel function calling y publica `document_extracted` |
+-| `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de la extracción (COMPLETED, FAILED, ILLEGIBLE) |
++| `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
+ | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
+ | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
+ | `app/Services/Audit/Pipeline/BatchRequestedWorker.php` | Worker que consume `batch_requested` de `audit.batch.inbox`, realiza consultas pesadas en SQL Server y reserva idempotencia por `FacSec` en Redis |
+@@ -31,7 +32,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
+ | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
+ | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
+ | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items) resolviendo dependencias de normalización cruzada. |
+-| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando `docs:done == docs:total` |
++| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
+ | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
+ | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
+ | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
+@@ -72,7 +73,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
+ |---|---|---|
+ | `audit.batch.inbox` | `AuditController` | `batch_requested` |
+ | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
+-| `audit.documents` | Orchestrator / Extractor / Normalizer | `document_registered`, `document_extracted`, `document_normalized` |
++| `audit.documents` | Orchestrator / Extractor / Normalizer / Policy | `document_registered`, `document_extracted`, `document_rejected`, `document_normalized` |
+ | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+ | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
+ 
+@@ -97,9 +98,9 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
+ 
+ 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
+ 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.fac_sec` = `FDV.header.FacSec` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
+-3. `DocumentExtractionWorker` descarga el adjunto por URL interna, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
++3. `DocumentExtractionWorker` descarga el adjunto por URL interna y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si el documento está corrupto, vacío, tiene MIME no soportado o la firma binaria no coincide, se marca como `rejected` atómicamente en Redis incrementando `docs_rejected`, se publica `document_rejected` y se omite Gemini. Si es válido, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
+ 4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
+-5. `RulesEvaluationWorker` evalúa policy por documento contra FDV, usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs:done == docs:total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
++5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV y convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
+ 6. `AuditAggregationWorker` valida el outcome recibido, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
+ 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
+ 
+@@ -155,9 +156,9 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
+   "documento":          "DISPENSA|AUTORIZACION|FORMULA MEDICA|...",
+   "valorDocumento":     "<valor extraído por Gemini>",
+   "valorFuenteVerdad":  "<valor de la FDV>",
+-  "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE",
++  "resultado":          "COINCIDE|VALOR_DISTINTO|NO_ENCONTRADO|OMITIDO|NO_CONCLUYENTE|RECHAZADO",
+   "detalle":            "<string|null>",
+-  "tipo_auditoria":     "exact|semantic|business|visual",
++  "tipo_auditoria":     "exact|semantic|business|visual|integrity",
+   "valueType":          "text|date|quantity|money|identity_doc_type|identity_doc_number|code|trace_token|person_name|institution_name|article_name",
+   "valoresDocumento":   ["S202","S273","F432"]   // solo para CODE; null en otros tipos
+ }
+@@ -220,7 +221,7 @@ curl http://localhost:8080/audit/dlq?limit=20
+ 4. `rg "AuditQueueService|AuditOrchestrator|lpush|brpop"` sin coincidencias.
+ 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
+ 6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
+-7. PHPUnit completo verde antes de merge — suite actual: 246 tests, 741 assertions, 10 skipped.
++7. PHPUnit completo verde antes de merge — suite actual: 297 tests, 898 assertions, 10 skipped.
+ 8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` → 3 tests, 34 assertions (Golden Set D65260408592).
+ 9. Hallazgos de tipo `CODE` incluyen `valueType` y `valoresDocumento` en el contrato v1.
+ 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index dcadfd9..d863fb2 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,15 @@
++## [2026-05-31]
++
++### fix
++- **Rechazo temprano robusto de documentos no procesables**: el pipeline de auditoría separa la validación de integridad pre-Gemini (`DocumentIntegrityValidator`) de la evaluación funcional del rechazo. El extractor publica `document_rejected` sin invocar Gemini ni cachear extracción, y `RulesEvaluationWorker` genera el hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity`, permitiendo que `rules_evaluated` se publique sin bloquear el readiness de la auditoría.
++  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/AuditStateStore.php`, `app/Services/Audit/Pipeline/AuditEvent.php`, `app/Services/Audit/Pipeline/AuditEventPublisher.php`, `app/Services/Audit/AuditFindingResult.php`, `tests/Services/Audit/Events/DocumentIntegrityValidatorTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `tests/Services/Audit/Events/RulesEvaluationWorkerTest.php`, `tests/Services/Audit/Events/AuditStateStoreTest.php`, `tests/Services/Audit/Events/AuditEventPublisherTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/CATALOG.md`, `plans/architecture.md`, `plans/changelog.md`
++  - Hallazgo resuelto: bloqueo potencial del pipeline por documentos rechazados sin evento de policy.
++  - Impacto: los adjuntos vacíos, corruptos o con MIME inconsistente quedan auditados como hallazgos de integridad sin consumir tokens de Gemini ni dejar auditorías pendientes.
++- **Validación robusta de query params en `GET /invoices`**: el endpoint valida los valores crudos de `facNitSec`, `dateFrom`, `dateTo` y `limit` antes de castear, evitando que entradas inválidas como `limit=abc` o `facNitSec=abc` se conviertan silenciosamente a enteros.
++  - Archivos modificados: `app/Controllers/InvoicesController.php`, `tests/Controllers/InvoicesControllerTest.php`
++  - Hallazgo resuelto: validación débil por casteo previo de query params.
++  - Impacto: el endpoint rechaza solicitudes malformadas con `422` antes de consultar SQL Server.
++
+ ## [2026-05-29]
+ 
+ ### refactor
+diff --git a/app/Controllers/InvoicesController.php b/app/Controllers/InvoicesController.php
+index d42a370..e320450 100644
+--- a/app/Controllers/InvoicesController.php
++++ b/app/Controllers/InvoicesController.php
+@@ -9,6 +9,8 @@ use Core\Response;
+ 
+ class InvoicesController extends Controller
+ {
++    private const DEFAULT_LIMIT = 100;
++
+     public function __construct()
+     {
+         $this->model = new InvoicesModel();
+@@ -16,54 +18,79 @@ class InvoicesController extends Controller
+ 
+     public function index(): void
+     {
+-        $facNitSec = isset($_GET['facNitSec']) ? (int)$_GET['facNitSec'] : 0;
+-        $dateFrom = $_GET['dateFrom'] ?? '';
+-        $dateTo = $_GET['dateTo'] ?? null;
+-        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 100;
+-
+-        $this->validateArray(
+-            ['facNitSec' => $facNitSec, 'dateFrom' => $dateFrom, 'dateTo' => $dateTo, 'limit' => $limit],
+-            [
+-                'facNitSec' => 'required|integer|min_value:1',
+-                'dateFrom' => 'required|date',
+-                'dateTo' => 'optional|date',
+-                'limit' => 'nullable|integer|min_value:1|max_value:1000'
+-            ]
++        [$facNitSec, $dateFrom, $dateTo, $limit] = $this->normalizeInvoiceSearchInput(
++            $this->validateQuery($this->invoiceSearchRules())
+         );
+ 
+-        // Normalizar: si dateTo ausente, consultar un solo día
+-        $dateTo = ($dateTo !== null && $dateTo !== '') ? $dateTo : $dateFrom;
++        $invoices = $this->model->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
++        Response::success($invoices);
++    }
+ 
+-        $dtFrom = \DateTime::createFromFormat('Y-m-d', $dateFrom);
+-        $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
+-        if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
+-            Response::error('dateFrom no puede ser mayor que dateTo', 422);
+-        }
++    public function search(): void
++    {
++        [$facNitSec, $dateFrom, $dateTo, $limit] = $this->normalizeInvoiceSearchInput(
++            $this->validate($this->invoiceSearchRules())
++        );
+ 
+         $invoices = $this->model->getInvoices($facNitSec, $dateFrom, $dateTo, $limit);
+         Response::success($invoices);
+     }
+ 
+-    public function search(): void
++    /**
++     * @return array<string,string>
++     */
++    private function invoiceSearchRules(): array
+     {
+-        $data = $this->validate([
++        return [
+             'facNitSec' => 'required|integer|min_value:1',
+             'dateFrom' => 'required|date',
+             'dateTo' => 'optional|date',
+-            'limit' => 'nullable|integer|min_value:1|max_value:1000'
+-        ]);
++            'limit' => 'optional|integer|min_value:1|max_value:1000',
++        ];
++    }
+ 
+-        $limit = isset($data['limit']) ? (int)$data['limit'] : 100;
+-        // Normalizar: si dateTo ausente, consultar un solo día
+-        $dateTo = (isset($data['dateTo']) && $data['dateTo'] !== '') ? (string)$data['dateTo'] : (string)$data['dateFrom'];
++    /**
++     * @param  array<string,mixed>  $data
++     * @return array{0:int,1:string,2:string,3:int}
++     */
++    private function normalizeInvoiceSearchInput(array $data): array
++    {
++        $dateFrom = (string) $data['dateFrom'];
++        $dateTo = $this->resolveDateTo($data, $dateFrom);
++        $this->assertValidDateRange($dateFrom, $dateTo);
++
++        return [
++            (int) $data['facNitSec'],
++            $dateFrom,
++            $dateTo,
++            $this->resolveLimit($data),
++        ];
++    }
++
++    /**
++     * @param  array<string,mixed>  $data
++     */
++    private function resolveDateTo(array $data, string $dateFrom): string
++    {
++        $dateTo = $data['dateTo'] ?? null;
++        return ($dateTo !== null && $dateTo !== '') ? (string) $dateTo : $dateFrom;
++    }
+ 
+-        $dtFrom = \DateTime::createFromFormat('Y-m-d', (string)$data['dateFrom']);
+-        $dtTo = \DateTime::createFromFormat('Y-m-d', $dateTo);
+-        if ($dtFrom && $dtTo && $dtFrom > $dtTo) {
++    /**
++     * @param  array<string,mixed>  $data
++     */
++    private function resolveLimit(array $data): int
++    {
++        $limit = $data['limit'] ?? null;
++        return ($limit !== null && $limit !== '') ? (int) $limit : self::DEFAULT_LIMIT;
++    }
++
++    private function assertValidDateRange(string $dateFrom, string $dateTo): void
++    {
++        $dtFrom = \DateTimeImmutable::createFromFormat('!Y-m-d', $dateFrom);
++        $dtTo = \DateTimeImmutable::createFromFormat('!Y-m-d', $dateTo);
++        if ($dtFrom instanceof \DateTimeImmutable && $dtTo instanceof \DateTimeImmutable && $dtFrom > $dtTo) {
+             Response::error('dateFrom no puede ser mayor que dateTo', 422);
+         }
+-
+-        $invoices = $this->model->getInvoices((int)$data['facNitSec'], (string)$data['dateFrom'], $dateTo, $limit);
+-        Response::success($invoices);
+     }
+ }
+diff --git a/app/Services/Audit/AuditFindingResult.php b/app/Services/Audit/AuditFindingResult.php
+index 1b81ce0..322eced 100644
+--- a/app/Services/Audit/AuditFindingResult.php
++++ b/app/Services/Audit/AuditFindingResult.php
+@@ -16,6 +16,7 @@ enum AuditFindingResult: string
+     case NOT_FOUND    = 'NO_ENCONTRADO';
+     case SKIPPED      = 'OMITIDO';
+     case INCONCLUSIVE = 'NO_CONCLUYENTE';
++    case REJECTED     = 'RECHAZADO';
+ 
+     /**
+      * Indica si el resultado representa un fallo auditable (afecta risk_score).
+@@ -23,7 +24,7 @@ enum AuditFindingResult: string
+     public function isFailure(): bool
+     {
+         return match ($this) {
+-            self::MISMATCH, self::NOT_FOUND, self::INCONCLUSIVE => true,
++            self::MISMATCH, self::NOT_FOUND, self::INCONCLUSIVE, self::REJECTED => true,
+             default => false,
+         };
+     }
+@@ -34,7 +35,7 @@ enum AuditFindingResult: string
+     public function isDiscrepancy(): bool
+     {
+         return match ($this) {
+-            self::MISMATCH, self::NOT_FOUND => true,
++            self::MISMATCH, self::NOT_FOUND, self::REJECTED => true,
+             default => false,
+         };
+     }
+diff --git a/app/Services/Audit/Pipeline/AuditEvent.php b/app/Services/Audit/Pipeline/AuditEvent.php
+index 0026256..2e5474f 100644
+--- a/app/Services/Audit/Pipeline/AuditEvent.php
++++ b/app/Services/Audit/Pipeline/AuditEvent.php
+@@ -13,6 +13,7 @@ final class AuditEvent
+     public const TYPE_BATCH_CREATED        = 'batch_created';
+     public const TYPE_DOCUMENT_REGISTERED  = 'document_registered';
+     public const TYPE_DOCUMENT_EXTRACTED   = 'document_extracted';
++    public const TYPE_DOCUMENT_REJECTED    = 'document_rejected';
+     public const TYPE_DOCUMENT_NORMALIZED  = 'document_normalized';
+     public const TYPE_RULES_EVALUATED      = 'rules_evaluated';
+     public const TYPE_AUDIT_COMPLETED      = 'audit_completed';
+diff --git a/app/Services/Audit/Pipeline/AuditEventPublisher.php b/app/Services/Audit/Pipeline/AuditEventPublisher.php
+index 796a686..5338293 100644
+--- a/app/Services/Audit/Pipeline/AuditEventPublisher.php
++++ b/app/Services/Audit/Pipeline/AuditEventPublisher.php
+@@ -22,6 +22,7 @@ class AuditEventPublisher
+         AuditEvent::TYPE_BATCH_CREATED       => self::STREAM_INBOX,
+         AuditEvent::TYPE_DOCUMENT_REGISTERED => self::STREAM_DOCUMENTS,
+         AuditEvent::TYPE_DOCUMENT_EXTRACTED  => self::STREAM_DOCUMENTS,
++        AuditEvent::TYPE_DOCUMENT_REJECTED   => self::STREAM_DOCUMENTS,
+         AuditEvent::TYPE_DOCUMENT_NORMALIZED => self::STREAM_DOCUMENTS,
+         AuditEvent::TYPE_RULES_EVALUATED     => self::STREAM_RESULTS,
+         AuditEvent::TYPE_AUDIT_COMPLETED     => self::STREAM_RESULTS,
+diff --git a/app/Services/Audit/Pipeline/AuditStateStore.php b/app/Services/Audit/Pipeline/AuditStateStore.php
+index dc6df1d..7cedda8 100644
+--- a/app/Services/Audit/Pipeline/AuditStateStore.php
++++ b/app/Services/Audit/Pipeline/AuditStateStore.php
+@@ -59,6 +59,7 @@ class AuditStateStore
+             'docs_done'   => 0,
+             'docs_extracted' => 0,
+             'docs_evaluated' => 0,
++            'docs_rejected'  => 0,
+             'documents'   => new \stdClass(),
+             'created_at'  => $now,
+             'updated_at'  => $now,
+@@ -170,6 +171,26 @@ class AuditStateStore
+         );
+     }
+ 
++    /**
++     * Marca un documento como rechazado por validación de integridad.
++     *
++     * Incrementa atómicamente `docs_rejected`. La evaluación funcional del
++     * rechazo ocurre después en `RulesEvaluationWorker`, que incrementa
++     * `docs_evaluated` al persistir el `policy_result` canónico.
++     *
++     * @param  array<string,mixed> $patch  Metadata del rechazo (rejection_reason, document_type, mime, etc.)
++     */
++    public function markDocumentRejected(string $auditId, string $documentId, array $patch): bool
++    {
++        return $this->runScript(
++            self::DOCUMENT_REJECTION_LUA,
++            [self::auditKey($auditId)],
++            [$documentId, $patch, self::nowUtc(), self::AUDIT_TTL_SECONDS],
++            'No se pudo marcar el documento como rechazado en Redis',
++            ['audit_id' => $auditId, 'document_id' => $documentId]
++        );
++    }
++
+     /**
+      * @param  array<string,mixed> $patch
+      */
+@@ -319,6 +340,10 @@ class AuditStateStore
+         local document = audit['documents'][documentId]
+         local previousStatus = tostring(document['status'] or '')
+ 
++        if previousStatus == 'evaluated' then
++            return 1
++        end
++
+         for k, v in pairs(patch) do
+             document[k] = v
+         end
+@@ -337,6 +362,55 @@ class AuditStateStore
+         return 1
+     LUA;
+ 
++    private const DOCUMENT_REJECTION_LUA = <<<'LUA'
++        local raw = redis.call('GET', KEYS[1])
++        if not raw then return 0 end
++
++        local audit = cjson.decode(raw)
++        local auditStatus = tostring(audit['status'] or '')
++        if auditStatus == 'completed'
++        or auditStatus == 'manual_review'
++        or auditStatus == 'error'
++        or auditStatus == 'failed' then
++            return 1
++        end
++
++        local documentId = ARGV[1]
++        local patch = cjson.decode(ARGV[2])
++        local now = ARGV[3]
++        local ttl = tonumber(ARGV[4])
++
++        if type(audit['documents']) ~= 'table'
++        or type(audit['documents'][documentId]) ~= 'table' then
++            return 0
++        end
++
++        local document = audit['documents'][documentId]
++        local previousStatus = tostring(document['status'] or '')
++
++        if previousStatus == 'evaluated' then
++            return 1
++        end
++
++        for k, v in pairs(patch) do
++            document[k] = v
++        end
++
++        document['status'] = 'rejected'
++        document['updated_at'] = now
++        audit['documents'][documentId] = document
++
++        if previousStatus ~= 'rejected' then
++            audit['docs_rejected'] = (tonumber(audit['docs_rejected']) or 0) + 1
++        end
++
++        audit['status'] = 'processing'
++        audit['updated_at'] = now
++
++        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
++        return 1
++    LUA;
++
+     private const STORE_RULES_EVALUATION_LUA = <<<'LUA'
+         local raw = redis.call('GET', KEYS[1])
+         if not raw then return 0 end
+diff --git a/app/Services/Audit/Pipeline/DocumentExtractionWorker.php b/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
+index 18bd6f0..137aa48 100644
+--- a/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
++++ b/app/Services/Audit/Pipeline/DocumentExtractionWorker.php
+@@ -107,6 +107,12 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         $document = $downloaded['document'];
+         $documentHash = $downloaded['document_hash'];
+ 
++        $integrity = DocumentIntegrityValidator::validate($document);
++        if (!$integrity['valid']) {
++            $this->handleRejectedDocument($event, $payload, $document, $integrity);
++            return;
++        }
++
+         $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $targetContextHash);
+ 
+         $extraction = $this->resolveExtraction(
+@@ -301,6 +307,67 @@ final class DocumentExtractionWorker extends AuditEventConsumer
+         ]);
+     }
+ 
++    /**
++     * Maneja el rechazo de un documento por fallo de validación de integridad.
++     *
++     * Marca el documento como rechazado en Redis y publica un evento explícito
++     * para que la etapa de reglas genere el hallazgo canónico sin invocar Gemini.
++     *
++     * @param array<string,mixed> $integrity
++     */
++    private function handleRejectedDocument(
++        AuditEvent $event,
++        array $payload,
++        array $document,
++        array $integrity
++    ): void {
++        $documentType = $this->resolveDocumentType($payload);
++        $reason = (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
++
++        $patch = [
++            'rejection_reason'    => $reason,
++            'document_type'       => $documentType,
++            'mime'                => (string) ($integrity['declared_mime'] ?? $document['mime'] ?? ''),
++            'detected_mime'       => $integrity['detected_mime'] ?? null,
++            'size_bytes'          => (int) ($integrity['size_bytes'] ?? 0),
++            'download_duration_ms' => (int) ($document['duration_ms'] ?? 0),
++            'rejected_at'         => gmdate('Y-m-d\TH:i:s\Z'),
++        ];
++
++        if (!$this->stateStore->markDocumentRejected(
++            (string) $event->auditId,
++            (string) $event->documentId,
++            $patch
++        )) {
++            throw new RuntimeException('No se pudo marcar el documento como rechazado en Redis');
++        }
++
++        $this->publishDocumentRejected($event, $payload, $patch);
++
++        Logger::info('Document rejected by integrity validation', [
++            'auditId'    => $event->auditId,
++            'documentId' => $event->documentId,
++            'reason'     => $reason,
++            'mime'       => $patch['mime'],
++        ]);
++    }
++
++    /**
++     * @param array<string,mixed> $payload
++     * @param array<string,mixed> $rejectionState
++     */
++    private function publishDocumentRejected(AuditEvent $event, array $payload, array $rejectionState): void
++    {
++        $this->publisher->publish(AuditEvent::create(
++            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
++            auditId: $event->auditId,
++            jobId: $event->jobId,
++            documentId: $event->documentId,
++            payload: array_merge($payload, $rejectionState),
++            parentEventId: $event->eventId,
++        ));
++    }
++
+     private function cacheGet(string $cacheKey): ?array
+     {
+         try {
+diff --git a/app/Services/Audit/Pipeline/RulesEvaluationWorker.php b/app/Services/Audit/Pipeline/RulesEvaluationWorker.php
+index 56174fc..58b209f 100644
+--- a/app/Services/Audit/Pipeline/RulesEvaluationWorker.php
++++ b/app/Services/Audit/Pipeline/RulesEvaluationWorker.php
+@@ -61,16 +61,18 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+     {
+         $start = microtime(true);
+ 
+-        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_NORMALIZED) {
++        if (!$this->isPolicyInputEvent($event)) {
+             return;
+         }
+ 
+         if ($event->auditId === null || $event->documentId === null) {
+-            throw new RuntimeException('document_normalized sin audit_id o document_id');
++            throw new RuntimeException("{$event->eventType} sin audit_id o document_id");
+         }
+ 
+         [, $documentState] = $this->loadPolicyContext($event);
+-        $policyResult = $this->policyEngine->evaluate($documentState, $event->payload);
++        $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
++            ? $this->buildRejectedPolicyResult($documentState, $event->payload)
++            : $this->policyEngine->evaluate($documentState, $event->payload);
+         $durationMs = (int) ((microtime(true) - $start) * 1000);
+ 
+         $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
+@@ -81,6 +83,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+         Logger::info('Document policy evaluation processed', [
+             'auditId'            => $event->auditId,
+             'documentId'         => $event->documentId,
++            'event_type'         => $event->eventType,
+             'policy_duration_ms' => $durationMs,
+         ]);
+ 
+@@ -107,6 +110,14 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+         ));
+     }
+ 
++    private function isPolicyInputEvent(AuditEvent $event): bool
++    {
++        return in_array($event->eventType, [
++            AuditEvent::TYPE_DOCUMENT_NORMALIZED,
++            AuditEvent::TYPE_DOCUMENT_REJECTED,
++        ], true);
++    }
++
+     /**
+      * @return array{0:array<string,mixed>,1:array<string,mixed>}
+      */
+@@ -151,10 +162,13 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+     private function isAuditReadyForRulesEvaluation(array $audit): bool
+     {
+         $docsNormalized = (int) ($audit['docs_done'] ?? 0);
++        $docsRejected   = (int) ($audit['docs_rejected'] ?? 0);
+         $docsTotal      = (int) ($audit['docs_total'] ?? 0);
+         $docsEvaluated  = (int) ($audit['docs_evaluated'] ?? 0);
+ 
+-        return $docsTotal >= 1 && $docsNormalized >= $docsTotal && $docsEvaluated >= $docsTotal;
++        return $docsTotal >= 1
++            && ($docsNormalized + $docsRejected) >= $docsTotal
++            && $docsEvaluated >= $docsTotal;
+     }
+ 
+     /**
+@@ -261,6 +275,43 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+         return [$allFindings, $documentDecisions];
+     }
+ 
++    /**
++     * @param  array<string,mixed> $documentState
++     * @param  array<string,mixed> $payload
++     * @return array<string,mixed>
++     */
++    private function buildRejectedPolicyResult(array $documentState, array $payload): array
++    {
++        $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
++            (string) ($payload['document_type'] ?? $documentState['document_type'] ?? $payload['tipo_documento'] ?? 'DOCUMENTO')
++        );
++        $reason = (string) ($payload['rejection_reason'] ?? $documentState['rejection_reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
++        $detail = "Documento rechazado por validación de integridad: {$reason}";
++        $finding = [
++            'severidad'         => AuditSeverity::HIGH->value,
++            'campo'             => 'INTEGRIDAD_DOCUMENTO',
++            'documento'         => $documentName,
++            'valorDocumento'    => null,
++            'valorFuenteVerdad' => null,
++            'resultado'         => AuditFindingResult::REJECTED->value,
++            'detalle'           => $detail,
++            'tipo_auditoria'    => 'integrity',
++        ];
++
++        return [
++            'document_name' => $documentName,
++            'hallazgos' => [
++                'items' => [$finding],
++                'metrics' => AuditFindingRules::summarizeMetrics([$finding]),
++            ],
++            'document_decision' => [
++                'documentName' => $documentName,
++                'approved'     => false,
++                'observation'  => "Documento no procesable: {$reason}",
++            ],
++        ];
++    }
++
+     /**
+      * @param  array<int,array<string,mixed>> $decisions
+      * @return array<int,array{documentName:string,approved:bool,observation:?string}>
+@@ -463,10 +514,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+     private function buildDetailMessage(string $finalStatus, array $metrics): string
+     {
+         return match ($finalStatus) {
+-            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => sprintf(
+-                'Auditoria completada con incertidumbre documental: %d campos no concluyentes requieren revision humana.',
+-                $metrics['no_concluyentes']
+-            ),
++            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => $this->buildManualReviewDetailMessage($metrics),
+             AuditStateStore::AUDIT_STATUS_ERROR => sprintf(
+                 'Auditoria completada con discrepancias documentales: %d discrepancias requieren analisis posterior.',
+                 $metrics['discrepancias']
+@@ -478,6 +526,25 @@ final class RulesEvaluationWorker extends AuditEventConsumer
+         };
+     }
+ 
++    /**
++     * @param  array<string,int> $metrics
++     */
++    private function buildManualReviewDetailMessage(array $metrics): string
++    {
++        $nonConclusive = (int) ($metrics['no_concluyentes'] ?? 0);
++        if ($nonConclusive > 0) {
++            return sprintf(
++                'Auditoria completada con incertidumbre documental: %d campos no concluyentes requieren revision humana.',
++                $nonConclusive
++            );
++        }
++
++        return sprintf(
++            'Auditoria requiere revision humana por %d hallazgos documentales de alta severidad.',
++            (int) ($metrics['discrepancias'] ?? 0)
++        );
++    }
++
+     /**
+      * @param  array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
+      * @param  array<int,array<string,mixed>> $calculatedFindings
+diff --git a/plans/architecture.md b/plans/architecture.md
+index 01ba4e2..542720f 100644
+--- a/plans/architecture.md
++++ b/plans/architecture.md
+@@ -73,7 +73,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
+ | `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
+ | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) desde `TipoCampo` |
+ | `AuditFieldValueType.php` | Enum de `TipoDato` explícito por campo para schema Gemini, normalización y estrategias de comparación |
+-| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`) |
++| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`, `RECHAZADO`) |
+ | `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
+ | `DocumentQuality.php` | Enum de calidad documental normalizada |
+ | `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
+@@ -99,9 +99,10 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
+ | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
+ | `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `FacSec`, y publica eventos `audit_created` en `audit.inbox` |
+ | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
+-| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, cache por hash, extrae con Gemini |
++| `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos post-descarga y pre-Gemini |
++| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, valida integridad estructural, publica `document_rejected` para adjuntos no procesables o extrae con Gemini y publica `document_extracted` |
+ | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
+-| `RulesEvaluationWorker.php` | Worker: consume `document_normalized`, evalúa policy, publica `rules_evaluated` |
++| `RulesEvaluationWorker.php` | Worker: consume `document_normalized` y `document_rejected`, evalúa policy o genera hallazgo de integridad, publica `rules_evaluated` |
+ | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
+ | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
+ | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
+diff --git a/plans/changelog.md b/plans/changelog.md
+index 75cf5e5..9fc1640 100644
+--- a/plans/changelog.md
++++ b/plans/changelog.md
+@@ -1,5 +1,23 @@
+ # Changelog AudFact
+ 
++## [2026-05-31] - Feature: Validación Preventiva de Integridad Documental y Rechazo Temprano (Clean Rebuild)
++
++### 🔴 Resiliencia / IA Pipeline / Integrity / Clean Rebuild
++- **Introducción de `DocumentIntegrityValidator`**:
++  - Implementación del nuevo servicio de integridad preventiva `DocumentIntegrityValidator` en `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`.
++  - Diseñado bajo la **Clean Rebuild Policy** para interceptar adjuntos antes de su envío a Gemini. Detecta de forma proactiva archivos vacíos (0 bytes) y firmas de archivos corruptos.
++  - Genera una bifurcación de flujo limpia en `DocumentExtractionWorker`. Al detectar un adjunto corrupto/vacío, no se consume API de Gemini ni se emiten datos de extracción sintéticos. En su lugar, el estado documental se marca como `rejected` en `AuditStateStore`, se incrementa `docs_rejected` y se publica el evento explícito `document_rejected`.
++
++- **Adaptación y Consolidación del Pipeline**:
++  - **`AuditStateStore`**: Soportado el registro explícito e idempotente del estado documental `rejected`, evitando inyectar lógica de negocio o placeholders en componentes intermedios.
++  - **`DocumentExtractionWorker`**: Integrado el validador de integridad justo después de descargar el adjunto. Si la validación falla, se evita el consumo de Gemini y se publica `document_rejected`.
++  - **`RulesEvaluationWorker`**: Consume `document_rejected` como entrada de policy, genera un `policy_result` canónico con hallazgo de severidad `alta`, resultado `RECHAZADO` y `tipo_auditoria=integrity`, y usa `docs_done + docs_rejected` para el readiness de agregación.
++  - **`AuditFindingResult`**: Registrado el resultado `"RECHAZADO"` en la lista de resultados de auditoría válidos para cumplir de forma determinista con el contrato runtime de auditoría.
++
++- **Formalización de Documentación y Skills**:
++  - **`plans/architecture.md`**: Actualizado para reflejar la introducción de `DocumentIntegrityValidator` y el flujo de bifurcación de eventos del pipeline.
++  - **`audfact-audit-gemini`**: Sincronizada la skill del agente para incluir la validación preventiva de integridad, la bifurcación de flujo `REJECTED` y el nuevo validador documental en la tabla de servicios clave.
++
+ ## [2026-05-30] - Docs: Expansión Arquitectónica Forense, Alineación E2E, Matiz de Métricas (ROI) y Auditoría de TTL en Redis
+ 
+ ### 📚 Documentation / Architecture / Resiliencia / Redis TTL / ROI Refinement
+diff --git a/tests/Controllers/InvoicesControllerTest.php b/tests/Controllers/InvoicesControllerTest.php
+index dd58f61..6b8fab7 100644
+--- a/tests/Controllers/InvoicesControllerTest.php
++++ b/tests/Controllers/InvoicesControllerTest.php
+@@ -66,6 +66,65 @@ final class InvoicesControllerTest extends TestCase
+         $this->assertSame('dateFrom no puede ser mayor que dateTo', $response->getData()['message']);
+     }
+ 
++    public function testIndexRejectsNonIntegerLimitBeforeCallingModel(): void
++    {
++        $_GET = [
++            'facNitSec' => '2426',
++            'dateFrom' => '2025-07-01',
++            'dateTo' => '2025-07-30',
++            'limit' => 'abc',
++        ];
++
++        $model = new InvoicesControllerFakeModel();
++        $controller = new TestableInvoicesController($model);
++
++        $response = $this->captureHttpResponse(static fn() => $controller->index());
++
++        $this->assertSame(422, $response->getCode());
++        $this->assertFalse($response->getData()['success']);
++        $this->assertArrayHasKey('limit', $response->getData()['errors']);
++        $this->assertSame([], $model->lastCall);
++    }
++
++    public function testIndexRejectsNonIntegerFacNitSecBeforeCallingModel(): void
++    {
++        $_GET = [
++            'facNitSec' => 'abc',
++            'dateFrom' => '2025-07-01',
++            'dateTo' => '2025-07-30',
++            'limit' => '100',
++        ];
++
++        $model = new InvoicesControllerFakeModel();
++        $controller = new TestableInvoicesController($model);
++
++        $response = $this->captureHttpResponse(static fn() => $controller->index());
++
++        $this->assertSame(422, $response->getCode());
++        $this->assertFalse($response->getData()['success']);
++        $this->assertArrayHasKey('facNitSec', $response->getData()['errors']);
++        $this->assertSame([], $model->lastCall);
++    }
++
++    public function testIndexRejectsInvalidDateBeforeCallingModel(): void
++    {
++        $_GET = [
++            'facNitSec' => '2426',
++            'dateFrom' => '2025-02-30',
++            'limit' => '100',
++        ];
++
++        $model = new InvoicesControllerFakeModel();
++        $controller = new TestableInvoicesController($model);
++
++        $response = $this->captureHttpResponse(static fn() => $controller->index());
++
++        $this->assertSame(422, $response->getCode());
++        $this->assertFalse($response->getData()['success']);
++        $this->assertArrayHasKey('dateFrom', $response->getData()['errors']);
++        $this->assertSame([], $model->lastCall);
++    }
++
+     public function testSearchAutocompletesDateToWhenMissing(): void
+     {
+         $model = new InvoicesControllerFakeModel();
+diff --git a/tests/Services/Audit/Events/AuditEventPublisherTest.php b/tests/Services/Audit/Events/AuditEventPublisherTest.php
+index 6db4e78..e7cbc89 100644
+--- a/tests/Services/Audit/Events/AuditEventPublisherTest.php
++++ b/tests/Services/Audit/Events/AuditEventPublisherTest.php
+@@ -68,6 +68,24 @@ final class AuditEventPublisherTest extends TestCase
+         $this->publisher->publish($event);
+     }
+ 
++    public function testDocumentRejectedRoutesToDocumentsStream(): void
++    {
++        $event = AuditEvent::create(
++            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
++            auditId: AuditEvent::uuidV4(),
++            documentId: '1',
++            payload: ['rejection_reason' => 'UNKNOWN_FILE_SIGNATURE'],
++        );
++
++        $this->redis
++            ->expects($this->once())
++            ->method('xAdd')
++            ->with(AuditEventPublisher::STREAM_DOCUMENTS, $this->anything())
++            ->willReturn('1700000000001-1');
++
++        $this->publisher->publish($event);
++    }
++
+     public function testRulesEvaluatedRoutesToResultsStream(): void
+     {
+         $event = AuditEvent::create(
+diff --git a/tests/Services/Audit/Events/AuditStateStoreTest.php b/tests/Services/Audit/Events/AuditStateStoreTest.php
+index 73226d5..534f72d 100644
+--- a/tests/Services/Audit/Events/AuditStateStoreTest.php
++++ b/tests/Services/Audit/Events/AuditStateStoreTest.php
+@@ -40,6 +40,7 @@ final class AuditStateStoreTest extends TestCase
+                     $this->assertSame(0, $decoded['docs_done']);
+                     $this->assertSame(0, $decoded['docs_extracted']);
+                     $this->assertSame(0, $decoded['docs_evaluated']);
++                    $this->assertSame(0, $decoded['docs_rejected']);
+                     return true;
+                 }),
+                 86400
+@@ -262,6 +263,36 @@ final class AuditStateStoreTest extends TestCase
+         ]));
+     }
+ 
++    public function testMarkDocumentRejectedUpdatesDocumentAndRejectedCounterOnly(): void
++    {
++        $auditId = AuditEvent::uuidV4();
++        $documentId = AuditEvent::uuidV4();
++
++        $this->redis
++            ->expects($this->once())
++            ->method('eval')
++            ->with(
++                $this->logicalAnd(
++                    $this->stringContains("previousStatus == 'evaluated'"),
++                    $this->stringContains("audit['docs_rejected']"),
++                    $this->logicalNot($this->stringContains("audit['docs_evaluated'] ="))
++                ),
++                [AuditStateStore::auditKey($auditId)],
++                $this->callback(function (array $args) use ($documentId): bool {
++                    $this->assertSame($documentId, $args[0]);
++                    $this->assertSame('UNKNOWN_FILE_SIGNATURE', $args[1]['rejection_reason']);
++                    $this->assertSame('FORMULA MEDICA', $args[1]['document_type']);
++                    return true;
++                })
++            )
++            ->willReturn(1);
++
++        $this->assertTrue($this->store->markDocumentRejected($auditId, $documentId, [
++            'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
++            'document_type' => 'FORMULA MEDICA',
++        ]));
++    }
++
+     public function testStoreRulesEvaluationUsesAtomicWrite(): void
+     {
+         $auditId = AuditEvent::uuidV4();
+diff --git a/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php b/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
+index 2bbe3d8..2e1a2de 100644
+--- a/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
++++ b/tests/Services/Audit/Events/DocumentExtractionWorkerTest.php
+@@ -21,7 +21,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+     {
+         $documentId = AuditEvent::uuidV4();
+         $auditId = AuditEvent::uuidV4();
+-        $base64 = base64_encode('pdf-data');
++        $base64 = $this->validPdfBase64();
+         $hash = hash('sha256', $base64);
+         $publisher = new ExtractionPublisher();
+         $store = new ExtractionRecordingStateStore();
+@@ -67,7 +67,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+     {
+         $documentId = AuditEvent::uuidV4();
+         $auditId = AuditEvent::uuidV4();
+-        $base64 = base64_encode('pdf-data');
++        $base64 = $this->validPdfBase64();
+         $hash = hash('sha256', $base64);
+         $publisher = new ExtractionPublisher();
+         $store = new ExtractionRecordingStateStore();
+@@ -127,7 +127,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+     {
+         $documentId = AuditEvent::uuidV4();
+         $auditId = AuditEvent::uuidV4();
+-        $base64 = base64_encode('pdf-data');
++        $base64 = $this->validPdfBase64();
+         $publisher = new ExtractionPublisher();
+         $store = new ExtractionRecordingStateStore();
+ 
+@@ -179,7 +179,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+         
+         $worker = new DocumentExtractionWorker(
+             stateStore: $store,
+-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
+             gateway: new StubGeminiGateway([]),
+             redis: $redisMock,
+             publisher: $publisher,
+@@ -203,7 +203,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+         
+         $worker = new DocumentExtractionWorker(
+             stateStore: new ExtractionRecordingStateStore(),
+-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
+             gateway: new StubGeminiGateway(['candidates' => []]),
+             redis: $redisMock,
+             publisher: new ExtractionPublisher(),
+@@ -225,7 +225,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+ 
+         $worker = new DocumentExtractionWorker(
+             stateStore: new ExtractionRecordingStateStore(),
+-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
+             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse('MAX_TOKENS')),
+             redis: $redisMock,
+             publisher: $publisher,
+@@ -250,7 +250,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+ 
+         $worker = new DocumentExtractionWorker(
+             stateStore: new ExtractionRecordingStateStore(),
+-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
+             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
+                 omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
+             )),
+@@ -273,7 +273,7 @@ final class DocumentExtractionWorkerTest extends TestCase
+ 
+         $worker = new DocumentExtractionWorker(
+             stateStore: new ExtractionRecordingStateStore(),
+-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
++            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
+             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
+                 duplicateFunction: DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS
+             )),
+@@ -288,6 +288,45 @@ final class DocumentExtractionWorkerTest extends TestCase
+         $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+     }
+ 
++    public function testInvalidDocumentPublishesDocumentRejectedAndSkipsGemini(): void
++    {
++        $documentId = AuditEvent::uuidV4();
++        $auditId = AuditEvent::uuidV4();
++        $publisher = new ExtractionPublisher();
++        $store = new ExtractionRecordingStateStore();
++
++        $redisMock = $this->createMock(RedisClient::class);
++        $redisMock->expects($this->never())->method('get');
++        $redisMock->expects($this->never())->method('set');
++
++        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
++        $worker = new DocumentExtractionWorker(
++            stateStore: $store,
++            downloader: new StubDownloadService([
++                'mime' => 'application/pdf',
++                'data' => base64_encode('not-a-pdf'),
++            ]),
++            gateway: $gateway,
++            redis: $redisMock,
++            publisher: $publisher,
++            consumerName: 'extractor-test'
++        );
++
++        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
++
++        $this->assertSame(0, $gateway->calls);
++        $this->assertSame('UNKNOWN_FILE_SIGNATURE', $store->lastRejectedPatch['rejection_reason'] ?? null);
++        $this->assertSame('FORMULA MEDICA', $store->lastRejectedPatch['document_type'] ?? null);
++        $this->assertCount(1, $publisher->published);
++        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
++        $this->assertSame('UNKNOWN_FILE_SIGNATURE', $publisher->published[0]->payload['rejection_reason'] ?? null);
++    }
++
++    private function validPdfBase64(): string
++    {
++        return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
++    }
++
+     private function geminiFunctionCallResponse(
+         string $finishReason = 'STOP',
+         ?string $omittedFunction = null,
+@@ -524,6 +563,7 @@ final class StubGeminiGateway extends GeminiGateway
+ final class ExtractionRecordingStateStore extends AuditStateStore
+ {
+     public array $lastPatch = [];
++    public array $lastRejectedPatch = [];
+     public ?bool $forcedResult = null;
+ 
+     public function __construct(?bool $forcedResult = null)
+@@ -536,6 +576,12 @@ final class ExtractionRecordingStateStore extends AuditStateStore
+         $this->lastPatch = $extractionState;
+         return $this->forcedResult ?? true;
+     }
++
++    public function markDocumentRejected(string $auditId, string $documentId, array $patch): bool
++    {
++        $this->lastRejectedPatch = $patch;
++        return $this->forcedResult ?? true;
++    }
+ }
+ 
+ final class ExtractionPublisher extends AuditEventPublisher
+diff --git a/tests/Services/Audit/Events/RulesEvaluationWorkerTest.php b/tests/Services/Audit/Events/RulesEvaluationWorkerTest.php
+index 08c57d4..6af9cd6 100644
+--- a/tests/Services/Audit/Events/RulesEvaluationWorkerTest.php
++++ b/tests/Services/Audit/Events/RulesEvaluationWorkerTest.php
+@@ -88,6 +88,45 @@ final class RulesEvaluationWorkerTest extends TestCase
+         $this->assertSame('87723098', $publisher->published[0]->payload['audit_result_data']['FacSec']);
+     }
+ 
++    public function testDocumentRejectedPublishesRulesEvaluatedWithCanonicalFinding(): void
++    {
++        $auditId = AuditEvent::uuidV4();
++        $documentId = AuditEvent::uuidV4();
++        $publisher = new RulesPublisher();
++        $store = new RulesRejectedStateStore($auditId, $documentId);
++
++        $worker = new RulesEvaluationWorker(
++            stateStore: $store,
++            policyEngine: new StubDocumentPolicyEngine(['unexpected' => true]),
++            redis: $this->createMock(RedisClient::class),
++            publisher: $publisher,
++            consumerName: 'policy-test'
++        );
++
++        $worker->processEvent(AuditEvent::create(
++            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
++            auditId: $auditId,
++            documentId: $documentId,
++            payload: [
++                'document_type' => 'FORMULA MEDICA',
++                'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
++            ]
++        ));
++
++        $this->assertSame('evaluated', $store->lastPolicyPatch['status'] ?? null);
++        $this->assertCount(1, $publisher->published);
++        $payload = $publisher->published[0]->payload;
++        $finding = $payload['hallazgos']['items'][0];
++
++        $this->assertSame(AuditEvent::TYPE_RULES_EVALUATED, $publisher->published[0]->eventType);
++        $this->assertSame('RECHAZADO', $finding['resultado']);
++        $this->assertSame('integrity', $finding['tipo_auditoria']);
++        $this->assertSame('FORMULA MEDICA', $finding['documento']);
++        $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
++        $this->assertSame('manual_review', $payload['final_status']);
++        $this->assertFalse($payload['document_decisions'][0]['approved']);
++    }
++
+     public function testDoesNotPublishRulesEvaluatedWhenStateStoreFailsPolicyPersistence(): void
+     {
+         $auditId = AuditEvent::uuidV4();
+@@ -367,6 +406,62 @@ final class RulesFailingStateStore extends RulesReadyStateStore
+     }
+ }
+ 
++final class RulesRejectedStateStore extends AuditStateStore
++{
++    /** @var array<string,mixed> */
++    public array $lastPolicyPatch = [];
++    /** @var array<string,mixed> */
++    private array $audit;
++    private bool $rulesStored = false;
++
++    public function __construct(private string $auditId, private string $documentId)
++    {
++        $this->audit = [
++            'audit_id' => $auditId,
++            'fac_sec' => '87723098',
++            'dis_det_nro' => 'T38250701547',
++            'fac_nit_sec' => '2426',
++            'docs_total' => 1,
++            'docs_done' => 0,
++            'docs_rejected' => 1,
++            'docs_evaluated' => 0,
++            'documents' => [
++                $documentId => [
++                    'document_type' => 'FORMULA MEDICA',
++                    'status' => 'rejected',
++                    'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
++                    'fuente_verdad' => ['header' => [], 'items' => []],
++                    'visual_checks' => [],
++                ],
++            ],
++        ];
++    }
++
++    public function getAudit(string $auditId): ?array
++    {
++        return $this->audit;
++    }
++
++    public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
++    {
++        $this->lastPolicyPatch = $policyState;
++        $this->audit['docs_evaluated'] = 1;
++        $this->audit['documents'][$documentId] = array_merge($this->audit['documents'][$documentId], $policyState);
++        return true;
++    }
++
++    public function storeRulesEvaluation(string $auditId, array $rulesEvaluation): bool
++    {
++        if ($this->rulesStored) {
++            return false;
++        }
++
++        $this->rulesStored = true;
++        $this->audit['rules_evaluated_result'] = $rulesEvaluation;
++        return true;
++    }
++}
++
+ final class RulesDeliveryValidityStateStore extends AuditStateStore
+ {
+     /** @var array<string,mixed> */

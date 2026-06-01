@@ -4,10 +4,13 @@
 
 - PHPUnit está configurado en el proyecto (`phpunit/phpunit` en `require-dev`).
 - Configuración activa en `phpunit.xml` con bootstrap de Composer.
-- Suite actual enfocada en servicios de auditoría (12 test files):
-  - Core pipeline: `tests/Services/Audit/Events/DocumentAuditOrchestratorTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditAggregationWorkerTest.php`
-  - Event infrastructure: `tests/Services/Audit/Events/AuditEventTest.php`, `AuditEventPublisherTest.php`, `AuditEventConsumerTest.php`, `AuditStateStoreTest.php`
-  - Policy & scoring: `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `ArticleSemanticMatchJudgeTest.php`, `GeminiConfigTest.php`
+- Suite actual distribuida en 31 archivos PHP de prueba:
+  - Controladores: `AuditControllerTest.php`, `AuditDlqControllerTest.php`, `InvoicesControllerTest.php`
+  - Core: `CacheTest.php`, `RedisClientTest.php`, `RedisClientStreamParsingTest.php`
+  - Modelos: `AttachmentsModelTest.php`, `DispensationModelTest.php`, `InvoicesModelTest.php`
+  - Pipeline/eventos: `DocumentAuditOrchestratorTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentIntegrityValidatorTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditAggregationWorkerTest.php`, `AuditEvent*`, `AuditStateStoreTest.php`
+  - Policy/scoring: `DocumentPolicyEngineTest.php`, `AuditFindingRulesNormalizationTest.php`, `AuditFieldValueTypeTest.php`, `DeliveryValidityEvaluatorTest.php`, `TextNormalizationTest.php`
+  - MCP tools: `GetAttachmentsTest.php`, `GetDispensationTest.php`
 - CI ejecuta pruebas unitarias con `vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always`.
 
 ## Ejecución local

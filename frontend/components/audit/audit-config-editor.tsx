@@ -17,16 +17,17 @@ import {
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { AddFieldFromDispensaDialog } from "@/components/audit/add-field-from-dispensa-dialog";
 import { saveAuditConfig, type AuditConfigPayload } from "@/lib/api/audfact";
 import type { AuditConfig } from "@/lib/schemas/domain";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -653,10 +654,12 @@ export function AuditConfigEditor({
             <span className="text-sm text-slate-600">Sin cambios pendientes</span>
           )}
         </div>
-        <button
+        <Button
           type="button"
           onClick={openConfirmIfValid}
           disabled={saving || !dirty}
+          loading={saving}
+          loadingLabel="Guardando..."
           className={cn(
             "inline-flex cursor-pointer items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200",
             dirty && !saving
@@ -664,14 +667,17 @@ export function AuditConfigEditor({
               : "cursor-not-allowed bg-slate-800/40 text-slate-600",
           )}
         >
-          {saving ? (
-            <Spinner />
-          ) : (
-            <Save className="h-4 w-4" />
-          )}
-          {saving ? "Guardando..." : "Guardar cambios"}
-        </button>
+          <Save className="h-4 w-4" />
+          Guardar cambios
+        </Button>
       </div>
+      {saving ? (
+        <BackendRequestSkeleton
+          description="El backend está persistiendo la configuración de auditoría."
+          title="Guardando configuración"
+          variant="compact"
+        />
+      ) : null}
       {validationErrorCount > 0 && (
         <p className="text-xs font-medium text-amber-300">
           {validationErrorCount} campo(s) activo(s) requieren corregir tipo de dato antes de guardar.

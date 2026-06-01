@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use PDO;
 use Core\Logger;
+use PDO;
+use PDOStatement;
 
 /**
  * Modelo de facturas/dispensaciones pendientes de auditoría.
@@ -17,25 +18,80 @@ use Core\Logger;
  */
 class InvoicesModel extends Model
 {
+    private const SEARCH_MAX_PAGE_SIZE = 100;
+
     /**
-     * Obtiene facturas pendientes de auditoría por NIT y rango de fechas.
+     * Obtiene una página de facturas pendientes de auditoría por NIT y rango de fechas.
      *
      * El SQL siempre filtra por rango cerrado: DisFecSol >= :dateFromD AND DisFecSol <= :dateToD.
      * Para consultar un solo día, pasar dateFrom == dateTo.
      *
-     * @param  int    $facNitSec  Identificador del cliente/NIT.
-     * @param  string $dateFrom   Fecha inicial en formato YYYY-MM-DD.
-     * @param  string $dateTo     Fecha final en formato YYYY-MM-DD.
-     * @param  int    $limit      Máximo de resultados (1-1000).
-     * @return array              Facturas encontradas.
+     * @param  array{facNitSec:int,dateFrom:string,dateTo:string} $filters
+     * @return array<int,array<string,mixed>>
      */
-    public function getInvoices(int $facNitSec, string $dateFrom, string $dateTo, int $limit = 100): array
+    public function searchInvoices(array $filters, int $page = 1, int $pageSize = 20): array
     {
-        $limit = min(max($limit, 1), 1000);
+        [$page, $pageSize] = $this->normalizeSearchPagination($page, $pageSize);
+        $offset = ($page - 1) * $pageSize;
 
-        $safeLimit = (int) $limit;
-        $sql = "SELECT TOP({$safeLimit}) tb3.FacNitSec NitSec,tb3.FacSec FacSec,tb2.DisDetNro Dispensa
-                FROM Dispensacion tb1 WITH(NOLOCK) 
+        $sql = "SELECT NitSec, FacSec, Dispensa
+                FROM (
+                    {$this->invoiceCandidatesSql()}
+                ) candidates
+                ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC
+                OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+
+        $stmt = $this->readDb->prepare($sql);
+        $this->bindInvoiceFilters($stmt, $filters);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+
+        $stmt->execute();
+        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+
+        $maskedNitSec = '***' . substr((string) $filters['facNitSec'], -3);
+        Logger::info('Executed SQL invoice search', [
+            'facNitSec' => $maskedNitSec,
+            'dateFrom' => $filters['dateFrom'],
+            'dateTo' => $filters['dateTo'],
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'result' => count($result ?? [])
+        ]);
+
+        return $result ?? [];
+    }
+
+    /**
+     * Cuenta facturas pendientes de auditoría usando los mismos filtros de searchInvoices.
+     *
+     * @param  array{facNitSec:int,dateFrom:string,dateTo:string} $filters
+     */
+    public function countInvoices(array $filters): int
+    {
+        $sql = "SELECT COUNT(1) AS total
+                FROM (
+                    {$this->invoiceCandidatesSql()}
+                ) candidates";
+
+        $stmt = $this->readDb->prepare($sql);
+        $this->bindInvoiceFilters($stmt, $filters);
+        $stmt->execute();
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+
+        return (int) ($row['total'] ?? 0);
+    }
+
+    /**
+     * Subquery estable de candidatas pendientes; no usar CTE por compatibilidad con pdo_sqlsrv.
+     */
+    private function invoiceCandidatesSql(): string
+    {
+        return "SELECT tb3.FacNitSec NitSec,tb3.FacSec FacSec,tb2.DisDetNro Dispensa,MIN(tb1.DisFecSol) DisFecSol
+                FROM Dispensacion tb1 WITH(NOLOCK)
                 left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
                 left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
                 left JOIN FacturaKardex tb4 WITH(NOLOCK) on tb4.FacSec=tb3.FacSec
@@ -71,28 +127,28 @@ class InvoicesModel extends Model
                     AND isnull(aud.c,0)<isnull(aud.ca,0)
                     AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
                 GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro
-                having sum(tb4.KarUniCP-tb4.KarUni) = 0
-                ORDER BY MIN(tb1.DisFecSol) ASC, tb3.FacSec ASC, tb2.DisDetNro ASC";
+                having sum(tb4.KarUniCP-tb4.KarUni) = 0";
+    }
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':facNitSec', $facNitSec, PDO::PARAM_INT);
-        $stmt->bindParam(':dateFromD', $dateFrom);
-        $stmt->bindParam(':dateToD', $dateTo);
+    /**
+     * @param array{facNitSec:int,dateFrom:string,dateTo:string} $filters
+     */
+    private function bindInvoiceFilters(PDOStatement $stmt, array $filters): void
+    {
+        $stmt->bindValue(':facNitSec', (int) $filters['facNitSec'], PDO::PARAM_INT);
+        $stmt->bindValue(':dateFromD', (string) $filters['dateFrom']);
+        $stmt->bindValue(':dateToD', (string) $filters['dateTo']);
+    }
 
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
+    /**
+     * @return array{0:int,1:int}
+     */
+    private function normalizeSearchPagination(int $page, int $pageSize): array
+    {
+        $page = max($page, 1);
+        $pageSize = min(max($pageSize, 1), self::SEARCH_MAX_PAGE_SIZE);
 
-        $maskedNitSec = '***' . substr((string) $facNitSec, -3);
-        Logger::info("Executed SQL: ", [
-            'facNitSec' => $maskedNitSec,
-            'dateFrom' => $dateFrom,
-            'dateTo' => $dateTo,
-            'limit' => $limit,
-            'result' => count($result ?? [])
-        ]);
-
-        return $result ?? [];
+        return [$page, $pageSize];
     }
 
     /**

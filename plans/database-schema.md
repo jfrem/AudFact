@@ -2,10 +2,10 @@
 
 ## Visión General
 
-AudFact opera sobre una base de datos **SQL Server** existente del sistema de dispensación farmacéutica. La aplicación **no crea ni modifica tablas** — solo realiza consultas de lectura. Las tablas y vistas son parte del ERP farmacéutico corporativo.
+AudFact opera sobre una base de datos **SQL Server** existente del sistema de dispensación farmacéutica. La aplicación no crea tablas desde el runtime: consume vistas/tablas legacy para lectura y persiste resultados/configuración de auditoría en tablas existentes de `Discolnet`.
 
 > [!IMPORTANT]
-> AudFact es un sistema **read-only** sobre la BD de dispensación. No existe esquema propio ni migraciones.
+> Las consultas operativas usan la conexión `db2` de lectura. Las escrituras controladas (`MERGE`, `INSERT`, `DELETE`, `UPDATE`) usan la conexión `default` y se limitan a configuración/resultados de auditoría: `Discolnet.dbo.AudDisp`, `Discolnet.dbo.AudDispCampo`, `Discolnet.dbo.AudDispEst` y estados de `AdjuntosDispensacion`.
 
 ---
 
@@ -168,6 +168,42 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `EstAud` | varchar | Estado de auditoría (NULL = no auditada) |
 
 **Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas), `AuditStatusModel` (MERGE para guardar resultados)
+
+---
+
+### `Discolnet.dbo.AudDisp`
+
+**Propósito**: Cabecera de configuración dinámica de auditoría por cliente.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `FacNitSec` | int/varchar | Identificador del cliente/NIT |
+| `SystemPrompt` | text/varchar | Prompt base de extracción/evaluación por cliente |
+| `Activo` | bit/int | Indica si la configuración está activa |
+| `FecCre` | datetime | Fecha de creación |
+| `FecMod` | datetime | Fecha de modificación |
+
+**Usada por**: `AuditConfigModel` (`getHeader()`, `saveConfig()` con `MERGE`).
+
+---
+
+### `Discolnet.dbo.AudDispCampo`
+
+**Propósito**: Campos configurables por documento y cliente para extracción/evaluación.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `FacNitSec` | int/varchar | Cliente/NIT |
+| `NitMedDocId` | int | Documento requerido asociado |
+| `CampoNombre` | varchar | Nombre canónico del campo o visual check |
+| `TipoCampo` | varchar | Tipo de campo (`E`, `S`, `V`, etc.) |
+| `TipoDato` | varchar/null | Tipo explícito usado por schema Gemini y normalización |
+| `Activo` | bit/int | Indica si el campo participa en runtime |
+| `Orden` | int | Orden estable de procesamiento/presentación |
+| `DescripcionOverride` | varchar/null | Descripción custom para visual checks |
+| `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) |
+
+**Usada por**: `AuditConfigModel` (`getConfig()`, `saveConfig()` con reemplazo `DELETE + INSERT`).
 
 ---
 

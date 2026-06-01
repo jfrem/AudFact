@@ -12,7 +12,8 @@ class GetInvoices
 
         $facNitSec = $params['facNitSec'] ?? null;
         $date = $params['date'] ?? null;
-        $limit = $params['limit'] ?? null;
+        $page = $params['page'] ?? null;
+        $pageSize = $params['pageSize'] ?? null;
 
         if ($facNitSec === null || $date === null) {
             return ['success' => false, 'status' => 400, 'error' => 'facNitSec y date son requeridos'];
@@ -22,8 +23,11 @@ class GetInvoices
             'facNitSec' => $facNitSec,
             'dateFrom' => $date
         ];
-        if ($limit !== null) {
-            $query['limit'] = $limit;
+        if ($page !== null) {
+            $query['page'] = $page;
+        }
+        if ($pageSize !== null) {
+            $query['pageSize'] = $pageSize;
         }
 
         return $client->get('/invoices', $query);

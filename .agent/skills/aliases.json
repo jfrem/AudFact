@@ -15,6 +15,15 @@
     "runner": "audfact-production-ops",
     "deploy-prod": "audfact-production-ops",
     "security": "audfact-security-guardrails",
-    "hardening": "audfact-security-guardrails"
+    "hardening": "audfact-security-guardrails",
+    "docs": "audfact-docs-sync",
+    "docs-sync": "audfact-docs-sync",
+    "documentation": "audfact-docs-sync",
+    "next": "next-best-practices",
+    "frontend": "next-best-practices",
+    "ui": "ui-ux-pro-max",
+    "ux": "ui-ux-pro-max",
+    "design": "ui-ux-pro-max",
+    "impeccable": "impeccable"
   }
 }

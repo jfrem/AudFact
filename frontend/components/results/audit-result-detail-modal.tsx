@@ -30,13 +30,13 @@ import {
 } from "@/components/ui/tabs";
 import { AuditStatusBadge } from "@/components/audit/status-badge";
 import { SeverityBadge } from "@/components/shared/severity-badge";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { AttachmentList } from "@/components/attachments/attachment-list";
 import { AttachmentViewerPanel } from "@/components/attachments/attachment-viewer-panel";
 import { formatDurationMs } from "@/lib/formatters";
 import { ResultItemsTable } from "@/components/audit/result-items-table";
 import { AuditTimingsPanel } from "@/components/audit/audit-timings-panel";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Table,
   TableBody,
@@ -230,10 +230,12 @@ function FindingsTab({
 }) {
   if (isLoading) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
-        <Spinner className="mr-2" />
-        Cargando detalle...
-      </div>
+      <BackendRequestSkeleton
+        description="El backend está cargando hallazgos e incidencias persistidas."
+        rows={4}
+        title="Cargando detalle"
+        variant="table"
+      />
     );
   }
 
@@ -272,10 +274,12 @@ function FieldDecisionsTab({
 }) {
   if (isLoading) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
-        <Spinner className="mr-2" />
-        Cargando campos...
-      </div>
+      <BackendRequestSkeleton
+        description="El backend está cargando decisiones de campos auditados."
+        rows={4}
+        title="Cargando campos"
+        variant="table"
+      />
     );
   }
 
@@ -371,10 +375,12 @@ function AttachmentsTab({
 }) {
   if (isLoading) {
     return (
-      <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-white/8 bg-[#09111d]/30 text-slate-400">
-        <Spinner className="mr-2" />
-        Cargando adjuntos...
-      </div>
+      <BackendRequestSkeleton
+        description="El backend está consultando metadatos de adjuntos."
+        rows={3}
+        title="Cargando adjuntos"
+        variant="detail"
+      />
     );
   }
 

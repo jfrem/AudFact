@@ -18,7 +18,11 @@ export class ApiError extends Error {
   get userHint(): string {
     switch (this.status) {
       case 400:
-        return "Los datos enviados no son válidos. Verifica los campos.";
+        return describeValidationPayload(this.payload)
+          ?? "Los datos enviados no son válidos. Verifica los campos.";
+      case 422:
+        return describeValidationPayload(this.payload)
+          ?? "Los datos enviados no son válidos. Verifica los campos.";
       case 404:
         return "El recurso solicitado no existe.";
       case 408:
@@ -34,6 +38,27 @@ export class ApiError extends Error {
         return this.message;
     }
   }
+}
+
+function describeValidationPayload(payload?: unknown): string | null {
+  if (!payload || typeof payload !== "object" || !("errors" in payload)) {
+    return null;
+  }
+
+  const errors = (payload as { errors?: unknown }).errors;
+  if (!errors || typeof errors !== "object") {
+    return null;
+  }
+
+  const messages = Object.entries(errors).flatMap(([field, value]) => {
+    if (Array.isArray(value)) {
+      return value.map((message) => `${field}: ${String(message)}`);
+    }
+
+    return [`${field}: ${String(value)}`];
+  });
+
+  return messages.length > 0 ? messages.join(" ") : null;
 }
 
 /**

@@ -61,16 +61,18 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     {
         $start = microtime(true);
 
-        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_NORMALIZED) {
+        if (!$this->isPolicyInputEvent($event)) {
             return;
         }
 
         if ($event->auditId === null || $event->documentId === null) {
-            throw new RuntimeException('document_normalized sin audit_id o document_id');
+            throw new RuntimeException("{$event->eventType} sin audit_id o document_id");
         }
 
         [, $documentState] = $this->loadPolicyContext($event);
-        $policyResult = $this->policyEngine->evaluate($documentState, $event->payload);
+        $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
+            ? $this->buildRejectedPolicyResult($documentState, $event->payload)
+            : $this->policyEngine->evaluate($documentState, $event->payload);
         $durationMs = (int) ((microtime(true) - $start) * 1000);
 
         $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
@@ -81,6 +83,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         Logger::info('Document policy evaluation processed', [
             'auditId'            => $event->auditId,
             'documentId'         => $event->documentId,
+            'event_type'         => $event->eventType,
             'policy_duration_ms' => $durationMs,
         ]);
 
@@ -105,6 +108,14 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             payload: $rulesEvaluation,
             parentEventId: $event->eventId,
         ));
+    }
+
+    private function isPolicyInputEvent(AuditEvent $event): bool
+    {
+        return in_array($event->eventType, [
+            AuditEvent::TYPE_DOCUMENT_NORMALIZED,
+            AuditEvent::TYPE_DOCUMENT_REJECTED,
+        ], true);
     }
 
     /**
@@ -151,10 +162,13 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function isAuditReadyForRulesEvaluation(array $audit): bool
     {
         $docsNormalized = (int) ($audit['docs_done'] ?? 0);
+        $docsRejected   = (int) ($audit['docs_rejected'] ?? 0);
         $docsTotal      = (int) ($audit['docs_total'] ?? 0);
         $docsEvaluated  = (int) ($audit['docs_evaluated'] ?? 0);
 
-        return $docsTotal >= 1 && $docsNormalized >= $docsTotal && $docsEvaluated >= $docsTotal;
+        return $docsTotal >= 1
+            && ($docsNormalized + $docsRejected) >= $docsTotal
+            && $docsEvaluated >= $docsTotal;
     }
 
     /**
@@ -259,6 +273,43 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         return [$allFindings, $documentDecisions];
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @param  array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function buildRejectedPolicyResult(array $documentState, array $payload): array
+    {
+        $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
+            (string) ($payload['document_type'] ?? $documentState['document_type'] ?? $payload['tipo_documento'] ?? 'DOCUMENTO')
+        );
+        $reason = (string) ($payload['rejection_reason'] ?? $documentState['rejection_reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
+        $detail = "Documento rechazado por validación de integridad: {$reason}";
+        $finding = [
+            'severidad'         => AuditSeverity::HIGH->value,
+            'campo'             => 'INTEGRIDAD_DOCUMENTO',
+            'documento'         => $documentName,
+            'valorDocumento'    => null,
+            'valorFuenteVerdad' => null,
+            'resultado'         => AuditFindingResult::REJECTED->value,
+            'detalle'           => $detail,
+            'tipo_auditoria'    => 'integrity',
+        ];
+
+        return [
+            'document_name' => $documentName,
+            'hallazgos' => [
+                'items' => [$finding],
+                'metrics' => AuditFindingRules::summarizeMetrics([$finding]),
+            ],
+            'document_decision' => [
+                'documentName' => $documentName,
+                'approved'     => false,
+                'observation'  => "Documento no procesable: {$reason}",
+            ],
+        ];
     }
 
     /**
@@ -463,10 +514,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private function buildDetailMessage(string $finalStatus, array $metrics): string
     {
         return match ($finalStatus) {
-            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => sprintf(
-                'Auditoria completada con incertidumbre documental: %d campos no concluyentes requieren revision humana.',
-                $metrics['no_concluyentes']
-            ),
+            AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => $this->buildManualReviewDetailMessage($metrics),
             AuditStateStore::AUDIT_STATUS_ERROR => sprintf(
                 'Auditoria completada con discrepancias documentales: %d discrepancias requieren analisis posterior.',
                 $metrics['discrepancias']
@@ -476,6 +524,25 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 $metrics['total_campos']
             ),
         };
+    }
+
+    /**
+     * @param  array<string,int> $metrics
+     */
+    private function buildManualReviewDetailMessage(array $metrics): string
+    {
+        $nonConclusive = (int) ($metrics['no_concluyentes'] ?? 0);
+        if ($nonConclusive > 0) {
+            return sprintf(
+                'Auditoria completada con incertidumbre documental: %d campos no concluyentes requieren revision humana.',
+                $nonConclusive
+            );
+        }
+
+        return sprintf(
+            'Auditoria requiere revision humana por %d hallazgos documentales de alta severidad.',
+            (int) ($metrics['discrepancias'] ?? 0)
+        );
     }
 
     /**

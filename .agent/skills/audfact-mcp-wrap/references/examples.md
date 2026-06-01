@@ -9,8 +9,9 @@ Request a `webhook.php`:
       "tool": "GetInvoices",
       "params": {
         "facNitSec": 1165,
-        "date": "2025-12-30",
-        "limit": 5
+        "date": "2026-05-30",
+        "page": 1,
+        "pageSize": 20
       }
     }
   ]
@@ -25,7 +26,18 @@ Respuesta esperada:
     "status": 200,
     "body": {
       "success": true,
-      "data": []
+      "data": {
+        "items": [],
+        "total": 0,
+        "page": 1,
+        "pageSize": 20,
+        "totalPages": 0,
+        "filters": {
+          "facNitSec": 1165,
+          "dateFrom": "2026-05-30",
+          "dateTo": "2026-05-30"
+        }
+      }
     }
   }
 ]

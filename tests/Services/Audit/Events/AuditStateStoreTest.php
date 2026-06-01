@@ -40,6 +40,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertSame(0, $decoded['docs_done']);
                     $this->assertSame(0, $decoded['docs_extracted']);
                     $this->assertSame(0, $decoded['docs_evaluated']);
+                    $this->assertSame(0, $decoded['docs_rejected']);
                     return true;
                 }),
                 86400
@@ -259,6 +260,36 @@ final class AuditStateStoreTest extends TestCase
             'policy_result' => [
                 'document_name' => 'DISPENSA',
             ],
+        ]));
+    }
+
+    public function testMarkDocumentRejectedUpdatesDocumentAndRejectedCounterOnly(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+
+        $this->redis
+            ->expects($this->once())
+            ->method('eval')
+            ->with(
+                $this->logicalAnd(
+                    $this->stringContains("previousStatus == 'evaluated'"),
+                    $this->stringContains("audit['docs_rejected']"),
+                    $this->logicalNot($this->stringContains("audit['docs_evaluated'] ="))
+                ),
+                [AuditStateStore::auditKey($auditId)],
+                $this->callback(function (array $args) use ($documentId): bool {
+                    $this->assertSame($documentId, $args[0]);
+                    $this->assertSame('UNKNOWN_FILE_SIGNATURE', $args[1]['rejection_reason']);
+                    $this->assertSame('FORMULA MEDICA', $args[1]['document_type']);
+                    return true;
+                })
+            )
+            ->willReturn(1);
+
+        $this->assertTrue($this->store->markDocumentRejected($auditId, $documentId, [
+            'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
+            'document_type' => 'FORMULA MEDICA',
         ]));
     }
 

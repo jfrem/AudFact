@@ -16,6 +16,7 @@ enum AuditFindingResult: string
     case NOT_FOUND    = 'NO_ENCONTRADO';
     case SKIPPED      = 'OMITIDO';
     case INCONCLUSIVE = 'NO_CONCLUYENTE';
+    case REJECTED     = 'RECHAZADO';
 
     /**
      * Indica si el resultado representa un fallo auditable (afecta risk_score).
@@ -23,7 +24,7 @@ enum AuditFindingResult: string
     public function isFailure(): bool
     {
         return match ($this) {
-            self::MISMATCH, self::NOT_FOUND, self::INCONCLUSIVE => true,
+            self::MISMATCH, self::NOT_FOUND, self::INCONCLUSIVE, self::REJECTED => true,
             default => false,
         };
     }
@@ -34,7 +35,7 @@ enum AuditFindingResult: string
     public function isDiscrepancy(): bool
     {
         return match ($this) {
-            self::MISMATCH, self::NOT_FOUND => true,
+            self::MISMATCH, self::NOT_FOUND, self::REJECTED => true,
             default => false,
         };
     }

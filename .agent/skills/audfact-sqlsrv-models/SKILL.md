@@ -29,7 +29,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | Modelo | Tabla BD | Responsabilidad |
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
-| `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT, fecha y límite; selecciona `Factura.FacSec` como llave canónica de auditoría |
+| `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `Factura.FacSec` como llave canónica de auditoría |
 | `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`; pipeline selecciona por `facsecF` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
@@ -86,7 +86,7 @@ class MiModel extends Model
 
 ## Reglas de implementación
 1. **No concatenar valores de usuario en SQL** — siempre parametrizar.
-2. Mantener límites de negocio (`limit` entre `1..1000`).
+2. Mantener límites de negocio (`pageSize` de búsqueda interactiva entre `1..100`; batch interno entre `1..1000`).
 3. Preservar shape de columnas consumidas por controladores/servicios.
 4. **En streams BLOB, cerrar cursor y recurso siempre**.
 5. No mover lógica de negocio al SQL si rompe mantenibilidad.
@@ -123,10 +123,10 @@ public function getItems(int $page, int $pageSize, array $filters = []): array
             INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
             WHERE {$whereSql}
             ORDER BY a.AdJDisFecAudi DESC
-            OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY";
+            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
     $params['offset'] = $offset;
-    $params['limit'] = $pageSize;
+    $params['pageSize'] = $pageSize;
 
     return $this->db->query($sql, $params)->fetchAll();
 }
@@ -172,16 +172,22 @@ public function countItems(array $filters = []): int
 
 ## Ejemplos
 
-### Ejemplo 1: consulta parametrizada
+### Ejemplo 1: consulta parametrizada paginada
 ```php
-$sql = "SELECT TOP (:limit) FacSec, DisId
+$pageSize = min(max($pageSize, 1), 100);
+$offset = max($page - 1, 0) * $pageSize;
+
+$sql = "SELECT FacSec, DisId
         FROM dbo.factura
-        WHERE FacNitSec = :facNitSec AND FacFec = :date";
+        WHERE FacNitSec = :facNitSec AND FacFec = :date
+        ORDER BY FacSec ASC
+        OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
 $stmt = $this->db->prepare($sql);
-$stmt->bindParam(':facNitSec', $facNitSec, \PDO::PARAM_INT);
-$stmt->bindParam(':date', $date, \PDO::PARAM_STR);
-$stmt->bindParam(':limit', $limit, \PDO::PARAM_INT);
+$stmt->bindValue(':facNitSec', $facNitSec, \PDO::PARAM_INT);
+$stmt->bindValue(':date', $date, \PDO::PARAM_STR);
+$stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+$stmt->bindValue(':pageSize', $pageSize, \PDO::PARAM_INT);
 $stmt->execute();
 return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 ```

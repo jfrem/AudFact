@@ -37,6 +37,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
 | `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, secrets SQL, deploy/rollback |
 | `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
+| `audfact-docs-sync` | Documentación | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills |
 | `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
 | `architecture-assessment` | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad |
 | `code-quality-assessment` | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica |
@@ -55,24 +56,31 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 |---|---|---|---|---|
 | `GET` | `/` | `Controller` | `index` | Bienvenida / Status API |
 | `GET` | `/health` | `HealthController` | `status` | Health check (Docker/System) |
+| `GET` | `/metrics/async` | `ObservabilityController` | `asyncMetrics` | Métricas operativas del pipeline async |
 | `GET` | `/config/public` | `ConfigController` | `publicConfig` | Configuración pública del frontend |
 | `GET` | `/clients` | `ClientsController` | `index` | Listar todos los clientes/EPS |
 | `GET` | `/clients/{clientId}` | `ClientsController` | `show` | Detalle de un cliente específico |
+| `GET` | `/clients/{clientId}/documents` | `ClientsController` | `documents` | Catálogo documental requerido por cliente |
 | `POST` | `/clients` | `ClientsController` | `lookup` | Buscar cliente por filtros |
-| `GET` | `/invoices` | `InvoicesController` | `index` | Listar facturas (top 100) |
-| `POST` | `/invoices` | `InvoicesController` | `search` | Buscar facturas por fecha/nit |
+| `GET` | `/clients/{clientId}/audit-config` | `AuditConfigController` | `show` | Configuración dinámica de auditoría por cliente |
+| `POST` | `/clients/{clientId}/audit-config` | `AuditConfigController` | `save` | Guardar/reemplazar configuración dinámica de auditoría |
+| `GET` | `/invoices` | `InvoicesController` | `index` | Buscar facturas pendientes con paginación `page`/`pageSize` |
+| `POST` | `/invoices` | `InvoicesController` | `search` | Buscar facturas por fecha/nit con contrato paginado |
 | `GET` | `/dispensation/{DisDetNro}` | `DispensationController` | `show` | Detalle técnico de una dispensa |
 | `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por ID |
-| `GET` | `/dispensation/{id}/attachments/{nit}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
-| `GET` | `/dispensation/{id}/attachments/download/{aid}` | `AttachmentsController` | `downloadByDispensation` | Descargar BLOB de adjunto |
+| `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController` | `downloadByDispensation` | Descargar/previsualizar adjunto |
+| `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
 | `GET` | `/audit/results/{facSec}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacSec |
+| `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
 | `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por FacSec |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
+| `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |
 | `GET` | `/audit/dlq` | `AuditDlqController` | `index` | Listado administrativo de eventos `dead_letter` |
 | `POST` | `/audit/dlq/reprocess` | `AuditDlqController` | `reprocess` | Reproceso administrativo de un evento DLQ |
+| `GET` | `/audit/{facNro}/timings` | `AuditController` | `timings` | Timings persistidos por factura |
 
 ---
 
@@ -173,6 +181,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 |---|---|---|---|
 | `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
 | `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
+| `WWWUSER_ID` | `1000` | ❌ | UID de usuario host para builds/contenedores de desarrollo |
+| `WWWGROUP_ID` | `1000` | ❌ | GID de grupo host para builds/contenedores de desarrollo |
 | `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | ⚠️ Deploy/MCP | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
 | `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx` |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
@@ -200,6 +210,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `DB_USER` | `sa` | ✅ | `Core\Database` — usuario |
 | `DB_PASS` | *(vacío)* | ✅ | `Core\Database` — contraseña |
 | `DB_POOLING` | `1` | ❌ | `Core\Database` — connection pooling PDO |
+| `DB_ENCRYPT` | `no` | ❌ | `Core\Database` — cifrado TLS de conexión `default` |
+| `DB_TRUST_SERVER_CERT` | `yes` | ❌ | `Core\Database` — trust del certificado SQL Server de `default` |
 | `DB2_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta); en producción usar host/IP limpio sin instancia |
 | `DB2_PORT` | `1433` | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `db2` |
 | `DB2_NAME` | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD de consulta |
@@ -241,18 +253,19 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
-| `GEMINI_TOP_P` | *(vacío)* | ❌ | Nucleus sampling (opcional) |
-| `GEMINI_TOP_K` | *(vacío)* | ❌ | Top-K sampling (opcional) |
+| `GEMINI_TOP_P` | `1.0` | ❌ | Nucleus sampling para determinismo |
+| `GEMINI_TOP_K` | `1` | ❌ | Top-K sampling para determinismo |
 | `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | ❌ | Límite de tokens en la respuesta |
 | `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_HIGH` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
 | `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
+| `GEMINI_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig` |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | ❌ | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | ❌ | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3) |
 | `GEMINI_SEMANTIC_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
 | `GEMINI_SEMANTIC_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica |
-| `GEMINI_SEED` | *(vacío)* | ❌ | Semilla para reproducibilidad (opcional) |
+| `GEMINI_SEED` | `42` | ❌ | Semilla para reproducibilidad (opcional, recomendada en prod) |
 
 ### Redis
 
@@ -260,22 +273,43 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 |---|---|---|---|
 | `REDIS_HOST` | `redis` | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis |
 | `REDIS_PORT` | `6379` | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis |
-| `REDIS_PASSWORD` | *(vacío)* | ❌ | `Core\RedisClient` — contraseña (vacío si sin auth) |
+| `REDIS_PASSWORD` | `audfact_dev_default` | ❌ | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
 | `REDIS_PREFIX` | `audfact:` | ❌ | `Core\RedisClient` — prefijo para keys (namespace) |
+| `REDIS_MODE` | `standalone` | ❌ | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster` |
+| `REDIS_SENTINELS` | *(comentado)* | ⚠️ Sentinel | Lista `host:port` separada por comas para modo sentinel |
+| `REDIS_SENTINEL_SERVICE` | *(comentado)* | ⚠️ Sentinel | Nombre del master Sentinel |
+| `REDIS_CLUSTER_NODES` | *(comentado)* | ⚠️ Cluster | Lista de nodos `host:port` para modo cluster |
+| `REDIS_PERSISTENT` | `0` | ❌ | Habilita conexiones persistentes Redis en PHP-FPM |
+
+### Circuit Breaker Gemini
+
+| Variable | Default | Requerida | Módulo / Uso |
+|---|---|---|---|
+| `CB_GEMINI_THRESHOLD` | `3` | ❌ | `GeminiCircuitBreaker` — fallos consecutivos antes de abrir circuito |
+| `CB_GEMINI_COOLDOWN` | `60` | ❌ | `GeminiCircuitBreaker` — segundos antes de half-open |
 
 ### Auditoría Async
 
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
-| `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | `AuditController::run` — timeout en segundos para batch síncrono (circuit breaker) |
-| `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController` — máximo de facturas por batch (sync y async) |
+| `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers |
+| `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController::async` — máximo de facturas por batch |
+| `AUDIT_INTERNAL_API_BASE` | `http://nginx` | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna |
 | `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
 | `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose.yml` — réplicas del worker `batch_requested` en runtime base local |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
+| `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | ❌ | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | ❌ | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending` |
+| `AUDIT_EVENT_MAX_RETRIES` | `3` | ❌ | `AuditEventConsumer` — reintentos antes de DLQ |
+| `AUDIT_STREAM_BLOCK_MS` | `5000` | ❌ | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll |
+| `AUDIT_DLQ_STREAM` | `audit.dlq` | ❌ | Nombre del stream DLQ |
+| `AUDIT_VERSION_EXTRACTOR` | `gemini-3.x-parallel-fc-v1` | ❌ | Versión de trazabilidad del extractor |
+| `AUDIT_VERSION_NORMALIZER` | `1.0.0` | ❌ | Versión de trazabilidad del normalizador |
+| `AUDIT_VERSION_RULES` | `1.0.0` | ❌ | Versión de trazabilidad de reglas |
 | `AUDIT_NGINX_READ_TIMEOUT` | `3600` | ❌ | Timeout de lectura Nginx para endpoints de auditoría |
 | `AUDIT_FPM_TERMINATE_TIMEOUT` | `3600` | ❌ | Timeout de terminación PHP-FPM para procesos de auditoría |
 
@@ -468,15 +502,16 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
 - **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
 - **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `FacSec` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `FacSec` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`
-- **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy) y `docs_evaluated`
+- **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy), `docs_rejected` (documentos no procesables rechazados antes de Gemini) y `docs_evaluated`
 - **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
 - **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
 - **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacSec` sin reescribir adjuntos
-- **Escalado inicial de workers**: defaults Docker `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
+- **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
 - **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
+- **Rechazo preventivo pre-Gemini**: `DocumentIntegrityValidator` puede publicar `document_rejected` para adjuntos vacíos, corruptos, con MIME inconsistente o no soportados. `RulesEvaluationWorker` convierte ese evento en hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity` y no consume Gemini.
 - **Contrato Gemini y prompts**: `DocumentAuditOrchestrator` publica `extraction_contract` parametrizado por `audit-config`; `DocumentExtractionContractBuilder` construye las cuatro funciones paralelas (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`); `DocumentExtractionWorker` genera el user prompt por documento y combina las llamadas en `extraction_result`. Cualquier cambio afecta la calidad de las auditorías.
 - **Visuales calculables**: `TipoCampo = V` puede ser booleano (`presente`/`ausente`) o aportar evidencia estructurada opcional (`valor`, `unidad`, `fecha_base`). `VigenciaEntrega` se calcula en `RulesEvaluationWorker` cuando todos los documentos están evaluados; Gemini solo extrae evidencia y PHP decide.
 - **Archivos base64**: alto consumo de RAM — respetar límites de tamaño

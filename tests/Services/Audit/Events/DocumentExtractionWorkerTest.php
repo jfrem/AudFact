@@ -21,7 +21,7 @@ final class DocumentExtractionWorkerTest extends TestCase
     {
         $documentId = AuditEvent::uuidV4();
         $auditId = AuditEvent::uuidV4();
-        $base64 = base64_encode('pdf-data');
+        $base64 = $this->validPdfBase64();
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
@@ -67,7 +67,7 @@ final class DocumentExtractionWorkerTest extends TestCase
     {
         $documentId = AuditEvent::uuidV4();
         $auditId = AuditEvent::uuidV4();
-        $base64 = base64_encode('pdf-data');
+        $base64 = $this->validPdfBase64();
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
@@ -127,7 +127,7 @@ final class DocumentExtractionWorkerTest extends TestCase
     {
         $documentId = AuditEvent::uuidV4();
         $auditId = AuditEvent::uuidV4();
-        $base64 = base64_encode('pdf-data');
+        $base64 = $this->validPdfBase64();
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
 
@@ -179,7 +179,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway([]),
             redis: $redisMock,
             publisher: $publisher,
@@ -203,7 +203,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway(['candidates' => []]),
             redis: $redisMock,
             publisher: new ExtractionPublisher(),
@@ -225,7 +225,7 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse('MAX_TOKENS')),
             redis: $redisMock,
             publisher: $publisher,
@@ -250,7 +250,7 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
                 omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
             )),
@@ -273,7 +273,7 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => base64_encode('pdf-data')]),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
                 duplicateFunction: DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS
             )),
@@ -286,6 +286,45 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectExceptionMessage('GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL: extract_fields');
 
         $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+    }
+
+    public function testInvalidDocumentPublishesDocumentRejectedAndSkipsGemini(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->expects($this->never())->method('get');
+        $redisMock->expects($this->never())->method('set');
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService([
+                'mime' => 'application/pdf',
+                'data' => base64_encode('not-a-pdf'),
+            ]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
+
+        $this->assertSame(0, $gateway->calls);
+        $this->assertSame('UNKNOWN_FILE_SIGNATURE', $store->lastRejectedPatch['rejection_reason'] ?? null);
+        $this->assertSame('FORMULA MEDICA', $store->lastRejectedPatch['document_type'] ?? null);
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('UNKNOWN_FILE_SIGNATURE', $publisher->published[0]->payload['rejection_reason'] ?? null);
+    }
+
+    private function validPdfBase64(): string
+    {
+        return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
     }
 
     private function geminiFunctionCallResponse(
@@ -524,6 +563,7 @@ final class StubGeminiGateway extends GeminiGateway
 final class ExtractionRecordingStateStore extends AuditStateStore
 {
     public array $lastPatch = [];
+    public array $lastRejectedPatch = [];
     public ?bool $forcedResult = null;
 
     public function __construct(?bool $forcedResult = null)
@@ -534,6 +574,12 @@ final class ExtractionRecordingStateStore extends AuditStateStore
     public function markDocumentExtracted(string $auditId, string $documentId, array $extractionState): bool
     {
         $this->lastPatch = $extractionState;
+        return $this->forcedResult ?? true;
+    }
+
+    public function markDocumentRejected(string $auditId, string $documentId, array $patch): bool
+    {
+        $this->lastRejectedPatch = $patch;
         return $this->forcedResult ?? true;
     }
 }

@@ -10,7 +10,7 @@ import {
   ClientsSchema,
   DispensationDetailSchema,
   HealthSchema,
-  InvoicesSchema,
+  PaginatedInvoicesSchema,
   PaginatedAuditDocumentHistorySchema,
   PaginatedAuditResultsSchema,
   PublicConfigSchema,
@@ -26,6 +26,9 @@ import {
   requestJson,
 } from "@/lib/api/client";
 import { buildPublicApiUrl } from "@/lib/api/config";
+
+export const INVOICE_SEARCH_DEFAULT_PAGE_SIZE = 20;
+export const INVOICE_SEARCH_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
 export function getHealth() {
   return requestJson(endpoints.health(), HealthSchema);
@@ -55,9 +58,10 @@ export function getInvoices(query: {
   facNitSec: number | string;
   dateFrom: string;
   dateTo?: string;
-  limit?: number;
+  page?: number;
+  pageSize?: number;
 }) {
-  return requestJson(endpoints.invoices(query), InvoicesSchema);
+  return requestJson(endpoints.invoices(query), PaginatedInvoicesSchema);
 }
 
 export function getDispensationDetail(disDetNro: string) {

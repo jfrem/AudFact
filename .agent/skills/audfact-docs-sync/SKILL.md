@@ -27,7 +27,7 @@ Los agentes de IA sufren de **Attention Decay**: una vez que el código "funcion
 |---|---|
 | Controladores, validación (Validator), ruteo (web.php) | `plans/api-endpoints.md` |
 | Componentes principales, servicios (Services/) nuevos | `plans/architecture.md` |
-| Lógicas de negocio pesadas (ej. AuditOrchestrator) | `plans/features/[nombre].md` |
+| Lógicas de negocio pesadas (ej. DocumentAuditOrchestrator o RulesEvaluationWorker) | `plans/features/[nombre].md` |
 | Tablas SQL, modelos, migraciones | `plans/database-schema.md` |
 | Autenticación, Rate Limits, timeouts, variables de entorno | `AGENTS.md` (Catálogo de variables, Guardrails) |
 | Webhooks, integraciones externas (MCP) | `plans/features/mcp-integration.md` o `AGENTS.md` |

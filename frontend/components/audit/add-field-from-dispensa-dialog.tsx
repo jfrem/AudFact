@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { getDispensationDetail } from "@/lib/api/audfact";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,7 +28,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -348,6 +348,8 @@ export function AddFieldFromDispensaDialog({
               type="button"
               onClick={handleSearch}
               disabled={loading || !invoiceNumber.trim()}
+              loading={loading}
+              loadingLabel="Buscando"
               className={cn(
                 "h-11 rounded-lg px-5 font-bold transition-transform duration-200 active:scale-[0.98] sm:px-7",
                 loading || !invoiceNumber.trim()
@@ -355,11 +357,7 @@ export function AddFieldFromDispensaDialog({
                   : "bg-cyan-500 text-slate-950 hover:bg-cyan-400",
               )}
             >
-              {loading ? (
-                <Spinner className="h-4.5 w-4.5" />
-              ) : (
-                <Search className="h-4.5 w-4.5" />
-              )}
+              <Search className="h-4.5 w-4.5" />
               Buscar Factura
             </Button>
           </div>
@@ -376,8 +374,18 @@ export function AddFieldFromDispensaDialog({
           )}
         </div>
 
+        {loading && !validated ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#090e17] px-5 py-4 sm:px-6">
+            <BackendRequestSkeleton
+              description="El backend está leyendo la dispensación real y extrayendo campos auditables."
+              title="Buscando factura"
+              variant="detail"
+            />
+          </div>
+        ) : null}
+
         {/* ── Post-search results ─────────────────────────────────────── */}
-        {validated && dispensaInfo && (
+        {!loading && validated && dispensaInfo && (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#090e17] animate-in fade-in slide-in-from-bottom-4 duration-500">
             
             {/* Header Result + Tabs section */}

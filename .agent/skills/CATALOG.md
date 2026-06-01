@@ -8,19 +8,20 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 |---|---|---|---|
 | `audfact-project-overview` | Contexto Global | `README.md`, `plans/*` | Visión general, arquitectura y flujos. |
 | `audfact-api-rest` | Endpoints REST | `app/Routes/web.php`, `app/Controllers/*` | Endpoints en PHP MVC y validación. |
-| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder`, reservas idempotentes por `FacSec`, telemetría por evento y workers sobre Redis Streams. |
+| `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder`, `DocumentIntegrityValidator`, reservas idempotentes por `FacSec`, telemetría por evento y workers sobre Redis Streams. |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
 | `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, secrets SQL y despliegues. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
+| `audfact-docs-sync` | Documentación | `README.md`, `plans/*`, `.agent/skills/*` | Sincronización obligatoria de documentación y skills después de cambios de código o drift documental. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
 | `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |
 | `code-quality-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de mantenibilidad, complejidad, testabilidad y deuda técnica. |
 | `security-assessment` | Auditoría Técnica | Repositorio completo | Auditoría de seguridad (auth/authz, secretos, vulnerabilidades, hardening). |
 | `technical-governance-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de gobernanza técnica: ownership, code review, incidentes y roadmap. |
 | `next-best-practices` | Frontend Next.js | `frontend/*` | Prácticas y convenciones recomendadas para directorios, dependencias y Server Components. |
-| `next-cache-components` | Frontend Next.js | `frontend/*` | Guías sobre componentes de caché, PPR y estrategias de validación en Next.js 16+. |
+| `next-cache-components` | Frontend Next.js | `frontend/*` | Guías de caché/PPR para migraciones Next.js 16+; no aplicar al runtime actual 15.5.15 salvo upgrade. |
 | `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
 | `clean-rebuild-policy` | Gobernanza Técnica | Repositorio completo | Política para proyectos en fase temprana: reconstrucción limpia, sin legacy, enfocada en MVP. |
 | `ui-ux-pro-max` | UI/UX Design | `frontend/*`, `public/assets/*` | Inteligencia de diseño para web/móvil: 50+ estilos, sistemas de color, tipografía y accesibilidad. |
@@ -34,12 +35,13 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 |---|---|
 | `audfact-project-overview` | overview, visión general, arquitectura, cómo está organizado, mapear dependencias, estructura del proyecto |
 | `audfact-api-rest` | endpoint, ruta, controller, request/response, validación HTTP, web.php, API REST |
-| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, extraction_contract, parallel function calling, retry/backoff, DocumentAuditOrchestrator, workers, Pipeline event-driven, DLQ, idempotencia FacSec, event_timings, phase_timings |
+| `audfact-audit-gemini` | auditoría IA, Gemini, prompt, schema JSON, extraction_contract, parallel function calling, retry/backoff, DocumentAuditOrchestrator, DocumentIntegrityValidator, document_rejected, workers, Pipeline event-driven, DLQ, idempotencia FacSec, event_timings, phase_timings |
 | `audfact-sqlsrv-models` | modelo, SQL Server, PDO sqlsrv, query, BLOB, stream, Database.php |
 | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
 | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
 | `audfact-production-ops` | producción, servidor LAN, SSH, admon@172.16.0.3, runner self-hosted, deploy production, rollback, healthcheck remoto |
 | `audfact-security-guardrails` | rate limit, CORS, sanitización, secretos, hardening, seguridad |
+| `audfact-docs-sync` | documentación, docs sync, changelog, actualizar README, sincronizar skills, documentation drift |
 | `audit-skill-router` | auditoría técnica integral, assessment, review global, scoring, 30/60/90 |
 | `architecture-assessment` | acoplamiento, límites de módulos, escalabilidad, diseño de arquitectura |
 | `code-quality-assessment` | deuda técnica, mantenibilidad, complejidad, testabilidad, code quality |
@@ -58,6 +60,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-integration` | `audfact-mcp-wrap`, `audfact-api-rest` | Integración con agentes IA |
 | `audfact-ops` | `audfact-runtime-docker`, `audfact-production-ops`, `audfact-security-guardrails` | Infraestructura, producción LAN y hardening |
 | `audfact-tech-assessment` | `audit-skill-router`, `architecture-assessment`, `code-quality-assessment`, `security-assessment`, `technical-governance-assessment` | Auditorías técnicas integrales con score global |
+| `audfact-docs` | `audfact-docs-sync`, `audfact-project-overview` | Sincronización documental y validación de drift |
+| `audfact-frontend` | `next-best-practices`, `ui-ux-pro-max`, `impeccable` | Cambios de frontend en Next.js 15.5.15 con revisión UI/UX |
 
 ## Mapeo Archivo → Skill
 

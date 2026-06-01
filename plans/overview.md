@@ -21,8 +21,8 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | **IA** | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | **Almacenamiento** | Google Drive (JWT) + BLOB en BD |
 | **Web Server** | Nginx 1.25 → PHP-FPM (FastCGI `:9000`) |
-| **Contenedores** | Docker Compose (backend, worker, redis y frontend en compose separado) |
-| **Frontend** | Next.js 16 (App Router) + React 19 |
+| **Contenedores** | `docker-compose.yml` (backend, workers, redis) + `docker-compose.prod.yml` (frontend productivo e imágenes GHCR) |
+| **Frontend** | Next.js 15.5.15 (App Router) + React 19 |
 | **Dependencias** | Guzzle 7.x, firebase/php-jwt 7.x |
 
 ## Directorios Clave
@@ -33,11 +33,11 @@ AudFact/
 │   ├── Controllers/       # 11 controladores HTTP (incluye base)
 │   ├── Models/            # 7 modelos SQL Server (incluye base)
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
-│   ├── Routes/            # web.php (25 endpoints)
+│   ├── Routes/            # web.php (27 rutas registradas)
 │   └── wrap/              # MCP (webhook + 4 tools)
 ├── frontend/              # Frontend Next.js
 ├── bin/                   # Worker CLI (audit-worker.php)
-├── core/                  # 9 módulos framework (Router, DB, Validator...)
+├── core/                  # Framework propio (Router, DB, Validator, Response, Logger, Redis...)
 ├── public/                # index.php (entry point API)
 ├── docker/                # Dockerfile + nginx.conf
 ├── logs/                  # Logs rotados por fecha
@@ -66,8 +66,10 @@ composer install
 # 3. Levantar backend con Docker
 docker compose up -d
 
-# 4. Levantar frontend
-docker compose -f docker-compose.frontend.yml up -d
+# 4. Levantar frontend en desarrollo
+cd frontend
+npm ci
+npm run dev
 ```
 
 ### Ejecución Local
@@ -77,8 +79,8 @@ docker compose -f docker-compose.frontend.yml up -d
 docker compose up -d
 # API disponible en http://localhost:8080
 
-# Frontend
-docker compose -f docker-compose.frontend.yml up -d
+# Frontend dev
+cd frontend && npm run dev
 # Frontend disponible en http://localhost:3000
 
 # Sin Docker (desarrollo)

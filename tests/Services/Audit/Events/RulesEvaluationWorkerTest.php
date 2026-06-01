@@ -88,6 +88,45 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertSame('87723098', $publisher->published[0]->payload['audit_result_data']['FacSec']);
     }
 
+    public function testDocumentRejectedPublishesRulesEvaluatedWithCanonicalFinding(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $publisher = new RulesPublisher();
+        $store = new RulesRejectedStateStore($auditId, $documentId);
+
+        $worker = new RulesEvaluationWorker(
+            stateStore: $store,
+            policyEngine: new StubDocumentPolicyEngine(['unexpected' => true]),
+            redis: $this->createMock(RedisClient::class),
+            publisher: $publisher,
+            consumerName: 'policy-test'
+        );
+
+        $worker->processEvent(AuditEvent::create(
+            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
+            auditId: $auditId,
+            documentId: $documentId,
+            payload: [
+                'document_type' => 'FORMULA MEDICA',
+                'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
+            ]
+        ));
+
+        $this->assertSame('evaluated', $store->lastPolicyPatch['status'] ?? null);
+        $this->assertCount(1, $publisher->published);
+        $payload = $publisher->published[0]->payload;
+        $finding = $payload['hallazgos']['items'][0];
+
+        $this->assertSame(AuditEvent::TYPE_RULES_EVALUATED, $publisher->published[0]->eventType);
+        $this->assertSame('RECHAZADO', $finding['resultado']);
+        $this->assertSame('integrity', $finding['tipo_auditoria']);
+        $this->assertSame('FORMULA MEDICA', $finding['documento']);
+        $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
+        $this->assertSame('manual_review', $payload['final_status']);
+        $this->assertFalse($payload['document_decisions'][0]['approved']);
+    }
+
     public function testDoesNotPublishRulesEvaluatedWhenStateStoreFailsPolicyPersistence(): void
     {
         $auditId = AuditEvent::uuidV4();
@@ -364,6 +403,62 @@ final class RulesFailingStateStore extends RulesReadyStateStore
     public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
     {
         return false;
+    }
+}
+
+final class RulesRejectedStateStore extends AuditStateStore
+{
+    /** @var array<string,mixed> */
+    public array $lastPolicyPatch = [];
+    /** @var array<string,mixed> */
+    private array $audit;
+    private bool $rulesStored = false;
+
+    public function __construct(private string $auditId, private string $documentId)
+    {
+        $this->audit = [
+            'audit_id' => $auditId,
+            'fac_sec' => '87723098',
+            'dis_det_nro' => 'T38250701547',
+            'fac_nit_sec' => '2426',
+            'docs_total' => 1,
+            'docs_done' => 0,
+            'docs_rejected' => 1,
+            'docs_evaluated' => 0,
+            'documents' => [
+                $documentId => [
+                    'document_type' => 'FORMULA MEDICA',
+                    'status' => 'rejected',
+                    'rejection_reason' => 'UNKNOWN_FILE_SIGNATURE',
+                    'fuente_verdad' => ['header' => [], 'items' => []],
+                    'visual_checks' => [],
+                ],
+            ],
+        ];
+    }
+
+    public function getAudit(string $auditId): ?array
+    {
+        return $this->audit;
+    }
+
+    public function markDocumentEvaluated(string $auditId, string $documentId, array $policyState): bool
+    {
+        $this->lastPolicyPatch = $policyState;
+        $this->audit['docs_evaluated'] = 1;
+        $this->audit['documents'][$documentId] = array_merge($this->audit['documents'][$documentId], $policyState);
+        return true;
+    }
+
+    public function storeRulesEvaluation(string $auditId, array $rulesEvaluation): bool
+    {
+        if ($this->rulesStored) {
+            return false;
+        }
+
+        $this->rulesStored = true;
+        $this->audit['rules_evaluated_result'] = $rulesEvaluation;
+        return true;
     }
 }
 

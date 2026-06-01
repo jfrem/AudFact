@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
+import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 import type { ClientRecord } from "@/lib/schemas/domain";
 
 interface AuditResultsFilterFormProps {
@@ -26,7 +27,7 @@ export function AuditResultsFilterForm({
   initialDateTo = "",
   initialPageSize = 20,
 }: AuditResultsFilterFormProps) {
-  const router = useRouter();
+  const navigation = usePendingNavigation();
   const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
 
   React.useEffect(() => {
@@ -50,72 +51,91 @@ export function AuditResultsFilterForm({
     if (dateFrom) params.set("dateFrom", String(dateFrom));
     if (dateTo) params.set("dateTo", String(dateTo));
 
-    router.push(`?${params.toString()}`);
+    navigation.push(`?${params.toString()}`);
   };
 
   return (
-    <form
-      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(8rem,0.8fr)]"
-      onSubmit={handleSubmit}
-    >
-      <Field>
-        <FieldLabel htmlFor="audit-results-client-selector">
-          Cliente
-        </FieldLabel>
-        <ClientSelectorCombo
-          id="audit-results-client-selector"
-          clients={allClients}
-          value={facNitSec}
-          onValueChange={setFacNitSec}
-          placeholder="Selecciona un cliente"
-        />
-        <input
-          type="hidden"
-          name="facNitSec"
-          value={facNitSec}
-          readOnly
-        />
-      </Field>
+    <div className="space-y-4">
+      <form
+        aria-busy={navigation.isPending}
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(8rem,0.8fr)]"
+        onSubmit={handleSubmit}
+      >
+        <Field>
+          <FieldLabel htmlFor="audit-results-client-selector">
+            Cliente
+          </FieldLabel>
+          <ClientSelectorCombo
+            id="audit-results-client-selector"
+            clients={allClients}
+            value={facNitSec}
+            onValueChange={setFacNitSec}
+            placeholder="Selecciona un cliente"
+          />
+          <input
+            type="hidden"
+            name="facNitSec"
+            value={facNitSec}
+            readOnly
+          />
+        </Field>
 
-      <Field>
-        <FieldLabel htmlFor="audit-results-fac-nro">
-          Factura
-        </FieldLabel>
-        <Input
-          id="audit-results-fac-nro"
-          name="facNro"
-          defaultValue={initialFacNro}
-          className="min-w-0"
-        />
-      </Field>
+        <Field>
+          <FieldLabel htmlFor="audit-results-fac-nro">
+            Factura
+          </FieldLabel>
+          <Input
+            id="audit-results-fac-nro"
+            name="facNro"
+            defaultValue={initialFacNro}
+            className="min-w-0"
+          />
+        </Field>
 
-      <Field>
-        <FieldLabel htmlFor="audit-results-date-from">
-          Desde
-        </FieldLabel>
-        <DatePickerInput
-          id="audit-results-date-from"
-          name="dateFrom"
-          defaultValue={initialDateFrom}
-          className="min-w-0"
-        />
-      </Field>
+        <Field>
+          <FieldLabel htmlFor="audit-results-date-from">
+            Desde
+          </FieldLabel>
+          <DatePickerInput
+            id="audit-results-date-from"
+            name="dateFrom"
+            defaultValue={initialDateFrom}
+            className="min-w-0"
+          />
+        </Field>
 
-      <Field>
-        <FieldLabel htmlFor="audit-results-date-to">
-          Hasta
-        </FieldLabel>
-        <DatePickerInput
-          id="audit-results-date-to"
-          name="dateTo"
-          defaultValue={initialDateTo}
-          className="min-w-0"
-        />
-      </Field>
+        <Field>
+          <FieldLabel htmlFor="audit-results-date-to">
+            Hasta
+          </FieldLabel>
+          <DatePickerInput
+            id="audit-results-date-to"
+            name="dateTo"
+            defaultValue={initialDateTo}
+            className="min-w-0"
+          />
+        </Field>
 
-      <div className="flex min-w-0 items-end">
-        <Button type="submit" className="w-full">Buscar</Button>
-      </div>
-    </form>
+        <div className="flex min-w-0 items-end">
+          <Button
+            type="submit"
+            className="w-full"
+            loading={navigation.isPending}
+            loadingLabel="Buscando"
+          >
+            Buscar
+          </Button>
+        </div>
+      </form>
+
+      {navigation.isPending ? (
+        <BackendRequestSkeleton
+          description="El backend está actualizando los resultados persistidos."
+          rows={6}
+          title="Consultando resultados"
+          variant="table"
+        />
+      ) : null}
+    </div>
   );
 }

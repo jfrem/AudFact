@@ -10,6 +10,13 @@ export const ApiEnvelopeSchema = <T extends z.ZodTypeAny>(dataSchema: T) =>
 
 const UnknownRecordSchema = z.record(z.string(), z.unknown());
 const ScalarSchema = z.union([z.string(), z.number()]);
+const PaginationFiltersSchema = z
+  .union([
+    z.record(z.string(), z.union([z.string(), z.number()])),
+    z.array(UnknownRecordSchema),
+  ])
+  .nullish()
+  .transform((filters) => (filters && !Array.isArray(filters) ? filters : null));
 
 export const PublicConfigSchema = z.object({
   auditBatchMaxLimit: z.number(),
@@ -98,7 +105,14 @@ export const SaveAuditConfigResponseSchema = z.object({
 }).passthrough();
 
 export const InvoiceSchema = UnknownRecordSchema;
-export const InvoicesSchema = z.array(InvoiceSchema);
+export const PaginatedInvoicesSchema = z.object({
+  items: z.array(InvoiceSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+  filters: PaginationFiltersSchema,
+});
 
 export const DispensationHeaderSchema = UnknownRecordSchema;
 export const DispensationItemSchema = UnknownRecordSchema;
@@ -297,14 +311,6 @@ export const AuditResultDetailSchema = AuditResultRecordSchema.extend({
   timings: AuditPhaseTimingsSchema.nullish(),
 });
 
-const PaginationFiltersSchema = z
-  .union([
-    z.record(z.string(), z.union([z.string(), z.number()])),
-    z.array(UnknownRecordSchema),
-  ])
-  .nullish()
-  .transform((filters) => (filters && !Array.isArray(filters) ? filters : null));
-
 export const PaginatedAuditResultsSchema = z.object({
   items: z.array(AuditResultRecordSchema),
   total: z.number(),
@@ -352,6 +358,7 @@ export type AsyncMetrics = z.infer<typeof AsyncMetricsSchema>;
 export type ClientRecord = z.infer<typeof ClientSchema>;
 export type ClientDocument = z.infer<typeof ClientDocumentSchema>;
 export type InvoiceRecord = z.infer<typeof InvoiceSchema>;
+export type PaginatedInvoices = z.infer<typeof PaginatedInvoicesSchema>;
 export type DispensationHeader = z.infer<typeof DispensationHeaderSchema>;
 export type DispensationItem = z.infer<typeof DispensationItemSchema>;
 export type DispensationDetail = z.infer<typeof DispensationDetailSchema>;

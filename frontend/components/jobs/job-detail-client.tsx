@@ -9,10 +9,10 @@ import { CheckCircle2, ExternalLink, XCircle, AlertTriangle } from "lucide-react
 import { auditJobQuery } from "@/lib/query/audit";
 import { formatNumber, formatDurationMs } from "@/lib/formatters";
 import { JobStatusBadge } from "@/components/jobs/job-status-badge";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { SectionCard } from "@/components/shared/section-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 
 export function JobDetailClient({ jobId }: { jobId: string }) {
   const { data, isLoading, isError, error } = useQuery(auditJobQuery(jobId));
@@ -21,10 +21,11 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
   if (isLoading) {
     return (
       <SectionCard title="Cargando job...">
-        <div className="surface-subtle flex items-center gap-3 rounded-lg p-5 text-sm text-slate-300">
-          <Spinner className="text-sky-400" />
-          Consultando estado del job.
-        </div>
+        <BackendRequestSkeleton
+          description="El backend está consultando estado, progreso y métricas del job."
+          title="Consultando job"
+          variant="panel"
+        />
       </SectionCard>
     );
   }

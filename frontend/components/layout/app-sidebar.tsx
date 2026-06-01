@@ -9,7 +9,6 @@ import { navigationSections, productLabel } from "@/lib/constants/navigation";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
-  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -166,7 +165,7 @@ export function MobileSidebarToggle() {
             className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white lg:hidden"
             aria-label="Abrir menú"
           >
-          <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" />
           </button>
         </TooltipTrigger>
         <TooltipContent>Abrir menú</TooltipContent>
@@ -184,15 +183,14 @@ export function MobileSidebarToggle() {
         <div className="mb-3 flex justify-end">
           <Tooltip>
             <TooltipTrigger asChild>
-              <SheetClose asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
-                  aria-label="Cerrar menú"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </SheetClose>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition-colors hover:border-white/14 hover:bg-white/[0.05] hover:text-white"
+                aria-label="Cerrar menú"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </TooltipTrigger>
             <TooltipContent>Cerrar menú</TooltipContent>
           </Tooltip>
