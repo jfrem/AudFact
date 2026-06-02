@@ -57,36 +57,41 @@ DB2_PORT=1433
 Secrets requeridos:
 
 ```text
-APP_ENV=production
-DB_HOST
-DB_PORT
-DB_NAME
 DB_USER
 DB_PASS
-DB_ENCRYPT
-DB_TRUST_SERVER_CERT
-DB2_HOST
-DB2_PORT
-DB2_NAME
 DB2_USER
 DB2_PASS
-DB2_ENCRYPT
-DB2_TRUST_SERVER_CERT
 GEMINI_API_KEY
-ALLOWED_ORIGINS
 MCP_WEBHOOK_SECRET
 ```
 
 Secrets condicionales:
 
 ```text
-GOOGLE_DRIVE_CLIENT_EMAIL
 GOOGLE_DRIVE_PRIVATE_KEY
-LOG_LEVEL
-AUDIT_NGINX_READ_TIMEOUT
-AUDIT_FPM_TERMINATE_TIMEOUT
 REDIS_PASSWORD
 ```
+
+Variables requeridas:
+
+```text
+DB_HOST
+DB_PORT
+DB_NAME
+DB2_HOST
+DB2_PORT
+DB2_NAME
+```
+
+El Environment `production` puede poblarse desde un `.env` productivo con:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+El script escribe GitHub Secrets/Variables; no copia `.env` al servidor. El
+workflow regenera `/home/admon/audfact-prod/.env` en cada despliegue.
 
 ## Flujo de Deploy
 
@@ -103,6 +108,7 @@ push main
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/backend/health
   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
+  -> verificar worker-batch activo para procesar audit.batch.inbox
 ```
 
 ## Rollback
@@ -132,6 +138,8 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - No dejar `responseIA/` dentro del contexto de build Docker.
 - No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
 - El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.
+- `docker-compose.prod.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
+- Renovar `GEMINI_API_KEY` en el GitHub Environment `production` antes de validar extracciones; una key expirada provoca errores `400 API key expired` en `worker-extraction`.
 
 ## Incidente CI/CD 2026-05-13: hosts SQL malformados
 
@@ -145,7 +153,7 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
 ### Causa raiz
 
-El workflow regeneraba `/home/admon/audfact-prod/.env` desde GitHub Secrets. Los secrets de produccion contenian hosts SQL con instancia y el heredoc terminaba generando valores invalidos:
+El workflow regeneraba `/home/admon/audfact-prod/.env` desde GitHub Secrets. En ese momento los hosts SQL vivian como secrets de produccion y contenian instancia; el heredoc terminaba generando valores invalidos:
 
 ```text
 DB_HOST=169.46.6.53SQL2022
@@ -161,7 +169,7 @@ Desde el contenedor PHP, esos hosts no resolvian/conectaban. Las IP limpias si c
 
 ### Resolucion aplicada
 
-- Secrets del GitHub Environment `production` actualizados:
+- GitHub Variables del Environment `production` actualizadas:
   - `DB_HOST=169.46.6.53`
   - `DB2_HOST=169.46.6.55`
 - `.github/workflows/deploy-production.yml` ahora:
@@ -173,4 +181,4 @@ Desde el contenedor PHP, esos hosts no resolvian/conectaban. Las IP limpias si c
 
 ### Regla para agentes
 
-Si vuelve a fallar `Create production environment file` con `DB_HOST appears malformed`, no tocar contenedores por SSH primero. Corregir los GitHub Secrets de `production` y relanzar el workflow.
+Si vuelve a fallar `Create production environment file` con `DB_HOST appears malformed`, no tocar contenedores por SSH primero. Corregir las GitHub Variables de `production` y relanzar el workflow.

@@ -11,8 +11,8 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-audit-gemini` | Auditoría IA | `app/Services/Audit/*` (raíz + Pipeline) | Pipeline event-driven con Gemini: `DocumentAuditOrchestrator`, `DocumentExtractionContractBuilder`, `DocumentIntegrityValidator`, reservas idempotentes por `FacSec`, telemetría por evento y workers sobre Redis Streams. |
 | `audfact-sqlsrv-models` | Datos SQL Server | `app/Models/*`, `core/Database.php` | Modelos PDO sqlsrv y streams BLOB. |
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
-| `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml` | Entorno Docker, CI/CD y conectividad DB. |
-| `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, secrets SQL y despliegues. |
+| `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose*.yml`, `.github/workflows/*.yml`, `scripts/sync-github-production-env.sh` | Entorno Docker, CI/CD, Environment GitHub y conectividad DB. |
+| `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, `scripts/sync-github-production-env.sh`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, GitHub Secrets/Variables y despliegues. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
 | `audfact-docs-sync` | Documentación | `README.md`, `plans/*`, `.agent/skills/*` | Sincronización obligatoria de documentación y skills después de cambios de código o drift documental. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
@@ -77,6 +77,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose*.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |
+| `scripts/sync-github-production-env.sh` | `audfact-runtime-docker` + `audfact-production-ops` |
 | `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |

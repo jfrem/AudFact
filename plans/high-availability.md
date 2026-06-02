@@ -23,7 +23,7 @@ graph TB
     end
 
     subgraph Workers["Workers CLI PHP"]
-        Batch["worker-batch<br/>2 replicas en docker-compose.yml"]
+        Batch["worker-batch<br/>2 replicas"]
         Orchestrator["worker-orchestrator<br/>3 replicas"]
         Extraction["worker-extraction<br/>8 replicas"]
         Normalizer["worker-normalizer<br/>1 replica"]
@@ -61,7 +61,7 @@ graph TB
 | Archivo | Uso actual | Observacion |
 |---|---|---|
 | `docker-compose.yml` | Build local/base | Incluye `php`, `redis`, `nginx` y los 6 servicios de worker, incluido `worker-batch`. |
-| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR y publica el frontend; en el estado actual no define `worker-batch`. |
+| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR, publica el frontend y levanta los 6 servicios de worker. |
 
 ### PHP-FPM
 
@@ -89,7 +89,7 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 
 | Servicio | Worker | Default |
 |---|---|---:|
-| `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` en `docker-compose.yml` |
+| `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` |
 | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
 | `worker-extraction` | `DocumentExtractionWorker` | `8` |
 | `worker-normalizer` | `DocumentNormalizer` | `1` |

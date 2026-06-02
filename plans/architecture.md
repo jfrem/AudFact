@@ -110,7 +110,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml` y `docker-compose.prod.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 
 ---
@@ -135,7 +135,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Modo | Compose | Descripción |
 |---|---|---|
 | Base local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`. |
-| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y workers. En el estado actual del archivo no existe servicio `worker-batch`; si se requiere procesar `/audit/async` en producción, debe agregarse o escalarse por override. |
+| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y los 6 workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`). |
 
 ---
 

@@ -16,7 +16,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | Archivo | Rol |
 |---|---|
 | `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator` |
-| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR y frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` |
+| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR, frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` y los 6 workers async |
 | `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
@@ -25,6 +25,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | `public/index.php` | Bootstrap: env, CORS, rate limit, dispatch |
 | `.env` | Variables de entorno locales/secretos; no commitear |
 | `.env.example` | Template de variables, incluyendo perfiles Gemini, Redis y workers |
+| `scripts/sync-github-production-env.sh` | Sincroniza `.env` productivo hacia GitHub Environment `production` sin imprimir valores |
 
 ## Arquitectura de red
 
@@ -57,7 +58,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ### Producción
-`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción.
+`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
 
 ## Variables .env obligatorias
 
@@ -67,13 +68,26 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `DB_HOST` | `host.docker.internal` | Host SQL Server |
 | `INTERNAL_API_URL` | `http://nginx` | URL interna usada por el proxy Next.js `/api/backend/*` en producción |
 | `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | URL pública del backend para generar URLs MCP/webhook en deploy |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100` | Origen público del frontend para CORS/deploy |
+| `AUDFACT_PHP_IMAGE` | `ghcr.io/jfrem/audfact-php` | Imagen PHP-FPM/workers usada por producción |
+| `AUDFACT_NGINX_IMAGE` | `ghcr.io/jfrem/audfact-nginx` | Imagen Nginx usada por producción |
+| `AUDFACT_FRONTEND_IMAGE` | `ghcr.io/jfrem/audfact-frontend` | Imagen Next.js usada por producción |
+| `AUDFACT_IMAGE_TAG` | `latest` | Tag GHCR usado por deploy/rollback |
 | `AUDFACT_FRONTEND_HOST_PORT` | `3100` | Puerto LAN dedicado para el frontend productivo |
+| `NEXT_PUBLIC_APP_NAME` | `AudFact` | Nombre público del producto en frontend |
+| `NEXT_PUBLIC_DEFAULT_THEME` | `dark` | Tema público inicial del frontend |
+| `NEXT_PUBLIC_POLLING_JOBS_MS` | `5000` | Polling público de jobs |
+| `NEXT_PUBLIC_POLLING_HEALTH_MS` | `30000` | Polling público de health |
+| `NEXT_PUBLIC_LOCALE` | `es-CO` | Locale público |
+| `NEXT_PUBLIC_TIMEZONE` | `America/Bogota` | Zona horaria pública |
+| `DB_POOLING` | `1` | Pooling PDO para conexión default |
+| `DB2_POOLING` | `1` | Pooling PDO para conexión db2 |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` en `docker-compose.yml` |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
@@ -112,6 +126,10 @@ wsl docker compose top worker-batch worker-orchestrator worker-extraction worker
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+# Sincronizar GitHub Environment production desde un .env productivo
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
 ```
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)

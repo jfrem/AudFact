@@ -58,7 +58,7 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
 | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` y `docker-compose.prod.yml` levantan los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
 
 ### Controllers y endpoints
 
@@ -93,6 +93,8 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
 | `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` | Versionado para trazabilidad en `AuditEvent` |
+
+`GEMINI_MODEL` es el único selector de versión de modelo usado por el gateway. `GeminiConfig` conserva un fallback local si la variable falta, pero `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` son perfiles de generación del mismo modelo configurado; no implementan fallback ni redirección a otra versión Gemini.
 
 ## Flujo técnico
 

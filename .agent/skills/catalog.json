@@ -30,7 +30,7 @@
     {
       "name": "audfact-production-ops",
       "path": ".agent/skills/audfact-production-ops",
-      "description": "Operaciones de produccion LAN: SSH no interactivo, diagnosticos, runner self-hosted, secrets SQL, deploy y rollback."
+      "description": "Operaciones de produccion LAN: SSH no interactivo, diagnosticos, runner self-hosted, GitHub Secrets/Variables, deploy y rollback."
     },
     {
       "name": "audfact-security-guardrails",

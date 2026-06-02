@@ -19,7 +19,8 @@ Usar esta skill para operaciones remotas sobre el servidor de produccion LAN `ad
 - Directorio persistente de deploy: `/home/admon/audfact-prod`
 - Workflow de deploy: `.github/workflows/deploy-production.yml`
 - Compose productivo: `docker-compose.prod.yml`
-- Secrets SQL vigentes en GitHub Environment `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`. No usar `host\instancia` en produccion.
+- Sync GitHub Environment: `scripts/sync-github-production-env.sh`
+- Variables SQL vigentes en GitHub Environment `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`. No usar `host\instancia` en produccion.
 
 ## Guardrails
 
@@ -75,13 +76,25 @@ Antes de deploy o rollback, verificar:
 powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "systemctl is-active actions.runner.jfrem-AudFact.produccion-audfact.service; docker ps"
 ```
 
-El workflow productivo debe pasar `Preflight SQL connectivity` antes de `Start production stack`. Si falla con `DB_HOST appears malformed`, corregir GitHub Secrets de `production`; no editar el `.env` remoto como solucion permanente.
+El workflow productivo debe pasar `Preflight SQL connectivity` antes de `Start production stack`. Si falla con `DB_HOST appears malformed`, corregir GitHub Variables de `production`; no editar el `.env` remoto como solucion permanente.
+
+Para sincronizar valores desde un `.env` productivo hacia GitHub Environment
+`production`, usar:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+El script escribe GitHub Secrets/Variables. No copia `.env` directamente al host
+productivo; el deploy lo regenera en `/home/admon/audfact-prod/.env`.
 
 Si el usuario autoriza deploy manual por SSH, usar el runbook y exigir un tag SHA concreto. No usar `latest` para rollback salvo instruccion explicita.
 
 ## Recursos
 
 - `scripts/Invoke-AudFactProdSsh.ps1`: wrapper PowerShell para SSH con `SSH_ASKPASS` temporal.
+- `scripts/sync-github-production-env.sh`: sincroniza `.env` productivo local hacia GitHub Environment `production` sin imprimir valores.
 - `references/runbooks.md`: comandos de diagnostico, deploy, rollback y troubleshooting.
 
 ## Cierre Operativo

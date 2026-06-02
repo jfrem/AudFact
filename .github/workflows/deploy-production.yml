@@ -21,10 +21,10 @@ concurrency:
 
 env:
   DEPLOY_DIR: ${{ vars.AUDFACT_DEPLOY_DIR }}
-  PHP_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-php
-  NGINX_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-nginx
-  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-frontend
-  FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT }}
+  PHP_IMAGE: ${{ vars.AUDFACT_PHP_IMAGE || format('ghcr.io/{0}/audfact-php', github.repository_owner) }}
+  NGINX_IMAGE: ${{ vars.AUDFACT_NGINX_IMAGE || format('ghcr.io/{0}/audfact-nginx', github.repository_owner) }}
+  FRONTEND_IMAGE: ${{ vars.AUDFACT_FRONTEND_IMAGE || format('ghcr.io/{0}/audfact-frontend', github.repository_owner) }}
+  FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT || '3100' }}
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.image_tag }}
 
 jobs:
@@ -44,27 +44,33 @@ jobs:
 
       - name: Validate required secrets
         env:
-          APP_ENV: ${{ secrets.APP_ENV }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT }}
+          DB_NAME: ${{ vars.DB_NAME }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
-          DB2_HOST: ${{ secrets.DB2_HOST }}
-          DB2_PORT: ${{ secrets.DB2_PORT }}
-          DB2_NAME: ${{ secrets.DB2_NAME }}
+          DB2_HOST: ${{ vars.DB2_HOST }}
+          DB2_PORT: ${{ vars.DB2_PORT }}
+          DB2_NAME: ${{ vars.DB2_NAME }}
           DB2_USER: ${{ secrets.DB2_USER }}
           DB2_PASS: ${{ secrets.DB2_PASS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
           MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
         run: |
           set -euo pipefail
-          required=(APP_ENV DB_HOST DB_PORT DB_NAME DB_USER DB_PASS DB2_HOST DB2_PORT DB2_NAME DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET)
-          for key in "${required[@]}"; do
+          required_secrets=(DB_USER DB_PASS DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET)
+          required_variables=(DB_HOST DB_PORT DB_NAME DB2_HOST DB2_PORT DB2_NAME)
+
+          for key in "${required_secrets[@]}"; do
             if [ -z "${!key}" ]; then
               echo "::error::Missing required GitHub secret: $key"
+              exit 1
+            fi
+          done
+
+          for key in "${required_variables[@]}"; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required GitHub environment variable: $key"
               exit 1
             fi
           done
@@ -79,39 +85,100 @@ jobs:
 
       - name: Create production environment file
         env:
-          APP_ENV: ${{ secrets.APP_ENV }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          APP_ENV: ${{ vars.APP_ENV }}
+          WRAP_API_BASE: ${{ vars.WRAP_API_BASE }}
+          WWWUSER_ID: ${{ vars.WWWUSER_ID }}
+          WWWGROUP_ID: ${{ vars.WWWGROUP_ID }}
+          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
+          INTERNAL_API_URL: ${{ vars.INTERNAL_API_URL }}
+          AUDFACT_FRONTEND_PUBLIC_URL: ${{ vars.AUDFACT_FRONTEND_PUBLIC_URL }}
+          NEXT_PUBLIC_APP_NAME: ${{ vars.NEXT_PUBLIC_APP_NAME }}
+          NEXT_PUBLIC_DEFAULT_THEME: ${{ vars.NEXT_PUBLIC_DEFAULT_THEME }}
+          NEXT_PUBLIC_POLLING_JOBS_MS: ${{ vars.NEXT_PUBLIC_POLLING_JOBS_MS }}
+          NEXT_PUBLIC_POLLING_HEALTH_MS: ${{ vars.NEXT_PUBLIC_POLLING_HEALTH_MS }}
+          NEXT_PUBLIC_LOCALE: ${{ vars.NEXT_PUBLIC_LOCALE }}
+          NEXT_PUBLIC_TIMEZONE: ${{ vars.NEXT_PUBLIC_TIMEZONE }}
+          WEBHOOK_URL: ${{ vars.WEBHOOK_URL }}
+          CAPABILITIES_URL: ${{ vars.CAPABILITIES_URL }}
+          DB_TYPE: ${{ vars.DB_TYPE }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          DB_PORT: ${{ vars.DB_PORT }}
+          DB_NAME: ${{ vars.DB_NAME }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
-          DB_ENCRYPT: ${{ secrets.DB_ENCRYPT }}
-          DB_TRUST_SERVER_CERT: ${{ secrets.DB_TRUST_SERVER_CERT }}
-          DB2_HOST: ${{ secrets.DB2_HOST }}
-          DB2_PORT: ${{ secrets.DB2_PORT }}
-          DB2_NAME: ${{ secrets.DB2_NAME }}
+          DB2_HOST: ${{ vars.DB2_HOST }}
+          DB2_PORT: ${{ vars.DB2_PORT }}
+          DB2_NAME: ${{ vars.DB2_NAME }}
           DB2_USER: ${{ secrets.DB2_USER }}
           DB2_PASS: ${{ secrets.DB2_PASS }}
-          DB2_ENCRYPT: ${{ secrets.DB2_ENCRYPT }}
-          DB2_TRUST_SERVER_CERT: ${{ secrets.DB2_TRUST_SERVER_CERT }}
-          GOOGLE_DRIVE_CLIENT_EMAIL: ${{ secrets.GOOGLE_DRIVE_CLIENT_EMAIL }}
+          DB_POOLING: ${{ vars.DB_POOLING }}
+          DB2_POOLING: ${{ vars.DB2_POOLING }}
+          DB_ENCRYPT: ${{ vars.DB_ENCRYPT }}
+          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT }}
+          DB2_ENCRYPT: ${{ vars.DB2_ENCRYPT }}
+          DB2_TRUST_SERVER_CERT: ${{ vars.DB2_TRUST_SERVER_CERT }}
+          GOOGLE_DRIVE_CLIENT_EMAIL: ${{ vars.GOOGLE_DRIVE_CLIENT_EMAIL }}
           GOOGLE_DRIVE_PRIVATE_KEY: ${{ secrets.GOOGLE_DRIVE_PRIVATE_KEY }}
+          GOOGLE_DRIVE_TLS_VERIFY: ${{ vars.GOOGLE_DRIVE_TLS_VERIFY }}
+          REQUEST_TIMEOUT_MS: ${{ vars.REQUEST_TIMEOUT_MS }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
+          LOG_MAX_SIZE_MB: ${{ vars.LOG_MAX_SIZE_MB }}
+          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+          MAX_JSON_SIZE: ${{ vars.MAX_JSON_SIZE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_TEMPERATURE: ${{ vars.GEMINI_TEMPERATURE }}
+          GEMINI_TIMEOUT: ${{ vars.GEMINI_TIMEOUT }}
+          GEMINI_TOP_P: ${{ vars.GEMINI_TOP_P }}
+          GEMINI_TOP_K: ${{ vars.GEMINI_TOP_K }}
+          GEMINI_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_MAX_OUTPUT_TOKENS }}
+          GEMINI_MEDIA_RESOLUTION: ${{ vars.GEMINI_MEDIA_RESOLUTION }}
+          GEMINI_THINKING_BUDGET: ${{ vars.GEMINI_THINKING_BUDGET }}
+          GEMINI_THINKING_LEVEL: ${{ vars.GEMINI_THINKING_LEVEL }}
+          GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS }}
+          GEMINI_EXTRACTION_THINKING_BUDGET: ${{ vars.GEMINI_EXTRACTION_THINKING_BUDGET }}
+          GEMINI_EXTRACTION_THINKING_LEVEL: ${{ vars.GEMINI_EXTRACTION_THINKING_LEVEL }}
+          GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS }}
+          GEMINI_SEMANTIC_THINKING_LEVEL: ${{ vars.GEMINI_SEMANTIC_THINKING_LEVEL }}
+          GEMINI_SEMANTIC_THINKING_BUDGET: ${{ vars.GEMINI_SEMANTIC_THINKING_BUDGET }}
+          GEMINI_SEED: ${{ vars.GEMINI_SEED }}
+          AUDIT_BATCH_MAX_LIMIT: ${{ vars.AUDIT_BATCH_MAX_LIMIT }}
+          AUDIT_BATCH_TIMEOUT: ${{ vars.AUDIT_BATCH_TIMEOUT }}
+          AUDIT_NGINX_READ_TIMEOUT: ${{ vars.AUDIT_NGINX_READ_TIMEOUT }}
+          AUDIT_FPM_TERMINATE_TIMEOUT: ${{ vars.AUDIT_FPM_TERMINATE_TIMEOUT }}
+          REDIS_HOST: ${{ vars.REDIS_HOST }}
+          REDIS_PORT: ${{ vars.REDIS_PORT }}
+          REDIS_PREFIX: ${{ vars.REDIS_PREFIX }}
+          REDIS_MODE: ${{ vars.REDIS_MODE }}
+          REDIS_PERSISTENT: ${{ vars.REDIS_PERSISTENT }}
+          CB_GEMINI_THRESHOLD: ${{ vars.CB_GEMINI_THRESHOLD }}
+          CB_GEMINI_COOLDOWN: ${{ vars.CB_GEMINI_COOLDOWN }}
+          AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
+          AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
+          AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
+          AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
+          AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
+          AUDIT_IDEMPOTENCY_KEY_TTL: ${{ vars.AUDIT_IDEMPOTENCY_KEY_TTL }}
+          AUDIT_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_PENDING_RECLAIM_IDLE_MS }}
+          AUDIT_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_PENDING_RECLAIM_INTERVAL_MS }}
+          AUDIT_EVENT_MAX_RETRIES: ${{ vars.AUDIT_EVENT_MAX_RETRIES }}
+          AUDIT_STREAM_BLOCK_MS: ${{ vars.AUDIT_STREAM_BLOCK_MS }}
+          AUDIT_DLQ_STREAM: ${{ vars.AUDIT_DLQ_STREAM }}
+          AUDIT_CACHE_TTL: ${{ vars.AUDIT_CACHE_TTL }}
+          AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
+          AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
+          AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
+          AUDIT_VERSION_RULES: ${{ vars.AUDIT_VERSION_RULES }}
           MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
-          AUDFACT_FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT }}
-          AUDFACT_FRONTEND_PUBLIC_URL: ${{ vars.AUDFACT_FRONTEND_PUBLIC_URL }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          AUDIT_NGINX_READ_TIMEOUT: ${{ secrets.AUDIT_NGINX_READ_TIMEOUT }}
-          AUDIT_FPM_TERMINATE_TIMEOUT: ${{ secrets.AUDIT_FPM_TERMINATE_TIMEOUT }}
           REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         run: |
           set -euo pipefail
           umask 077
 
-          # Force production environment for the production deployment workflow
           APP_ENV="production"
+          EFFECTIVE_WRAP_API_BASE="${WRAP_API_BASE:-http://nginx}"
+          EFFECTIVE_INTERNAL_API_URL="${INTERNAL_API_URL:-http://nginx}"
 
           if [ "${DB_ENCRYPT:-no}" != "no" ] || [ "${DB_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
             echo "::error::Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
@@ -156,6 +223,9 @@ jobs:
           FRONTEND_HOST_PORT="${AUDFACT_FRONTEND_HOST_PORT:-3100}"
           FRONTEND_PUBLIC_URL="${AUDFACT_FRONTEND_PUBLIC_URL:-http://172.16.0.3:${FRONTEND_HOST_PORT}}"
           API_PUBLIC_URL="${AUDFACT_API_PUBLIC_URL:-http://172.16.0.3:8080}"
+          WEBHOOK_URL="${WEBHOOK_URL:-${API_PUBLIC_URL}/app/wrap/webhook.php}"
+          CAPABILITIES_URL="${CAPABILITIES_URL:-${API_PUBLIC_URL}/app/wrap/capabilities.php}"
+
           if [ -n "${ALLOWED_ORIGINS}" ]; then
             case ",${ALLOWED_ORIGINS}," in
               *",${FRONTEND_PUBLIC_URL},"*) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" ;;
@@ -165,93 +235,127 @@ jobs:
             EFFECTIVE_ALLOWED_ORIGINS="${FRONTEND_PUBLIC_URL}"
           fi
 
+          escape_env_value() {
+            local value="${1-}"
+            value="${value//$'\r'/}"
+            value="${value//$'\n'/\\n}"
+            printf '%s' "$value"
+          }
+
+          write_env_var() {
+            local key="$1"
+            local value="${2-}"
+            printf '%s=%s\n' "$key" "$(escape_env_value "$value")"
+          }
+
           {
-            printf 'AUDFACT_PHP_IMAGE=%s\n' "$PHP_IMAGE"
-            printf 'AUDFACT_NGINX_IMAGE=%s\n' "$NGINX_IMAGE"
-            printf 'AUDFACT_FRONTEND_IMAGE=%s\n' "$FRONTEND_IMAGE"
-            printf 'AUDFACT_IMAGE_TAG=%s\n' "$IMAGE_TAG"
-            printf 'AUDFACT_FRONTEND_HOST_PORT=%s\n' "$FRONTEND_HOST_PORT"
+            write_env_var 'APP_ENV' "$APP_ENV"
+            write_env_var 'WRAP_API_BASE' "$EFFECTIVE_WRAP_API_BASE"
+            write_env_var 'WWWUSER_ID' "${WWWUSER_ID:-1000}"
+            write_env_var 'WWWGROUP_ID' "${WWWGROUP_ID:-1000}"
+            write_env_var 'AUDFACT_API_PUBLIC_URL' "$API_PUBLIC_URL"
+            write_env_var 'INTERNAL_API_URL' "$EFFECTIVE_INTERNAL_API_URL"
+            write_env_var 'AUDFACT_FRONTEND_PUBLIC_URL' "$FRONTEND_PUBLIC_URL"
             printf '\n'
-            printf 'APP_ENV=%s\n' "$APP_ENV"
-            printf 'AUDFACT_API_PUBLIC_URL=%s\n' "$API_PUBLIC_URL"
-            printf 'INTERNAL_API_URL=http://nginx\n'
-            printf 'WRAP_API_BASE=http://nginx\n'
-            printf 'WEBHOOK_URL=%s/app/wrap/webhook.php\n' "$API_PUBLIC_URL"
-            printf 'CAPABILITIES_URL=%s/app/wrap/capabilities.php\n' "$API_PUBLIC_URL"
-            printf 'MCP_WEBHOOK_SECRET=%s\n' "$MCP_WEBHOOK_SECRET"
+            write_env_var 'AUDFACT_PHP_IMAGE' "$PHP_IMAGE"
+            write_env_var 'AUDFACT_NGINX_IMAGE' "$NGINX_IMAGE"
+            write_env_var 'AUDFACT_FRONTEND_IMAGE' "$FRONTEND_IMAGE"
+            write_env_var 'AUDFACT_IMAGE_TAG' "$IMAGE_TAG"
+            write_env_var 'AUDFACT_FRONTEND_HOST_PORT' "$FRONTEND_HOST_PORT"
             printf '\n'
-            printf 'DB_TYPE=sqlsrv\n'
-            printf 'DB_HOST=%s\n' "$EFFECTIVE_DB_HOST"
-            printf 'DB_PORT=%s\n' "$DB_PORT"
-            printf 'DB_NAME=%s\n' "$DB_NAME"
-            printf 'DB_USER=%s\n' "$DB_USER"
-            printf 'DB_PASS=%s\n' "$DB_PASS"
+            write_env_var 'NEXT_PUBLIC_APP_NAME' "${NEXT_PUBLIC_APP_NAME:-AudFact}"
+            write_env_var 'NEXT_PUBLIC_DEFAULT_THEME' "${NEXT_PUBLIC_DEFAULT_THEME:-dark}"
+            write_env_var 'NEXT_PUBLIC_POLLING_JOBS_MS' "${NEXT_PUBLIC_POLLING_JOBS_MS:-5000}"
+            write_env_var 'NEXT_PUBLIC_POLLING_HEALTH_MS' "${NEXT_PUBLIC_POLLING_HEALTH_MS:-30000}"
+            write_env_var 'NEXT_PUBLIC_LOCALE' "${NEXT_PUBLIC_LOCALE:-es-CO}"
+            write_env_var 'NEXT_PUBLIC_TIMEZONE' "${NEXT_PUBLIC_TIMEZONE:-America/Bogota}"
             printf '\n'
-            printf 'DB2_HOST=%s\n' "$EFFECTIVE_DB2_HOST"
-            printf 'DB2_PORT=%s\n' "$DB2_PORT"
-            printf 'DB2_NAME=%s\n' "$DB2_NAME"
-            printf 'DB2_USER=%s\n' "$DB2_USER"
-            printf 'DB2_PASS=%s\n' "$DB2_PASS"
+            write_env_var 'WEBHOOK_URL' "$WEBHOOK_URL"
+            write_env_var 'CAPABILITIES_URL' "$CAPABILITIES_URL"
+            write_env_var 'MCP_WEBHOOK_SECRET' "$MCP_WEBHOOK_SECRET"
             printf '\n'
-            printf 'DB_POOLING=1\n'
-            printf 'DB_ENCRYPT=%s\n' "${DB_ENCRYPT:-no}"
-            printf 'DB_TRUST_SERVER_CERT=%s\n' "${DB_TRUST_SERVER_CERT:-yes}"
-            printf 'DB2_ENCRYPT=%s\n' "${DB2_ENCRYPT:-no}"
-            printf 'DB2_TRUST_SERVER_CERT=%s\n' "${DB2_TRUST_SERVER_CERT:-yes}"
+            write_env_var 'DB_TYPE' "${DB_TYPE:-sqlsrv}"
+            write_env_var 'DB_HOST' "$EFFECTIVE_DB_HOST"
+            write_env_var 'DB_PORT' "$DB_PORT"
+            write_env_var 'DB_NAME' "$DB_NAME"
+            write_env_var 'DB_USER' "$DB_USER"
+            write_env_var 'DB_PASS' "$DB_PASS"
             printf '\n'
-            printf 'GOOGLE_DRIVE_CLIENT_EMAIL=%s\n' "$GOOGLE_DRIVE_CLIENT_EMAIL"
-            printf 'GOOGLE_DRIVE_PRIVATE_KEY=%s\n' "$GOOGLE_DRIVE_PRIVATE_KEY"
-            printf 'GOOGLE_DRIVE_TLS_VERIFY=1\n'
+            write_env_var 'DB2_HOST' "$EFFECTIVE_DB2_HOST"
+            write_env_var 'DB2_PORT' "$DB2_PORT"
+            write_env_var 'DB2_NAME' "$DB2_NAME"
+            write_env_var 'DB2_USER' "$DB2_USER"
+            write_env_var 'DB2_PASS' "$DB2_PASS"
             printf '\n'
-            printf 'REQUEST_TIMEOUT_MS=60000\n'
-            printf 'LOG_LEVEL=%s\n' "${LOG_LEVEL:-warning}"
-            printf 'LOG_RETENTION_DAYS=7\n'
-            printf 'LOG_MAX_SIZE_MB=10\n'
-            printf 'ALLOWED_ORIGINS=%s\n' "$EFFECTIVE_ALLOWED_ORIGINS"
-            printf 'MAX_JSON_SIZE=1048576\n'
+            write_env_var 'DB_POOLING' "${DB_POOLING:-1}"
+            write_env_var 'DB2_POOLING' "${DB2_POOLING:-1}"
+            write_env_var 'DB_ENCRYPT' "${DB_ENCRYPT:-no}"
+            write_env_var 'DB_TRUST_SERVER_CERT' "${DB_TRUST_SERVER_CERT:-yes}"
+            write_env_var 'DB2_ENCRYPT' "${DB2_ENCRYPT:-no}"
+            write_env_var 'DB2_TRUST_SERVER_CERT' "${DB2_TRUST_SERVER_CERT:-yes}"
             printf '\n'
-            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY"
-            printf 'GEMINI_MODEL=gemini-3-flash-preview\n'
-            printf 'GEMINI_TEMPERATURE=0.0\n'
-            printf 'GEMINI_TIMEOUT=300\n'
-            printf 'GEMINI_TOP_P=1.0\n'
-            printf 'GEMINI_TOP_K=1\n'
-            printf 'GEMINI_MAX_OUTPUT_TOKENS=8192\n'
-            printf 'GEMINI_RESPONSE_MIME=application/json\n'
-            printf 'GEMINI_MEDIA_RESOLUTION=MEDIA_RESOLUTION_HIGH\n'
-            printf 'GEMINI_THINKING_BUDGET=\n'
-            printf 'GEMINI_THINKING_LEVEL=\n'
-            printf 'GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS=4096\n'
-            printf 'GEMINI_EXTRACTION_THINKING_BUDGET=\n'
-            printf 'GEMINI_EXTRACTION_THINKING_LEVEL=%s\n' "${GEMINI_EXTRACTION_THINKING_LEVEL:-MINIMAL}"
-            printf 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS=2048\n'
-            printf 'GEMINI_SEMANTIC_THINKING_LEVEL=\n'
-            printf 'GEMINI_SEMANTIC_THINKING_BUDGET=\n'
-            printf 'GEMINI_SEED=42\n'
+            write_env_var 'GOOGLE_DRIVE_CLIENT_EMAIL' "$GOOGLE_DRIVE_CLIENT_EMAIL"
+            write_env_var 'GOOGLE_DRIVE_PRIVATE_KEY' "$GOOGLE_DRIVE_PRIVATE_KEY"
+            write_env_var 'GOOGLE_DRIVE_TLS_VERIFY' "${GOOGLE_DRIVE_TLS_VERIFY:-1}"
             printf '\n'
-            printf 'AUDIT_BATCH_MAX_LIMIT=100\n'
-            printf 'AUDIT_BATCH_TIMEOUT=3600\n'
-            printf 'AUDIT_NGINX_READ_TIMEOUT=%s\n' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
-            printf 'AUDIT_FPM_TERMINATE_TIMEOUT=%s\n' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
-            printf 'AUDIT_CACHE_TTL=86400\n'
-            printf 'AUDIT_EXTRACTION_CACHE_TTL=86400\n'
-            printf 'AUDIT_STREAM_BLOCK_MS=5000\n'
-            printf 'AUDIT_EVENT_MAX_RETRIES=3\n'
-            printf 'AUDIT_DLQ_STREAM=audit.dlq\n'
-            printf 'AUDIT_INTERNAL_API_BASE=http://nginx\n'
-            printf 'AUDIT_VERSION_EXTRACTOR=gemini-3.x-parallel-fc-v1\n'
-            printf 'AUDIT_VERSION_NORMALIZER=1.0.0\n'
-            printf 'AUDIT_VERSION_RULES=1.0.0\n'
+            write_env_var 'REQUEST_TIMEOUT_MS' "${REQUEST_TIMEOUT_MS:-60000}"
+            write_env_var 'LOG_LEVEL' "${LOG_LEVEL:-warning}"
+            write_env_var 'LOG_RETENTION_DAYS' "${LOG_RETENTION_DAYS:-7}"
+            write_env_var 'LOG_MAX_SIZE_MB' "${LOG_MAX_SIZE_MB:-10}"
+            write_env_var 'ALLOWED_ORIGINS' "$EFFECTIVE_ALLOWED_ORIGINS"
+            write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
             printf '\n'
-            printf 'REDIS_HOST=redis\n'
-            printf 'REDIS_PORT=6379\n'
-            printf 'REDIS_PASSWORD=%s\n' "$REDIS_PASSWORD"
-            printf 'REDIS_PREFIX=audfact:\n'
-            printf 'REDIS_MODE=standalone\n'
-            printf 'REDIS_PERSISTENT=0\n'
+            write_env_var 'GEMINI_API_KEY' "$GEMINI_API_KEY"
+            write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3-flash-preview}"
+            write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
+            write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
+            write_env_var 'GEMINI_TOP_P' "${GEMINI_TOP_P:-1.0}"
+            write_env_var 'GEMINI_TOP_K' "${GEMINI_TOP_K:-1}"
+            write_env_var 'GEMINI_MAX_OUTPUT_TOKENS' "${GEMINI_MAX_OUTPUT_TOKENS:-8192}"
+            write_env_var 'GEMINI_MEDIA_RESOLUTION' "${GEMINI_MEDIA_RESOLUTION:-MEDIA_RESOLUTION_HIGH}"
+            write_env_var 'GEMINI_THINKING_BUDGET' "${GEMINI_THINKING_BUDGET:-}"
+            write_env_var 'GEMINI_THINKING_LEVEL' "${GEMINI_THINKING_LEVEL:-}"
+            write_env_var 'GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS' "${GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS:-4096}"
+            write_env_var 'GEMINI_EXTRACTION_THINKING_BUDGET' "${GEMINI_EXTRACTION_THINKING_BUDGET:-}"
+            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-MINIMAL}"
+            write_env_var 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS' "${GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS:-2048}"
+            write_env_var 'GEMINI_SEMANTIC_THINKING_LEVEL' "${GEMINI_SEMANTIC_THINKING_LEVEL:-}"
+            write_env_var 'GEMINI_SEMANTIC_THINKING_BUDGET' "${GEMINI_SEMANTIC_THINKING_BUDGET:-}"
+            write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-42}"
             printf '\n'
-            printf 'CB_GEMINI_THRESHOLD=3\n'
-            printf 'CB_GEMINI_COOLDOWN=60\n'
+            write_env_var 'AUDIT_BATCH_MAX_LIMIT' "${AUDIT_BATCH_MAX_LIMIT:-100}"
+            write_env_var 'AUDIT_BATCH_TIMEOUT' "${AUDIT_BATCH_TIMEOUT:-3600}"
+            write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
+            write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
+            printf '\n'
+            write_env_var 'REDIS_HOST' "${REDIS_HOST:-redis}"
+            write_env_var 'REDIS_PORT' "${REDIS_PORT:-6379}"
+            write_env_var 'REDIS_PREFIX' "${REDIS_PREFIX:-audfact:}"
+            write_env_var 'REDIS_PASSWORD' "$REDIS_PASSWORD"
+            write_env_var 'REDIS_MODE' "${REDIS_MODE:-standalone}"
+            write_env_var 'REDIS_PERSISTENT' "${REDIS_PERSISTENT:-0}"
+            printf '\n'
+            write_env_var 'CB_GEMINI_THRESHOLD' "${CB_GEMINI_THRESHOLD:-3}"
+            write_env_var 'CB_GEMINI_COOLDOWN' "${CB_GEMINI_COOLDOWN:-60}"
+            printf '\n'
+            write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
+            write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-3}"
+            write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
+            write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"
+            write_env_var 'AUDIT_IDEMPOTENCY_KEY_TTL' "${AUDIT_IDEMPOTENCY_KEY_TTL:-300}"
+            write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
+            write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
+            write_env_var 'AUDIT_EVENT_MAX_RETRIES' "${AUDIT_EVENT_MAX_RETRIES:-3}"
+            write_env_var 'AUDIT_STREAM_BLOCK_MS' "${AUDIT_STREAM_BLOCK_MS:-5000}"
+            write_env_var 'AUDIT_DLQ_STREAM' "${AUDIT_DLQ_STREAM:-audit.dlq}"
+            printf '\n'
+            write_env_var 'AUDIT_CACHE_TTL' "${AUDIT_CACHE_TTL:-86400}"
+            write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-86400}"
+            printf '\n'
+            write_env_var 'AUDIT_VERSION_EXTRACTOR' "${AUDIT_VERSION_EXTRACTOR:-gemini-3.x-parallel-fc-v1}"
+            write_env_var 'AUDIT_VERSION_NORMALIZER' "${AUDIT_VERSION_NORMALIZER:-1.0.0}"
+            write_env_var 'AUDIT_VERSION_RULES' "${AUDIT_VERSION_RULES:-1.0.0}"
           } > "$DEPLOY_PATH/.env"
 
           chmod 600 "$DEPLOY_PATH/.env"
@@ -346,5 +450,5 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose -f docker-compose.prod.yml logs --tail=120 frontend php nginx worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator
+          docker compose -f docker-compose.prod.yml logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator
           exit 1

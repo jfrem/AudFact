@@ -78,7 +78,7 @@ Además de las métricas automatizadas, se ejecutó una validación cruzada dond
 | **Precisión de extracción** | Capacidad de Gemini para interpretar correctamente los campos visibles del documento digitalizado | 98.4% |
 | **Precisión de auditoría (concordancia humana)** | Capacidad del sistema completo (IA + validaciones deterministas + controles de consistencia) para emitir resultados correctos | 100% (sobre 200 dispensas validadas) |
 
-Los errores residuales de extracción (1.6%) son absorbidos y mitigados por las capas posteriores del pipeline antes de que afecten la decisión final: validación de esquemas JSON en PHP, reglas deterministas del `DocumentPolicyEngine`, fallback con Thinking Budget al modelo `gemini-3.1-pro-preview`, y derivación controlada a `manual_review` para intervención humana.
+Los errores residuales de extracción (1.6%) son absorbidos y mitigados por las capas posteriores del pipeline antes de que afecten la decisión final: validación estricta de function calls en PHP, normalización determinista, reglas del `DocumentPolicyEngine`, retries HTTP del `GeminiGateway` ante errores transitorios y derivación controlada a `manual_review` o DLQ cuando el evento agota reintentos. El runtime actual no implementa redirección a un segundo modelo Gemini.
 
 > [!NOTE]
 > **Sustento Estadístico y Metodología de la Muestra**
@@ -179,7 +179,7 @@ La arquitectura de AudFact fue concebida bajo principios de inmutabilidad, aisla
 *   **Backend (Core Framework)**: Framework MVC ultra-ligero desarrollado a medida en PHP 8.2-FPM, sin las dependencias ni la sobrecarga típica de Symfony o Laravel. Logra tiempos de bootstrap inferiores a 2ms y cuenta con un router centralizado, un validador de entradas, un sanitizador de seguridad y un manejador de excepciones global.
 *   **Procesamiento Asíncrono e Infraestructura Event-Driven**: Utiliza **Redis 7** como bus de eventos permanente basado en **Redis Streams**. Un pool de 13 procesos en segundo plano (Workers) concurrentes de PHP-CLI persistentes en producción (3 orquestadores de cola, 8 extractores de IA y 2 evaluadores deterministas de políticas) consumen los eventos utilizando grupos de consumo (`XREADGROUP`) y scripts de autoreclamado.
 *   **Base de Datos**: **Microsoft SQL Server (MSSQL)** consumido de forma directa con drivers nativos de PDO.
-*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini (modelo activo por defecto `gemini-3-flash-preview` configurado en `GEMINI_MODEL`, con fallback a `gemini-3.1-pro-preview` para extracción guiada con razonamiento en caso de fallos de formato o violaciones de esquema) operando bajo temperatura determinista (`0.0`).
+*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini mediante un único selector de modelo (`GEMINI_MODEL`). El template y el workflow productivo fijan el modelo operativo por defecto en `gemini-3-flash-preview`; si la variable falta por completo, `GeminiConfig` conserva un fallback local de configuración a `gemini-3.1-pro-preview`. Extracción documental y homologación semántica usan perfiles de generación separados (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`), pero no cambian de modelo.
 *   **Almacenamiento de Soportes**: Conexión con **Google Drive API v3** usando la firma segura de aserción JWT mediante Service Account corporativo, descargando los PDFs en caliente como streams de memoria sin persistirlos localmente.
 
 ---
@@ -519,35 +519,24 @@ Para blindar la integridad del sistema, el worker de extracción (`DocumentExtra
         │                   │
         │                   ▼
         │        ┌──────────────────────────────────┐
-        │        │ Fallback trigger:                │
-        │        │ - Use gemini-3.1-pro-preview     │
-        │        │ - Inject dynamic Thinking Budget │
-        │        │ - Re-evaluate extraction         │
+        │        │ Runtime handling:                │
+        │        │ - Reject malformed FC payload    │
+        │        │ - Retry only transport/API 429/5xx│
+        │        │ - Send event to retry/DLQ path   │
         │        └──────────────────┬───────────────┘
         │                           │
-        │                  ┌────────┴────────┐
-        │                  ▼                 ▼
-        │           [Fallback Success] [Fallback Fails]
-        │                  │                 │
-        │                  │                 ▼
-        │                  │        ┌──────────────────────────────┐
-        │                  │        │ Mark state as manual_review  │
-        │                  │        │ observations: IA_SCHEMA_FAIL │
-        │                  │        │ log incident in AudDispEst   │
-        │                  │        └──────────────────────────────┘
+        │                           ▼
+        │                  ┌──────────────────────────────┐
+        │                  │ Retry via AuditEventConsumer │
+        │                  │ DLQ after max attempts       │
+        │                  └──────────────────────────────┘
         ▼                  ▼
 [DocumentPolicyEngine Evaluates Deterministic Rules]
 ```
 
 1.  **Parseo y Validación Estricta**: Al recibir la llamada a la función estructurada, el gateway valida que el payload JSON cumpla con todos los tipos estructurales. Se verifica que las cadenas de fechas (`fecha_emision`) sean parseables a objetos `DateTime` válidos, que la identificación del paciente contenga caracteres lógicos y que los medicamentos requeridos no posean arreglos vacíos o propiedades corruptas.
-2.  **Mecanismo de Fallback y Autocorrección (Thinking Mode)**: Si el esquema de salida es violado o los datos clínicos clave no pueden ser parseados adecuadamente (por ejemplo, una fecha en formato "2026/Mayo/30" que el validador exige en "2026-05-30"):
-    *   El gateway captura el fallo y activa un **reintento de autocorrección**.
-    *   La petición es redirigida al modelo de gama alta **`gemini-3.1-pro-preview`**.
-    *   Se inyecta dinámicamente un presupuesto de pensamiento (`GEMINI_EXTRACTION_THINKING_BUDGET` de hasta `2048` tokens) y un prompt de corrección que contiene el error arrojado por PHP, forzando al modelo a realizar un proceso cognitivo profundo de auto-reflexión y razonamiento sobre el documento visual.
-3.  **Mapeo Controlado a `manual_review` ante Fallos Fatales**: Si el fallback de autocorrección falla tras el reintento estructurado, el worker de extracción no lanza una excepción fatal que detenga el pipeline. En lugar de esto:
-    *   La transacción de la factura es derivada de forma controlada al estado **`manual_review`** en la base de datos `dbo.AudDispEst`.
-    *   Se inyecta una observación técnica tipada con el código descriptivo **`IA_EXTRACTION_SCHEMA_VIOLATION`** en la tabla de detalle (`AdjuntosDispensacionDetalle`).
-    *   Se guarda una copia del log técnico del error y el JSON dañado para auditoría forense humana. Esto garantiza una trazabilidad total: los auditores humanos pueden ver exactamente qué falló en el proceso de extracción de IA y corregirlo.
+2.  **Perfiles de generación, no fallback de modelo**: `DocumentExtractionWorker` invoca Gemini con perfil `extraction` y `GEMINI_EXTRACTION_*`; `ArticleSemanticMatchJudge` usa el perfil text-only `semantic_match` y `GEMINI_SEMANTIC_*`. Ambos perfiles usan el mismo `GeminiConfig::model` resuelto desde `GEMINI_MODEL`.
+3.  **Manejo controlado de fallos**: El `GeminiGateway` reintenta errores HTTP recuperables (`429`, `500`, `502`, `503`, `504`) con backoff. Si la respuesta de function calling es inválida o el evento agota intentos, el `AuditEventConsumer` enruta el caso al flujo de retry/DLQ; la decisión funcional final sigue en PHP y no en un re-prompt de autocorrección.
 
 #### C. Evitando Errores 400 mediante Normalización de Esquemas en PHP (`normalizeSchemaProperties`)
 Un desafío crítico identificado al integrar la API de Gemini es la propensión del servidor de Google a rechazar peticiones con un código HTTP `400 Bad Request` si la definición del esquema JSON contiene propiedades o esquemas de objetos definidos como arreglos vacíos `[]` en PHP. 
@@ -738,7 +727,7 @@ A continuación se realiza una evaluación honesta y pragmática de la arquitect
 | Riesgo Técnico Identificado | Impacto | Nivel de Riesgo | Estrategia de Mitigación Implementada / Propuesta |
 | :--- | :--- | :--- | :--- |
 | **Agotamiento de cuota de API Gemini (Errores 429)** | Detención completa de las auditorías asíncronas. | **Medio-Alto** | Implementación del **Circuit Breaker** en Redis y políticas de **Exponential Backoff** de 1s, 2s y 4s. Si persiste, el lote se enruta a `manual_review` y el sistema detiene ráfagas de reintentos para no penalizar el procesamiento general. |
-| **Fallas en la homologación de nuevos nombres de medicamentos** | Incremento de falsos negativos en la comparación de artículos, elevando la tasa de revisión manual. | **Medio** | Uso de **ArticleSemanticMatchJudge** basado en razonamiento de lenguaje avanzado de Gemini 3.1 Pro Preview para homologación semántica, respaldado por un catálogo de sinónimos locales cached en Redis. |
+| **Fallas en la homologación de nuevos nombres de medicamentos** | Incremento de falsos negativos en la comparación de artículos, elevando la tasa de revisión manual. | **Medio** | Uso de **ArticleSemanticMatchJudge** como fallback semántico text-only contra el mismo modelo configurado en `GEMINI_MODEL`, con cache versionada en Redis y decisión PHP conservadora ante evidencia incompleta. |
 | **Caídas fatales de contenedores Worker PHP-CLI** | Pérdida potencial de eventos en tránsito a mitad de la auditoría. | **Bajo** | Uso nativo de **XREADGROUP** en Redis Streams. Los eventos no confirmados quedan registrados como `pending` y son recuperados automáticamente por workers sanos mediante **xAutoClaim** al expirar `AUDIT_PENDING_RECLAIM_IDLE_MS`. |
 | **Cambios estructurales imprevistos en vistas SQL Server Legacy** | Fallos de mapeo en modelos PHP y detención de importaciones de dispensas. | **Medio-Alto** | Implementación de **SQL Preflight Checks** automáticos durante la fase CD del deployment. Si las vistas sufrieron un cambio de firma o columnas faltantes, el preflight falla y aborta el deploy de la nueva imagen inmutable, previniendo caídas en producción. |
 
@@ -765,7 +754,7 @@ Para evitar el crecimiento desmedido de la memoria en caliente y garantizar una 
 
 La arquitectura de **AudFact** trasciende la mera automatización técnica para convertirse en un cortafuegos financiero estratégico para Discolmets. Al digitalizar y auditar semánticamente el 100% de los expedientes de dispensación antes de su radicación a las EPS, el sistema transforma un proceso reactivo, manual y propenso a errores, en una línea de defensa determinista, escalable y auditable.
 
-Al delegar la extracción documental a modelos fundacionales (Gemini 3.1 Pro Preview) y reservar la toma de decisiones regulatorias a un motor de reglas estricto y trazable, AudFact garantiza el cumplimiento de las normativas de salud colombianas (MIPRES/POS). El resultado es una mitigación directa del riesgo de glosas por inconsistencias documentales, un aumento exponencial en la capacidad operativa del equipo de auditoría (que ahora se enfoca exclusivamente en resolver excepciones complejas) y una mejora sustancial en el flujo de caja operativo de la compañía.
+Al delegar la extracción documental al modelo Gemini configurado por entorno y reservar la toma de decisiones regulatorias a un motor de reglas estricto y trazable, AudFact garantiza el cumplimiento de las normativas de salud colombianas (MIPRES/POS). El resultado es una mitigación directa del riesgo de glosas por inconsistencias documentales, un aumento exponencial en la capacidad operativa del equipo de auditoría (que ahora se enfoca exclusivamente en resolver excepciones complejas) y una mejora sustancial en el flujo de caja operativo de la compañía.
 
 ---
 
@@ -817,5 +806,4 @@ Para facilitar el entendimiento mutuo entre los equipos de desarrollo de softwar
 *   **Lazy Downloading (Descarga Diferida)**: Patrón de diseño arquitectónico que evita la descarga masiva y preventiva de adjuntos de archivos. Los documentos de soporte son transmitidos a memoria como streams únicamente cuando el worker de extracción inicia activamente el análisis con Gemini.
 *   **Extraction Cache**: Memoria caché read-through en Redis que asocia el hash SHA256 de un documento con su extracción JSON ya procesada por Gemini, evitando costos de API recurrentes ante reprocesamientos.
 *   **XAutoClaim**: Operación atómica de Redis Streams utilizada en AudFact para reclamar mensajes pendientes (`pending`) que un worker previo no procesó ni confirmó (`ACK`) a tiempo debido a una falla, garantizando tolerancia a fallas.
-*   **Thinking Budget (Presupuesto de Pensamiento)**: Configuración asignada a modelos avanzados de Gemini (ej. `gemini-3.1-pro-preview`) que otorga un cupo específico de tokens dedicados al razonamiento lógico secuencial interno antes de emitir la salida estructurada de datos.
-
+*   **Thinking Budget / Thinking Level**: Parámetros opcionales de `generationConfig` que pueden inyectarse por perfil (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) sobre el mismo modelo configurado en `GEMINI_MODEL`; no seleccionan una versión distinta del modelo por sí solos.

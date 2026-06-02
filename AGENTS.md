@@ -35,7 +35,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-sqlsrv-models` | SQL Server | Modelos, queries, BLOBs |
 | `audfact-mcp-wrap` | MCP | Webhook, herramientas, ApiClient |
 | `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
-| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, secrets SQL, deploy/rollback |
+| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
 | `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
 | `audfact-docs-sync` | Documentación | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills |
 | `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
@@ -155,13 +155,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - **Archivo de referencia**: `.env.example` — mantenerlo actualizado.
 - **Inmutabilidad**: El código en producción NO puede modificarse desde el host (Zero-Source).
 - Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
-- **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben ser host/IP limpio, sin instancia ni puerto embebido. Valores vigentes: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
+- **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben configurarse como GitHub Variables con host/IP limpio, sin instancia ni puerto embebido. Valores vigentes: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
 
 #### Guardrails de seguridad
 
 - **Rate limiting**: `Core\RateLimit` — APCu con fallback a archivos, 100 req/min general. Nginx restringe `/audit` a 2 req/seg.
 - **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`.
-- **Payload máximo**: `MAX_JSON_SIZE` (1 MB) y `MAX_FILE_SIZE_BYTES` (15 MB).
+- **Payload máximo**: `MAX_JSON_SIZE` (1 MB).
 - **Timeouts**: `AUDIT_NGINX_READ_TIMEOUT` (Nginx) y `AUDIT_FPM_TERMINATE_TIMEOUT` (PHP) sincronizados (default 3600s).
 - **Sanitización de logs**: `Core\Logger` redacta campos sensibles automáticamente. Controllers y Workers enmascaran `facNitSec` en logs (`***` + 3 últimos dígitos).
 - **TLS saliente**: `GoogleDriveAuthService` valida certificados HTTPS por defecto.
@@ -185,6 +185,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `WWWGROUP_ID` | `1000` | ❌ | GID de grupo host para builds/contenedores de desarrollo |
 | `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | ⚠️ Deploy/MCP | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
 | `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx` |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100` | ⚠️ Deploy/CORS | Origen público del frontend usado por el deploy para completar `ALLOWED_ORIGINS` |
 | `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
 | `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
 | `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |
@@ -198,6 +199,17 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDFACT_FRONTEND_IMAGE` | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.prod.yml` — imagen frontend Next.js publicada en GHCR |
 | `AUDFACT_IMAGE_TAG` | `latest` | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual |
 | `AUDFACT_FRONTEND_HOST_PORT` | `3100` | ⚠️ Producción | `docker-compose.prod.yml` — puerto LAN dedicado para el frontend AudFact |
+
+### Frontend público
+
+| Variable | Default | Requerida | Módulo / Uso |
+|---|---|---|---|
+| `NEXT_PUBLIC_APP_NAME` | `AudFact` | ❌ | `frontend/lib/api/config.ts` / navegación — nombre visible del producto |
+| `NEXT_PUBLIC_DEFAULT_THEME` | `dark` | ❌ | `frontend/lib/api/config.ts` — tema inicial |
+| `NEXT_PUBLIC_POLLING_JOBS_MS` | `5000` | ❌ | `frontend/lib/api/config.ts` — intervalo de polling de jobs |
+| `NEXT_PUBLIC_POLLING_HEALTH_MS` | `30000` | ❌ | `frontend/lib/api/config.ts` — intervalo de polling de health |
+| `NEXT_PUBLIC_LOCALE` | `es-CO` | ❌ | `frontend/lib/api/config.ts` / formatters — locale |
+| `NEXT_PUBLIC_TIMEZONE` | `America/Bogota` | ❌ | `frontend/lib/api/config.ts` / formatters — zona horaria |
 
 ### Base de datos (SQL Server)
 
@@ -298,7 +310,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
 | `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose.yml` — réplicas del worker `batch_requested` en runtime base local |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
@@ -882,9 +894,9 @@ docker exec -it audfact-php composer update vendor/package
 ### Contexto operativo CI/CD vigente
 
 - Producción LAN despliega por GitHub Actions con runner `self-hosted` label `audfact-prod-lan`, imágenes GHCR por SHA y `docker-compose.prod.yml`.
-- El workflow `.github/workflows/deploy-production.yml` regenera `/home/admon/audfact-prod/.env` en cada deploy desde GitHub Secrets.
+- El workflow `.github/workflows/deploy-production.yml` regenera `/home/admon/audfact-prod/.env` en cada deploy desde GitHub Secrets/Variables.
 - Incidente resuelto el 2026-05-13: `DB_HOST`/`DB2_HOST` llegaron como `169.46.6.53SQL2022` y `169.46.6.55SQL2022_REPLICA`, provocando `Login timeout expired`, `php` unhealthy y workers reiniciando.
-- Corrección permanente: GitHub Secrets `production` quedaron como `DB_HOST=169.46.6.53` y `DB2_HOST=169.46.6.55`.
+- Corrección permanente: GitHub Variables `production` quedaron como `DB_HOST=169.46.6.53` y `DB2_HOST=169.46.6.55`.
 - Guardrail actual: el workflow normaliza `host\instancia` a host base, rechaza hosts malformados, ejecuta preflight PDO/sqlsrv antes de recrear contenedores y falla temprano si SQL no conecta.
 - Última verificación conocida: workflow `Deploy Production - AudFact` run `25812026509` completó exitosamente con `Preflight SQL connectivity`, `Start production stack` y `Health check`.
 

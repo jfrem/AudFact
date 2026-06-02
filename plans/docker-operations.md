@@ -44,12 +44,37 @@ Variables de capacidad inicial:
 
 | Variable | Default | Servicio |
 |---|---:|---|
-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` en `docker-compose.yml` |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | escaneo de pending |
+
+## Higiene de `.env`
+
+`.env.example` es el contrato de configuración y `.env` debe conservar el mismo
+set de variables activas, con valores reales solo en `.env`. El template no debe
+contener API keys, contraseñas, tokens ni bloques PEM de claves privadas.
+
+Variables de runtime productivo que deben permanecer representadas en ambos
+archivos: imágenes GHCR (`AUDFACT_*_IMAGE`, `AUDFACT_IMAGE_TAG`), publicación
+frontend (`AUDFACT_FRONTEND_HOST_PORT`, `AUDFACT_FRONTEND_PUBLIC_URL`), pooling
+SQL (`DB_POOLING`, `DB2_POOLING`), configuración pública Next.js
+(`NEXT_PUBLIC_*`) y réplicas/recuperación de workers async.
+
+Para producción, sincronizar esos valores hacia GitHub Environment `production`
+con:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+No copiar `.env` directamente al host como flujo normal: el workflow de deploy
+regenera `/home/admon/audfact-prod/.env` desde GitHub Secrets/Variables. Para
+`--apply`, el `.env` fuente debe ser productivo: `APP_ENV=production`, URLs
+publicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`.
 
 Comandos de diagnóstico:
 
@@ -79,6 +104,14 @@ curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
 curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 
+Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch`
+exista y que Redis haya creado el consumer group de batches:
+
+```bash
+docker compose -f docker-compose.prod.yml ps worker-batch
+docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
+```
+
 El flujo automatizado vive en:
 
 - `.github/workflows/publish-images.yml`
@@ -90,6 +123,7 @@ El flujo automatizado vive en:
 - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
 - **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
 - **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. El directorio `responseIA/` solo se monta en desarrollo (`docker-compose.yml`).
+- **Gemini**: `GEMINI_API_KEY` debe estar vigente en GitHub Environment `production`; una key expirada provoca `400 API key expired` en `worker-extraction` y envía eventos a DLQ.
 - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
 - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells
 - **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.prod.yml`, `logs/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.

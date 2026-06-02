@@ -73,13 +73,20 @@ npm run dev
 | `APP_ENV` | Entorno (`development`, `production`) |
 | `AUDFACT_API_PUBLIC_URL` | URL pública del backend usada para URLs MCP/webhook generadas en deploy |
 | `INTERNAL_API_URL` | URL interna usada por el proxy Next.js `/api/backend`; en producción Docker usa `http://nginx` |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | Origen público del frontend usado por deploy/CORS |
+| `AUDFACT_PHP_IMAGE` / `AUDFACT_NGINX_IMAGE` / `AUDFACT_FRONTEND_IMAGE` | Imágenes GHCR usadas por `docker-compose.prod.yml` |
+| `AUDFACT_IMAGE_TAG` | Tag inmutable de imágenes GHCR para deploy/rollback |
 | `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN del host para publicar el frontend productivo (default: `3100`) |
+| `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_DEFAULT_THEME` | Configuración pública básica del frontend |
+| `NEXT_PUBLIC_POLLING_JOBS_MS` / `NEXT_PUBLIC_POLLING_HEALTH_MS` | Intervalos de polling del frontend |
+| `NEXT_PUBLIC_LOCALE` / `NEXT_PUBLIC_TIMEZONE` | Locale y zona horaria del frontend |
 | `DB_TYPE` | Tipo de BD (`sqlsrv`) |
 | `DB_HOST` / `DB2_HOST` | Host de SQL Server (escritura / lectura) |
 | `DB_PORT` / `DB2_PORT` | Puerto (default: `1433`) |
 | `DB_NAME` / `DB2_NAME` | Nombre de la base de datos |
 | `DB_USER` / `DB2_USER` | Usuario de BD |
 | `DB_PASS` / `DB2_PASS` | Contraseña de BD |
+| `DB_POOLING` / `DB2_POOLING` | Connection pooling PDO por conexión |
 | `DB_ENCRYPT` / `DB2_ENCRYPT` | Cifrado SQL Server (`no` temporal en este entorno) |
 | `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server (`yes` temporal) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
@@ -107,12 +114,12 @@ npm run dev
 - `APP_ENV=production`
 - Definir `ALLOWED_ORIGINS` con dominios explícitos (sin `*`).
 - Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo).
-- Definir `DB_PASS`, `DB2_PASS` y `GEMINI_API_KEY` reales por entorno.
+- Definir `DB_PASS`, `DB2_PASS` y `GEMINI_API_KEY` reales por entorno; si la API key de Gemini expira, los extractores fallan y las auditorías terminan en DLQ.
 - Definir `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` mientras la infraestructura SQL Server siga fallando con TLS.
 - Migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` cuando el servidor tenga certificado verificable.
 - Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en producción).
 - Publicar el frontend en un puerto propio, por defecto `AUDFACT_FRONTEND_HOST_PORT=3100`, y permitir ese origen en CORS.
-- Para despliegue por GitHub Actions, definir el environment `production`, el runner self-hosted `audfact-prod-lan` y los secrets requeridos por `.github/workflows/deploy-production.yml`.
+- Para despliegue por GitHub Actions, definir el environment `production`, el runner self-hosted `audfact-prod-lan` y los GitHub Secrets/Variables requeridos por `.github/workflows/deploy-production.yml`.
 
 ## API
 
@@ -195,6 +202,7 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 
 Características:
 - Cache de extracción por `document_hash` (idempotencia).
+- Modelo Gemini único por entorno: `GEMINI_MODEL` selecciona la versión usada por extracción y homologación; `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` solo ajustan parámetros de generación por perfil. `GeminiConfig` tiene un fallback local si falta `GEMINI_MODEL`, pero no existe cambio de modelo por etapa ni reintento a otra versión.
 - Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
@@ -225,7 +233,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
-`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR y no construye en el servidor; en el estado actual del archivo productivo no existe servicio `worker-batch`, por lo que el procesamiento batch de `/audit/async` requiere agregarlo o levantarlo por override antes de usarlo en producción.
+`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR, no construye en el servidor y levanta la misma topología funcional de workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance en producción.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
 En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.
@@ -243,6 +251,19 @@ El despliegue productivo está separado en cuatro workflows:
 - `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.prod.yml` y valida `/health`, `/api/backend/health` + `/clients`.
 
 El servidor no necesita IP pública ni SSH expuesto. El runner debe vivir dentro de la LAN y tener salida HTTPS a GitHub/GHCR.
+
+Para sincronizar la configuración local hacia el Environment `production` de
+GitHub, usar el script seguro:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+El script actualiza GitHub Secrets/Variables, no copia `.env` al servidor. El
+workflow de deploy regenera `/home/admon/audfact-prod/.env` desde GitHub en cada
+despliegue. Para `--apply`, el `.env` fuente debe ser productivo: `APP_ENV=production`,
+URLs públicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`.
 
 Rollback manual:
 

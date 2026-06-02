@@ -1,0 +1,244 @@
+diff --git a/.agent/skills/audfact-audit-gemini/SKILL.md b/.agent/skills/audfact-audit-gemini/SKILL.md
+index eef81a1..90438ac 100644
+--- a/.agent/skills/audfact-audit-gemini/SKILL.md
++++ b/.agent/skills/audfact-audit-gemini/SKILL.md
+@@ -58,7 +58,7 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
+ | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
+ | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
+ 
+-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
++El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` y `docker-compose.prod.yml` levantan los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
+ 
+ ### Controllers y endpoints
+ 
+diff --git a/.agent/skills/audfact-production-ops/references/runbooks.md b/.agent/skills/audfact-production-ops/references/runbooks.md
+index f219c7d..3a2b141 100644
+--- a/.agent/skills/audfact-production-ops/references/runbooks.md
++++ b/.agent/skills/audfact-production-ops/references/runbooks.md
+@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
+ Si falla:
+ 
+ ```powershell
+-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml logs --tail=120 nginx php worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator"
++powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml logs --tail=120 nginx php worker-batch worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator"
+ ```
+ 
+ ## Deploy Normal con GitHub Actions
+diff --git a/.agent/skills/audfact-runtime-docker/SKILL.md b/.agent/skills/audfact-runtime-docker/SKILL.md
+index 9c52960..d7e139a 100644
+--- a/.agent/skills/audfact-runtime-docker/SKILL.md
++++ b/.agent/skills/audfact-runtime-docker/SKILL.md
+@@ -16,7 +16,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
+ | Archivo | Rol |
+ |---|---|
+ | `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator` |
+-| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR y frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` |
++| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR, frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` y los 6 workers async |
+ | `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
+ | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
+ | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
+@@ -57,7 +57,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
+ | *N/A* | Código baked en imagen | No hay mount de código fuente |
+ 
+ ### Producción
+-`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción.
++`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
+ 
+ ## Variables .env obligatorias
+ 
+@@ -73,7 +73,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
+ | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
+ | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
+ | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
+-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` en `docker-compose.yml` |
++| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
+ | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
+ | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
+ | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
+diff --git a/AGENTS.md b/AGENTS.md
+index 88510d4..f21a955 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -298,7 +298,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
+ | `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
+ | `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
+ | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
+-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose.yml` — réplicas del worker `batch_requested` en runtime base local |
++| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
+ | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
+ | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
+ | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c55d18f..3194d27 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,12 @@
++## [2026-06-02]
++
++### fix
++- **Worker batch productivo para auditoría async**: `docker-compose.prod.yml` ahora levanta `worker-batch` con `php bin/audit-worker.php batch`, y el workflow de despliegue genera las variables de réplicas de workers e incluye `worker-batch` en diagnósticos.
++  - Archivos modificados: `docker-compose.prod.yml`, `.github/workflows/deploy-production.yml`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/deployment-github-actions-lan.md`, `plans/changelog.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/audfact-production-ops/references/runbooks.md`
++  - Hallazgo resuelto: PROD-BATCH-001.
++  - Impacto: `/audit/async` ya no queda en `pending` por falta de consumidor de `audit.batch.inbox` en producción.
++  - Nota operativa: renovar `GEMINI_API_KEY` en GitHub Environment `production` antes de validar extracciones; producción ya registró `400 API key expired` en `worker-extraction`.
++
+ ## [2026-06-01]
+ 
+ ### docs
+diff --git a/README.md b/README.md
+index 507a493..bbd8055 100644
+--- a/README.md
++++ b/README.md
+@@ -107,7 +107,7 @@ npm run dev
+ - `APP_ENV=production`
+ - Definir `ALLOWED_ORIGINS` con dominios explícitos (sin `*`).
+ - Definir `MCP_WEBHOOK_SECRET` robusto (aleatorio y largo).
+-- Definir `DB_PASS`, `DB2_PASS` y `GEMINI_API_KEY` reales por entorno.
++- Definir `DB_PASS`, `DB2_PASS` y `GEMINI_API_KEY` reales por entorno; si la API key de Gemini expira, los extractores fallan y las auditorías terminan en DLQ.
+ - Definir `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` mientras la infraestructura SQL Server siga fallando con TLS.
+ - Migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` cuando el servidor tenga certificado verificable.
+ - Ajustar `LOG_LEVEL` (normalmente `warning` o `error` en producción).
+@@ -225,7 +225,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
+ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
+ ```
+ 
+-`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR y no construye en el servidor; en el estado actual del archivo productivo no existe servicio `worker-batch`, por lo que el procesamiento batch de `/audit/async` requiere agregarlo o levantarlo por override antes de usarlo en producción.
++`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR, no construye en el servidor y levanta la misma topología funcional de workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance en producción.
+ El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
+ El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
+ En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.
+diff --git a/plans/architecture.md b/plans/architecture.md
+index 9c68c43..fa58a41 100644
+--- a/plans/architecture.md
++++ b/plans/architecture.md
+@@ -110,7 +110,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
+ | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
+ 
+ **Dependencias**: Todo el stack de IA, base de datos y Redis.
+-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
++**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml` y `docker-compose.prod.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+ 
+ 
+ ---
+@@ -135,7 +135,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
+ | Modo | Compose | Descripción |
+ |---|---|---|
+ | Base local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`. |
+-| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y workers. En el estado actual del archivo no existe servicio `worker-batch`; si se requiere procesar `/audit/async` en producción, debe agregarse o escalarse por override. |
++| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y los 6 workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`). |
+ 
+ ---
+ 
+diff --git a/plans/changelog.md b/plans/changelog.md
+index 583d767..4495fef 100644
+--- a/plans/changelog.md
++++ b/plans/changelog.md
+@@ -1,5 +1,20 @@
+ # Changelog AudFact
+ 
++## [2026-06-02] - Fix: Worker Batch Productivo para Auditoría Async
++
++### 🟢 Runtime / Producción LAN / Async Jobs
++- **Corrección estructural de topología productiva**:
++  - Agregado `worker-batch` a `docker-compose.prod.yml` usando la misma imagen PHP GHCR y el launcher canónico `php bin/audit-worker.php batch`.
++  - El workflow `.github/workflows/deploy-production.yml` ahora escribe las réplicas de workers en `.env` y agrega `worker-batch` a los logs de diagnóstico de health check.
++  - Producción y runtime base quedan alineados: ambos levantan los 6 servicios del pipeline (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`).
++
++- **Contexto operativo resuelto**:
++  - Hallazgo PROD-BATCH-001: `/audit/async` publicaba `batch_requested` en `audit.batch.inbox`, pero producción no tenía consumer `batch-workers`, dejando jobs en `pending`, `sealed=false`, `total=0`.
++  - Hallazgo PROD-GEMINI-001: se documenta que `GEMINI_API_KEY` expirada provoca errores `400 API key expired` en `worker-extraction`; debe renovarse en GitHub Environment `production` antes de validar extracción real.
++
++- **Documentación y skills**:
++  - Sincronizados `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/deployment-github-actions-lan.md` y skills operativas para reflejar la topología productiva corregida.
++
+ ## [2026-06-01] - Docs: Sincronización documental con código actual
+ 
+ ### 📚 Documentation / API / Pipeline / Skills
+diff --git a/plans/deployment-github-actions-lan.md b/plans/deployment-github-actions-lan.md
+index aa95f7b..d2df13e 100644
+--- a/plans/deployment-github-actions-lan.md
++++ b/plans/deployment-github-actions-lan.md
+@@ -103,6 +103,7 @@ push main
+   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
+   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/backend/health
+   -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
++  -> verificar worker-batch activo para procesar audit.batch.inbox
+ ```
+ 
+ ## Rollback
+@@ -132,6 +133,8 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
+ - No dejar `responseIA/` dentro del contexto de build Docker.
+ - No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
+ - El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.
++- `docker-compose.prod.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
++- Renovar `GEMINI_API_KEY` en el GitHub Environment `production` antes de validar extracciones; una key expirada provoca errores `400 API key expired` en `worker-extraction`.
+ 
+ ## Incidente CI/CD 2026-05-13: hosts SQL malformados
+ 
+diff --git a/plans/docker-operations.md b/plans/docker-operations.md
+index dda490e..c582460 100644
+--- a/plans/docker-operations.md
++++ b/plans/docker-operations.md
+@@ -44,7 +44,7 @@ Variables de capacidad inicial:
+ 
+ | Variable | Default | Servicio |
+ |---|---:|---|
+-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` en `docker-compose.yml` |
++| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` |
+ | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
+ | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
+ | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
+@@ -79,6 +79,14 @@ curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
+ curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
+ ```
+ 
++Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch`
++exista y que Redis haya creado el consumer group de batches:
++
++```bash
++docker compose -f docker-compose.prod.yml ps worker-batch
++docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
++```
++
+ El flujo automatizado vive en:
+ 
+ - `.github/workflows/publish-images.yml`
+@@ -90,6 +98,7 @@ El flujo automatizado vive en:
+ - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
+ - **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
+ - **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. El directorio `responseIA/` solo se monta en desarrollo (`docker-compose.yml`).
++- **Gemini**: `GEMINI_API_KEY` debe estar vigente en GitHub Environment `production`; una key expirada provoca `400 API key expired` en `worker-extraction` y envía eventos a DLQ.
+ - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
+ - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells
+ - **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.prod.yml`, `logs/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.
+diff --git a/plans/high-availability.md b/plans/high-availability.md
+index eb381f2..10b8001 100644
+--- a/plans/high-availability.md
++++ b/plans/high-availability.md
+@@ -23,7 +23,7 @@ graph TB
+     end
+ 
+     subgraph Workers["Workers CLI PHP"]
+-        Batch["worker-batch<br/>2 replicas en docker-compose.yml"]
++        Batch["worker-batch<br/>2 replicas"]
+         Orchestrator["worker-orchestrator<br/>3 replicas"]
+         Extraction["worker-extraction<br/>8 replicas"]
+         Normalizer["worker-normalizer<br/>1 replica"]
+@@ -61,7 +61,7 @@ graph TB
+ | Archivo | Uso actual | Observacion |
+ |---|---|---|
+ | `docker-compose.yml` | Build local/base | Incluye `php`, `redis`, `nginx` y los 6 servicios de worker, incluido `worker-batch`. |
+-| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR y publica el frontend; en el estado actual no define `worker-batch`. |
++| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR, publica el frontend y levanta los 6 servicios de worker. |
+ 
+ ### PHP-FPM
+ 
+@@ -89,7 +89,7 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
+ 
+ | Servicio | Worker | Default |
+ |---|---|---:|
+-| `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` en `docker-compose.yml` |
++| `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` |
+ | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
+ | `worker-extraction` | `DocumentExtractionWorker` | `8` |
+ | `worker-normalizer` | `DocumentNormalizer` | `1` |

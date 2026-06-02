@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
 Si falla:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml logs --tail=120 nginx php worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml logs --tail=120 nginx php worker-batch worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator"
 ```
 
 ## Deploy Normal con GitHub Actions
@@ -98,11 +98,21 @@ runs-on: [self-hosted, audfact-prod-lan]
 environment: production
 ```
 
+Sincronizar GitHub Environment desde un `.env` productivo local:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+El script escribe GitHub Secrets/Variables, no copia `.env` al host. El workflow
+regenera `/home/admon/audfact-prod/.env` durante el deploy.
+
 Checklist antes de disparar deploy:
 
 - El runner esta `active`.
-- GitHub Environment `production` tiene secrets requeridos.
-- Secrets SQL de produccion usan host/IP limpio:
+- GitHub Environment `production` tiene Secrets/Variables requeridos.
+- Variables SQL de produccion usan host/IP limpio:
   - `DB_HOST=169.46.6.53`
   - `DB2_HOST=169.46.6.55`
   - `DB_PORT=1433`

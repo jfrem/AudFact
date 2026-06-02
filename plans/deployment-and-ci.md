@@ -21,28 +21,25 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 
 | Secret | Requerido | Descripción |
 |---|---|---|
-| `APP_ENV` | ✅ | Entorno (`production`) |
+| `DB_USER` | ✅ | Usuario BD escritura |
+| `DB_PASS` | ✅ | Contraseña BD escritura |
+| `DB2_USER` | ✅ | Usuario BD lectura |
+| `DB2_PASS` | ✅ | Contraseña BD lectura |
+| `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
+| `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
+| `MCP_WEBHOOK_SECRET` | — | Secret del webhook MCP |
+| `REDIS_PASSWORD` | — | Password Redis si se habilita autenticación |
+
+### GitHub Variables requeridas
+
+| Variable | Requerido | Descripción |
+|---|---|---|
 | `DB_HOST` | ✅ | Host SQL Server escritura sin instancia ni puerto embebido (ej: `169.46.6.53`) |
 | `DB_PORT` | ✅ | Puerto SQL Server (`1433`) |
 | `DB_NAME` | ✅ | Nombre de base de datos |
-| `DB_USER` | ✅ | Usuario BD escritura |
-| `DB_PASS` | ✅ | Contraseña BD escritura |
-| `DB_ENCRYPT` | ✅ en prod | Cifrado conexión principal (`no` temporal en este entorno; objetivo futuro: `yes`) |
-| `DB_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión principal (`yes` temporal sin certificado válido; objetivo futuro: `no`) |
 | `DB2_HOST` | ✅ | Host SQL Server lectura sin instancia ni puerto embebido (ej: `169.46.6.55`) |
 | `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
 | `DB2_NAME` | ✅ | Nombre de BD lectura |
-| `DB2_USER` | ✅ | Usuario BD lectura |
-| `DB2_PASS` | ✅ | Contraseña BD lectura |
-| `DB2_ENCRYPT` | ✅ en prod | Cifrado conexión lectura (`no` temporal en este entorno; objetivo futuro: `yes`) |
-| `DB2_TRUST_SERVER_CERT` | ✅ en prod | Trust cert conexión lectura (`yes` temporal sin certificado válido; objetivo futuro: `no`) |
-| `GOOGLE_DRIVE_CLIENT_EMAIL` | — | Email de service account de Google Drive |
-| `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
-| `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
-| `ALLOWED_ORIGINS` | — | Orígenes CORS permitidos |
-| `MCP_WEBHOOK_SECRET` | — | Secret del webhook MCP |
-| `LOG_LEVEL` | — | Nivel de log (`info`, default: `info`) |
-| `AUDIT_NGINX_READ_TIMEOUT` | — | Timeout lectura Nginx (default: `3600`) |
 
 ### GitHub Variables opcionales
 
@@ -52,6 +49,21 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 | `AUDFACT_FRONTEND_PUBLIC_URL` | — | Origen público del frontend para CORS |
 | `AUDFACT_API_PUBLIC_URL` | — | URL pública del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL` |
 
+El `.env` generado por el workflow mantiene el mismo set base de variables
+activas documentadas en `.env.example`. Los valores sensibles se obtienen desde
+GitHub Secrets y los no sensibles desde GitHub Variables.
+
+Para cargar el Environment `production` desde un archivo `.env` productivo:
+
+```bash
+bash scripts/sync-github-production-env.sh --dry-run
+bash scripts/sync-github-production-env.sh --apply
+```
+
+El script nunca copia `.env` al host productivo. El runner crea el `.env`
+actualizado durante cada deploy. Para `--apply`, el `.env` fuente debe ser
+productivo: `APP_ENV=production`, URLs públicas sin `localhost`, e internos
+Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.
 
 ### Qué hace el deploy
 
@@ -59,7 +71,7 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 2. **CI Frontend (GitHub-hosted)**: `npm ci`, `npm run lint`, `npm run build`
 3. **Publish Images (GitHub-hosted)**: construye y publica imagenes inmutables en GHCR por SHA.
 4. **CD (self-hosted runner)**: checkout de archivos de despliegue (`clean: true`).
-5. Genera `.env` dinámicamente desde GitHub Secrets con hosts SQL normalizados a host/IP limpio.
+5. Genera `.env` dinámicamente desde GitHub Secrets/Variables con hosts SQL normalizados a host/IP limpio.
 6. Ejecuta preflight SQL con la imagen PHP publicada antes de recrear el stack.
 7. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
 8. `docker compose pull` → `docker compose up -d --remove-orphans`
@@ -95,7 +107,7 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
    - Acción: corregir secrets y relanzar `Deploy Production - AudFact`; no parchear el `.env` del host como solución permanente.
 
 7. **`/health` unhealthy con `Login timeout expired`**
-   - Causa probable: conectividad SQL rota desde PHP-FPM o secrets SQL mal escritos.
+   - Causa probable: conectividad SQL rota desde PHP-FPM o GitHub Secrets/Variables SQL mal escritos.
    - Evidencia esperada: `php` unhealthy, workers reiniciando y logs con `SQLSTATE[HYT00]`.
    - Diagnóstico: probar `/health`, `docker compose ps`, logs de `php`/workers y preflight PDO/sqlsrv desde la imagen PHP.
    - Prevención: el workflow actual ejecuta `Preflight SQL connectivity` antes de recrear el stack.
@@ -150,9 +162,9 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 
 - [ ] Código funciona en entorno local Docker
 - [ ] Health check (`/health`) responde correctamente
-- [ ] GitHub Secrets de producción configurados (ver tabla arriba)
+- [ ] GitHub Secrets/Variables de producción configurados (ver tablas arriba)
 - [ ] `DB_HOST` y `DB2_HOST` configurados como host/IP limpio, sin instancia ni puerto embebido
-- [ ] `APP_ENV=production` en Secrets
+- [ ] `APP_ENV=production` en Variables o forzado por el workflow de producción
 - [ ] `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no`, `DB2_TRUST_SERVER_CERT=yes`
 - [ ] Existe plan para migrar a `DB_ENCRYPT=yes`, `DB2_ENCRYPT=yes`, `DB_TRUST_SERVER_CERT=no` y `DB2_TRUST_SERVER_CERT=no` al disponer de certificado válido
 - [ ] Tests unitarios pasan (CI automático)
@@ -192,7 +204,7 @@ DB_HOST=169.46.6.53SQL2022
 DB2_HOST=169.46.6.55SQL2022_REPLICA
 ```
 
-La causa fue el formato de los GitHub Secrets y el manejo del heredoc al escribir `.env`. La correccion permanente fue:
+La causa fue el formato de los valores SQL en GitHub Environment y el manejo del heredoc al escribir `.env`. La correccion permanente fue:
 
 ```text
 DB_HOST=169.46.6.53

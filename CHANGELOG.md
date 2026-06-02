@@ -1,3 +1,26 @@
+## [2026-06-02]
+
+### fix
+- **Worker batch productivo para auditoría async**: `docker-compose.prod.yml` ahora levanta `worker-batch` con `php bin/audit-worker.php batch`, y el workflow de despliegue genera las variables de réplicas de workers e incluye `worker-batch` en diagnósticos.
+  - Archivos modificados: `docker-compose.prod.yml`, `.github/workflows/deploy-production.yml`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/deployment-github-actions-lan.md`, `plans/changelog.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `.agent/skills/audfact-production-ops/references/runbooks.md`
+  - Hallazgo resuelto: PROD-BATCH-001.
+  - Impacto: `/audit/async` ya no queda en `pending` por falta de consumidor de `audit.batch.inbox` en producción.
+  - Nota operativa: renovar `GEMINI_API_KEY` en GitHub Environment `production` antes de validar extracciones; producción ya registró `400 API key expired` en `worker-extraction`.
+- **Alineación de `.env` y `.env.example`**: `.env.example` queda como contrato limpio de 92 variables activas sin secretos ni private key de ejemplo, y `.env` fue reestructurado con el mismo set de claves preservando valores locales reales.
+  - Archivos modificados: `.env`, `.env.example`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/docker-operations.md`, `plans/deployment-and-ci.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`
+  - Hallazgo resuelto: ENV-DRIFT-001, ENV-HYGIENE-001, ENV-SECRET-TEMPLATE-001.
+  - Impacto: configuración local, template y deploy quedan alineados para workers async, GHCR, frontend público, DB2 pooling y `NEXT_PUBLIC_*`.
+- **Sincronización de Environment GitHub production**: nuevo script Bash para subir `.env` productivo a GitHub Secrets/Variables y workflow de deploy ajustado para generar `.env` completo desde ese Environment.
+  - Archivos modificados: `scripts/sync-github-production-env.sh`, `.github/workflows/deploy-production.yml`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/deployment-and-ci.md`, `plans/deployment-github-actions-lan.md`, `plans/docker-operations.md`, `.agent/skills/CATALOG.md`, `.agent/skills/catalog.json`, `.agent/skills/audfact-runtime-docker/SKILL.md`, `.agent/skills/audfact-production-ops/SKILL.md`, `.agent/skills/audfact-production-ops/references/runbooks.md`
+  - Hallazgo resuelto: PROD-SECRETS-001.
+  - Impacto: producción recibe `.env` actualizado en cada deploy sin copiar secretos directamente al host.
+
+### docs
+- **Alineación del modelo Gemini real del pipeline**: se verificó que el gateway usa un único selector de modelo (`GEMINI_MODEL`) para extracción y homologación; los prefijos `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` solo ajustan parámetros de generación.
+  - Archivos modificados: `README.md`, `plans/architecture-executive-report.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `CHANGELOG.md`, `plans/changelog.md`
+  - Hallazgo resuelto: drift documental que describía un fallback o redirección inexistente a `gemini-3.1-pro-preview`.
+  - Impacto: documentación y skill del pipeline ya no inducen a buscar múltiples versiones Gemini cuando el runtime usa un único modelo configurado por entorno.
+
 ## [2026-06-01]
 
 ### docs

@@ -1,5 +1,62 @@
 # Changelog AudFact
 
+## [2026-06-02] - Docs: Alineación del Modelo Gemini Real del Pipeline
+
+### 📚 Documentation / IA Pipeline / Gemini
+- **Verificación de uso real de modelos**:
+  - Confirmado en `GeminiGateway` que todas las llamadas usan `GeminiConfig::model` en una única URL `models/{GEMINI_MODEL}:generateContent`.
+  - Confirmado que `DocumentExtractionWorker` y `ArticleSemanticMatchJudge` usan perfiles de generación (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) sin cambiar de modelo.
+  - Corregido el reporte ejecutivo para eliminar afirmaciones de fallback o redirección a `gemini-3.1-pro-preview`, que no existen en el runtime actual.
+
+- **Documentación y skills**:
+  - Sincronizados `README.md`, `plans/architecture-executive-report.md`, `CHANGELOG.md` y `audfact-audit-gemini`.
+
+## [2026-06-02] - Fix: Worker Batch Productivo para Auditoría Async
+
+### 🟢 Runtime / Producción LAN / Async Jobs
+- **Corrección estructural de topología productiva**:
+  - Agregado `worker-batch` a `docker-compose.prod.yml` usando la misma imagen PHP GHCR y el launcher canónico `php bin/audit-worker.php batch`.
+  - El workflow `.github/workflows/deploy-production.yml` ahora escribe las réplicas de workers en `.env` y agrega `worker-batch` a los logs de diagnóstico de health check.
+  - Producción y runtime base quedan alineados: ambos levantan los 6 servicios del pipeline (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`).
+
+- **Contexto operativo resuelto**:
+  - Hallazgo PROD-BATCH-001: `/audit/async` publicaba `batch_requested` en `audit.batch.inbox`, pero producción no tenía consumer `batch-workers`, dejando jobs en `pending`, `sealed=false`, `total=0`.
+  - Hallazgo PROD-GEMINI-001: se documenta que `GEMINI_API_KEY` expirada provoca errores `400 API key expired` en `worker-extraction`; debe renovarse en GitHub Environment `production` antes de validar extracción real.
+
+- **Documentación y skills**:
+  - Sincronizados `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/deployment-github-actions-lan.md` y skills operativas para reflejar la topología productiva corregida.
+
+## [2026-06-02] - Fix: Alineación de Variables `.env`
+
+### 🟢 Configuración / Seguridad / Runtime
+- **Contrato único de configuración**:
+  - `.env.example` queda alineado con `.env` en 92 variables activas, sin duplicados y sin valores con forma de secreto.
+  - `.env` fue reestructurado desde `.env.example` preservando valores reales existentes y agregando defaults seguros para variables faltantes.
+  - Se integraron variables de imágenes GHCR, publicación frontend, configuración pública Next.js, `DB2_POOLING`, réplicas async, TTL de idempotencia y recuperación de eventos `pending`.
+
+- **Higiene de secretos**:
+  - Eliminada una referencia comentada con forma de API key en `.env`.
+  - Eliminado el bloque PEM de ejemplo en `GOOGLE_DRIVE_PRIVATE_KEY` de `.env.example`.
+
+- **Documentación y skills**:
+  - Sincronizados `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/docker-operations.md`, `plans/deployment-and-ci.md` y `audfact-runtime-docker` para reflejar el contrato actualizado.
+
+## [2026-06-02] - Fix: Sincronización GitHub Environment Production
+
+### 🟢 CI/CD / Seguridad / Producción LAN
+- **Script estructural para Secrets/Variables**:
+  - Creado `scripts/sync-github-production-env.sh` para sincronizar un `.env` productivo local hacia GitHub Environment `production` usando `gh secret set` y `gh variable set`.
+  - El script valida que `.env` y `.env.example` tengan el mismo set de claves activas, detecta duplicados, no usa `source`, aborta con `bash -x`, y no imprime valores.
+  - Se reemplaza el enfoque de copiar `.env` al host por una fuente persistente en GitHub; el runner regenera `/home/admon/audfact-prod/.env` en cada deploy.
+
+- **Workflow productivo alineado**:
+  - `.github/workflows/deploy-production.yml` ahora separa secretos reales (`DB_PASS`, `GEMINI_API_KEY`, `MCP_WEBHOOK_SECRET`, etc.) de variables no sensibles (`DB_HOST`, `DB_PORT`, `AUDFACT_*`, `NEXT_PUBLIC_*`, `AUDIT_*`).
+  - El `.env` productivo generado conserva el contrato completo de 92 variables y elimina `GEMINI_RESPONSE_MIME`, que no pertenece a `.env.example`.
+  - Se agregan variables faltantes al archivo generado: `DB2_POOLING`, `AUDIT_IDEMPOTENCY_KEY_TTL`, `AUDIT_PENDING_RECLAIM_*` y `NEXT_PUBLIC_*`.
+
+- **Documentación y skills**:
+  - Sincronizados `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/deployment-and-ci.md`, `plans/deployment-github-actions-lan.md`, `plans/docker-operations.md`, `CATALOG.md`, `catalog.json`, `audfact-runtime-docker` y `audfact-production-ops`.
+
 ## [2026-06-01] - Docs: Sincronización documental con código actual
 
 ### 📚 Documentation / API / Pipeline / Skills
