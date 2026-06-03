@@ -82,45 +82,29 @@ final class FieldValueResolver
     /**
      * @param  array<string,mixed> $sourceTruth
      */
-    public static function resolveSourceTruthValue(
+    public static function resolveSourceTruthField(
         string $field,
         AuditFieldValueType $valueType,
         array $sourceTruth
-    ): ?string {
+    ): ResolvedAuditValue {
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
 
         $headerValue = self::extractRowValue($header, $field);
         if ($headerValue !== null) {
-            return $headerValue;
+            return self::singleValue(ResolvedAuditValue::SOURCE_FDV, $valueType, $headerValue);
         }
 
         if ($items === []) {
-            return null;
+            return self::emptyValue(ResolvedAuditValue::SOURCE_FDV);
         }
 
         $itemValues = self::extractItemValues($items, $field);
-
-        if ($valueType->isQuantitySummable()) {
-            $total = AuditFindingRules::sumNumericValues($itemValues);
-            return $total !== null ? AuditFindingRules::formatNumber($total) : null;
-        }
-
         if ($itemValues === []) {
-            return null;
+            return self::emptyValue(ResolvedAuditValue::SOURCE_FDV);
         }
 
-        $unique = array_values(array_unique($itemValues));
-        sort($unique);
-        if (count($unique) === 1) {
-            return $unique[0];
-        }
-
-        if ($valueType->requiresTraceSetComparison()) {
-            return implode(', ', $unique);
-        }
-
-        return null;
+        return self::resolveItemValues(ResolvedAuditValue::SOURCE_FDV, $valueType, $itemValues);
     }
 
     /**
@@ -128,38 +112,35 @@ final class FieldValueResolver
      *
      * @param  array<string,mixed> $fields
      * @param  array<int,array<string,mixed>> $items
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
      */
     public static function resolveDocumentValue(
         string $field,
         AuditFieldValueType $valueType,
         array $fields,
         array $items
-    ): array {
+    ): ResolvedAuditValue {
         [$itemValues, $evidenceMeta] = self::extractPresentItemValues($field, $items);
 
         if ($itemValues !== []) {
-            return self::resolveItemDocumentValue($valueType, $itemValues, $evidenceMeta);
+            return self::resolveItemValues(ResolvedAuditValue::SOURCE_DOCUMENT, $valueType, $itemValues, $evidenceMeta);
         }
 
-        return self::resolveHeaderDocumentValue($field, $fields, $evidenceMeta);
+        return self::resolveHeaderDocumentValue($field, $valueType, $fields, $evidenceMeta);
     }
 
     /**
-     * @param  array<int,string> $docValues
      * @return array<int,string>|null
      */
-    public static function resolveFindingDocumentValues(
+    public static function resolveFindingValues(
         AuditFieldValueType $valueType,
-        ?string $docValue,
-        array $docValues
+        ResolvedAuditValue $resolvedValue
     ): ?array {
-        if ($valueType === AuditFieldValueType::CODE && $docValue !== null) {
-            return AuditFindingRules::tokenizeCodeField($docValue);
+        if ($valueType === AuditFieldValueType::CODE && $resolvedValue->displayValue !== null) {
+            return AuditFindingRules::tokenizeCodeField($resolvedValue->displayValue);
         }
 
-        if ($valueType === AuditFieldValueType::TRACE_TOKEN && $docValues !== []) {
-            return $docValues;
+        if ($valueType === AuditFieldValueType::TRACE_TOKEN && $resolvedValue->values !== []) {
+            return $resolvedValue->values;
         }
 
         return null;
@@ -224,18 +205,18 @@ final class FieldValueResolver
     /**
      * @param  array<int,string> $itemValues
      * @param  array<string,mixed> $evidenceMeta
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
      */
-    private static function resolveItemDocumentValue(
+    private static function resolveItemValues(
+        string $source,
         AuditFieldValueType $valueType,
         array $itemValues,
-        array $evidenceMeta
-    ): array {
+        array $evidenceMeta = []
+    ): ResolvedAuditValue {
         if ($valueType->isQuantitySummable()) {
             $total = AuditFindingRules::sumNumericValues($itemValues);
             if ($total !== null) {
                 $formatted = AuditFindingRules::formatNumber($total);
-                return ['displayValue' => $formatted, 'values' => [$formatted], 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
+                return self::resolvedValue($source, $valueType, $formatted, [$formatted], false, $evidenceMeta);
             }
         }
 
@@ -243,37 +224,109 @@ final class FieldValueResolver
         sort($unique);
 
         if (count($unique) === 1) {
-            return ['displayValue' => $unique[0], 'values' => $unique, 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
+            return self::resolvedValue($source, $valueType, $unique[0], $unique, false, $evidenceMeta);
         }
 
-        return [
-            'displayValue'  => implode(', ', $unique),
-            'values'        => $unique,
-            'ambiguous'     => !$valueType->requiresTraceSetComparison(),
-            'evidenceMeta'  => $evidenceMeta,
-        ];
+        return self::resolvedValue(
+            $source,
+            $valueType,
+            implode(', ', $unique),
+            $unique,
+            !$valueType->requiresTraceSetComparison(),
+            $evidenceMeta
+        );
     }
 
     /**
      * @param  array<string,mixed> $fields
      * @param  array<string,mixed> $evidenceMeta
-     * @return array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>}
      */
-    private static function resolveHeaderDocumentValue(string $field, array $fields, array $evidenceMeta): array
+    private static function resolveHeaderDocumentValue(
+        string $field,
+        AuditFieldValueType $valueType,
+        array $fields,
+        array $evidenceMeta
+    ): ResolvedAuditValue
     {
         if (array_key_exists($field, $fields)) {
             $cell = $fields[$field];
             if ($cell instanceof ExtractedEvidence && AuditFindingRules::isPresent($cell->valor)) {
                 $displayValue = AuditFindingRules::scalarToString($cell->valor);
-                return [
-                    'displayValue' => $displayValue,
-                    'values' => [$displayValue],
-                    'ambiguous' => false,
-                    'evidenceMeta' => $cell->extractMeta(),
-                ];
+                return self::singleValue(
+                    ResolvedAuditValue::SOURCE_DOCUMENT,
+                    $valueType,
+                    $displayValue,
+                    $cell->extractMeta()
+                );
             }
         }
 
-        return ['displayValue' => null, 'values' => [], 'ambiguous' => false, 'evidenceMeta' => $evidenceMeta];
+        return self::emptyValue(ResolvedAuditValue::SOURCE_DOCUMENT, $evidenceMeta);
+    }
+
+    /**
+     * @param  array<string,mixed> $evidenceMeta
+     */
+    private static function singleValue(
+        string $source,
+        AuditFieldValueType $valueType,
+        string $value,
+        array $evidenceMeta = []
+    ): ResolvedAuditValue {
+        return self::resolvedValue($source, $valueType, $value, [$value], false, $evidenceMeta);
+    }
+
+    /**
+     * @param  array<int,string> $values
+     * @param  array<string,mixed> $evidenceMeta
+     */
+    private static function resolvedValue(
+        string $source,
+        AuditFieldValueType $valueType,
+        ?string $displayValue,
+        array $values,
+        bool $ambiguous,
+        array $evidenceMeta = []
+    ): ResolvedAuditValue {
+        return new ResolvedAuditValue(
+            source: $source,
+            displayValue: $displayValue,
+            values: array_values($values),
+            normalizedValues: self::normalizeValues($valueType, $values),
+            ambiguous: $ambiguous,
+            evidenceMeta: $evidenceMeta
+        );
+    }
+
+    /**
+     * @param  array<string,mixed> $evidenceMeta
+     */
+    private static function emptyValue(string $source, array $evidenceMeta = []): ResolvedAuditValue
+    {
+        return new ResolvedAuditValue(
+            source: $source,
+            displayValue: null,
+            values: [],
+            normalizedValues: [],
+            ambiguous: false,
+            evidenceMeta: $evidenceMeta
+        );
+    }
+
+    /**
+     * @param  array<int,string> $values
+     * @return array<int,string>
+     */
+    private static function normalizeValues(AuditFieldValueType $valueType, array $values): array
+    {
+        $normalized = [];
+        foreach ($values as $value) {
+            $normalized[] = AuditFindingRules::normalizeForComparison($valueType, $value);
+        }
+
+        $normalized = array_values(array_unique($normalized));
+        sort($normalized);
+
+        return $normalized;
     }
 }

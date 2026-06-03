@@ -1,5 +1,73 @@
 # Changelog AudFact
 
+## [2026-06-02] - Fix: Resolucion Multi-Item con Contrato de Valores
+
+### IA Pipeline / Clean Rebuild / Audit Results
+- **Contrato comun FDV/documento**:
+  - Agregado `ResolvedAuditValue` para comparar fuente de verdad y evidencia documental con el mismo shape (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`).
+  - `FieldValueResolver` ahora resuelve cantidades agregadas, sets `TRACE_TOKEN` y ambiguedad tanto para FDV como para documento.
+
+- **Correccion de reglas multi-item**:
+  - `DocumentPolicyEngine` compara `Lote` como set completo y cantidades `TipoCampo=B` como sumatoria de items.
+  - Caso real `D13260500540` queda cubierto: `Lote={5D03364,5G00989}`, `CantidadEntregada=7`, `CantidadPrescrita=30` deben evaluar `COINCIDE`.
+  - Hallazgos `CODE`/`TRACE_TOKEN` pueden persistir `valoresFuenteVerdad` y `valoresDocumento`.
+
+- **Resultados persistidos**:
+  - `AuditStatusModel` deriva `auditExecuted` desde estados terminales con payload persistido, evitando mostrar como no ejecutadas auditorias en `manual_review` ya evaluadas.
+
+- **Documentacion y skills**:
+  - Sincronizados `plans/features/audit-workflow.md`, `audfact-audit-gemini` y `audfact-sqlsrv-models`.
+
+## [2026-06-02] - Refactor: Clean Code sobre Contrato Gemini Dinamico v2
+
+### IA Pipeline / Clean Rebuild / Maintainability
+- **Builder de contrato**:
+  - `DocumentExtractionContractBuilder` separa la seleccion de function declarations dinamicas y normaliza checks visuales activos antes de construir el schema.
+  - Se mantiene intacto el contrato generado para payloads validos y el `contract_hash` sigue incluyendo declarations + required names.
+
+- **Worker de extraccion**:
+  - `DocumentExtractionWorker` centraliza la lectura de function calls opcionales/requeridos y usa un helper explicito para saber si una funcion esta declarada.
+  - El prompt de checks visuales queda alineado al contrato efectivo, sin reintroducir valores FDV ni funciones omitidas.
+
+- **Tests**:
+  - Pruebas del extractor y orquestador compactan asserts repetidos sobre `required_function_names` / `allowedFunctionNames`.
+  - Se conserva la cobertura de contrato dinamico, defaults canonicos y ausencia de `target_context_hash`.
+
+## [2026-06-02] - Refactor: Contrato Gemini Dinamico Compacto v2
+
+### IA Pipeline / Clean Rebuild / Cost Optimization
+- **Function declarations dinamicas**:
+  - `DocumentExtractionContractBuilder` ahora declara `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando el documento tiene campos/checks activos para esas funciones.
+  - `assess_document_quality` se mantiene siempre para trazabilidad de legibilidad.
+  - `DocumentExtractionWorker` valida solo las funciones requeridas y rellena defaults canonicos (`fields={}`, `items=[]`, `visual_checks=[]`) para funciones omitidas.
+
+- **Schema de evidencia mas compacto**:
+  - Se conserva el shape v1 `{valor, valores, presente, estadoExtraccion}`.
+  - Se eliminaron descripciones repetitivas del schema para campos genericos y se conservaron instrucciones criticas de identidad.
+  - El cambio invalida cache por `contract_hash` / `prompt_context_hash`, evitando mezclar extracciones del contrato anterior.
+
+- **Documentacion y skills**:
+  - Sincronizados `plans/changelog.md`, `plans/domain-glossary.md`, `plans/features/audit-workflow.md`, `plans/architecture-executive-report.md` y `audfact-audit-gemini`.
+
+## [2026-06-02] - Refactor: Prompt Compacto de Extraccion Gemini
+
+### IA Pipeline / Clean Rebuild / Cost Optimization
+- **Extraccion sin valores FDV en prompt**:
+  - `DocumentExtractionWorker` ya no inyecta bloques de valores esperados de la fuente de verdad (`Campos de cabecera esperados` / `Campos de linea esperados`) en el prompt de Gemini.
+  - Gemini queda limitado a extraer evidencia visible; la comparacion contra FDV sigue viviendo en PHP mediante normalizacion y `DocumentPolicyEngine`.
+  - Las pistas de articulo para documentos prescriptivos se conservan solo cuando `NombreArticulo` se extrae realmente en `items`, evitando instrucciones contradictorias.
+
+- **Cache alineado al prompt real**:
+  - Se elimina `target_context` / `target_context_hash` del evento `document_registered`.
+  - El cache de extraccion ahora usa `prompt_context_hash`, calculado desde el prompt de usuario y system prompt reales, junto con `document_hash`, `contract_hash` y version del extractor.
+
+- **Contrato Gemini compactado**:
+  - `DocumentExtractionContractBuilder` mantiene el shape v1 (`valor`, `valores`, `presente`, `estadoExtraccion`) pero reduce descripciones repetidas en schemas para bajar tokens de entrada.
+  - Sin modo legacy ni feature flags, siguiendo `clean-rebuild-policy`.
+
+- **Documentacion y skills**:
+  - Sincronizados `plans/changelog.md` y `audfact-audit-gemini` con el nuevo contrato interno.
+
 ## [2026-06-02] - Docs: Alineación del Modelo Gemini Real del Pipeline
 
 ### 📚 Documentation / IA Pipeline / Gemini

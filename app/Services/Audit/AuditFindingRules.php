@@ -164,8 +164,7 @@ final class AuditFindingRules
             return null;
         }
 
-        // 1. Limpieza de hora al final del string si existe (ej: "2026-05-04 14:30:00" -> "2026-05-04")
-        $dateOnly = (string) preg_replace('/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[a-zA-Z]+)?$/', '', $candidate);
+        $dateOnly = (string) preg_replace('/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[a-zA-Z.\s]+)?$/i', '', $candidate);
         $dateOnly = trim($dateOnly);
         if ($dateOnly === '') {
             return null;
@@ -296,13 +295,31 @@ final class AuditFindingRules
         $normalized = trim((string) preg_replace('/\s+/', ' ', $normalized));
 
         $months = [
-            'enero' => 1, 'febrero' => 2, 'marzo' => 3, 'abril' => 4,
-            'mayo' => 5, 'junio' => 6, 'julio' => 7, 'agosto' => 8,
-            'septiembre' => 9, 'octubre' => 10, 'noviembre' => 11, 'diciembre' => 12,
+            'enero' => 1,
+            'febrero' => 2,
+            'marzo' => 3,
+            'abril' => 4,
+            'mayo' => 5,
+            'junio' => 6,
+            'julio' => 7,
+            'agosto' => 8,
+            'septiembre' => 9,
+            'octubre' => 10,
+            'noviembre' => 11,
+            'diciembre' => 12,
             // Abreviaciones comunes
-            'ene' => 1, 'feb' => 2, 'mar' => 3, 'abr' => 4,
-            'may' => 5, 'jun' => 6, 'jul' => 7, 'ago' => 8,
-            'sep' => 9, 'oct' => 10, 'nov' => 11, 'dic' => 12,
+            'ene' => 1,
+            'feb' => 2,
+            'mar' => 3,
+            'abr' => 4,
+            'may' => 5,
+            'jun' => 6,
+            'jul' => 7,
+            'ago' => 8,
+            'sep' => 9,
+            'oct' => 10,
+            'nov' => 11,
+            'dic' => 12,
         ];
 
         $parts = explode(' ', $normalized);

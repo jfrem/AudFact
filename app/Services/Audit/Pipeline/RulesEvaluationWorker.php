@@ -368,7 +368,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         return [
             'FacSec' => (string) ($audit['fac_sec'] ?? ''),
             'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
-            'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_FAILED ? 0 : 1,
+            'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_COMPLETED ? 1 : 0,
             'EstadoDetallado' => $finalStatus,
             'RequiereRevisionHumana' => $requiresManualReview ? 1 : 0,
             'Severidad' => $severity,

@@ -734,8 +734,28 @@ class AuditStatusModel extends Model
             'findingsCount' => count($findings),
             'failedFindingsCount' => $this->countFindingsByOutcome($findings, ['VALOR_DISTINTO', 'NO_ENCONTRADO']),
             'inconclusiveFindingsCount' => $this->countFindingsByOutcome($findings, ['NO_CONCLUYENTE']),
-            'auditExecuted' => ((int) ($row['EstAud'] ?? 0)) === 1,
+            'auditExecuted' => $this->isAuditExecuted($row, $payload),
         ];
+    }
+
+    /**
+     * @param  array<string,mixed>  $row
+     * @param  array<string,mixed>  $payload
+     */
+    private function isAuditExecuted(array $row, array $payload): bool
+    {
+        if (((int) ($row['EstAud'] ?? 0)) === 1) {
+            return true;
+        }
+
+        $status = strtolower(trim((string) ($row['EstadoDetallado'] ?? '')));
+        if (!in_array($status, ['completed', 'manual_review', 'failed', 'error'], true)) {
+            return false;
+        }
+
+        return ((int) ($row['DocumentosProcesados'] ?? 0)) > 0
+            || count($payload['findings'] ?? []) > 0
+            || is_array($payload['timings'] ?? null);
     }
 
     /**

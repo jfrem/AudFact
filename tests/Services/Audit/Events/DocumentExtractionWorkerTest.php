@@ -25,7 +25,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
-        
+
         $redisMock = $this->createMock(RedisClient::class);
         $redisMock->method('get')
             ->with($this->stringContains('extraction:'))
@@ -36,7 +36,7 @@ final class DocumentExtractionWorkerTest extends TestCase
                 'document_quality' => 'legible',
                 'quality_notes' => [],
             ]));
-            
+
         $gateway = new StubGeminiGateway([]);
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
@@ -71,13 +71,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
-        
+
         $redisMock = $this->createMock(RedisClient::class);
         $redisMock->method('get')->willReturn(null);
         $redisMock->expects($this->once())->method('set')->willReturn(true);
-        
+
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
-        
+
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
             downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
@@ -90,24 +90,12 @@ final class DocumentExtractionWorkerTest extends TestCase
         $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
 
         $this->assertSame(1, $gateway->calls);
-        $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            array_column($gateway->lastTools[0]['functionDeclarations'], 'name')
-        );
-        $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null
-        );
+        $this->assertDeclaredFunctionNames($gateway, [
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
         $this->assertSame(GeminiGateway::TASK_EXTRACTION, $gateway->lastTaskType);
         $this->assertIsInt($gateway->lastGenerationOverrides['maxOutputTokens'] ?? null);
         $this->assertGreaterThan(0, $gateway->lastGenerationOverrides['maxOutputTokens']);
@@ -120,6 +108,107 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
         $this->assertSame('STOP', $publisher->published[0]->payload['gemini_metrics']['finish_reason'] ?? null);
         $this->assertSame('T38250701547', $publisher->published[0]->payload['extraction_result']['fields']['NumeroFactura']);
+        $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
+        $this->assertArrayHasKey('prompt_context_hash', $publisher->published[0]->payload);
+        $this->assertSame(64, strlen($publisher->published[0]->payload['prompt_context_hash']));
+        $this->assertArrayNotHasKey('target_context_hash', $publisher->published[0]->payload);
+    }
+
+    public function testDynamicContractWithoutItemsOrVisualsCallsOnlyDeclaredFunctions(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $fieldsConfig = [
+            ['campoNombre' => 'NumeroFactura', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+        ];
+        $contract = (new DocumentExtractionContractBuilder())->build('AUTORIZACION', $fieldsConfig, []);
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse(
+            omittedFunction: [
+                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            ]
+        ));
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+            'tipo_documento' => 'AUTORIZACION',
+            'extraction_contract' => $contract,
+            'fields_config' => $fieldsConfig,
+            'visual_checks' => [],
+            'contract_hash' => $contract['contract_hash'],
+        ]));
+
+        $this->assertDeclaredFunctionNames($gateway, [
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
+        $this->assertStringNotContainsString('extract_items', $gateway->lastPrompt);
+        $this->assertStringNotContainsString('detect_visual_checks', $gateway->lastPrompt);
+        $this->assertStringNotContainsString('arreglo vacío', $gateway->lastPrompt);
+        $this->assertSame([], $publisher->published[0]->payload['extraction_result']['items']);
+        $this->assertSame([], $publisher->published[0]->payload['extraction_result']['visual_checks']);
+    }
+
+    public function testDynamicContractWithoutHeaderFieldsDefaultsFieldsToEmptyObject(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $fieldsConfig = [
+            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
+        ];
+        $contract = (new DocumentExtractionContractBuilder())->build('FORMULA MEDICA', $fieldsConfig, []);
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse(
+            omittedFunction: [
+                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            ]
+        ));
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: new ExtractionRecordingStateStore(),
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+            'extraction_contract' => $contract,
+            'fields_config' => $fieldsConfig,
+            'visual_checks' => [],
+            'contract_hash' => $contract['contract_hash'],
+        ]));
+
+        $this->assertDeclaredFunctionNames($gateway, [
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
+        $this->assertStringNotContainsString('extract_fields', $gateway->lastPrompt);
+        $this->assertSame([], $publisher->published[0]->payload['extraction_result']['fields']);
         $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
     }
 
@@ -161,13 +250,15 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertStringContainsString('Regla de identidad', $gateway->lastPrompt);
         $this->assertStringContainsString('DocumentoPaciente="94229637"', $gateway->lastPrompt);
         $this->assertStringContainsString('NombrePaciente="NORENA AGUDELO"', $gateway->lastPrompt);
+        $this->assertStringNotContainsString('Valores de referencia', $gateway->lastPrompt);
+        $this->assertStringNotContainsString('Campos de cabecera esperados', $gateway->lastPrompt);
     }
 
     public function testDoesNotPublishWhenStateStoreReturnsFalse(): void
     {
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore(false);
-        
+
         $redisMock = $this->createMock(RedisClient::class);
         $redisMock->method('get')->willReturn(json_encode([
             'fields' => ['NumeroFactura' => 'T38250701547'],
@@ -176,7 +267,7 @@ final class DocumentExtractionWorkerTest extends TestCase
             'document_quality' => 'legible',
             'quality_notes' => [],
         ]));
-        
+
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
             downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
@@ -327,9 +418,18 @@ final class DocumentExtractionWorkerTest extends TestCase
         return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
     }
 
+    /**
+     * @param array<int,string> $expected
+     */
+    private function assertDeclaredFunctionNames(StubGeminiGateway $gateway, array $expected): void
+    {
+        $this->assertSame($expected, array_column($gateway->lastTools[0]['functionDeclarations'], 'name'));
+        $this->assertSame($expected, $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+    }
+
     private function geminiFunctionCallResponse(
         string $finishReason = 'STOP',
-        ?string $omittedFunction = null,
+        string|array|null $omittedFunction = null,
         ?string $duplicateFunction = null
     ): array
     {
@@ -374,9 +474,10 @@ final class DocumentExtractionWorkerTest extends TestCase
         ];
 
         if ($omittedFunction !== null) {
+            $omittedFunctions = is_array($omittedFunction) ? $omittedFunction : [$omittedFunction];
             $parts = array_values(array_filter(
                 $parts,
-                static fn(array $part): bool => ($part['functionCall']['name'] ?? null) !== $omittedFunction
+                static fn(array $part): bool => !in_array($part['functionCall']['name'] ?? null, $omittedFunctions, true)
             ));
         }
 
@@ -425,16 +526,18 @@ final class DocumentExtractionWorkerTest extends TestCase
                 ['campoNombre' => 'NumeroFactura', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
                 ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
             ],
+            'visual_checks' => [
+                ['check' => 'FirmaActaEntrega', 'description' => 'Firma visible', 'severity' => 'CRITICO'],
+            ],
             'attempt' => 1,
             'contract_hash' => hash('sha256', json_encode($this->extractionContract(), JSON_THROW_ON_ERROR)),
-            'target_context_hash' => hash('sha256', json_encode(['diagnosticos' => ['E119'], 'items' => []], JSON_THROW_ON_ERROR)),
         ];
 
         return AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,
             auditId: $auditId,
             jobId: AuditEvent::uuidV4(),
-            payload: array_replace_recursive($payload, $payloadOverrides),
+            payload: array_replace($payload, $payloadOverrides),
             parentEventId: null,
             documentId: $documentId
         );

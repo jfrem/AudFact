@@ -49,6 +49,6 @@
 |---|---|
 | **Auditoría batch** | Proceso que analiza múltiples facturas en una sola solicitud |
 | **DocumentAuditOrchestrator** | Worker que orquesta la resolución de FDV, adjuntos y construcción del contrato Gemini para extracción |
-| **extraction_contract** | Contrato dinámico por documento con cuatro function calls paralelos: `extract_fields`, `extract_items`, `detect_visual_checks` y `assess_document_quality` |
+| **extraction_contract** | Contrato dinámico por documento con function calls según necesidad: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
 | **DocumentPolicyEngine** | Motor determinista PHP que evalúa discrepancias, severidades y emite hallazgos contra rules del audit-config |
 | **EstAud** | Campo en `AudDispEst` que almacena el estado de la auditoría |

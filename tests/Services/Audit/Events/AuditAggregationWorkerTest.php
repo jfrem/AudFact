@@ -159,7 +159,7 @@ final class AuditAggregationWorkerTest extends TestCase
             'audit_result_data' => [
                 'FacSec' => '87723098',
                 'FacNro' => 'T38250701547',
-                'EstAud' => 1,
+                'EstAud' => $status === 'completed' ? 1 : 0,
                 'EstadoDetallado' => $status,
                 'RequiereRevisionHumana' => $isManualReview ? 1 : 0,
                 'Severidad' => $isManualReview ? 'alta' : 'baja',

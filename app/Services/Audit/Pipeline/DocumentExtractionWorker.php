@@ -101,7 +101,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $contract      = $this->requiredArray($payload, 'extraction_contract');
         $documentType  = $this->resolveDocumentType($payload);
         $contractHash  = (string) ($payload['contract_hash'] ?? $contract['contract_hash'] ?? '');
-        $targetContextHash = (string) ($payload['target_context_hash'] ?? '');
 
         $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
         $document = $downloaded['document'];
@@ -113,7 +112,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             return;
         }
 
-        $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $targetContextHash);
+        $userPrompt = $this->buildUserPrompt($documentType, $payload, $contract);
+        $systemPrompt = $this->buildSystemPrompt($payload);
+        $promptContextHash = $this->promptContextHash($userPrompt, $systemPrompt);
+        $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $promptContextHash);
 
         $extraction = $this->resolveExtraction(
             $compositeCacheKey,
@@ -121,6 +123,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $documentType,
             $payload,
             $contract,
+            $userPrompt,
+            $systemPrompt,
             $disDetNro,
             $event
         );
@@ -133,7 +137,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $extraction,
             $extractionDurationMs,
             $contractHash,
-            $targetContextHash
+            $promptContextHash
         );
 
         if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
@@ -176,6 +180,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         string $documentType,
         array $payload,
         array $contract,
+        string $userPrompt,
+        string $systemPrompt,
         string $disDetNro,
         AuditEvent $event
     ): array {
@@ -193,13 +199,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
 
         $response = $this->gateway->sendWithFunctionCalling(
-            $this->buildUserPrompt($documentType, $payload, $contract),
+            $userPrompt,
             [[
                 'mime' => $document['mime'],
                 'data' => $document['data'],
                 'label' => $documentType,
             ]],
-            $this->buildSystemPrompt($payload),
+            $systemPrompt,
             [['functionDeclarations' => $this->contractFunctionDeclarations($contract)]],
             $this->buildToolConfig($contract),
             GeminiGateway::TASK_EXTRACTION,
@@ -221,7 +227,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         unset($response['X-Audit-Metrics']);
 
         $extracted = $this->parseGeminiResponse($response, $contract);
-        $this->enforceItemSegmentation($documentType, $payload, $extracted);
+        $this->enforceItemSegmentation($documentType, $payload, $contract, $extracted);
         $this->cachePut($cacheKey, $extracted);
 
         return [
@@ -248,13 +254,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         array $extraction,
         int $extractionDurationMs,
         string $contractHash = '',
-        string $targetContextHash = ''
+        string $promptContextHash = ''
     ): array {
         $documentState = [
             'status'                  => 'extracted',
             'document_hash'           => $documentHash,
             'contract_hash'           => $contractHash,
-            'target_context_hash'     => $targetContextHash,
+            'prompt_context_hash'      => $promptContextHash,
             'cache_hit'               => $extraction['cache_hit'],
             'mime'                    => $document['mime'],
             'extraction_result'       => $extraction['extracted'],
@@ -409,18 +415,26 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     /**
      * Construye la cache key compuesta.
-     * Cualquier cambio en document, contrato, FDV o versión invalida el cache.
+     * Cualquier cambio en documento, contrato, prompt efectivo o versión invalida el cache.
      */
-    private function compositeCacheKey(string $documentHash, string $contractHash, string $targetContextHash): string
+    private function compositeCacheKey(string $documentHash, string $contractHash, string $promptContextHash): string
     {
         self::assertHash($documentHash);
 
-        if ($contractHash === '' || $targetContextHash === '') {
-            throw new RuntimeException("Faltan hashes de contrato o contexto para documentHash {$documentHash}");
+        if ($contractHash === '' || $promptContextHash === '') {
+            throw new RuntimeException("Faltan hashes de contrato o prompt para documentHash {$documentHash}");
         }
 
-        $composite = hash('sha256', $documentHash . $contractHash . $targetContextHash . $this->extractorVersion);
+        $composite = hash('sha256', $documentHash . $contractHash . $promptContextHash . $this->extractorVersion);
         return "extraction:cache:v1:{$composite}";
+    }
+
+    private function promptContextHash(string $userPrompt, string $systemPrompt): string
+    {
+        return DocumentExtractionContractBuilder::hashPayload([
+            'system_prompt' => $systemPrompt,
+            'user_prompt' => $userPrompt,
+        ]);
     }
 
     private function buildSystemPrompt(array $payload): string
@@ -451,20 +465,16 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         if ($fieldGroups['fields'] !== []) {
             $parts[] = 'Campos para `extract_fields`: ' . implode(', ', $fieldGroups['fields']) . '.';
-        } else {
-            $parts[] = '`extract_fields` debe retornar fields como objeto vacío.';
         }
 
         if ($fieldGroups['items'] !== []) {
             $parts[] = 'Campos para `extract_items`: ' . implode(', ', $fieldGroups['items']) . '.';
-        } else {
-            $parts[] = '`extract_items` debe retornar items como arreglo vacío.';
         }
 
         $visualChecks = $payload['visual_checks'] ?? [];
-        if (is_array($visualChecks) && $visualChecks !== []) {
+        if ($this->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS)) {
             $parts[] = 'Checks visuales esperados:';
-            foreach ($visualChecks as $check) {
+            foreach (is_array($visualChecks) ? $visualChecks : [] as $check) {
                 if (!is_array($check)) {
                     continue;
                 }
@@ -476,58 +486,26 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $parts[] = $description !== '' ? "- {$name}: {$description}" : "- {$name}";
             }
             $parts[] = 'Para checks de vigencia o plazo, si el valor es visible retorna valor numerico, unidad="dias" y fecha_base con el nombre del campo fecha desde el cual se cuenta.';
-        } else {
-            $parts[] = '`detect_visual_checks` debe retornar visual_checks como arreglo vacío.';
         }
 
-        if ($this->requiresSegmentedDispensaItems($documentType, $payload)) {
+        if ($fieldGroups['items'] !== [] && $this->requiresSegmentedDispensaItems($documentType, $payload)) {
             $parts[] = 'Este documento contiene multiples lineas de producto.';
             $parts[] = 'Debes usar `items` con una entrada por cada fila visible.';
             $parts[] = 'No colapses cantidades, lotes, fechas de vencimiento ni codigos de articulo en `fields`.';
         }
 
-        $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload);
+        $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload, $fieldGroups);
         if ($dispensedNames !== []) {
-            $parts[] = 'Articulos efectivamente dispensados al paciente (Registro de Dispensación):';
+            $parts[] = 'Candidatos de articulo para busqueda en prescripcion:';
             foreach ($dispensedNames as $name) {
                 $parts[] = "- {$name}";
             }
-            $parts[] = 'En `items`, extrae UNICAMENTE los articulos que coincidan (exactos u homologos) con la lista anterior.';
-            $parts[] = 'Si un articulo prescrito no aparece en la lista de dispensados, omitelo de `items`.';
-            $parts[] = 'Incluye los nombres tal como aparecen en el documento, no los de la lista.';
+            $parts[] = 'En `items`, extrae solo articulos visibles que coincidan de forma exacta u homologa con esos candidatos.';
+            $parts[] = 'Devuelve el nombre tal como aparece en el documento.';
         }
 
         $parts[] = 'Invoca exactamente una vez cada función en el mismo turno: '
             . implode(', ', $this->requiredFunctionNames($contract)) . '.';
-
-        $targetContext = $payload['target_context'] ?? null;
-        if (is_array($targetContext)) {
-            $parts[] = '';
-            $parts[] = '--- Valores de referencia (Registro de Dispensación) ---';
-            $parts[] = 'IMPORTANTE: Estos son los valores del registro de dispensación, SOLO referencia.';
-            $parts[] = 'Extrae lo que el documento muestra independientemente de si coincide con estos valores.';
-            $parts[] = 'No limites tu extracción a estos valores ni los uses para completar datos no visibles.';
-
-            $tcFields = is_array($targetContext['fields'] ?? null) ? $targetContext['fields'] : [];
-            if ($tcFields !== []) {
-                $parts[] = 'Campos de cabecera esperados:';
-                foreach ($tcFields as $tcName => $tcMeta) {
-                    $fdvVal = $tcMeta['valorFuenteVerdad'] ?? 'N/A';
-                    $parts[] = "- {$tcName}: {$fdvVal}";
-                }
-            }
-
-            $tcItems = is_array($targetContext['items'] ?? null) ? $targetContext['items'] : [];
-            if ($tcItems !== []) {
-                $parts[] = 'Campos de línea esperados:';
-                foreach ($tcItems as $tcName => $tcMeta) {
-                    $vals = is_array($tcMeta['valoresFuenteVerdad'] ?? null)
-                        ? implode(', ', $tcMeta['valoresFuenteVerdad'])
-                        : 'N/A';
-                    $parts[] = "- {$tcName}: [{$vals}]";
-                }
-            }
-        }
 
         return implode("\n", $parts);
     }
@@ -583,6 +561,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
 
         return array_values(array_unique($normalized));
+    }
+
+    private function contractRequiresFunction(array $contract, string $functionName): bool
+    {
+        return in_array($functionName, $this->requiredFunctionNames($contract), true);
     }
 
     /**
@@ -751,14 +734,29 @@ final class DocumentExtractionWorker extends AuditEventConsumer
      */
     private function validateParallelExtractionPayload(array $calls): array
     {
-        $fieldsArgs = $calls[DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS] ?? [];
-        $itemsArgs = $calls[DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS] ?? [];
-        $visualArgs = $calls[DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS] ?? [];
-        $qualityArgs = $calls[DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY] ?? [];
+        $fields = $this->optionalFunctionArray(
+            $calls,
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            'fields',
+            'Gemini retornó extract_fields sin fields'
+        );
+        $items = $this->optionalFunctionArray(
+            $calls,
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+            'items',
+            'Gemini retornó extract_items sin items'
+        );
+        $visualChecks = $this->optionalFunctionArray(
+            $calls,
+            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            'visual_checks',
+            'Gemini retornó detect_visual_checks sin visual_checks'
+        );
 
-        $fields = $this->requiredArray($fieldsArgs, 'fields', 'Gemini retornó extract_fields sin fields');
-        $items = $this->requiredArray($itemsArgs, 'items', 'Gemini retornó extract_items sin items');
-        $visualChecks = $this->requiredArray($visualArgs, 'visual_checks', 'Gemini retornó detect_visual_checks sin visual_checks');
+        $qualityArgs = $this->requiredFunctionArgs(
+            $calls,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY
+        );
         $documentQuality = $this->validateDocumentQuality($qualityArgs['document_quality'] ?? null);
         $qualityNotes = $this->requiredArray($qualityArgs, 'quality_notes', 'Gemini retornó assess_document_quality sin quality_notes');
         $this->validateItems($items);
@@ -773,8 +771,12 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ];
     }
 
-    private function enforceItemSegmentation(string $documentType, array $payload, array $extracted): void
+    private function enforceItemSegmentation(string $documentType, array $payload, array $contract, array $extracted): void
     {
+        if (!$this->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS)) {
+            return;
+        }
+
         if (!$this->requiresSegmentedDispensaItems($documentType, $payload)) {
             return;
         }
@@ -784,6 +786,37 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         if (!is_array($items) || count($items) < count($sourceTruthItems)) {
             throw new RuntimeException('Gemini no segmentó todos los items visibles de la dispensa');
         }
+    }
+
+    /**
+     * @param  array<string,array<string,mixed>> $calls
+     * @return array<string,mixed>
+     */
+    private function requiredFunctionArgs(array $calls, string $functionName): array
+    {
+        $args = $calls[$functionName] ?? null;
+        if (!is_array($args)) {
+            throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$functionName}");
+        }
+
+        return $args;
+    }
+
+    /**
+     * @param  array<string,array<string,mixed>> $calls
+     * @return array<string|int,mixed>
+     */
+    private function optionalFunctionArray(
+        array $calls,
+        string $functionName,
+        string $key,
+        string $errorMessage
+    ): array {
+        if (!array_key_exists($functionName, $calls)) {
+            return [];
+        }
+
+        return $this->requiredArray($calls[$functionName], $key, $errorMessage);
     }
 
     private function requiredArray(array $payload, string $key, ?string $errorMessage = null): array
@@ -819,14 +852,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     }
 
     /**
-     * Extrae nombres de artículos dispensados de la FDV para inyección selectiva en el prompt.
-     * Solo aplica a documentos prescriptivos. Retorna [] si no aplica (fallback: sin filtro).
-     *
      * @return string[]
      */
-    private function buildDispensedItemsContext(string $documentType, array $payload): array
+    private function buildDispensedItemsContext(string $documentType, array $payload, array $fieldGroups): array
     {
         if (!DocumentExtractionContractBuilder::isPrescriptionDocument($documentType)) {
+            return [];
+        }
+
+        if (!in_array('NombreArticulo', $fieldGroups['items'] ?? [], true)) {
             return [];
         }
 

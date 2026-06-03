@@ -40,7 +40,8 @@ class AuditConfigModel extends Model
                 ac.TipoDato,
                 ac.Orden,
                 ac.DescripcionOverride,
-                ac.SeveridadOverride
+                ac.SeveridadOverride,
+                ac.CodigoCampo
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN NitDocumentos nd WITH (NOLOCK)
                 ON nd.NitSec       = ac.FacNitSec
@@ -79,6 +80,7 @@ class AuditConfigModel extends Model
                     'tipoDato'    => strtolower(trim((string) $row['TipoDato'])),
                     'orden'       => (int) $row['Orden'],
                     'severity'    => $row['SeveridadOverride'] ?? 'media',
+                    'codigoCampo' => $row['CodigoCampo'],
                 ];
             } else {
                 // Visual checks retornados como objetos completos
@@ -87,6 +89,7 @@ class AuditConfigModel extends Model
                     'description' => $row['DescripcionOverride'] ?? '',
                     'severity'    => $row['SeveridadOverride'] ?? 'alta',
                     'orden'       => (int) $row['Orden'],
+                    'codigoCampo' => $row['CodigoCampo'],
                 ];
             }
         }

@@ -15,13 +15,6 @@ final class DocumentExtractionContractBuilder
     public const FN_DETECT_VISUAL_CHECKS = 'detect_visual_checks';
     public const FN_ASSESS_DOCUMENT_QUALITY = 'assess_document_quality';
 
-    private const REQUIRED_FUNCTION_NAMES = [
-        self::FN_EXTRACT_FIELDS,
-        self::FN_EXTRACT_ITEMS,
-        self::FN_DETECT_VISUAL_CHECKS,
-        self::FN_ASSESS_DOCUMENT_QUALITY,
-    ];
-
     private const ITEM_FIELD_NAMES = [
         'CantidadEntregada',
         'CantidadPrescrita',
@@ -45,28 +38,64 @@ final class DocumentExtractionContractBuilder
     public function build(string $documentName, array $fields, array $visualChecks): array
     {
         $fieldGroups = $this->groupFields($documentName, $fields);
-
-        $declarations = [
-            $this->buildExtractFieldsDeclaration($fieldGroups['fields']),
-            $this->buildExtractItemsDeclaration($fieldGroups['items']),
-            $this->buildDetectVisualChecksDeclaration($visualChecks),
-            $this->buildAssessDocumentQualityDeclaration(),
-        ];
+        $declarations = $this->buildFunctionDeclarations(
+            $fieldGroups,
+            $this->activeVisualChecks($visualChecks)
+        );
+        $requiredFunctionNames = self::functionNames($declarations);
 
         return [
             'function_declarations' => $declarations,
-            'required_function_names' => self::REQUIRED_FUNCTION_NAMES,
+            'required_function_names' => $requiredFunctionNames,
             'field_groups' => [
                 'fields' => array_column($fieldGroups['fields'], 'campoNombre'),
                 'items' => array_column($fieldGroups['items'], 'campoNombre'),
             ],
-            'contract_hash' => self::hashPayload($declarations),
+            'contract_hash' => self::hashPayload([
+                'function_declarations' => $declarations,
+                'required_function_names' => $requiredFunctionNames,
+            ]),
         ];
     }
 
     /**
+     * @param  array{fields:array<int,array<string,mixed>>,items:array<int,array<string,mixed>>} $fieldGroups
+     * @param  array<int,array<string,mixed>> $visualChecks
+     * @return array<int,array<string,mixed>>
+     */
+    private function buildFunctionDeclarations(array $fieldGroups, array $visualChecks): array
+    {
+        $declarations = [];
+
+        if ($fieldGroups['fields'] !== []) {
+            $declarations[] = $this->buildExtractFieldsDeclaration($fieldGroups['fields']);
+        }
+
+        if ($fieldGroups['items'] !== []) {
+            $declarations[] = $this->buildExtractItemsDeclaration($fieldGroups['items']);
+        }
+
+        if ($visualChecks !== []) {
+            $declarations[] = $this->buildDetectVisualChecksDeclaration($visualChecks);
+        }
+
+        $declarations[] = $this->buildAssessDocumentQualityDeclaration();
+
+        return $declarations;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $declarations
+     * @return array<int,string>
+     */
+    private static function functionNames(array $declarations): array
+    {
+        return array_values(array_column($declarations, 'name'));
+    }
+
+    /**
      * SHA-256 canónico de un payload serializable.
-     * Usado para contract_hash y target_context_hash.
+     * Usado para hashes internos de contrato y prompt.
      */
     public static function hashPayload(mixed $payload): string
     {
@@ -195,14 +224,7 @@ final class DocumentExtractionContractBuilder
     {
         return [
             'name' => self::FN_EXTRACT_FIELDS,
-            'description' => 'Extrae campos administrativos y documentales visibles del documento. '
-                . '¡IMPORTANTE! Debes inspeccionar visualmente de forma minuciosa la imagen para cada dato. '
-                . 'Para cada campo, reporta el valor literal visible, si está presente, '
-                . 'y el estado de extracción. '
-                . 'Usa estadoExtraccion=FOUND_IN_LIST cuando el campo contiene múltiples valores '
-                . 'separados por coma, barra o punto y coma (ej: códigos diagnósticos). '
-                . 'Usa FOUND para un único valor claro, NOT_FOUND si no es visible, '
-                . 'ILLEGIBLE si no es legible.',
+            'description' => 'Extrae campos visibles.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -222,10 +244,7 @@ final class DocumentExtractionContractBuilder
     {
         return [
             'name' => self::FN_EXTRACT_ITEMS,
-            'description' => 'Extrae filas de producto o prescripción visibles, una entrada por línea documental. '
-                . '¡IMPORTANTE! Debes inspeccionar visualmente de forma minuciosa la imagen para cada dato de la fila. '
-                . 'No colapses cantidades, lotes, fechas de vencimiento ni códigos distintos entre filas. '
-                . 'Cada fila del documento debe ser un item independiente.',
+            'description' => 'Extrae filas visibles, una por linea.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -259,34 +278,27 @@ final class DocumentExtractionContractBuilder
             }
         }
 
-        $checkProperty = [
-            'type' => 'string',
-            'description' => 'Nombre del check visual a evaluar.',
-        ];
+        $checkProperty = ['type' => 'string'];
         if ($checkNames !== []) {
             $checkProperty['enum'] = array_values(array_unique($checkNames));
         }
         if ($descriptions !== []) {
-            $checkProperty['description'] .= ' Definiciones esperadas: ' . implode(' | ', $descriptions);
+            $checkProperty['description'] = implode(' | ', $descriptions);
         }
 
         return [
             'name' => self::FN_DETECT_VISUAL_CHECKS,
-            'description' => 'Analiza la imagen del documento para detectar características visuales (firmas, sellos, vigencias). ¡IMPORTANTE! Debes inspeccionar visualmente la imagen para cada check.',
+            'description' => 'Detecta checks visuales visibles.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
                     'visual_checks' => [
                         'type' => 'array',
-                        'description' => 'Lista de resultados de evaluación visual. Retorna un objeto por cada check solicitado.',
                         'items' => [
                             'type' => 'object',
                             'properties' => [
                                 'check' => $checkProperty,
-                                'presente' => [
-                                    'type' => 'boolean',
-                                    'description' => 'true si la característica visual (firma, sello, etc.) se observa claramente en la imagen. false si no está presente o es ilegible.'
-                                ],
+                                'presente' => ['type' => 'boolean'],
                                 'valor' => ['type' => 'number', 'nullable' => true],
                                 'unidad' => [
                                     'type' => 'string',
@@ -297,7 +309,6 @@ final class DocumentExtractionContractBuilder
                                 'detalle' => [
                                     'type' => 'string',
                                     'nullable' => true,
-                                    'description' => 'Justificación obligatoria de por qué marcaste presente como true o false basándote en la evidencia visual.'
                                 ],
                                 'severidad' => ['type' => 'string', 'nullable' => true],
                             ],
@@ -319,7 +330,7 @@ final class DocumentExtractionContractBuilder
     {
         return [
             'name' => self::FN_ASSESS_DOCUMENT_QUALITY,
-            'description' => 'Evalúa la legibilidad general del documento para auditoría.',
+            'description' => 'Evalua legibilidad general.',
             'parameters' => [
                 'type' => 'object',
                 'properties' => [
@@ -392,28 +403,33 @@ final class DocumentExtractionContractBuilder
         $tipoCampo = (string) ($field['tipoCampo'] ?? 'E');
         $valueType = $this->fieldValueType($field);
         $valorType = $this->schemaTypeForField($valueType, $tipoCampo);
+        $valorProperty = [
+            'type' => $valorType,
+            'nullable' => true,
+        ];
+        $valorDescription = $this->fieldValueDescription($fieldName, $valueType);
+        if ($valorDescription !== null) {
+            $valorProperty['description'] = $valorDescription;
+        }
+
+        $valoresProperty = [
+            'type' => 'array',
+            'items' => ['type' => $valorType],
+        ];
+        $valoresDescription = $this->fieldValuesDescription($fieldName, $valueType);
+        if ($valoresDescription !== null) {
+            $valoresProperty['description'] = $valoresDescription;
+        }
 
         return [
             'type' => 'object',
             'properties' => [
-                'valor' => [
-                    'type' => $valorType,
-                    'nullable' => true,
-                    'description' => $this->fieldValueDescription($fieldName, $valueType),
-                ],
-                'valores' => [
-                    'type' => 'array',
-                    'items' => ['type' => $valorType],
-                    'description' => $this->fieldValuesDescription($fieldName, $valueType),
-                ],
-                'presente' => [
-                    'type' => 'boolean',
-                    'description' => 'true si el dato fue encontrado visiblemente en el documento.',
-                ],
+                'valor' => $valorProperty,
+                'valores' => $valoresProperty,
+                'presente' => ['type' => 'boolean'],
                 'estadoExtraccion' => [
                     'type' => 'string',
                     'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
-                    'description' => 'FOUND: valor único claro. FOUND_IN_LIST: múltiples valores separados por coma/barra/punto y coma. NOT_FOUND: no visible. ILLEGIBLE: no legible.',
                 ],
             ],
             'required' => ['valor', 'presente', 'estadoExtraccion'],
@@ -430,7 +446,23 @@ final class DocumentExtractionContractBuilder
         return $valueType->isNumericForSchema() ? 'number' : 'string';
     }
 
-    private function fieldValueDescription(string $fieldName, AuditFieldValueType $valueType): string
+    /**
+     * @param  array<int,mixed> $visualChecks
+     * @return array<int,array<string,mixed>>
+     */
+    private function activeVisualChecks(array $visualChecks): array
+    {
+        $active = [];
+        foreach ($visualChecks as $check) {
+            if (is_array($check) && trim((string) ($check['check'] ?? '')) !== '') {
+                $active[] = $check;
+            }
+        }
+
+        return $active;
+    }
+
+    private function fieldValueDescription(string $fieldName, AuditFieldValueType $valueType): ?string
     {
         if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
             return $this->identityDocumentNumberDescription($fieldName);
@@ -441,41 +473,41 @@ final class DocumentExtractionContractBuilder
         }
 
         if ($valueType === AuditFieldValueType::IDENTITY_DOC_TYPE) {
-            return 'Solo tipo de documento de identidad visible en el soporte, como CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC. No incluyas número ni nombre.';
+            return 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.';
         }
 
-        return 'Valor principal extraído del documento tal como aparece visible.';
+        return null;
     }
 
-    private function fieldValuesDescription(string $fieldName, AuditFieldValueType $valueType): string
+    private function fieldValuesDescription(string $fieldName, AuditFieldValueType $valueType): ?string
     {
         if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
-            return 'Array de un elemento con el número/token de identificación limpio cuando estadoExtraccion=FOUND. No incluyas nombres concatenados.';
+            return 'Numero limpio en FOUND; varios tokens solo si hay lista.';
         }
 
         if ($valueType === AuditFieldValueType::PERSON_NAME) {
-            return 'Array de un elemento con el nombre limpio cuando estadoExtraccion=FOUND. No incluyas tipo ni número de documento.';
+            return 'Nombre limpio en FOUND; sin tipo ni numero.';
         }
 
-        return 'Tokens individuales cuando el campo contiene múltiples valores (FOUND_IN_LIST). Array de un elemento cuando es FOUND.';
+        return null;
     }
 
     private function identityDocumentNumberDescription(string $fieldName): string
     {
         if ($fieldName === 'DocumentoMedico') {
-            return 'Solo número/token de identificación del médico o prescriptor. No incluyas nombre, registro médico ni tipo de documento. Ejemplo: si ves "Medico: 12345678-PEREZ ANA MARIA", retorna valor="12345678".';
+            return 'Solo numero del prescriptor; sin nombre, registro ni tipo.';
         }
 
-        return 'Solo número/token de identificación del paciente. No incluyas tipo de documento ni nombres. Ejemplo: si ves "94229637-NORENA AGUDELO JUAN JOSE", retorna valor="94229637". Si ves "CC 94229637 NORENA AGUDELO", retorna valor="94229637".';
+        return 'Solo numero del paciente; sin tipo ni nombre.';
     }
 
     private function identityPersonNameDescription(string $fieldName): string
     {
         if ($fieldName === 'Medico') {
-            return 'Solo nombres y apellidos del médico o prescriptor. No incluyas número de documento, registro médico ni tipo. Ejemplo: si ves "Medico: 12345678-PEREZ ANA MARIA", retorna valor="PEREZ ANA MARIA".';
+            return 'Solo nombres y apellidos del prescriptor; sin documento ni registro.';
         }
 
-        return 'Solo nombres y apellidos del paciente. No incluyas tipo ni número de documento. Ejemplo: si ves "94229637-NORENA AGUDELO JUAN JOSE", retorna valor="NORENA AGUDELO JUAN JOSE".';
+        return 'Solo nombres y apellidos; sin tipo ni numero.';
     }
 
     /**

@@ -115,20 +115,13 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('URL', $payload['tipo_almacenamiento']);
         $this->assertArrayNotHasKey('extraction_schema', $payload);
         $this->assertIsArray($payload['extraction_contract']);
-        $this->assertSame(
-            [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-            ],
-            $payload['extraction_contract']['required_function_names']
-        );
+        $this->assertContractFunctionNames($payload['extraction_contract'], [
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
         $this->assertCount(4, $payload['extraction_contract']['function_declarations']);
-        $this->assertSame(
-            'extract_fields',
-            $payload['extraction_contract']['function_declarations'][0]['name']
-        );
         $this->assertSame(
             ['DocumentoPaciente'],
             $payload['extraction_contract']['field_groups']['fields']
@@ -142,8 +135,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('object', $docPacSchema['type']);
         $this->assertArrayHasKey('valor', $docPacSchema['properties']);
         $this->assertSame('string', $docPacSchema['properties']['valor']['type']);
-        $this->assertStringContainsString('Solo número/token de identificación del paciente', $docPacSchema['properties']['valor']['description']);
-        $this->assertStringContainsString('94229637-NORENA AGUDELO JUAN JOSE', $docPacSchema['properties']['valor']['description']);
+        $this->assertStringContainsString('Solo numero del paciente', $docPacSchema['properties']['valor']['description']);
         $this->assertArrayHasKey('estadoExtraccion', $docPacSchema['properties']);
         $this->assertSame(
             ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
@@ -153,6 +145,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $cantSchema = $payload['extraction_contract']['function_declarations'][1]['parameters']['properties']['items']['items']['properties']['CantidadEntregada'];
         $this->assertSame('object', $cantSchema['type']);
         $this->assertSame('number', $cantSchema['properties']['valor']['type']);
+        $this->assertArrayNotHasKey('description', $cantSchema['properties']['valor']);
+        $this->assertArrayNotHasKey('description', $cantSchema['properties']['presente']);
+        $this->assertArrayNotHasKey('description', $cantSchema['properties']['estadoExtraccion']);
         $this->assertSame(
             ['legible', 'parcialmente_legible', 'ilegible'],
             $payload['extraction_contract']['function_declarations'][3]['parameters']['properties']['document_quality']['enum']
@@ -180,17 +175,29 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('T38250701547', $store->patches[0]['numero_factura'] ?? null);
         $this->assertArrayNotHasKey('dis_det_nro', $store->patches[0] ?? []);
 
-        // T07: contract_hash y target_context propagados al payload
+        // T07: contract_hash propagado; FDV no se convierte en contexto de Gemini
         $this->assertArrayHasKey('contract_hash', $payload);
         $this->assertNotEmpty($payload['contract_hash']);
         $this->assertSame(64, strlen($payload['contract_hash']));
-        $this->assertArrayHasKey('target_context', $payload);
-        $this->assertIsArray($payload['target_context']);
-        $this->assertArrayHasKey('fields', $payload['target_context']);
-        $this->assertArrayHasKey('items', $payload['target_context']);
-        $this->assertArrayHasKey('visualChecks', $payload['target_context']);
-        $this->assertArrayHasKey('target_context_hash', $payload);
-        $this->assertSame(64, strlen($payload['target_context_hash']));
+        $this->assertArrayNotHasKey('target_context', $payload);
+        $this->assertArrayNotHasKey('target_context_hash', $payload);
+
+        $authorizationPayload = $publisher->published[1]->payload;
+        $this->assertSame('AUTORIZACION', $authorizationPayload['tipo_documento']);
+        $this->assertContractFunctionNames($authorizationPayload['extraction_contract'], [
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
+
+        $formulaPayload = $publisher->published[2]->payload;
+        $this->assertSame('FORMULA MEDICA', $formulaPayload['tipo_documento']);
+        $this->assertContractFunctionNames($formulaPayload['extraction_contract'], [
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        ]);
+        $this->assertSame([], $formulaPayload['extraction_contract']['field_groups']['fields']);
+        $this->assertSame(['NombreArticulo'], $formulaPayload['extraction_contract']['field_groups']['items']);
     }
 
     public function testFallbackMatchesAttachmentByNormalizedName(): void
@@ -412,6 +419,16 @@ final class DocumentAuditOrchestratorTest extends TestCase
             publisher:    new InMemoryPublisher(),
             consumerName: 'test-orchestrator'
         );
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     * @param array<int,string> $expected
+     */
+    private function assertContractFunctionNames(array $contract, array $expected): void
+    {
+        $this->assertSame($expected, $contract['required_function_names']);
+        $this->assertSame($expected, array_column($contract['function_declarations'], 'name'));
     }
 }
 

@@ -367,7 +367,10 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('Lote', $loteHallazgo['campo']);
         $this->assertSame('COINCIDE', $loteHallazgo['resultado']);
         $this->assertSame('trace_token', $loteHallazgo['valueType']);
+        $this->assertArrayHasKey('valoresFuenteVerdad', $loteHallazgo);
         $this->assertArrayHasKey('valoresDocumento', $loteHallazgo);
+        $this->assertContains('02041804-25', $loteHallazgo['valoresFuenteVerdad']);
+        $this->assertContains('02041806-25', $loteHallazgo['valoresFuenteVerdad']);
         $this->assertContains('02041804-25', $loteHallazgo['valoresDocumento']);
         $this->assertContains('02041806-25', $loteHallazgo['valoresDocumento']);
     }
@@ -375,6 +378,53 @@ final class DocumentPolicyEngineTest extends TestCase
     /**
      * FDV = {A, B}, Doc = {A} → evidencia parcial → NO_CONCLUYENTE.
      */
+    public function testD13260500540MultiItemDispensaUsesResolvedFdvAndDocumentValues(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [
+                    self::field('Lote'),
+                    self::field('CantidadEntregada', 'B'),
+                    self::field('CantidadPrescrita', 'B'),
+                ],
+                ['header' => [], 'items' => [
+                    ['Lote' => '5D03364', 'CantidadEntregada' => '2', 'CantidadPrescrita' => '2'],
+                    ['Lote' => '5G00989', 'CantidadEntregada' => '5', 'CantidadPrescrita' => '28'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['Lote' => '5D03364', 'CantidadEntregada' => '2', 'CantidadPrescrita' => '2'],
+                    ['Lote' => '5G00989', 'CantidadEntregada' => '5', 'CantidadPrescrita' => '28'],
+                ]
+            )
+        );
+
+        $findingsByField = [];
+        foreach ($result['hallazgos']['items'] as $finding) {
+            $findingsByField[$finding['campo']] = $finding;
+        }
+
+        $this->assertSame('COINCIDE', $findingsByField['Lote']['resultado']);
+        $this->assertSame(['5D03364', '5G00989'], $findingsByField['Lote']['valoresFuenteVerdad']);
+        $this->assertSame(['5D03364', '5G00989'], $findingsByField['Lote']['valoresDocumento']);
+
+        $this->assertSame('COINCIDE', $findingsByField['CantidadEntregada']['resultado']);
+        $this->assertSame('7', $findingsByField['CantidadEntregada']['valorFuenteVerdad']);
+        $this->assertSame('7', $findingsByField['CantidadEntregada']['valorDocumento']);
+
+        $this->assertSame('COINCIDE', $findingsByField['CantidadPrescrita']['resultado']);
+        $this->assertSame('30', $findingsByField['CantidadPrescrita']['valorFuenteVerdad']);
+        $this->assertSame('30', $findingsByField['CantidadPrescrita']['valorDocumento']);
+
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
     public function testTraceTokenPartialEvidenceProducesInconclusive(): void
     {
         $engine = new DocumentPolicyEngine();
@@ -497,7 +547,7 @@ final class DocumentPolicyEngineTest extends TestCase
         $lab = $result['hallazgos']['items'][0];
         $this->assertSame('Laboratorio', $lab['campo']);
         $this->assertSame('NO_CONCLUYENTE', $lab['resultado']);
-        $this->assertStringContainsString('múltiples valores distintos', (string) $lab['detalle']);
+        $this->assertStringContainsString('multiples valores distintos', (string) $lab['detalle']);
     }
 
     // ─── AUDIT-016: CAT-3 — Comparación de subconjunto para CODE ─────────────

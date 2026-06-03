@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
-use App\Services\Audit\AuditFieldValueType;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -281,14 +280,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         array $context
     ): array {
         $attachmentId = (string) ($attachment['id_documento'] ?? '');
-        $targetContext = $this->buildTargetContext(
-            $configuredDocument['document_name'],
-            $configuredDocument['fields'],
-            $configuredDocument['visual_checks'],
-            $context['fuenteVerdad']
-        );
         $contractHash = (string) ($configuredDocument['extraction_contract']['contract_hash'] ?? '');
-        $targetContextHash = DocumentExtractionContractBuilder::hashPayload($targetContext);
 
         return [
             'document_id'        => $documentId,
@@ -309,87 +301,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'visual_checks'      => $configuredDocument['visual_checks'],
             'system_prompt'      => $context['auditConfig']['systemPrompt'] ?? null,
             'fuente_verdad'      => $context['fuenteVerdad'],
-            'target_context'     => $targetContext,
-            'target_context_hash'=> $targetContextHash,
             'contract_hash'      => $contractHash,
-        ];
-    }
-
-    /**
-     * Construye el FDV-lite (target_context) por documento.
-     *
-     * Extrae solo los campos configurados para ese documento desde la fuente de verdad,
-     * incluyendo tipoCampo y tipoDato. Esto permite:
-     * 1. Inyectar contexto mínimo en el prompt de Gemini (anti-sesgo)
-     * 2. Calcular target_context_hash para invalidar cache al cambiar FDV
-     * 3. Trazar qué datos tenía la FDV al momento de la extracción
-     *
-     * @param  array<int,array<string,mixed>> $fieldsConfig   Campos activos del audit-config
-     * @param  array<int,array<string,mixed>> $visualChecks   Checks visuales activos
-     * @param  array<string,mixed>            $fuenteVerdad   FDV completa {header, items}
-     * @return array{fields:array<string,mixed>,items:array<string,mixed>,visualChecks:array<string,mixed>}
-     */
-    private function buildTargetContext(string $documentName, array $fieldsConfig, array $visualChecks, array $fuenteVerdad): array
-    {
-        $header = is_array($fuenteVerdad['header'] ?? null) ? $fuenteVerdad['header'] : [];
-        $items  = is_array($fuenteVerdad['items'] ?? null) ? $fuenteVerdad['items'] : [];
-
-        $targetFields = [];
-        $targetItems  = [];
-
-        foreach ($fieldsConfig as $fieldConfig) {
-            $name      = trim((string) ($fieldConfig['campoNombre'] ?? ''));
-            $tipoCampo = (string) ($fieldConfig['tipoCampo'] ?? 'E');
-            $tipoDato  = (string) ($fieldConfig['tipoDato'] ?? '');
-            if ($name === '') {
-                continue;
-            }
-
-            $valueType = AuditFieldValueType::fromInput($tipoDato);
-            $isItem    = $this->contractBuilder->isItemField(
-                $documentName, $name, $tipoCampo, $valueType
-            );
-
-            if ($isItem) {
-                $valores = [];
-                foreach ($items as $item) {
-                    $v = trim((string) ($item[$name] ?? ''));
-                    if ($v !== '') {
-                        $valores[] = $v;
-                    }
-                }
-                $targetItems[$name] = [
-                    'tipoCampo'           => $tipoCampo,
-                    'tipoDato'            => $valueType->value,
-                    'valueType'           => $valueType->value,
-                    'valoresFuenteVerdad' => $valores,
-                ];
-            } else {
-                $valor = trim((string) ($header[$name] ?? ''));
-                $targetFields[$name] = [
-                    'tipoCampo'          => $tipoCampo,
-                    'tipoDato'           => $valueType->value,
-                    'valueType'          => $valueType->value,
-                    'valorFuenteVerdad'  => $valor !== '' ? $valor : null,
-                ];
-            }
-        }
-
-        $targetVisualChecks = [];
-        foreach ($visualChecks as $check) {
-            $checkName = trim((string) ($check['check'] ?? ''));
-            if ($checkName !== '') {
-                $targetVisualChecks[$checkName] = [
-                    'tipoCampo' => 'V',
-                    'expected'  => 'PRESENTE',
-                ];
-            }
-        }
-
-        return [
-            'fields'       => $targetFields,
-            'items'        => $targetItems,
-            'visualChecks' => $targetVisualChecks,
         ];
     }
 

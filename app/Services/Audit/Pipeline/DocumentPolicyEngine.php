@@ -146,13 +146,14 @@ class DocumentPolicyEngine
 
             $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
             $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
-            $fdvValue      = FieldValueResolver::resolveSourceTruthValue($canonicalField, $valueType, $sourceTruth);
+            $fdvResolution = FieldValueResolver::resolveSourceTruthField($canonicalField, $valueType, $sourceTruth);
 
-            $docValue    = $docResolution['displayValue'];
-            $ambiguous   = $docResolution['ambiguous'];
-            $evidenceMeta = $docResolution['evidenceMeta'];
-
-            if ($fdvValue === null && $docValue === null && !$ambiguous) {
+            if (
+                !$fdvResolution->hasValue()
+                && !$docResolution->hasValue()
+                && !$fdvResolution->ambiguous
+                && !$docResolution->ambiguous
+            ) {
                 continue;
             }
 
@@ -161,12 +162,10 @@ class DocumentPolicyEngine
 
             $comparison = $this->evaluateDataFieldComparison(
                 $canonicalField,
-                $fdvValue,
-                $docValue,
+                $fdvResolution,
                 $docResolution,
                 $valueType,
                 $documentQuality,
-                $ambiguous,
                 $context,
                 $internalType,
                 $tipoCampo
@@ -174,8 +173,7 @@ class DocumentPolicyEngine
 
             $findings[] = $this->buildDataFinding(
                 $canonicalField, $fieldConfig, $comparison, $documentType,
-                $fdvValue, $docValue, $internalType, $valueType, $evidenceMeta,
-                $docResolution['values']
+                $fdvResolution, $docResolution, $internalType, $valueType
             );
         }
 
@@ -183,35 +181,35 @@ class DocumentPolicyEngine
     }
 
     /**
-     * @param  array{displayValue:?string, values:array<int,string>, ambiguous:bool, evidenceMeta:array<string,mixed>} $docResolution
      * @return array{resultado:string,tipo_auditoria?:string,detalle?:string}
      */
     private function evaluateDataFieldComparison(
         string $canonicalField,
-        ?string $fdvValue,
-        ?string $docValue,
-        array $docResolution,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution,
         AuditFieldValueType $valueType,
         string $documentQuality,
-        bool $ambiguous,
         array $context,
         string $internalType,
         string $tipoCampo
     ): array {
-        if ($this->canEvaluateTraceSet($valueType, $fdvValue, $docValue, $ambiguous)) {
+        if ($this->canEvaluateTraceSet($valueType, $fdvResolution, $docResolution)) {
             return $this->evaluateTraceSetField(
                 $canonicalField,
-                $this->splitTraceDisplayValue($fdvValue),
-                $docResolution['values']
+                $fdvResolution->values,
+                $docResolution->values
             );
+        }
+
+        if ($fdvResolution->ambiguous || $docResolution->ambiguous) {
+            return $this->evaluateAmbiguousField($canonicalField, $fdvResolution, $docResolution);
         }
 
         return $this->evaluateField(
             $canonicalField,
-            $fdvValue,
-            $docValue,
+            $fdvResolution->displayValue,
+            $docResolution->displayValue,
             $documentQuality,
-            $ambiguous,
             $context,
             $internalType,
             $tipoCampo,
@@ -221,22 +219,14 @@ class DocumentPolicyEngine
 
     private function canEvaluateTraceSet(
         AuditFieldValueType $valueType,
-        ?string $fdvValue,
-        ?string $docValue,
-        bool $ambiguous
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution
     ): bool {
         return $valueType->requiresTraceSetComparison()
-            && $fdvValue !== null
-            && $docValue !== null
-            && !$ambiguous;
-    }
-
-    /**
-     * @return array<int,string>
-     */
-    private function splitTraceDisplayValue(string $displayValue): array
-    {
-        return array_map('trim', explode(', ', $displayValue));
+            && $fdvResolution->hasValue()
+            && $docResolution->hasValue()
+            && !$fdvResolution->ambiguous
+            && !$docResolution->ambiguous;
     }
 
     private function buildDataFinding(
@@ -244,19 +234,18 @@ class DocumentPolicyEngine
         array $fieldConfig,
         array $comparison,
         string $documentType,
-        ?string $fdvValue,
-        ?string $docValue,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution,
         string $internalType,
-        AuditFieldValueType $valueType,
-        array $evidenceMeta = [],
-        array $docValues = []
+        AuditFieldValueType $valueType
     ): array {
-        $valoresDocumento = FieldValueResolver::resolveFindingDocumentValues($valueType, $docValue, $docValues);
+        $valoresFuenteVerdad = FieldValueResolver::resolveFindingValues($valueType, $fdvResolution);
+        $valoresDocumento = FieldValueResolver::resolveFindingValues($valueType, $docResolution);
 
         $finding = [
             'campo'              => $canonicalField,
-            'valorFuenteVerdad'  => $fdvValue,
-            'valorDocumento'     => $docValue,
+            'valorFuenteVerdad'  => $fdvResolution->displayValue,
+            'valorDocumento'     => $docResolution->displayValue,
             'resultado'          => $comparison['resultado'],
             'severidad'          => AuditSeverity::fromInput($fieldConfig['severity'] ?? 'media')->value,
             'documento'          => $documentType,
@@ -265,18 +254,41 @@ class DocumentPolicyEngine
             'valueType'          => $valueType->value,
         ];
 
+        if ($valoresFuenteVerdad !== null) {
+            $finding['valoresFuenteVerdad'] = $valoresFuenteVerdad;
+        }
+
         if ($valoresDocumento !== null) {
             $finding['valoresDocumento'] = $valoresDocumento;
         }
 
-        if ($evidenceMeta !== []) {
-            $finding['extraction_meta'] = array_filter($evidenceMeta, fn($v) => $v !== null);
+        if ($docResolution->evidenceMeta !== []) {
+            $finding['extraction_meta'] = array_filter($docResolution->evidenceMeta, fn($v) => $v !== null);
         }
 
         return $finding;
     }
 
+    /**
+     * @return array{resultado:string,detalle:string}
+     */
+    private function evaluateAmbiguousField(
+        string $field,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution
+    ): array {
+        $humanField = TextNormalization::humanizeFieldName($field);
+        $values = $docResolution->ambiguous ? $docResolution->values : $fdvResolution->values;
 
+        return [
+            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+            'detalle'   => sprintf(
+                "Se encontraron multiples valores distintos para '%s' (%s), lo que impide determinar cual es el correcto.",
+                $humanField,
+                implode(', ', $values)
+            ),
+        ];
+    }
 
     /**
      * @param array<string,mixed> $fieldConfig
@@ -300,20 +312,12 @@ class DocumentPolicyEngine
         ?string $fdvValue,
         ?string $docValue,
         string $documentQuality,
-        bool $ambiguous,
         array $context = [],
         ?string $forcedType = null,
         string $tipoCampo = 'E',
         ?AuditFieldValueType $valueType = null
     ): array {
         $humanField = TextNormalization::humanizeFieldName($field);
-
-        if ($ambiguous) {
-            return [
-                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle'   => "Se encontraron múltiples valores distintos para '{$humanField}' en el mismo documento, lo que impide determinar cuál es el correcto.",
-            ];
-        }
 
         if ($documentQuality !== 'legible' && $docValue === null) {
             return [

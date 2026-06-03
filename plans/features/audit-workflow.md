@@ -35,10 +35,12 @@ Pipeline distribuido que audita facturas de dispensación farmacéutica usando `
 | `AuditController` | Valida solicitudes, resuelve identidad en `single`, registra jobs y publica eventos iniciales |
 | `BatchRequestedWorker` | Consume `batch_requested`, consulta SQL Server, reserva `FacSec` y publica `audit_created` |
 | `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos y publica `document_registered` por documento |
-| `DocumentExtractionContractBuilder` | Construye las cuatro function declarations Gemini desde `audit-config` |
+| `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
 | `DocumentExtractionWorker` | Descarga adjuntos, valida integridad, usa cache por `document_hash` e invoca Gemini |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
+| `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
+| `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
 | `RulesEvaluationWorker` | Evalúa reglas por documento, convierte `document_rejected` en hallazgo `RECHAZADO` y construye el outcome final |
 | `AuditAggregationWorker` | Valida, persiste en SQL, cierra Redis y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
@@ -58,6 +60,16 @@ batch_requested
 ```
 
 `document_rejected` salta la normalización y entra directamente a policy. `RulesEvaluationWorker` lo transforma en un hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity`.
+
+## Evaluacion Multi-Item
+
+La policy no compara un item aislado contra toda la factura. Antes de evaluar, `FieldValueResolver` transforma ambos lados en `ResolvedAuditValue`:
+
+- `TipoCampo=B` + `TipoDato=quantity`: suma cantidades de todos los items de FDV y del documento.
+- `TipoDato=trace_token`: compara sets completos de trazabilidad (`Lote`, seriales) y persiste `valoresFuenteVerdad` / `valoresDocumento`.
+- Campos no sumables ni set-based con multiples valores distintos quedan `NO_CONCLUYENTE` por ambiguedad.
+
+Caso de regresion cubierto: `D13260500540` con dos items debe producir `Lote={5D03364,5G00989}`, `CantidadEntregada=7` y `CantidadPrescrita=30` como `COINCIDE`.
 
 ## Contrato de Identidad
 

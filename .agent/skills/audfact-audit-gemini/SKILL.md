@@ -22,8 +22,8 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` / `AttachmentDownloadServiceInterface.php` | Descarga del adjunto (Drive/BLOB) por audit-id + document-id |
 | `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
-| `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye las cuatro function declarations Gemini (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y agrupa campos dinámicos por responsabilidad |
-| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por hash, invoca Gemini con parallel function calling y publica `document_extracted` |
+| `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
+| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por `contract_hash` + `prompt_context_hash`, invoca Gemini con prompt compacto sin valores FDV y publica `document_extracted` |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
@@ -32,6 +32,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items) resolviendo dependencias de normalización cruzada. |
+| `app/Services/Audit/Pipeline/ResolvedAuditValue.php` | DTO inmutable para comparar FDV y documento con el mismo contrato (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`). |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
@@ -99,10 +100,10 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 ## Flujo técnico
 
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
-2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.fac_sec` = `FDV.header.FacSec` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId`.
-3. `DocumentExtractionWorker` descarga el adjunto por URL interna y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si el documento está corrupto, vacío, tiene MIME no soportado o la firma binaria no coincide, se marca como `rejected` atómicamente en Redis incrementando `docs_rejected`, se publica `document_rejected` y se omite Gemini. Si es válido, calcula `document_hash = sha256(base64_data)`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y parallel function calling (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`) y combina las respuestas en `extraction_result`.
+2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.fac_sec` = `FDV.header.FacSec` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId` con `extraction_contract`, `fields_config`, `visual_checks`, `fuente_verdad` para reglas PHP y `contract_hash`. Ya no publica `target_context` ni `target_context_hash` para Gemini.
+3. `DocumentExtractionWorker` descarga el adjunto por URL interna y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si el documento está corrupto, vacío, tiene MIME no soportado o la firma binaria no coincide, se marca como `rejected` atómicamente en Redis incrementando `docs_rejected`, se publica `document_rejected` y se omite Gemini. Si es válido, calcula `document_hash = sha256(base64_data)`, arma un prompt compacto sin valores FDV de cabecera/línea, calcula `prompt_context_hash`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y function calling dinámico. `extract_fields`, `extract_items` y `detect_visual_checks` se declaran solo cuando hay campos/checks activos; `assess_document_quality` se declara siempre. Las funciones omitidas se normalizan como `fields={}`, `items=[]` o `visual_checks=[]` en `extraction_result`.
 4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
-5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV y convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
+5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue` para comparar cantidades agregadas, sets `TRACE_TOKEN` y valores ambiguos con el mismo contrato. Convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
 6. `AuditAggregationWorker` valida el outcome recibido, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
 
@@ -117,22 +118,23 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
    - `TipoDato` permitido: `text`, `date`, `quantity`, `money`, `identity_doc_type`, `identity_doc_number`, `code`, `trace_token`, `person_name`, `institution_name`, `article_name`.
    Prohibido inferir `TipoDato` por nombre del campo. `AuditFieldValueType::fromInput()` debe recibir metadata explícita del `audit-config`. La ubicación `extract_fields` vs `extract_items` la define `DocumentExtractionContractBuilder` con reglas explícitas de dominio para evitar mezclar cabecera y líneas.
 3. **[AUDIT-016] Subset matching para `CODE`**: Campos con `AuditFieldValueType::CODE` usan `evaluateSubsetField()`. Si el FDV tiene un código (ej. `S202`) y el documento lista múltiples (ej. `S202, S273, F432`), se evalúa como `COINCIDE` con `tipo_auditoria=exact`. `tokenizeCodeField()` separa por coma, punto y coma o barra; normaliza a mayúsculas. El hallazgo incluye `valueType=code` y `valoresDocumento` (array de tokens).
-4. **[TRACE_TOKEN] Set-based matching para Trazabilidad**: Campos como `Lote` usan `TRACE_TOKEN`. Aplica lógica matemática de conjuntos $FDV \subseteq Doc$. Si la FDV pide "Lote A", y el documento trae "Lote A" y "Lote B", es `COINCIDE`. Si el documento trae solo una parte de un FDV múltiple, es `NO_CONCLUYENTE` (evidencia parcial). Si trae un lote no registrado, es `VALOR_DISTINTO`.
-4. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico usan una heurística estructural de similitud por tokens (exigiendo que al menos 1 token de la parte más corta coincida exactamente). Si la heurística falla, hace fallback a `ArticleSemanticMatchJudge` para validar posibles alias o variaciones de escritura vía Gemini.
-5. **[AUDIT-016] No data-loss en multi-item divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Ya no se descarta silenciosamente el campo.
-6. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType` y `valoresDocumento` (tokens del set `CODE`). Siempre presente en hallazgos de tipo `CODE`. Adaptador `resolveFieldScalar()` normaliza payloads legacy (string) y v1 (`{valor, valores}`).
-7. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
-8. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
-9. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.
-10. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
-11. **Exclusiones documentales**: no documentar campos como "informativos" si el `audit-config` real no trae esa marca. Para omitir un campo de auditoría debe no estar activo en `fields`; `omitirSi` no está implementado en el runtime actual.
-12. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
-13. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
-14. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
-15. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
-16. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
-17. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
-18. **Identidad canónica E2E**: `FacSec` de auditoría debe cumplir `Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec`. `DisDetNro`/`Dispensa` es la llave operativa de adjuntos y se persiste como `AudDispEst.FacNro`. Ver `plans/audit-identity-contract.md`.
+4. **[TRACE_TOKEN] Set-based matching para Trazabilidad**: Campos como `Lote` usan `TRACE_TOKEN`. FDV y documento se resuelven como sets desde `ResolvedAuditValue`; si ambos sets son iguales, es `COINCIDE`. Si el documento trae solo una parte de un FDV múltiple, es `NO_CONCLUYENTE` (evidencia parcial). Si trae un lote no registrado en FDV, es `VALOR_DISTINTO`. El hallazgo incluye `valoresFuenteVerdad` y `valoresDocumento`.
+5. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico usan una heurística estructural de similitud por tokens (exigiendo que al menos 1 token de la parte más corta coincida exactamente). Si la heurística falla, hace fallback a `ArticleSemanticMatchJudge` para validar posibles alias o variaciones de escritura vía Gemini.
+6. **[AUDIT-016] No data-loss en multi-item divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Ya no se descarta silenciosamente el campo.
+7. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType`; para `CODE` y `TRACE_TOKEN` agrega `valoresFuenteVerdad` y/o `valoresDocumento` cuando existen tokens/set evaluables. Las cantidades `TipoCampo=B` reportan `valorFuenteVerdad` y `valorDocumento` como sumatoria agregada de items.
+8. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
+9. **Prompt compacto de extracción**: Gemini no recibe valores esperados de FDV (`Campos de cabecera esperados`, `Campos de línea esperados`, diagnósticos, fechas, identidad, etc.). Solo recibe contexto estructural: documento objetivo, campos solicitados, separación identidad, ubicación `fields`/`items`, checks visuales y segmentación de filas cuando aplican. El schema evita descripciones repetitivas y conserva solo instrucciones críticas de identidad; el shape v1 `{valor, valores, presente, estadoExtraccion}` no cambia. Las pistas de artículo para documentos prescriptivos se permiten solo cuando `NombreArticulo` está en `items`.
+10. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
+11. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.
+12. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
+13. **Exclusiones documentales**: no documentar campos como "informativos" si el `audit-config` real no trae esa marca. Para omitir un campo de auditoría debe no estar activo en `fields`; `omitirSi` no está implementado en el runtime actual.
+14. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
+15. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
+16. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
+17. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
+18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
+19. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
+20. **Identidad canónica E2E**: `FacSec` de auditoría debe cumplir `Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec`. `DisDetNro`/`Dispensa` es la llave operativa de adjuntos y se persiste como `AudDispEst.FacNro`. Ver `plans/audit-identity-contract.md`.
 
 ## Omisiones de campos (runtime actual)
 
@@ -149,7 +151,7 @@ Para `TipoCampo = B`, `DocumentPolicyEngine` **suma los items de la FDV** antes 
 
 ## Contrato real de hallazgo (v1 — AUDIT-016)
 
-Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obligatorios post-AUDIT-016):
+Forma canónica del objeto en `AudDispEst.Hallazgos[*]`:
 
 ```json
 {
@@ -162,12 +164,13 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]` (todos los campos obliga
   "detalle":            "<string|null>",
   "tipo_auditoria":     "exact|semantic|business|visual|integrity",
   "valueType":          "text|date|quantity|money|identity_doc_type|identity_doc_number|code|trace_token|person_name|institution_name|article_name",
-  "valoresDocumento":   ["S202","S273","F432"]   // solo para CODE; null en otros tipos
+  "valoresFuenteVerdad":["5D03364","5G00989"],    // opcional para CODE/TRACE_TOKEN
+  "valoresDocumento":   ["5D03364","5G00989"]     // opcional para CODE/TRACE_TOKEN
 }
 ```
 
 > [!NOTE]
-> `valueType` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. `valueType` debe salir del `TipoDato` explícito del `audit-config`, no del nombre del campo.
+> `valueType`, `valoresFuenteVerdad` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. `valueType` debe salir del `TipoDato` explícito del `audit-config`, no del nombre del campo.
 
 El contrato runtime actual no incluye `rol` en hallazgos. Visual checks booleanos emiten un objeto similar, sin `valueType`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 
@@ -179,9 +182,10 @@ En Gemini 3.x los thinking tokens pueden superar **4×** los output tokens (caso
 
 1. **No** consultar vistas SQL directamente desde workers para FDV/adjuntos — usar `AuditDataService` y `AttachmentDownloadService`.
 2. **No** incluir base64, binarios o credenciales en el payload de eventos (solo en claves de estado Redis).
-3. **No** fabricar `items` desde `fields` en normalizador o policy.
-4. **No** borrar mensajes de streams; dejar ack/retry/DLQ hacer su trabajo.
-5. **No** mezclar dos responsabilidades en un worker: cada etapa publica exactamente un evento siguiente.
+3. **No** inyectar valores FDV esperados en el prompt de extracción; Gemini extrae evidencia visible y PHP compara.
+4. **No** fabricar `items` desde `fields` en normalizador o policy.
+5. **No** borrar mensajes de streams; dejar ack/retry/DLQ hacer su trabajo.
+6. **No** mezclar dos responsabilidades en un worker: cada etapa publica exactamente un evento siguiente.
 
 ## Ejemplos
 
@@ -225,7 +229,7 @@ curl http://localhost:8080/audit/dlq?limit=20
 6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
 7. PHPUnit completo verde antes de merge; suite actual organizada en 31 archivos PHP bajo `tests/`.
 8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` valida los fixtures golden.
-9. Hallazgos de tipo `CODE` incluyen `valueType` y `valoresDocumento` en el contrato v1.
+9. Hallazgos de tipo `CODE`/`TRACE_TOKEN` incluyen `valueType` y arrays de valores FDV/documento cuando aplican.
 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)

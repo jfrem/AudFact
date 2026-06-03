@@ -35,6 +35,8 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
 
+`AuditStatusModel` expone `auditExecuted` como campo derivado para resultados públicos: una auditoría terminal con payload persistido (`findings`, `timings` o documentos procesados) cuenta como ejecutada aunque `EstAud=0` por requerir revisión humana.
+
 ## Contrato de identidad de auditoría
 
 Fuente completa: [`plans/audit-identity-contract.md`](file:///c:/Users/USER/Desktop/AudFact/plans/audit-identity-contract.md).

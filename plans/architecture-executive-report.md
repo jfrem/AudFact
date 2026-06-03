@@ -410,7 +410,7 @@ $claimed = $redis->xAutoClaim(
 
 #### C. Caché de Idempotencia y Hash Compuesto (SHA256)
 El costo y la latencia asociados a las llamadas repetidas de modelos de lenguaje (LLM) son mitigados críticamente en AudFact mediante una caché estructurada de extracción documental:
-1. Al recibir un documento (Fórmula médica, Acta de entrega, Autorización de EPS) a través de Google Drive o un adjunto de base de datos, el sistema calcula un hash criptográfico **SHA256** compuesto. Este hash une cuatro componentes clave: el hash del contenido del documento, el hash de la estructura del contrato de extracción, el hash del contexto objetivo y la versión del extractor.
+1. Al recibir un documento (Fórmula médica, Acta de entrega, Autorización de EPS) a través de Google Drive o un adjunto de base de datos, el sistema calcula un hash criptográfico **SHA256** compuesto. Este hash une cuatro componentes clave: el hash del contenido del documento, el hash de la estructura del contrato de extracción, el `prompt_context_hash` calculado desde los prompts reales y la versión del extractor.
 2. Se realiza una consulta atómica en Redis bajo la clave `extraction:cache:v1:{composite_hash}`.
 3. **Escenario de Cache Hit**: Si la clave existe, el payload JSON de extracción previamente validado por la IA se lee de forma local. El sistema omite por completo la llamada HTTPS cifrada a la API de Gemini (ahorrando costos de API y reduciendo el tiempo de respuesta de ~5-8 segundos a **<10ms**).
 4. **Escenario de Cache Miss**: Si no existe, se realiza la extracción documental multimodal en Gemini, y el resultado es guardado inmediatamente en Redis con un TTL parametrizable de 24 horas (`AUDIT_EXTRACTION_CACHE_TTL`), lo que provee una ventana óptima de protección contra re-auditorías de lotes o reintentos del frontend.
@@ -739,7 +739,7 @@ Para evitar el crecimiento desmedido de la memoria en caliente y garantizar una 
 
 | Componente / Módulo de Datos | Prefijo de Clave en Redis | TTL por Defecto | Variable de Entorno | Propósito y Estrategia de Persistencia |
 | :--- | :--- | :--- | :--- | :--- |
-| **Caché de Extracción Documental** | `extraction:cache:v1:` | **24 horas** (86400s) | `AUDIT_EXTRACTION_CACHE_TTL` | Caché read-through estructurada mediante hash SHA256 compuesto (documento, contrato, contexto y versión del extractor). |
+| **Caché de Extracción Documental** | `extraction:cache:v1:` | **24 horas** (86400s) | `AUDIT_EXTRACTION_CACHE_TTL` | Caché read-through estructurada mediante hash SHA256 compuesto (documento, contrato, `prompt_context_hash` y versión del extractor). |
 | **Homologación Semántica** | `audfact:semantic:match:` | **30 días** (2592000s) | *(Constante Estática)* | Almacenamiento a largo plazo para decisiones clínicas y homologaciones de nombres y medicamentos de Gemini. |
 | **Estado Transitorio de Auditorías** | `audit:` | **24 horas** (86400s) | *(Constante Estática)* | Orquestación del estado de auditoría, eventos completados y métricas transitorias por `FacSec`. |
 | **Estado de Batch Jobs** | `job:` | **24 horas** (86400s) | *(Constante Estática)* | Seguimiento de progreso, throughput y agregaciones de lotes asíncronos concurrentes. |
