@@ -121,7 +121,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 4. **[TRACE_TOKEN] Set-based matching para Trazabilidad**: Campos como `Lote` usan `TRACE_TOKEN`. FDV y documento se resuelven como sets desde `ResolvedAuditValue`; si ambos sets son iguales, es `COINCIDE`. Si el documento trae solo una parte de un FDV múltiple, es `NO_CONCLUYENTE` (evidencia parcial). Si trae un lote no registrado en FDV, es `VALOR_DISTINTO`. El hallazgo incluye `valoresFuenteVerdad` y `valoresDocumento`.
 5. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico usan una heurística estructural de similitud por tokens (exigiendo que al menos 1 token de la parte más corta coincida exactamente). Si la heurística falla, hace fallback a `ArticleSemanticMatchJudge` para validar posibles alias o variaciones de escritura vía Gemini.
 6. **[AUDIT-016] No data-loss en multi-item divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Ya no se descarta silenciosamente el campo.
-7. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType`; para `CODE` y `TRACE_TOKEN` agrega `valoresFuenteVerdad` y/o `valoresDocumento` cuando existen tokens/set evaluables. Las cantidades `TipoCampo=B` reportan `valorFuenteVerdad` y `valorDocumento` como sumatoria agregada de items.
+7. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType`; para `CODE` y `TRACE_TOKEN` agrega `valoresFuenteVerdad` y/o `valoresDocumento` cuando existen tokens/set evaluables. Las cantidades `TipoCampo=B` reportan `valorFuenteVerdad` y `valorDocumento` como sumatoria agregada de items. Si un hallazgo configurable falla y existe `codigoCampo`, el `detalle` se enriquece con el prefijo textual `-CODIGO- detalle`.
 8. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
 9. **Prompt compacto de extracción**: Gemini no recibe valores esperados de FDV (`Campos de cabecera esperados`, `Campos de línea esperados`, diagnósticos, fechas, identidad, etc.). Solo recibe contexto estructural: documento objetivo, campos solicitados, separación identidad, ubicación `fields`/`items`, checks visuales y segmentación de filas cuando aplican. El schema evita descripciones repetitivas y conserva solo instrucciones críticas de identidad; el shape v1 `{valor, valores, presente, estadoExtraccion}` no cambia. Las pistas de artículo para documentos prescriptivos se permiten solo cuando `NombreArticulo` está en `items`.
 10. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
@@ -138,7 +138,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 ## Omisiones de campos (runtime actual)
 
-El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna `campoNombre`, `tipoCampo`, `tipoDato`, `orden`, `severity` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` exige `tipoDato` para campos no visuales y acepta `tipoDato = null` solo para `TipoCampo = V`.
+El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna `campoNombre`, `tipoCampo`, `tipoDato`, `orden`, `severity`, `codigoCampo` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` exige `tipoDato` para campos no visuales, acepta `tipoDato = null` solo para `TipoCampo = V` y preserva `codigoCampo` cuando llega en el payload.
 
 Implicación operativa:
 - si un campo aparece activo en `fields`, `DocumentPolicyEngine` lo evalúa;
@@ -171,6 +171,7 @@ Forma canónica del objeto en `AudDispEst.Hallazgos[*]`:
 
 > [!NOTE]
 > `valueType`, `valoresFuenteVerdad` y `valoresDocumento` son campos v1 inyectados por `buildDataFinding()`. `valueType` debe salir del `TipoDato` explícito del `audit-config`, no del nombre del campo.
+> Para resultados fallidos (`VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` y `RECHAZADO` cuando haya código disponible), el `detalle` inicia con el prefijo textual `-<codigoCampo>- ` tomado de `AudDispCampo.CodigoCampo`; no se agrega una propiedad pública separada.
 
 El contrato runtime actual no incluye `rol` en hallazgos. Visual checks booleanos emiten un objeto similar, sin `valueType`; los visuales calculables como `VigenciaEntrega` emiten `tipo_auditoria: "visual"` desde la agregación de reglas.
 

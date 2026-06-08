@@ -202,6 +202,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `Orden` | int | Orden estable de procesamiento/presentación |
 | `DescripcionOverride` | varchar/null | Descripción custom para visual checks |
 | `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) |
+| `CodigoCampo` | varchar/null | Código funcional del campo; se conserva en `audit-config` y se antepone como prefijo textual `-CODIGO- ` al `detalle` de hallazgos fallidos |
 
 **Usada por**: `AuditConfigModel` (`getConfig()`, `saveConfig()` con reemplazo `DELETE + INSERT`).
 

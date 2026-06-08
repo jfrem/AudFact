@@ -1,5 +1,30 @@
 # Changelog AudFact
 
+## [2026-06-08] - Docs: Alineacion de contrato `-CODIGO- detalle`
+
+### Documentacion / Skills / Clean Rebuild
+- Alineada la documentacion para declarar el contrato como prefijo textual `-CODIGO- detalle` en hallazgos configurables fallidos.
+- Corregidas referencias ambiguas a "sufijo" en `plans/features/audit-workflow.md`, `audfact-audit-gemini` y `audfact-api-rest`.
+- Se mantiene la decision MVP de no agregar una propiedad publica separada para `codigoCampo` en hallazgos.
+- Limpieza tecnica en `AuditConfigModel::replaceFields()`: reemplazado `bindParam()` dentro del loop por `bindValue()` por iteracion, preservando tipos PDO explicitos y evitando referencias mutables.
+
+## [2026-06-03] - Fix: Codigo de Campo en Justificaciones Fallidas y Alineacion de Tests
+
+### IA Pipeline / Audit Config / Clean Rebuild
+- **Hallazgos con codigo funcional (Prefijo)**:
+  - Los hallazgos configurables fallidos (`VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` y fallos visuales/calculados con codigo disponible) anteponen el prefijo corto `-CODIGO- ` al `detalle`.
+  - Los hallazgos `COINCIDE` conservan el comportamiento actual y no reciben código.
+  - La idempotencia se garantiza al validar que el detalle no inicie con el formato de prefijo esperado mediante `str_starts_with`.
+
+- **Propagacion de metadata**:
+  - `codigoCampo` se conserva desde `audit-config` en campos de datos y visual checks.
+  - `POST /clients/{clientId}/audit-config` preserva `codigoCampo` al reemplazar configuraciones, evitando perdida de trazabilidad.
+
+- **Tests y documentacion**:
+  - Agregadas pruebas enfocadas para datos, visual checks, orquestacion y `VigenciaEntrega`.
+  - Corregidos los tests unitarios `DocumentPolicyEngineTest.php` y `RulesEvaluationWorkerTest.php` para buscar el formato de prefijo `-CODE- `.
+  - Sincronizados `plans/api-endpoints.md`, `plans/features/audit-workflow.md`, `plans/database-schema.md`, `audfact-audit-gemini`, `audfact-api-rest` y `audfact-sqlsrv-models`.
+
 ## [2026-06-02] - Fix: Resolucion Multi-Item con Contrato de Valores
 
 ### IA Pipeline / Clean Rebuild / Audit Results

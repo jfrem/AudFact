@@ -208,7 +208,7 @@ final class DeliveryValidityEvaluator
             ? ''
             : ' (vigencia por defecto del sistema)';
 
-        return [
+        $finding = [
             'campo'              => AuditFindingRules::FIELD_DELIVERY_VALIDITY,
             'valorFuenteVerdad'  => "{$baseField} {$baseDateText} + {$days} dias = {$limitDateText}",
             'valorDocumento'     => "{$deliveryDateText} dentro de {$days} dias",
@@ -220,6 +220,15 @@ final class DeliveryValidityEvaluator
                 : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}{$sourceNote}.",
             'tipo_auditoria'     => 'visual',
         ];
+
+        if (!$matches) {
+            $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
+                $finding['detalle'],
+                $candidate['expected']['codigoCampo'] ?? null
+            );
+        }
+
+        return $finding;
     }
 
     private static function buildInconclusiveFinding(array $candidate, string $detail): array

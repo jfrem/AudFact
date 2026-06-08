@@ -123,6 +123,7 @@ class AuditConfigController extends Controller
                 $campoNombre = $this->sanitizeCampoNombre($field);
                 $tipoCampo   = $this->sanitizeTipoCampo($field);
                 $tipoDato    = $this->sanitizeTipoDato($field, $tipoCampo);
+                $codigoCampo = $this->sanitizeCodigoCampo($field);
             } catch (\InvalidArgumentException $exception) {
                 $errors[] = "Campo #{$pos}: {$exception->getMessage()}";
                 continue;
@@ -140,6 +141,7 @@ class AuditConfigController extends Controller
                 'orden'       => (int) ($field['orden'] ?? 0),
                 'description' => $description,
                 'severity'    => $this->sanitizeSeverity($field),
+                'codigoCampo' => $codigoCampo,
             ];
         }
 
@@ -176,6 +178,28 @@ class AuditConfigController extends Controller
         }
 
         return $campoNombre;
+    }
+
+    private function sanitizeCodigoCampo(array $field): ?string
+    {
+        if (!array_key_exists('codigoCampo', $field) || $field['codigoCampo'] === null) {
+            return null;
+        }
+
+        if (!is_string($field['codigoCampo']) && !is_numeric($field['codigoCampo'])) {
+            throw new \InvalidArgumentException("'codigoCampo' debe ser texto.");
+        }
+
+        $codigoCampo = trim((string) $field['codigoCampo']);
+        if ($codigoCampo === '') {
+            return null;
+        }
+
+        if (!preg_match('/^[A-Za-z0-9_.\-]{1,50}$/', $codigoCampo)) {
+            throw new \InvalidArgumentException("'codigoCampo' contiene caracteres inválidos.");
+        }
+
+        return $codigoCampo;
     }
 
     private function sanitizeTipoCampo(array $field): string

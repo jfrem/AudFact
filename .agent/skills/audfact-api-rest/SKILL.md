@@ -18,7 +18,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `app/Routes/web.php` | ~1.6 KB | Definición de 27 rutas |
 | `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
-| `app/Controllers/AuditConfigController.php` | 6.8 KB | Configuración dinámica de auditoría por cliente |
+| `app/Controllers/AuditConfigController.php` | 8.9 KB | Configuración dinámica de auditoría por cliente |
 | `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
 | `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ |
 | `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI |
@@ -78,6 +78,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 5. **No retornar arrays crudos** con `echo`; usar `Response`.
 6. Router sanitiza params con `FILTER_SANITIZE_SPECIAL_CHARS` y limita a **255 caracteres**.
 7. **Patrón Uniforme**: Todo endpoint que retorne listas debe incluir metadatos de paginación y reflejar los filtros aplicados.
+8. `POST /clients/{clientId}/audit-config` debe preservar `codigoCampo` cuando venga en los campos activos; ese código se usa luego como prefijo textual `-CODIGO- detalle` en hallazgos fallidos.
 
 ## Patrón de Endpoint Estándar (Uniforme) 💎
 

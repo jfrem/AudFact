@@ -71,6 +71,10 @@ La policy no compara un item aislado contra toda la factura. Antes de evaluar, `
 
 Caso de regresion cubierto: `D13260500540` con dos items debe producir `Lote={5D03364,5G00989}`, `CantidadEntregada=7` y `CantidadPrescrita=30` como `COINCIDE`.
 
+## Contrato de Hallazgos
+
+Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v1. Cuando un hallazgo configurable falla (`VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` o `RECHAZADO` con codigo disponible), el `detalle` inicia con el prefijo textual `-<codigoCampo>- ` tomado de `AudDispCampo.CodigoCampo`, seguido por el detalle funcional del hallazgo. Los hallazgos `COINCIDE` no reciben prefijo.
+
 ## Contrato de Identidad
 
 | Campo | Rol |

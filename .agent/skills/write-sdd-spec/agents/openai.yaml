@@ -1,0 +1,4 @@
+interface:
+  display_name: "SDD Specification Writer"
+  short_description: "Draft deterministic SDD specs"
+  default_prompt: "Use $write-sdd-spec to produce an auditable implementation specification."

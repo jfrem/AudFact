@@ -91,7 +91,8 @@ final class VisualCheckEvaluator
                 $findings[] = self::buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    "No fue posible verificar '{$humanCheck}' porque la calidad de la imagen no permite una inspección visual confiable."
+                    "No fue posible verificar '{$humanCheck}' porque la calidad de la imagen no permite una inspección visual confiable.",
+                    $checkExpected['codigoCampo'] ?? null
                 );
                 continue;
             }
@@ -101,7 +102,8 @@ final class VisualCheckEvaluator
                 $findings[] = self::buildVisualFinding(
                     $documentType, $checkName, $severity,
                     'NO_EVALUADO', AuditFindingResult::INCONCLUSIVE->value,
-                    "El check visual '{$humanCheck}' estaba configurado pero no pudo ser evaluado durante el análisis del documento."
+                    "El check visual '{$humanCheck}' estaba configurado pero no pudo ser evaluado durante el análisis del documento.",
+                    $checkExpected['codigoCampo'] ?? null
                 );
                 continue;
             }
@@ -111,7 +113,8 @@ final class VisualCheckEvaluator
                 $documentType, $checkName, $severity,
                 $isPresent ? 'PRESENTE' : 'AUSENTE',
                 $isPresent ? AuditFindingResult::MATCH->value : AuditFindingResult::MISMATCH->value,
-                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null)
+                AuditFindingRules::normalizeNullableString($foundResult['detalle'] ?? null),
+                $checkExpected['codigoCampo'] ?? null
             );
         }
 
@@ -127,9 +130,10 @@ final class VisualCheckEvaluator
         string $severity,
         string $valorDocumento,
         string $resultado,
-        ?string $detalle
+        ?string $detalle,
+        mixed $codigoCampo = null
     ): array {
-        return [
+        $finding = [
             'valorFuenteVerdad' => 'OBLIGATORIO',
             'valorDocumento'    => $valorDocumento,
             'resultado'         => $resultado,
@@ -138,5 +142,15 @@ final class VisualCheckEvaluator
             'severidad'         => $severity,
             'documento'         => $documentType,
         ];
+
+        $resultCase = AuditFindingResult::tryFrom($resultado);
+        if ($resultCase !== null && $resultCase->isDiscrepancy()) {
+            $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
+                $finding['detalle'] ?? null,
+                $codigoCampo
+            );
+        }
+
+        return $finding;
     }
 }

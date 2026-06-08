@@ -77,6 +77,7 @@ export const AuditConfigFieldSchema = z.object({
   descripcionOverride: z.string().nullable().optional(),
   severityOverride: z.string().nullable().optional(),
   orden: z.number().default(0),
+  codigoCampo: z.string().nullable().optional(),
 });
 
 export const AuditVisualCheckSchema = z.object({
@@ -85,6 +86,7 @@ export const AuditVisualCheckSchema = z.object({
   severity: z.string().nullable().optional(),
   enabled: z.boolean().default(true),
   orden: z.number().default(0),
+  codigoCampo: z.string().nullable().optional(),
 });
 
 export const AuditConfigDocumentSchema = z.object({

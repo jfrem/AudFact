@@ -53,6 +53,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
                             'check' => 'FirmaActaEntrega',
                             'description' => 'Firma',
                             'severity' => 'CRITICO',
+                            'codigoCampo' => 'FIR',
                         ]],
                     ],
                     'AUTORIZACION' => [
@@ -165,6 +166,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']
         );
         $this->assertIsArray($payload['visual_checks']);
+        $this->assertSame('FIR', $payload['visual_checks'][0]['codigoCampo']);
         $this->assertArrayHasKey('header', $payload['fuente_verdad']);
         $this->assertNull($payload['system_prompt']);
         $this->assertSame('T38250701547', $payload['dis_det_nro']);

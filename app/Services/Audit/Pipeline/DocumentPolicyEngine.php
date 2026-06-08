@@ -254,6 +254,14 @@ class DocumentPolicyEngine
             'valueType'          => $valueType->value,
         ];
 
+        $resultCase = AuditFindingResult::tryFrom((string) $finding['resultado']);
+        if ($resultCase !== null && $resultCase->isDiscrepancy()) {
+            $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
+                $finding['detalle'] ?? null,
+                $fieldConfig['codigoCampo'] ?? null
+            );
+        }
+
         if ($valoresFuenteVerdad !== null) {
             $finding['valoresFuenteVerdad'] = $valoresFuenteVerdad;
         }

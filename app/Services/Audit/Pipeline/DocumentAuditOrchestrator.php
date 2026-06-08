@@ -431,6 +431,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 'severity' => isset($check['severity']) && is_string($check['severity']) && trim($check['severity']) !== ''
                     ? strtoupper(trim($check['severity']))
                     : 'ALTA',
+                'codigoCampo' => $check['codigoCampo'] ?? null,
             ];
         }
 

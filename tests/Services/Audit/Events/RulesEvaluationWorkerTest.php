@@ -237,6 +237,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         $payload = $publisher->published[0]->payload;
         $vigencia = end($payload['hallazgos']['items']);
         $this->assertSame('VALOR_DISTINTO', $vigencia['resultado']);
+        $this->assertStringContainsString('-VIG- ', (string) $vigencia['detalle']);
         $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
         $this->assertFalse($payload['document_decisions'][1]['approved']);
         $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['observation']);
@@ -521,6 +522,7 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
                         'check' => 'VigenciaEntrega',
                         'description' => 'Vigencia visible',
                         'severity' => 'alta',
+                        'codigoCampo' => 'VIG',
                     ]],
                     'normalized_result' => [
                         'tipo_documento' => 'AUTORIZACION',

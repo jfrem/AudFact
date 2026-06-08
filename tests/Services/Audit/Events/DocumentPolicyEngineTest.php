@@ -17,15 +17,22 @@ final class DocumentPolicyEngineTest extends TestCase
         string $name,
         string $tipo = 'E',
         string $severity = 'alta',
-        ?string $tipoDato = null
+        ?string $tipoDato = null,
+        ?string $codigoCampo = null
     ): array {
-        return [
+        $field = [
             'campoNombre' => $name,
             'tipoCampo'   => $tipo,
             'tipoDato'    => $tipoDato ?? self::tipoDatoForTest($name),
             'severity'    => $severity,
             'orden'       => 0,
         ];
+
+        if ($codigoCampo !== null) {
+            $field['codigoCampo'] = $codigoCampo;
+        }
+
+        return $field;
     }
 
     private static function tipoDatoForTest(string $field): string
@@ -113,6 +120,72 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame(3, $result['hallazgos']['metrics']['total_campos']);
         $this->assertSame(3, $result['hallazgos']['metrics']['coincidencias']);
         $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testFailedDataFindingAppendsConfiguredFieldCodeToDetail(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E', 'alta', 'code', 'DX')],
+                ['header' => ['CodigoDiagnostico' => 'S202'], 'items' => []]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                ['CodigoDiagnostico' => 'A001']
+            )
+        );
+
+        $finding = $result['hallazgos']['items'][0];
+        $this->assertSame('VALOR_DISTINTO', $finding['resultado']);
+        $this->assertStringContainsString('-DX- ', (string) $finding['detalle']);
+    }
+
+    public function testMatchingDataFindingDoesNotAppendConfiguredFieldCodeToDetail(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E', 'alta', 'code', 'DX')],
+                ['header' => ['CodigoDiagnostico' => 'S202'], 'items' => []]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                ['CodigoDiagnostico' => 'S202, A001']
+            )
+        );
+
+        $finding = $result['hallazgos']['items'][0];
+        $this->assertSame('COINCIDE', $finding['resultado']);
+        $this->assertNull($finding['detalle']);
+    }
+
+    public function testFailedVisualFindingAppendsConfiguredFieldCodeToDetail(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [],
+                ['header' => [], 'items' => []],
+                [['check' => 'FirmaActaEntrega', 'severity' => 'ALTA', 'codigoCampo' => 'FIR']]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [],
+                [['check' => 'FirmaActaEntrega', 'presente' => false, 'detalle' => 'Firma no visible', 'severidad' => 'ALTA']]
+            )
+        );
+
+        $finding = $result['hallazgos']['items'][0];
+        $this->assertSame('VALOR_DISTINTO', $finding['resultado']);
+        $this->assertStringContainsString('-FIR- ', (string) $finding['detalle']);
     }
 
     public function testEvaluateSkipsCalculatedVisualChecksForAggregatePolicy(): void

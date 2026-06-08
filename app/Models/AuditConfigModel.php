@@ -133,7 +133,8 @@ class AuditConfigModel extends Model
      * @param array       $fields       Lista de campos a activar:
      *                                  [['docId'=>1,'campoNombre'=>'NumeroFactura',
      *                                    'tipoCampo'=>'E','tipoDato'=>'text','orden'=>1,
-     *                                    'description'=>null,'severity'=>null], ...]
+     *                                    'description'=>null,'severity'=>null,
+     *                                    'codigoCampo'=>null], ...]
      * @param string|null $systemPrompt Prompt personalizado (opcional)
      */
     public function saveConfig(
@@ -203,7 +204,7 @@ class AuditConfigModel extends Model
      *
      * @param array $fields  [['docId'=>int,'campoNombre'=>string,'tipoCampo'=>string,
      *                         'tipoDato'=>?string,'orden'=>int,'description'=>?string,
-     *                         'severity'=>?string], ...]
+     *                         'severity'=>?string,'codigoCampo'=>?string], ...]
      */
     private function replaceFields(\PDO $db, string $nitSec, array $fields): void
     {
@@ -219,10 +220,10 @@ class AuditConfigModel extends Model
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
                 (FacNitSec, NitMedDocId, CampoNombre, TipoCampo, TipoDato, Activo, Orden,
-                 DescripcionOverride, SeveridadOverride)
+                 DescripcionOverride, SeveridadOverride, CodigoCampo)
             VALUES
                 (:nitSec, :docId, :campoNombre, :tipoCampo, :tipoDato, 1, :orden,
-                 :description, :severity)";
+                 :description, :severity, :codigoCampo)";
         $insStmt = $db->prepare($insSql);
 
         foreach ($fields as $field) {
@@ -233,19 +234,33 @@ class AuditConfigModel extends Model
             $orden       = (int)    ($field['orden']     ?? 0);
             $description = $field['description'] ?? null;
             $severity    = $field['severity']    ?? null;
+            $codigoCampo = $field['codigoCampo'] ?? null;
 
-            $insStmt->bindParam(':nitSec',      $nitSec,      PDO::PARAM_STR);
-            $insStmt->bindParam(':docId',       $docId,       PDO::PARAM_INT);
-            $insStmt->bindParam(':campoNombre', $campo,       PDO::PARAM_STR);
-            $insStmt->bindParam(':tipoCampo',   $tipo,        PDO::PARAM_STR);
+            $insStmt->bindValue(':nitSec',      $nitSec, PDO::PARAM_STR);
+            $insStmt->bindValue(':docId',       $docId, PDO::PARAM_INT);
+            $insStmt->bindValue(':campoNombre', $campo, PDO::PARAM_STR);
+            $insStmt->bindValue(':tipoCampo',   $tipo, PDO::PARAM_STR);
             if ($tipoDato === null) {
                 $insStmt->bindValue(':tipoDato', null, PDO::PARAM_NULL);
             } else {
                 $insStmt->bindValue(':tipoDato', (string) $tipoDato, PDO::PARAM_STR);
             }
-            $insStmt->bindParam(':orden',       $orden,       PDO::PARAM_INT);
-            $insStmt->bindParam(':description', $description, PDO::PARAM_STR);
-            $insStmt->bindParam(':severity',    $severity,    PDO::PARAM_STR);
+            $insStmt->bindValue(':orden', $orden, PDO::PARAM_INT);
+            if ($description === null) {
+                $insStmt->bindValue(':description', null, PDO::PARAM_NULL);
+            } else {
+                $insStmt->bindValue(':description', (string) $description, PDO::PARAM_STR);
+            }
+            if ($severity === null) {
+                $insStmt->bindValue(':severity', null, PDO::PARAM_NULL);
+            } else {
+                $insStmt->bindValue(':severity', (string) $severity, PDO::PARAM_STR);
+            }
+            if ($codigoCampo === null) {
+                $insStmt->bindValue(':codigoCampo', null, PDO::PARAM_NULL);
+            } else {
+                $insStmt->bindValue(':codigoCampo', (string) $codigoCampo, PDO::PARAM_STR);
+            }
             $insStmt->execute();
         }
     }

@@ -150,6 +150,7 @@ export type AuditConfigPayload = {
     description?: string | null;
     severity?: string | null;
     orden: number;
+    codigoCampo?: string | null;
   }>;
 };
 

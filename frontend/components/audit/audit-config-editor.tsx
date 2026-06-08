@@ -42,6 +42,7 @@ type FieldToggle = {
   orden: number;
   descripcionOverride?: string;
   severityOverride?: string;
+  codigoCampo?: string;
 };
 
 type DocState = {
@@ -177,6 +178,7 @@ export function AuditConfigEditor({
           orden: f.orden,
           descripcionOverride: f.descripcionOverride ?? f.description ?? undefined,
           severityOverride: normalizeSeverity(f.severityOverride ?? f.severity),
+          codigoCampo: f.codigoCampo ?? undefined,
         };
       });
 
@@ -188,6 +190,7 @@ export function AuditConfigEditor({
         orden: v.orden,
         descripcionOverride: v.description ?? undefined,
         severityOverride: normalizeSeverity(v.severity),
+        codigoCampo: v.codigoCampo ?? undefined,
       }));
 
       // Deduplicate: If it exists as Visual, we don't need the Data version (usually for signatures)
@@ -353,7 +356,8 @@ export function AuditConfigEditor({
           enabled: true,
           description: f.descripcionOverride ?? null,
           severity: f.severityOverride ?? null,
-          orden: f.orden
+          orden: f.orden,
+          codigoCampo: f.codigoCampo ?? null,
         });
       }
     }

@@ -418,14 +418,18 @@ Respuesta:
           {
             "campoNombre": "NumeroFactura",
             "tipoCampo": "E",
+            "tipoDato": "text",
             "orden": 1,
-            "severity": "alta"
+            "severity": "alta",
+            "codigoCampo": "FACN"
           },
           {
             "campoNombre": "NombreArticulo",
             "tipoCampo": "S",
+            "tipoDato": "article_name",
             "orden": 8,
-            "severity": "alta"
+            "severity": "alta",
+            "codigoCampo": "NAM"
           }
         ],
         "visualChecks": [
@@ -433,7 +437,8 @@ Respuesta:
             "check": "FirmaActaEntrega",
             "description": "Firma o sello de recibido",
             "severity": "alta",
-            "orden": 37
+            "orden": 37,
+            "codigoCampo": "FIR"
           }
         ]
       }
@@ -455,8 +460,10 @@ Body:
       "docId": 1,
       "campoNombre": "NumeroFactura",
       "tipoCampo": "E",
+      "tipoDato": "text",
       "orden": 1,
-      "severity": "alta"
+      "severity": "alta",
+      "codigoCampo": "FACN"
     },
     {
       "docId": 1,
@@ -464,7 +471,8 @@ Body:
       "tipoCampo": "V",
       "orden": 37,
       "description": "Firma o sello de recibido",
-      "severity": "alta"
+      "severity": "alta",
+      "codigoCampo": "FIR"
     }
   ]
 }
