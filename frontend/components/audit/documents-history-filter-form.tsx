@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
-import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ClientRecord } from "@/lib/schemas/domain";
 
 interface DocumentsHistoryFilterFormProps {
@@ -20,8 +20,16 @@ export function DocumentsHistoryFilterForm({
   initialFacNitSec = "",
   initialFacNro = "",
 }: DocumentsHistoryFilterFormProps) {
-  const navigation = usePendingNavigation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const currentParams = searchParams.toString();
+
+  React.useEffect(() => {
+    setIsSubmitting(false);
+  }, [currentParams]);
 
   React.useEffect(() => {
     setFacNitSec(initialFacNitSec);
@@ -37,13 +45,16 @@ export function DocumentsHistoryFilterForm({
     if (facNitSec.trim()) params.set("facNitSec", facNitSec.trim());
     if (facNro) params.set("facNro", String(facNro));
 
-    navigation.push(`?${params.toString()}`);
+    const newParamsString = params.toString();
+    if (currentParams !== newParamsString) {
+      setIsSubmitting(true);
+      router.push(`?${newParamsString}`);
+    }
   };
 
   return (
     <div className="space-y-4">
       <form
-        aria-busy={navigation.isPending}
         className="grid gap-3 md:grid-cols-[1fr_1fr_auto]"
         onSubmit={handleSubmit}
       >
@@ -81,22 +92,13 @@ export function DocumentsHistoryFilterForm({
           <Button
             type="submit"
             className="w-full"
-            loading={navigation.isPending}
+            loading={isSubmitting}
             loadingLabel="Filtrando"
           >
             Filtrar
           </Button>
         </div>
       </form>
-
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          description="El backend está cargando el historial documental."
-          rows={6}
-          title="Consultando documentos"
-          variant="table"
-        />
-      ) : null}
     </div>
   );
 }

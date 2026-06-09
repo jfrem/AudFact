@@ -31,6 +31,8 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+import type { FieldCatalogItem } from "@/lib/schemas/domain";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type DiscoveredField = {
@@ -55,6 +57,7 @@ type Props = {
   documents: DocumentOption[];
   initialDocName: string;
   onAddFields: (docName: string, fields: string[]) => void;
+  catalog: FieldCatalogItem[];
 };
 
 
@@ -74,10 +77,14 @@ function getDocIcon(docName: string) {
   return DOC_ICONS[docName] ?? <FileText className="h-4 w-4" />;
 }
 
-function getFieldAuditability(name: string) {
+function getFieldAuditability(name: string, catalog: FieldCatalogItem[]) {
   const reason = BLOCKED_FIELDS[name];
   if (reason) {
     return { auditability: "blocked" as const, reason };
+  }
+  const inCatalog = catalog.some((c) => c.campoNombre.toLowerCase() === name.toLowerCase() && !c.esVisual);
+  if (!inCatalog) {
+    return { auditability: "blocked" as const, reason: "No existe en el catálogo maestro." };
   }
   return { auditability: "auditable" as const, reason: undefined };
 }
@@ -91,6 +98,7 @@ export function AddFieldFromDispensaDialog({
   documents,
   initialDocName,
   onAddFields,
+  catalog,
 }: Props) {
   const [invoiceNumber, setInvoiceNumber] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -197,7 +205,7 @@ export function AddFieldFromDispensaDialog({
           sampleValue: formatValue(value),
           source: "header",
           selected: !existingSet.has(key.toLowerCase()),
-          ...getFieldAuditability(key),
+          ...getFieldAuditability(key, catalog),
         });
       }
 
@@ -213,7 +221,7 @@ export function AddFieldFromDispensaDialog({
             sampleValue: formatValue(value),
             source: "item",
             selected: !existingSet.has(key.toLowerCase()),
-            ...getFieldAuditability(key),
+            ...getFieldAuditability(key, catalog),
           });
         }
       }

@@ -95,53 +95,55 @@ export function CreateConfigDialog({
         </DialogHeader>
 
         <div className="space-y-5 px-6 py-6">
-          <Alert variant="info" role="status">
-            <InfoIcon />
-            <AlertDescription className="text-[13px] leading-relaxed">
-              Se validará el catálogo documental del cliente y se creará una configuración sin campos
-              precargados. Después podrás agregar campos desde una factura real o activar verificaciones visuales.
-            </AlertDescription>
-          </Alert>
-
-          <Field>
-            <FieldLabel htmlFor="nitsec-input" className="flex items-center gap-1.5">
-              <Hash className="h-3 w-3" />
-              NitSec del cliente
-            </FieldLabel>
-            <div className="relative">
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-                <Building2 className="h-4 w-4 text-slate-600" />
-              </div>
-              <Input
-                id="nitsec-input"
-                ref={inputRef}
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                aria-describedby="nitsec-description"
-                value={nitSec}
-                readOnly={!!initialNitSec}
-                onChange={(e) => setNitSec(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-                placeholder="Ej: 2426"
-                className={cn(
-                  "h-12 rounded-xl bg-white/[0.03] pl-10 pr-4",
-                  initialNitSec && "opacity-70 cursor-not-allowed bg-white/[0.05]"
-                )}
-              />
-            </div>
-            <FieldDescription id="nitsec-description" className="text-slate-700">
-              El identificador numérico del cliente en el sistema
-            </FieldDescription>
-          </Field>
-
           {isBusy ? (
             <BackendRequestSkeleton
               description="Se valida el catálogo documental y se crea la configuración base."
               title="Creando configuración"
-              variant="compact"
+              variant="detail"
             />
-          ) : null}
+          ) : (
+            <>
+              <Alert variant="info" role="status">
+                <InfoIcon />
+                <AlertDescription className="text-[13px] leading-relaxed">
+                  Se validará el catálogo documental del cliente y se creará una configuración sin campos
+                  precargados. Después podrás agregar campos desde una factura real o activar verificaciones visuales.
+                </AlertDescription>
+              </Alert>
+
+              <Field>
+                <FieldLabel htmlFor="nitsec-input" className="flex items-center gap-1.5">
+                  <Hash className="h-3 w-3" />
+                  NitSec del cliente
+                </FieldLabel>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
+                    <Building2 className="h-4 w-4 text-slate-600" />
+                  </div>
+                  <Input
+                    id="nitsec-input"
+                    ref={inputRef}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    aria-describedby="nitsec-description"
+                    value={nitSec}
+                    readOnly={!!initialNitSec}
+                    onChange={(e) => setNitSec(e.target.value.replace(/\D/g, ""))}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+                    placeholder="Ej: 2426"
+                    className={cn(
+                      "h-12 rounded-xl bg-white/[0.03] pl-10 pr-4",
+                      initialNitSec && "opacity-70 cursor-not-allowed bg-white/[0.05]"
+                    )}
+                  />
+                </div>
+                <FieldDescription id="nitsec-description" className="text-slate-700">
+                  El identificador numérico del cliente en el sistema
+                </FieldDescription>
+              </Field>
+            </>
+          )}
         </div>
 
         <DialogFooter className="flex-row justify-end border-t border-white/[0.06] px-6 py-4">

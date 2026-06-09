@@ -232,6 +232,8 @@ function ErrorPanel({
   onRetry: () => void;
   retryPending?: boolean;
 }) {
+
+
   return (
     <Alert variant="destructive" className="block rounded-3xl px-0 py-0">
       <div className="relative flex flex-col items-center gap-5 px-8 py-16 text-center">
@@ -257,14 +259,6 @@ function ErrorPanel({
           <RefreshCw className="h-4 w-4" />
           Reintentar
         </Button>
-        {retryPending ? (
-          <BackendRequestSkeleton
-            className="w-full max-w-xl text-left"
-            description="El backend está intentando cargar la configuración nuevamente."
-            title="Reintentando carga"
-            variant="compact"
-          />
-        ) : null}
       </div>
     </Alert>
   );

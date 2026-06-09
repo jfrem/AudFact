@@ -12,7 +12,7 @@ export function LoadingSkeleton({
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton
           key={i}
-          className="h-4 rounded-lg bg-white/[0.06]"
+          className="h-4"
           style={{ width: `${85 - i * 12}%` }}
           aria-hidden="true"
         />
@@ -34,10 +34,10 @@ export function PageLoadingHeader({
 }) {
   return (
     <div className="space-y-2" role="status" aria-label="Cargando encabezado">
-      <div className={`h-4 animate-pulse rounded-lg bg-white/[0.06] ${eyebrowWidth}`} aria-hidden="true" />
-      <div className={`h-8 animate-pulse rounded-lg bg-white/[0.06] ${titleWidth}`} aria-hidden="true" />
+      <Skeleton className={`h-4 ${eyebrowWidth}`} aria-hidden="true" />
+      <Skeleton className={`h-8 ${titleWidth}`} aria-hidden="true" />
       {withDescription ? (
-        <div className={`h-4 animate-pulse rounded-lg bg-white/[0.04] ${descriptionWidth}`} aria-hidden="true" />
+        <Skeleton className={`h-4 ${descriptionWidth}`} aria-hidden="true" />
       ) : null}
     </div>
   );
@@ -47,8 +47,8 @@ export function CardSkeleton() {
   return (
     <div className="rounded-xl border border-white/10 bg-card px-5 py-5" role="status" aria-label="Cargando tarjeta">
       <div className="mb-4 space-y-2 border-b border-white/8 pb-4" aria-hidden="true">
-        <Skeleton className="h-5 w-40 rounded-lg bg-white/[0.06]" />
-        <Skeleton className="h-3 w-64 rounded-lg bg-white/[0.04]" />
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-3 w-64" />
       </div>
       <LoadingSkeleton />
     </div>
@@ -58,11 +58,11 @@ export function CardSkeleton() {
 export function TableSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className="space-y-2" role="status" aria-label="Cargando tabla">
-      <Skeleton className="h-10 rounded-lg bg-white/[0.04]" aria-hidden="true" />
+      <Skeleton className="h-10" aria-hidden="true" />
       {Array.from({ length: rows }).map((_, i) => (
         <Skeleton
           key={i}
-          className="h-12 rounded-lg bg-white/[0.03]"
+          className="h-12"
           aria-hidden="true"
         />
       ))}
@@ -76,11 +76,11 @@ export function MetricGridSkeleton({ items = 4 }: { items?: number }) {
       {Array.from({ length: items }).map((_, i) => (
         <div key={i} className="rounded-xl border border-white/10 bg-card p-5" aria-hidden="true">
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 animate-pulse rounded-lg bg-white/[0.05]" />
-            <div className="h-4 w-24 animate-pulse rounded-lg bg-white/[0.06]" />
+            <Skeleton className="h-8 w-8" />
+            <Skeleton className="h-4 w-24" />
           </div>
-          <div className="mt-4 h-8 w-20 animate-pulse rounded-lg bg-white/[0.06]" />
-          <div className="mt-5 h-3 w-32 animate-pulse rounded-lg bg-white/[0.04]" />
+          <Skeleton className="mt-4 h-8 w-20" />
+          <Skeleton className="mt-5 h-3 w-32" />
         </div>
       ))}
     </div>

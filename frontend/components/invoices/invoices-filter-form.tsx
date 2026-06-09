@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -22,7 +22,7 @@ import {
   INVOICE_SEARCH_DEFAULT_PAGE_SIZE,
   INVOICE_SEARCH_PAGE_SIZE_OPTIONS,
 } from "@/lib/api/audfact";
-import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const invoicePageSizeSchema = z.preprocess((value) => {
   if (typeof value === "string" && value.trim() === "") {
@@ -70,7 +70,9 @@ export function InvoicesFilterForm({
   initialDateTo = "",
   initialPageSize = INVOICE_SEARCH_DEFAULT_PAGE_SIZE,
 }: InvoicesFilterFormProps) {
-  const navigation = usePendingNavigation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const form = useForm<InvoiceSearchValues>({
     resolver: zodResolver(invoiceSearchSchema),
     defaultValues: {
@@ -80,6 +82,11 @@ export function InvoicesFilterForm({
       pageSize: initialPageSize,
     },
   });
+
+  const currentParams = searchParams.toString();
+  React.useEffect(() => {
+    setIsSubmitting(false);
+  }, [currentParams]);
 
   React.useEffect(() => {
     form.reset({
@@ -92,14 +99,17 @@ export function InvoicesFilterForm({
 
   const handleSubmit = (values: InvoiceSearchValues) => {
     const params = new URLSearchParams();
-
     params.set("page", "1");
     params.set("pageSize", String(values.pageSize));
     params.set("facNitSec", values.facNitSec);
     params.set("dateFrom", values.dateFrom);
     if (values.dateTo) params.set("dateTo", values.dateTo);
 
-    navigation.push(`?${params.toString()}`);
+    const newParamsString = params.toString();
+    if (currentParams !== newParamsString) {
+      setIsSubmitting(true);
+      router.push(`?${newParamsString}`);
+    }
   };
 
   const clientError = form.formState.errors.facNitSec?.message;
@@ -110,7 +120,6 @@ export function InvoicesFilterForm({
   return (
     <div className="space-y-4">
       <form
-        aria-busy={navigation.isPending}
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
         noValidate
         onSubmit={form.handleSubmit(handleSubmit)}
@@ -223,22 +232,13 @@ export function InvoicesFilterForm({
           <Button
             type="submit"
             className="w-full"
-            loading={navigation.isPending}
+            loading={isSubmitting}
             loadingLabel="Buscando"
           >
             Buscar
           </Button>
         </div>
       </form>
-
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          description="El backend está filtrando facturas con los criterios seleccionados."
-          rows={6}
-          title="Consultando facturas"
-          variant="table"
-        />
-      ) : null}
     </div>
   );
 }

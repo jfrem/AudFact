@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getClients, getAuditDocumentsHistory } from "@/lib/api/audfact";
 import { formatDateTime, formatNumber } from "@/lib/formatters";
 import { PageHeader } from "@/components/layout/page-header";
@@ -6,6 +7,7 @@ import { Pagination } from "@/components/shared/pagination";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { DocumentsHistoryFilterForm } from "@/components/audit/documents-history-filter-form";
+import { TableSkeleton } from "@/components/shared/loading-skeleton";
 
 /** Translate raw EstadoSoporte to readable label + variant */
 function docStateBadge(raw?: string | null): { label: string; variant: "success" | "danger" | "neutral" } {
@@ -28,6 +30,50 @@ export default async function AuditDocumentsHistoryPage({
 
   const allClients = (await getClients().catch(() => [])) ?? [];
 
+  const searchParamsKey = JSON.stringify({ page, facNitSec, facNro });
+
+  return (
+    <div className="space-y-5">
+      <PageHeader eyebrow="Historial documental" title="Documentos auditados" />
+
+      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
+        <DocumentsHistoryFilterForm
+          allClients={allClients}
+          initialFacNitSec={facNitSec}
+          initialFacNro={facNro}
+        />
+      </div>
+
+      <Suspense
+        key={searchParamsKey}
+        fallback={
+          <div className="pt-2">
+            <TableSkeleton rows={10} />
+          </div>
+        }
+      >
+        <DocumentsHistoryFetcher
+          page={page}
+          pageSize={pageSize}
+          facNitSec={facNitSec}
+          facNro={facNro}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DocumentsHistoryFetcher({
+  page,
+  pageSize,
+  facNitSec,
+  facNro,
+}: {
+  page: number;
+  pageSize: number;
+  facNitSec: string;
+  facNro: string;
+}) {
   const history = await getAuditDocumentsHistory({
     page,
     pageSize,
@@ -45,69 +91,59 @@ export default async function AuditDocumentsHistoryPage({
     return `?${p.toString()}`;
   };
 
-  return (
-    <div className="space-y-5">
-      <PageHeader eyebrow="Historial documental" title="Documentos auditados" />
+  if (!history?.items?.length) {
+    return (
+      <EmptyState
+        title="Sin documentos"
+        description="No se encontraron registros documentales para los filtros indicados."
+      />
+    );
+  }
 
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
-        <DocumentsHistoryFilterForm
-          allClients={allClients}
-          initialFacNitSec={facNitSec}
-          initialFacNro={facNro}
+  return (
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Factura</TableHead>
+            <TableHead>Documento</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead>Auditor</TableHead>
+            <TableHead>Fecha</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+            {history.items.map((item, index) => {
+              const state = docStateBadge(item.EstadoSoporte as string | undefined);
+              return (
+                <TableRow key={`${item.AdjuntoID ?? "adj"}-${index}`}>
+                  <TableCell className="font-medium text-white">
+                    {String(item.NroFactura ?? "N/D")}
+                  </TableCell>
+                  <TableCell>{String(item.NombreDocumento ?? "N/D")}</TableCell>
+                  <TableCell>
+                    <Badge variant={state.variant}>
+                      {state.label}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{String(item.UsuarioAuditor ?? "N/D")}</TableCell>
+                  <TableCell className="text-slate-400">
+                    {formatDateTime(String(item.FechaAuditoria ?? ""))}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+        </TableBody>
+      </Table>
+      <div className="mt-4">
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          total={history.total ?? 0}
+          buildHref={buildHref}
+          label="documentos"
         />
       </div>
-
-      {!history?.items?.length ? (
-        <EmptyState
-          title="Sin documentos"
-          description="No se encontraron registros documentales para los filtros indicados."
-        />
-      ) : (
-        <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Factura</TableHead>
-                <TableHead>Documento</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Auditor</TableHead>
-                <TableHead>Fecha</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-                {history.items.map((item, index) => {
-                  const state = docStateBadge(item.EstadoSoporte as string | undefined);
-                  return (
-                    <TableRow key={`${item.AdjuntoID ?? "adj"}-${index}`}>
-                      <TableCell className="font-medium text-white">
-                        {String(item.NroFactura ?? "N/D")}
-                      </TableCell>
-                      <TableCell>{String(item.NombreDocumento ?? "N/D")}</TableCell>
-                      <TableCell>
-                        <Badge variant={state.variant}>
-                          {state.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{String(item.UsuarioAuditor ?? "N/D")}</TableCell>
-                      <TableCell className="text-slate-400">
-                        {formatDateTime(String(item.FechaAuditoria ?? ""))}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-            </TableBody>
-          </Table>
-          <div className="mt-4">
-            <Pagination
-              page={page}
-              totalPages={totalPages}
-              total={history.total ?? 0}
-              buildHref={buildHref}
-              label="documentos"
-            />
-          </div>
-        </>
-      )}
-    </div>
+    </>
   );
 }

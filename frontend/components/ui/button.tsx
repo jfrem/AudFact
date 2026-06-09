@@ -6,11 +6,11 @@ import { cn } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 active:scale-[0.98]",
   {
     variants: {
       variant: {
-        default: "border border-sky-500/30 bg-sky-500 text-slate-950 hover:bg-sky-400",
+        default: "border border-sky-500/30 bg-sky-500 text-slate-950 hover:bg-sky-400 shadow-[0_0_15px_rgba(87,176,255,0.15)] hover:shadow-[0_0_20px_rgba(87,176,255,0.25)]",
         destructive:
           "border border-rose-500/30 bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
@@ -19,7 +19,6 @@ const buttonVariants = cva(
           "border border-white/10 bg-secondary text-slate-200 hover:bg-white/[0.06]",
         ghost: "text-slate-300 hover:bg-white/[0.04] hover:text-slate-100",
         link: "text-primary underline-offset-4 hover:underline",
-        gradient: "border border-sky-500/30 bg-sky-500 text-slate-950 hover:bg-sky-400",
       },
       size: {
         default: "h-10 px-4 py-2",

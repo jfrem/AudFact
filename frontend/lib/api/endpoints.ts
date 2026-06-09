@@ -8,6 +8,7 @@ export const endpoints = {
   clientById: (clientId: string | number) => `/clients/${clientId}`,
   clientDocuments: (clientId: string | number) => `/clients/${clientId}/documents`,
   auditConfig: (clientId: string | number) => `/clients/${clientId}/audit-config`,
+  fieldCatalog: () => "/audit/field-catalog",
   invoices: (query?: Record<string, string | number | null | undefined>) => {
     const params = buildSearchParams(query ?? {});
     return params.size ? `/invoices?${params.toString()}` : "/invoices";

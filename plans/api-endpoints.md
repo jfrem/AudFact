@@ -399,6 +399,28 @@ Reprocesa un evento de DLQ republicando su evento original al stream canónico.
 }
 ```
 
+### `GET /audit/field-catalog`
+
+Obtiene el catálogo maestro de campos auditables desde la base de datos (fuente única de verdad).
+
+Respuesta:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "campoNombre": "NumeroFactura",
+      "codigoCampo": "FACN",
+      "tipoCampo": "E",
+      "tipoDato": "text",
+      "descripcion": "Verifica el número de factura",
+      "severidad": "alta",
+      "esVisual": false
+    }
+  ]
+}
+```
+
 ### `GET /clients/{clientId}/audit-config`
 
 Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema, campos de datos por documento y visual checks separados.
@@ -468,7 +490,7 @@ Body:
     {
       "docId": 1,
       "campoNombre": "FirmaActaEntrega",
-      "tipoCampo": "V",
+      
       "orden": 37,
       "description": "Firma o sello de recibido",
       "severity": "alta",

@@ -1,4 +1,17 @@
-## [2026-06-02]
+## [2026-06-09]
+
+### ui
+- **Refactorización UI/UX "Pro Max"**: Se actualizaron componentes visuales (`button`, `card`, `input`, `select`, `table`) para cumplir lineamientos Impeccable (feedback táctil `active:scale`, transiciones hover fluidas, *glassmorphism* vía `.panel`), manteniendo la política "Clean Rebuild" al limpiar código no utilizado.
+  - Archivos modificados: `frontend/components/ui/button.tsx`, `frontend/components/ui/card.tsx`, `frontend/components/ui/input.tsx`, `frontend/components/ui/select.tsx`, `frontend/components/ui/table.tsx`.
+  - Hallazgo resuelto: Feedback visual pobre en controles interactivos y redundancia en estilos de tarjetas.
+  - Impacto: Tarjetas unificadas visualmente en toda la app sin repetición de CSS, tablas con seguimiento visual optimizado y foco (focus rings) suave y accesible.
+
+### refactor
+- **Erradicación del "Efecto Banner" (Clean Rebuild)**: Se sustituyeron los esqueletos de carga (`BackendRequestSkeleton`) anexados condicionalmente al final de las UIs por renderizados sustitutivos. En los formularios de filtrado, se confía en el `loading` del botón y en la transición nativa de Next.js, evitando mostrar tablas duplicadas fantasma.
+  - Archivos modificados: `frontend/components/audit/audit-config-editor.tsx`, `frontend/components/audit/audit-config-page-client.tsx`, `frontend/components/clients/clients-filter-form.tsx`, `frontend/components/invoices/invoices-filter-form.tsx`, `frontend/components/results/audit-results-filter-form.tsx`, `frontend/components/audit/documents-history-filter-form.tsx`, `frontend/components/audit/create-config-dialog.tsx`, `frontend/app/(dashboard)/observability/page.tsx`, `frontend/components/shared/pending-pagination-controls.tsx`, `frontend/components/invoices/invoices-table.tsx`.
+  - Hallazgo resuelto: Los esqueletos se acumulaban o mostraban contenido obsoleto debajo de los formularios.
+  - Impacto: Cumplimiento de WYSIWYG, las interfaces de usuario reemplazan su contenido y el enrutador recarga las vistas con datos frescos.
+
 
 ### fix
 - **Worker batch productivo para auditoría async**: `docker-compose.prod.yml` ahora levanta `worker-batch` con `php bin/audit-worker.php batch`, y el workflow de despliegue genera las variables de réplicas de workers e incluye `worker-batch` en diagnósticos.

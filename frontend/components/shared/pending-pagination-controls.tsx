@@ -3,9 +3,9 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+
 import { Button } from "@/components/ui/button";
-import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export function PendingPaginationControls({
   nextDisabled,
@@ -18,14 +18,15 @@ export function PendingPaginationControls({
   previousDisabled: boolean;
   previousHref: string;
 }) {
-  const navigation = usePendingNavigation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [pendingDirection, setPendingDirection] = React.useState<"next" | "previous" | null>(null);
 
+  const currentParams = searchParams.toString();
+
   React.useEffect(() => {
-    if (!navigation.isPending) {
-      setPendingDirection(null);
-    }
-  }, [navigation.isPending]);
+    setPendingDirection(null);
+  }, [currentParams]);
 
   return (
     <div className="space-y-3">
@@ -33,12 +34,15 @@ export function PendingPaginationControls({
         <Button
           type="button"
           variant="secondary"
-          disabled={previousDisabled || navigation.isPending}
-          loading={navigation.isPending && pendingDirection === "previous"}
+          disabled={previousDisabled || pendingDirection !== null}
+          loading={pendingDirection === "previous"}
           loadingLabel="Cargando"
           onClick={() => {
-            setPendingDirection("previous");
-            navigation.push(previousHref);
+            const newParams = previousHref.split('?')[1] || "";
+            if (currentParams !== newParams) {
+              setPendingDirection("previous");
+              router.push(previousHref);
+            }
           }}
         >
           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
@@ -47,25 +51,21 @@ export function PendingPaginationControls({
         <Button
           type="button"
           variant="secondary"
-          disabled={nextDisabled || navigation.isPending}
-          loading={navigation.isPending && pendingDirection === "next"}
+          disabled={nextDisabled || pendingDirection !== null}
+          loading={pendingDirection === "next"}
           loadingLabel="Cargando"
           onClick={() => {
-            setPendingDirection("next");
-            navigation.push(nextHref);
+            const newParams = nextHref.split('?')[1] || "";
+            if (currentParams !== newParams) {
+              setPendingDirection("next");
+              router.push(nextHref);
+            }
           }}
         >
           Siguiente
           <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          description="El backend está cargando la página solicitada."
-          title="Actualizando paginación"
-          variant="compact"
-        />
-      ) : null}
     </div>
   );
 }

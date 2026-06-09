@@ -13,7 +13,9 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
+  Settings2,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -21,16 +23,34 @@ import { BackendRequestSkeleton } from "@/components/shared/backend-request-skel
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { AddFieldFromDispensaDialog } from "@/components/audit/add-field-from-dispensa-dialog";
 import { saveAuditConfig, type AuditConfigPayload } from "@/lib/api/audfact";
-import type { AuditConfig } from "@/lib/schemas/domain";
+import type { AuditConfig, FieldCatalogItem } from "@/lib/schemas/domain";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -38,7 +58,6 @@ type FieldToggle = {
   campoNombre: string;
   tipoCampo: string;
   tipoDato?: string;
-  enabled: boolean;
   orden: number;
   descripcionOverride?: string;
   severityOverride?: string;
@@ -51,21 +70,6 @@ type DocState = {
   fields: FieldToggle[];
 };
 
-type VisualCheckOption = {
-  campoNombre: string;
-  label: string;
-  description: string;
-  severity: "ALTA" | "MEDIA" | "BAJA";
-};
-
-type TipoCampoValue = "E" | "S" | "B";
-
-type TipoDatoOption = {
-  value: string;
-  label: string;
-  tipoCampos: readonly TipoCampoValue[];
-};
-
 // ─── Doc icon map ────────────────────────────────────────────────────────────
 
 const docIcons: Record<string, typeof FileText> = {
@@ -74,137 +78,112 @@ const docIcons: Record<string, typeof FileText> = {
   "FORMULA MEDICA": FileText,
 };
 
-const visualCheckOptions: VisualCheckOption[] = [
-  {
-    campoNombre: "FirmaActaEntrega",
-    label: "Firma acta de entrega",
-    description: "Verificar que el acta o soporte de entrega tenga firma de recibido.",
-    severity: "ALTA",
-  },
-  {
-    campoNombre: "VigenciaEntrega",
-    label: "Vigencia de entrega",
-    description:
-      "Verificar que el documento indique la vigencia o plazo de entrega autorizado; extraer dias y fecha base si estan visibles.",
-    severity: "ALTA",
-  },
-  {
-    campoNombre: "FirmaPrescriptor",
-    label: "Firma prescriptor",
-    description: "Verificar que la formula medica tenga firma del prescriptor.",
-    severity: "ALTA",
-  },
-];
-
-const tipoDatoOptions: readonly TipoDatoOption[] = [
-  { value: "text", label: "Texto", tipoCampos: ["E", "S"] },
-  { value: "date", label: "Fecha", tipoCampos: ["E"] },
-  { value: "quantity", label: "Cantidad", tipoCampos: ["E", "B"] },
-  { value: "money", label: "Dinero", tipoCampos: ["E"] },
-  { value: "identity_doc_type", label: "Tipo doc.", tipoCampos: ["E"] },
-  { value: "identity_doc_number", label: "Documento", tipoCampos: ["E"] },
-  { value: "code", label: "Código", tipoCampos: ["E"] },
-  { value: "trace_token", label: "Trazabilidad", tipoCampos: ["E"] },
-  { value: "person_name", label: "Persona", tipoCampos: ["E", "S"] },
-  { value: "institution_name", label: "Institución", tipoCampos: ["E", "S"] },
-  { value: "article_name", label: "Artículo", tipoCampos: ["E", "S"] },
-];
+const TIPO_DATO_LABELS: Record<string, string> = {
+  text: "Texto",
+  date: "Fecha",
+  quantity: "Cantidad",
+  money: "Dinero",
+  identity_doc_type: "Tipo doc.",
+  identity_doc_number: "Documento",
+  code: "Código",
+  trace_token: "Trazabilidad",
+  person_name: "Persona",
+  institution_name: "Institución",
+  article_name: "Artículo",
+};
 
 function sameFieldName(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
-function normalizeSeverity(value?: string | null, fallback: "ALTA" | "MEDIA" | "BAJA" = "ALTA") {
+function normalizeSeverity(
+  value?: string | null,
+  fallback: "ALTA" | "MEDIA" | "BAJA" = "ALTA",
+) {
   const normalized = value?.trim().toUpperCase();
-  return normalized === "ALTA" || normalized === "MEDIA" || normalized === "BAJA"
+  return normalized === "ALTA" ||
+    normalized === "MEDIA" ||
+    normalized === "BAJA"
     ? normalized
     : fallback;
 }
 
-function normalizeTipoCampo(value: string): TipoCampoValue | null {
-  const normalized = value.trim().toUpperCase();
-  return normalized === "E" || normalized === "S" || normalized === "B" ? normalized : null;
-}
 
-function isTipoDatoAllowed(tipoCampo: string, tipoDato?: string) {
-  if (!tipoDato) return false;
-  return tipoDatoOptionsFor(tipoCampo).some((option) => option.value === tipoDato);
-}
-
-function tipoDatoOptionsFor(tipoCampo: string) {
-  const normalizedTipoCampo = normalizeTipoCampo(tipoCampo);
-  return normalizedTipoCampo === null
-    ? tipoDatoOptions
-    : tipoDatoOptions.filter((option) => option.tipoCampos.includes(normalizedTipoCampo));
-}
-
-function fieldValidationError(field: FieldToggle): string | null {
-  if (!field.enabled || field.tipoCampo === "V") return null;
-  if (!field.tipoDato) return "Define el tipo de dato.";
-  if (!isTipoDatoAllowed(field.tipoCampo, field.tipoDato)) {
-    return "Combinación tipo/comparación inválida.";
-  }
-  return null;
-}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function AuditConfigEditor({
   config,
   clientId,
+  catalog,
 }: {
   config: AuditConfig;
   clientId: string;
+  catalog: FieldCatalogItem[];
 }) {
+  const visualCheckOptions = React.useMemo(
+    () => catalog.filter((c) => c.esVisual),
+    [catalog],
+  );
+  const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<string>("");
   const [docs, setDocs] = React.useState<DocState[]>([]);
-  const [systemPrompt, setSystemPrompt] = React.useState(config.systemPrompt ?? "");
+  const [systemPrompt, setSystemPrompt] = React.useState(
+    config.systemPrompt ?? "",
+  );
   const [saving, setSaving] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [addFieldDialogOpen, setAddFieldDialogOpen] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
 
   React.useEffect(() => {
-    const docEntries = Object.entries(config.documents).map(([docName, doc]) => {
-      // Unify data fields
-      const dataFields: FieldToggle[] = doc.fields.map((f) => {
-        let tipo = (f.tipoCampo || "E").trim().toUpperCase();
-        
+    const docEntries = Object.entries(config.documents).map(
+      ([docName, doc]) => {
+        // Unify data fields
+        const dataFields: FieldToggle[] = doc.fields.map((f) => {
+          let tipo = (f.tipoCampo || "E").trim().toUpperCase();
+
+          return {
+            campoNombre: f.campoNombre,
+            tipoCampo: tipo,
+            tipoDato: f.tipoDato ?? "",
+            orden: f.orden,
+            descripcionOverride:
+              f.descripcionOverride ?? f.description ?? undefined,
+            severityOverride: normalizeSeverity(
+              f.severityOverride ?? f.severity,
+            ),
+            codigoCampo: f.codigoCampo ?? undefined,
+          };
+        });
+
+        // Unify visual checks as type 'V'
+        const visualFields: FieldToggle[] = doc.visualChecks.map((v) => ({
+          campoNombre: v.check,
+          tipoCampo: "V",
+          orden: v.orden,
+          descripcionOverride: v.description ?? undefined,
+          severityOverride: normalizeSeverity(v.severity),
+          codigoCampo: v.codigoCampo ?? undefined,
+        }));
+
+        // Deduplicate: If it exists as Visual, we don't need the Data version (usually for signatures)
+        const visualNames = new Set(
+          visualFields.map((v) => v.campoNombre.toLowerCase()),
+        );
+        const filteredDataFields = dataFields.filter(
+          (df) => !visualNames.has(df.campoNombre.toLowerCase()),
+        );
+
         return {
-          campoNombre: f.campoNombre,
-          tipoCampo: tipo,
-          tipoDato: f.tipoDato ?? "",
-          enabled: f.enabled,
-          orden: f.orden,
-          descripcionOverride: f.descripcionOverride ?? f.description ?? undefined,
-          severityOverride: normalizeSeverity(f.severityOverride ?? f.severity),
-          codigoCampo: f.codigoCampo ?? undefined,
+          docId: doc.docId,
+          docName,
+          fields: [...filteredDataFields, ...visualFields].sort(
+            (a, b) => a.orden - b.orden,
+          ),
         };
-      });
-
-      // Unify visual checks as type 'V'
-      const visualFields: FieldToggle[] = doc.visualChecks.map((v) => ({
-        campoNombre: v.check,
-        tipoCampo: "V",
-        enabled: v.enabled,
-        orden: v.orden,
-        descripcionOverride: v.description ?? undefined,
-        severityOverride: normalizeSeverity(v.severity),
-        codigoCampo: v.codigoCampo ?? undefined,
-      }));
-
-      // Deduplicate: If it exists as Visual, we don't need the Data version (usually for signatures)
-      const visualNames = new Set(visualFields.map((v) => v.campoNombre.toLowerCase()));
-      const filteredDataFields = dataFields.filter(
-        (df) => !visualNames.has(df.campoNombre.toLowerCase()),
-      );
-
-      return {
-        docId: doc.docId,
-        docName,
-        fields: [...filteredDataFields, ...visualFields].sort((a, b) => a.orden - b.orden),
-      };
-    });
+      },
+    );
     setDocs(docEntries);
     setActiveTab((current) => {
       if (docEntries.length === 0) return "";
@@ -214,28 +193,9 @@ export function AuditConfigEditor({
     });
   }, [config]);
 
-  const toggleField = (docName: string, campoNombre: string, tipoCampo: string) => {
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.docName === docName
-          ? {
-              ...d,
-              fields: d.fields.map((f) =>
-                f.campoNombre === campoNombre && f.tipoCampo === tipoCampo
-                  ? { ...f, enabled: !f.enabled }
-                  : f,
-              ),
-            }
-          : d,
-      ),
-    );
-    setDirty(true);
-  };
-
   const updateField = (
     docName: string,
     campoNombre: string,
-    tipoCampo: string,
     updates: Partial<FieldToggle>,
   ) => {
     setDocs((prev) =>
@@ -244,10 +204,22 @@ export function AuditConfigEditor({
           ? {
               ...d,
               fields: d.fields.map((f) =>
-                f.campoNombre === campoNombre && f.tipoCampo === tipoCampo
-                  ? { ...f, ...updates }
-                  : f,
+                f.campoNombre === campoNombre ? { ...f, ...updates } : f,
               ),
+            }
+          : d,
+      ),
+    );
+    setDirty(true);
+  };
+
+  const removeField = (docName: string, campoNombre: string) => {
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.docName === docName
+          ? {
+              ...d,
+              fields: d.fields.filter((f) => f.campoNombre !== campoNombre),
             }
           : d,
       ),
@@ -259,63 +231,71 @@ export function AuditConfigEditor({
     setDocs((prev) =>
       prev.map((d) => {
         if (d.docName !== docName) return d;
-        const existingNames = new Set(d.fields.map((f) => f.campoNombre.toLowerCase()));
-        const newFields = fieldNames
-          .filter((name) => !existingNames.has(name.toLowerCase()))
-          .map((name, idx) => ({
-            campoNombre: name,
-            tipoCampo: "E",
-            tipoDato: "",
-            enabled: true,
-            orden: d.fields.length + idx + 1,
-          }));
+        
+        const existingNames = new Set(
+          d.fields.map((f) => f.campoNombre.toLowerCase()),
+        );
+        const currentMaxOrden = d.fields.reduce((max, f) => Math.max(max, f.orden), 0);
+        
+        const newFields: FieldToggle[] = [];
+        let nextOrden = currentMaxOrden + 1;
+
+        for (const name of fieldNames) {
+          const lowerName = name.toLowerCase();
+          if (existingNames.has(lowerName)) continue;
+
+          const item = catalog.find((c) => sameFieldName(c.campoNombre, name));
+          if (!item || item.esVisual) continue;
+
+          newFields.push({
+            campoNombre: item.campoNombre,
+            tipoCampo: item.tipoCampo,
+            tipoDato: item.tipoDato ?? "",
+            orden: nextOrden++,
+            codigoCampo: item.codigoCampo,
+          });
+          
+          existingNames.add(lowerName);
+        }
+
+        if (newFields.length === 0) return d;
+
         return { ...d, fields: [...d.fields, ...newFields] };
       }),
     );
     setDirty(true);
   };
 
-  const toggleVisualCheckOption = (docName: string, option: VisualCheckOption) => {
+  const toggleVisualCheckOption = (
+    docName: string,
+    option: FieldCatalogItem,
+  ) => {
     setDocs((prev) =>
       prev.map((d) => {
         if (d.docName !== docName) return d;
 
         const existingIndex = d.fields.findIndex(
-          (f) => f.tipoCampo === "V" && sameFieldName(f.campoNombre, option.campoNombre),
+          (f) =>
+            f.tipoCampo === "V" &&
+            sameFieldName(f.campoNombre, option.campoNombre),
         );
 
         if (existingIndex >= 0) {
-          const existing = d.fields[existingIndex];
-          if (existing.enabled) {
-            return {
-              ...d,
-              fields: d.fields.filter((_, index) => index !== existingIndex),
-            };
-          }
-
           return {
             ...d,
-            fields: d.fields.map((f, index) =>
-              index === existingIndex
-                ? {
-                    ...f,
-                    enabled: true,
-                    descripcionOverride: f.descripcionOverride ?? option.description,
-                    severityOverride: f.severityOverride ?? option.severity,
-                  }
-                : f,
-            ),
+            fields: d.fields.filter((_, index) => index !== existingIndex),
           };
         }
 
-        const nextOrden = d.fields.reduce((max, field) => Math.max(max, field.orden), 0) + 1;
+        const nextOrden =
+          d.fields.reduce((max, field) => Math.max(max, field.orden), 0) + 1;
         const visualField: FieldToggle = {
           campoNombre: option.campoNombre,
           tipoCampo: "V",
-          enabled: true,
           orden: nextOrden,
-          descripcionOverride: option.description,
-          severityOverride: option.severity,
+          descripcionOverride: option.descripcion ?? undefined,
+          severityOverride: option.severidad,
+          codigoCampo: option.codigoCampo,
         };
 
         return { ...d, fields: [...d.fields, visualField] };
@@ -324,110 +304,77 @@ export function AuditConfigEditor({
     setDirty(true);
   };
 
-  const removeField = (docName: string, campoNombre: string, tipoCampo: string) => {
-    setDocs((prev) =>
-      prev.map((d) =>
-        d.docName === docName
-          ? {
-              ...d,
-              fields: d.fields.filter(
-                (f) => !(f.campoNombre === campoNombre && f.tipoCampo === tipoCampo),
-              ),
-            }
-          : d,
-      ),
-    );
-    setDirty(true);
-  };
-
   const buildPayload = (): AuditConfigPayload => {
     const fields: AuditConfigPayload["fields"] = [];
-    
+
     for (const doc of docs) {
       for (const f of doc.fields) {
-        // Solo enviamos los habilitados (el backend hace DELETE + INSERT de lo que llega)
-        if (!f.enabled) continue;
-
         fields.push({
           docId: doc.docId,
           campoNombre: f.campoNombre,
-          tipoCampo: f.tipoCampo,
-          tipoDato: f.tipoCampo === "V" ? null : (f.tipoDato ?? null),
           enabled: true,
           description: f.descripcionOverride ?? null,
           severity: f.severityOverride ?? null,
           orden: f.orden,
-          codigoCampo: f.codigoCampo ?? null,
         });
       }
     }
-    
-    return { 
-      systemPrompt: systemPrompt.trim() || null, 
-      fields 
+
+    return {
+      systemPrompt: systemPrompt.trim() || null,
+      fields,
     };
   };
 
   const handleSave = async () => {
     setConfirmOpen(false);
-    const errors = validationErrors();
-    if (errors.length > 0) {
-      toast.error(errors[0]);
-      return;
-    }
 
     setSaving(true);
     try {
       await saveAuditConfig(clientId, buildPayload());
       toast.success("Configuración guardada correctamente");
       setDirty(false);
+      router.refresh();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Error al guardar la configuración",
+        err instanceof Error
+          ? err.message
+          : "Error al guardar la configuración",
       );
     } finally {
       setSaving(false);
     }
   };
 
-  const validationErrors = React.useCallback(() => {
-    const errors: string[] = [];
-    for (const doc of docs) {
-      for (const field of doc.fields) {
-        const error = fieldValidationError(field);
-        if (error !== null) {
-          errors.push(`${doc.docName} · ${field.campoNombre}: ${error}`);
-        }
-      }
-    }
-    return errors;
-  }, [docs]);
-
   const openConfirmIfValid = () => {
-    const errors = validationErrors();
-    if (errors.length > 0) {
-      toast.error(errors[0]);
-      return;
-    }
     setConfirmOpen(true);
   };
 
   const activeDoc = docs.find((d) => d.docName === activeTab);
   const dataFields = activeDoc?.fields.filter((f) => f.tipoCampo !== "V") ?? [];
-  const visualFields = activeDoc?.fields.filter((f) => f.tipoCampo === "V") ?? [];
+  const visualFields =
+    activeDoc?.fields.filter((f) => f.tipoCampo === "V") ?? [];
   const selectedVisualCount = visualCheckOptions.filter((option) =>
-    visualFields.some((field) => sameFieldName(field.campoNombre, option.campoNombre) && field.enabled),
+    visualFields.some(
+      (field) =>
+        sameFieldName(field.campoNombre, option.campoNombre)
+    ),
   ).length;
-  const enabledCount = activeDoc?.fields.filter((f) => f.enabled).length ?? 0;
   const totalCount = activeDoc?.fields.length ?? 0;
 
-  const totalAllEnabled = docs.reduce(
-    (acc, d) => acc + d.fields.filter((f) => f.enabled).length,
-    0,
-  );
   const totalAllFields = docs.reduce((acc, d) => acc + d.fields.length, 0);
-  const disabledCount = totalAllFields - totalAllEnabled;
-  const validationErrorCount = validationErrors().length;
+
+  if (saving) {
+    return (
+      <div className="space-y-6">
+        <BackendRequestSkeleton
+          variant="detail"
+          title="Guardando configuración"
+          description="Sincronizando los campos y verificaciones visuales con el servidor..."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -446,8 +393,8 @@ export function AuditConfigEditor({
           tone="violet"
         />
         <StatCard
-          label="Cobertura"
-          value={`${totalAllEnabled} activos · ${disabledCount} off`}
+          label="Campos activos"
+          value={`${totalAllFields} configurados`}
           tone="amber"
         />
       </div>
@@ -457,9 +404,8 @@ export function AuditConfigEditor({
         {docs.map((doc) => {
           const Icon = docIcons[doc.docName] ?? FileText;
           const isActive = activeTab === doc.docName;
-          const docEnabled = doc.fields.filter((f) => f.enabled).length;
           const docTotal = doc.fields.length;
-          const pct = docTotal > 0 ? Math.round((docEnabled / docTotal) * 100) : 0;
+          const hasVisuals = doc.fields.some((f) => f.tipoCampo === "V");
 
           return (
             <button
@@ -501,23 +447,27 @@ export function AuditConfigEditor({
                   {doc.docName}
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600">
-                  <span>{docEnabled} de {docTotal} activos</span>
-                  <span className="text-slate-700">·</span>
-                  <span>{pct}% cobertura</span>
+                  <span>
+                    {docTotal} campos activos
+                  </span>
+                  {hasVisuals && (
+                    <>
+                      <span className="text-slate-700">·</span>
+                      <span className="text-violet-400">Verificaciones visuales</span>
+                    </>
+                  )}
                 </div>
               </div>
-              {/* Progress bar */}
+              {/* Indicator bar */}
               <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.05]">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all duration-500",
-                    pct === 100
-                      ? "bg-emerald-500"
-                      : isActive
-                        ? "bg-sky-500"
-                        : "bg-slate-600",
+                    docTotal > 0
+                      ? isActive ? "bg-sky-500" : "bg-emerald-500"
+                      : "bg-slate-600",
                   )}
-                  style={{ width: `${pct}%` }}
+                  style={{ width: docTotal > 0 ? "100%" : "0%" }}
                 />
               </div>
             </button>
@@ -531,20 +481,26 @@ export function AuditConfigEditor({
           {/* Panel header */}
           <div className="flex flex-col gap-3 border-b border-white/[0.05] pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-              <h3 className="text-sm font-bold text-white">{activeDoc.docName}</h3>
+              <h3 className="text-sm font-bold text-white">
+                {activeDoc.docName}
+              </h3>
               <p className="text-[11px] text-slate-500">
-                Activa o desactiva campos y ajusta verificaciones visuales del documento seleccionado.
+                Añade o elimina campos y ajusta verificaciones visuales del
+                documento seleccionado.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <InlineMetric label="Activos" value={`${enabledCount}`} />
-              <InlineMetric label="Totales" value={`${totalCount}`} />
+              <InlineMetric label="Campos activos" value={`${totalCount}`} />
             </div>
           </div>
 
           <div className="flex items-center justify-between gap-3">
             <div className="text-[11px] text-slate-500">
-              Los cambios se aplican solo a <span className="font-semibold text-slate-300">{activeDoc.docName}</span> hasta guardar.
+              Los cambios se aplican solo a{" "}
+              <span className="font-semibold text-slate-300">
+                {activeDoc.docName}
+              </span>{" "}
+              hasta guardar.
             </div>
             <button
               type="button"
@@ -562,7 +518,7 @@ export function AuditConfigEditor({
               <SectionLabel
                 icon={Database}
                 text="Campos de datos"
-                count={`${dataFields.filter((f) => f.enabled).length}/${dataFields.length}`}
+                count={`${dataFields.length}`}
                 color="cyan"
               />
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -570,9 +526,12 @@ export function AuditConfigEditor({
                   <FieldRow
                     key={`${field.tipoCampo}-${field.campoNombre}-${index}`}
                     field={field}
-                    onToggle={() => toggleField(activeDoc.docName, field.campoNombre, field.tipoCampo)}
-                    onRemove={() => removeField(activeDoc.docName, field.campoNombre, field.tipoCampo)}
-                    onUpdate={(updates) => updateField(activeDoc.docName, field.campoNombre, field.tipoCampo, updates)}
+                    onRemove={() =>
+                      removeField(activeDoc.docName, field.campoNombre)
+                    }
+                    onUpdate={(updates) =>
+                      updateField(activeDoc.docName, field.campoNombre, updates)
+                    }
                   />
                 ))}
               </div>
@@ -590,7 +549,9 @@ export function AuditConfigEditor({
             <VisualCheckPicker
               options={visualCheckOptions}
               selectedFields={visualFields}
-              onToggle={(option) => toggleVisualCheckOption(activeDoc.docName, option)}
+              onToggle={(option) =>
+                toggleVisualCheckOption(activeDoc.docName, option)
+              }
             />
             {visualFields.length > 0 && (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -598,14 +559,11 @@ export function AuditConfigEditor({
                   <VisualCheckRow
                     key={`V-${field.campoNombre}-${index}`}
                     field={field}
-                    onToggle={() =>
-                      toggleField(activeDoc.docName, field.campoNombre, "V")
-                    }
                     onRemove={() =>
-                      removeField(activeDoc.docName, field.campoNombre, "V")
+                      removeField(activeDoc.docName, field.campoNombre)
                     }
                     onUpdate={(updates) =>
-                      updateField(activeDoc.docName, field.campoNombre, "V", updates)
+                      updateField(activeDoc.docName, field.campoNombre, updates)
                     }
                   />
                 ))}
@@ -634,8 +592,9 @@ export function AuditConfigEditor({
           className="w-full resize-none rounded-lg border border-input bg-background/80 px-4 py-3 font-mono text-sm leading-relaxed text-slate-200 outline-none transition placeholder:text-slate-600 focus:ring-2 focus:ring-ring"
         />
         <p className="mt-2 text-[11px] leading-relaxed text-slate-600">
-          Este prompt se inyecta como contexto adicional en cada auditoría del cliente.
-          Déjalo vacío para usar el comportamiento por defecto del sistema.
+          Este prompt se inyecta como contexto adicional en cada auditoría del
+          cliente. Déjalo vacío para usar el comportamiento por defecto del
+          sistema.
         </p>
       </div>
 
@@ -655,7 +614,9 @@ export function AuditConfigEditor({
               <span className="text-sm text-cyan-300">Cambios sin guardar</span>
             </>
           ) : (
-            <span className="text-sm text-slate-600">Sin cambios pendientes</span>
+            <span className="text-sm text-slate-600">
+              Sin cambios pendientes
+            </span>
           )}
         </div>
         <Button
@@ -675,25 +636,13 @@ export function AuditConfigEditor({
           Guardar cambios
         </Button>
       </div>
-      {saving ? (
-        <BackendRequestSkeleton
-          description="El backend está persistiendo la configuración de auditoría."
-          title="Guardando configuración"
-          variant="compact"
-        />
-      ) : null}
-      {validationErrorCount > 0 && (
-        <p className="text-xs font-medium text-amber-300">
-          {validationErrorCount} campo(s) activo(s) requieren corregir tipo de dato antes de guardar.
-        </p>
-      )}
 
       <ConfirmDialog
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={handleSave}
         title="Guardar configuración"
-        description={`Se reemplazará la configuración de auditoría del cliente ${config.nitSec}. Los campos desactivados no serán evaluados en futuras auditorías.`}
+        description={`Se reemplazará la configuración de auditoría del cliente ${config.nitSec}. Los campos que no estén en la lista no serán evaluados en futuras auditorías.`}
         confirmLabel="Confirmar y guardar"
         variant="info"
         loading={saving}
@@ -711,6 +660,7 @@ export function AuditConfigEditor({
           }))}
           initialDocName={activeDoc.docName}
           onAddFields={addFieldsFromDispensa}
+          catalog={catalog}
         />
       )}
     </div>
@@ -750,13 +700,7 @@ function StatCard({
   );
 }
 
-function InlineMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InlineMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
@@ -798,16 +742,17 @@ function VisualCheckPicker({
   selectedFields,
   onToggle,
 }: {
-  options: VisualCheckOption[];
+  options: FieldCatalogItem[];
   selectedFields: FieldToggle[];
-  onToggle: (option: VisualCheckOption) => void;
+  onToggle: (option: FieldCatalogItem) => void;
 }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {options.map((option) => {
         const checkboxId = `visual-check-${option.campoNombre}`;
         const checked = selectedFields.some(
-          (field) => sameFieldName(field.campoNombre, option.campoNombre) && field.enabled,
+          (field) =>
+            sameFieldName(field.campoNombre, option.campoNombre)
         );
 
         return (
@@ -834,20 +779,23 @@ function VisualCheckPicker({
                 }
               }}
               onClick={(event) => event.stopPropagation()}
-              aria-label={`Seleccionar ${option.label}`}
+              aria-label={`Seleccionar ${option.campoNombre}`}
               className="mt-0.5"
             />
-            <Label htmlFor={checkboxId} className="min-w-0 cursor-pointer space-y-1 normal-case tracking-normal">
+            <Label
+              htmlFor={checkboxId}
+              className="min-w-0 cursor-pointer space-y-1 normal-case tracking-normal"
+            >
               <span
                 className={cn(
                   "block text-[12px] font-semibold",
                   checked ? "text-white" : "text-slate-400",
                 )}
               >
-                {option.label}
+                {option.campoNombre}
               </span>
               <span className="block text-[10px] leading-relaxed text-slate-600">
-                {option.campoNombre}
+                {option.descripcion}
               </span>
             </Label>
           </div>
@@ -859,230 +807,134 @@ function VisualCheckPicker({
 
 function FieldRow({
   field,
-  onToggle,
   onRemove,
   onUpdate,
 }: {
   field: FieldToggle;
-  onToggle: () => void;
   onRemove: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
   const switchId = React.useId();
-  const validationError = fieldValidationError(field);
-  const allowedTipoDatoOptions = tipoDatoOptionsFor(field.tipoCampo);
 
   return (
-    <div
-      className={cn(
-        "group rounded-lg border transition-all duration-150",
-        field.enabled
-          ? "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.12]"
-          : "border-white/[0.03] bg-transparent opacity-40 hover:opacity-55",
-      )}
-    >
+    <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <Switch
-            id={switchId}
-            checked={field.enabled}
-            onCheckedChange={() => onToggle()}
-            aria-label={`Activar campo ${field.campoNombre}`}
-          />
-          <Label
-            htmlFor={switchId}
-            className={cn(
-              "cursor-pointer truncate font-mono text-[12px] normal-case tracking-normal transition-colors",
-              field.enabled ? "text-slate-300" : "text-slate-600 line-through",
-            )}
-          >
+          <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
             {field.campoNombre}
           </Label>
-          {field.enabled && field.tipoCampo !== "E" && (
-            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400">
-              {field.tipoCampo === "S" ? "Semántico" : field.tipoCampo === "B" ? "Negocio" : field.tipoCampo}
+          {field.tipoCampo !== "E" && (
+            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+              {field.tipoCampo === "S"
+                ? "Semántico"
+                : field.tipoCampo === "B"
+                  ? "Negocio"
+                  : field.tipoCampo}
             </span>
           )}
-          {field.enabled && field.tipoDato && (
-            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-              {tipoDatoOptions.find((option) => option.value === field.tipoDato)?.label ?? field.tipoDato}
+          {field.tipoDato && (
+            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              {TIPO_DATO_LABELS[field.tipoDato] ?? field.tipoDato}
             </span>
           )}
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onRemove}
-              aria-label={`Eliminar ${field.campoNombre}`}
-              className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Eliminar campo</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Dialog>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Configurar override de ${field.campoNombre}`}
+                    className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-500 opacity-100 transition-all hover:bg-slate-800 hover:text-slate-300 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Configurar Prompt Específico</TooltipContent>
+            </Tooltip>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Configurar {field.campoNombre}</DialogTitle>
+                <DialogDescription>
+                  Ajusta cómo la IA debe interpretar o extraer este campo para
+                  este cliente en específico.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor={`desc-${field.campoNombre}`}
+                    className="text-xs"
+                  >
+                    Prompt Específico / Descripción
+                  </Label>
+                  <Textarea
+                    id={`desc-${field.campoNombre}`}
+                    value={field.descripcionOverride ?? ""}
+                    onChange={(e) =>
+                      onUpdate({ descripcionOverride: e.target.value })
+                    }
+                    placeholder="Instrucción especial (sobrescribe la del catálogo)..."
+                    className="min-h-[120px] resize-none bg-background/50 font-mono text-xs text-slate-300"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button">Listo</Button>
+                </DialogClose>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onRemove}
+                aria-label={`Eliminar ${field.campoNombre}`}
+                className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-700 opacity-100 transition-all hover:bg-rose-500/10 hover:text-rose-400 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Eliminar campo</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
-      {field.enabled && (
-        <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <div className="space-y-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Tipo</span>
-              <Select
-                value={field.tipoCampo}
-                onValueChange={(val) => {
-                  const nextTipoDato = isTipoDatoAllowed(val, field.tipoDato) ? field.tipoDato : "";
-                  onUpdate({ tipoCampo: val, tipoDato: nextTipoDato });
-                }}
-              >
-                <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="E">Exacto</SelectItem>
-                  <SelectItem value="S">Semántico</SelectItem>
-                  <SelectItem value="B">Negocio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Dato</span>
-              <Select
-                value={field.tipoDato ?? ""}
-                onValueChange={(val) => onUpdate({ tipoDato: val })}
-              >
-                <SelectTrigger
-                  className={cn(
-                    "h-8 rounded-lg bg-background/50 text-[11px]",
-                    validationError ? "border-amber-400/50" : "",
-                  )}
-                >
-                  <SelectValue placeholder="Requerido" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allowedTipoDatoOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Severidad</span>
-              <Select
-                value={field.severityOverride ?? "ALTA"}
-                onValueChange={(val) => onUpdate({ severityOverride: val })}
-              >
-                <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALTA">Alta</SelectItem>
-                  <SelectItem value="MEDIA">Media</SelectItem>
-                  <SelectItem value="BAJA">Baja</SelectItem>
-                </SelectContent>
-              </Select>
+      <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+              Tipo
+            </span>
+            <div className="flex h-8 items-center rounded-lg bg-background/50 px-2.5 text-[11px] text-slate-400">
+              {field.tipoCampo === "S"
+                ? "Semántico"
+                : field.tipoCampo === "B"
+                  ? "Negocio"
+                  : "Exacto"}
             </div>
           </div>
-          {validationError && (
-            <p className="text-[11px] font-medium text-amber-300">
-              {validationError}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VisualCheckRow({
-  field,
-  onToggle,
-  onRemove,
-  onUpdate,
-}: {
-  field: FieldToggle;
-  onToggle: () => void;
-  onRemove: () => void;
-  onUpdate: (u: Partial<FieldToggle>) => void;
-}) {
-  const switchId = React.useId();
-
-  return (
-    <div
-      className={cn(
-        "group rounded-lg border transition-all duration-150",
-        field.enabled
-          ? "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.12]"
-          : "border-white/[0.03] bg-transparent opacity-40 hover:opacity-55",
-      )}
-    >
-      {/* Row header */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Switch
-            id={switchId}
-            checked={field.enabled}
-            onCheckedChange={() => onToggle()}
-            aria-label={`Activar verificación visual ${field.campoNombre}`}
-          />
-          <Label
-            htmlFor={switchId}
-            className={cn(
-              "cursor-pointer truncate font-mono text-[12px] normal-case tracking-normal transition-colors",
-              field.enabled ? "text-slate-300" : "text-slate-600 line-through",
-            )}
-          >
-            {field.campoNombre}
-          </Label>
-          <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-violet-400">
-            Visual
-          </span>
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onRemove}
-              aria-label={`Eliminar ${field.campoNombre}`}
-              className="shrink-0 cursor-pointer rounded-lg p-1 text-slate-700 opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Eliminar verificación</TooltipContent>
-        </Tooltip>
-      </div>
-
-      {/* Expanded options when enabled */}
-      {field.enabled && (
-        <div className="flex flex-col gap-3 border-t border-white/[0.06] px-4 pb-4 pt-3">
-          <Field>
-            <FieldLabel htmlFor={`desc-${field.campoNombre}`} className="text-[10px] text-slate-600">
-              Descripción / Hint
-            </FieldLabel>
-            <Input
-              id={`desc-${field.campoNombre}`}
-              type="text"
-              value={field.descripcionOverride ?? ""}
-              onChange={(e) => onUpdate({ descripcionOverride: e.target.value })}
-              placeholder="Ej: Verificar firma del médico tratante"
-              className="h-10 rounded-xl bg-background/80 px-3"
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={`sev-${field.campoNombre}`} className="text-[10px] text-slate-600">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+              Dato
+            </span>
+            <div className="flex h-8 items-center rounded-lg bg-background/50 px-2.5 text-[11px] text-slate-400">
+              {TIPO_DATO_LABELS[field.tipoDato ?? ""] ?? field.tipoDato}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
               Severidad
-            </FieldLabel>
+            </span>
             <Select
               value={field.severityOverride ?? "ALTA"}
-              onValueChange={(value) =>
-                onUpdate({ severityOverride: value })
-              }
+              onValueChange={(val) => onUpdate({ severityOverride: val })}
             >
-              <SelectTrigger id={`sev-${field.campoNombre}`} className="h-10 rounded-xl">
+              <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1091,10 +943,125 @@ function VisualCheckRow({
                 <SelectItem value="BAJA">Baja</SelectItem>
               </SelectContent>
             </Select>
-          </Field>
-
+          </div>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
+
+function VisualCheckRow({
+  field,
+  onRemove,
+  onUpdate,
+}: {
+  field: FieldToggle;
+  onRemove: () => void;
+  onUpdate: (u: Partial<FieldToggle>) => void;
+}) {
+  const switchId = React.useId();
+
+  return (
+    <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
+      {/* Row header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
+            {field.campoNombre}
+          </Label>
+          <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-400">
+            Visual
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Dialog>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Configurar override de ${field.campoNombre}`}
+                    className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-500 opacity-100 transition-all hover:bg-slate-800 hover:text-slate-300 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                  >
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Configurar Hint Visual</TooltipContent>
+            </Tooltip>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Configurar {field.campoNombre}</DialogTitle>
+                <DialogDescription>
+                  Ajusta la instrucción para la IA sobre esta verificación
+                  visual.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor={`desc-${field.campoNombre}`}
+                    className="text-xs"
+                  >
+                    Descripción / Hint Visual
+                  </Label>
+                  <Textarea
+                    id={`desc-${field.campoNombre}`}
+                    value={field.descripcionOverride ?? ""}
+                    onChange={(e) =>
+                      onUpdate({ descripcionOverride: e.target.value })
+                    }
+                    placeholder="Ej: Verificar firma del médico tratante"
+                    className="min-h-[120px] resize-none bg-background/50 font-mono text-xs text-slate-300"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button type="button">Listo</Button>
+                </DialogClose>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onRemove}
+                aria-label={`Eliminar ${field.campoNombre}`}
+                className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-700 opacity-100 transition-all hover:bg-rose-500/10 hover:text-rose-400 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Eliminar verificación</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Expanded options */}
+      <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+              Severidad
+            </span>
+            <Select
+              value={field.severityOverride ?? "ALTA"}
+              onValueChange={(val) => onUpdate({ severityOverride: val })}
+            >
+              <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALTA">Alta</SelectItem>
+                <SelectItem value="MEDIA">Media</SelectItem>
+                <SelectItem value="BAJA">Baja</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

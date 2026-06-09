@@ -13,6 +13,7 @@ $router->post('/clients', 'ClientsController', 'lookup');
 // Audit Config (Sample-Driven Configuration)
 $router->get('/clients/{clientId}/audit-config', 'AuditConfigController', 'show');
 $router->post('/clients/{clientId}/audit-config', 'AuditConfigController', 'save');
+$router->get('/audit/field-catalog', 'AuditConfigController', 'catalog');
 
 // Invoices
 $router->get('/invoices', 'InvoicesController', 'index');

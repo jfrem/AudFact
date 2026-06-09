@@ -8,12 +8,14 @@ import {
   Users2,
 } from "lucide-react";
 
+import { Suspense } from "react";
 import { getClients } from "@/lib/api/audfact";
 import type { ClientRecord } from "@/lib/schemas/domain";
 import { PageHeader } from "@/components/layout/page-header";
 import { SectionCard } from "@/components/shared/section-card";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ClientsFilterForm } from "@/components/clients/clients-filter-form";
+import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { formatNumber } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 
@@ -42,6 +44,8 @@ export default async function ClientsPage({
   const helperText = hasActiveFilters
     ? "Refina la consulta o limpia el filtro para volver al directorio completo."
     : "Busca por razón social o NitSec y entra directo a facturas o configuración.";
+
+  const searchParamsKey = JSON.stringify({ clientId });
 
   return (
     <div className="space-y-6">
@@ -84,97 +88,136 @@ export default async function ClientsPage({
         />
       </div>
 
-      <SectionCard
-        title={hasActiveFilters ? "Resultado de la búsqueda" : "Directorio de clientes"}
-        description={
-          hasActiveFilters
-            ? "Se muestra únicamente el cliente seleccionado por el filtro actual."
-            : "Cada card resume identidad y acceso directo a las acciones disponibles."
-        }
-        actions={
-          <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-slate-300">
-            {formatNumber(clients.length)} {clients.length === 1 ? "cliente" : "clientes"}
-          </div>
+      <Suspense
+        key={searchParamsKey}
+        fallback={
+          <SectionCard
+            title={hasActiveFilters ? "Resultado de la búsqueda" : "Directorio de clientes"}
+            description={
+              hasActiveFilters
+                ? "Se muestra únicamente el cliente seleccionado por el filtro actual."
+                : "Cada card resume identidad y acceso directo a las acciones disponibles."
+            }
+          >
+            <BackendRequestSkeleton
+              description="El directorio se está filtrando..."
+              rows={3}
+              title="Consultando clientes"
+              variant="table"
+            />
+          </SectionCard>
         }
       >
-        {clients.length === 0 ? (
-          <EmptyState
-            title="Sin clientes"
-            description={
-              clientId
-                ? `No se encontró el cliente con ID ${clientId}.`
-                : "No se encontraron clientes para los criterios actuales."
-            }
-            action={
-              hasActiveFilters ? (
-                <Button asChild variant="secondary">
-                  <Link href="/clients">Volver al directorio</Link>
-                </Button>
-              ) : null
-            }
-          />
-        ) : (
-          <div className="stagger-children grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {clients.map((client) => (
-              <article
-                key={client.id}
-                className="group flex h-full flex-col justify-between rounded-xl border border-white/10 bg-white/[0.02] p-3.5 transition-[border-color,background-color,transform] duration-200 hover:border-sky-400/20 hover:bg-white/[0.04]"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="min-w-0 space-y-2.5">
-                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-sky-300">
-                        <Users2 className="h-4.5 w-4.5" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-balance text-sm font-semibold text-white sm:text-base">
-                          {client.name}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-400">NitSec {client.id}</p>
-                      </div>
+        <ClientsGridFetcher
+          clients={clients}
+          clientId={clientId}
+          hasActiveFilters={hasActiveFilters}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+function ClientsGridFetcher({
+  clients,
+  clientId,
+  hasActiveFilters,
+}: {
+  clients: ClientDirectoryItem[];
+  clientId: string;
+  hasActiveFilters: boolean;
+}) {
+  return (
+    <SectionCard
+      title={hasActiveFilters ? "Resultado de la búsqueda" : "Directorio de clientes"}
+      description={
+        hasActiveFilters
+          ? "Se muestra únicamente el cliente seleccionado por el filtro actual."
+          : "Cada card resume identidad y acceso directo a las acciones disponibles."
+      }
+      actions={
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-slate-300">
+          {formatNumber(clients.length)} {clients.length === 1 ? "cliente" : "clientes"}
+        </div>
+      }
+    >
+      {clients.length === 0 ? (
+        <EmptyState
+          title="Sin clientes"
+          description={
+            clientId
+              ? `No se encontró el cliente con ID ${clientId}.`
+              : "No se encontraron clientes para los criterios actuales."
+          }
+          action={
+            hasActiveFilters ? (
+              <Button asChild variant="secondary">
+                <Link href="/clients">Volver al directorio</Link>
+              </Button>
+            ) : null
+          }
+        />
+      ) : (
+        <div className="stagger-children grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {clients.map((client) => (
+            <article
+              key={client.id}
+              className="group flex h-full flex-col justify-between rounded-xl border border-white/10 bg-white/[0.02] p-3.5 transition-[border-color,background-color,transform] duration-200 hover:border-sky-400/20 hover:bg-white/[0.04]"
+            >
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="min-w-0 space-y-2.5">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-sky-300">
+                      <Users2 className="h-4.5 w-4.5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-balance text-sm font-semibold text-white sm:text-base">
+                        {client.name}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">NitSec {client.id}</p>
                     </div>
                   </div>
-
-                  {clientId === client.id ? (
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1 font-medium text-white">
-                        Coincidencia exacta
-                      </span>
-                    </div>
-                  ) : null}
                 </div>
 
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <Button asChild variant="secondary" className="w-full">
-                    <Link href={`/invoices?facNitSec=${encodeURIComponent(client.id)}`}>
-                      <FileSearch className="h-4 w-4" />
-                      Ver facturas
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href={`/clients/audit-config?clientId=${encodeURIComponent(client.id)}`}>
-                      <Settings2 className="h-4 w-4" />
-                      Config auditoría
-                    </Link>
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
+                {clientId === client.id ? (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1 font-medium text-white">
+                      Coincidencia exacta
+                    </span>
+                  </div>
+                ) : null}
+              </div>
 
-        {clients.length > 0 ? (
-          <div className="mt-4 flex justify-end">
-            <Link
-              href="/clients/audit-config"
-              className="inline-flex items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
-            >
-              Ir a configuración global <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-          </div>
-        ) : null}
-      </SectionCard>
-    </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <Button asChild variant="secondary" className="w-full">
+                  <Link href={`/invoices?facNitSec=${encodeURIComponent(client.id)}`}>
+                    <FileSearch className="h-4 w-4" />
+                    Ver facturas
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="w-full">
+                  <Link href={`/clients/audit-config?clientId=${encodeURIComponent(client.id)}`}>
+                    <Settings2 className="h-4 w-4" />
+                    Config auditoría
+                  </Link>
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {clients.length > 0 ? (
+        <div className="mt-4 flex justify-end">
+          <Link
+            href="/clients/audit-config"
+            className="inline-flex items-center gap-1.5 text-sm text-sky-400 transition hover:text-sky-300"
+          >
+            Ir a configuración global <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      ) : null}
+    </SectionCard>
   );
 }
 

@@ -1,13 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
-import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ClientRecord } from "@/lib/schemas/domain";
 
 interface AuditResultsFilterFormProps {
@@ -27,8 +27,16 @@ export function AuditResultsFilterForm({
   initialDateTo = "",
   initialPageSize = 20,
 }: AuditResultsFilterFormProps) {
-  const navigation = usePendingNavigation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [facNitSec, setFacNitSec] = React.useState(initialFacNitSec);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const currentParams = searchParams.toString();
+
+  React.useEffect(() => {
+    setIsSubmitting(false);
+  }, [currentParams]);
 
   React.useEffect(() => {
     setFacNitSec(initialFacNitSec);
@@ -51,13 +59,16 @@ export function AuditResultsFilterForm({
     if (dateFrom) params.set("dateFrom", String(dateFrom));
     if (dateTo) params.set("dateTo", String(dateTo));
 
-    navigation.push(`?${params.toString()}`);
+    const newParamsString = params.toString();
+    if (currentParams !== newParamsString) {
+      setIsSubmitting(true);
+      router.push(`?${newParamsString}`);
+    }
   };
 
   return (
     <div className="space-y-4">
       <form
-        aria-busy={navigation.isPending}
         className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(8rem,0.8fr)]"
         onSubmit={handleSubmit}
       >
@@ -120,22 +131,13 @@ export function AuditResultsFilterForm({
           <Button
             type="submit"
             className="w-full"
-            loading={navigation.isPending}
+            loading={isSubmitting}
             loadingLabel="Buscando"
           >
             Buscar
           </Button>
         </div>
       </form>
-
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          description="El backend está actualizando los resultados persistidos."
-          rows={6}
-          title="Consultando resultados"
-          variant="table"
-        />
-      ) : null}
     </div>
   );
 }

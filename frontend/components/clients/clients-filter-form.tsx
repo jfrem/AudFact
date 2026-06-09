@@ -4,10 +4,10 @@ import * as React from "react";
 import { RotateCcw, Search } from "lucide-react";
 
 import { ClientSelectorCombo } from "@/components/audit/client-selector-combo";
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { ClientRecord } from "@/lib/schemas/domain";
 
 interface ClientsFilterFormProps {
@@ -19,34 +19,36 @@ export function ClientsFilterForm({
   clients,
   initialClientId = "",
 }: ClientsFilterFormProps) {
-  const navigation = usePendingNavigation();
-  const [pendingAction, setPendingAction] = React.useState<"clear" | "search" | null>(null);
+  const router = useRouter();
   const [clientId, setClientId] = React.useState(initialClientId);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const hasActiveFilter = clientId.trim().length > 0;
+  const searchParams = useSearchParams();
+
+  const currentParams = searchParams.toString();
 
   React.useEffect(() => {
-    if (!navigation.isPending) {
-      setPendingAction(null);
-    }
-  }, [navigation.isPending]);
+    setIsSubmitting(false);
+  }, [currentParams]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
     const params = new URLSearchParams();
 
-    const nextClientId = String(formData.get("clientId") ?? "").trim();
+    if (clientId.trim()) {
+      params.set("clientId", clientId.trim());
+    }
 
-    if (nextClientId) params.set("clientId", nextClientId);
-
-    setPendingAction("search");
-    navigation.push(params.size ? `/clients?${params.toString()}` : "/clients");
+    const newParamsString = params.toString();
+    if (currentParams !== newParamsString) {
+      setIsSubmitting(true);
+      router.push(params.size ? `/clients?${newParamsString}` : "/clients");
+    }
   };
 
   return (
     <div className="space-y-4">
       <form
-        aria-busy={navigation.isPending}
         className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]"
         onSubmit={handleSubmit}
       >
@@ -68,7 +70,7 @@ export function ClientsFilterForm({
           <Button
             type="submit"
             className="w-full md:w-auto"
-            loading={navigation.isPending && pendingAction === "search"}
+            loading={isSubmitting}
             loadingLabel="Consultando"
           >
             <Search className="h-4 w-4" />
@@ -82,12 +84,12 @@ export function ClientsFilterForm({
               type="button"
               variant="ghost"
               className="w-full md:w-auto"
-              loading={navigation.isPending && pendingAction === "clear"}
+              loading={isSubmitting}
               loadingLabel="Limpiando"
               onClick={() => {
+                setIsSubmitting(true);
                 setClientId("");
-                setPendingAction("clear");
-                navigation.push("/clients");
+                router.push("/clients");
               }}
             >
               <RotateCcw className="h-4 w-4" />
@@ -96,14 +98,6 @@ export function ClientsFilterForm({
           </div>
         ) : null}
       </form>
-
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          description="El backend está actualizando la lista de clientes."
-          title="Consultando clientes"
-          variant="table"
-        />
-      ) : null}
     </div>
   );
 }

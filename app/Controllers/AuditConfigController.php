@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Models\AuditConfigModel;
-use App\Services\Audit\AuditFieldValueType;
 use Core\Response;
 
 /**
@@ -22,6 +21,25 @@ class AuditConfigController extends Controller
     public function __construct()
     {
         $this->model = new AuditConfigModel();
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /audit/field-catalog
+    // -------------------------------------------------------------------------
+
+    public function catalog(): void
+    {
+        $rows = $this->model->getCatalog();
+        $catalog = array_map(fn(array $row) => [
+            'campoNombre' => $row['CampoNombre'],
+            'codigoCampo' => $row['CodigoCampo'],
+            'tipoCampo'   => $row['TipoCampo'],
+            'tipoDato'    => $row['TipoDato'] !== null ? strtolower(trim($row['TipoDato'])) : null,
+            'descripcion' => $row['Descripcion'],
+            'severidad'   => $row['Severidad'],
+            'esVisual'    => (bool) $row['EsVisual'],
+        ], $rows);
+        Response::success($catalog, 'Catálogo de campos auditables');
     }
 
     // -------------------------------------------------------------------------
@@ -97,8 +115,7 @@ class AuditConfigController extends Controller
     /**
      * Valida y sanitiza el array de campos del payload.
      * - Rechaza campos excluidos (FacSec, NitSec).
-     * - Valida tipoCampo como 'E', 'S', 'B', 'V'.
-     * - Exige tipoDato para campos no visuales.
+     * - Valida contra el catálogo SQL.
      * - Acepta description y severity para todos los campos.
      * - Limita CampoNombre a 100 caracteres alfanuméricos+guiones.
      *
@@ -121,9 +138,6 @@ class AuditConfigController extends Controller
             try {
                 $docId       = $this->sanitizeDocId($field);
                 $campoNombre = $this->sanitizeCampoNombre($field);
-                $tipoCampo   = $this->sanitizeTipoCampo($field);
-                $tipoDato    = $this->sanitizeTipoDato($field, $tipoCampo);
-                $codigoCampo = $this->sanitizeCodigoCampo($field);
             } catch (\InvalidArgumentException $exception) {
                 $errors[] = "Campo #{$pos}: {$exception->getMessage()}";
                 continue;
@@ -132,16 +146,16 @@ class AuditConfigController extends Controller
             $description = isset($field['description']) && is_string($field['description'])
                 ? trim($field['description'])
                 : null;
+            if ($description === '') {
+                $description = null;
+            }
 
             $sanitized[] = [
                 'docId'       => $docId,
                 'campoNombre' => $campoNombre,
-                'tipoCampo'   => $tipoCampo,
-                'tipoDato'    => $tipoDato,
                 'orden'       => (int) ($field['orden'] ?? 0),
                 'description' => $description,
                 'severity'    => $this->sanitizeSeverity($field),
-                'codigoCampo' => $codigoCampo,
             ];
         }
 
@@ -177,76 +191,11 @@ class AuditConfigController extends Controller
             throw new \InvalidArgumentException("'{$campoNombre}' contiene caracteres inválidos.");
         }
 
+        if (!$this->model->catalogFieldExists($campoNombre)) {
+            throw new \InvalidArgumentException("'campoNombre' no existe en el catálogo de campos.");
+        }
+
         return $campoNombre;
-    }
-
-    private function sanitizeCodigoCampo(array $field): ?string
-    {
-        if (!array_key_exists('codigoCampo', $field) || $field['codigoCampo'] === null) {
-            return null;
-        }
-
-        if (!is_string($field['codigoCampo']) && !is_numeric($field['codigoCampo'])) {
-            throw new \InvalidArgumentException("'codigoCampo' debe ser texto.");
-        }
-
-        $codigoCampo = trim((string) $field['codigoCampo']);
-        if ($codigoCampo === '') {
-            return null;
-        }
-
-        if (!preg_match('/^[A-Za-z0-9_.\-]{1,50}$/', $codigoCampo)) {
-            throw new \InvalidArgumentException("'codigoCampo' contiene caracteres inválidos.");
-        }
-
-        return $codigoCampo;
-    }
-
-    private function sanitizeTipoCampo(array $field): string
-    {
-        // tipoCampo: E=Exacto, S=Semántico, B=Negocio, V=Visual
-        $tipoCampo = strtoupper(trim((string)($field['tipoCampo'] ?? '')));
-        if (!in_array($tipoCampo, ['E', 'S', 'B', 'V'], true)) {
-            throw new \InvalidArgumentException("'tipoCampo' inválido.");
-        }
-
-        return $tipoCampo;
-    }
-
-    private function sanitizeTipoDato(array $field, string $tipoCampo): ?string
-    {
-        if ($tipoCampo === 'V') {
-            return null;
-        }
-
-        $rawTipoDato = trim((string) ($field['tipoDato'] ?? ''));
-        if ($rawTipoDato === '') {
-            throw new \InvalidArgumentException("'tipoDato' es requerido para campos no visuales.");
-        }
-
-        try {
-            $valueType = AuditFieldValueType::fromInput($rawTipoDato);
-        } catch (\InvalidArgumentException) {
-            throw new \InvalidArgumentException("'tipoDato' inválido.");
-        }
-
-        if (!$valueType->isAllowedForTipoCampo($tipoCampo)) {
-            throw new \InvalidArgumentException($this->typeCombinationError($tipoCampo));
-        }
-
-        return $valueType->value;
-    }
-
-    private function typeCombinationError(string $tipoCampo): string
-    {
-        $allowedValues = AuditFieldValueType::allowedValuesForTipoCampo($tipoCampo);
-        if ($allowedValues === []) {
-            return "'tipoCampo' inválido.";
-        }
-
-        return "'tipoCampo={$tipoCampo}' solo permite 'tipoDato="
-            . implode("', 'tipoDato=", $allowedValues)
-            . "'.";
     }
 
     private function sanitizeSeverity(array $field): string

@@ -97,49 +97,49 @@ export default function ObservabilityPage() {
       >
         {isFetching ? (
           <BackendRequestSkeleton
-            className="mb-4"
             description="El backend está refrescando los vitales operativos."
             title="Actualizando estado"
-            variant="compact"
+            variant="detail"
           />
-        ) : null}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {/* Base de Datos */}
-          <VitalCard
-            icon={<Database className="h-4 w-4" />}
-            label="SQL Server"
-            status={deriveServiceStatus(db?.status)}
-            primary={db?.latency_ms !== undefined ? `${db.latency_ms} ms` : "—"}
-            secondary={db?.message ?? "Sin información"}
-          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {/* Base de Datos */}
+            <VitalCard
+              icon={<Database className="h-4 w-4" />}
+              label="SQL Server"
+              status={deriveServiceStatus(db?.status)}
+              primary={db?.latency_ms !== undefined ? `${db.latency_ms} ms` : "—"}
+              secondary={db?.message ?? "Sin información"}
+            />
 
-          {/* Memoria */}
-          <VitalCard
-            icon={<Cpu className="h-4 w-4" />}
-            label="Memoria PHP"
-            status={deriveServiceStatus(memory?.status)}
-            primary={memory?.usage_mb !== undefined ? `${memory.usage_mb} MB` : "—"}
-            secondary={`Peak: ${memory?.peak_mb ?? "—"} MB · Límite: ${memory?.limit ?? "—"}`}
-          />
+            {/* Memoria */}
+            <VitalCard
+              icon={<Cpu className="h-4 w-4" />}
+              label="Memoria PHP"
+              status={deriveServiceStatus(memory?.status)}
+              primary={memory?.usage_mb !== undefined ? `${memory.usage_mb} MB` : "—"}
+              secondary={`Peak: ${memory?.peak_mb ?? "—"} MB · Límite: ${memory?.limit ?? "—"}`}
+            />
 
-          {/* Disco */}
-          <VitalCard
-            icon={<HardDrive className="h-4 w-4" />}
-            label="Almacenamiento"
-            status={deriveServiceStatus(disk?.status)}
-            primary={disk?.free_mb !== undefined ? `${disk.free_mb} MB libres` : "—"}
-            secondary={disk?.threshold_mb ? `Umbral mínimo: ${disk.threshold_mb} MB` : "—"}
-          />
+            {/* Disco */}
+            <VitalCard
+              icon={<HardDrive className="h-4 w-4" />}
+              label="Almacenamiento"
+              status={deriveServiceStatus(disk?.status)}
+              primary={disk?.free_mb !== undefined ? `${disk.free_mb} MB libres` : "—"}
+              secondary={disk?.threshold_mb ? `Umbral mínimo: ${disk.threshold_mb} MB` : "—"}
+            />
 
-          {/* Runtime */}
-          <VitalCard
-            icon={<Server className="h-4 w-4" />}
-            label="Runtime"
-            status="ok"
-            primary={health.php_version ?? "—"}
-            secondary={`Entorno: ${health.environment ?? "—"}`}
-          />
-        </div>
+            {/* Runtime */}
+            <VitalCard
+              icon={<Server className="h-4 w-4" />}
+              label="Runtime"
+              status="ok"
+              primary={health.php_version ?? "—"}
+              secondary={`Entorno: ${health.environment ?? "—"}`}
+            />
+          </div>
+        )}
       </SectionCard>
 
       {/* Contexto operativo */}

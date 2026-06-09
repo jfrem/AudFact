@@ -89,6 +89,18 @@ export const AuditVisualCheckSchema = z.object({
   codigoCampo: z.string().nullable().optional(),
 });
 
+export const FieldCatalogItemSchema = z.object({
+  campoNombre: z.string(),
+  codigoCampo: z.string(),
+  tipoCampo: z.string(),
+  tipoDato: z.string().nullable(),
+  descripcion: z.string().nullable(),
+  severidad: z.string(),
+  esVisual: z.boolean(),
+});
+export type FieldCatalogItem = z.infer<typeof FieldCatalogItemSchema>;
+export const FieldCatalogSchema = z.array(FieldCatalogItemSchema);
+
 export const AuditConfigDocumentSchema = z.object({
   docId: z.number(),
   fields: z.array(AuditConfigFieldSchema),

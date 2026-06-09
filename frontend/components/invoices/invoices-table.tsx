@@ -114,15 +114,6 @@ export function InvoicesTable({
         onCancel={() => setAuditTarget(null)}
       />
 
-      {navigation.isPending ? (
-        <BackendRequestSkeleton
-          className="mb-4"
-          description="La vista solicitada se está cargando desde el backend."
-          title="Abriendo solicitud"
-          variant="detail"
-        />
-      ) : null}
-
       {invoices.length > 0 ? (
         <Table>
           <TableHeader>

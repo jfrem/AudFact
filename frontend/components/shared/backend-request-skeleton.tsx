@@ -59,18 +59,18 @@ function SkeletonBody({
     return (
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
         <div className="space-y-3" aria-hidden="true">
-          <Skeleton className="h-5 w-36 rounded-lg bg-white/[0.06]" />
-          <Skeleton className="h-16 rounded-lg bg-white/[0.04]" />
-          <Skeleton className="h-16 rounded-lg bg-white/[0.035]" />
-          <Skeleton className="h-16 rounded-lg bg-white/[0.03]" />
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-16" />
+          <Skeleton className="h-16" />
+          <Skeleton className="h-16" />
         </div>
         <div aria-hidden="true">
-          <Skeleton className="h-6 w-44 rounded-lg bg-white/[0.06]" />
+          <Skeleton className="h-6 w-44" />
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             {Array.from({ length: 6 }).map((_, index) => (
               <Skeleton
                 key={index}
-                className="h-12 rounded-lg bg-white/[0.04]"
+                className="h-12"
               />
             ))}
           </div>
@@ -84,8 +84,8 @@ function SkeletonBody({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="space-y-2" aria-hidden="true">
-            <Skeleton className="h-3 w-20 rounded-lg bg-white/[0.04]" />
-            <Skeleton className="h-10 rounded-lg bg-white/[0.06]" />
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-10" />
           </div>
         ))}
       </div>
@@ -98,7 +98,7 @@ function SkeletonBody({
 
   return (
     <div className="space-y-3">
-      <Skeleton className="h-16 rounded-lg bg-white/[0.04]" aria-hidden="true" />
+      <Skeleton className="h-16" aria-hidden="true" />
       <LoadingSkeleton lines={rows} />
     </div>
   );

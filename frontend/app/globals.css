@@ -215,6 +215,17 @@ summary {
   animation: modal-in 0.25s ease-out both;
 }
 
+/* ─── Shimmer Loading ─── */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+}
+
 /* ─── Accessibility: Respect motion preference ─── */
 @media (prefers-reduced-motion: reduce) {
   .animate-in,
@@ -229,7 +240,7 @@ summary {
     transition: none;
   }
 
-  :where(.animate-pulse) {
+  :where(.animate-pulse, .animate-shimmer) {
     animation: none;
   }
 }

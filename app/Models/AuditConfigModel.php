@@ -32,24 +32,19 @@ class AuditConfigModel extends Model
             return null;
         }
 
-        $sql = "SELECT
-                nd.NitMedDocId          AS docId,
-                nd.NitMedDocNom         AS docNombre,
-                ac.CampoNombre,
-                ac.TipoCampo,
-                ac.TipoDato,
-                ac.Orden,
-                ac.DescripcionOverride,
-                ac.SeveridadOverride,
-                ac.CodigoCampo
+        $sql = "SELECT nd.NitMedDocId AS docId, nd.NitMedDocNom AS docNombre,
+               cat.CampoNombre, cat.TipoCampo, cat.TipoDato,
+               cat.CodigoCampo, cat.EsVisual,
+               cat.Descripcion AS DescripcionDefault,
+               cat.Severidad   AS SeveridadDefault,
+               ac.Orden, ac.DescripcionOverride, ac.SeveridadOverride
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
+            INNER JOIN Discolnet.dbo.AudDispCampoCatalogo cat WITH (NOLOCK)
+                ON cat.CampoNombre = ac.CampoNombre
             INNER JOIN NitDocumentos nd WITH (NOLOCK)
-                ON nd.NitSec       = ac.FacNitSec
-                AND nd.NitMedDocId = ac.NitMedDocId
-            WHERE ac.FacNitSec = :nitSec
-              AND ac.Activo    = 1
-              AND nd.NitMedDocOpc = 'N'
-            ORDER BY nd.NitMedDocId ASC, ac.TipoCampo ASC, ac.Orden ASC";
+                ON nd.NitSec = ac.FacNitSec AND nd.NitMedDocId = ac.NitMedDocId
+            WHERE ac.FacNitSec = :nitSec AND ac.Activo = 1 AND nd.NitMedDocOpc = 'N'
+            ORDER BY nd.NitMedDocId ASC, cat.EsVisual ASC, ac.Orden ASC";
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
@@ -73,21 +68,22 @@ class AuditConfigModel extends Model
                 ];
             }
 
-            if ($row['TipoCampo'] !== 'V') {
+            if (!$row['EsVisual']) {
                 $documents[$docNombre]['fields'][] = [
                     'campoNombre' => $row['CampoNombre'],
                     'tipoCampo'   => $row['TipoCampo'],
                     'tipoDato'    => strtolower(trim((string) $row['TipoDato'])),
                     'orden'       => (int) $row['Orden'],
-                    'severity'    => $row['SeveridadOverride'] ?? 'media',
+                    'severity'    => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'media',
                     'codigoCampo' => $row['CodigoCampo'],
+                    'description' => $row['DescripcionOverride'] ?? $row['DescripcionDefault'] ?? '',
                 ];
             } else {
                 // Visual checks retornados como objetos completos
                 $documents[$docNombre]['visualChecks'][] = [
                     'check'       => $row['CampoNombre'],
-                    'description' => $row['DescripcionOverride'] ?? '',
-                    'severity'    => $row['SeveridadOverride'] ?? 'alta',
+                    'description' => $row['DescripcionOverride'] ?? $row['DescripcionDefault'] ?? '',
+                    'severity'    => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'alta',
                     'orden'       => (int) $row['Orden'],
                     'codigoCampo' => $row['CodigoCampo'],
                 ];
@@ -132,9 +128,8 @@ class AuditConfigModel extends Model
      * @param string      $nitSec       NIT del cliente
      * @param array       $fields       Lista de campos a activar:
      *                                  [['docId'=>1,'campoNombre'=>'NumeroFactura',
-     *                                    'tipoCampo'=>'E','tipoDato'=>'text','orden'=>1,
-     *                                    'description'=>null,'severity'=>null,
-     *                                    'codigoCampo'=>null], ...]
+     *                                    'orden'=>1,'description'=>null,
+     *                                    'severity'=>null], ...]
      * @param string|null $systemPrompt Prompt personalizado (opcional)
      */
     public function saveConfig(
@@ -202,9 +197,8 @@ class AuditConfigModel extends Model
      * Reemplaza todos los toggles del cliente:
      * borra los anteriores e inserta los nuevos en lote.
      *
-     * @param array $fields  [['docId'=>int,'campoNombre'=>string,'tipoCampo'=>string,
-     *                         'tipoDato'=>?string,'orden'=>int,'description'=>?string,
-     *                         'severity'=>?string,'codigoCampo'=>?string], ...]
+     * @param array $fields  [['docId'=>int,'campoNombre'=>string,'orden'=>int,
+     *                         'description'=>?string,'severity'=>?string], ...]
      */
     private function replaceFields(\PDO $db, string $nitSec, array $fields): void
     {
@@ -219,33 +213,24 @@ class AuditConfigModel extends Model
 
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
-                (FacNitSec, NitMedDocId, CampoNombre, TipoCampo, TipoDato, Activo, Orden,
-                 DescripcionOverride, SeveridadOverride, CodigoCampo)
+                (FacNitSec, NitMedDocId, CampoNombre, Activo, Orden,
+                 DescripcionOverride, SeveridadOverride)
             VALUES
-                (:nitSec, :docId, :campoNombre, :tipoCampo, :tipoDato, 1, :orden,
-                 :description, :severity, :codigoCampo)";
+                (:nitSec, :docId, :campoNombre, 1, :orden,
+                 :description, :severity)";
         $insStmt = $db->prepare($insSql);
 
         foreach ($fields as $field) {
             $docId       = (int)    $field['docId'];
             $campo       = (string) $field['campoNombre'];
-            $tipo        = (string) $field['tipoCampo'];
-            $tipoDato    = $field['tipoDato'] ?? null;
             $orden       = (int)    ($field['orden']     ?? 0);
             $description = $field['description'] ?? null;
             $severity    = $field['severity']    ?? null;
-            $codigoCampo = $field['codigoCampo'] ?? null;
 
             $insStmt->bindValue(':nitSec',      $nitSec, PDO::PARAM_STR);
             $insStmt->bindValue(':docId',       $docId, PDO::PARAM_INT);
             $insStmt->bindValue(':campoNombre', $campo, PDO::PARAM_STR);
-            $insStmt->bindValue(':tipoCampo',   $tipo, PDO::PARAM_STR);
-            if ($tipoDato === null) {
-                $insStmt->bindValue(':tipoDato', null, PDO::PARAM_NULL);
-            } else {
-                $insStmt->bindValue(':tipoDato', (string) $tipoDato, PDO::PARAM_STR);
-            }
-            $insStmt->bindValue(':orden', $orden, PDO::PARAM_INT);
+            $insStmt->bindValue(':orden',       $orden, PDO::PARAM_INT);
             if ($description === null) {
                 $insStmt->bindValue(':description', null, PDO::PARAM_NULL);
             } else {
@@ -256,12 +241,34 @@ class AuditConfigModel extends Model
             } else {
                 $insStmt->bindValue(':severity', (string) $severity, PDO::PARAM_STR);
             }
-            if ($codigoCampo === null) {
-                $insStmt->bindValue(':codigoCampo', null, PDO::PARAM_NULL);
-            } else {
-                $insStmt->bindValue(':codigoCampo', (string) $codigoCampo, PDO::PARAM_STR);
-            }
             $insStmt->execute();
         }
+    }
+
+    /**
+     * Retorna el catálogo completo de campos.
+     */
+    public function getCatalog(): array
+    {
+        $sql = "SELECT CampoNombre, CodigoCampo, TipoCampo, TipoDato,
+                       Descripcion, Severidad, EsVisual
+                FROM Discolnet.dbo.AudDispCampoCatalogo WITH (NOLOCK)
+                ORDER BY EsVisual ASC, CampoNombre ASC";
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Verifica si un campo existe en el catálogo.
+     */
+    public function catalogFieldExists(string $campoNombre): bool
+    {
+        $sql = "SELECT 1 FROM Discolnet.dbo.AudDispCampoCatalogo WITH (NOLOCK)
+                WHERE CampoNombre = :campo";
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->bindParam(':campo', $campoNombre, PDO::PARAM_STR);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
     }
 }

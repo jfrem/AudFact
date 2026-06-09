@@ -851,3 +851,10 @@
 ## 2026-03-08
 - Fix: Corregido el mapeo de par√°metros (FacSec a NumeroFactura) en la Auditor√≠a 1:1.
 - Fix: Resuelto el renderizado vac√≠o del modal de resultados de Auditor√≠a 1:1 en la UI gestionando correctamente la envoltura data.data del backend y el estado de error de la IA.
+# #   2 0 2 6 - 0 6 - 0 8  
+ -   * * A u d F a c t   C o r e * * :   N o r m a l i z a c i Û n   e s t r u c t u r a l   d e l   c a t · l o g o   A u d D i s p C a m p o .  
+ -   * * F r o n t e n d * * :   R e f a c t o r i z a c i Û n   p r o f u n d a   d e   A u d i t C o n f i g E d i t o r ,   r e e m p l a z a n d o   c o n s t a n t e s   y   s e l e c t s   d i n · m i c o s   o b s o l e t o s   p o r   v a l i d a c i o n e s   d e   s o l o   l e c t u r a   d e l e g a d a s   a l   b a c k e n d   ( C a t · l o g o   d e   c a m p o s ) .  
+ -   * * B a c k e n d * * :   I m p l e m e n t a d o   e n d p o i n t   G E T   / a u d i t / f i e l d - c a t a l o g   y   o p t i m i z a d a   l a   l Û g i c a   e n   A u d i t C o n f i g M o d e l   ( C l e a n   R e b u i l d ) .  
+ -   * * D o c s * * :   A c t u a l i z a d o   p l a n s / a p i - e n d p o i n t s . m d   c o n   n u e v a   r u t a   d e   c a t · l o g o   y   r e d u c c i Û n   d e l   p a y l o a d   e n   P O S T .  
+ -   * * F r o n t e n d * * :   R e f o r z a d a   l a   f u n c i Û n   ' D e s c u b r i r   c a m p o s '   ( A d d F i e l d F r o m D i s p e n s a D i a l o g )   p a r a   v a l i d a r   e n   t i e m p o   r e a l   c o n t r a   e l   C a t · l o g o   d e   C a m p o s ,   p r e v i n i e n d o   l a   c r e a c i Û n   d e   c a m p o s   h u È r f a n o s   e   i n f i r i e n d o   a u t o m · t i c a m e n t e   s u s   t i p o s .  
+ 

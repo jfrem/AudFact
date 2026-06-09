@@ -17,6 +17,7 @@ import {
   SaveAuditConfigResponseSchema,
   AuditStatsSchema,
   AuditLiveStatusSchema,
+  FieldCatalogSchema,
 } from "@/lib/schemas/domain";
 import type { AuditResultDetail } from "@/lib/schemas/domain";
 import { endpoints } from "@/lib/api/endpoints";
@@ -144,15 +145,16 @@ export type AuditConfigPayload = {
   fields: Array<{
     docId: number;
     campoNombre: string;
-    tipoCampo: string;
-    tipoDato?: string | null;
     enabled: boolean;
     description?: string | null;
     severity?: string | null;
     orden: number;
-    codigoCampo?: string | null;
   }>;
 };
+
+export function getFieldCatalog() {
+  return requestJson(endpoints.fieldCatalog(), FieldCatalogSchema);
+}
 
 export function saveAuditConfig(clientId: string | number, payload: AuditConfigPayload) {
   return postJson(

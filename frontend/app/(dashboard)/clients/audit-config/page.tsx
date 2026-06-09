@@ -1,6 +1,6 @@
-import { getAuditConfig, getClientDocuments, getClients } from "@/lib/api/audfact";
+import { getAuditConfig, getClientDocuments, getClients, getFieldCatalog } from "@/lib/api/audfact";
 import { ApiError, describeError } from "@/lib/api/errors";
-import type { AuditConfig, ClientDocument, ClientRecord } from "@/lib/schemas/domain";
+import type { AuditConfig, ClientDocument, ClientRecord, FieldCatalogItem } from "@/lib/schemas/domain";
 import { AuditConfigEditor } from "@/components/audit/audit-config-editor";
 import { AuditConfigPageClient } from "@/components/audit/audit-config-page-client";
 
@@ -19,6 +19,7 @@ export default async function AuditConfigPage({
     typeof params.clientId === "string" ? params.clientId.trim() : "";
 
   let rawClients: ClientRecord[] = [];
+  let catalog: FieldCatalogItem[] = [];
   let clientsError: string | null = null;
   let config: AuditConfig | null = null;
   let configLoadState: "idle" | "loaded" | "not-found" | "error" = clientId
@@ -27,7 +28,12 @@ export default async function AuditConfigPage({
   let configError: string | null = null;
 
   try {
-    rawClients = (await getClients()) ?? [];
+    const [fetchedClients, fetchedCatalog] = await Promise.all([
+      getClients(),
+      getFieldCatalog()
+    ]);
+    rawClients = fetchedClients ?? [];
+    catalog = fetchedCatalog ?? [];
   } catch (error) {
     clientsError = describeError(error);
   }
@@ -84,7 +90,7 @@ export default async function AuditConfigPage({
       hasConfig={!!config}
       editor={
         config ? (
-          <AuditConfigEditor config={config} clientId={clientId} />
+          <AuditConfigEditor config={config} clientId={clientId} catalog={catalog} />
         ) : null
       }
     />

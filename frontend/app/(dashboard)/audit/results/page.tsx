@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import { getClients, getAuditResults } from "@/lib/api/audfact";
 import { PageHeader } from "@/components/layout/page-header";
 import { AuditResultsTable } from "@/components/results/audit-results-table";
 import { AuditResultsFilterForm } from "@/components/results/audit-results-filter-form";
+import { TableSkeleton } from "@/components/shared/loading-skeleton";
 
 export default async function AuditResultsPage({
   searchParams,
@@ -18,14 +20,7 @@ export default async function AuditResultsPage({
 
   const allClients = (await getClients().catch(() => [])) ?? [];
 
-  const results = await getAuditResults({
-    page,
-    pageSize,
-    facNitSec,
-    facNro,
-    dateFrom,
-    dateTo,
-  }).catch(() => null);
+  const searchParamsKey = JSON.stringify({ facNitSec, facNro, dateFrom, dateTo, page, pageSize });
 
   return (
     <div className="space-y-5">
@@ -47,14 +42,58 @@ export default async function AuditResultsPage({
         />
       </div>
 
-      {/* Results table */}
-      <AuditResultsTable
-        items={results?.items ?? []}
-        page={page}
-        totalPages={results?.totalPages ?? 1}
-        total={results?.total ?? 0}
-        filters={{ pageSize, facNitSec, facNro, dateFrom, dateTo }}
-      />
+      <Suspense
+        key={searchParamsKey}
+        fallback={
+          <div className="pt-2">
+            <TableSkeleton rows={10} />
+          </div>
+        }
+      >
+        <AuditResultsTableFetcher
+          facNitSec={facNitSec}
+          facNro={facNro}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          page={page}
+          pageSize={pageSize}
+        />
+      </Suspense>
     </div>
+  );
+}
+
+async function AuditResultsTableFetcher({
+  facNitSec,
+  facNro,
+  dateFrom,
+  dateTo,
+  page,
+  pageSize,
+}: {
+  facNitSec?: string;
+  facNro?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  page: number;
+  pageSize: number;
+}) {
+  const results = await getAuditResults({
+    page,
+    pageSize,
+    facNitSec,
+    facNro,
+    dateFrom,
+    dateTo,
+  }).catch(() => null);
+
+  return (
+    <AuditResultsTable
+      items={results?.items ?? []}
+      page={page}
+      totalPages={results?.totalPages ?? 1}
+      total={results?.total ?? 0}
+      filters={{ pageSize, facNitSec, facNro, dateFrom, dateTo }}
+    />
   );
 }

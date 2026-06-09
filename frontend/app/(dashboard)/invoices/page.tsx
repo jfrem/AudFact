@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import {
   getClients,
   getInvoices,
@@ -7,6 +8,7 @@ import { describeError } from "@/lib/api/errors";
 import { PageHeader } from "@/components/layout/page-header";
 import { InvoicesTable } from "@/components/invoices/invoices-table";
 import { InvoicesFilterForm } from "@/components/invoices/invoices-filter-form";
+import { TableSkeleton } from "@/components/shared/loading-skeleton";
 import type { ClientRecord, InvoiceRecord } from "@/lib/schemas/domain";
 
 export default async function InvoicesPage({
@@ -40,32 +42,12 @@ export default async function InvoicesPage({
   }
 
   const canQuery = facNitSec !== "" && dateFrom !== "";
-  let invoicesError: string | null = null;
   const resolvedPage = Number.isFinite(page) ? page : 1;
   const resolvedPageSize = Number.isFinite(pageSize)
     ? pageSize
     : INVOICE_SEARCH_DEFAULT_PAGE_SIZE;
 
-  let invoices: InvoiceRecord[] = [];
-  let total = 0;
-  let totalPages = 0;
-  let currentPage = resolvedPage;
-  if (canQuery) {
-    const invoiceResult = await getInvoices({
-      facNitSec,
-      dateFrom,
-      dateTo: dateTo || undefined,
-      page: resolvedPage,
-      pageSize: resolvedPageSize,
-    }).catch((error) => {
-      invoicesError = describeError(error);
-      return null;
-    });
-    invoices = invoiceResult?.items ?? [];
-    total = invoiceResult?.total ?? 0;
-    totalPages = invoiceResult?.totalPages ?? 0;
-    currentPage = invoiceResult?.page ?? resolvedPage;
-  }
+  const searchParamsKey = JSON.stringify({ facNitSec, dateFrom, dateTo, page: resolvedPage, pageSize: resolvedPageSize });
 
   return (
     <div className="space-y-5">
@@ -86,15 +68,74 @@ export default async function InvoicesPage({
         />
       </div>
 
-      <InvoicesTable
-        invoices={invoices}
-        canQuery={canQuery}
-        currentPage={currentPage}
-        filters={{ facNitSec, dateFrom, dateTo, pageSize: resolvedPageSize }}
-        queryError={invoicesError}
-        total={total}
-        totalPages={totalPages}
-      />
+      <Suspense
+        key={searchParamsKey}
+        fallback={
+          <div className="pt-2">
+            <TableSkeleton rows={10} />
+          </div>
+        }
+      >
+        <InvoicesTableFetcher
+          facNitSec={facNitSec}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          resolvedPage={resolvedPage}
+          resolvedPageSize={resolvedPageSize}
+          canQuery={canQuery}
+        />
+      </Suspense>
     </div>
+  );
+}
+
+async function InvoicesTableFetcher({
+  facNitSec,
+  dateFrom,
+  dateTo,
+  resolvedPage,
+  resolvedPageSize,
+  canQuery,
+}: {
+  facNitSec: string;
+  dateFrom: string;
+  dateTo: string;
+  resolvedPage: number;
+  resolvedPageSize: number;
+  canQuery: boolean;
+}) {
+  let invoicesError: string | null = null;
+  let invoices: InvoiceRecord[] = [];
+  let total = 0;
+  let totalPages = 0;
+  let currentPage = resolvedPage;
+
+  if (canQuery) {
+    const invoiceResult = await getInvoices({
+      facNitSec,
+      dateFrom,
+      dateTo: dateTo || undefined,
+      page: resolvedPage,
+      pageSize: resolvedPageSize,
+    }).catch((error) => {
+      invoicesError = describeError(error);
+      return null;
+    });
+    invoices = invoiceResult?.items ?? [];
+    total = invoiceResult?.total ?? 0;
+    totalPages = invoiceResult?.totalPages ?? 0;
+    currentPage = invoiceResult?.page ?? resolvedPage;
+  }
+
+  return (
+    <InvoicesTable
+      invoices={invoices}
+      canQuery={canQuery}
+      currentPage={currentPage}
+      filters={{ facNitSec, dateFrom, dateTo, pageSize: resolvedPageSize }}
+      queryError={invoicesError}
+      total={total}
+      totalPages={totalPages}
+    />
   );
 }
