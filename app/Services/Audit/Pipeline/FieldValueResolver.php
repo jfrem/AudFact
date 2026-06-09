@@ -119,7 +119,16 @@ final class FieldValueResolver
         array $fields,
         array $items
     ): ResolvedAuditValue {
-        [$itemValues, $evidenceMeta] = self::extractPresentItemValues($field, $items);
+        [$itemValues, $evidenceMeta, $ambiguousItemValues] = self::extractPresentItemValues($field, $valueType, $items);
+
+        if ($ambiguousItemValues !== []) {
+            return self::ambiguousValue(
+                ResolvedAuditValue::SOURCE_DOCUMENT,
+                $valueType,
+                $ambiguousItemValues,
+                $evidenceMeta
+            );
+        }
 
         if ($itemValues !== []) {
             return self::resolveItemValues(ResolvedAuditValue::SOURCE_DOCUMENT, $valueType, $itemValues, $evidenceMeta);
@@ -176,12 +185,17 @@ final class FieldValueResolver
 
     /**
      * @param  array<int,array<string,mixed>> $items
-     * @return array{0:array<int,string>,1:array<string,mixed>}
+     * @return array{0:array<int,string>,1:array<string,mixed>,2:array<int,string>}
      */
-    private static function extractPresentItemValues(string $field, array $items): array
+    private static function extractPresentItemValues(
+        string $field,
+        AuditFieldValueType $valueType,
+        array $items
+    ): array
     {
         $itemValues = [];
         $evidenceMeta = [];
+        $ambiguousValues = [];
 
         foreach ($items as $row) {
             if (!array_key_exists($field, $row)) {
@@ -189,17 +203,32 @@ final class FieldValueResolver
             }
 
             $cell = $row[$field];
-            if (!$cell instanceof ExtractedEvidence || !AuditFindingRules::isPresent($cell->valor)) {
+            if (!$cell instanceof ExtractedEvidence) {
                 continue;
             }
 
-            $itemValues[] = AuditFindingRules::scalarToString($cell->valor);
             if ($evidenceMeta === []) {
                 $evidenceMeta = $cell->extractMeta();
             }
+
+            $candidateValues = self::extractEvidenceCandidateValues($cell, $valueType);
+            if ($candidateValues === []) {
+                continue;
+            }
+
+            if (count($candidateValues) > 1 && !$valueType->allowsMultiValueDocument()) {
+                array_push($ambiguousValues, ...$candidateValues);
+                continue;
+            }
+
+            array_push($itemValues, ...$candidateValues);
         }
 
-        return [$itemValues, $evidenceMeta];
+        if ($ambiguousValues !== []) {
+            array_push($ambiguousValues, ...$itemValues);
+        }
+
+        return [$itemValues, $evidenceMeta, self::uniqueSortedValues($ambiguousValues)];
     }
 
     /**
@@ -220,8 +249,7 @@ final class FieldValueResolver
             }
         }
 
-        $unique = array_values(array_unique($itemValues));
-        sort($unique);
+        $unique = self::uniqueSortedValues($itemValues);
 
         if (count($unique) === 1) {
             return self::resolvedValue($source, $valueType, $unique[0], $unique, false, $evidenceMeta);
@@ -232,7 +260,7 @@ final class FieldValueResolver
             $valueType,
             implode(', ', $unique),
             $unique,
-            !$valueType->requiresTraceSetComparison(),
+            !$valueType->allowsMultiValueDocument(),
             $evidenceMeta
         );
     }
@@ -250,18 +278,76 @@ final class FieldValueResolver
     {
         if (array_key_exists($field, $fields)) {
             $cell = $fields[$field];
-            if ($cell instanceof ExtractedEvidence && AuditFindingRules::isPresent($cell->valor)) {
-                $displayValue = AuditFindingRules::scalarToString($cell->valor);
-                return self::singleValue(
+            if ($cell instanceof ExtractedEvidence) {
+                $candidateValues = self::extractEvidenceCandidateValues($cell, $valueType);
+                if ($candidateValues === []) {
+                    return self::emptyValue(ResolvedAuditValue::SOURCE_DOCUMENT, $cell->extractMeta());
+                }
+
+                return self::resolveCandidateValues(
                     ResolvedAuditValue::SOURCE_DOCUMENT,
                     $valueType,
-                    $displayValue,
+                    $candidateValues,
                     $cell->extractMeta()
                 );
             }
         }
 
         return self::emptyValue(ResolvedAuditValue::SOURCE_DOCUMENT, $evidenceMeta);
+    }
+
+    /**
+     * Convierte la evidencia normalizada en candidatos auditables.
+     *
+     * `FOUND_IN_LIST` o `valor=null` obliga a leer `valores`; para CODE/TRACE_TOKEN
+     * se prefiere la lista porque representa tokens comparables.
+     *
+     * @return array<int,string>
+     */
+    private static function extractEvidenceCandidateValues(
+        ExtractedEvidence $cell,
+        AuditFieldValueType $valueType
+    ): array {
+        $valorPresent = AuditFindingRules::isPresent($cell->valor);
+        $useListValues = $cell->estadoExtraccion === ExtractionState::FOUND_IN_LIST
+            || !$valorPresent
+            || $valueType->allowsMultiValueDocument();
+
+        $values = [];
+        if ($useListValues) {
+            foreach ($cell->valores as $value) {
+                if (AuditFindingRules::isPresent($value)) {
+                    $values[] = AuditFindingRules::scalarToString($value);
+                }
+            }
+        }
+
+        if ($values === [] && $valorPresent) {
+            $values[] = AuditFindingRules::scalarToString($cell->valor);
+        }
+
+        return self::uniqueSortedValues($values);
+    }
+
+    /**
+     * @param  array<int,string> $candidateValues
+     * @param  array<string,mixed> $evidenceMeta
+     */
+    private static function resolveCandidateValues(
+        string $source,
+        AuditFieldValueType $valueType,
+        array $candidateValues,
+        array $evidenceMeta = []
+    ): ResolvedAuditValue {
+        $unique = self::uniqueSortedValues($candidateValues);
+        return self::resolvedValue(
+            $source,
+            $valueType,
+            implode(', ', $unique),
+            $unique,
+            count($unique) > 1 && !$valueType->allowsMultiValueDocument(),
+            $evidenceMeta
+        );
     }
 
     /**
@@ -274,6 +360,20 @@ final class FieldValueResolver
         array $evidenceMeta = []
     ): ResolvedAuditValue {
         return self::resolvedValue($source, $valueType, $value, [$value], false, $evidenceMeta);
+    }
+
+    /**
+     * @param  array<int,string> $values
+     * @param  array<string,mixed> $evidenceMeta
+     */
+    private static function ambiguousValue(
+        string $source,
+        AuditFieldValueType $valueType,
+        array $values,
+        array $evidenceMeta = []
+    ): ResolvedAuditValue {
+        $unique = self::uniqueSortedValues($values);
+        return self::resolvedValue($source, $valueType, implode(', ', $unique), $unique, true, $evidenceMeta);
     }
 
     /**
@@ -328,5 +428,17 @@ final class FieldValueResolver
         sort($normalized);
 
         return $normalized;
+    }
+
+    /**
+     * @param  array<int,string> $values
+     * @return array<int,string>
+     */
+    private static function uniqueSortedValues(array $values): array
+    {
+        $unique = array_values(array_unique($values));
+        sort($unique);
+
+        return $unique;
     }
 }

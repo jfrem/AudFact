@@ -158,9 +158,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
             $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['required']
         );
         $visualProperties = $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['properties'];
-        $this->assertArrayHasKey('valor', $visualProperties);
-        $this->assertArrayHasKey('unidad', $visualProperties);
-        $this->assertArrayHasKey('fecha_base', $visualProperties);
+        $this->assertArrayNotHasKey('valor', $visualProperties);
+        $this->assertArrayNotHasKey('unidad', $visualProperties);
+        $this->assertArrayNotHasKey('fecha_base', $visualProperties);
         $this->assertArrayNotHasKey(
             'additionalProperties',
             $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']

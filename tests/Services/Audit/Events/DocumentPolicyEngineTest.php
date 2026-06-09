@@ -688,6 +688,112 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
     }
 
+    public function testCAT3DiagnosticCodeUsesValoresWhenValorIsNull(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('CodigoDiagnostico', 'E')],
+                ['header' => ['CodigoDiagnostico' => 'S328'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', [
+                'CodigoDiagnostico' => [
+                    'valor' => null,
+                    'valores' => ['S328', 'S342'],
+                    'presente' => true,
+                    'estadoExtraccion' => ExtractionState::FOUND_IN_LIST->value,
+                ],
+            ])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('COINCIDE', $hallazgo['resultado']);
+        $this->assertSame(['S328', 'S342'], $hallazgo['valoresDocumento']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testScalarFieldUsesSingleValueFromValoresWhenValorIsNull(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('FechaFormula')],
+                ['header' => ['FechaFormula' => '2026-04-22'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', [
+                'FechaFormula' => [
+                    'valor' => null,
+                    'valores' => ['2026-04-22'],
+                    'presente' => true,
+                    'estadoExtraccion' => ExtractionState::FOUND_IN_LIST->value,
+                ],
+            ])
+        );
+
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testScalarFieldWithMultipleValoresIsInconclusiveNotMissing(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('FechaFormula')],
+                ['header' => ['FechaFormula' => '2026-04-22'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', [
+                'FechaFormula' => [
+                    'valor' => null,
+                    'valores' => ['2026-04-22', '2026-04-23'],
+                    'presente' => true,
+                    'estadoExtraccion' => ExtractionState::FOUND_IN_LIST->value,
+                ],
+            ])
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('NO_CONCLUYENTE', $hallazgo['resultado']);
+        $this->assertSame('2026-04-22, 2026-04-23', $hallazgo['valorDocumento']);
+        $this->assertStringContainsString('multiples valores distintos', (string) $hallazgo['detalle']);
+    }
+
+    public function testQuantityItemWithMultipleValoresIsInconclusiveInsteadOfSummed(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('CantidadEntregada', 'B')],
+                ['header' => ['CantidadEntregada' => '50'], 'items' => []]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [[
+                    'CantidadEntregada' => [
+                        'valor' => null,
+                        'valores' => ['40', '50'],
+                        'presente' => true,
+                        'estadoExtraccion' => ExtractionState::FOUND_IN_LIST->value,
+                    ],
+                ]]
+            )
+        );
+
+        $hallazgo = $result['hallazgos']['items'][0];
+        $this->assertSame('NO_CONCLUYENTE', $hallazgo['resultado']);
+        $this->assertSame('40, 50', $hallazgo['valorDocumento']);
+        $this->assertStringContainsString('multiples valores distintos', (string) $hallazgo['detalle']);
+    }
+
     // ─── AUDIT-016: CAT-4 — Token-sort para PERSON_NAME ────────────────────
 
     /**

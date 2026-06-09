@@ -267,11 +267,15 @@ final class DocumentExtractionContractBuilder
     {
         $checkNames = [];
         $descriptions = [];
+        $requiresDeliveryValidityFields = false;
         foreach ($visualChecks as $check) {
             $name = trim((string) ($check['check'] ?? ''));
             $desc = trim((string) ($check['description'] ?? ''));
             if ($name !== '') {
                 $checkNames[] = $name;
+                if ($name === 'VigenciaEntrega') {
+                    $requiresDeliveryValidityFields = true;
+                }
                 if ($desc !== '') {
                     $descriptions[] = "{$name} ({$desc})";
                 }
@@ -286,6 +290,28 @@ final class DocumentExtractionContractBuilder
             $checkProperty['description'] = implode(' | ', $descriptions);
         }
 
+        $visualProperties = [
+            'check' => $checkProperty,
+            'presente' => ['type' => 'boolean'],
+            'detalle' => [
+                'type' => 'string',
+                'nullable' => true,
+            ],
+            'severidad' => ['type' => 'string', 'nullable' => true],
+        ];
+        $visualOrdering = ['check', 'presente', 'detalle'];
+        if ($requiresDeliveryValidityFields) {
+            $visualProperties['valor'] = ['type' => 'number', 'nullable' => true];
+            $visualProperties['unidad'] = [
+                'type' => 'string',
+                'enum' => ['dias'],
+                'nullable' => true,
+            ];
+            $visualProperties['fecha_base'] = ['type' => 'string', 'nullable' => true];
+            $visualOrdering = ['check', 'presente', 'detalle', 'valor', 'unidad', 'fecha_base'];
+        }
+        $visualOrdering[] = 'severidad';
+
         return [
             'name' => self::FN_DETECT_VISUAL_CHECKS,
             'description' => 'Detecta checks visuales visibles.',
@@ -296,24 +322,9 @@ final class DocumentExtractionContractBuilder
                         'type' => 'array',
                         'items' => [
                             'type' => 'object',
-                            'properties' => [
-                                'check' => $checkProperty,
-                                'presente' => ['type' => 'boolean'],
-                                'valor' => ['type' => 'number', 'nullable' => true],
-                                'unidad' => [
-                                    'type' => 'string',
-                                    'enum' => ['dias'],
-                                    'nullable' => true,
-                                ],
-                                'fecha_base' => ['type' => 'string', 'nullable' => true],
-                                'detalle' => [
-                                    'type' => 'string',
-                                    'nullable' => true,
-                                ],
-                                'severidad' => ['type' => 'string', 'nullable' => true],
-                            ],
+                            'properties' => $visualProperties,
                             'required' => ['check', 'presente', 'detalle'],
-                            'propertyOrdering' => ['check', 'presente', 'detalle', 'valor', 'unidad', 'fecha_base', 'severidad'],
+                            'propertyOrdering' => $visualOrdering,
                         ],
                     ],
                 ],
@@ -391,10 +402,8 @@ final class DocumentExtractionContractBuilder
     /**
      * Construye el JSON Schema de un campo con estructura de evidencia.
      *
-     * Shape: {valor, valores, presente, estadoExtraccion}
-     * - `valor`: valor principal (tipo derivado del campo)
+     * Shape: {valor, presente, estadoExtraccion}; `valores` solo para CODE/TRACE_TOKEN.
      * - `valores`: array de tokens individuales (útil para FOUND_IN_LIST)
-     * - `presente`: si el dato fue encontrado en el documento
      * - `estadoExtraccion`: clasificación del resultado de búsqueda
      */
     private function buildEvidenceFieldSchema(array $field): array
@@ -407,33 +416,35 @@ final class DocumentExtractionContractBuilder
             'type' => $valorType,
             'nullable' => true,
         ];
-        $valorDescription = $this->fieldValueDescription($fieldName, $valueType);
-        if ($valorDescription !== null) {
+        $configuredDescription = isset($field['description']) ? trim((string) $field['description']) : '';
+        $fallbackDescription = $this->fieldValueDescription($fieldName, $valueType);
+        $valorDescription = $configuredDescription !== '' ? $configuredDescription : $fallbackDescription;
+        if ($valorDescription !== null && $valorDescription !== '') {
             $valorProperty['description'] = $valorDescription;
         }
 
-        $valoresProperty = [
-            'type' => 'array',
-            'items' => ['type' => $valorType],
+        $properties = [
+            'valor' => $valorProperty,
+            'presente' => ['type' => 'boolean'],
+            'estadoExtraccion' => [
+                'type' => 'string',
+                'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
+            ],
         ];
-        $valoresDescription = $this->fieldValuesDescription($fieldName, $valueType);
-        if ($valoresDescription !== null) {
-            $valoresProperty['description'] = $valoresDescription;
+        $propertyOrdering = ['valor', 'presente', 'estadoExtraccion'];
+        if ($valueType->allowsMultiValueDocument()) {
+            $properties['valores'] = [
+                'type' => 'array',
+                'items' => ['type' => $valorType],
+            ];
+            $propertyOrdering = ['valor', 'valores', 'presente', 'estadoExtraccion'];
         }
 
         return [
             'type' => 'object',
-            'properties' => [
-                'valor' => $valorProperty,
-                'valores' => $valoresProperty,
-                'presente' => ['type' => 'boolean'],
-                'estadoExtraccion' => [
-                    'type' => 'string',
-                    'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
-                ],
-            ],
+            'properties' => $properties,
             'required' => ['valor', 'presente', 'estadoExtraccion'],
-            'propertyOrdering' => ['valor', 'valores', 'presente', 'estadoExtraccion'],
+            'propertyOrdering' => $propertyOrdering,
         ];
     }
 
@@ -474,19 +485,6 @@ final class DocumentExtractionContractBuilder
 
         if ($valueType === AuditFieldValueType::IDENTITY_DOC_TYPE) {
             return 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.';
-        }
-
-        return null;
-    }
-
-    private function fieldValuesDescription(string $fieldName, AuditFieldValueType $valueType): ?string
-    {
-        if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
-            return 'Numero limpio en FOUND; varios tokens solo si hay lista.';
-        }
-
-        if ($valueType === AuditFieldValueType::PERSON_NAME) {
-            return 'Nombre limpio en FOUND; sin tipo ni numero.';
         }
 
         return null;

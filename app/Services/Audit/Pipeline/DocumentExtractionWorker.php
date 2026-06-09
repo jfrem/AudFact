@@ -28,6 +28,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     private const DEFAULT_CACHE_TTL = 86400;
     private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.x-parallel-fc-v1';
+    private const PROMPT_DEDUP_MIN_CHARS = 15;
     private const ACCEPTED_FINISH_REASON = 'STOP';
     private const ERROR_MISSING_CANDIDATE = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
     private const ERROR_UNSAFE_FINISH_REASON = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
@@ -113,7 +114,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
 
         $userPrompt = $this->buildUserPrompt($documentType, $payload, $contract);
-        $systemPrompt = $this->buildSystemPrompt($payload);
+        $systemPrompt = $this->buildSystemPrompt($payload, $contract);
         $promptContextHash = $this->promptContextHash($userPrompt, $systemPrompt);
         $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $promptContextHash);
 
@@ -437,14 +438,160 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ]);
     }
 
-    private function buildSystemPrompt(array $payload): string
+    private function buildSystemPrompt(array $payload, array $contract): string
     {
-        $systemPrompt = trim((string) ($payload['system_prompt'] ?? ''));
-        if ($systemPrompt === '') {
+        $customPrompt = trim((string) ($payload['system_prompt'] ?? ''));
+        if ($customPrompt === '') {
             return self::DEFAULT_SYSTEM_PROMPT;
         }
 
-        return self::DEFAULT_SYSTEM_PROMPT . "\n\n" . $systemPrompt;
+        $customPrompt = $this->removeContractRedundantPromptSentences(
+            $customPrompt,
+            $this->contractDescriptionTexts($contract, $payload)
+        );
+
+        if ($customPrompt === '') {
+            return self::DEFAULT_SYSTEM_PROMPT;
+        }
+
+        return self::DEFAULT_SYSTEM_PROMPT . "\n\n" . $customPrompt;
+    }
+
+    private function removeContractRedundantPromptSentences(string $systemPrompt, array $descriptions): string
+    {
+        if ($descriptions === []) {
+            return $systemPrompt;
+        }
+
+        $descriptionIndex = [];
+        foreach ($descriptions as $description) {
+            foreach (array_merge([$description], $this->splitPromptSentences($description)) as $fragment) {
+                $normalized = $this->normalizePromptFragment($fragment);
+                if (mb_strlen($normalized) > self::PROMPT_DEDUP_MIN_CHARS) {
+                    $descriptionIndex[$normalized] = true;
+                }
+            }
+        }
+
+        $normalizedDescriptions = array_keys($descriptionIndex);
+        if ($normalizedDescriptions === []) {
+            return $systemPrompt;
+        }
+
+        $keptSentences = [];
+        foreach ($this->splitPromptSentences($systemPrompt) as $sentence) {
+            $normalized = $this->normalizePromptFragment($sentence);
+            if (!$this->promptSentenceCoveredByDescription($normalized, $normalizedDescriptions)) {
+                $keptSentences[] = $sentence;
+            }
+        }
+
+        return trim(implode(' ', $keptSentences), " \t\n\r\0\x0B,");
+    }
+
+    /**
+     * @return array<string>
+     */
+    private function splitPromptSentences(string $text): array
+    {
+        $parts = preg_split('/\R+|(?<=[.!?])\s+/', $text);
+        if ($parts === false) {
+            return [trim($text)];
+        }
+
+        $sentences = [];
+        foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part !== '') {
+                $sentences[] = $part;
+            }
+        }
+
+        return $sentences;
+    }
+
+    private function normalizePromptFragment(string $text): string
+    {
+        $cleaned = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', mb_strtolower($text));
+        if (!is_string($cleaned)) {
+            return '';
+        }
+
+        $cleaned = preg_replace('/\s+/', ' ', $cleaned);
+        return is_string($cleaned) ? trim($cleaned) : '';
+    }
+
+    /**
+     * @param array<int,string> $normalizedDescriptions
+     */
+    private function promptSentenceCoveredByDescription(string $normalizedSentence, array $normalizedDescriptions): bool
+    {
+        if (mb_strlen($normalizedSentence) <= self::PROMPT_DEDUP_MIN_CHARS) {
+            return false;
+        }
+
+        foreach ($normalizedDescriptions as $description) {
+            if (str_contains($description, $normalizedSentence) || str_contains($normalizedSentence, $description)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function contractDescriptionTexts(array $contract, array $payload): array
+    {
+        $descriptions = [];
+
+        $declarations = $contract['function_declarations'] ?? [];
+        foreach (is_array($declarations) ? $declarations : [] as $declaration) {
+            if (!is_array($declaration)) {
+                continue;
+            }
+
+            foreach ($this->contractFieldSchemas($declaration) as $schema) {
+                $description = $this->evidenceValueDescription($schema);
+                if ($description !== null) {
+                    $descriptions[] = $description;
+                }
+            }
+        }
+
+        $visualChecks = $payload['visual_checks'] ?? [];
+        foreach (is_array($visualChecks) ? $visualChecks : [] as $check) {
+            $description = is_array($check) ? ($check['description'] ?? null) : null;
+            if (is_string($description) && trim($description) !== '') {
+                $descriptions[] = trim($description);
+            }
+        }
+
+        return array_values(array_unique(array_filter(array_map('trim', $descriptions))));
+    }
+
+    /**
+     * @return array<int|string,array>
+     */
+    private function contractFieldSchemas(array $declaration): array
+    {
+        $name = $declaration['name'] ?? '';
+        $schemas = match ($name) {
+            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS => $declaration['parameters']['properties']['fields']['properties'] ?? [],
+            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS => $declaration['parameters']['properties']['items']['items']['properties'] ?? [],
+            default => [],
+        };
+
+        return is_array($schemas) ? $schemas : [];
+    }
+
+    private function evidenceValueDescription(array $schema): ?string
+    {
+        $description = $schema['properties']['valor']['description'] ?? $schema['description'] ?? null;
+        if (!is_string($description)) {
+            return null;
+        }
+
+        $description = trim($description);
+        return $description !== '' ? $description : null;
     }
 
     private function buildUserPrompt(string $documentType, array $payload, array $contract): string
@@ -457,10 +604,17 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $fieldGroups = $this->contractFieldGroups($contract);
         if ($this->hasIdentitySeparationFields($payload['fields_config'] ?? [])) {
-            $parts[] = 'Regla de identidad: si una línea visible mezcla tipo de documento, número y nombre, separa cada dato en su campo configurado.';
-            $parts[] = 'Ejemplo: "CC 94229637 NORENA AGUDELO" implica TipoDocumentoPaciente="CC", DocumentoPaciente="94229637" y NombrePaciente="NORENA AGUDELO" si esos campos están solicitados.';
-            $parts[] = 'Ejemplo: "Medico: 12345678-PEREZ ANA MARIA" implica DocumentoMedico="12345678" y Medico="PEREZ ANA MARIA" si esos campos están solicitados.';
-            $parts[] = 'No completes campos de identidad que no estén visibles en el documento.';
+            $parts[] = implode("\n", [
+                '### Regla de identidad',
+                '',
+                'Si una linea combina tipo de documento, numero y nombre, separalos en sus campos correspondientes.',
+                '',
+                '**Ejemplos**',
+                '- `CC 94229637 NORENA AGUDELO` => TipoDocumentoPaciente, DocumentoPaciente, NombrePaciente.',
+                '- `Medico: 12345678-PEREZ ANA MARIA` => DocumentoMedico, Medico.',
+                '',
+                'Solo extrae datos visibles y requeridos; no infieras ni completes identidades faltantes.',
+            ]);
         }
 
         if ($fieldGroups['fields'] !== []) {
@@ -485,7 +639,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $description = trim((string) ($check['description'] ?? ''));
                 $parts[] = $description !== '' ? "- {$name}: {$description}" : "- {$name}";
             }
-            $parts[] = 'Para checks de vigencia o plazo, si el valor es visible retorna valor numerico, unidad="dias" y fecha_base con el nombre del campo fecha desde el cual se cuenta.';
+            if ($this->hasVisualCheck($visualChecks, 'VigenciaEntrega')) {
+                $parts[] = 'Para VigenciaEntrega, si el valor es visible retorna valor numerico, unidad="dias" y fecha_base con el nombre del campo fecha desde el cual se cuenta.';
+            }
         }
 
         if ($fieldGroups['items'] !== [] && $this->requiresSegmentedDispensaItems($documentType, $payload)) {
@@ -566,6 +722,21 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private function contractRequiresFunction(array $contract, string $functionName): bool
     {
         return in_array($functionName, $this->requiredFunctionNames($contract), true);
+    }
+
+    private function hasVisualCheck(mixed $visualChecks, string $expectedName): bool
+    {
+        if (!is_array($visualChecks)) {
+            return false;
+        }
+
+        foreach ($visualChecks as $check) {
+            if (is_array($check) && trim((string) ($check['check'] ?? '')) === $expectedName) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

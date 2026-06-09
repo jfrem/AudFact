@@ -104,6 +104,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertStringNotContainsString('extract_document_data', $toolJson);
         $this->assertStringNotContainsString('additionalProperties', $toolJson);
         $this->assertStringNotContainsString('"default"', $toolJson);
+        $this->assertStringNotContainsString('Para VigenciaEntrega', $gateway->lastPrompt);
         $this->assertFalse($publisher->published[0]->payload['cache_hit']);
         $this->assertSame('extraction', $publisher->published[0]->payload['gemini_metrics']['task_type'] ?? null);
         $this->assertSame('STOP', $publisher->published[0]->payload['gemini_metrics']['finish_reason'] ?? null);
@@ -212,6 +213,104 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('ITEM A', $publisher->published[0]->payload['extraction_result']['items'][0]['NombreArticulo']);
     }
 
+    public function testCompactSchemaKeepsValoresOnlyForMultiValueTypes(): void
+    {
+        $contract = (new DocumentExtractionContractBuilder())->build('DISPENSA', [
+            ['campoNombre' => 'NumeroFactura', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoDiagnostico', 'tipoCampo' => 'E', 'tipoDato' => 'code'],
+            ['campoNombre' => 'Lote', 'tipoCampo' => 'E', 'tipoDato' => 'trace_token'],
+        ], []);
+
+        $fields = $this->functionDeclaration($contract, DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS)
+            ['parameters']['properties']['fields']['properties'];
+        $items = $this->functionDeclaration($contract, DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS)
+            ['parameters']['properties']['items']['items']['properties'];
+
+        $this->assertArrayNotHasKey('valores', $fields['NumeroFactura']['properties']);
+        $this->assertSame(['valor', 'presente', 'estadoExtraccion'], $fields['NumeroFactura']['propertyOrdering']);
+
+        $this->assertArrayHasKey('valores', $fields['CodigoDiagnostico']['properties']);
+        $this->assertSame(['valor', 'valores', 'presente', 'estadoExtraccion'], $fields['CodigoDiagnostico']['propertyOrdering']);
+
+        $this->assertArrayHasKey('valores', $items['Lote']['properties']);
+        $this->assertSame(['valor', 'valores', 'presente', 'estadoExtraccion'], $items['Lote']['propertyOrdering']);
+    }
+
+    public function testBooleanVisualSchemaOmitsDeliveryValidityFields(): void
+    {
+        $contract = (new DocumentExtractionContractBuilder())->build('DISPENSA', [], [
+            ['check' => 'FirmaActaEntrega', 'description' => 'Firma visible', 'severity' => 'CRITICO'],
+        ]);
+
+        $visualProperties = $this->functionDeclaration($contract, DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS)
+            ['parameters']['properties']['visual_checks']['items']['properties'];
+
+        $this->assertArrayNotHasKey('valor', $visualProperties);
+        $this->assertArrayNotHasKey('unidad', $visualProperties);
+        $this->assertArrayNotHasKey('fecha_base', $visualProperties);
+    }
+
+    public function testDeliveryValidityVisualSchemaKeepsCalculatedFields(): void
+    {
+        $contract = (new DocumentExtractionContractBuilder())->build('AUTORIZACION', [], [
+            ['check' => 'VigenciaEntrega', 'description' => 'Vigencia visible', 'severity' => 'ALTA'],
+        ]);
+
+        $visualDeclaration = $this->functionDeclaration($contract, DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS);
+        $visualProperties = $visualDeclaration['parameters']['properties']['visual_checks']['items']['properties'];
+
+        $this->assertArrayHasKey('valor', $visualProperties);
+        $this->assertArrayHasKey('unidad', $visualProperties);
+        $this->assertArrayHasKey('fecha_base', $visualProperties);
+        $this->assertSame(
+            ['check', 'presente', 'detalle', 'valor', 'unidad', 'fecha_base', 'severidad'],
+            $visualDeclaration['parameters']['properties']['visual_checks']['items']['propertyOrdering']
+        );
+    }
+
+    public function testDeliveryValidityPromptIncludesCalculatedVisualInstruction(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $fieldsConfig = [
+            ['campoNombre' => 'NumeroFactura', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+        ];
+        $visualChecks = [
+            ['check' => 'VigenciaEntrega', 'description' => 'Vigencia visible', 'severity' => 'ALTA'],
+        ];
+        $contract = (new DocumentExtractionContractBuilder())->build('AUTORIZACION', $fieldsConfig, $visualChecks);
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse(
+            omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
+        ));
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+            'tipo_documento' => 'AUTORIZACION',
+            'extraction_contract' => $contract,
+            'fields_config' => $fieldsConfig,
+            'visual_checks' => $visualChecks,
+            'contract_hash' => $contract['contract_hash'],
+        ]));
+
+        $this->assertStringContainsString('Para VigenciaEntrega', $gateway->lastPrompt);
+    }
+
     public function testExtractionPromptAddsIdentitySeparationRuleWhenIdentityFieldsAreConfigured(): void
     {
         $documentId = AuditEvent::uuidV4();
@@ -248,8 +347,8 @@ final class DocumentExtractionWorkerTest extends TestCase
         ]));
 
         $this->assertStringContainsString('Regla de identidad', $gateway->lastPrompt);
-        $this->assertStringContainsString('DocumentoPaciente="94229637"', $gateway->lastPrompt);
-        $this->assertStringContainsString('NombrePaciente="NORENA AGUDELO"', $gateway->lastPrompt);
+        $this->assertStringContainsString('CC 94229637 NORENA AGUDELO', $gateway->lastPrompt);
+        $this->assertStringContainsString('TipoDocumentoPaciente, DocumentoPaciente, NombrePaciente', $gateway->lastPrompt);
         $this->assertStringNotContainsString('Valores de referencia', $gateway->lastPrompt);
         $this->assertStringNotContainsString('Campos de cabecera esperados', $gateway->lastPrompt);
     }
@@ -413,6 +512,62 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('UNKNOWN_FILE_SIGNATURE', $publisher->published[0]->payload['rejection_reason'] ?? null);
     }
 
+    public function testSystemPromptDeduplication(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse(
+            omittedFunction: [
+                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
+                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            ]
+        ));
+
+        $duplicada = "Código Producto y Código Artículo corresponden a conceptos diferentes.";
+        $noDuplicada = "Procesa el documento en español.";
+        $systemPromptCliente = $duplicada . "\n" . $noDuplicada;
+
+        $fieldsConfig = [
+            [
+                'campoNombre' => 'NumeroFactura',
+                'tipoCampo' => 'E',
+                'tipoDato' => 'text',
+                'description' => $duplicada . " Por ejemplo: Código Producto: 12345.",
+            ],
+        ];
+
+        $contract = (new DocumentExtractionContractBuilder())->build('FORMULA MEDICA', $fieldsConfig, []);
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+            'tipo_documento' => 'FORMULA MEDICA',
+            'extraction_contract' => $contract,
+            'fields_config' => $fieldsConfig,
+            'system_prompt' => $systemPromptCliente,
+            'contract_hash' => $contract['contract_hash'],
+        ]));
+
+        $this->assertStringContainsString($noDuplicada, $gateway->lastSystemInstruction);
+        $this->assertStringNotContainsString($duplicada, $gateway->lastSystemInstruction);
+        $this->assertSame(1, substr_count($gateway->lastSystemInstruction, $noDuplicada));
+    }
+
     private function validPdfBase64(): string
     {
         return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
@@ -425,6 +580,20 @@ final class DocumentExtractionWorkerTest extends TestCase
     {
         $this->assertSame($expected, array_column($gateway->lastTools[0]['functionDeclarations'], 'name'));
         $this->assertSame($expected, $gateway->lastToolConfig['functionCallingConfig']['allowedFunctionNames'] ?? null);
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function functionDeclaration(array $contract, string $name): array
+    {
+        foreach ($contract['function_declarations'] ?? [] as $declaration) {
+            if (is_array($declaration) && ($declaration['name'] ?? null) === $name) {
+                return $declaration;
+            }
+        }
+
+        $this->fail("No se encontro function declaration {$name}");
     }
 
     private function geminiFunctionCallResponse(
@@ -634,6 +803,7 @@ final class StubGeminiGateway extends GeminiGateway
     public array $lastTools = [];
     public array $lastToolConfig = [];
     public string $lastPrompt = '';
+    public string $lastSystemInstruction = '';
     public string $lastTaskType = '';
     public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
@@ -654,6 +824,7 @@ final class StubGeminiGateway extends GeminiGateway
     ): array {
         $this->calls++;
         $this->lastPrompt = $prompt;
+        $this->lastSystemInstruction = $systemInstruction;
         $this->lastTools = $tools;
         $this->lastToolConfig = $toolConfig;
         $this->lastTaskType = $taskType;

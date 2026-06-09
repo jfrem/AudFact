@@ -1,5 +1,29 @@
 # Changelog AudFact
 
+## [2026-06-09] - Fix: Precision de extraccion documental y limpieza clean rebuild
+
+### IA Pipeline / Audit Config / Clean Rebuild
+- **Descripciones configurables en contrato Gemini**:
+  - `DocumentExtractionContractBuilder` prioriza la descripcion configurada desde base de datos/catalogo para `valor.description` y conserva la descripcion local solo como fallback.
+  - Esto permite que alias operativos del cliente, como `NumeroFactura` tambien visible como acta de entrega, lleguen al schema sin duplicar reglas hardcodeadas.
+- **Prompt de extraccion mas compacto**:
+  - `DocumentExtractionWorker` elimina del system prompt personalizado las frases ya cubiertas por las descripciones del contrato antes de calcular `prompt_context_hash`.
+  - La deduplicacion reconstruye el prompt con frases conservadas, evitando reemplazos parciales sobre el texto original.
+  - La regla de identidad se mantiene como bloque Markdown corto y solo exige separar datos visibles.
+- **Schema compacto para reduccion de tokens**:
+  - `DocumentExtractionContractBuilder` declara `valores` solo para campos multi-valor (`code` y `trace_token`), dejando que `DocumentNormalizer` reconstruya arrays para escalares desde `valor`.
+  - `detect_visual_checks` incluye `valor`, `unidad` y `fecha_base` solo cuando el check activo es `VigenciaEntrega`; checks booleanos como `FirmaActaEntrega` usan schema reducido.
+  - `DocumentExtractionWorker` emite la instruccion de vigencia solo cuando el payload contiene `VigenciaEntrega`.
+- **Fix de regresion en evidencia tipo lista**:
+  - `FieldValueResolver` ahora usa `valores` como evidencia auditable cuando `valor` llega nulo y el estado es `FOUND_IN_LIST`, evitando falsos `NO_ENCONTRADO` en `CodigoDiagnostico`.
+  - `CODE` y `TRACE_TOKEN` preservan comparacion multi-valor; los escalares con un solo candidato en `valores` se usan como valor simple.
+  - Escalares o cantidades con multiples candidatos en una misma evidencia quedan como `NO_CONCLUYENTE`, no se suman como lineas ni se descartan.
+- **Tests y documentacion**:
+  - `DocumentExtractionWorkerTest` valida que el system prompt conserve instrucciones no duplicadas y retire las cubiertas por el contrato.
+  - `DocumentPolicyEngineTest` cubre `valor=null` + `valores=[...]` para `CODE`, escalares con candidato unico y listas ambiguas.
+  - Sincronizada la skill `audfact-audit-gemini` con el contrato de descripciones configurables y deduplicacion de prompt.
+  - Changelog normalizado para remover NULs y ruido de encoding del diff.
+
 ## [2026-06-08] - Docs: Alineacion de contrato `-CODIGO- detalle`
 
 ### Documentacion / Skills / Clean Rebuild
