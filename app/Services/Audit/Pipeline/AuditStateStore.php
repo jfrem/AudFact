@@ -45,7 +45,7 @@ class AuditStateStore
         string $disDetNro,
         ?string $jobId = null,
         ?string $facNitSec = null,
-        ?string $facSec = null
+        ?string $disId = null
     ): bool {
         $now = self::nowUtc();
         $state = [
@@ -54,7 +54,7 @@ class AuditStateStore
             'dis_det_nro' => $disDetNro,
             'job_id'      => $jobId,
             'fac_nit_sec' => $facNitSec,
-            'fac_sec'     => $facSec,
+            'dis_id'      => $disId,
             'docs_total'  => 0,
             'docs_done'   => 0,
             'docs_extracted' => 0,

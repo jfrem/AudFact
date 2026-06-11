@@ -2,7 +2,7 @@
 
 ## Descripción
 
-Pipeline distribuido que audita facturas de dispensación farmacéutica usando `FacSec` como identidad canónica, documentos adjuntos como evidencia y Google Gemini API para extracción multimodal. El procesamiento pesado no corre en el request HTTP: se encola en Redis Streams y lo ejecutan workers independientes.
+Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` como identidad canónica, documentos adjuntos como evidencia y Google Gemini API para extracción multimodal. El procesamiento pesado no corre en el request HTTP: se encola en Redis Streams y lo ejecutan workers independientes.
 
 ## Fuentes de Verdad
 
@@ -16,12 +16,12 @@ Pipeline distribuido que audita facturas de dispensación farmacéutica usando `
 
 | Método | Ruta | Controlador | Descripción |
 |---|---|---|---|
-| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `FacSec` |
+| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `DisId` |
 | `POST` | `/audit/async` | `AuditController::async` | Encola un batch por cliente/rango y responde `202` |
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` | Estado Redis de una auditoría individual |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` | Estado y progreso de un job batch |
 | `GET` | `/audit/results` | `AuditController::results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facSec}` | `AuditController::resultDetail` | Detalle persistido por `FacSec` |
+| `GET` | `/audit/results/{disId}` | `AuditController::resultDetail` | Detalle persistido por `DisId` |
 | `GET` | `/audit/stats` | `AuditController::stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController::documentsHistory` | Historial paginado de documentos auditados |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` | Timings persistidos por factura/dispensa |
@@ -33,7 +33,7 @@ Pipeline distribuido que audita facturas de dispensación farmacéutica usando `
 | Componente | Responsabilidad |
 |---|---|
 | `AuditController` | Valida solicitudes, resuelve identidad en `single`, registra jobs y publica eventos iniciales |
-| `BatchRequestedWorker` | Consume `batch_requested`, consulta SQL Server, reserva `FacSec` y publica `audit_created` |
+| `BatchRequestedWorker` | Consume `batch_requested`, consulta SQL Server, reserva `DisId` y publica `audit_created` |
 | `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos y publica `document_registered` por documento |
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
 | `DocumentExtractionWorker` | Descarga adjuntos, valida integridad, usa cache por `document_hash` e invoca Gemini |
@@ -44,7 +44,7 @@ Pipeline distribuido que audita facturas de dispensación farmacéutica usando `
 | `RulesEvaluationWorker` | Evalúa reglas por documento, convierte `document_rejected` en hallazgo `RECHAZADO` y construye el outcome final |
 | `AuditAggregationWorker` | Valida, persiste en SQL, cierra Redis y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
-| `BatchJobStore` | Estado Redis por job, idempotencia HTTP y reservas por `FacSec` |
+| `BatchJobStore` | Estado Redis por job, idempotencia HTTP y reservas por `DisId` |
 | `AuditStatusModel` | Persistencia en `Discolnet.dbo.AudDispEst` y actualización de `AdjuntosDispensacion` |
 
 ## Flujo de Eventos
@@ -79,7 +79,7 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 
 | Campo | Rol |
 |---|---|
-| `FacSec` / `fac_sec` | Identidad canónica de auditoría, idempotencia y persistencia (`AudDispEst.FacSec`) |
+| `DisId` / `dis_id` | Identidad canónica de auditoría, idempotencia y persistencia (`AudDispEst.FacSec` — columna legacy) |
 | `DisDetNro` / `dis_det_nro` | Llave operativa para adjuntos y `FacNro` persistido |
 | `facNitSec` / `fac_nit_sec` | Cliente/NIT usado para configuración, filtros y métricas |
 
@@ -102,7 +102,7 @@ Auditoría individual:
 ```powershell
 curl.exe -X POST http://localhost:8080/audit/single `
   -H "Content-Type: application/json" `
-  -d "{\"FacSec\":\"87723098\"}"
+  -d "{\"disId\":\"87723098\"}"
 ```
 
 Batch async:

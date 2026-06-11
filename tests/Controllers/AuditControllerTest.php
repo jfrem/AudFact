@@ -23,7 +23,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['FacSec' => '87723098'],
+            body: ['disId' => '87723098'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -35,15 +35,15 @@ final class AuditControllerTest extends TestCase
         $this->assertTrue(AuditEvent::isUuidV4($data['audit_id']));
         $this->assertSame('pending', $data['status']);
         $this->assertSame('T38250701547', $data['dis_det_nro']);
-        $this->assertSame('87723098', $data['fac_sec']);
+        $this->assertSame('87723098', $data['dis_id']);
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[0]->eventType);
         $this->assertSame('T38250701547', $publisher->published[0]->payload['dis_det_nro']);
-        $this->assertSame('87723098', $publisher->published[0]->payload['fac_sec']);
+        $this->assertSame('87723098', $publisher->published[0]->payload['dis_id']);
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
     }
 
-    public function testSingleReturns422WhenFacSecMissing(): void
+    public function testSingleReturns422WhenDisIdMissing(): void
     {
         $controller = new TestableAuditController(body: []);
 
@@ -58,7 +58,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['FacSec' => '87723098'],
+            body: ['disId' => '87723098'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -72,7 +72,7 @@ final class AuditControllerTest extends TestCase
     public function testSingleReturns404WhenDispensationNotFound(): void
     {
         $controller = new TestableAuditController(
-            body: ['FacSec' => '99999999'],
+            body: ['disId' => '99999999'],
             auditDataService: new NotFoundAuditDataService(),
         );
 
@@ -256,7 +256,7 @@ final class AuditControllerTest extends TestCase
     {
         $controller = new TestableAuditController(
             auditStatusModel: new StubAuditStatusModel([
-                'FacSec' => '87723098',
+                'DisId' => '87723098',
                 'FacNro' => 'T38250701547',
                 'findings' => [],
                 'fieldDecisions' => [],
@@ -268,7 +268,7 @@ final class AuditControllerTest extends TestCase
         $response = self::captureResponse(static fn() => $controller->resultDetail('87723098'));
 
         $this->assertSame(200, $response->getCode());
-        $this->assertSame('87723098', $response->getData()['data']['FacSec']);
+        $this->assertSame('87723098', $response->getData()['data']['DisId']);
     }
 
     public function testResultDetailReturns404WhenAuditIsMissing(): void
@@ -374,7 +374,7 @@ final class StubAuditStateStore extends AuditStateStore
         string $disDetNro,
         ?string $jobId = null,
         ?string $facNitSec = null,
-        ?string $facSec = null
+        ?string $disId = null
     ): bool {
         return $this->initAuditReturns;
     }
@@ -397,7 +397,7 @@ final class StubAuditStatusModel extends AuditStatusModel
     {
     }
 
-    public function getAuditDetailByFacSec(string $facSec): ?array
+    public function getAuditDetailByDisId(string $disId): ?array
     {
         return $this->detail;
     }
@@ -409,11 +409,11 @@ final class StubAuditDataService extends AuditDataService
     {
     }
 
-    public function getDispensationByFacSec(string $facSec): array
+    public function getDispensation(array $filters): array
     {
         return [
             'header' => [
-                'FacSec' => $facSec,
+                'DisId' => $filters['dis_id'] ?? null,
                 'NitSec' => '2426',
                 'NumeroFactura' => 'T38250701547',
             ],
@@ -436,9 +436,10 @@ final class NotFoundAuditDataService extends AuditDataService
 {
     public function __construct() {}
 
-    public function getDispensationByFacSec(string $facSec): array
+    public function getDispensation(array $filters): array
     {
-        throw new RuntimeException("FDV vacía: no existe FacSec '{$facSec}'", 404);
+        $disId = $filters['dis_id'] ?? 'unknown';
+        throw new RuntimeException("FDV vacía: no existe DisId '{$disId}'", 404);
     }
 }
 
@@ -472,7 +473,7 @@ class StubBatchJobStore extends BatchJobStore
         return $this->claimReturns;
     }
 
-    public function getAuditReservation(string $facSec): ?array
+    public function getAuditReservation(string $disId): ?array
     {
         return $this->activeReservation;
     }
@@ -525,10 +526,10 @@ class StubBatchJobStore extends BatchJobStore
         return true;
     }
 
-    public function releaseAuditReservation(string $facSec, string $ownerToken): bool
+    public function releaseAuditReservation(string $disId, string $ownerToken): bool
     {
         $this->releasedReservations[] = [
-            'facSec' => $facSec,
+            'disId' => $disId,
             'token' => $ownerToken,
         ];
         return true;

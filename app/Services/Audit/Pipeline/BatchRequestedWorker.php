@@ -15,7 +15,7 @@ use RuntimeException;
  * `audit.batch.inbox`.
  *
  * Ejecuta el escaneo pesado de SQL Server y la orquestación de reservas
- * por FacSec en background, liberando completamente al pool PHP-FPM.
+ * por DisId en background, liberando completamente al pool PHP-FPM.
  *
  * Stream:   audit.batch.inbox  (dedicado, evita head-of-line blocking)
  * Group:    batch-workers
@@ -71,7 +71,7 @@ final class BatchRequestedWorker extends AuditEventConsumer
      *
      * El orquestador ejecuta:
      * 1. Consulta pesada a SQL Server (getInvoicesForAuditBatch)
-     * 2. Reservas atómicas SETNX por FacSec
+     * 2. Reservas atómicas SETNX por DisId
      * 3. Publicación de N eventos audit_created en audit.inbox
      * 4. Sellado del job
      *

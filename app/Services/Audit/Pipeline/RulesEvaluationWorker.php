@@ -69,10 +69,12 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             throw new RuntimeException("{$event->eventType} sin audit_id o document_id");
         }
 
-        [, $documentState] = $this->loadPolicyContext($event);
+        [$auditContext, $documentState] = $this->loadPolicyContext($event);
+        $facNro = (string) ($auditContext['fac_nro'] ?? '');
+
         $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
-            ? $this->buildRejectedPolicyResult($documentState, $event->payload)
-            : $this->policyEngine->evaluate($documentState, $event->payload);
+            ? $this->buildRejectedPolicyResult($documentState, $event->payload, $facNro)
+            : $this->policyEngine->evaluate($documentState, $event->payload, $facNro);
         $durationMs = (int) ((microtime(true) - $start) * 1000);
 
         $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
@@ -194,11 +196,12 @@ final class RulesEvaluationWorker extends AuditEventConsumer
      */
     private function aggregateRulesEvaluation(array $audit): array
     {
+        $facNro = (string) ($audit['fac_nro'] ?? '');
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
         $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
         $documentDecisions = $this->normalizeDocumentDecisions($documentDecisions);
-        $documentDecisions = $this->mergeCalculatedFindingsIntoDecisions($documentDecisions, $calculatedFindings);
+        $documentDecisions = $this->mergeCalculatedFindingsIntoDecisions($documentDecisions, $calculatedFindings, $facNro);
         $metrics = AuditFindingRules::summarizeMetrics($allFindings);
 
         $finalStatus = $this->resolveFinalStatus($allFindings, $documentDecisions);
@@ -280,7 +283,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
      * @param  array<string,mixed> $payload
      * @return array<string,mixed>
      */
-    private function buildRejectedPolicyResult(array $documentState, array $payload): array
+    private function buildRejectedPolicyResult(array $documentState, array $payload, string $facNro): array
     {
         $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
             (string) ($payload['document_type'] ?? $documentState['document_type'] ?? $payload['tipo_documento'] ?? 'DOCUMENTO')
@@ -307,14 +310,19 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'document_decision' => [
                 'documentName' => $documentName,
                 'approved'     => false,
-                'observation'  => "Documento no procesable: {$reason}",
+                'payload'      => AuditFindingRules::buildRejectionPayload($facNro, [
+                    [
+                        'Codigo' => 'INTEGRIDAD',
+                        'Descripcion' => "Documento no procesable: {$reason}"
+                    ]
+                ]),
             ],
         ];
     }
 
     /**
      * @param  array<int,array<string,mixed>> $decisions
-     * @return array<int,array{documentName:string,approved:bool,observation:?string}>
+     * @return array<int,array{documentName:string,approved:bool,payload?:array<string,mixed>}>
      */
     private function normalizeDocumentDecisions(array $decisions): array
     {
@@ -325,11 +333,11 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 continue;
             }
 
-            $observation = trim((string) ($decision['observation'] ?? ''));
+            $payload = $decision['payload'] ?? null;
             $normalized[] = [
                 'documentName' => $name,
                 'approved' => (bool) ($decision['approved'] ?? false),
-                'observation' => $observation === '' ? null : $observation,
+                'payload' => is_array($payload) ? $payload : null,
             ];
         }
 
@@ -366,7 +374,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $processingDurationMs = (int) ($phaseTimings['processing_duration_ms'] ?? 0);
 
         return [
-            'FacSec' => (string) ($audit['fac_sec'] ?? ''),
+            'DisId' => (string) ($audit['dis_id'] ?? ''),
             'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
             'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_COMPLETED ? 1 : 0,
             'EstadoDetallado' => $finalStatus,
@@ -438,15 +446,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
         }
 
-        foreach ($documentDecisions as $decision) {
-            if ($decision['approved'] === true) {
-                continue;
-            }
 
-            if (AuditFindingRules::observationRequiresManualReview($decision['observation'] ?? null)) {
-                $hasHighSeverityFailure = true;
-            }
-        }
 
         if ($hasHighSeverityFailure) {
             return AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW;
@@ -550,7 +550,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
      * @param  array<int,array<string,mixed>> $calculatedFindings
      * @return array<int,array{documentName:string,approved:bool,observation:?string}>
      */
-    private function mergeCalculatedFindingsIntoDecisions(array $documentDecisions, array $calculatedFindings): array
+    private function mergeCalculatedFindingsIntoDecisions(array $documentDecisions, array $calculatedFindings, string $facNro): array
     {
         foreach ($calculatedFindings as $finding) {
             $resultEnum = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
@@ -564,13 +564,14 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
 
             $detail = trim((string) ($finding['detalle'] ?? ''));
+            $codigo = trim((string) ($finding['codigoCampo'] ?? 'CALC'));
             $updated = false;
             foreach ($documentDecisions as &$decision) {
                 if (DocumentExtractionContractBuilder::normalizeDocumentName((string) ($decision['documentName'] ?? '')) !== $documentName) {
                     continue;
                 }
 
-                $this->rejectDocumentDecision($decision, $detail);
+                $this->rejectDocumentDecision($decision, $codigo, $detail, $facNro);
                 $updated = true;
                 break;
             }
@@ -580,7 +581,12 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 $documentDecisions[] = [
                     'documentName' => $documentName,
                     'approved' => false,
-                    'observation' => $detail === '' ? null : $detail,
+                    'payload' => AuditFindingRules::buildRejectionPayload($facNro, [
+                        [
+                            'Codigo' => $codigo,
+                            'Descripcion' => $detail,
+                        ]
+                    ]),
                 ];
             }
         }
@@ -591,14 +597,21 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     /**
      * @param  array<string,mixed> $decision
      */
-    private function rejectDocumentDecision(array &$decision, string $detail): void
+    private function rejectDocumentDecision(array &$decision, string $codigo, string $detail, string $facNro): void
     {
         $decision['approved'] = false;
         if ($detail === '') {
             return;
         }
 
-        $existing = trim((string) ($decision['observation'] ?? ''));
-        $decision['observation'] = $existing === '' ? $detail : "{$existing} | {$detail}";
+        if (!isset($decision['payload']) || !is_array($decision['payload'])) {
+            $decision['payload'] = AuditFindingRules::buildRejectionPayload($facNro, []);
+        }
+
+        $decision['payload']['state'] = false;
+        $decision['payload']['hallazgos'][] = [
+            'Codigo' => $codigo,
+            'Descripcion' => $detail,
+        ];
     }
 }

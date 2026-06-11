@@ -31,7 +31,7 @@ $router->post('/dispensation', 'DispensationController', 'lookup');
 // Audit
 // TODO: FIX #3 PENDIENTE — Aplicar ->middleware('auth') cuando se implemente AuthMiddleware + JWT
 $router->get('/audit/results', 'AuditController', 'results'); // Historial persistido
-$router->get('/audit/results/{facSec}', 'AuditController', 'resultDetail'); // Detalle persistido por FacSec
+$router->get('/audit/results/{disId}', 'AuditController', 'resultDetail'); // Detalle persistido por DisId
 $router->get('/audit/stats', 'AuditController', 'stats'); // Conteos agregados para dashboard
 $router->get('/audit/documents-history', 'AuditController', 'documentsHistory');
 $router->post('/audit/single', 'AuditController', 'single');

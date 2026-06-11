@@ -196,12 +196,12 @@ final class AuditAggregationWorker extends AuditEventConsumer
             throw new RuntimeException('rules_evaluated sin outcome final canónico');
         }
 
-        if (($auditResultData['FacSec'] ?? '') === '' || ($auditResultData['FacNro'] ?? '') === '') {
+        if (($auditResultData['DisId'] ?? '') === '' || ($auditResultData['FacNro'] ?? '') === '') {
             throw new RuntimeException('Estado de auditoría incompleto para persistencia final');
         }
 
-        if ((string) ($audit['fac_sec'] ?? '') !== '' && (string) $auditResultData['FacSec'] !== (string) $audit['fac_sec']) {
-            throw new RuntimeException('rules_evaluated no coincide con FacSec de estado Redis');
+        if ((string) ($audit['dis_id'] ?? '') !== '' && (string) $auditResultData['DisId'] !== (string) $audit['dis_id']) {
+            throw new RuntimeException('rules_evaluated no coincide con DisId de estado Redis');
         }
 
         return [
@@ -271,13 +271,13 @@ final class AuditAggregationWorker extends AuditEventConsumer
     {
         $timings = AuditTimingSummarizer::buildPhaseTimings($finalAudit);
         $durationMs = (int) ($timings['processing_duration_ms'] ?? 0);
-        $facSec = (string) ($auditResultData['FacSec'] ?? '');
+        $disId = (string) ($auditResultData['DisId'] ?? '');
 
         try {
-            $this->auditStatusModel->updateAuditTimings($facSec, $timings, $durationMs);
+            $this->auditStatusModel->updateAuditTimings($disId, $timings, $durationMs);
         } catch (\Throwable $error) {
             \Core\Logger::error('Audit aggregation: no se pudieron persistir timings finales', [
-                'FacSec' => $facSec,
+                'DisId' => $disId,
                 'error_class' => get_class($error),
                 'error' => $error->getMessage(),
             ]);

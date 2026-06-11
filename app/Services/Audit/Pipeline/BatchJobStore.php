@@ -80,14 +80,14 @@ class BatchJobStore
      * @param  string  $jobId  UUID del job batch.
      * @param  string  $auditId  UUID de la auditoría.
      * @param  string  $disDetNro  Identificador operativo de la dispensa.
-     * @param  string|null  $facSec  Identificador global idempotente de la factura.
+     * @param  string|null  $disId  Identificador global idempotente de la factura.
      * @param  string|null  $reservationToken  Token propietario de la reserva Redis.
      */
     public function registerAuditInJob(
         string $jobId,
         string $auditId,
         string $disDetNro,
-        ?string $facSec = null,
+        ?string $disId = null,
         ?string $reservationToken = null
     ): bool {
         return $this->runScript(
@@ -96,7 +96,7 @@ class BatchJobStore
             [
                 $auditId,
                 $disDetNro,
-                $facSec ?? '',
+                $disId ?? '',
                 $reservationToken ?? '',
                 gmdate('Y-m-d\TH:i:s\Z'),
                 self::JOB_TTL_SECONDS,
@@ -230,29 +230,29 @@ class BatchJobStore
      *
      * @param  array<string,mixed>  $reservation
      */
-    public function claimAuditReservation(string $facSec, string $ownerToken, array $reservation, int $ttl = self::JOB_TTL_SECONDS): bool
+    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation, int $ttl = self::JOB_TTL_SECONDS): bool
     {
-        $reservation['fac_sec'] = $facSec;
+        $reservation['dis_id'] = $disId;
         $reservation['token'] = $ownerToken;
         $reservation['claimed_at'] = $reservation['claimed_at'] ?? gmdate('Y-m-d\TH:i:s\Z');
 
         return $this->redis->setnx(
-            self::auditReservationKey($facSec),
+            self::auditReservationKey($disId),
             self::encodeJson($reservation, 'BatchJobStore::claimAuditReservation'),
             $ttl
         );
     }
 
     /**
-     * Lee la reserva activa de auditoría por FacSec.
+     * Lee la reserva activa de auditoría por DisId.
      *
-     * @param  string  $facSec  Identificador global idempotente de la factura.
+     * @param  string  $disId  Identificador global idempotente de la factura.
      * @return array<string,mixed>|null
      */
-    public function getAuditReservation(string $facSec): ?array
+    public function getAuditReservation(string $disId): ?array
     {
         try {
-            $raw = $this->redis->get(self::auditReservationKey($facSec));
+            $raw = $this->redis->get(self::auditReservationKey($disId));
         } catch (RedisUnavailableException $e) {
             throw new RuntimeException('Redis no disponible al leer reserva de auditoría', 0, $e);
         }
@@ -263,21 +263,21 @@ class BatchJobStore
     /**
      * Libera una reserva de auditoría solo si el token coincide con el propietario.
      *
-     * @param  string  $facSec  Identificador global idempotente de la factura.
+     * @param  string  $disId  Identificador global idempotente de la factura.
      * @param  string  $ownerToken  Token propietario de la reserva Redis.
      */
-    public function releaseAuditReservation(string $facSec, string $ownerToken): bool
+    public function releaseAuditReservation(string $disId, string $ownerToken): bool
     {
-        if ($facSec === '' || $ownerToken === '') {
+        if ($disId === '' || $ownerToken === '') {
             return false;
         }
 
         return $this->runScript(
             self::RELEASE_AUDIT_RESERVATION_LUA,
-            [self::auditReservationKey($facSec)],
+            [self::auditReservationKey($disId)],
             [$ownerToken],
             'No se pudo liberar reserva de auditoría',
-            ['fac_sec' => $facSec]
+            ['dis_id' => $disId]
         );
     }
 
@@ -288,10 +288,10 @@ class BatchJobStore
      */
     public function releaseAuditReservationFromAudit(array $audit): bool
     {
-        $facSec = trim((string) ($audit['fac_sec'] ?? ''));
+        $disId = trim((string) ($audit['dis_id'] ?? ''));
         $token = trim((string) ($audit['reservation_token'] ?? ''));
 
-        return $this->releaseAuditReservation($facSec, $token);
+        return $this->releaseAuditReservation($disId, $token);
     }
 
     public static function jobKey(string $jobId): string
@@ -300,13 +300,13 @@ class BatchJobStore
     }
 
     /**
-     * Construye la key Redis de reserva global por FacSec.
+     * Construye la key Redis de reserva global por DisId.
      *
-     * @param  string  $facSec  Identificador global idempotente de la factura.
+     * @param  string  $disId  Identificador global idempotente de la factura.
      */
-    public static function auditReservationKey(string $facSec): string
+    public static function auditReservationKey(string $disId): string
     {
-        return "audit:reservation:facsec:{$facSec}";
+        return "audit:reservation:disid:{$disId}";
     }
 
     private const REGISTER_AUDIT_IN_JOB_LUA = <<<'LUA'
@@ -315,7 +315,7 @@ if not raw then return 0 end
 local job = cjson.decode(raw)
 local auditId = ARGV[1]
 local disDetNro = ARGV[2]
-local facSec = ARGV[3]
+local disId = ARGV[3]
 local reservationToken = ARGV[4]
 local now = ARGV[5]
 local ttl = tonumber(ARGV[6])
@@ -325,7 +325,7 @@ if type(job['audits']) ~= 'table' then
 end
 job['audits'][auditId] = {
     dis_det_nro = disDetNro,
-    fac_sec = facSec,
+    dis_id = disId,
     reservation_token = reservationToken,
     status = 'pending'
 }

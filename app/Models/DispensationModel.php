@@ -13,11 +13,11 @@ class DispensationModel extends Model
      * Campos de cabecera de la FDV.
      *
      * Contrato de identidad:
-     * - FacSec es la llave canónica de auditoría y se lee desde facsecF.
+     * - DisId es la llave canónica de auditoría y se lee desde DisId.
      * - NumeroFactura es la llave operativa de dispensación y se lee desde Dispensa.
      */
     public const HEADER_FIELDS = [
-        'FacSec',
+        'DisId',
         'NumeroFactura',
         'Cliente',
         'NITCliente',
@@ -63,8 +63,7 @@ class DispensationModel extends Model
         'IdFact',
     ];
 
-    private const WHERE_DIS_DET_NRO = 'Dispensa = :DisDetNro';
-    private const WHERE_FAC_SEC = 'facsecF = :FacSec';
+
 
     /**
      * Transforma filas planas de la BD en el contrato canónico {header, items}.
@@ -89,41 +88,48 @@ class DispensationModel extends Model
     }
 
     /**
-     * Obtiene la fuente de verdad de una dispensación por llave operativa.
-     *
-     * `FacSec` debe mapear siempre `vw_discolnet_dispensas.facsecF`, porque ese
-     * valor equivale a `Factura.FacSec` y es la llave de persistencia en AudDispEst.
-     * `Dispensa` se expone como `NumeroFactura` y equivale al `DisDetNro` usado
-     * para resolver la entrega y sus adjuntos.
-     *
-     * @param string $DisDetNro Identificador operativo de la dispensación.
-     * @return array Array con los registros de dispensación (vacío si no se encuentra)
+     * Mapeo estricto de filtros permitidos → columnas SQL reales.
+     * Aliases snake_case (pipeline) y PascalCase (REST) están soportados.
      */
-    public function getDispensationData(string $DisDetNro): array
+    private const ALLOWED_FILTERS = [
+        'dis_id'      => 'facsec',
+        'dis_det_nro' => 'Dispensa',
+        'DisId'       => 'facsec',
+        'Dispensa'    => 'Dispensa',
+    ];
+
+    /**
+     * Obtiene la fuente de verdad filtrando por parámetros validados contra whitelist.
+     *
+     * @param array<string,string> $filters Asociativo clave => valor (solo claves permitidas)
+     * @return array<int,array<string,mixed>> Filas de FDV
+     * @throws \InvalidArgumentException Si algún filtro no está en el whitelist o no hay filtros
+     */
+    public function getDispensationData(array $filters): array
     {
+        if (empty($filters)) {
+            throw new \InvalidArgumentException('No se proporcionaron filtros para DispensationModel');
+        }
+
+        $whereParts = [];
+        $bindings = [];
+        foreach ($filters as $key => $value) {
+            if (!isset(self::ALLOWED_FILTERS[$key])) {
+                throw new \InvalidArgumentException("Filtro no permitido en DispensationModel: {$key}");
+            }
+            $dbCol = self::ALLOWED_FILTERS[$key];
+            $placeholder = ":{$key}";
+            $whereParts[] = "{$dbCol} = {$placeholder}";
+            $bindings[$placeholder] = $value;
+        }
+
         return $this->getDispensationRows(
-            self::WHERE_DIS_DET_NRO,
-            ':DisDetNro',
-            $DisDetNro,
-            'DisDetNro'
+            implode(' AND ', $whereParts),
+            $bindings,
+            'DispensationFilters'
         );
     }
 
-    /**
-     * Obtiene la fuente de verdad de una factura por llave canónica de auditoría.
-     *
-     * @param  string  $facSec  Identificador canónico `Factura.FacSec` / `facsecF`.
-     * @return array<int,array<string,mixed>> Filas de FDV asociadas al FacSec.
-     */
-    public function getDispensationDataByFacSec(string $facSec): array
-    {
-        return $this->getDispensationRows(
-            self::WHERE_FAC_SEC,
-            ':FacSec',
-            $facSec,
-            'FacSec'
-        );
-    }
 
     /**
      * Ejecuta la consulta FDV con un predicado de identidad fijo.
@@ -132,19 +138,17 @@ class DispensationModel extends Model
      */
     private function getDispensationRows(
         string $whereClause,
-        string $paramName,
-        string $paramValue,
+        array $bindings,
         string $logKey
     ): array {
         $sql = "SELECT DISTINCT
-                -- Identidad: llave canónica de auditoría y llave operativa de dispensación
-                facsecF AS FacSec,
+                facsec AS DisId,
                 Dispensa AS NumeroFactura,
 
                 -- Cliente/EPS
                 Cliente,
                 Nit AS NITCliente,
-                NitSec,  -- EPS para validación de documentos requeridos
+                NitSec,
                 Copago AS VlrCobrado,
                 IPS,
                 IPS_nit AS IPS_NIT,
@@ -205,13 +209,15 @@ class DispensationModel extends Model
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
 
         $stmt = $this->readDb->prepare($sql);
-        $stmt->bindValue($paramName, $paramValue, PDO::PARAM_STR);
+        foreach ($bindings as $param => $val) {
+            $stmt->bindValue($param, $val, PDO::PARAM_STR);
+        }
         $stmt->execute();
         $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $stmt->closeCursor();
 
         Logger::info("Executed SQL: ", [
-            $logKey => $paramValue,
+            $logKey     => $bindings,
             'result'    => count($result ?? []),
         ]);
 

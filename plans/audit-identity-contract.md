@@ -1,54 +1,55 @@
-# Contrato de Identidad de Auditoria
+# Contrato de Identidad de Auditoría
 
-Este documento define las llaves que deben permanecer alineadas durante todo el flujo E2E de auditoria. Es la referencia para evitar mezclar identificadores de factura, dispensacion y adjuntos.
+Este documento define las llaves que deben permanecer alineadas durante todo el flujo E2E de auditoría. Es la referencia para evitar mezclar identificadores de dispensación y adjuntos.
 
-## Contrato Canonico
+## Contrato Canónico
 
 ```text
-Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec
+vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy, almacena DisId)
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-`vw_discolnet_dispensas.facsec` no es la llave canonica de auditoria. No debe mapearse como `FacSec` ni usarse para filtrar o persistir resultados en `AudDispEst`.
+> **Deuda Técnica**: La columna `AudDispEst.FacSec` almacena el valor lógico `DisId` sin renombrarse. Los registros históricos escritos con valores `FacSec` reales antes de este cambio **no están garantizados** sin un backfill futuro.
 
 ## Roles de Cada Identificador
 
 | Identificador | Fuente | Uso correcto |
 |---|---|---|
-| `Factura.FacSec` | Tabla `Factura` | Llave canonica seleccionada por el batch. |
-| `facsecF` | Vista `vw_discolnet_dispensas` | Version de la FDV equivalente a `Factura.FacSec`; se expone como `FacSec`. |
-| `FacSec` | Contrato PHP / Redis / `AudDispEst` | Llave de auditoria y de persistencia final. |
-| `DisDetNro` | `DispensacionDetalleServicio` | Llave operativa de la dispensacion usada por endpoints y workers. |
+| `DisId` | Vista `vw_discolnet_dispensas` | Llave canónica de auditoría. Identifica la dispensación que se audita. |
+| `dis_id` | Contrato PHP / Redis (pipeline snake_case) | Alias snake_case de `DisId` en eventos y payloads internos. |
+| `AudDispEst.FacSec` | Tabla `AudDispEst` (columna legacy) | Almacena el `DisId`; no renombrada por decisión operativa. |
+| `DisDetNro` | `DispensacionDetalleServicio` | Llave operativa de la dispensación usada por endpoints y workers. |
 | `Dispensa` | Vista `vw_discolnet_dispensas` | Equivalente FDV de `DisDetNro`; se expone como `NumeroFactura`. |
-| `FacNro` | `AudDispEst` | Almacena el `DisDetNro` auditado para busqueda operativa. |
-| `facsec` | Vista `vw_discolnet_dispensas` | Identificador legacy/de agrupacion; no es llave de auditoria. |
+| `dis_det_nro` | Contrato PHP / Redis (pipeline snake_case) | Alias snake_case de `Dispensa` en eventos internos. |
+| `FacNro` | `AudDispEst` | Almacena el `DisDetNro` auditado para búsqueda operativa. |
+| `facsec` | Vista `vw_discolnet_dispensas` | Identificador legacy/de agrupación; **no** es llave de auditoría. |
 
 ## Flujo E2E
 
-1. `InvoicesModel::getInvoices()` selecciona `tb3.FacSec AS FacSec` y `tb2.DisDetNro AS Dispensa`.
-2. `AuditBatchOrchestrator` inicializa Redis con `fac_sec = FacSec` y `dis_det_nro = Dispensa`.
-3. `POST /audit/single` recibe `FacSec`, resuelve la FDV por `facsecF` y deriva `DisDetNro` desde `NumeroFactura`.
-4. `DocumentAuditOrchestrator` resuelve la FDV por `fac_sec`; `dis_det_nro` solo se valida y luego se usa para adjuntos.
-5. `DispensationModel::getDispensationDataByFacSec()` expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`.
+1. `InvoicesModel::getInvoicesForAuditBatch()` selecciona `tb2.DisId AS DisId` y `tb2.DisDetNro AS Dispensa`.
+2. `AuditBatchOrchestrator` inicializa Redis con `dis_id = DisId` y `dis_det_nro = Dispensa`.
+3. `POST /audit/single` recibe `disId`, resuelve la FDV por `DisId` y deriva `DisDetNro` desde `NumeroFactura`.
+4. `DocumentAuditOrchestrator` resuelve la FDV por `dis_id` + `dis_det_nro`; valida identidad cruzada.
+5. `DispensationModel::getDispensationData()` acepta filtros via whitelist (`dis_id` → `DisId`, `dis_det_nro` → `Dispensa`, `DisId` → `DisId`, `Dispensa` → `Dispensa`) y expone `DisId AS DisId` y `Dispensa AS NumeroFactura`.
 6. `DocumentAuditOrchestrator` valida el contrato:
-   - `payload.fac_sec` debe coincidir con `FDV.header.FacSec`;
+   - `payload.dis_id` debe coincidir con `FDV.header.DisId`;
    - `payload.dis_det_nro` debe coincidir con `FDV.header.NumeroFactura`;
    - si el evento trae `fac_nit_sec`, debe coincidir con `FDV.header.NitSec`.
-7. `AuditAggregationWorker` persiste `FacSec = audit.fac_sec` y `FacNro = audit.dis_det_nro`.
-8. `AuditStatusModel` hace `MERGE` con `ON target.FacSec = source.FacSec`.
+7. `AuditAggregationWorker` persiste `FacSec = audit.dis_id` (columna legacy) y `FacNro = audit.dis_det_nro`.
+8. `AuditStatusModel` hace `MERGE` con `ON target.FacSec = source.FacSec` (donde `FacSec` contiene `DisId`).
 
 ## Adjuntos
 
-Los adjuntos no se resuelven por `FacSec`. Se resuelven por `DisDetNro`, que permite obtener `DisId + DisDetId` y llegar a `AdjuntosDispensacion`.
+Los adjuntos no se resuelven por `DisId`. Se resuelven por `DisDetNro`, que permite obtener `DisId + DisDetId` y llegar a `AdjuntosDispensacion`.
 
-Esto no contradice la llave canonica: `FacSec` identifica la auditoria; `DisDetNro` identifica la entrega/documentos.
+Esto no contradice la llave canónica: `DisId` identifica la auditoría; `DisDetNro` identifica la entrega/documentos.
 
 ## Fallos Esperados
 
-Si un evento envia una factura y la FDV devuelve otra identidad, el orquestador debe fallar con:
+Si un evento envía una dispensación y la FDV devuelve otra identidad, el orquestador debe fallar con:
 
 ```text
 AUDIT_IDENTITY_MISMATCH
 ```
 
-Ese fallo debe ir a retry/DLQ segun el mecanismo normal del pipeline, porque indica datos incongruentes o una consulta que rompio el contrato.
+Ese fallo debe ir a retry/DLQ según el mecanismo normal del pipeline, porque indica datos incongruentes o una consulta que rompió el contrato.

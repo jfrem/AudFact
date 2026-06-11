@@ -8,15 +8,15 @@ public function searchInvoices(array $filters, int $page = 1, int $pageSize = 20
     $pageSize = min(max($pageSize, 1), 100);
     $offset = ($page - 1) * $pageSize;
 
-    $sql = "SELECT NitSec, FacSec, Dispensa
+    $sql = "SELECT NitSec, DisId, Dispensa
             FROM (
-                SELECT tb3.FacNitSec NitSec, tb3.FacSec FacSec, tb2.DisDetNro Dispensa
+                SELECT tb3.FacNitSec NitSec, tb2.DisId DisId, tb2.DisDetNro Dispensa
                 FROM Factura tb3 WITH(NOLOCK)
                 INNER JOIN DispensacionDetalleServicio tb2 WITH(NOLOCK)
                     ON tb3.DisId = tb2.DisId AND tb3.DisDetId = tb2.DisDetId
                 WHERE tb3.FacNitSec = :facNitSec
             ) candidates
-            ORDER BY FacSec ASC, Dispensa ASC
+            ORDER BY DisId ASC, Dispensa ASC
             OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
     $stmt = $this->db->prepare($sql);

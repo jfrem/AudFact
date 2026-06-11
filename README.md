@@ -143,12 +143,12 @@ Base URL: `http://localhost:8080`
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
 | `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
 | `GET` | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
-| `POST` | `/audit/single` | Auditoría individual por FacSec |
+| `POST` | `/audit/single` | Auditoría individual por DisId |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
 | `GET` | `/audit/status/{auditId}` | Estado Redis de una auditoría individual encolada |
 | `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facSec}` | Detalle persistido por FacSec |
+| `GET` | `/audit/results/{disId}` | Detalle persistido por DisId |
 | `GET` | `/audit/stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | Historial de documentos auditados |
 | `GET` | `/audit/{facNro}/timings` | Timings detallados por factura |
@@ -170,10 +170,10 @@ de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
 
 ### Contrato de Identidad de Auditoría
 
-La llave canónica de auditoría es `FacSec`:
+La llave canónica de auditoría es `DisId`:
 
 ```text
-Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec
+vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy)
 ```
 
 La llave operativa de dispensación/documentos es `DisDetNro`:
@@ -182,7 +182,7 @@ La llave operativa de dispensación/documentos es `DisDetNro`:
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-`POST /audit/single` y `POST /audit/async` seleccionan la FDV por `FacSec`. Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
+`POST /audit/single` y `POST /audit/async` seleccionan la FDV por `DisId`. Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `DisId` en la columna legacy `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
 
 ## Pipeline de Auditoría IA
 
@@ -207,7 +207,7 @@ Características:
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
-- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `FacSec`.
+- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `DisId`.
 
 ## Docker
 

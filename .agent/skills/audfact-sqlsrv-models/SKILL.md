@@ -30,8 +30,8 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | Modelo | Tabla BD | Responsabilidad |
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
-| `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `Factura.FacSec` como llave canónica de auditoría |
-| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `facsecF AS FacSec` y `Dispensa AS NumeroFactura`; pipeline selecciona por `facsecF` |
+| `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `vw_discolnet_dispensas.DisId` como llave canónica de auditoría |
+| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; pipeline selecciona por `DisId` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
 | `AuditConfigModel` | `Discolnet.dbo.AudDisp` + `Discolnet.dbo.AudDispCampo` | Configuración dinámica por cliente; lee y reemplaza campos activos, severidad, descripción visual, `TipoDato` y `CodigoCampo` |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
@@ -44,11 +44,11 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 Fuente completa: [`plans/audit-identity-contract.md`](file:///c:/Users/USER/Desktop/AudFact/plans/audit-identity-contract.md).
 
 ```text
-Factura.FacSec == vw_discolnet_dispensas.facsecF == AudDispEst.FacSec
+vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy)
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-`vw_discolnet_dispensas.facsec` es legacy/de agrupación y no debe mapearse como `FacSec`.
+`vw_discolnet_dispensas.facsec` es legacy/de agrupación y no debe mapearse como `DisId`.
 
 ## Database.php — Capacidades
 
@@ -181,10 +181,10 @@ public function countItems(array $filters = []): int
 $pageSize = min(max($pageSize, 1), 100);
 $offset = max($page - 1, 0) * $pageSize;
 
-$sql = "SELECT FacSec, DisId
+$sql = "SELECT DisId, Dispensa
         FROM dbo.factura
         WHERE FacNitSec = :facNitSec AND FacFec = :date
-        ORDER BY FacSec ASC
+        ORDER BY DisId ASC
         OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
 $stmt = $this->db->prepare($sql);

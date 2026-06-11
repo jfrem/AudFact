@@ -112,7 +112,7 @@ Respuesta:
     "items": [
       {
         "NitSec": 1165,
-        "FacSec": 87172329,
+        "DisId": 87172329,
         "Dispensa": "X24250700021"
       }
     ],
@@ -171,11 +171,11 @@ Comportamiento:
 
 ### `POST /audit/single`
 
-Encola auditoría individual sobre una sola factura usando `FacSec` como identidad canónica.
+Encola auditoría individual sobre una sola dispensación usando `DisId` como identidad canónica.
 
 ```json
 {
-  "FacSec": "87723098"
+  "disId": "87723098"
 }
 ```
 
@@ -184,7 +184,7 @@ Respuesta exitosa: HTTP `202`.
 Campos principales:
 - `audit_id`
 - `status`
-- `fac_sec`
+- `dis_id`
 - `dis_det_nro`
 
 ### `POST /audit/async`
@@ -274,7 +274,7 @@ Respuesta:
     "audit_id": "8e4efc63-2e14-4d91-a8f0-85efdd0491bf",
     "status": "processing",
     "dis_det_nro": "X24250700021",
-    "fac_sec": "87172329",
+    "dis_id": "87172329",
     "docs_total": 4,
     "docs_done": 2,
     "docs_extracted": 2,
@@ -316,12 +316,12 @@ Respuesta:
 }
 ```
 
-### `GET /audit/results/{facSec}`
+### `GET /audit/results/{disId}`
 
-Consulta el detalle persistido de una auditoría por la llave canónica `FacSec`.
+Consulta el detalle persistido de una auditoría por la llave canónica `DisId`.
 
 Validación:
-- `facSec`: string no vacío en ruta.
+- `disId`: string no vacío en ruta.
 
 Respuesta:
 
@@ -330,7 +330,7 @@ Respuesta:
   "success": true,
   "message": "Detalle de auditoría",
   "data": {
-    "FacSec": "87723098",
+    "DisId": "87723098",
     "findings": [],
     "fieldDecisions": [],
     "documentDecisions": [],
@@ -472,6 +472,7 @@ Respuesta:
 ### `POST /clients/{clientId}/audit-config`
 
 Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime.
+**NOTA:** El campo `systemPrompt` es de envío **obligatorio** (`string` o `null`); omitirlo resulta en un error HTTP 422 para prevenir borrados accidentales del prompt.
 
 Body:
 ```json

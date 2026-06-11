@@ -37,24 +37,26 @@ class AuditDataService
     }
 
     /**
-     * Obtiene la fuente de verdad (FDV) desde SQL Server por FacSec canónico.
+     * Obtiene la fuente de verdad (FDV) desde SQL Server por filtros arbitrarios.
      *
+     * @param array<string,string> $filters Filtros (ej. facsec, Dispensa)
      * @return array<string,mixed> Datos formateados de la dispensación con items.
      * @throws RuntimeException Si la factura no existe.
      */
-    public function getDispensationByFacSec(string $facSec): array
+    public function getDispensation(array $filters): array
     {
         $start = microtime(true);
-        $rows  = $this->dispensationModel->getDispensationDataByFacSec($facSec);
+        $rows  = $this->dispensationModel->getDispensationData($filters);
 
         if ($rows === []) {
-            throw new RuntimeException("FDV vacía: no existe FacSec '{$facSec}'", 404);
+            $fstr = json_encode($filters);
+            throw new RuntimeException("FDV vacía para filtros: {$fstr}", 404);
         }
 
         $data = DispensationModel::formatDispensation($rows);
 
-        Logger::info('AuditDataService::getDispensationByFacSec', [
-            'fac_sec'     => $facSec,
+        Logger::info('AuditDataService::getDispensation', [
+            'filters'     => $filters,
             'dis_det_nro' => (string) ($data['header']['NumeroFactura'] ?? ''),
             'items'       => count($data['items']),
             'duration_ms' => (int) ((microtime(true) - $start) * 1000),

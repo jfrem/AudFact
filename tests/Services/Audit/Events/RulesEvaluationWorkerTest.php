@@ -85,7 +85,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertSame(AuditEvent::TYPE_RULES_EVALUATED, $publisher->published[0]->eventType);
         $this->assertSame(1, $publisher->published[0]->payload['hallazgos']['metrics']['total_campos']);
         $this->assertSame('completed', $publisher->published[0]->payload['final_status']);
-        $this->assertSame('87723098', $publisher->published[0]->payload['audit_result_data']['FacSec']);
+        $this->assertSame('87723098', $publisher->published[0]->payload['audit_result_data']['DisId']);
     }
 
     public function testDocumentRejectedPublishesRulesEvaluatedWithCanonicalFinding(): void
@@ -240,7 +240,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertStringContainsString('-VIG- ', (string) $vigencia['detalle']);
         $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
         $this->assertFalse($payload['document_decisions'][1]['approved']);
-        $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['observation']);
+        $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['payload']['hallazgos'][0]['Descripcion'] ?? '');
     }
 
     public function testCalculatedDeliveryValidityFallsBackToDefaultWhenAuthoritativeEvidenceIsIncomplete(): void
@@ -339,7 +339,7 @@ final class StubDocumentPolicyEngine extends DocumentPolicyEngine
     {
     }
 
-    public function evaluate(array $documentState, array $normalizedPayload): array
+    public function evaluate(array $documentState, array $normalizedPayload, string $facNro = ''): array
     {
         return $this->result;
     }
@@ -357,7 +357,7 @@ class RulesReadyStateStore extends AuditStateStore
     {
         $this->audit = [
             'audit_id' => $auditId,
-            'fac_sec' => '87723098',
+            'dis_id' => '87723098',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
             'docs_total' => 1,
@@ -419,7 +419,7 @@ final class RulesRejectedStateStore extends AuditStateStore
     {
         $this->audit = [
             'audit_id' => $auditId,
-            'fac_sec' => '87723098',
+            'dis_id' => '87723098',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
             'docs_total' => 1,
@@ -477,7 +477,7 @@ final class RulesDeliveryValidityStateStore extends AuditStateStore
         $dispensaDocumentId = AuditEvent::uuidV4();
         $this->audit = [
             'audit_id' => $auditId,
-            'fac_sec' => '87723098',
+            'dis_id' => '87723098',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
             'docs_total' => 2,

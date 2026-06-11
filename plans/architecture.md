@@ -54,7 +54,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|---|
 | `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `Factura.FacSec` como llave canónica |
+| `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `DisId` como llave canónica |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByDisDetNro()`, `getAttachmentByIdForDisDetNro()`, `getAttachmentBlobStreamByIdForDisDetNro()` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
@@ -69,7 +69,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Componente | Responsabilidad |
 |---|---|
-| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), reservas por `FacSec`, sellado de job y rollback transaccional |
+| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), reservas por `DisId`, sellado de job y rollback transaccional |
 | `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
 | `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) desde `TipoCampo` |
 | `AuditFieldValueType.php` | Enum de `TipoDato` explícito por campo para schema Gemini, normalización y estrategias de comparación |
@@ -97,7 +97,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
 | `BatchJobStore.php` | Claves Redis de jobs y reservas idempotentes (`job:{id}:*`, `audit:reservation:facsec:*`, progreso, idempotency keys) |
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
-| `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `FacSec`, y publica eventos `audit_created` en `audit.inbox` |
+| `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox` |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos post-descarga y pre-Gemini |
 | `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, valida integridad estructural, publica `document_rejected` para adjuntos no procesables o extrae con Gemini y publica `document_extracted` |

@@ -141,10 +141,11 @@ final class VisualCheckEvaluator
             'campo'             => $displayField,
             'severidad'         => $severity,
             'documento'         => $documentType,
+            'codigoCampo'       => $codigoCampo,
         ];
 
         $resultCase = AuditFindingResult::tryFrom($resultado);
-        if ($resultCase !== null && $resultCase->isDiscrepancy()) {
+        if ($resultCase !== null && $resultCase->isFailure()) {
             $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
                 $finding['detalle'] ?? null,
                 $codigoCampo

@@ -58,7 +58,7 @@ export function PriorityAuditTable({
         </TableHeader>
         <TableBody>
           {items.map((item) => (
-            <TableRow key={String(item.FacSec)}>
+            <TableRow key={String(item.DisId)}>
               <TableCell>
                 <p
                   className="max-w-[12rem] truncate font-medium text-white"
@@ -68,9 +68,9 @@ export function PriorityAuditTable({
                 </p>
                 <p
                   className="mt-0.5 max-w-[12rem] truncate font-mono text-[11px] text-slate-600"
-                  title={String(item.FacSec)}
+                  title={String(item.DisId)}
                 >
-                  {String(item.FacSec)}
+                  {String(item.DisId)}
                 </p>
               </TableCell>
               <TableCell title={String(item.EstadoDetallado ?? "N/D")}>

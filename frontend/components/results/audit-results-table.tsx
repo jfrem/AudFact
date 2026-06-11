@@ -73,8 +73,8 @@ export function AuditResultsTable({
 
       {/* Mobile cards */}
       <div className="space-y-2 md:hidden">
-        {items.map((item) => (
-          <Item asChild key={String(item.FacSec)} variant="subtle" size="lg">
+        {items.map((item, index) => (
+          <Item asChild key={`${item.DisId}-${item.FacNro ?? index}`} variant="subtle" size="lg">
             <article
               onClick={() => setSelectedRecord(item)}
               role="button"
@@ -85,14 +85,14 @@ export function AuditResultsTable({
                   setSelectedRecord(item);
                 }
               }}
-              aria-label={`Ver detalle de factura ${item.FacNro ?? item.FacSec}`}
+              aria-label={`Ver detalle de factura ${item.FacNro ?? item.DisId}`}
             >
               <ItemContent>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <ItemTitle>{item.FacNro ?? "N/D"}</ItemTitle>
                     <p className="mt-0.5 truncate font-mono text-[11px] leading-4 text-slate-600">
-                      {String(item.FacSec)}
+                      {String(item.DisId)}
                     </p>
                   </div>
                   <SeverityBadge severity={item.Severidad} />
@@ -163,11 +163,11 @@ export function AuditResultsTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {items.map((item) => {
+            {items.map((item, index) => {
               const duration = formatDurationMs(resolveAuditDurationMs(item));
               return (
                 <TableRow
-                  key={String(item.FacSec)}
+                  key={`${item.DisId}-${item.FacNro ?? index}`}
                   className="group cursor-pointer"
                   onClick={() => setSelectedRecord(item)}
                   role="button"
@@ -178,15 +178,15 @@ export function AuditResultsTable({
                       setSelectedRecord(item);
                     }
                   }}
-                  aria-label={`Abrir detalle: ${item.FacNro ?? item.FacSec}`}
+                  aria-label={`Abrir detalle: ${item.FacNro ?? item.DisId}`}
                 >
                   <TableCell className="min-w-0">
                     <p className="truncate font-medium text-white" title={String(item.FacNro ?? "N/D")}>{item.FacNro ?? "N/D"}</p>
                     <p
                       className="mt-0.5 font-mono text-[11px] leading-4 text-slate-600 truncate"
-                      title={String(item.FacSec)}
+                      title={String(item.DisId)}
                     >
-                      {String(item.FacSec)}
+                      {String(item.DisId)}
                     </p>
                   </TableCell>
                   <TableCell className="whitespace-nowrap" title={String(item.EstadoDetallado ?? "N/D")}>

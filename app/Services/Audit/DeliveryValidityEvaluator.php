@@ -219,6 +219,7 @@ final class DeliveryValidityEvaluator
                 ? "FechaEntrega {$deliveryDateText} dentro de la vigencia hasta {$limitDateText}{$sourceNote}."
                 : "FechaEntrega {$deliveryDateText} supera la vigencia hasta {$limitDateText}{$sourceNote}.",
             'tipo_auditoria'     => 'visual',
+            'codigoCampo'        => $candidate['expected']['codigoCampo'] ?? null,
         ];
 
         if (!$matches) {
@@ -244,6 +245,7 @@ final class DeliveryValidityEvaluator
             'documento'          => $candidate['document_name'],
             'detalle'            => $detail,
             'tipo_auditoria'     => 'visual',
+            'codigoCampo'        => $candidate['expected']['codigoCampo'] ?? null,
         ];
     }
 }
