@@ -70,7 +70,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         [$auditContext, $documentState] = $this->loadPolicyContext($event);
-        $facNro = (string) ($auditContext['fac_nro'] ?? '');
+        $facNro = (string) ($auditContext['dis_det_nro'] ?? '');
 
         $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
             ? $this->buildRejectedPolicyResult($documentState, $event->payload, $facNro)
@@ -196,7 +196,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
      */
     private function aggregateRulesEvaluation(array $audit): array
     {
-        $facNro = (string) ($audit['fac_nro'] ?? '');
+        $facNro = (string) ($audit['dis_det_nro'] ?? '');
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
         $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
