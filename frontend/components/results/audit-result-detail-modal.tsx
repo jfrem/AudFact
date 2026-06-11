@@ -64,12 +64,12 @@ export function AuditResultDetailModal({
 
   const facNro = record.FacNro ?? "";
   const facNitSec = String(record.FacNitSec ?? "");
-  const facSec = String(record.FacSec);
+  const disId = String(record.DisId);
 
   const detailQ = useQuery<AuditResultDetail>({
-    queryKey: ["audit-result-detail", facSec],
-    queryFn: () => getAuditResultDetail(facSec),
-    enabled: open && Boolean(facSec),
+    queryKey: ["audit-result-detail", disId],
+    queryFn: () => getAuditResultDetail(disId),
+    enabled: open && Boolean(disId),
   });
 
   const attachmentsQ = useQuery({
@@ -130,8 +130,8 @@ export function AuditResultDetailModal({
             {/* Metadata bar: compact inline, replaces hero-metric cards */}
             <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-slate-400">
               <span>
-                <span className="text-slate-600">FacSec</span>{" "}
-                <span className="font-mono text-[12px] text-slate-500">{String(record.FacSec)}</span>
+                <span className="text-slate-600">DisId</span>{" "}
+                <span className="font-mono text-[12px] text-slate-500">{String(record.DisId)}</span>
               </span>
               <span>
                 <span className="text-slate-600">Cliente</span>{" "}

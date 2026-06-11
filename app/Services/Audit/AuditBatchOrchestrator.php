@@ -16,7 +16,7 @@ use RuntimeException;
 /**
  * Servicio de orquestación de lotes de auditoría.
  * 
- * Centraliza la lógica de encolamiento, reservas idempotentes por FacSec,
+ * Centraliza la lógica de encolamiento, reservas idempotentes por DisId,
  * inicialización del state store (AuditStateStore), publicación de eventos
  * y manejo transaccional de fallos (rollback de estado).
  */
@@ -97,9 +97,9 @@ final class AuditBatchOrchestrator
                     }
 
                     $disDetNro = $invoiceIdentity['dis_det_nro'];
-                    $facSec = $invoiceIdentity['fac_sec'];
+                    $disId = $invoiceIdentity['dis_id'];
 
-                    if ($this->isAuditAlreadyPersisted($facSec)) {
+                    if ($this->isAuditAlreadyPersisted($disId)) {
                         $skippedExisting++;
                         continue;
                     }
@@ -107,15 +107,15 @@ final class AuditBatchOrchestrator
                     $auditId = AuditEvent::uuidV4();
                     $reservationToken = AuditEvent::uuidV4();
                     if (!$this->jobStore->claimAuditReservation(
-                        $facSec,
+                        $disId,
                         $reservationToken,
-                        $this->buildReservationPayload($jobId, $auditId, $disDetNro, $facNitSec, $facSec)
+                        $this->buildReservationPayload($jobId, $auditId, $disDetNro, $facNitSec, $disId)
                     )) {
                         $skippedLocked++;
                         continue;
                     }
 
-                    $reservation = ['fac_sec' => $facSec, 'token' => $reservationToken];
+                    $reservation = ['dis_id' => $disId, 'token' => $reservationToken];
                     $createdReservations[] = $reservation;
 
                     if (!$this->initAuditState(
@@ -123,7 +123,7 @@ final class AuditBatchOrchestrator
                         $disDetNro,
                         $jobId,
                         $facNitSec,
-                        $facSec,
+                        $disId,
                         $reservationToken,
                         $reservation,
                         $createdReservations,
@@ -137,7 +137,7 @@ final class AuditBatchOrchestrator
                         $jobId,
                         $disDetNro,
                         $facNitSec,
-                        $facSec,
+                        $disId,
                         $reservationToken
                     );
 
@@ -210,10 +210,10 @@ final class AuditBatchOrchestrator
         return $invoiceIdentity;
     }
 
-    private function isAuditAlreadyPersisted(string $facSec): bool
+    private function isAuditAlreadyPersisted(string $disId): bool
     {
         return $this->auditStatusModel !== null
-            && $this->auditStatusModel->getAuditDetailByFacSec($facSec) !== null;
+            && $this->auditStatusModel->getAuditDetailByDisId($disId) !== null;
     }
 
     /**
@@ -224,38 +224,38 @@ final class AuditBatchOrchestrator
         string $auditId,
         string $disDetNro,
         int $facNitSec,
-        string $facSec
+        string $disId
     ): array {
         return [
             'job_id' => $jobId,
             'audit_id' => $auditId,
             'dis_det_nro' => $disDetNro,
             'fac_nit_sec' => (string) $facNitSec,
-            'fac_sec' => $facSec,
+            'dis_id' => $disId,
             'source' => 'batch',
         ];
     }
 
     /**
-     * @param  array<int,array{fac_sec:string,token:string}>  $createdReservations
+     * @param  array<int,array{dis_id:string,token:string}>  $createdReservations
      */
     private function initAuditState(
         string $auditId,
         string $disDetNro,
         string $jobId,
         int $facNitSec,
-        string $facSec,
+        string $disId,
         string $reservationToken,
         array $reservation,
         array &$createdReservations,
         array &$createdAuditIds
     ): bool {
-        if (!$this->stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $facSec)) {
+        if (!$this->stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $disId)) {
             Logger::warning('AuditBatchOrchestrator::enqueueBatch no se pudo inicializar auditoría', [
                 'job_id' => $jobId,
                 'audit_id' => $auditId,
             ]);
-            $this->jobStore->releaseAuditReservation($facSec, $reservationToken);
+            $this->jobStore->releaseAuditReservation($disId, $reservationToken);
             self::forgetReservation($reservation, $createdReservations);
             return false;
         }
@@ -266,7 +266,7 @@ final class AuditBatchOrchestrator
             throw new RuntimeException('No se pudo asociar la reserva a la auditoría', 503);
         }
 
-        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $facSec, $reservationToken)) {
+        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $disId, $reservationToken)) {
             throw new RuntimeException('No se pudo registrar la auditoría en el job', 503);
         }
 
@@ -278,7 +278,7 @@ final class AuditBatchOrchestrator
         string $jobId,
         string $disDetNro,
         int $facNitSec,
-        string $facSec,
+        string $disId,
         string $reservationToken
     ): AuditEvent {
         return AuditEvent::create(
@@ -289,7 +289,7 @@ final class AuditBatchOrchestrator
             payload: [
                 'dis_det_nro' => $disDetNro,
                 'fac_nit_sec' => (string) $facNitSec,
-                'fac_sec' => $facSec,
+                'dis_id' => $disId,
                 'reservation_token' => $reservationToken,
                 'source' => 'batch',
             ],
@@ -387,7 +387,7 @@ final class AuditBatchOrchestrator
      * para evitar dejar jobs huérfanos o slots bloqueados.
      *
      * @param array<string> $createdAuditIds
-     * @param array<int,array{fac_sec:string,token:string}> $createdReservations
+     * @param array<int,array{dis_id:string,token:string}> $createdReservations
      */
     private function cleanupAsyncEnqueueState(
         string $jobId,
@@ -403,7 +403,7 @@ final class AuditBatchOrchestrator
                 $this->jobStore->deleteJob($jobId);
             }
             foreach ($createdReservations as $reservation) {
-                $this->jobStore->releaseAuditReservation($reservation['fac_sec'], $reservation['token']);
+                $this->jobStore->releaseAuditReservation($reservation['dis_id'], $reservation['token']);
             }
         } catch (\Throwable $t) {
             Logger::error('AuditBatchOrchestrator::cleanupAsyncEnqueueState falló durante rollback', [
@@ -415,31 +415,31 @@ final class AuditBatchOrchestrator
 
     /**
      * @param  array<string,mixed>  $invoice
-     * @return array{dis_det_nro:string,fac_sec:string}|null
+     * @return array{dis_det_nro:string,dis_id:string}|null
      */
     private static function invoiceIdentity(array $invoice): ?array
     {
         $disDetNro = isset($invoice['Dispensa']) ? trim((string) $invoice['Dispensa']) : '';
-        $facSec = isset($invoice['FacSec']) ? trim((string) $invoice['FacSec']) : '';
+        $disId = isset($invoice['DisId']) ? trim((string) $invoice['DisId']) : '';
 
-        if ($disDetNro === '' || $facSec === '') {
+        if ($disDetNro === '' || $disId === '') {
             return null;
         }
 
         return [
             'dis_det_nro' => $disDetNro,
-            'fac_sec' => $facSec,
+            'dis_id' => $disId,
         ];
     }
 
     /**
-     * @param  array{fac_sec:string,token:string}  $reservation
-     * @param  array<int,array{fac_sec:string,token:string}>  $reservations
+     * @param  array{dis_id:string,token:string}  $reservation
+     * @param  array<int,array{dis_id:string,token:string}>  $reservations
      */
     private static function forgetReservation(array $reservation, array &$reservations): void
     {
         foreach ($reservations as $index => $tracked) {
-            if ($tracked['fac_sec'] === $reservation['fac_sec'] && $tracked['token'] === $reservation['token']) {
+            if ($tracked['dis_id'] === $reservation['dis_id'] && $tracked['token'] === $reservation['token']) {
                 unset($reservations[$index]);
                 return;
             }
@@ -448,21 +448,21 @@ final class AuditBatchOrchestrator
 
     /**
      * @param  array<string,mixed>  $invoice
-     * @return array{date:string,facSec:string,dispensa:string}|null
+     * @return array{date:string,disId:string,dispensa:string}|null
      */
     private static function cursorFromInvoice(array $invoice): ?array
     {
         $date = trim((string) ($invoice['DisFecSol'] ?? ''));
-        $facSec = trim((string) ($invoice['FacSec'] ?? ''));
+        $disId = trim((string) ($invoice['DisId'] ?? ''));
         $dispensa = trim((string) ($invoice['Dispensa'] ?? ''));
 
-        if ($date === '' || $facSec === '' || $dispensa === '') {
+        if ($date === '' || $disId === '' || $dispensa === '') {
             return null;
         }
 
         return [
             'date' => $date,
-            'facSec' => $facSec,
+            'disId' => $disId,
             'dispensa' => $dispensa,
         ];
     }

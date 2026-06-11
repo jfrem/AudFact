@@ -92,7 +92,7 @@ export function DispensationInfoPanel({
     );
   }
 
-  const facSec = s(header.FacSec);
+  const disId = s(header.DisId);
   const numFactura = s(header.NumeroFactura);
   const copago = currency(header.VlrCobrado);
   const nombrePaciente = s(header.NombrePaciente);

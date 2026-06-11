@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
-  facSec: z.string().min(1, "Ingresa un FacSec válido."),
+  disId: z.string().min(1, "Ingresa un ID de dispensación válido."),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -39,9 +39,9 @@ const POLL_INTERVAL_MS = 3_000;
 
 export function AuditSingleConsole() {
   const searchParams = useSearchParams();
-  const prefill = searchParams.get("facSec") ?? "";
+  const prefill = searchParams.get("disId") ?? "";
 
-  const [latestFacSec, setLatestFacSec] = React.useState<string>("");
+  const [latestDisId, setLatestDisId] = React.useState<string>("");
   const [latestDisDetNro, setLatestDisDetNro] = React.useState<string>("");
   const [latestResult, setLatestResult] = React.useState<AuditSingleResponse | null>(null);
   const [showConfirm, setShowConfirm] = React.useState(false);
@@ -86,19 +86,19 @@ export function AuditSingleConsole() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { facSec: prefill },
+    defaultValues: { disId: prefill },
   });
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) => {
       const toastId = toast.loading("Ejecutando auditoría IA...", {
-        description: `FacSec: ${values.facSec}`,
+        description: `DisId: ${values.disId}`,
       });
-      return runAuditSingle(values.facSec).finally(() => toast.dismiss(toastId));
+      return runAuditSingle(values.disId).finally(() => toast.dismiss(toastId));
     },
     onSuccess: (response, values) => {
       const data = response.data;
-      setLatestFacSec(data.fac_sec ?? values.facSec);
+      setLatestDisId(data.dis_id ?? values.disId);
       setLatestDisDetNro(data.dis_det_nro ?? "");
 
       if (data.status === "pending" && data.audit_id) {
@@ -158,7 +158,7 @@ export function AuditSingleConsole() {
         open={showConfirm}
         variant="info"
         title="Ejecutar auditoría"
-        description={`Se enviará la factura ${pendingValues?.facSec ?? ""} al pipeline de auditoría IA. Este proceso puede tomar entre 10 y 60 segundos.`}
+        description={`Se enviará la entrega ${pendingValues?.disId ?? ""} al pipeline de auditoría IA. Este proceso puede tomar entre 10 y 60 segundos.`}
         confirmLabel="Ejecutar"
         onConfirm={handleConfirm}
         onCancel={() => setShowConfirm(false)}
@@ -168,26 +168,26 @@ export function AuditSingleConsole() {
       <div className="space-y-5">
         <SectionCard
           title="Auditoría individual"
-          description="Ejecuta una corrida puntual por `FacSec` y revisa el resultado, métricas y evidencia sin salir del flujo."
+          description="Ejecuta una corrida puntual por ID de Dispensación y revisa el resultado, métricas y evidencia sin salir del flujo."
         >
           <form
             className="grid gap-4 md:grid-cols-[1fr_auto]"
             onSubmit={form.handleSubmit(handleSubmit)}
           >
             <Field>
-              <FieldLabel htmlFor="facSec">
-                FacSec
+              <FieldLabel htmlFor="disId">
+                ID Dispensación
               </FieldLabel>
               <Input
-                id="facSec"
+                id="disId"
                 placeholder="Ej. 87723098"
-                aria-invalid={!!form.formState.errors.facSec}
-                aria-describedby={form.formState.errors.facSec ? "audit-single-facSec-error" : undefined}
-                {...form.register("facSec")}
+                aria-invalid={!!form.formState.errors.disId}
+                aria-describedby={form.formState.errors.disId ? "audit-single-disId-error" : undefined}
+                {...form.register("disId")}
               />
-              {form.formState.errors.facSec && (
-                <FieldDescription id="audit-single-facSec-error" className="text-rose-300" role="alert">
-                  {form.formState.errors.facSec.message}
+              {form.formState.errors.disId && (
+                <FieldDescription id="audit-single-disId-error" className="text-rose-300" role="alert">
+                  {form.formState.errors.disId.message}
                 </FieldDescription>
               )}
             </Field>
@@ -228,7 +228,7 @@ export function AuditSingleConsole() {
           <AuditProgressCard
             liveStatus={liveStatus.data ?? null}
             isPolling={isPolling}
-            facSec={latestFacSec}
+            disId={latestDisId}
             disDetNro={latestDisDetNro}
           />
         ) : latestResult && latestResult.status !== "pending" ? (
@@ -242,7 +242,7 @@ export function AuditSingleConsole() {
           <SectionCard>
             <EmptyState
               title="Sin auditoría ejecutada"
-              description="Ingresa un FacSec y presiona Ejecutar para iniciar el análisis IA."
+              description="Ingresa un ID de Dispensación y presiona Ejecutar para iniciar el análisis IA."
             />
           </SectionCard>
         )}
@@ -256,12 +256,12 @@ export function AuditSingleConsole() {
 function AuditProgressCard({
   liveStatus,
   isPolling,
-  facSec,
+  disId,
   disDetNro,
 }: {
   liveStatus: AuditLiveStatus | null;
   isPolling: boolean;
-  facSec: string;
+  disId: string;
   disDetNro: string;
 }) {
   const status = liveStatus?.status ?? "pending";
@@ -308,7 +308,7 @@ function AuditProgressCard({
                     : "Auditoría encolada…"}
             </h3>
             <p className="mt-0.5 text-sm text-slate-400">
-              FacSec: <span className="font-mono text-slate-300">{facSec}</span>
+              ID: <span className="font-mono text-slate-300">{disId}</span>
               {liveStatus?.audit_id ? (
                 <span className="ml-2 text-slate-500">
                   · ID: {liveStatus.audit_id.slice(0, 12)}…

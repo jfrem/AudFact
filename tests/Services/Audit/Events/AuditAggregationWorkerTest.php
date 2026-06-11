@@ -42,7 +42,7 @@ final class AuditAggregationWorkerTest extends TestCase
         ));
 
         $this->assertSame('manual_review', $store->lastCompletion['status'] ?? null);
-        $this->assertSame('87723098', $model->lastAuditResultData['FacSec'] ?? null);
+        $this->assertSame('87723098', $model->lastAuditResultData['DisId'] ?? null);
         $this->assertSame('FORMULA MEDICA', $model->lastDocumentDecisions[0]['documentName'] ?? null);
         $hallazgos = json_decode((string) $model->lastAuditResultData['Hallazgos'], true);
         $this->assertSame(1, $hallazgos['timings']['gemini_extraction']['count'] ?? null);
@@ -157,7 +157,7 @@ final class AuditAggregationWorkerTest extends TestCase
             'detail_message' => 'Resultado final construido por policy.',
             'failed_document' => $documentDecisions[0]['documentName'],
             'audit_result_data' => [
-                'FacSec' => '87723098',
+                'DisId' => '87723098',
                 'FacNro' => 'T38250701547',
                 'EstAud' => $status === 'completed' ? 1 : 0,
                 'EstadoDetallado' => $status,
@@ -200,7 +200,7 @@ class AggregationRecordingStateStore extends AuditStateStore
         $this->auditState = [
             'audit_id' => $this->auditId,
             'status' => 'processing',
-            'fac_sec' => '87723098',
+            'dis_id' => '87723098',
             'reservation_token' => 'reservation-token',
             'dis_det_nro' => 'T38250701547',
             'fac_nit_sec' => '2426',
@@ -264,9 +264,9 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
     {
     }
 
-    public function releaseAuditReservation(string $facSec, string $ownerToken): bool
+    public function releaseAuditReservation(string $disId, string $ownerToken): bool
     {
-        $this->releasedReservations[] = [$facSec, $ownerToken];
+        $this->releasedReservations[] = [$disId, $ownerToken];
         return true;
     }
 
@@ -326,10 +326,10 @@ final class RecordingAuditStatusModel extends AuditStatusModel
     {
         $this->lastAuditResultData = $auditResultData;
         $this->lastDocumentDecisions = $documentDecisions;
-        return ['FacSec' => $auditResultData['FacSec']];
+        return ['DisId' => $auditResultData['DisId']];
     }
 
-    public function updateAuditTimings(string $facSec, array $timings, int $durationMs): bool
+    public function updateAuditTimings(string $disId, array $timings, int $durationMs): bool
     {
         $this->lastUpdatedTimings = $timings;
         $this->lastUpdatedDurationMs = $durationMs;

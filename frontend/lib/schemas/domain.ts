@@ -224,7 +224,7 @@ export const AuditSingleResponseSchema = z.object({
   audit_id: z.string().nullish(),
   status: z.union([AuditDocumentStatusSchema, z.literal("pending"), z.literal("completed")]),
   dis_det_nro: z.string().nullish(),
-  fac_sec: z.string().nullish(),
+  dis_id: z.string().nullish(),
   findings: z.array(AuditFindingSchema).default([]),
   severity: AuditSeveritySchema.nullish(),
   message: z.string().nullish(),
@@ -292,7 +292,7 @@ export const AuditJobSchema = z.object({
 });
 
 export const AuditResultRecordSchema = z.object({
-  FacSec: ScalarSchema,
+  DisId: ScalarSchema,
   FacNro: z.string().nullish(),
   FacNitSec: ScalarSchema.nullish(),
   EstAud: z.number().int().nullish(),
@@ -338,7 +338,7 @@ export const AuditLiveStatusSchema = z.object({
   audit_id: z.string(),
   status: z.string(),
   dis_det_nro: z.string().default(""),
-  fac_sec: z.string().default(""),
+  dis_id: z.string().default(""),
   docs_total: z.number().int().nonnegative().default(0),
   docs_done: z.number().int().nonnegative().default(0),
   docs_extracted: z.number().int().nonnegative().default(0),

@@ -18,7 +18,7 @@ final class InvoicesModelTest extends TestCase
     {
         $pdo = new FakePdo();
         $model = $this->makeModelWithReadDb($pdo);
-        $pdo->nextResult = [['FacSec' => '1']];
+        $pdo->nextResult = [['DisId' => '1']];
 
         $result = $model->searchInvoices([
             'facNitSec' => 2426,
@@ -26,13 +26,13 @@ final class InvoicesModelTest extends TestCase
             'dateTo' => '2025-07-01',
         ], 2, 50);
 
-        $this->assertSame([['FacSec' => '1']], $result);
-        $this->assertStringContainsString('tb3.FacSec FacSec', $pdo->preparedSql);
-        $this->assertStringContainsString('ON a.FacSec = tb3.FacSec', $pdo->preparedSql);
-        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
+        $this->assertSame([['DisId' => '1']], $result);
+        $this->assertStringContainsString('tb2.DisId DisId', $pdo->preparedSql);
+        $this->assertStringContainsString('ON a.FacSec = tb2.DisId', $pdo->preparedSql);
+        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
-        $this->assertStringContainsString('ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC', $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
         
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
@@ -63,7 +63,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertSame(7, $total);
         $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
         $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb3.FacSec, tb2.DisDetNro', $pdo->preparedSql);
+        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro', $pdo->preparedSql);
         $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
         
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
@@ -78,19 +78,19 @@ final class InvoicesModelTest extends TestCase
 
         $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 50, [
             'date' => '2025-07-10T00:00:00',
-            'facSec' => '87723098',
+            'disId' => '87723098',
             'dispensa' => 'T38250701547',
         ]);
 
         $this->assertStringContainsString('FROM (', $pdo->preparedSql);
         $this->assertStringContainsString('SELECT TOP(50)', $pdo->preparedSql);
         $this->assertStringContainsString('DisFecSol > :cursorDate1', $pdo->preparedSql);
-        $this->assertStringContainsString('ORDER BY DisFecSol ASC, FacSec ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC', $pdo->preparedSql);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate1']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate2']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate3']);
-        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec1']);
-        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorFacSec2']);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorDisId1']);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':cursorDisId2']);
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa1']);
     }
 

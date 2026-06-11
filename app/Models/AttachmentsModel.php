@@ -204,7 +204,7 @@ class AttachmentsModel extends Model
         $sql = "SELECT COUNT(*) as total FROM (
                     SELECT 1 as n
                     FROM AdjuntosDispensacion a WITH (NOLOCK)
-                    INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
+                    INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.facsec
                     $where
                     GROUP BY v.Dispensa, a.DisId, a.DisDetId, a.AdjDisId, a.AdjDisNom, a.AdjDisEstSop, a.AdjDisObsRec, a.AdjDisUsuAudi, a.AdJDisFecAudi, a.AdjDisUsuRec
                 ) AS SubQuery";
@@ -251,7 +251,7 @@ class AttachmentsModel extends Model
                     a.AdjDisUsuRec AS UsuarioRechazo
                 FROM 
                     AdjuntosDispensacion a WITH (NOLOCK)
-                INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.FacSec
+                INNER JOIN vw_discolnet_dispensas v WITH (NOLOCK) ON a.DisId = v.facsec
                 $where
                 GROUP BY 
                     v.Dispensa,

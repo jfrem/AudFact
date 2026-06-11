@@ -20,7 +20,7 @@ class DispensationController extends Controller
         ]);
         $DisDetNro = trim($DisDetNro);
 
-        $rows = $this->model->getDispensationData($DisDetNro);
+        $rows = $this->model->getDispensationData(['Dispensa' => $DisDetNro]);
         Response::success(DispensationModel::formatDispensation($rows));
     }
 
@@ -31,7 +31,7 @@ class DispensationController extends Controller
         ]);
 
         $DisDetNro = trim((string) $data['DisDetNro']);
-        $rows = $this->model->getDispensationData($DisDetNro);
+        $rows = $this->model->getDispensationData(['Dispensa' => $DisDetNro]);
         Response::success(DispensationModel::formatDispensation($rows));
     }
 }

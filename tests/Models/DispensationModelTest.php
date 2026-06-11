@@ -14,44 +14,115 @@ use ReflectionProperty;
 
 final class DispensationModelTest extends TestCase
 {
-    public function testGetDispensationDataMapsCanonicalFacSecFromFacsecF(): void
+    public function testGetDispensationDataMapsCanonicalDisIdFromDisId(): void
     {
         $pdo = new DispensationFakePdo();
         $model = $this->makeModelWithReadDb($pdo);
         $pdo->nextResult = [
             [
-                'FacSec' => '87723098',
+                'DisId' => '87723098',
                 'NumeroFactura' => 'T38250701547',
             ],
         ];
 
-        $result = $model->getDispensationData('T38250701547');
+        $result = $model->getDispensationData(['Dispensa' => 'T38250701547']);
 
         $this->assertSame($pdo->nextResult, $result);
-        $this->assertStringContainsString('facsecF AS FacSec', $pdo->preparedSql);
+        $this->assertStringContainsString('facsec AS DisId', $pdo->preparedSql);
         $this->assertStringNotContainsString('facsec AS FacSec', $pdo->preparedSql);
         $this->assertStringContainsString('Dispensa AS NumeroFactura', $pdo->preparedSql);
-        $this->assertStringContainsString('WHERE Dispensa = :DisDetNro', $pdo->preparedSql);
-        $this->assertSame('T38250701547', $pdo->statement->boundValues[':DisDetNro']);
+        $this->assertStringContainsString('WHERE Dispensa = :Dispensa', $pdo->preparedSql);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':Dispensa']);
     }
 
-    public function testGetDispensationDataByFacSecFiltersByCanonicalFacSec(): void
+    public function testGetDispensationDataByDisIdFiltersByCanonicalDisId(): void
     {
         $pdo = new DispensationFakePdo();
         $model = $this->makeModelWithReadDb($pdo);
         $pdo->nextResult = [
             [
-                'FacSec' => '87723098',
+                'DisId' => '87723098',
                 'NumeroFactura' => 'T38250701547',
             ],
         ];
 
-        $result = $model->getDispensationDataByFacSec('87723098');
+        $result = $model->getDispensationData(['DisId' => '87723098']);
 
         $this->assertSame($pdo->nextResult, $result);
-        $this->assertStringContainsString('facsecF AS FacSec', $pdo->preparedSql);
-        $this->assertStringContainsString('WHERE facsecF = :FacSec', $pdo->preparedSql);
-        $this->assertSame('87723098', $pdo->statement->boundValues[':FacSec']);
+        $this->assertStringContainsString('facsec AS DisId', $pdo->preparedSql);
+        $this->assertStringContainsString('WHERE facsec = :DisId', $pdo->preparedSql);
+        $this->assertSame('87723098', $pdo->statement->boundValues[':DisId']);
+    }
+
+    public function testFilterSnakeCaseDisIdGeneratesCorrectSQL(): void
+    {
+        $pdo = new DispensationFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [
+            ['DisId' => '877', 'NumeroFactura' => 'T38250701547'],
+        ];
+
+        $result = $model->getDispensationData(['dis_id' => '877']);
+
+        $this->assertSame($pdo->nextResult, $result);
+        $this->assertStringContainsString('WHERE facsec = :dis_id', $pdo->preparedSql);
+        $this->assertSame('877', $pdo->statement->boundValues[':dis_id']);
+    }
+
+    public function testFilterSnakeCaseDisDetNroGeneratesCorrectSQL(): void
+    {
+        $pdo = new DispensationFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [
+            ['DisId' => '877', 'NumeroFactura' => 'T38250701547'],
+        ];
+
+        $result = $model->getDispensationData(['dis_det_nro' => 'T38250701547']);
+
+        $this->assertSame($pdo->nextResult, $result);
+        $this->assertStringContainsString('WHERE Dispensa = :dis_det_nro', $pdo->preparedSql);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':dis_det_nro']);
+    }
+
+    public function testCombinedFiltersGenerateCorrectSQL(): void
+    {
+        $pdo = new DispensationFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [
+            ['DisId' => '877', 'NumeroFactura' => 'T38250701547'],
+        ];
+
+        $result = $model->getDispensationData([
+            'dis_id' => '877',
+            'dis_det_nro' => 'T38250701547',
+        ]);
+
+        $this->assertSame($pdo->nextResult, $result);
+        $this->assertStringContainsString('facsec = :dis_id', $pdo->preparedSql);
+        $this->assertStringContainsString('Dispensa = :dis_det_nro', $pdo->preparedSql);
+        $this->assertStringContainsString('AND', $pdo->preparedSql);
+        $this->assertSame('877', $pdo->statement->boundValues[':dis_id']);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':dis_det_nro']);
+    }
+
+    public function testUnknownFilterThrowsInvalidArgumentException(): void
+    {
+        $model = $this->makeModelWithReadDb(new DispensationFakePdo());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Filtro no permitido en DispensationModel: malicious_col');
+
+        $model->getDispensationData(['malicious_col' => 'x']);
+    }
+
+    public function testEmptyFiltersThrowsInvalidArgumentException(): void
+    {
+        $model = $this->makeModelWithReadDb(new DispensationFakePdo());
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('No se proporcionaron filtros para DispensationModel');
+
+        $model->getDispensationData([]);
     }
 
     private function makeModelWithReadDb(DispensationFakePdo $pdo): DispensationModel

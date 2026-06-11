@@ -366,7 +366,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $processingDurationMs = (int) ($phaseTimings['processing_duration_ms'] ?? 0);
 
         return [
-            'FacSec' => (string) ($audit['fac_sec'] ?? ''),
+            'DisId' => (string) ($audit['dis_id'] ?? ''),
             'FacNro' => (string) ($audit['dis_det_nro'] ?? ''),
             'EstAud' => $finalStatus === AuditStateStore::AUDIT_STATUS_COMPLETED ? 1 : 0,
             'EstadoDetallado' => $finalStatus,

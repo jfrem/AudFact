@@ -90,10 +90,10 @@ export function getAttachmentDownloadUrl(
   return buildPublicApiUrl(endpoints.attachmentDownload(disDetNro, attachmentId));
 }
 
-export function runAuditSingle(facSec: string) {
+export function runAuditSingle(disId: string) {
   return postJson(
     endpoints.auditSingle(),
-    { FacSec: facSec },
+    { disId: disId },
     AuditSingleResponseSchema,
   );
 }
@@ -119,8 +119,8 @@ export function getAuditResults(query?: Record<string, string | number | undefin
   return requestJson(endpoints.auditResults(query), PaginatedAuditResultsSchema);
 }
 
-export function getAuditResultDetail(facSec: string | number): Promise<AuditResultDetail> {
-  return requestJson(endpoints.auditResultDetail(facSec), AuditResultDetailSchema) as Promise<AuditResultDetail>;
+export function getAuditResultDetail(disId: string | number): Promise<AuditResultDetail> {
+  return requestJson(endpoints.auditResultDetail(disId), AuditResultDetailSchema) as Promise<AuditResultDetail>;
 }
 
 export function getAuditStats() {

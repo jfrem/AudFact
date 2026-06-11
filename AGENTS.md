@@ -71,10 +71,10 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController` | `downloadByDispensation` | Descargar/previsualizar adjunto |
 | `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facSec}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacSec |
+| `GET` | `/audit/results/{disId}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por DisId |
 | `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por FacSec |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisId |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 | `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |
@@ -126,17 +126,17 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 | Modelo | Tabla / Vista | Propósito | PK / Identificador |
 |---|---|---|---|
-| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas con datos de dispensación | `FacSec` |
+| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas con datos de dispensación | `DisId` |
 | `ClientsModel` | `NIT` / `Clientes` | Gestión de EPS/Clientes | `NitSec` |
 | `DispensationModel` | `vw_discolnet_dispensas` | Datos detallados de entrega | `DisDetNro` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Archivos binarios (BLOB/URL) | `AdjDisId` |
-| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacSec` |
+| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `DisId` (almacenado en `FacSec`) |
 
 ### Relaciones Clave
 
 - **Factura ↔ Dispensa**: Relación 1:N. Una factura (`FacSec`) agrupa múltiples dispensaciones (`DisId`).
 - **Dispensa ↔ Adjuntos**: Relación 1:N. Una dispensa tiene múltiples documentos (fórmula, acta, etc.).
-- **Factura ↔ Auditoría**: Relación 1:1. El estado de auditoría se persiste en `AudDispEst` usando el `FacSec`.
+- **Factura ↔ Auditoría**: Relación 1:1. El estado de auditoría se persiste en `AudDispEst` usando la columna legacy `FacSec` (que contiene el `DisId`).
 
 ### SQL Server
 
@@ -513,11 +513,11 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
 - **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
 - **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
-- **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `FacSec` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `FacSec` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`
+- **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `DisId` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `DisId` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy), `docs_rejected` (documentos no procesables rechazados antes de Gemini) y `docs_evaluated`
 - **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
 - **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
-- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacSec` sin reescribir adjuntos
+- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `DisId` (columna legacy `FacSec`) sin reescribir adjuntos
 - **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
 - **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal

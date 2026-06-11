@@ -69,7 +69,7 @@ const DOC_ICONS: Record<string, React.ReactNode> = {
 };
 
 const BLOCKED_FIELDS: Record<string, string> = {
-  FacSec: "Llave interna de base de datos",
+  DisId: "Llave interna de base de datos",
   NitSec: "Identificador interno del cliente",
 };
 

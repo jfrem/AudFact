@@ -15,7 +15,7 @@ export default async function DispensationDetailPage({
     nitSec ? ((await getAttachments(disDetNro, nitSec).catch(() => [])) ?? []) : [];
   const items = dispensation?.items ?? [];
 
-  const facSec = dispensation?.header?.FacSec ? String(dispensation.header.FacSec) : null;
+  const disId = dispensation?.header?.DisId ? String(dispensation.header.DisId) : null;
   const numFactura = dispensation?.header?.NumeroFactura ? String(dispensation.header.NumeroFactura) : null;
   const copagoRaw = dispensation?.header?.VlrCobrado;
   const copagoNum = copagoRaw && !isNaN(Number(copagoRaw)) ? Number(copagoRaw) : null;
@@ -29,7 +29,7 @@ export default async function DispensationDetailPage({
       <PageHeader
         eyebrow="Identificación"
         title={`Factura ${numFactura ?? disDetNro}`}
-        description={facSec ? `FacSec ${facSec}` : undefined}
+        description={disId ? `DisId ${disId}` : undefined}
         actions={
           copago ? (
             <div className="text-right">

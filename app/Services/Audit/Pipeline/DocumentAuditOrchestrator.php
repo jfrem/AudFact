@@ -56,21 +56,21 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         $identity = $this->assertAuditCreated($event);
-        $context = $this->buildAuditContext($identity['fac_sec']);
+        $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
         $this->assertIdentityContract($event, $identity, $context);
 
         $this->stateStore->patchAudit($event->auditId, [
             'fac_nit_sec' => $context['nitSec'],
-            'fac_sec' => $context['facSec'],
+            'dis_id' => $context['disId'],
             'numero_factura' => $context['numeroFactura'],
         ]);
         $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
 
-        $this->registerDocuments($event, $context['numeroFactura'], $context);
+        $this->registerDocuments($event, $context);
     }
 
     /**
-     * @return array{fac_sec:string,dis_det_nro:string}
+     * @return array{dis_id:string,dis_det_nro:string}
      */
     private function assertAuditCreated(AuditEvent $event): array
     {
@@ -78,9 +78,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             throw new RuntimeException('audit_created sin audit_id');
         }
 
-        $facSec = trim((string) ($event->payload['fac_sec'] ?? ''));
-        if ($facSec === '') {
-            throw new RuntimeException('audit_created sin fac_sec');
+        $disId = trim((string) ($event->payload['dis_id'] ?? ''));
+        if ($disId === '') {
+            throw new RuntimeException('audit_created sin dis_id');
         }
 
         $disDetNro = trim((string) ($event->payload['dis_det_nro'] ?? ''));
@@ -89,7 +89,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         return [
-            'fac_sec' => $facSec,
+            'dis_id' => $disId,
             'dis_det_nro' => $disDetNro,
         ];
     }
@@ -98,28 +98,26 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * Valida el contrato de identidad entre el evento de entrada y la FDV.
      *
      * Contrato canónico:
-     * - payload.fac_sec viene de Factura.FacSec y selecciona la FDV.
-     * - FDV.header.FacSec viene de vw_discolnet_dispensas.facsecF.
+     * - payload.dis_id viene de Factura.DisId y selecciona la FDV.
+     * - FDV.header.DisId viene de vw_discolnet_dispensas.DisIdF.
      * - payload.dis_det_nro debe coincidir con FDV.header.NumeroFactura.
      *
-     * @param  array{fac_sec:string,dis_det_nro:string} $identity
+     * @param  array{dis_id:string,dis_det_nro:string} $identity
      * @param  array{
-     *   nitSec:string,
-     *   facSec:string,
-     *   numeroFactura:string
+     *   nitSec:string, disId:string, numeroFactura:string,
      * } $context
      * @throws RuntimeException Si el evento y la FDV representan identidades distintas.
      */
     private function assertIdentityContract(AuditEvent $event, array $identity, array $context): void
     {
-        $facSec = $identity['fac_sec'];
+        $disId = $identity['dis_id'];
         $disDetNro = $identity['dis_det_nro'];
 
         $this->assertIdentityValue(
-            'payload.fac_sec',
-            $facSec,
-            'FDV.FacSec',
-            (string) ($context['facSec'] ?? ''),
+            'payload.dis_id',
+            $disId,
+            'FDV.DisId',
+            (string) ($context['disId'] ?? ''),
             $disDetNro,
         );
 
@@ -180,23 +178,26 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
     /**
      * @return array{
-     *   nitSec:string, facSec:string, numeroFactura:string,
+     *   nitSec:string, disId:string, numeroFactura:string,
      *   fuenteVerdad:array<string,mixed>, auditConfig:array<string,mixed>,
      *   configuredDocuments:array<int,array<string,mixed>>,
      *   catalogById:array<int,array<string,mixed>>,
      *   attachments:array<int,array<string,mixed>>
      * }
      */
-    private function buildAuditContext(string $requestedFacSec): array
+    private function buildAuditContext(string $requestedDisId, string $requestedDisDetNro): array
     {
-        $fuenteVerdad  = $this->dataService->getDispensationByFacSec($requestedFacSec);
+        $fuenteVerdad  = $this->dataService->getDispensation([
+            'dis_id' => $requestedDisId,
+            'dis_det_nro' => $requestedDisDetNro,
+        ]);
         $header        = $fuenteVerdad['header'];
         $nitSec        = trim((string) ($header['NitSec']        ?? ''));
-        $facSec        = trim((string) ($header['FacSec']        ?? ''));
+        $disId         = trim((string) ($header['DisId']         ?? ''));
         $numeroFactura = trim((string) ($header['NumeroFactura'] ?? ''));
 
-        if ($nitSec === '' || $facSec === '' || $numeroFactura === '') {
-            throw new RuntimeException('FDV incompleta para registrar documentos');
+        if ($nitSec === '' || $disId === '' || $numeroFactura === '') {
+            throw new RuntimeException('FDV incompleto: nitSec, disId o NumeroFactura vacíos.');
         }
 
         $auditConfig     = $this->dataService->getAuditConfig($nitSec);
@@ -212,7 +213,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         return [
             'nitSec' => $nitSec,
-            'facSec' => $facSec,
+            'disId' => $disId,
             'numeroFactura' => $numeroFactura,
             'fuenteVerdad' => $fuenteVerdad,
             'auditConfig' => $auditConfig,
@@ -225,7 +226,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     /**
      * @param  array<string,mixed> $context
      */
-    private function registerDocuments(AuditEvent $event, string $disDetNro, array $context): void
+    private function registerDocuments(AuditEvent $event, array $context): void
     {
         foreach ($context['configuredDocuments'] as $configuredDocument) {
             $catalogDocument = $context['catalogById'][$configuredDocument['doc_id']] ?? null;
@@ -248,7 +249,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
             $documentId = AuditEvent::uuidV4();
             $documentState = $this->buildDocumentState(
-                $documentId, $configuredDocument, $catalogDocument, $attachment, $disDetNro, $context
+                $documentId, $configuredDocument, $catalogDocument, $attachment, $context
             );
 
             $this->stateStore->registerDocument($event->auditId, $documentId, $documentState);
@@ -276,7 +277,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         array $configuredDocument,
         array $catalogDocument,
         array $attachment,
-        string $disDetNro,
         array $context
     ): array {
         $attachmentId = (string) ($attachment['id_documento'] ?? '');
@@ -289,12 +289,12 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'nombre_alternativo' => (string) ($catalogDocument['NitMedDocCodAlt'] ?? ''),
             'status'             => 'registered',
             'attachment_id'      => $attachmentId,
-            'download_url'       => '/dispensation/' . rawurlencode($disDetNro)
+            'download_url'       => '/dispensation/' . rawurlencode((string) $context['numeroFactura'])
                                     . '/attachments/download/' . rawurlencode($attachmentId),
             'tipo_almacenamiento'=> (string) ($attachment['TipoAlmacenamiento'] ?? ''),
-            'dis_det_nro'        => $disDetNro,
+            'dis_det_nro'        => $context['numeroFactura'],
             'numero_factura'     => $context['numeroFactura'],
-            'fac_sec'            => $context['facSec'],
+            'dis_id'             => $context['disId'],
             'fac_nit_sec'        => $context['nitSec'],
             'extraction_contract' => $configuredDocument['extraction_contract'],
             'fields_config'      => $configuredDocument['fields'],

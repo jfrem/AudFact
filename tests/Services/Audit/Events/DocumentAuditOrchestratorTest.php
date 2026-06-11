@@ -25,7 +25,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             dispensation: [
                 'header' => [
                     'NitSec'        => '2426',
-                    'FacSec'        => '87723098',
+                    'DisId'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [
@@ -94,14 +94,14 @@ final class DocumentAuditOrchestratorTest extends TestCase
             payload:   [
                 'dis_det_nro' => 'T38250701547',
                 'fac_nit_sec' => '2426',
-                'fac_sec' => '87723098',
+                'dis_id' => '87723098',
                 'source' => 'batch',
             ]
         );
 
         $orchestrator->processEvent($event);
 
-        $this->assertSame(['87723098'], $dataService->requestedFacSecs);
+        $this->assertSame(['87723098'], $dataService->requestedDisIds);
 
         // Comportamiento esperado: 3 documentos registrados y publicados
         $this->assertSame(3, $store->docsTotal);
@@ -171,9 +171,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertNull($payload['system_prompt']);
         $this->assertSame('T38250701547', $payload['dis_det_nro']);
         $this->assertSame('T38250701547', $payload['numero_factura']);
-        $this->assertSame('87723098', $payload['fac_sec']);
+        $this->assertSame('87723098', $payload['dis_id']);
         $this->assertSame('2426', $payload['fac_nit_sec']);
-        $this->assertSame('87723098', $store->patches[0]['fac_sec'] ?? null);
+        $this->assertSame('87723098', $store->patches[0]['dis_id'] ?? null);
         $this->assertSame('T38250701547', $store->patches[0]['numero_factura'] ?? null);
         $this->assertArrayNotHasKey('dis_det_nro', $store->patches[0] ?? []);
 
@@ -211,7 +211,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             dispensation: [
                 'header' => [
                     'NitSec'        => '1165',
-                    'FacSec'        => '87723098',
+                    'DisId'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [],
@@ -252,7 +252,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             auditId:   AuditEvent::uuidV4(),
             payload:   [
                 'dis_det_nro' => 'T38250701547',
-                'fac_sec' => '87723098',
+                'dis_id' => '87723098',
             ]
         );
 
@@ -271,7 +271,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             dispensation: [
                 'header' => [
                     'NitSec'        => '2426',
-                    'FacSec'        => '87723098',
+                    'DisId'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ],
                 'items' => [],
@@ -310,7 +310,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             auditId:   AuditEvent::uuidV4(),
             payload:   [
                 'dis_det_nro' => 'T38250701547',
-                'fac_sec' => '87723098',
+                'dis_id' => '87723098',
             ]
         );
 
@@ -319,7 +319,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $orchestrator->processEvent($event);
     }
 
-    public function testMissingFacSecThrowsRuntimeException(): void
+    public function testMissingDisIdThrowsRuntimeException(): void
     {
         $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService());
 
@@ -330,11 +330,11 @@ final class DocumentAuditOrchestratorTest extends TestCase
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('audit_created sin fac_sec');
+        $this->expectExceptionMessage('audit_created sin dis_id');
         $orchestrator->processEvent($event);
     }
 
-    public function testBatchFacSecMismatchThrowsIdentityMismatch(): void
+    public function testBatchDisIdMismatchThrowsIdentityMismatch(): void
     {
         $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService());
 
@@ -344,13 +344,13 @@ final class DocumentAuditOrchestratorTest extends TestCase
             payload:   [
                 'dis_det_nro' => 'T38250701547',
                 'fac_nit_sec' => '2426',
-                'fac_sec' => 'LEGACY-FACSEC',
+                'dis_id' => 'LEGACY-FACSEC',
                 'source' => 'batch',
             ]
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.fac_sec');
+        $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.dis_id');
         $orchestrator->processEvent($event);
     }
 
@@ -366,7 +366,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             payload:   [
                 'dis_det_nro' => 'T38250701547',
                 'fac_nit_sec' => '2426',
-                'fac_sec' => '87723098',
+                'dis_id' => '87723098',
                 'source' => 'batch',
             ]
         );
@@ -385,7 +385,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             dispensation: [
                 'header' => array_merge([
                     'NitSec'        => '2426',
-                    'FacSec'        => '87723098',
+                    'DisId'        => '87723098',
                     'NumeroFactura' => 'T38250701547',
                 ], $headerOverrides),
                 'items' => [],
@@ -439,7 +439,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
 final class StubAuditDataService extends AuditDataService
 {
     /** @var array<int,string> */
-    public array $requestedFacSecs = [];
+    public array $requestedDisIds = [];
 
     /**
      * @param array<string,mixed>            $dispensation
@@ -455,9 +455,11 @@ final class StubAuditDataService extends AuditDataService
     ) {
     }
 
-    public function getDispensationByFacSec(string $facSec): array
+    public function getDispensation(array $filters): array
     {
-        $this->requestedFacSecs[] = $facSec;
+        if (isset($filters['dis_id'])) {
+            $this->requestedDisIds[] = $filters['dis_id'];
+        }
         return $this->dispensation;
     }
 

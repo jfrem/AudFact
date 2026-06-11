@@ -21,18 +21,18 @@ class AuditController extends Controller
     public function single(): void
     {
         $data = $this->validate([
-            'FacSec' => 'required|string|max:255',
+            'disId' => 'required|string|max:255',
         ]);
 
-        $facSec = trim((string) $data['FacSec']);
-        if ($facSec === '') {
-            Response::error('FacSec es requerido', 422);
+        $disId = trim((string) $data['disId']);
+        if ($disId === '') {
+            Response::error('DisId es requerido', 422);
         }
 
         // Resolver identidad completa desde la FDV
         $dataService = $this->buildAuditDataService();
         try {
-            $fdv = $dataService->getDispensationByFacSec($facSec);
+            $fdv = $dataService->getDispensation(['dis_id' => $disId]);
         } catch (RuntimeException $e) {
             Response::error(
                 'No se encontró la dispensación correspondiente a la factura proporcionada',
@@ -56,7 +56,7 @@ class AuditController extends Controller
         try {
             $initialized = $stateStore->initAudit(
                 $auditId, $disDetNro,
-                jobId: null, facNitSec: $facNitSec, facSec: $facSec
+                jobId: null, facNitSec: $facNitSec, disId: $disId
             );
             if (!$initialized) {
                 Logger::error('AuditController::single no se pudo inicializar estado', [
@@ -73,7 +73,7 @@ class AuditController extends Controller
                 documentId: null,
                 payload: [
                     'dis_det_nro'  => $disDetNro,
-                    'fac_sec'      => $facSec,
+                    'dis_id'       => $disId,
                     'fac_nit_sec'  => $facNitSec,
                     'source'       => 'single',
                 ],
@@ -96,7 +96,7 @@ class AuditController extends Controller
                 'audit_id'    => $auditId,
                 'status'      => AuditStateStore::AUDIT_STATUS_PENDING,
                 'dis_det_nro' => $disDetNro,
-                'fac_sec'     => $facSec,
+                'dis_id'      => $disId,
             ],
             'Auditoría encolada',
             202,
@@ -135,7 +135,7 @@ class AuditController extends Controller
             'audit_id'       => $auditId,
             'status'         => $status,
             'dis_det_nro'    => (string) ($state['dis_det_nro'] ?? ''),
-            'fac_sec'        => (string) ($state['fac_sec'] ?? ''),
+            'dis_id'         => (string) ($state['dis_id'] ?? ''),
             'docs_total'     => (int) ($state['docs_total'] ?? 0),
             'docs_done'      => (int) ($state['docs_done'] ?? 0),
             'docs_extracted' => (int) ($state['docs_extracted'] ?? 0),
@@ -247,11 +247,11 @@ class AuditController extends Controller
         }
     }
 
-    public function resultDetail(string $facSec): void
+    public function resultDetail(string $disId): void
     {
         try {
             $model = $this->buildAuditStatusModel();
-            $detail = $model->getAuditDetailByFacSec($facSec);
+            $detail = $model->getAuditDetailByDisId($disId);
 
             if (empty($detail)) {
                 Response::error('Auditoría no encontrada para la factura proporcionada', 404);
@@ -263,7 +263,7 @@ class AuditController extends Controller
         } catch (\RuntimeException $e) {
             Logger::error('Excepción en AuditController::resultDetail: ' . $e->getMessage(), [
                 'exception' => $e,
-                'facSec' => $facSec,
+                'disId' => $disId,
             ]);
             Response::error('Detalle de auditoría temporalmente no disponible', 503);
         }
