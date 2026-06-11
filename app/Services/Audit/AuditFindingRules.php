@@ -101,32 +101,6 @@ final class AuditFindingRules
         return $trimmed === '' ? null : $trimmed;
     }
 
-    /**
-     * Enriquece el detalle de un hallazgo con el prefijo de código funcional.
-     *
-     * Formato: "-{codigoCampo}- {detalle}"
-     * Idempotente: no duplica el prefijo si ya empieza con él.
-     * Retorna el detalle sin cambios si codigoCampo es null/vacío.
-     */
-    public static function appendConfiguredFieldCodeToDetail(mixed $detail, mixed $codigoCampo): ?string
-    {
-        $code = self::normalizeNullableString(is_scalar($codigoCampo) ? (string) $codigoCampo : null);
-        if ($code === null) {
-            return self::normalizeNullableString($detail);
-        }
-
-        $prefix = "-{$code}-";
-        $normalizedDetail = self::normalizeNullableString($detail);
-        if ($normalizedDetail === null) {
-            return $prefix;
-        }
-
-        if (str_starts_with($normalizedDetail, $prefix)) {
-            return $normalizedDetail;
-        }
-
-        return "{$prefix} {$normalizedDetail}";
-    }
 
     public static function isPresent(mixed $value): bool
     {

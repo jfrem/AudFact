@@ -144,14 +144,6 @@ final class VisualCheckEvaluator
             'codigoCampo'       => $codigoCampo,
         ];
 
-        $resultCase = AuditFindingResult::tryFrom($resultado);
-        if ($resultCase !== null && $resultCase->isFailure()) {
-            $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
-                $finding['detalle'] ?? null,
-                $codigoCampo
-            );
-        }
-
         return $finding;
     }
 }
