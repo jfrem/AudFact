@@ -222,13 +222,6 @@ final class DeliveryValidityEvaluator
             'codigoCampo'        => $candidate['expected']['codigoCampo'] ?? null,
         ];
 
-        if (!$matches) {
-            $finding['detalle'] = AuditFindingRules::appendConfiguredFieldCodeToDetail(
-                $finding['detalle'],
-                $candidate['expected']['codigoCampo'] ?? null
-            );
-        }
-
         return $finding;
     }
 
