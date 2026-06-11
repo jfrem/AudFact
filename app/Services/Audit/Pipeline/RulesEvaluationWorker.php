@@ -438,15 +438,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
         }
 
-        foreach ($documentDecisions as $decision) {
-            if ($decision['approved'] === true) {
-                continue;
-            }
 
-            if (AuditFindingRules::observationRequiresManualReview($decision['observation'] ?? null)) {
-                $hasHighSeverityFailure = true;
-            }
-        }
 
         if ($hasHighSeverityFailure) {
             return AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW;

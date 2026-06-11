@@ -36,7 +36,7 @@ final class AuditFindingRules
         };
 
         $resultEnum = AuditFindingResult::tryFrom($result);
-        $resultWeight = ($resultEnum !== null && $resultEnum->isDiscrepancy()) ? 10 : 0;
+        $resultWeight = ($resultEnum !== null && $resultEnum->isFailure()) ? 10 : 0;
 
         return $severityWeight + $resultWeight;
     }
@@ -79,24 +79,13 @@ final class AuditFindingRules
                 continue;
             }
 
-            if ($result !== null && $result->isDiscrepancy()) {
+            if ($result !== null && $result->isFailure()) {
                 $metrics['discrepancias']++;
                 $metrics['risk_score'] += self::riskWeight($severity);
             }
         }
 
         return $metrics;
-    }
-
-    public static function observationRequiresManualReview(?string $observation): bool
-    {
-        $normalized = strtolower(trim((string) $observation));
-
-        return $normalized !== ''
-            && (
-                str_contains($normalized, 'no permite concluir')
-                || str_contains($normalized, 'incertidumbre')
-            );
     }
 
     /**

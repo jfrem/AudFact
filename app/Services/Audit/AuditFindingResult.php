@@ -29,14 +29,4 @@ enum AuditFindingResult: string
         };
     }
 
-    /**
-     * Indica si el resultado representa una discrepancia directa de datos.
-     */
-    public function isDiscrepancy(): bool
-    {
-        return match ($this) {
-            self::MISMATCH, self::NOT_FOUND, self::REJECTED => true,
-            default => false,
-        };
-    }
 }
