@@ -579,20 +579,24 @@ class AuditStatusModel extends Model
         }
 
         $approved = (bool) ($decision['approved'] ?? false);
-        $observation = trim((string) ($decision['observation'] ?? ''));
+        $observation = null;
 
-        if (!$approved && $observation === '') {
-            throw new \InvalidArgumentException(sprintf(
-                'El documento "%s" de la dispensación %s requiere observación de rechazo.',
-                $documentName,
-                $facNro
-            ));
+        if (!$approved) {
+            $payload = $decision['payload'] ?? null;
+            if (!is_array($payload) || empty($payload['hallazgos'])) {
+                throw new \InvalidArgumentException(sprintf(
+                    'El documento "%s" de la dispensación %s requiere un payload estructurado de rechazo con hallazgos.',
+                    $documentName,
+                    $facNro
+                ));
+            }
+            $observation = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
 
         return [
             'documentName' => $documentName,
             'approved' => $approved,
-            'observation' => $observation === '' ? null : $observation,
+            'observation' => $observation,
         ];
     }
 

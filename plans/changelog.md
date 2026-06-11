@@ -1,5 +1,16 @@
 # Changelog AudFact
 
+## [2026-06-11] - Feature: Payload Estructurado JSON en AdjDisObsRec
+
+### Backend & Persistencia
+- **Refactorización de Persistencia de Hallazgos**:
+  - `AuditStatusModel.php`: Modificado `normalizeDocumentDecision` para transformar el array `payload` del rechazo en un string JSON (`json_encode($payload, JSON_UNESCAPED_UNICODE)`) en lugar de almacenar texto plano.
+- **Flujo de Evaluacion (Domain)**:
+  - `DocumentPolicyEngine.php`: El engine ahora inyecta dinámicamente `codigoCampo` en los resultados y agrupa los rechazos en la llave `payload` (`state`, `Dispensa`, `fechaAuditoria`, `hallazgos`).
+  - `RulesEvaluationWorker.php`: Extrae tempranamente `$facNro` del store en Redis y lo propaga a toda la cadena de evaluación (`policyEngine->evaluate()`).
+  - `VisualCheckEvaluator.php` / `DeliveryValidityEvaluator.php`: Propagan el `codigoCampo` configurado hacia el hallazgo resultante.
+- **Sincronización Documental (DOCS-SYNC)**:
+  - Tests ajustados y validados (`RulesEvaluationWorkerTest`) para confirmar aserciones sobre `payload.hallazgos[0].Descripcion` en lugar del campo legacy `observation`.
 ## [2026-06-11] - Fix: Consistencia de contrato DisId y limpieza documental
 
 ### Backend & Documentación

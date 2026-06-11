@@ -141,6 +141,7 @@ final class VisualCheckEvaluator
             'campo'             => $displayField,
             'severidad'         => $severity,
             'documento'         => $documentType,
+            'codigoCampo'       => $codigoCampo,
         ];
 
         $resultCase = AuditFindingResult::tryFrom($resultado);

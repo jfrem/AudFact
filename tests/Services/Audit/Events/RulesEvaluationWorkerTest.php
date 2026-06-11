@@ -240,7 +240,7 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertStringContainsString('-VIG- ', (string) $vigencia['detalle']);
         $this->assertSame(1, $payload['hallazgos']['metrics']['discrepancias']);
         $this->assertFalse($payload['document_decisions'][1]['approved']);
-        $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['observation']);
+        $this->assertStringContainsString('supera la vigencia', $payload['document_decisions'][1]['payload']['hallazgos'][0]['Descripcion'] ?? '');
     }
 
     public function testCalculatedDeliveryValidityFallsBackToDefaultWhenAuthoritativeEvidenceIsIncomplete(): void
@@ -339,7 +339,7 @@ final class StubDocumentPolicyEngine extends DocumentPolicyEngine
     {
     }
 
-    public function evaluate(array $documentState, array $normalizedPayload): array
+    public function evaluate(array $documentState, array $normalizedPayload, string $facNro = ''): array
     {
         return $this->result;
     }

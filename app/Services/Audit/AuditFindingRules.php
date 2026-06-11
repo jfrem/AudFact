@@ -459,4 +459,21 @@ final class AuditFindingRules
         }
         return $hasNumeric ? $sum : null;
     }
+
+    /**
+     * Construye el payload estructurado JSON para hallazgos rechazados.
+     *
+     * @param string $facNro
+     * @param array<int,array{Codigo:string,Descripcion:string}> $hallazgos
+     * @return array<string,mixed>
+     */
+    public static function buildRejectionPayload(string $facNro, array $hallazgos): array
+    {
+        return [
+            'state' => false,
+            'Dispensa' => $facNro,
+            'fechaAuditoria' => date('Y-m-d H:i:s.v'),
+            'hallazgos' => $hallazgos,
+        ];
+    }
 }

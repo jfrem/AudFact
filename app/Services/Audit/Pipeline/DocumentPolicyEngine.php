@@ -23,6 +23,7 @@ class DocumentPolicyEngine
 
     public function __construct(
         ?ArticleSemanticMatchJudge $semanticJudge = null
+
     ) {
         $this->semanticJudge = $semanticJudge;
     }
@@ -32,7 +33,7 @@ class DocumentPolicyEngine
      * @param  array<string,mixed> $normalizedPayload
      * @return array<string,mixed>
      */
-    public function evaluate(array $documentState, array $normalizedPayload): array
+    public function evaluate(array $documentState, array $normalizedPayload, string $facNro = ''): array
     {
         $this->resetSemanticMetrics();
 
@@ -57,7 +58,7 @@ class DocumentPolicyEngine
         return [
             'document_name'     => $documentType,
             'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
-            'document_decision' => $this->buildDocumentDecision($documentType, $findings),
+            'document_decision' => $this->buildDocumentDecision($documentType, $findings, $facNro),
             'gemini_semantic_metrics' => [
                 'semantic' => $this->semanticMetrics,
                 'semantic_calls' => count($this->semanticMetrics),
@@ -252,6 +253,7 @@ class DocumentPolicyEngine
             'detalle'            => $comparison['detalle'] ?? null,
             'tipo_auditoria'     => $comparison['tipo_auditoria'] ?? $internalType,
             'valueType'          => $valueType->value,
+            'codigoCampo'        => $fieldConfig['codigoCampo'] ?? null,
         ];
 
         $resultCase = AuditFindingResult::tryFrom((string) $finding['resultado']);
@@ -622,12 +624,12 @@ class DocumentPolicyEngine
 
     /**
      * @param  array<int,array<string,mixed>> $findings
-     * @return array{documentName:string,approved:bool,observation:?string}
+     * @return array{documentName:string,approved:bool,payload?:array<string,mixed>}
      */
-    private function buildDocumentDecision(string $documentType, array $findings): array
+    private function buildDocumentDecision(string $documentType, array $findings, string $facNro): array
     {
-        $approved     = true;
-        $observations = [];
+        $approved  = true;
+        $hallazgos = [];
 
         foreach ($findings as $finding) {
             $resultCase = AuditFindingResult::tryFrom((string) ($finding['resultado'] ?? ''));
@@ -635,18 +637,35 @@ class DocumentPolicyEngine
                 $approved = false;
                 $detail   = AuditFindingRules::normalizeNullableString($finding['detalle'] ?? null);
                 if ($detail !== null) {
-                    $observations[] = $detail;
+                    $codigo = trim((string) ($finding['codigoCampo'] ?? 'DATA'));
+                    $hallazgos[] = [
+                        'Codigo' => $codigo,
+                        'Descripcion' => $detail,
+                    ];
                 }
             }
         }
 
-        $observations = array_values(array_unique($observations));
-        $observation  = $observations === [] ? null : implode(' | ', array_slice($observations, 0, 3));
+        // Deduplicate hallazgos array by Description and Code
+        $uniqueHallazgos = [];
+        $seen = [];
+        foreach ($hallazgos as $h) {
+            $key = $h['Codigo'] . '|' . $h['Descripcion'];
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $uniqueHallazgos[] = $h;
+            }
+        }
+
+        $payload = null;
+        if (!$approved) {
+            $payload = AuditFindingRules::buildRejectionPayload($facNro, $uniqueHallazgos);
+        }
 
         return [
             'documentName' => DocumentExtractionContractBuilder::normalizeDocumentName($documentType),
             'approved'     => $approved,
-            'observation'  => $observation,
+            'payload'      => $payload,
         ];
     }
 }
