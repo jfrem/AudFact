@@ -185,6 +185,7 @@ export function AuditConfigEditor({
       },
     );
     setDocs(docEntries);
+    setSystemPrompt(config.systemPrompt ?? "");
     setActiveTab((current) => {
       if (docEntries.length === 0) return "";
       return docEntries.some((doc) => doc.docName === current)

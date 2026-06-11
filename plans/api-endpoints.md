@@ -472,6 +472,7 @@ Respuesta:
 ### `POST /clients/{clientId}/audit-config`
 
 Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime.
+**NOTA:** El campo `systemPrompt` es de envío **obligatorio** (`string` o `null`); omitirlo resulta en un error HTTP 422 para prevenir borrados accidentales del prompt.
 
 Body:
 ```json

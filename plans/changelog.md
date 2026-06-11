@@ -11,6 +11,12 @@
   - `plans/architecture.md`: Actualizadas referencias arquitectónicas en descripciones de modelos y workers (QUAL-003).
   - `.agent/skills/audfact-sqlsrv-models/references/examples.md`: Reflejado el uso de `DisId` en los ejemplos de código SQL (QUAL-003).
 
+### Bugfixes & Ajustes de Contrato
+- **System Prompt E2E**:
+  - `AuditConfigController.php`: El campo `systemPrompt` ahora es estrictamente requerido en el payload (puede ser `string` o `null`) para evitar borrados accidentales si el cliente lo omite.
+  - `AuditConfigModel.php`: Removido el uso de `COALESCE` en el `MERGE` de `upsertHeader` y forzado el uso de `PDO::PARAM_NULL` para permitir el borrado explícito del prompt del sistema en la base de datos.
+  - `audit-config-editor.tsx` (Frontend): Forzada la sincronización del estado local con el remoto vía `setSystemPrompt(config.systemPrompt ?? "")` en el `useEffect` para eliminar la ilusión de guardado.
+
 ## [2026-06-10] - Feature: Migración de identidad E2E de FacSec a DisId
 
 ### Backend & Frontend

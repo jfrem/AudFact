@@ -141,7 +141,7 @@ export function getAuditConfig(clientId: string | number) {
 }
 
 export type AuditConfigPayload = {
-  systemPrompt?: string | null;
+  systemPrompt: string | null;
   fields: Array<{
     docId: number;
     campoNombre: string;

@@ -179,17 +179,25 @@ class AuditConfigModel extends Model
                 ON target.FacNitSec = source.FacNitSec
             WHEN MATCHED THEN
                 UPDATE SET
-                    SystemPrompt = COALESCE(:promptU, target.SystemPrompt),
+                    SystemPrompt = :promptU,
                     FecMod       = GETDATE()
             WHEN NOT MATCHED THEN
                 INSERT (FacNitSec, SystemPrompt, Activo, FecCre, FecMod)
                 VALUES (:nitSecI, :promptI, 1, GETDATE(), GETDATE());";
 
         $stmt = $db->prepare($sql);
-        $stmt->bindParam(':nitSec',  $nitSec,       PDO::PARAM_STR);
-        $stmt->bindParam(':promptU', $systemPrompt, PDO::PARAM_STR);
-        $stmt->bindParam(':nitSecI', $nitSec,       PDO::PARAM_STR);
-        $stmt->bindParam(':promptI', $systemPrompt, PDO::PARAM_STR);
+        $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
+
+        if ($systemPrompt === null) {
+            $stmt->bindValue(':promptU', null, PDO::PARAM_NULL);
+            $stmt->bindValue(':promptI', null, PDO::PARAM_NULL);
+        } else {
+            $stmt->bindValue(':promptU', $systemPrompt, PDO::PARAM_STR);
+            $stmt->bindValue(':promptI', $systemPrompt, PDO::PARAM_STR);
+        }
+
+        $stmt->bindValue(':nitSecI', $nitSec, PDO::PARAM_STR);
+
         $stmt->execute();
     }
 

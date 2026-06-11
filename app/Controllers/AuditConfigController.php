@@ -94,13 +94,29 @@ class AuditConfigController extends Controller
             );
         }
 
-        $systemPrompt = isset($body['systemPrompt']) && is_string($body['systemPrompt'])
-            ? trim($body['systemPrompt'])
-            : null;
+        if (!array_key_exists('systemPrompt', $body)) {
+            Response::error(
+                'El campo "systemPrompt" es requerido. Envíe null o un string vacío si desea eliminar el prompt existente.',
+                422
+            );
+        }
+
+        if ($body['systemPrompt'] !== null && !is_string($body['systemPrompt'])) {
+            Response::error(
+                'El campo "systemPrompt" debe ser null o un string.',
+                422
+            );
+        }
+
+        $systemPrompt = null;
+        if (is_string($body['systemPrompt'])) {
+            $trimmed = trim($body['systemPrompt']);
+            $systemPrompt = $trimmed !== '' ? $trimmed : null;
+        }
 
         $sanitizedFields = $this->sanitizeFields($body['fields']);
 
-        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt ?: null);
+        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt);
 
         Response::success(
             ['fieldCount' => count($sanitizedFields)],
