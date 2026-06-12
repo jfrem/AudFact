@@ -4,7 +4,7 @@
 
 ### Backend & Frontend
 - **API y Modelos**:
-  - `DispensationController.php`: Flexibilizada la validación de `POST /dispensation` permitiendo que la llave canónica interna `DisId` sea opcional para el cliente (frontend).
+  - `DispensationController.php` y `AuditController.php`: Flexibilizada la validación de `POST /dispensation` y `POST /audit/single` permitiendo que la llave canónica interna `DisId` sea opcional para el cliente (frontend).
   - `DispensationModel.php`: Añadido método de resolución dinámica `resolveIdentityByDisDetNro` que cruza la tabla indexada `DispensacionDetalleServicio` permitiendo recuperar en milisegundos el `DisId` usando solo el `DisDetNro` (Número de factura en la UI), previniendo timeouts.
 - **Sincronización Documental (DOCS-SYNC)**:
   - `plans/api-endpoints.md`: Contrato de `POST /dispensation` actualizado.

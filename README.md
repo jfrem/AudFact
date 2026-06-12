@@ -139,11 +139,11 @@ Base URL: `http://localhost:8080`
 | `POST` | `/clients/{clientId}/audit-config` | Guardar configuración de auditoría |
 | `GET` | `/invoices` | Buscar facturas pendientes con paginación `page`/`pageSize` |
 | `POST` | `/invoices` | Buscar facturas por body JSON con el mismo contrato paginado |
-| `GET` | `/dispensation/{DisDetNro}` | Datos de dispensación |
+| `GET` | `/dispensation/{DisId}/{DisDetNro}` | Datos de dispensación |
 | `POST` | `/dispensation` | Buscar dispensación por body JSON |
 | `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
 | `GET` | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
-| `POST` | `/audit/single` | Auditoría individual por DisId |
+| `POST` | `/audit/single` | Auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
 | `GET` | `/audit/status/{auditId}` | Estado Redis de una auditoría individual encolada |

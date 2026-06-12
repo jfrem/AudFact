@@ -74,7 +74,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/audit/results/{disId}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por DisId |
 | `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disId` y `disDetNro` |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 | `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |
