@@ -183,10 +183,11 @@ Encola auditoría individual sobre una sola dispensación usando la llave compue
 
 ```json
 {
-  "disId": "DIS26-6-...",
   "disDetNro": "87723098"
 }
 ```
+
+*Nota: `disId` es opcional. Si se omite, el backend derivará automáticamente la identidad canónica interna a partir de `disDetNro` para resolver correctamente la persistencia.*
 
 Respuesta exitosa: HTTP `202`.
 
