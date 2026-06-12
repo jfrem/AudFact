@@ -382,7 +382,8 @@ class AuditStatusModel extends Model
 
         $sql = "UPDATE Discolnet.dbo.AudDispEst
                 SET [Hallazgos] = :Hallazgos,
-                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs
+                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs,
+                    [FechaActualizacion] = GETDATE()
                 WHERE [FacNro] = :FacNro";
 
         $stmt = $writeDb->prepare($sql);
@@ -428,7 +429,8 @@ class AuditStatusModel extends Model
                         target.[DocumentosProcesados] = source.[DocumentosProcesados],
                         target.[DocumentoFallido] = source.[DocumentoFallido],
                         target.[DuracionProcesamientoMs] = source.[DuracionProcesamientoMs],
-                        target.[FacNitSec] = source.[FacNitSec]
+                        target.[FacNitSec] = source.[FacNitSec],
+                        target.[FechaActualizacion] = GETDATE()
                 WHEN NOT MATCHED THEN
                     INSERT ([FacSec], [FacNro], [EstAud], [EstadoDetallado],
                             [RequiereRevisionHumana], [Severidad], [Hallazgos],

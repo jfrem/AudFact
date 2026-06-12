@@ -1,5 +1,13 @@
 # Changelog AudFact
 
+## [2026-06-12] - Fix: Actualización de FechaActualizacion en re-auditorías (AuditStatusModel)
+
+### Backend & Persistencia
+- **AuditStatusModel.php**:
+  - Se modificó la instrucción `MERGE` (`upsertAuditResultInConnection`) para incluir explícitamente `target.[FechaActualizacion] = GETDATE()` dentro de la cláusula `WHEN MATCHED THEN UPDATE SET`. Esto corrige el problema donde las re-auditorías sobrescribían el registro completo pero dejaban la fecha huérfana.
+  - Se modificó el método `updateAuditTimings` para incluir `[FechaActualizacion] = GETDATE()` al finalizar la persistencia asíncrona de los timings, asegurando trazabilidad de tiempo en la última modificación.
+- **DOCS-SYNC**: Validada la documentación. No hubo cambios de contratos o arquitectura, solo un bugfix de persistencia.
+
 ## [2026-06-12] - Fix follow-up: Alineación limpia de resultados por FacNro
 
 ### Backend, Tests y Documentación
