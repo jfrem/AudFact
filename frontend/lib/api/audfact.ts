@@ -123,8 +123,8 @@ export function getAuditResults(query?: Record<string, string | number | undefin
   return requestJson(endpoints.auditResults(query), PaginatedAuditResultsSchema);
 }
 
-export function getAuditResultDetail(disId: string | number): Promise<AuditResultDetail> {
-  return requestJson(endpoints.auditResultDetail(disId), AuditResultDetailSchema) as Promise<AuditResultDetail>;
+export function getAuditResultDetail(facNro: string | number): Promise<AuditResultDetail> {
+  return requestJson(endpoints.auditResultDetail(facNro), AuditResultDetailSchema) as Promise<AuditResultDetail>;
 }
 
 export function getAuditStats() {
