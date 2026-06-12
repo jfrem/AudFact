@@ -9,10 +9,10 @@ import {
 import { appConfig } from "@/lib/api/config";
 import { queryKeys } from "@/lib/query/query-keys";
 
-export const dispensationQuery = (disDetNro: string) =>
+export const dispensationQuery = (disId: string | undefined | null, disDetNro: string) =>
   queryOptions({
-    queryKey: queryKeys.dispensation(disDetNro),
-    queryFn: () => getDispensationDetail(disDetNro),
+    queryKey: queryKeys.dispensation(disId || "lookup", disDetNro),
+    queryFn: () => getDispensationDetail(disId, disDetNro),
     enabled: Boolean(disDetNro),
   });
 

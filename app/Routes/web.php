@@ -25,7 +25,7 @@ $router->get('/dispensation/{disDetNro}/attachments/{nitSec}', 'AttachmentsContr
 
 
 // Dispensation
-$router->get('/dispensation/{DisDetNro}', 'DispensationController', 'show');
+$router->get('/dispensation/{DisId}/{DisDetNro}', 'DispensationController', 'show');
 $router->post('/dispensation', 'DispensationController', 'lookup');
 
 // Audit

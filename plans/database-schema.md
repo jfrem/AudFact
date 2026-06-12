@@ -132,7 +132,7 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `DisId` | int (FK) | ID de dispensación |
 | `DisDetNro` | varchar | Número de detalle (clave de búsqueda) |
 
-**Usada por**: `AttachmentsModel` (JOIN con AdjuntosDispensacion)
+**Usada por**: `AttachmentsModel` (JOIN con AdjuntosDispensacion), `DispensationModel` (resolución dinámica de `DisId`)
 
 ---
 

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 const schema = z.object({
+  disId: z.string().optional(),
   disDetNro: z.string().min(1, "Ingresa un DisDetNro válido."),
 });
 
@@ -22,7 +23,7 @@ export default function DispensationSearchPage() {
   const navigation = usePendingNavigation();
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { disDetNro: "" },
+    defaultValues: { disId: "", disDetNro: "" },
   });
 
   return (
@@ -37,26 +38,44 @@ export default function DispensationSearchPage() {
           aria-busy={navigation.isPending}
           className="grid gap-4 md:grid-cols-[1fr_auto]"
           onSubmit={form.handleSubmit((values) => {
-            navigation.push(`/dispensation/${encodeURIComponent(values.disDetNro)}`);
+            const disIdParam = values.disId?.trim() || "";
+            navigation.push(
+              `/dispensation/${encodeURIComponent(disIdParam || "_")}/${encodeURIComponent(values.disDetNro)}`,
+            );
           })}
         >
-          <Field>
-            <FieldLabel htmlFor="disDetNro">
-              DisDetNro
-            </FieldLabel>
-            <Input
-              id="disDetNro"
-              placeholder="Ej. X24260300080"
-              aria-invalid={!!form.formState.errors.disDetNro}
-              aria-describedby={form.formState.errors.disDetNro ? "disDetNro-error" : undefined}
-              {...form.register("disDetNro")}
-            />
-            {form.formState.errors.disDetNro ? (
-              <FieldDescription id="disDetNro-error" className="text-rose-300" role="alert">
-                {form.formState.errors.disDetNro.message}
-              </FieldDescription>
-            ) : null}
-          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field>
+              <FieldLabel htmlFor="disId">DisId</FieldLabel>
+              <Input
+                id="disId"
+                placeholder="Ej. DIS26-6..."
+                aria-invalid={!!form.formState.errors.disId}
+                aria-describedby={form.formState.errors.disId ? "disId-error" : undefined}
+                {...form.register("disId")}
+              />
+              {form.formState.errors.disId ? (
+                <FieldDescription id="disId-error" className="text-rose-300" role="alert">
+                  {form.formState.errors.disId.message}
+                </FieldDescription>
+              ) : null}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="disDetNro">DisDetNro</FieldLabel>
+              <Input
+                id="disDetNro"
+                placeholder="Ej. X24260300080"
+                aria-invalid={!!form.formState.errors.disDetNro}
+                aria-describedby={form.formState.errors.disDetNro ? "disDetNro-error" : undefined}
+                {...form.register("disDetNro")}
+              />
+              {form.formState.errors.disDetNro ? (
+                <FieldDescription id="disDetNro-error" className="text-rose-300" role="alert">
+                  {form.formState.errors.disDetNro.message}
+                </FieldDescription>
+              ) : null}
+            </Field>
+          </div>
           <Button
             type="submit"
             className="h-11 self-end"

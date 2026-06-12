@@ -29,13 +29,15 @@ import { cn } from "@/lib/utils";
 /* ─────────────────────────────────────────────────── */
 
 export function AuditSingleWorkspace({
+  disId,
   disDetNro,
   result,
 }: {
+  disId: string;
   disDetNro: string;
   result: AuditSingleResponse;
 }) {
-  const dispensationState = useQuery(dispensationQuery(disDetNro));
+  const dispensationState = useQuery(dispensationQuery(disId, disDetNro));
   const dispensation = dispensationState.data;
   const header = dispensation?.header;
   const nitSec = header?.NitSec != null ? String(header.NitSec) : "";

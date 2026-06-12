@@ -49,7 +49,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `POST` | `/invoices` | `InvoicesController::search` |
 | `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController::downloadByDispensation` |
 | `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController::showByDispensation` |
-| `GET` | `/dispensation/{DisDetNro}` | `DispensationController::show` |
+| `GET` | `/dispensation/{DisId}/{DisDetNro}` | `DispensationController::show` |
 | `POST` | `/dispensation` | `DispensationController::lookup` |
 | `GET` | `/audit/results` | `AuditController::results` |
 | `GET` | `/audit/results/{disId}` | `AuditController::resultDetail` |

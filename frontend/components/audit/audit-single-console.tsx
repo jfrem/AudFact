@@ -30,7 +30,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
-  disId: z.string().min(1, "Ingresa un ID de dispensación válido."),
+  disId: z.string().optional(),
+  disDetNro: z.string().min(1, "Ingresa un número de factura válido."),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -86,19 +87,19 @@ export function AuditSingleConsole() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { disId: prefill },
+    defaultValues: { disId: prefill, disDetNro: "" },
   });
 
   const mutation = useMutation({
     mutationFn: (values: FormValues) => {
       const toastId = toast.loading("Ejecutando auditoría IA...", {
-        description: `DisId: ${values.disId}`,
+        description: `DisId: ${values.disId} / Factura: ${values.disDetNro}`,
       });
-      return runAuditSingle(values.disId).finally(() => toast.dismiss(toastId));
+      return runAuditSingle(values.disId, values.disDetNro).finally(() => toast.dismiss(toastId));
     },
     onSuccess: (response, values) => {
       const data = response.data;
-      setLatestDisId(data.dis_id ?? values.disId);
+      setLatestDisId(data.dis_id ?? values.disId ?? "");
       setLatestDisDetNro(data.dis_det_nro ?? "");
 
       if (data.status === "pending" && data.audit_id) {
@@ -158,7 +159,7 @@ export function AuditSingleConsole() {
         open={showConfirm}
         variant="info"
         title="Ejecutar auditoría"
-        description={`Se enviará la entrega ${pendingValues?.disId ?? ""} al pipeline de auditoría IA. Este proceso puede tomar entre 10 y 60 segundos.`}
+        description={`Se enviará la entrega ${pendingValues?.disId ?? ""} (${pendingValues?.disDetNro ?? ""}) al pipeline de auditoría IA. Este proceso puede tomar entre 10 y 60 segundos.`}
         confirmLabel="Ejecutar"
         onConfirm={handleConfirm}
         onCancel={() => setShowConfirm(false)}
@@ -171,12 +172,12 @@ export function AuditSingleConsole() {
           description="Ejecuta una corrida puntual por ID de Dispensación y revisa el resultado, métricas y evidencia sin salir del flujo."
         >
           <form
-            className="grid gap-4 md:grid-cols-[1fr_auto]"
+            className="grid gap-4 md:grid-cols-[1fr_1fr_auto]"
             onSubmit={form.handleSubmit(handleSubmit)}
           >
             <Field>
               <FieldLabel htmlFor="disId">
-                ID Dispensación
+                ID Dispensación (Opcional)
               </FieldLabel>
               <Input
                 id="disId"
@@ -188,6 +189,24 @@ export function AuditSingleConsole() {
               {form.formState.errors.disId && (
                 <FieldDescription id="audit-single-disId-error" className="text-rose-300" role="alert">
                   {form.formState.errors.disId.message}
+                </FieldDescription>
+              )}
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="disDetNro">
+                Número de Factura
+              </FieldLabel>
+              <Input
+                id="disDetNro"
+                placeholder="Ej. T38250701547"
+                aria-invalid={!!form.formState.errors.disDetNro}
+                aria-describedby={form.formState.errors.disDetNro ? "audit-single-disDetNro-error" : undefined}
+                {...form.register("disDetNro")}
+              />
+              {form.formState.errors.disDetNro && (
+                <FieldDescription id="audit-single-disDetNro-error" className="text-rose-300" role="alert">
+                  {form.formState.errors.disDetNro.message}
                 </FieldDescription>
               )}
             </Field>
@@ -234,6 +253,7 @@ export function AuditSingleConsole() {
         ) : latestResult && latestResult.status !== "pending" ? (
           /* ── Estado: Resultado completo (sync/legacy) ── */
           <AuditSingleWorkspace
+            disId={latestDisId}
             disDetNro={latestDisDetNro}
             result={latestResult}
           />
