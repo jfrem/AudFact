@@ -148,7 +148,7 @@ Base URL: `http://localhost:8080`
 | `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
 | `GET` | `/audit/status/{auditId}` | Estado Redis de una auditoría individual encolada |
 | `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{disId}` | Detalle persistido por DisId |
+| `GET` | `/audit/results/{facNro}` | Detalle persistido por FacNro |
 | `GET` | `/audit/stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | Historial de documentos auditados |
 | `GET` | `/audit/{facNro}/timings` | Timings detallados por factura |
@@ -182,7 +182,7 @@ La llave operativa de dispensación/documentos es `DisDetNro`:
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-`POST /audit/single` y `POST /audit/async` seleccionan la FDV por `DisId`. Los adjuntos se resuelven por `DisDetNro`; la persistencia final se hace por `DisId` en la columna legacy `FacSec`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
+`POST /audit/single` y `POST /audit/async` seleccionan la FDV por `DisId`. Los adjuntos se resuelven por `DisDetNro`; la persistencia guarda `DisId` en la columna legacy `FacSec` y usa `FacNro` (`DisDetNro`) como llave primaria operativa de `AudDispEst`. Ver [`plans/audit-identity-contract.md`](plans/audit-identity-contract.md).
 
 ## Pipeline de Auditoría IA
 

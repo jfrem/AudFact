@@ -1,3 +1,11 @@
+## [2026-06-12]
+
+### fix
+- **Alineación limpia de resultados por `FacNro`**: `AuditBatchOrchestrator` consulta auditorías persistidas por `FacNro` sin restaurar compatibilidad legacy por `DisId`; se mantiene la reserva Redis por `DisId`.
+  - Archivos modificados: `app/Services/Audit/AuditBatchOrchestrator.php`, `app/Models/migration/migration_AudDispEst_updated.sql`, `tests/Services/Audit/AuditBatchOrchestratorTest.php`, `tests/Controllers/AuditControllerTest.php`, `tests/Services/Audit/Events/AuditAggregationWorkerTest.php`, `README.md`, `AGENTS.md`, `plans/*`, `.agent/skills/audfact-*`.
+  - Hallazgos resueltos: QUAL-001, QUAL-002, QUAL-003.
+  - Impacto: el flujo async ya no invoca el detalle legacy por `DisId`; el contrato activo queda alineado con `AudDispEst.FacNro` como PK productiva.
+
 ## [2026-06-09]
 
 ### ui

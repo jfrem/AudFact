@@ -275,10 +275,11 @@ final class AuditControllerTest extends TestCase
             ])
         );
 
-        $response = self::captureResponse(static fn() => $controller->resultDetail('87723098'));
+        $response = self::captureResponse(static fn() => $controller->resultDetail('T38250701547'));
 
         $this->assertSame(200, $response->getCode());
         $this->assertSame('87723098', $response->getData()['data']['DisId']);
+        $this->assertSame('T38250701547', $response->getData()['data']['FacNro']);
     }
 
     public function testResultDetailReturns404WhenAuditIsMissing(): void
@@ -287,7 +288,7 @@ final class AuditControllerTest extends TestCase
             auditStatusModel: new StubAuditStatusModel(null)
         );
 
-        $response = self::captureResponse(static fn() => $controller->resultDetail('87723098'));
+        $response = self::captureResponse(static fn() => $controller->resultDetail('T38250701547'));
 
         $this->assertSame(404, $response->getCode());
     }
@@ -423,7 +424,7 @@ final class StubAuditStatusModel extends AuditStatusModel
     {
     }
 
-    public function getAuditDetailByDisId(string $disId): ?array
+    public function getAuditDetailByFacNro(string $facNro): ?array
     {
         return $this->detail;
     }

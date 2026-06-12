@@ -1,5 +1,34 @@
 # Changelog AudFact
 
+## [2026-06-12] - Fix follow-up: Alineación limpia de resultados por FacNro
+
+### Backend, Tests y Documentación
+- **Pipeline batch**:
+  - `AuditBatchOrchestrator` ahora consulta auditorías ya persistidas por `FacNro` (`DisDetNro`) mediante `getAuditDetailByFacNro`, sin restaurar compatibilidad legacy por `DisId`.
+  - Se conserva la reserva Redis por `DisId` para idempotencia global del batch.
+- **Tests**:
+  - `AuditControllerTest` valida `GET /audit/results/{facNro}` con `T38250701547`.
+  - `AuditAggregationWorkerTest` verifica que los timings finales se actualizan por `FacNro`.
+  - Se agregó cobertura de `AuditBatchOrchestrator` para `skipped_existing` por auditoría persistida en `FacNro`.
+- **SQL Server y docs-sync**:
+  - `migration_AudDispEst_updated.sql` se alineó con el esquema productivo: `FacNro` como PK clustered, `FacSec` como `nvarchar(320)` legacy para `DisId` y columna `JobId`.
+  - Se sincronizaron `README.md`, `AGENTS.md`, `plans/api-endpoints.md`, `plans/audit-identity-contract.md`, `plans/database-schema.md`, `plans/features/audit-workflow.md` y las skills `audfact-api-rest`, `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-project-overview`.
+
+## [2026-06-12] - Fix: Resolución de Colisión de Identidad de Auditoría (FacNro vs DisId)
+
+### Backend & Frontend
+- **Modelos y SQL Server**:
+  - `AuditStatusModel.php`: Modificado el `MERGE` de inserción/actualización para cruzar los registros estrictamente por `target.[FacNro] = source.[FacNro]` en lugar de `target.[FacSec] = source.[FacSec]`, alineando la lógica PHP con la llave primaria de la base de datos `AudDispEst`.
+  - Se actualizaron los métodos internos (`getAuditDetailByFacNro`, `updateAuditTimings`) para buscar de forma inequívoca usando `$facNro`.
+- **Pipeline & Controladores**:
+  - `AuditAggregationWorker.php`: Adaptado para extraer y guardar los tiempos agregados de auditoría basados en `FacNro`.
+  - `AuditController.php` & `app/Routes/web.php`: Actualizada la ruta REST `GET /audit/results/{disId}` a `GET /audit/results/{facNro}` para que la UI pida el detalle exacto por dispensación, sin sobrescrituras compartidas en memoria.
+- **Frontend**:
+  - `endpoints.ts` y `audfact.ts`: API ajustada para consumir `facNro` en las peticiones.
+  - `AuditResultDetailModal`: Reestructurado para requerir `facNro` como parámetro independiente, garantizando que dispensaciones hijas del mismo `DisId` exhiban sus auditorías individualmente.
+- **Sincronización Documental (DOCS-SYNC)**:
+  - `AGENTS.md`: Actualizado el Mapa de Endpoints REST para reflejar la modificación del endpoint `/audit/results/{facNro}`.
+
 ## [2026-06-11] - Refactor: Resolución Dinámica de Llave DisId desde DisDetNro
 
 ### Backend & Frontend

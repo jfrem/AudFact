@@ -87,7 +87,7 @@ sequenceDiagram
 ## 3. Pipeline de Auditoría Asíncrono (Event-Driven) 🚀
 
 ### Descripción
-Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares, observabilidad total por fase (Timings) y reserva idempotente por `FacSec` para que batches concurrentes del mismo cliente no dupliquen auditorías.
+Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares, observabilidad total por fase (Timings) y reserva idempotente por `DisId` para que batches concurrentes del mismo cliente no dupliquen auditorías.
 
 ### Contrato de Identidad
 
@@ -95,12 +95,12 @@ El batch y la auditoría individual transportan dos identificadores con roles di
 
 | Campo | Origen | Rol |
 |---|---|---|
-| `fac_sec` | `Factura.FacSec` / `vw_discolnet_dispensas.facsecF` | Llave canónica de auditoría y persistencia (`AudDispEst.FacSec`) |
-| `dis_det_nro` | `DispensacionDetalleServicio.DisDetNro` / `vw_discolnet_dispensas.Dispensa` | Llave operativa de dispensación y adjuntos (`AudDispEst.FacNro`) |
+| `dis_id` | `vw_discolnet_dispensas.DisId` | Identidad interna e idempotencia; se conserva en `AudDispEst.FacSec` como columna legacy |
+| `dis_det_nro` | `DispensacionDetalleServicio.DisDetNro` / `vw_discolnet_dispensas.Dispensa` | Llave operativa de dispensación, adjuntos y resultados persistidos (`AudDispEst.FacNro`) |
 
-`DocumentAuditOrchestrator` resuelve la FDV por `fac_sec` y valida que `FDV.header.FacSec`, `payload.dis_det_nro` y `payload.fac_nit_sec` apunten a la misma factura. Si no coinciden, falla con `AUDIT_IDENTITY_MISMATCH`.
+`DocumentAuditOrchestrator` resuelve la FDV por `dis_id` + `dis_det_nro` y valida que `FDV.header.DisId`, `FDV.header.NumeroFactura`, `payload.dis_det_nro` y `payload.fac_nit_sec` apunten a la misma dispensación. Si no coinciden, falla con `AUDIT_IDENTITY_MISMATCH`.
 
-Antes de publicar `audit_created`, el API reserva `FacSec` en Redis con un owner token. `DisDetNro` se conserva como llave operativa de adjuntos y como `FacNro` persistido. Si una auditoría cae a DLQ antes del agregador, el consumidor marca la auditoría como `failed`, actualiza el job si existe y libera la reserva por owner token.
+Antes de publicar `audit_created`, el API reserva `DisId` en Redis con un owner token. `DisDetNro` se conserva como llave operativa de adjuntos y como `FacNro` persistido. Si una auditoría cae a DLQ antes del agregador, el consumidor marca la auditoría como `failed`, actualiza el job si existe y libera la reserva por owner token.
 
 ### Flujo
 
@@ -126,10 +126,10 @@ sequenceDiagram
     Note over R,BW: Fase Asíncrona en Background
     R->>BW: Consume batch_requested
     BW->>DB: Consulta pesada de facturas que califican
-    DB-->>BW: Lista de Facturas (FacSec, DisDetNro)
+    DB-->>BW: Lista de dispensaciones (DisId, DisDetNro)
     
     loop Por cada Factura en el Lote
-        BW->>R: SETNX audit:reservation:facsec:{FacSec} (Reserva de Idempotencia)
+        BW->>R: SETNX audit:reservation:disid:{DisId} (Reserva de Idempotencia)
         alt Reserva Exitosa
             BW->>R: XADD audit.inbox {audit_created}
         else Reserva Fallida (Ya procesándose/procesada)
@@ -165,7 +165,7 @@ sequenceDiagram
     R->>AW: xReadGroup (Consumer: aggregator)
     AW->>DB: Persistencia Final (AudDispEst)
     AW->>R: XADD audit.results {audit_completed}
-    AW->>R: DEL audit:reservation:facsec:{FacSec} (owner token)
+    AW->>R: DEL audit:reservation:disid:{DisId} (owner token)
 ```
 
 ### Eventos Clave (Redis Streams)

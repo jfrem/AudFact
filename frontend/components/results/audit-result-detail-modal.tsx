@@ -67,9 +67,9 @@ export function AuditResultDetailModal({
   const disId = String(record.DisId);
 
   const detailQ = useQuery<AuditResultDetail>({
-    queryKey: ["audit-result-detail", disId],
-    queryFn: () => getAuditResultDetail(disId),
-    enabled: open && Boolean(disId),
+    queryKey: ["audit-result-detail", facNro],
+    queryFn: () => getAuditResultDetail(facNro),
+    enabled: open && Boolean(facNro),
   });
 
   const attachmentsQ = useQuery({

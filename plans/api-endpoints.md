@@ -326,12 +326,12 @@ Respuesta:
 }
 ```
 
-### `GET /audit/results/{disId}`
+### `GET /audit/results/{facNro}`
 
-Consulta el detalle persistido de una auditoría por la llave canónica `DisId`.
+Consulta el detalle persistido de una auditoría por `FacNro` (`DisDetNro`/`Dispensa`), llave primaria operativa en `AudDispEst`.
 
 Validación:
-- `disId`: string no vacío en ruta.
+- `facNro`: string no vacío en ruta.
 
 Respuesta:
 
@@ -341,6 +341,7 @@ Respuesta:
   "message": "Detalle de auditoría",
   "data": {
     "DisId": "87723098",
+    "FacNro": "T38250701547",
     "findings": [],
     "fieldDecisions": [],
     "documentDecisions": [],

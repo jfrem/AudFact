@@ -164,10 +164,14 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `FacSec` | int (FK) | Llave canónica de auditoría; referencia `Factura.FacSec` / `vw_discolnet_dispensas.facsecF` |
-| `EstAud` | varchar | Estado de auditoría (NULL = no auditada) |
+| `FacNro` | nvarchar(100) (PK) | Llave primaria operativa; almacena `DisDetNro` / `vw_discolnet_dispensas.Dispensa` |
+| `FacSec` | nvarchar(320) | Columna legacy que almacena `vw_discolnet_dispensas.DisId` |
+| `EstAud` | bit | Estado de auditoría (0 = pendiente/manual, 1 = procesada) |
+| `EstadoDetallado` | varchar(50) | Estado funcional terminal o en curso (`completed`, `manual_review`, `failed`, etc.) |
+| `Hallazgos` | nvarchar(max) | Payload persistido de hallazgos, decisiones y timings |
+| `JobId` | varchar(50) | Job batch asociado cuando aplica |
 
-**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas), `AuditStatusModel` (MERGE para guardar resultados)
+**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas por `FacSec`/`DisId`), `AuditStatusModel` (MERGE por `FacNro` para guardar resultados)
 
 ---
 
@@ -216,8 +220,7 @@ erDiagram
     NIT ||--o{ NitDocumentos : "NitSec"
     NIT ||--o{ factura : "FacNitSec"
 
-    vw_discolnet_dispensas ||--o| AudDispEst : "facsecF = FacSec"
-    factura ||--o| AudDispEst : "FacSec"
+    vw_discolnet_dispensas ||--o| AudDispEst : "Dispensa = FacNro"
 
     DispensacionDetalleServicio ||--o{ AdjuntosDispensacion : "DisId"
     NitDocumentos ||--o{ AdjuntosDispensacion : "NitMedDocId = AdjDisId"
@@ -262,8 +265,10 @@ erDiagram
     }
 
     AudDispEst {
-        int FacSec FK
-        varchar EstAud
+        varchar FacNro PK
+        varchar FacSec
+        bit EstAud
+        varchar EstadoDetallado
     }
 ```
 

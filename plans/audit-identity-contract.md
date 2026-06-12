@@ -9,6 +9,8 @@ vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy, almacena DisI
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
+`AudDispEst.FacNro` es la llave primaria operativa de resultados persistidos en la base productiva.
+
 > **Deuda Técnica**: La columna `AudDispEst.FacSec` almacena el valor lógico `DisId` sin renombrarse. Los registros históricos escritos con valores `FacSec` reales antes de este cambio **no están garantizados** sin un backfill futuro.
 
 ## Roles de Cada Identificador
@@ -21,7 +23,7 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 | `DisDetNro` | `DispensacionDetalleServicio` | Llave operativa de la dispensación usada por endpoints y workers. |
 | `Dispensa` | Vista `vw_discolnet_dispensas` | Equivalente FDV de `DisDetNro`; se expone como `NumeroFactura`. |
 | `dis_det_nro` | Contrato PHP / Redis (pipeline snake_case) | Alias snake_case de `Dispensa` en eventos internos. |
-| `FacNro` | `AudDispEst` | Almacena el `DisDetNro` auditado para búsqueda operativa. |
+| `FacNro` | `AudDispEst` | Almacena el `DisDetNro` auditado y es la llave primaria operativa de resultados persistidos. |
 | `facsec` | Vista `vw_discolnet_dispensas` | Identificador legacy/de agrupación; **no** es llave de auditoría. |
 
 ## Flujo E2E
@@ -36,13 +38,13 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
    - `payload.dis_det_nro` debe coincidir con `FDV.header.NumeroFactura`;
    - si el evento trae `fac_nit_sec`, debe coincidir con `FDV.header.NitSec`.
 7. `AuditAggregationWorker` persiste `FacSec = audit.dis_id` (columna legacy) y `FacNro = audit.dis_det_nro`.
-8. `AuditStatusModel` hace `MERGE` con `ON target.FacSec = source.FacSec` (donde `FacSec` contiene `DisId`).
+8. `AuditStatusModel` hace `MERGE` con `ON target.FacNro = source.FacNro`; en cada escritura conserva `FacSec = audit.dis_id` como columna legacy que almacena `DisId`.
 
 ## Adjuntos
 
 Los adjuntos no se resuelven por `DisId`. Se resuelven por `DisDetNro`, que permite obtener `DisId + DisDetId` y llegar a `AdjuntosDispensacion`.
 
-Esto no contradice la llave canónica: `DisId` identifica la auditoría; `DisDetNro` identifica la entrega/documentos.
+Esto no contradice la identidad interna: `DisId` se conserva en `FacSec` para trazabilidad e idempotencia, y `DisDetNro`/`FacNro` identifica la fila persistida y los documentos de la entrega.
 
 ## Fallos Esperados
 
