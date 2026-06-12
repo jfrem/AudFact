@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 type InvoiceItem = Record<string, unknown>;
-type AuditTarget = { disId: string };
+type AuditTarget = { disId: string; dispensa: string };
 type InvoiceTableFilters = {
   facNitSec: string;
   dateFrom: string;
@@ -107,7 +107,7 @@ export function InvoicesTable({
         onConfirm={() => {
           if (auditTarget) {
             setPendingRoute(`audit:${auditTarget.disId}`);
-            navigation.push(`/audit/single?disId=${encodeURIComponent(auditTarget.disId)}`);
+            navigation.push(`/audit/single?disId=${encodeURIComponent(auditTarget.disId)}&disDetNro=${encodeURIComponent(auditTarget.dispensa)}`);
           }
           setAuditTarget(null);
         }}
@@ -151,7 +151,7 @@ export function InvoicesTable({
                         loadingLabel="Abriendo"
                         onClick={() => {
                           setPendingRoute(`detail:${dispensa}`);
-                          navigation.push(`/dispensation/${dispensa}`);
+                          navigation.push(`/dispensation/${encodeURIComponent(disId)}/${encodeURIComponent(dispensa)}`);
                         }}
                       >
                         Detalle
@@ -159,7 +159,7 @@ export function InvoicesTable({
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => setAuditTarget({ disId })}
+                        onClick={() => setAuditTarget({ disId, dispensa })}
                         className="h-8 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 hover:text-blue-300 border border-blue-500/20"
                       >
                         Auditar

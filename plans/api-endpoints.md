@@ -145,13 +145,21 @@ Busca facturas por body JSON.
 
 Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `dateFrom`. La respuesta usa el mismo contrato paginado de `GET /invoices`.
 
-### `GET /dispensation/{DisDetNro}`
+### `GET /dispensation/{DisId}/{DisDetNro}`
 
 Obtiene detalle técnico de una dispensación.
 
 ### `POST /dispensation`
 
 Busca una dispensación por body JSON.
+
+```json
+{
+  "DisDetNro": "X24250700021"
+}
+```
+
+*Nota: `DisId` es opcional. Si se omite, el backend derivará automáticamente el identificador canónico interno a partir de `DisDetNro` para satisfacer las consultas a las vistas estandarizadas.*
 
 ### `GET /dispensation/{DisDetNro}/attachments/{nitSec}`
 
@@ -171,11 +179,12 @@ Comportamiento:
 
 ### `POST /audit/single`
 
-Encola auditoría individual sobre una sola dispensación usando `DisId` como identidad canónica.
+Encola auditoría individual sobre una sola dispensación usando la llave compuesta `DisId` + `DisDetNro` como identidad canónica.
 
 ```json
 {
-  "disId": "87723098"
+  "disId": "DIS26-6-...",
+  "disDetNro": "87723098"
 }
 ```
 

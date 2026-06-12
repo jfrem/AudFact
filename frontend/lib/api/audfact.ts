@@ -65,8 +65,12 @@ export function getInvoices(query: {
   return requestJson(endpoints.invoices(query), PaginatedInvoicesSchema);
 }
 
-export function getDispensationDetail(disDetNro: string) {
-  return requestJson(endpoints.dispensationById(disDetNro), DispensationDetailSchema);
+export function getDispensationDetail(disId: string | undefined | null, disDetNro: string) {
+  if (!disId?.trim()) {
+    return postJson(endpoints.dispensationLookup(), { DisDetNro: disDetNro }, DispensationDetailSchema)
+      .then((envelope) => envelope.data);
+  }
+  return requestJson(endpoints.dispensationById(disId, disDetNro), DispensationDetailSchema);
 }
 
 export function getAttachments(disDetNro: string, nitSec: string | number) {
@@ -90,10 +94,10 @@ export function getAttachmentDownloadUrl(
   return buildPublicApiUrl(endpoints.attachmentDownload(disDetNro, attachmentId));
 }
 
-export function runAuditSingle(disId: string) {
+export function runAuditSingle(disId: string | undefined | null, disDetNro: string) {
   return postJson(
     endpoints.auditSingle(),
-    { disId: disId },
+    { disId: disId?.trim() || "", disDetNro },
     AuditSingleResponseSchema,
   );
 }

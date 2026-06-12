@@ -23,7 +23,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['disId' => '87723098'],
+            body: ['disId' => '87723098', 'disDetNro' => 'T38250701547'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -43,13 +43,23 @@ final class AuditControllerTest extends TestCase
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
     }
 
-    public function testSingleReturns422WhenDisIdMissing(): void
+    /**
+     * @dataProvider missingRequiredParametersProvider
+     */
+    public function testSingleReturns422WhenRequiredParametersMissing(array $body): void
     {
-        $controller = new TestableAuditController(body: []);
+        $controller = new TestableAuditController(body: $body);
 
         $response = self::captureResponse(static fn() => $controller->single());
 
         $this->assertSame(422, $response->getCode());
+    }
+
+    public static function missingRequiredParametersProvider(): array
+    {
+        return [
+            'Missing disDetNro' => [['disId' => '87723098']],
+        ];
     }
 
     public function testSingleReturns503WhenPublisherFails(): void
@@ -58,7 +68,7 @@ final class AuditControllerTest extends TestCase
         $store = $this->newStoreStub(initAuditReturns: true);
 
         $controller = new TestableAuditController(
-            body: ['disId' => '87723098'],
+            body: ['disId' => '87723098', 'disDetNro' => 'T38250701547'],
             stateStore: $store,
             publisher: $publisher,
         );
@@ -72,7 +82,7 @@ final class AuditControllerTest extends TestCase
     public function testSingleReturns404WhenDispensationNotFound(): void
     {
         $controller = new TestableAuditController(
-            body: ['disId' => '99999999'],
+            body: ['disId' => '99999999', 'disDetNro' => 'T38250701547'],
             auditDataService: new NotFoundAuditDataService(),
         );
 
@@ -85,7 +95,7 @@ final class AuditControllerTest extends TestCase
     {
         $publisher = new InMemoryAuditEventPublisher();
         $jobStore = $this->newJobStoreStub(initJobReturns: true);
-        
+
         $controller = new TestableAuditController(
             body: [
                 'facNitSec' => 2426,
@@ -325,6 +335,7 @@ final class TestableAuditController extends AuditController
         private ?AuditEventPublisher $publisher = null,
         private ?AuditStatusModel $auditStatusModel = null,
         private ?AuditDataService $auditDataService = null,
+        private ?\App\Models\DispensationModel $dispensationModel = null,
     ) {
     }
 
@@ -356,6 +367,21 @@ final class TestableAuditController extends AuditController
     protected function buildAuditDataService(): AuditDataService
     {
         return $this->auditDataService ?? new StubAuditDataService();
+    }
+
+    protected function buildDispensationModel(): \App\Models\DispensationModel
+    {
+        return $this->dispensationModel ?? new StubDispensationModel();
+    }
+}
+
+final class StubDispensationModel extends \App\Models\DispensationModel
+{
+    public function __construct() {}
+
+    public function resolveIdentityByDisDetNro(string $disDetNro): string
+    {
+        return 'resolved-disId-123';
     }
 }
 

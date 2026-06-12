@@ -21,18 +21,30 @@ class AuditController extends Controller
     public function single(): void
     {
         $data = $this->validate([
-            'disId' => 'required|string|max:255',
+            'disId' => 'string|max:255',
+            'disDetNro' => 'required|string|max:255',
         ]);
 
-        $disId = trim((string) $data['disId']);
-        if ($disId === '') {
-            Response::error('DisId es requerido', 422);
+        $disDetNro = trim((string) $data['disDetNro']);
+        try {
+            $disId = !empty($data['disId'])
+                ? trim((string) $data['disId'])
+                : $this->buildDispensationModel()->resolveIdentityByDisDetNro($disDetNro);
+        } catch (RuntimeException $e) {
+            Response::error(
+                'No se encontró la dispensación con el número proporcionado',
+                404
+            );
+        }
+
+        if ($disId === '' || $disDetNro === '') {
+            Response::error('DisId y DisDetNro son requeridos y no pudieron ser resueltos', 422);
         }
 
         // Resolver identidad completa desde la FDV
         $dataService = $this->buildAuditDataService();
         try {
-            $fdv = $dataService->getDispensation(['dis_id' => $disId]);
+            $fdv = $dataService->getDispensation(['dis_id' => $disId, 'dis_det_nro' => $disDetNro]);
         } catch (RuntimeException $e) {
             Response::error(
                 'No se encontró la dispensación correspondiente a la factura proporcionada',
@@ -40,7 +52,6 @@ class AuditController extends Controller
             );
         }
 
-        $disDetNro = (string) ($fdv['header']['NumeroFactura'] ?? '');
         $facNitSec = (string) ($fdv['header']['NitSec'] ?? '');
 
         if ($disDetNro === '') {
@@ -536,5 +547,10 @@ class AuditController extends Controller
     protected function buildBatchJobStore(): BatchJobStore
     {
         return new BatchJobStore();
+    }
+
+    protected function buildDispensationModel(): \App\Models\DispensationModel
+    {
+        return new \App\Models\DispensationModel();
     }
 }

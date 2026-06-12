@@ -79,9 +79,9 @@ export function AuditResultDetailModal({
   });
 
   const dispensationQ = useQuery({
-    queryKey: ["modal-dispensation", facNro],
-    queryFn: () => getDispensationDetail(facNro),
-    enabled: open && Boolean(facNro),
+    queryKey: ["modal-dispensation", disId, facNro],
+    queryFn: () => getDispensationDetail(disId, facNro),
+    enabled: open && Boolean(facNro) && Boolean(disId),
   });
 
   const attachments = attachmentsQ.data ?? [];

@@ -99,6 +99,32 @@ class DispensationModel extends Model
     ];
 
     /**
+     * Resuelve el DisId interno asociado a un número de dispensación.
+     * Consulta rápida a tabla secundaria indexada para evitar timeouts en vistas masivas.
+     *
+     * @param string $disDetNro Número de dispensación/factura (ej: D14260600440)
+     * @return string Identificador interno (DisId)
+     * @throws \RuntimeException Si no se encuentra la dispensación
+     */
+    public function resolveIdentityByDisDetNro(string $disDetNro): string
+    {
+        $sql = "SELECT TOP 1 DisId
+                FROM DispensacionDetalleServicio WITH (NOLOCK)
+                WHERE DisDetNro = :disDetNro";
+        
+        $stmt = $this->readDb->prepare($sql);
+        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row || empty($row['DisId'])) {
+            throw new \RuntimeException("No se encontró la dispensación con número {$disDetNro}.");
+        }
+
+        return (string) $row['DisId'];
+    }
+
+    /**
      * Obtiene la fuente de verdad filtrando por parámetros validados contra whitelist.
      *
      * @param array<string,string> $filters Asociativo clave => valor (solo claves permitidas)
@@ -121,6 +147,13 @@ class DispensationModel extends Model
             $placeholder = ":{$key}";
             $whereParts[] = "{$dbCol} = {$placeholder}";
             $bindings[$placeholder] = $value;
+        }
+
+        $resolvedColumns = array_map(fn(string $k) => self::ALLOWED_FILTERS[$k], array_keys($filters));
+        if (!in_array('facsec', $resolvedColumns, true) || !in_array('Dispensa', $resolvedColumns, true)) {
+            throw new \InvalidArgumentException(
+                'DispensationModel requiere filtros para ambas columnas: facsec (DisId) y Dispensa (DisDetNro)'
+            );
         }
 
         return $this->getDispensationRows(

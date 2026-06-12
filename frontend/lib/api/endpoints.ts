@@ -13,7 +13,8 @@ export const endpoints = {
     const params = buildSearchParams(query ?? {});
     return params.size ? `/invoices?${params.toString()}` : "/invoices";
   },
-  dispensationById: (disDetNro: string) => `/dispensation/${disDetNro}`,
+  dispensationById: (disId: string, disDetNro: string) => `/dispensation/${disId}/${disDetNro}`,
+  dispensationLookup: () => "/dispensation",
   dispensationAttachments: (disDetNro: string, nitSec: string | number) =>
     `/dispensation/${disDetNro}/attachments/${nitSec}`,
   attachmentDownload: (disDetNro: string, attachmentId: string | number) =>

@@ -13,25 +13,43 @@ class DispensationController extends Controller
         $this->model = new DispensationModel();
     }
 
-    public function show(string $DisDetNro): void
+    public function show(string $DisId, string $DisDetNro): void
     {
-        $this->validateArray(['DisDetNro' => $DisDetNro], [
+        $this->validateArray(['DisId' => $DisId, 'DisDetNro' => $DisDetNro], [
+            'DisId' => 'required|string|max:255',
             'DisDetNro' => 'required|string|max:255'
         ]);
-        $DisDetNro = trim($DisDetNro);
 
-        $rows = $this->model->getDispensationData(['Dispensa' => $DisDetNro]);
+        $rows = $this->model->getDispensationData([
+            'DisId' => trim($DisId),
+            'Dispensa' => trim($DisDetNro)
+        ]);
         Response::success(DispensationModel::formatDispensation($rows));
     }
 
     public function lookup(): void
     {
         $data = $this->validate([
+            'DisId' => 'string|max:255',
             'DisDetNro' => 'required|string|max:255'
         ]);
 
-        $DisDetNro = trim((string) $data['DisDetNro']);
-        $rows = $this->model->getDispensationData(['Dispensa' => $DisDetNro]);
+        $disDetNro = trim((string) $data['DisDetNro']);
+        try {
+            $disId = !empty($data['DisId'])
+                ? trim((string) $data['DisId'])
+                : $this->model->resolveIdentityByDisDetNro($disDetNro);
+        } catch (\RuntimeException $e) {
+            Response::error(
+                'No se encontró la dispensación con el número proporcionado',
+                404
+            );
+        }
+
+        $rows = $this->model->getDispensationData([
+            'DisId' => $disId,
+            'Dispensa' => $disDetNro
+        ]);
         Response::success(DispensationModel::formatDispensation($rows));
     }
 }

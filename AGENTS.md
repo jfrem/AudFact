@@ -66,15 +66,15 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `POST` | `/clients/{clientId}/audit-config` | `AuditConfigController` | `save` | Guardar/reemplazar configuración dinámica de auditoría |
 | `GET` | `/invoices` | `InvoicesController` | `index` | Buscar facturas pendientes con paginación `page`/`pageSize` |
 | `POST` | `/invoices` | `InvoicesController` | `search` | Buscar facturas por fecha/nit con contrato paginado |
-| `GET` | `/dispensation/{DisDetNro}` | `DispensationController` | `show` | Detalle técnico de una dispensa |
-| `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por ID |
+| `GET` | `/dispensation/{DisId}/{DisDetNro}` | `DispensationController` | `show` | Detalle técnico de una dispensa |
+| `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por llave compuesta `DisId` + `DisDetNro` |
 | `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController` | `downloadByDispensation` | Descargar/previsualizar adjunto |
 | `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
 | `GET` | `/audit/results/{disId}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por DisId |
 | `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por DisId |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disId` y `disDetNro` |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 | `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |

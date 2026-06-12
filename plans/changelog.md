@@ -1,5 +1,33 @@
 # Changelog AudFact
 
+## [2026-06-11] - Refactor: Resolución Dinámica de Llave DisId desde DisDetNro
+
+### Backend & Frontend
+- **API y Modelos**:
+  - `DispensationController.php`: Flexibilizada la validación de `POST /dispensation` permitiendo que la llave canónica interna `DisId` sea opcional para el cliente (frontend).
+  - `DispensationModel.php`: Añadido método de resolución dinámica `resolveIdentityByDisDetNro` que cruza la tabla indexada `DispensacionDetalleServicio` permitiendo recuperar en milisegundos el `DisId` usando solo el `DisDetNro` (Número de factura en la UI), previniendo timeouts.
+- **Sincronización Documental (DOCS-SYNC)**:
+  - `plans/api-endpoints.md`: Contrato de `POST /dispensation` actualizado.
+  - `plans/database-schema.md`: Dependencia de `DispensationModel` en `DispensacionDetalleServicio` añadida.
+  - Test unitario introducido: `DispensationControllerTest` que verifica la intercepción y resolución limpia de identidad.
+
+## [2026-06-11] - Refactor: Llave Compuesta Obligatoria para Dispensación
+
+### Backend & Frontend
+- **Modelos y Controladores**:
+  - `DispensationModel.php`: Implementada validación en `getDispensationData` para lanzar excepción si falta la combinación obligatoria de `facsec` (`DisId`) y `Dispensa` (`DisDetNro`).
+  - `DispensationController.php` y `AuditController.php`: Actualizados `show`, `lookup` y `single` para recibir y exigir la llave compuesta.
+  - `app/Routes/web.php`: Rutas actualizadas (`GET /dispensation/{DisId}/{DisDetNro}`).
+- **Frontend**:
+  - `endpoints.ts` y `audfact.ts`: API clients actualizados para emitir `disId` y `disDetNro` a lo largo de las peticiones.
+  - `invoices-table.tsx`: Push de botones "Auditar" y "Detalle" apuntando a la tupla completa.
+  - Ruta de la aplicación movida de `[disDetNro]` hacia la nueva ruta anidada `[disId]/[disDetNro]`.
+- **Sincronización Documental (DOCS-SYNC)**:
+  - `AGENTS.md`: Mapa de Endpoints REST actualizado con los nuevos contratos de `GET/POST /dispensation` y `POST /audit/single`.
+  - `plans/api-endpoints.md`: Documentadas las nuevas firmas de la API.
+  - Test suite ejecutado 100% exitoso (324 tests).
+
+
 ## [2026-06-11] - Feature: Payload Estructurado JSON en AdjDisObsRec
 
 ### Backend & Persistencia

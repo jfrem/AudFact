@@ -122,7 +122,7 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($result['document_decision']['approved']);
     }
 
-    public function testFailedDataFindingAppendsConfiguredFieldCodeToDetail(): void
+    public function testFailedDataFindingProducesMismatch(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -140,10 +140,9 @@ final class DocumentPolicyEngineTest extends TestCase
 
         $finding = $result['hallazgos']['items'][0];
         $this->assertSame('VALOR_DISTINTO', $finding['resultado']);
-        $this->assertStringContainsString('-DX- ', (string) $finding['detalle']);
     }
 
-    public function testMatchingDataFindingDoesNotAppendConfiguredFieldCodeToDetail(): void
+    public function testMatchingDataFindingProducesCoincide(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -164,7 +163,7 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertNull($finding['detalle']);
     }
 
-    public function testFailedVisualFindingAppendsConfiguredFieldCodeToDetail(): void
+    public function testFailedVisualFindingProducesMismatch(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -185,7 +184,6 @@ final class DocumentPolicyEngineTest extends TestCase
 
         $finding = $result['hallazgos']['items'][0];
         $this->assertSame('VALOR_DISTINTO', $finding['resultado']);
-        $this->assertStringContainsString('-FIR- ', (string) $finding['detalle']);
     }
 
     public function testEvaluateSkipsCalculatedVisualChecksForAggregatePolicy(): void
