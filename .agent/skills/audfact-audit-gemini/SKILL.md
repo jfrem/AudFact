@@ -134,7 +134,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 17. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
 18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
 19. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
-20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` es la llave operativa de adjuntos y se persiste como `AudDispEst.FacNro`. Ver `plans/audit-identity-contract.md`.
+20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` se persiste como `AudDispEst.FacNro`, que es la PK operativa de resultados; `AuditStatusModel` consulta detalle, `MERGE` y timings por `FacNro`. Ver `plans/audit-identity-contract.md`.
 
 ## Omisiones de campos (runtime actual)
 

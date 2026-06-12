@@ -48,6 +48,8 @@ vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy)
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
+`AudDispEst.FacNro` es la PK operativa de resultados persistidos; `AuditStatusModel` hace `MERGE`, detalle y timings por `FacNro`, mientras `FacSec` conserva `DisId`.
+
 `vw_discolnet_dispensas.facsec` es legacy/de agrupación y no debe mapearse como `DisId`.
 
 ## Database.php — Capacidades

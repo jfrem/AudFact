@@ -69,7 +69,7 @@ AudFact/
 | GET | `/dispensation/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
-| GET | `/audit/results/{disId}` | AuditController::resultDetail |
+| GET | `/audit/results/{facNro}` | AuditController::resultDetail |
 | GET | `/audit/stats` | AuditController::stats |
 | GET | `/audit/documents-history` | AuditController::documentsHistory |
 | POST | `/audit/single` | AuditController::single |

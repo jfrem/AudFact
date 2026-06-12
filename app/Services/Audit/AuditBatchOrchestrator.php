@@ -99,7 +99,7 @@ final class AuditBatchOrchestrator
                     $disDetNro = $invoiceIdentity['dis_det_nro'];
                     $disId = $invoiceIdentity['dis_id'];
 
-                    if ($this->isAuditAlreadyPersisted($disId)) {
+                    if ($this->isAuditAlreadyPersisted($disDetNro)) {
                         $skippedExisting++;
                         continue;
                     }
@@ -210,10 +210,10 @@ final class AuditBatchOrchestrator
         return $invoiceIdentity;
     }
 
-    private function isAuditAlreadyPersisted(string $disId): bool
+    private function isAuditAlreadyPersisted(string $facNro): bool
     {
         return $this->auditStatusModel !== null
-            && $this->auditStatusModel->getAuditDetailByDisId($disId) !== null;
+            && $this->auditStatusModel->getAuditDetailByFacNro($facNro) !== null;
     }
 
     /**

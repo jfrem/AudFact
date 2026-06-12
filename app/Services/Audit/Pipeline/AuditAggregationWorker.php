@@ -271,13 +271,13 @@ final class AuditAggregationWorker extends AuditEventConsumer
     {
         $timings = AuditTimingSummarizer::buildPhaseTimings($finalAudit);
         $durationMs = (int) ($timings['processing_duration_ms'] ?? 0);
-        $disId = (string) ($auditResultData['DisId'] ?? '');
+        $facNro = (string) ($auditResultData['FacNro'] ?? '');
 
         try {
-            $this->auditStatusModel->updateAuditTimings($disId, $timings, $durationMs);
+            $this->auditStatusModel->updateAuditTimings($facNro, $timings, $durationMs);
         } catch (\Throwable $error) {
             \Core\Logger::error('Audit aggregation: no se pudieron persistir timings finales', [
-                'DisId' => $disId,
+                'FacNro' => $facNro,
                 'error_class' => get_class($error),
                 'error' => $error->getMessage(),
             ]);

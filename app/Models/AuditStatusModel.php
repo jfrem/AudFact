@@ -140,20 +140,20 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene el detalle público de auditoría por DisId.
+     * Obtiene el detalle público de auditoría por FacNro (DisDetNro).
      *
-     * @param  string  $disId  Secuencia única de la factura.
+     * @param  string  $facNro  Número único de la dispensación.
      * @return array<string,mixed>|null Detalle con hallazgos, métricas, timings y decisiones documentales.
      */
-    public function getAuditDetailByDisId(string $disId): ?array
+    public function getAuditDetailByFacNro(string $facNro): ?array
     {
-        $row = $this->fetchAuditRowByDisId($this->readDb, $disId);
+        $row = $this->fetchAuditRowByFacNro($this->readDb, $facNro);
         if ($row === null) {
             return null;
         }
 
-        Logger::info("AuditStatus: búsqueda por DisId", [
-            'disId' => $disId
+        Logger::info("AuditStatus: búsqueda por FacNro", [
+            'facNro' => $facNro
         ]);
 
         return $this->normalizeAuditDetail($row);
@@ -347,19 +347,19 @@ class AuditStatusModel extends Model
     /**
      * Actualiza exclusivamente los timings finales de una auditoría ya persistida.
      *
-     * @param  string  $disId  Identificador canónico de la factura auditada.
+     * @param  string  $facNro  Identificador canónico de la dispensación auditada.
      * @param  array<string,mixed>  $timings  Métricas finales del pipeline.
      * @param  int  $durationMs  Duración final en milisegundos.
      */
-    public function updateAuditTimings(string $disId, array $timings, int $durationMs): bool
+    public function updateAuditTimings(string $facNro, array $timings, int $durationMs): bool
     {
-        $disId = trim($disId);
-        if ($disId === '') {
-            throw new \InvalidArgumentException('DisId es obligatorio para actualizar timings.');
+        $facNro = trim($facNro);
+        if ($facNro === '') {
+            throw new \InvalidArgumentException('FacNro es obligatorio para actualizar timings.');
         }
 
         $writeDb = $this->getWriteDb();
-        $row = $this->fetchAuditRowByDisId($writeDb, $disId);
+        $row = $this->fetchAuditRowByFacNro($writeDb, $facNro);
         if ($row === null) {
             return false;
         }
@@ -369,7 +369,7 @@ class AuditStatusModel extends Model
             : '';
         $payload = json_decode($rawHallazgos, true);
         if (!is_array($payload) || array_is_list($payload)) {
-            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$disId}.");
+            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$facNro}.");
         }
 
         $payload['timings'] = $timings;
@@ -382,13 +382,14 @@ class AuditStatusModel extends Model
 
         $sql = "UPDATE Discolnet.dbo.AudDispEst
                 SET [Hallazgos] = :Hallazgos,
-                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs
-                WHERE [FacSec] = :DisId";
+                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs,
+                    [FechaActualizacion] = GETDATE()
+                WHERE [FacNro] = :FacNro";
 
         $stmt = $writeDb->prepare($sql);
         $stmt->bindValue(':Hallazgos', $encoded, PDO::PARAM_STR);
         $stmt->bindValue(':DuracionProcesamientoMs', max(0, $durationMs), PDO::PARAM_INT);
-        $stmt->bindValue(':DisId', $disId, PDO::PARAM_STR);
+        $stmt->bindValue(':FacNro', $facNro, PDO::PARAM_STR);
         $stmt->execute();
 
         return $stmt->rowCount() > 0;
@@ -415,10 +416,10 @@ class AuditStatusModel extends Model
                     :DuracionProcesamientoMs AS [DuracionProcesamientoMs],
                     :FacNitSec AS [FacNitSec]
                 ) AS source
-                ON target.[FacSec] = source.[FacSec]
+                ON target.[FacNro] = source.[FacNro]
                 WHEN MATCHED THEN
                     UPDATE SET
-                        target.[FacNro] = source.[FacNro],
+                        target.[FacSec] = source.[FacSec],
                         target.[EstAud] = source.[EstAud],
                         target.[EstadoDetallado] = source.[EstadoDetallado],
                         target.[RequiereRevisionHumana] = source.[RequiereRevisionHumana],
@@ -428,7 +429,8 @@ class AuditStatusModel extends Model
                         target.[DocumentosProcesados] = source.[DocumentosProcesados],
                         target.[DocumentoFallido] = source.[DocumentoFallido],
                         target.[DuracionProcesamientoMs] = source.[DuracionProcesamientoMs],
-                        target.[FacNitSec] = source.[FacNitSec]
+                        target.[FacNitSec] = source.[FacNitSec],
+                        target.[FechaActualizacion] = GETDATE()
                 WHEN NOT MATCHED THEN
                     INSERT ([FacSec], [FacNro], [EstAud], [EstadoDetallado],
                             [RequiereRevisionHumana], [Severidad], [Hallazgos],
@@ -463,7 +465,7 @@ class AuditStatusModel extends Model
             'EstAud' => $data['EstAud']
         ]);
 
-        return $this->getByDisIdFromConnection($writeDb, $data['DisId']);
+        return $this->getByFacNroFromConnection($writeDb, $data['FacNro']);
     }
 
     /**
@@ -633,9 +635,9 @@ class AuditStatusModel extends Model
         $statement->bindValue(':adjDisId', $adjDisId, PDO::PARAM_INT);
     }
 
-    private function getByDisIdFromConnection(PDO $connection, string $disId): array|false
+    private function getByFacNroFromConnection(PDO $connection, string $facNro): array|false
     {
-        $row = $this->fetchAuditRowByDisId($connection, $disId);
+        $row = $this->fetchAuditRowByFacNro($connection, $facNro);
         if ($row === null) {
             return false;
         }
@@ -644,11 +646,11 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene una fila cruda de AudDispEst por DisId.
+     * Obtiene una fila cruda de AudDispEst por FacNro.
      *
      * @return array<string,mixed>|null
      */
-    private function fetchAuditRowByDisId(PDO $connection, string $disId): ?array
+    private function fetchAuditRowByFacNro(PDO $connection, string $facNro): ?array
     {
         $sql = "SELECT
                     [FacSec] AS [DisId],
@@ -666,10 +668,10 @@ class AuditStatusModel extends Model
                     [FechaCreacion],
                     [FechaActualizacion]
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
-                WHERE [FacSec] = :disId";
+                WHERE [FacNro] = :facNro";
 
         $stmt = $connection->prepare($sql);
-        $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindParam(':facNro', $facNro, PDO::PARAM_STR);
         $stmt->execute();
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 

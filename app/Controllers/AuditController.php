@@ -258,11 +258,11 @@ class AuditController extends Controller
         }
     }
 
-    public function resultDetail(string $disId): void
+    public function resultDetail(string $facNro): void
     {
         try {
             $model = $this->buildAuditStatusModel();
-            $detail = $model->getAuditDetailByDisId($disId);
+            $detail = $model->getAuditDetailByFacNro($facNro);
 
             if (empty($detail)) {
                 Response::error('Auditoría no encontrada para la factura proporcionada', 404);
@@ -274,7 +274,7 @@ class AuditController extends Controller
         } catch (\RuntimeException $e) {
             Logger::error('Excepción en AuditController::resultDetail: ' . $e->getMessage(), [
                 'exception' => $e,
-                'disId' => $disId,
+                'facNro' => $facNro,
             ]);
             Response::error('Detalle de auditoría temporalmente no disponible', 503);
         }

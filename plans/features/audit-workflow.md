@@ -21,7 +21,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` | Estado Redis de una auditoría individual |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` | Estado y progreso de un job batch |
 | `GET` | `/audit/results` | `AuditController::results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{disId}` | `AuditController::resultDetail` | Detalle persistido por `DisId` |
+| `GET` | `/audit/results/{facNro}` | `AuditController::resultDetail` | Detalle persistido por `FacNro` |
 | `GET` | `/audit/stats` | `AuditController::stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController::documentsHistory` | Historial paginado de documentos auditados |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` | Timings persistidos por factura/dispensa |
@@ -80,7 +80,7 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 | Campo | Rol |
 |---|---|
 | `DisId` / `dis_id` | Identidad canónica de auditoría, idempotencia y persistencia (`AudDispEst.FacSec` — columna legacy) |
-| `DisDetNro` / `dis_det_nro` | Llave operativa para adjuntos y `FacNro` persistido |
+| `DisDetNro` / `dis_det_nro` | Llave operativa para adjuntos y `FacNro` persistido; `FacNro` es la PK operativa de `AudDispEst` |
 | `facNitSec` / `fac_nit_sec` | Cliente/NIT usado para configuración, filtros y métricas |
 
 ## Configuración Runtime
