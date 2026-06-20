@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use Core\Env;
 use Core\Logger;
 use Core\RedisClient;
 use Core\RedisUnavailableException;
@@ -26,13 +27,34 @@ class AuditStateStore
     /** Error fatal de pipeline (timeout, Gemini down, excepción no recuperable) — no se completó el análisis */
     public const AUDIT_STATUS_FAILED        = 'failed';
 
-    private const AUDIT_TTL_SECONDS = 86400;
+    private const DEFAULT_AUDIT_TTL_SECONDS = 604800;
 
     private RedisClient $redis;
 
     public function __construct(?RedisClient $redis = null)
     {
         $this->redis = $redis ?? RedisClient::getInstance();
+    }
+
+    private static function auditTtlSeconds(): int
+    {
+        return self::positiveIntEnv('AUDIT_STATE_TTL', self::DEFAULT_AUDIT_TTL_SECONDS);
+    }
+
+    private static function positiveIntEnv(string $key, int $default): int
+    {
+        $value = Env::get($key, (string) $default);
+        $value = is_string($value) ? trim($value) : $value;
+
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^[1-9][0-9]*$/', $value) === 1) {
+            return (int) $value;
+        }
+
+        return $default;
     }
 
     private static function nowUtc(): string
@@ -66,7 +88,7 @@ class AuditStateStore
         ];
 
         $encoded = self::encodeJson($state, 'AuditStateStore');
-        return $this->redis->setnx(self::auditKey($auditId), $encoded, self::AUDIT_TTL_SECONDS);
+        return $this->redis->setnx(self::auditKey($auditId), $encoded, self::auditTtlSeconds());
     }
 
     public function getAudit(string $auditId): ?array
@@ -94,7 +116,7 @@ class AuditStateStore
         return $this->runScript(
             self::$MERGE_LUA,
             [self::auditKey($auditId)],
-            [$patch, self::AUDIT_TTL_SECONDS],
+            [$patch, self::auditTtlSeconds()],
             'No se pudo actualizar la auditoría en Redis',
             ['audit_id' => $auditId]
         );
@@ -118,7 +140,7 @@ class AuditStateStore
         return $this->runScript(
             self::MARK_AUDIT_STARTED_LUA,
             [self::auditKey($auditId)],
-            [self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo marcar el inicio de la auditoría en Redis',
             ['audit_id' => $auditId]
         );
@@ -129,7 +151,7 @@ class AuditStateStore
         return $this->runScript(
             self::REGISTER_DOCUMENT_LUA,
             [self::auditKey($auditId)],
-            [$documentId, $documentState, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [$documentId, $documentState, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo registrar el documento en Redis',
             ['audit_id' => $auditId, 'document_id' => $documentId]
         );
@@ -185,7 +207,7 @@ class AuditStateStore
         return $this->runScript(
             self::DOCUMENT_REJECTION_LUA,
             [self::auditKey($auditId)],
-            [$documentId, $patch, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [$documentId, $patch, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo marcar el documento como rechazado en Redis',
             ['audit_id' => $auditId, 'document_id' => $documentId]
         );
@@ -205,7 +227,7 @@ class AuditStateStore
         return $this->runScript(
             self::DOCUMENT_TRANSITION_LUA,
             [self::auditKey($auditId)],
-            [$documentId, $patch, self::nowUtc(), self::AUDIT_TTL_SECONDS, $counterField, $expectedStatus],
+            [$documentId, $patch, self::nowUtc(), self::auditTtlSeconds(), $counterField, $expectedStatus],
             $errorMessage,
             ['audit_id' => $auditId, 'document_id' => $documentId]
         );
@@ -216,7 +238,7 @@ class AuditStateStore
         return $this->runScript(
             self::STORE_RULES_EVALUATION_LUA,
             [self::auditKey($auditId)],
-            [$rulesEvaluation, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [$rulesEvaluation, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo persistir rules_evaluated en Redis',
             ['audit_id' => $auditId]
         );
@@ -227,7 +249,7 @@ class AuditStateStore
         return $this->runScript(
             self::COMPLETE_AUDIT_LUA,
             [self::auditKey($auditId)],
-            [$completionState, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [$completionState, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo completar la auditoría en Redis',
             ['audit_id' => $auditId]
         );
@@ -244,7 +266,7 @@ class AuditStateStore
         return $this->runScript(
             self::RECORD_EVENT_TELEMETRY_LUA,
             [self::auditKey($auditId)],
-            [$telemetry, self::nowUtc(), self::AUDIT_TTL_SECONDS],
+            [$telemetry, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo registrar telemetría del evento en Redis',
             ['audit_id' => $auditId]
         );

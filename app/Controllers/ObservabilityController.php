@@ -40,44 +40,21 @@ class ObservabilityController extends Controller
             // Profundidad de la Dead Letter Queue
             $deadLetterDepth = (int) $redis->xLen($dlqStream);
 
-            // Conteos de jobs por estado: escanear keys job:*:state con SCAN
-            $jobCounts = ['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0];
-            $retries = 0;
-            $terminalFailures = 0;
+            // Métricas operativas desde hash atómico
+            $metrics = $redis->hGetAll('telemetry:async_metrics');
+            if (!is_array($metrics)) {
+                $metrics = [];
+            }
 
-            $cursor = '0';
-            do {
-                [$cursor, $keys] = $redis->scan($cursor, 'job:*:state', 100);
-                foreach ($keys as $key) {
-                    $raw = $redis->get($key);
-                    if (!is_string($raw) || $raw === '') {
-                        continue;
-                    }
-                    $job = json_decode($raw, true);
-                    if (!is_array($job)) {
-                        continue;
-                    }
+            $jobCounts = [
+                'queued'    => max(0, (int) ($metrics['jobs_queued'] ?? 0)),
+                'running'   => max(0, (int) ($metrics['jobs_running'] ?? 0)),
+                'completed' => max(0, (int) ($metrics['jobs_completed'] ?? 0)),
+                'failed'    => max(0, (int) ($metrics['jobs_failed'] ?? 0)),
+            ];
 
-                    $status = (string) ($job['status'] ?? '');
-                    // Normalizar al schema del frontend
-                    $frontendStatus = match ($status) {
-                        BatchJobStore::JOB_STATUS_PENDING              => 'queued',
-                        BatchJobStore::JOB_STATUS_PROCESSING           => 'running',
-                        BatchJobStore::JOB_STATUS_COMPLETED,
-                        BatchJobStore::JOB_STATUS_COMPLETED_WITH_ERR   => 'completed',
-                        BatchJobStore::JOB_STATUS_FAILED               => 'failed',
-                        default                                        => null,
-                    };
-
-                    if ($frontendStatus !== null && isset($jobCounts[$frontendStatus])) {
-                        $jobCounts[$frontendStatus]++;
-                    }
-
-                    if ($status === BatchJobStore::JOB_STATUS_FAILED) {
-                        $terminalFailures++;
-                    }
-                }
-            } while ($cursor !== '0');
+            $retries = max(0, (int) ($metrics['retries'] ?? 0));
+            $terminalFailures = max(0, (int) ($metrics['terminal_failures'] ?? 0));
 
             Response::success([
                 'queueDepth'       => $queueDepth,

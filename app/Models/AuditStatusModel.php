@@ -512,28 +512,22 @@ class AuditStatusModel extends Model
 
             $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $observation);
         }
+
+        $this->markDispensationAsAudited($connection, $disId, $disDetId);
     }
 
-    /**
-     * @return array{DisId:string|int,DisDetId:string|int}
-     */
-    private function resolveDispensationIdentity(PDO $connection, string $facNro): array
+    private function markDispensationAsAudited(PDO $connection, string $disId, int $disDetId): void
     {
-        $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
-            FROM DispensacionDetalleServicio d WITH (NOLOCK)
-            WHERE d.DisDetNro = :facNro
-            ORDER BY d.DisDetId ASC";
+        $sql = "UPDATE DispensacionDetalleServicio SET
+                    DisDetUsuAud = :auditUser,
+                    DisDetFecAud = GETDATE()
+                WHERE DisId = :disId AND DisDetId = :disDetId";
 
-        $stmtResolve = $connection->prepare($sqlResolve);
-        $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-        $stmtResolve->execute();
-        $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
-
-        if (!$dispensacion) {
-            throw new \RuntimeException("No se encontró DispensacionDetalleServicio para {$facNro}.");
-        }
-
-        return $dispensacion;
+        $stmt = $connection->prepare($sql);
+        $stmt->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
+        $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->execute();
     }
 
     /**
@@ -895,14 +889,9 @@ class AuditStatusModel extends Model
                 left join DispensacionDetalleServicio d with (nolock) on d.DisId = a.DisId and d.DisDetId = a.DisDetId
                 WHERE d.DisDetNro = :facnro
                 ORDER BY a.AdjDisId ASC";
-        // $sql = "SELECT a.AdjDisId, a.AdjDisNom
-        //         FROM AdjuntosDispensacion a WITH (NOLOCK)
-        //         WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-        //         ORDER BY a.AdjDisId ASC";
 
         $stmt = $connection->prepare($sql);
         $stmt->bindParam(':facnro', $facnro, PDO::PARAM_STR);
-        // $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
