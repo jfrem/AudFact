@@ -287,6 +287,9 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `REDIS_PORT` | `6379` | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis |
 | `REDIS_PASSWORD` | `audfact_dev_default` | ❌ | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
 | `REDIS_PREFIX` | `audfact:` | ❌ | `Core\RedisClient` — prefijo para keys (namespace) |
+| `REDIS_MAXMEMORY` | `4gb` | ❌ | `docker-compose*.yml` — límite interno de memoria Redis (`--maxmemory`) |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | ❌ | `docker-compose*.yml` — política de evicción Redis para llaves con TTL |
+| `REDIS_CONTAINER_MEMORY` | `5G` | ❌ | `docker-compose*.yml` — límite de memoria del contenedor Redis |
 | `REDIS_MODE` | `standalone` | ❌ | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster` |
 | `REDIS_SENTINELS` | *(comentado)* | ⚠️ Sentinel | Lista `host:port` separada por comas para modo sentinel |
 | `REDIS_SENTINEL_SERVICE` | *(comentado)* | ⚠️ Sentinel | Nombre del master Sentinel |
@@ -307,13 +310,16 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers |
 | `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController::async` — máximo de facturas por batch |
 | `AUDIT_INTERNAL_API_BASE` | `http://nginx` | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna |
-| `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
-| `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
+| `AUDIT_CACHE_TTL` | `604800` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
+| `AUDIT_EXTRACTION_CACHE_TTL` | `604800` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
+| `AUDIT_JOB_TTL` | `604800` | ❌ | `BatchJobStore` — TTL del estado de jobs batch async |
+| `AUDIT_STATE_TTL` | `604800` | ❌ | `AuditStateStore` — TTL del estado transitorio de auditorías |
+| `AUDIT_RESERVATION_TTL` | `86400` | ❌ | `BatchJobStore` — TTL de reservas por `DisId` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | ❌ | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | ❌ | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending` |
 | `AUDIT_EVENT_MAX_RETRIES` | `3` | ❌ | `AuditEventConsumer` — reintentos antes de DLQ |
