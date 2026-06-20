@@ -89,6 +89,7 @@ final class DocumentNormalizer extends AuditEventConsumer
                 'document_quality' => $normalized['document_quality'] ?? null,
                 'quality_notes' => $normalized['quality_notes'] ?? [],
                 'normalization_log' => $normalized['normalization_log'] ?? [],
+                'extraction_warnings' => $normalized['extraction_warnings'] ?? [],
             ],
             parentEventId: $event->eventId,
         ));
@@ -114,6 +115,7 @@ final class DocumentNormalizer extends AuditEventConsumer
         );
         $documentQuality = $this->normalizeDocumentQuality($extraction['document_quality'] ?? null);
         $qualityNotes = $this->normalizeQualityNotes($extraction['quality_notes'] ?? [], $normalizationLog);
+        $extractionWarnings = is_array($extraction['extraction_warnings'] ?? null) ? $extraction['extraction_warnings'] : [];
 
         return [
             'tipo_documento' => $rawType,
@@ -123,6 +125,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             'document_quality' => $documentQuality,
             'quality_notes' => $qualityNotes,
             'normalization_log' => $normalizationLog,
+            'extraction_warnings' => $extractionWarnings,
         ];
     }
 

@@ -228,7 +228,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         unset($response['X-Audit-Metrics']);
 
         $extracted = $this->parseGeminiResponse($response, $contract);
-        $this->enforceItemSegmentation($documentType, $payload, $contract, $extracted);
+        $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);
         $this->cachePut($cacheKey, $extracted);
 
         return [
@@ -942,21 +942,38 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ];
     }
 
-    private function enforceItemSegmentation(string $documentType, array $payload, array $contract, array $extracted): void
+    /**
+     * @param array<string,mixed> $extracted
+     * @return array<string,mixed>
+     */
+    private function annotateItemSegmentation(string $documentType, array $payload, array $contract, array $extracted): array
     {
         if (!$this->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS)) {
-            return;
+            return $extracted;
         }
 
         if (!$this->requiresSegmentedDispensaItems($documentType, $payload)) {
-            return;
+            return $extracted;
         }
 
         $items = $extracted['items'] ?? [];
         $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
-        if (!is_array($items) || count($items) < count($sourceTruthItems)) {
-            throw new RuntimeException('Gemini no segmentó todos los items visibles de la dispensa');
+        $extractedItemsCount = is_array($items) ? count($items) : 0;
+        $expectedItemsCount = count($sourceTruthItems);
+
+        if ($extractedItemsCount < $expectedItemsCount) {
+            $extracted['extraction_warnings'] = $extracted['extraction_warnings'] ?? [];
+            $extracted['extraction_warnings'][] = [
+                'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                'severity' => 'warning',
+                'scope' => 'items',
+                'document_type' => $documentType,
+                'expected_items_count' => $expectedItemsCount,
+                'extracted_items_count' => $extractedItemsCount,
+            ];
         }
+
+        return $extracted;
     }
 
     /**

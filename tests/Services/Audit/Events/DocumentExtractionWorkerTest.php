@@ -568,6 +568,88 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame(1, substr_count($gateway->lastSystemInstruction, $noDuplicada));
     }
 
+    public function testMultiItemDispensaPartialExtractionPublishesWarningInsteadOfThrowing(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $payloadOverrides = [
+            'tipo_documento' => 'DISPENSA',
+            'fuente_verdad' => [
+                'items' => [
+                    ['NombreArticulo' => 'ITEM A'],
+                    ['NombreArticulo' => 'ITEM B'],
+                ],
+            ],
+        ];
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, $payloadOverrides));
+
+        $this->assertCount(1, $publisher->published);
+        $warnings = $publisher->published[0]->payload['extraction_result']['extraction_warnings'] ?? [];
+        $this->assertCount(1, $warnings);
+        $this->assertSame('ITEM_SEGMENTATION_INCOMPLETE', $warnings[0]['code']);
+        $this->assertSame(2, $warnings[0]['expected_items_count']);
+        $this->assertSame(1, $warnings[0]['extracted_items_count']);
+    }
+
+    public function testSingleItemDispensaDoesNotPublishSegmentationWarning(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(null);
+        $redisMock->expects($this->once())->method('set')->willReturn(true);
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $payloadOverrides = [
+            'tipo_documento' => 'DISPENSA',
+            'fuente_verdad' => [
+                'items' => [
+                    ['NombreArticulo' => 'ITEM A'],
+                ],
+            ],
+        ];
+
+        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, $payloadOverrides));
+
+        $this->assertCount(1, $publisher->published);
+        $warnings = $publisher->published[0]->payload['extraction_result']['extraction_warnings'] ?? [];
+        $this->assertCount(0, $warnings);
+    }
+
     private function validPdfBase64(): string
     {
         return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
