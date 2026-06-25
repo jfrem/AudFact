@@ -35,7 +35,7 @@ final class GeminiConfig
         Env::load();
 
         return new self(
-            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3.1-pro-preview'),
+            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3.5-flash'),
             temperature:     self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
             topP:            self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
             topK:            self::nullableInt(Env::get('GEMINI_TOP_K', null)),

@@ -1048,4 +1048,83 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('COINCIDE', $authorizationResult['hallazgos']['items'][0]['resultado']);
         $this->assertSame('COINCIDE', $dispensaResult['hallazgos']['items'][0]['resultado']);
     }
+
+    public function testIncompleteItemSegmentationMakesQuantityInconclusive(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('CantidadEntregada', 'B')],
+                ['header' => [], 'items' => [['CantidadEntregada' => '20'], ['CantidadEntregada' => '30']]]
+            ),
+            [
+                'tipo_documento'         => 'DISPENSA',
+                'fields_normalized'      => [],
+                'items_normalized'       => [
+                    ['CantidadEntregada' => ExtractedEvidence::fromArray(['valor' => '20', 'presente' => true, 'estadoExtraccion' => 'FOUND'])],
+                ],
+                'visual_checks_resultado' => [],
+                'document_quality'       => 'legible',
+                'extraction_warnings'    => [
+                    [
+                        'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                        'severity' => 'warning',
+                        'scope' => 'items',
+                        'expected_items_count' => 2,
+                        'extracted_items_count' => 1,
+                    ],
+                ],
+            ]
+        );
+
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $this->assertSame('CantidadEntregada', $result['hallazgos']['items'][0]['campo']);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
+        $this->assertStringContainsString('extracción de líneas del documento fue incompleta', (string) $result['hallazgos']['items'][0]['detalle']);
+        $this->assertArrayHasKey('item_segmentation', $result['hallazgos']['items'][0]['extraction_meta']);
+        $this->assertSame('ITEM_SEGMENTATION_INCOMPLETE', $result['hallazgos']['items'][0]['extraction_meta']['item_segmentation']['code']);
+    }
+
+    public function testIncompleteItemSegmentationDoesNotAffectHeaderField(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('NumeroAutorizacion'), self::field('CantidadEntregada', 'B')],
+                ['header' => ['NumeroAutorizacion' => '123'], 'items' => [['CantidadEntregada' => '20'], ['CantidadEntregada' => '30']]]
+            ),
+            [
+                'tipo_documento'         => 'DISPENSA',
+                'fields_normalized'      => [
+                    'NumeroAutorizacion' => ExtractedEvidence::fromArray(['valor' => '123', 'presente' => true, 'estadoExtraccion' => 'FOUND'])
+                ],
+                'items_normalized'       => [
+                    ['CantidadEntregada' => ExtractedEvidence::fromArray(['valor' => '20', 'presente' => true, 'estadoExtraccion' => 'FOUND'])],
+                ],
+                'visual_checks_resultado' => [],
+                'document_quality'       => 'legible',
+                'extraction_warnings'    => [
+                    [
+                        'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                        'severity' => 'warning',
+                        'scope' => 'items',
+                        'expected_items_count' => 2,
+                        'extracted_items_count' => 1,
+                    ],
+                ],
+            ]
+        );
+
+        $this->assertCount(2, $result['hallazgos']['items']);
+        
+        $auth = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'NumeroAutorizacion'))[0];
+        $this->assertSame('COINCIDE', $auth['resultado']);
+        
+        $cant = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'CantidadEntregada'))[0];
+        $this->assertSame('NO_CONCLUYENTE', $cant['resultado']);
+    }
 }

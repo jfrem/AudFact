@@ -495,7 +495,7 @@ class StubBatchJobStore extends BatchJobStore
         return $this->claimIdempotencyKeyReturns;
     }
 
-    public function claimAuditReservation(string $facSec, string $ownerToken, array $reservation, int $ttl = 86400): bool
+    public function claimAuditReservation(string $facSec, string $ownerToken, array $reservation, ?int $ttl = null): bool
     {
         return $this->claimReturns;
     }

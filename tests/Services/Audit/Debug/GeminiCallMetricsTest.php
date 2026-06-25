@@ -13,7 +13,7 @@ final class GeminiCallMetricsTest extends TestCase
     {
         $metrics = GeminiCallMetrics::fromResponse(
             [
-                'modelVersion' => 'gemini-3.1-pro-preview',
+                'modelVersion' => 'gemini-3.5-flash',
                 'candidates' => [[
                     'finishReason' => 'STOP',
                 ]],
@@ -32,7 +32,7 @@ final class GeminiCallMetricsTest extends TestCase
         );
 
         $this->assertSame(24435, $metrics['duration_ms']);
-        $this->assertSame('gemini-3.1-pro-preview', $metrics['model']);
+        $this->assertSame('gemini-3.5-flash', $metrics['model']);
         $this->assertSame('extraction', $metrics['task_type']);
         $this->assertSame('DISPENSA', $metrics['document_type']);
         $this->assertSame('STOP', $metrics['finish_reason']);

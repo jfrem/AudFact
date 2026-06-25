@@ -71,6 +71,14 @@ La policy no compara un item aislado contra toda la factura. Antes de evaluar, `
 
 Caso de regresion cubierto: `D13260500540` con dos items debe producir `Lote={5D03364,5G00989}`, `CantidadEntregada=7` y `CantidadPrescrita=30` como `COINCIDE`.
 
+## Extracción Parcial de Líneas (Item Segmentation)
+
+Cuando el documento tiene múltiples ítems y la IA no logra extraerlos todos de manera limpia (segmentación parcial o incompleta), el extractor no falla con una excepción (que enviaría el evento a DLQ o forzaría un reintento). En cambio:
+
+1. Agrega un warning `ITEM_SEGMENTATION_INCOMPLETE` al payload del evento.
+2. La política de auditoría (Policy Engine) detecta este warning y, para evitar sumatorias parciales peligrosas, fuerza el resultado `NO_CONCLUYENTE` para todas las evaluaciones de nivel línea (`TipoCampo = 'B'`).
+3. Los campos de cabecera siguen siendo evaluados con normalidad.
+
 ## Contrato de Hallazgos
 
 Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v1. Cuando un hallazgo configurable falla (`VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` o `RECHAZADO` con codigo disponible), el `detalle` inicia con el prefijo textual `-<codigoCampo>- ` tomado de `AudDispCampo.CodigoCampo`, seguido por el detalle funcional del hallazgo. Los hallazgos `COINCIDE` no reciben prefijo.

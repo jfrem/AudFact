@@ -315,6 +315,7 @@ class AuditStatusModel extends Model
             $this->updateAttachmentAuditResultsInConnection(
                 $writeDb,
                 (string) $auditResultData['FacNro'],
+                (string) ($auditResultData['FacNitSec'] ?? ''),
                 $documentDecisions,
             );
 
@@ -469,18 +470,23 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Actualiza el estado documental por cada adjunto auditado de la dispensación.
+     * Actualiza el estado documental por cada adjunto físico de la dispensación.
      *
-     * @param \PDO $connection
+     * Itera por adjunto físico (no por decisión lógica) para cubrir
+     * el mapeo M:1 cuando existen múltiples archivos con el mismo tipo documental.
+     *
+     * @param PDO $connection
      * @param string $facNro
+     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
      * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
      */
     private function updateAttachmentAuditResultsInConnection(
         PDO $connection,
         string $facNro,
+        string $nitSec,
         array $documentDecisions
     ): void {
-        $dispensation = $this->getDispensationAttachments($connection, $facNro);
+        $dispensation = $this->getDispensationAttachments($connection, $facNro, $nitSec);
 
         if (empty($dispensation)) {
             throw new \RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
@@ -488,52 +494,55 @@ class AuditStatusModel extends Model
 
         $disId = (string) $dispensation[0]['DisId'];
         $disDetId = (int) $dispensation[0]['DisDetId'];
-        $adjuntos = $dispensation;
 
         ['approve' => $approveStmt, 'reject' => $rejectStmt] = $this->buildAttachmentUpdateStatements($connection);
 
+        // Indexar decisiones por nombre normalizado (uppercase) para búsqueda O(1)
+        $decisionsByName = [];
         foreach ($documentDecisions as $decision) {
-            ['documentName' => $documentName, 'approved' => $approved, 'observation' => $observation] = $this->normalizeDocumentDecision($decision, $facNro);
-            $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentName);
-            if ($match === null) {
-                throw new \RuntimeException(sprintf(
-                    'No se encontró AdjuntosDispensacion para el documento "%s" de la dispensación %s.',
-                    $documentName,
-                    $facNro
-                ));
-            }
+            $norm = $this->normalizeDocumentDecision($decision, $facNro);
+            $key = strtoupper(trim($norm['documentName']));
+            $decisionsByName[$key] = $norm;
+        }
 
-            $adjDisId = (int) $match['AdjDisId'];
+        // Iterar por cada adjunto físico y buscar su decisión correspondiente
+        foreach ($dispensation as $adjunto) {
+            $adjDisId = (int) $adjunto['AdjDisId'];
+            $adjDisNom = trim((string) ($adjunto['AdjDisNom'] ?? ''));
 
-            if ($approved) {
-                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
+            $matchedDecision = $decisionsByName[strtoupper($adjDisNom)] ?? null;
+
+            if ($matchedDecision === null) {
+                Logger::warning('updateAttachmentAuditResults: adjunto físico sin decisión lógica.', [
+                    'adjDisId' => $adjDisId,
+                    'adjDisNom' => $adjDisNom,
+                    'facNro' => $facNro,
+                ]);
                 continue;
             }
 
-            $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $observation);
+            if ($matchedDecision['approved']) {
+                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
+            } else {
+                $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $matchedDecision['observation']);
+            }
         }
+
+        $this->markDispensationAsAudited($connection, $disId, $disDetId);
     }
 
-    /**
-     * @return array{DisId:string|int,DisDetId:string|int}
-     */
-    private function resolveDispensationIdentity(PDO $connection, string $facNro): array
+    private function markDispensationAsAudited(PDO $connection, string $disId, int $disDetId): void
     {
-        $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
-            FROM DispensacionDetalleServicio d WITH (NOLOCK)
-            WHERE d.DisDetNro = :facNro
-            ORDER BY d.DisDetId ASC";
+        $sql = "UPDATE DispensacionDetalleServicio SET
+                    DisDetUsuAud = :auditUser,
+                    DisDetFecAud = GETDATE()
+                WHERE DisId = :disId AND DisDetId = :disDetId";
 
-        $stmtResolve = $connection->prepare($sqlResolve);
-        $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-        $stmtResolve->execute();
-        $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
-
-        if (!$dispensacion) {
-            throw new \RuntimeException("No se encontró DispensacionDetalleServicio para {$facNro}.");
-        }
-
-        return $dispensacion;
+        $stmt = $connection->prepare($sql);
+        $stmt->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
+        $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->execute();
     }
 
     /**
@@ -881,129 +890,32 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene los adjuntos de una dispensación para resolver rechazos por documento.
+     * Obtiene los adjuntos de una dispensación con nombre lógico resuelto.
+     *
+     * Usa el mismo JOIN que AttachmentsModel::getRequiredAttachmentsByDisDetNro
+     * (NitMedDocCodAlt → AdjDisCodDocAlt) para garantizar coherencia entre
+     * los nombres que la IA evaluó y los que la persistencia actualiza.
      *
      * @param PDO $connection Conexión de escritura activa
-     * @param string $disId ID de dispensación
-     * @param int $disDetId ID de detalle de dispensación
-     * @return array<int, array{AdjDisId:string|int,AdjDisNom:string}>
+     * @param string $facnro Número de factura (opera como DisDetNro)
+     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
+     * @return array<int, array{AdjDisId:int,AdjDisNom:string,DisId:string,DisDetId:int}>
      */
-    private function getDispensationAttachments(PDO $connection, string $facnro): array
+    private function getDispensationAttachments(PDO $connection, string $facnro, string $nitSec): array
     {
-        $sql = "SELECT a.AdjDisId, a.AdjDisNom, a.DisId, a.DisDetId
+        $sql = "SELECT DISTINCT a.AdjDisId, COALESCE(n.NitMedDocNom, a.AdjDisNom) AS AdjDisNom, a.DisId, a.DisDetId
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                left join DispensacionDetalleServicio d with (nolock) on d.DisId = a.DisId and d.DisDetId = a.DisDetId
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
                 WHERE d.DisDetNro = :facnro
                 ORDER BY a.AdjDisId ASC";
-        // $sql = "SELECT a.AdjDisId, a.AdjDisNom
-        //         FROM AdjuntosDispensacion a WITH (NOLOCK)
-        //         WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-        //         ORDER BY a.AdjDisId ASC";
 
         $stmt = $connection->prepare($sql);
         $stmt->bindParam(':facnro', $facnro, PDO::PARAM_STR);
-        // $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /**
-     * Resuelve un adjunto por nombre con fallback de normalización.
-     *
-     * Estrategia 1: match exacto case-insensitive (cubre >99% con schema dinámico).
-     * Estrategia 2: normalización de texto (acentos, extensiones, caracteres especiales).
-     *
-     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
-     * @param string $documentoFallido Nombre proveniente del pipeline
-     * @return array{AdjDisId:string|int,AdjDisNom:string,strategy:string}|null
-     */
-    private function resolveAttachmentByDocumentName(array $adjuntos, string $documentoFallido): ?array
-    {
-        $input = trim($documentoFallido);
-        if ($input === '') {
-            return null;
-        }
-
-        $exactMatches = $this->findAttachmentMatches(
-            $adjuntos,
-            static fn(string $name) => strtoupper($name) === strtoupper($input),
-            'exact_ci'
-        );
-        if (count($exactMatches) > 1) {
-            throw new \RuntimeException(sprintf(
-                'El documento "%s" coincide con múltiples adjuntos exactos en AdjuntosDispensacion.',
-                $documentoFallido
-            ));
-        }
-        if ($exactMatches !== []) {
-            return $exactMatches[0];
-        }
-
-        $normalizedInput = $this->normalizeDocumentName($input);
-        $normalizedMatches = $this->findAttachmentMatches(
-            $adjuntos,
-            fn(string $name) => $this->normalizeDocumentName($name) === $normalizedInput,
-            'normalized'
-        );
-        if (count($normalizedMatches) > 1) {
-            throw new \RuntimeException(sprintf(
-                'El documento "%s" coincide con múltiples adjuntos normalizados en AdjuntosDispensacion.',
-                $documentoFallido
-            ));
-        }
-        if ($normalizedMatches !== []) {
-            return $normalizedMatches[0];
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
-     * @param callable(string):bool $matcher
-     * @return array<int,array{AdjDisId:string|int,AdjDisNom:string,strategy:string}>
-     */
-    private function findAttachmentMatches(array $adjuntos, callable $matcher, string $strategy): array
-    {
-        $matches = [];
-
-        foreach ($adjuntos as $adjunto) {
-            $name = trim((string) ($adjunto['AdjDisNom'] ?? ''));
-            if ($name === '' || !$matcher($name)) {
-                continue;
-            }
-
-            $matches[] = [
-                'AdjDisId' => $adjunto['AdjDisId'],
-                'AdjDisNom' => $name,
-                'strategy' => $strategy,
-            ];
-        }
-
-        return $matches;
-    }
-
-    /**
-     * Normaliza texto documental para comparación robusta.
-     */
-    private function normalizeDocumentName(string $value): string
-    {
-        $value = trim(strtoupper($value));
-
-        // Quitar extensión común (ejemplo: ".PDF").
-        $value = preg_replace('/\.[A-Z0-9]{2,5}$/', '', $value) ?? $value;
-
-        // Eliminar acentos de forma portable.
-        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if ($ascii !== false) {
-            $value = $ascii;
-        }
-
-        // Mantener solo alfanumérico y espacios.
-        $value = preg_replace('/[^A-Z0-9]+/', ' ', $value) ?? $value;
-        $value = preg_replace('/\s+/', ' ', trim($value)) ?? trim($value);
-
-        return $value;
-    }
 }

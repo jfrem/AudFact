@@ -31,11 +31,13 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, identidad documental, numéricos canónicos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
+| `app/Services/Audit/DocumentDuplicationEvaluator.php` | Servicio funcional que evalúa colisiones SHA256 para prevenir fraude por duplicación documental. |
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items), incluyendo candidatos `valores` de evidencia v1, resolviendo dependencias de normalización cruzada. |
 | `app/Services/Audit/Pipeline/ResolvedAuditValue.php` | DTO inmutable para comparar FDV y documento con el mismo contrato (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`). |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
+| `app/Services/Audit/Telemetry/TelemetryPublisher.php` | Publica telemetría live best-effort en `audit.telemetry` desde cada worker en su fase real (`orchestration`, `download`, `extraction`, `normalization`, `policy`, `aggregation`). |
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
@@ -76,6 +78,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
 | `audit.documents` | Orchestrator / Extractor / Normalizer / Policy | `document_registered`, `document_extracted`, `document_rejected`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+| `audit.telemetry` | Workers de auditoría | Eventos live `started`, `completed`, `failed`, `rejected` por fase real del DAG |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
 ## Variables de entorno relevantes
@@ -91,6 +94,9 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
 | `AUDIT_DLQ_STREAM` | Stream DLQ (default `audit.dlq`) |
 | `AUDIT_CACHE_TTL`, `AUDIT_EXTRACTION_CACHE_TTL` | TTL cache extracción Gemini |
+| `AUDIT_JOB_TTL` | TTL de estado de jobs batch async en Redis (default 604800) |
+| `AUDIT_STATE_TTL` | TTL de estado transitorio de auditorias en Redis (default 604800) |
+| `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
 | `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` | Versionado para trazabilidad en `AuditEvent` |
@@ -122,7 +128,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 5. **[AUDIT-016] Token-sort para `PERSON_NAME`**: Campos `PERSON_NAME` en modo semántico usan una heurística estructural de similitud por tokens (exigiendo que al menos 1 token de la parte más corta coincida exactamente). Si la heurística falla, hace fallback a `ArticleSemanticMatchJudge` para validar posibles alias o variaciones de escritura vía Gemini.
 6. **[AUDIT-016] No data-loss en multi-item/lista divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, o una evidencia escalar con varios candidatos `valores`, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Un único candidato en `valores` se usa como escalar. Ya no se descarta silenciosamente el campo ni se convierte en `NO_ENCONTRADO` cuando existe evidencia.
 7. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType`; para `CODE` y `TRACE_TOKEN` agrega `valoresFuenteVerdad` y/o `valoresDocumento` cuando existen tokens/set evaluables. Las cantidades `TipoCampo=B` reportan `valorFuenteVerdad` y `valorDocumento` como sumatoria agregada de items. Si un hallazgo configurable falla y existe `codigoCampo`, el `detalle` se enriquece con el prefijo textual `-CODIGO- detalle`.
-8. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa.
+8. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa. Si el extractor detecta segmentación parcial o incompleta, no debe fallar con excepción; en su lugar, emite el warning `ITEM_SEGMENTATION_INCOMPLETE` en el payload. Luego, `DocumentPolicyEngine` intercepta este warning y fuerza `NO_CONCLUYENTE` para todas las evaluaciones a nivel línea (`TipoCampo=B`) a fin de evitar validaciones sobre sumatorias parciales peligrosas.
 9. **Prompt compacto de extracción**: Gemini no recibe valores esperados de FDV (`Campos de cabecera esperados`, `Campos de línea esperados`, diagnósticos, fechas, identidad, etc.). Solo recibe contexto estructural: documento objetivo, campos solicitados, separación identidad, ubicación `fields`/`items`, checks visuales y segmentación de filas cuando aplican. El schema puede usar descripciones configuradas del `audit-config` como `valor.description` y conserva las descripciones PHP solo como fallback; el system prompt personalizado se deduplica contra esas descripciones antes de calcular `prompt_context_hash`. En el schema Gemini, `valores` se declara solo para `CODE` y `TRACE_TOKEN`; `DocumentNormalizer` reconstruye `valores` desde `valor` para escalares. Las pistas de artículo para documentos prescriptivos se permiten solo cuando `NombreArticulo` está en `items`.
 10. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
 11. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.

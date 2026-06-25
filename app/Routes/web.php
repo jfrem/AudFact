@@ -41,3 +41,4 @@ $router->get('/audit/status/{auditId}', 'AuditController', 'status');
 $router->get('/audit/dlq', 'AuditDlqController', 'index');
 $router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess');
 $router->get('/audit/{facNro}/timings', 'AuditController', 'timings');
+$router->get('/audit/{auditId}/flow-stream', 'AuditFlowController', 'stream');

@@ -7,7 +7,11 @@ import {
   Eye,
   FileWarning,
   AlertTriangle,
+  Activity,
 } from "lucide-react";
+import Link from "next/link";
+
+import { buttonVariants } from "@/components/ui/button";
 
 import type {
   AttachmentRecord,
@@ -125,6 +129,20 @@ export function AuditResultDetailModal({
               </DialogTitle>
               <AuditStatusBadge status={record.EstadoDetallado} />
               <SeverityBadge severity={record.Severidad} />
+
+              <div className="flex-1" />
+              {facNro && (
+                <Link
+                  href={`/audit/flow/${encodeURIComponent(facNro)}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Ver trazabilidad de ${facNro}`}
+                >
+                  <Activity className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Ver trazabilidad
+                </Link>
+              )}
             </div>
 
             {/* Metadata bar: compact inline, replaces hero-metric cards */}

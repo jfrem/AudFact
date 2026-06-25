@@ -160,6 +160,7 @@ export const AuditFindingResultSchema = z.enum([
   "NO_ENCONTRADO",
   "OMITIDO",
   "NO_CONCLUYENTE",
+  "RECHAZADO",
 ]);
 export const AuditSeveritySchema = z.string();
 
@@ -256,6 +257,17 @@ export const AuditJobSchema = z.object({
   throughput_per_sec: z.number().nonnegative().optional().default(0),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  audits: z
+    .array(
+      z
+        .object({
+          audit_id: z.string(),
+          status: z.string(),
+          dis_det_nro: z.string().nullable().optional(),
+        })
+        .passthrough(),
+    )
+    .default([]),
 }).passthrough().transform((val) => {
   const processed = (val.done || 0) + (val.failed || 0);
   const total = val.total || 0;
@@ -288,6 +300,7 @@ export const AuditJobSchema = z.object({
       accumulatedDurationMs: val.accumulated_duration_ms || 0,
       throughputPerSec: val.throughput_per_sec || 0,
     },
+    audits: val.audits || [],
   };
 });
 

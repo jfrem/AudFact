@@ -145,7 +145,7 @@ final class AuditFindingRules
      * Soporta:
      * - Formatos numéricos: Y-m-d, Y/m/d, d/m/Y, d-m-Y, d.m.Y
      * - Fechas narrativas en español: "4 de mayo de 2026", "Mayo 4, 2026"
-     * - Abreviaciones: "4 may 2026", "4-ene-2026"
+     * - Abreviaciones: "4 may 2026", "4-ene-2026", "26/Feb/26" (año 2 dígitos)
      */
     public static function normalizeDateToIso(string $value): ?string
     {
@@ -330,6 +330,8 @@ final class AuditFindingRules
                     $year = $num;
                 } elseif ($num >= 1 && $num <= 31 && $day === null) {
                     $day = $num;
+                } elseif ($num >= 0 && $num <= 99 && $year === null && $day !== null) {
+                    $year = $num + ($num < 50 ? 2000 : 1900);
                 }
             }
         }

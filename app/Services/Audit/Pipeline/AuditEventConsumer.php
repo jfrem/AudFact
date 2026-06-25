@@ -7,7 +7,6 @@ namespace App\Services\Audit\Pipeline;
 use Core\Env;
 use Core\Logger;
 use Core\RedisClient;
-use Core\RedisUnavailableException;
 use RuntimeException;
 use Throwable;
 
@@ -557,6 +556,12 @@ abstract class AuditEventConsumer
 
         try {
             $this->publisher->publishDeadLetter($deadLetter);
+            
+            try {
+                $this->redis->hIncrBy('telemetry:async_metrics', 'terminal_failures', 1);
+            } catch (\Throwable $e) {
+                // Ignore telemetry errors
+            }
         } catch (RuntimeException $e) {
             Logger::error('AuditEventConsumer: no se pudo publicar dead_letter', [
                 'event_id' => $event->eventId,
@@ -569,6 +574,13 @@ abstract class AuditEventConsumer
     {
         $key = self::attemptsKey($eventId);
         $value = $this->redis->incr($key, 86400);
+
+        try {
+            $this->redis->hIncrBy('telemetry:async_metrics', 'retries', 1);
+        } catch (\Throwable $e) {
+            // Telemetría no debe frenar el flujo base
+        }
+
         return $value ?? 1;
     }
 

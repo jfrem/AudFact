@@ -179,7 +179,7 @@ La arquitectura de AudFact fue concebida bajo principios de inmutabilidad, aisla
 *   **Backend (Core Framework)**: Framework MVC ultra-ligero desarrollado a medida en PHP 8.2-FPM, sin las dependencias ni la sobrecarga típica de Symfony o Laravel. Logra tiempos de bootstrap inferiores a 2ms y cuenta con un router centralizado, un validador de entradas, un sanitizador de seguridad y un manejador de excepciones global.
 *   **Procesamiento Asíncrono e Infraestructura Event-Driven**: Utiliza **Redis 7** como bus de eventos permanente basado en **Redis Streams**. Un pool de 13 procesos en segundo plano (Workers) concurrentes de PHP-CLI persistentes en producción (3 orquestadores de cola, 8 extractores de IA y 2 evaluadores deterministas de políticas) consumen los eventos utilizando grupos de consumo (`XREADGROUP`) y scripts de autoreclamado.
 *   **Base de Datos**: **Microsoft SQL Server (MSSQL)** consumido de forma directa con drivers nativos de PDO.
-*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini mediante un único selector de modelo (`GEMINI_MODEL`). El template y el workflow productivo fijan el modelo operativo por defecto en `gemini-3-flash-preview`; si la variable falta por completo, `GeminiConfig` conserva un fallback local de configuración a `gemini-3.1-pro-preview`. Extracción documental y homologación semántica usan perfiles de generación separados (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`), pero no cambian de modelo.
+*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini mediante un único selector de modelo (`GEMINI_MODEL`). El template y el workflow productivo fijan el modelo operativo por defecto en `gemini-3.5-flash`; si la variable falta por completo, `GeminiConfig` conserva un fallback local de configuración a `gemini-3.5-flash`. Extracción documental y homologación semántica usan perfiles de generación separados (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`), pero no cambian de modelo.
 *   **Almacenamiento de Soportes**: Conexión con **Google Drive API v3** usando la firma segura de aserción JWT mediante Service Account corporativo, descargando los PDFs en caliente como streams de memoria sin persistirlos localmente.
 
 ---
@@ -413,7 +413,7 @@ El costo y la latencia asociados a las llamadas repetidas de modelos de lenguaje
 1. Al recibir un documento (Fórmula médica, Acta de entrega, Autorización de EPS) a través de Google Drive o un adjunto de base de datos, el sistema calcula un hash criptográfico **SHA256** compuesto. Este hash une cuatro componentes clave: el hash del contenido del documento, el hash de la estructura del contrato de extracción, el `prompt_context_hash` calculado desde los prompts reales y la versión del extractor.
 2. Se realiza una consulta atómica en Redis bajo la clave `extraction:cache:v1:{composite_hash}`.
 3. **Escenario de Cache Hit**: Si la clave existe, el payload JSON de extracción previamente validado por la IA se lee de forma local. El sistema omite por completo la llamada HTTPS cifrada a la API de Gemini (ahorrando costos de API y reduciendo el tiempo de respuesta de ~5-8 segundos a **<10ms**).
-4. **Escenario de Cache Miss**: Si no existe, se realiza la extracción documental multimodal en Gemini, y el resultado es guardado inmediatamente en Redis con un TTL parametrizable de 24 horas (`AUDIT_EXTRACTION_CACHE_TTL`), lo que provee una ventana óptima de protección contra re-auditorías de lotes o reintentos del frontend.
+4. **Escenario de Cache Miss**: Si no existe, se realiza la extracción documental multimodal en Gemini, y el resultado es guardado inmediatamente en Redis con un TTL parametrizable de 7 dias (`AUDIT_EXTRACTION_CACHE_TTL`), lo que provee una ventana acotada de protección contra re-auditorías de lotes o reintentos del frontend.
 
 ---
 
@@ -650,7 +650,7 @@ Uno de los mayores diferenciadores arquitectónicos y legales de AudFact es la *
                                   │ (Lazy Stream)
                                   ▼
    ┌─────────────────────────────────────────────────────────────┐
-   │            IA (Google Gemini API: gemini-3-flash-preview)   │
+   │            IA (Google Gemini API: gemini-3.5-flash)         │
    │               - Solo Extracción Multimodal                  │
    │               - Homologación y Traducción Semántica          │
    │               - Retorna JSON sin Reglas de Negocio          │
@@ -739,11 +739,12 @@ Para evitar el crecimiento desmedido de la memoria en caliente y garantizar una 
 
 | Componente / Módulo de Datos | Prefijo de Clave en Redis | TTL por Defecto | Variable de Entorno | Propósito y Estrategia de Persistencia |
 | :--- | :--- | :--- | :--- | :--- |
-| **Caché de Extracción Documental** | `extraction:cache:v1:` | **24 horas** (86400s) | `AUDIT_EXTRACTION_CACHE_TTL` | Caché read-through estructurada mediante hash SHA256 compuesto (documento, contrato, `prompt_context_hash` y versión del extractor). |
+| **Caché de Extracción Documental** | `extraction:cache:v1:` | **7 dias** (604800s) | `AUDIT_EXTRACTION_CACHE_TTL` | Caché read-through estructurada mediante hash SHA256 compuesto (documento, contrato, `prompt_context_hash` y versión del extractor). |
 | **Homologación Semántica** | `audfact:semantic:match:` | **30 días** (2592000s) | *(Constante Estática)* | Almacenamiento a largo plazo para decisiones clínicas y homologaciones de nombres y medicamentos de Gemini. |
-| **Estado Transitorio de Auditorías** | `audit:` | **24 horas** (86400s) | *(Constante Estática)* | Orquestación del estado de auditoría, eventos completados y métricas transitorias por `FacSec`. |
-| **Estado de Batch Jobs** | `job:` | **24 horas** (86400s) | *(Constante Estática)* | Seguimiento de progreso, throughput y agregaciones de lotes asíncronos concurrentes. |
-| **Caché de Hash de Dispensación** | `audit:hash:` | **24 horas** (86400s) | `AUDIT_CACHE_TTL` | Detección atómica de cambios en dispensaciones o adjuntos para evitar re-auditorías de datos inalterados. |
+| **Estado Transitorio de Auditorías** | `audit:` | **7 dias** (604800s) | `AUDIT_STATE_TTL` | Orquestación del estado de auditoría, eventos completados y métricas transitorias por `FacSec`. |
+| **Estado de Batch Jobs** | `job:` | **7 dias** (604800s) | `AUDIT_JOB_TTL` | Seguimiento de progreso, throughput y agregaciones de lotes asíncronos concurrentes. |
+| **Reservas por DisId** | `audit:reservation:disid:` | **24 horas** (86400s) | `AUDIT_RESERVATION_TTL` | Barrera transitoria para evitar auditorias duplicadas por factura sin bloquear re-auditorias por 7 dias. |
+| **Caché de Hash de Dispensación** | `audit:hash:` | **7 dias** (604800s) | `AUDIT_CACHE_TTL` | Detección atómica de cambios en dispensaciones o adjuntos para evitar re-auditorías de datos inalterados. |
 | **Barrera de Idempotencia HTTP** | `audit:idempotency:` | **5 minutos** (300s) | `AUDIT_IDEMPOTENCY_KEY_TTL` | Previene el doble procesamiento en peticiones concurrentes o reintentos rápidos de lotes asíncronos. |
 | **Caché de Consultas Públicas** | `query:results:` | **60 segundos** | *(Constante Estática)* | Alivia la carga redundante sobre el servidor Microsoft SQL Server para dashboards y listados de reportes. |
 | **Distributed Locks (Mutex)** | `lock:` | **10 segundos** | *(Constante Estática)* | Mecanismo de exclusión mutua para evitar *Cache Stampede* (Dogpiling) durante recalcitraciones de caché concurrentes. |

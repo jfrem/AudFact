@@ -51,6 +51,28 @@ Variables de capacidad inicial:
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | escaneo de pending |
 
+## Capacidad Redis y TTL de auditorias
+
+Redis se configura desde Compose mediante variables no sensibles:
+
+| Variable | Default | Uso |
+|---|---:|---|
+| `REDIS_MAXMEMORY` | `4gb` | Limite interno de memoria Redis (`--maxmemory`). |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | Politica de eviccion para llaves con TTL. |
+| `REDIS_CONTAINER_MEMORY` | `5G` | Limite de memoria del contenedor Redis. |
+| `AUDIT_JOB_TTL` | `604800` | Retencion de `job:{jobId}:state` durante 7 dias. |
+| `AUDIT_STATE_TTL` | `604800` | Retencion de `audit:{auditId}:state` durante 7 dias. |
+| `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` durante 24h. |
+
+Validaciones operativas despues de deploy:
+
+```bash
+docker compose -f docker-compose.prod.yml exec redis redis-cli INFO memory
+docker stats audfact-redis --no-stream
+docker compose -f docker-compose.prod.yml exec redis redis-cli TTL audfact:job:<jobId>:state
+docker compose -f docker-compose.prod.yml exec redis redis-cli TTL audfact:audit:<auditId>:state
+```
+
 ## Higiene de `.env`
 
 `.env.example` es el contrato de configuración y `.env` debe conservar el mismo

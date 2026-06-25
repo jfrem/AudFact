@@ -255,6 +255,47 @@ class RedisClient
     }
 
     /**
+     * HINCRBY atómico para hashes (ej: métricas de telemetría).
+     *
+     * @return int|null Valor incrementado o null si Redis no disponible
+     */
+    public function hIncrBy(string $key, string $field, int $increment): ?int
+    {
+        if (!$this->isAvailable()) {
+            return null;
+        }
+
+        try {
+            $prefixedKey = $this->prefix . $key;
+            return (int) $this->client->hincrby($prefixedKey, $field, $increment);
+        } catch (\Exception $e) {
+            Logger::warning('Redis HINCRBY falló', ['key' => $key, 'field' => $field, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    /**
+     * HGETALL para obtener todos los campos y valores de un hash.
+     *
+     * @return array<string,string> Array asociativo o vacío si Redis no disponible
+     */
+    public function hGetAll(string $key): array
+    {
+        if (!$this->isAvailable()) {
+            return [];
+        }
+
+        try {
+            $prefixedKey = $this->prefix . $key;
+            $result = $this->client->hgetall($prefixedKey);
+            return is_array($result) ? $result : [];
+        } catch (\Exception $e) {
+            Logger::warning('Redis HGETALL falló', ['key' => $key, 'error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
      * INCR + EXPIRE atómico vía Lua script.
      *
      * Previene keys huérfanas (sin TTL) que ocurren si el proceso muere
@@ -400,7 +441,7 @@ class RedisClient
         return $this->client->eval(...$evalArgs);
     }
 
-    public function xAdd(string $stream, array $fields): ?string
+    public function xAdd(string $stream, array $fields, ?int $maxLen = null): ?string
     {
         if (!$this->isAvailable()) {
             return null;
@@ -411,7 +452,14 @@ class RedisClient
         }
 
         try {
-            $args = [$this->prefix . $stream, '*'];
+            $args = [$this->prefix . $stream];
+            if ($maxLen !== null && $maxLen > 0) {
+                $args[] = 'MAXLEN';
+                $args[] = '~';
+                $args[] = (string) $maxLen;
+            }
+            $args[] = '*';
+
             foreach ($fields as $key => $value) {
                 $args[] = (string) $key;
                 $args[] = (string) $value;
@@ -584,6 +632,45 @@ class RedisClient
         } catch (\Exception $e) {
             Logger::warning('Redis XRANGE falló', [
                 'stream' => $stream,
+                'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * XREAD — Lee mensajes de uno o más streams de forma bloqueante o no bloqueante.
+     *
+     * @param array<string,string> $streams Clave es el stream, valor es el ID (ej: ['mystream' => '$'])
+     * @return array<int,array{id:string,fields:array<string,string>}>
+     */
+    public function xRead(array $streams, int $count = 1, int $blockMs = 5000): array
+    {
+        if (!$this->isAvailable()) {
+            return [];
+        }
+
+        try {
+            $args = ['XREAD', 'COUNT', (string) $count];
+            if ($blockMs > 0) {
+                $args[] = 'BLOCK';
+                $args[] = (string) $blockMs;
+            }
+            $args[] = 'STREAMS';
+
+            $streamKeys = [];
+            $streamIds = [];
+            foreach ($streams as $stream => $id) {
+                $streamKeys[] = $this->prefix . $stream;
+                $streamIds[] = $id;
+            }
+
+            $args = array_merge($args, $streamKeys, $streamIds);
+
+            $raw = $this->client->executeRaw($args);
+            return $this->parseStreamsResponse($raw);
+        } catch (\Exception $e) {
+            Logger::warning('Redis XREAD falló', [
                 'error' => $e->getMessage(),
             ]);
             return [];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use Core\Env;
 use Core\Logger;
 use Core\RedisClient;
 use Core\RedisUnavailableException;
@@ -19,13 +20,40 @@ class BatchJobStore
     public const JOB_STATUS_COMPLETED_WITH_ERR  = 'completed_with_errors';
     public const JOB_STATUS_FAILED              = 'failed';
 
-    private const JOB_TTL_SECONDS   = 86400;
+    private const DEFAULT_JOB_TTL_SECONDS = 604800;
+    private const DEFAULT_RESERVATION_TTL_SECONDS = 86400;
 
     private RedisClient $redis;
 
     public function __construct(?RedisClient $redis = null)
     {
         $this->redis = $redis ?? RedisClient::getInstance();
+    }
+
+    private static function jobTtlSeconds(): int
+    {
+        return self::positiveIntEnv('AUDIT_JOB_TTL', self::DEFAULT_JOB_TTL_SECONDS);
+    }
+
+    private static function reservationTtlSeconds(): int
+    {
+        return self::positiveIntEnv('AUDIT_RESERVATION_TTL', self::DEFAULT_RESERVATION_TTL_SECONDS);
+    }
+
+    private static function positiveIntEnv(string $key, int $default): int
+    {
+        $value = Env::get($key, (string) $default);
+        $value = is_string($value) ? trim($value) : $value;
+
+        if (is_int($value) && $value > 0) {
+            return $value;
+        }
+
+        if (is_string($value) && preg_match('/^[1-9][0-9]*$/', $value) === 1) {
+            return (int) $value;
+        }
+
+        return $default;
     }
 
     /**
@@ -60,7 +88,17 @@ class BatchJobStore
             'audits'      => new \stdClass(),
         ];
 
-        return $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::JOB_TTL_SECONDS);
+        $success = $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::jobTtlSeconds());
+
+        if ($success) {
+            try {
+                $this->redis->hIncrBy('telemetry:async_metrics', 'jobs_queued', 1);
+            } catch (\Throwable $e) {
+                Logger::warning('BatchJobStore: No se pudo incrementar jobs_queued', ['error' => $e->getMessage()]);
+            }
+        }
+
+        return $success;
     }
 
     public function getJob(string $jobId): ?array
@@ -99,7 +137,7 @@ class BatchJobStore
                 $disId ?? '',
                 $reservationToken ?? '',
                 gmdate('Y-m-d\TH:i:s\Z'),
-                self::JOB_TTL_SECONDS,
+                self::jobTtlSeconds(),
             ],
             'No se pudo registrar auditoría en el job',
             ['job_id' => $jobId, 'audit_id' => $auditId]
@@ -118,7 +156,7 @@ class BatchJobStore
         return $this->runScript(
             self::$MERGE_LUA,
             [self::jobKey($jobId)],
-            [$patch, self::JOB_TTL_SECONDS],
+            [$patch, self::jobTtlSeconds()],
             'No se pudo actualizar el job en Redis',
             ['job_id' => $jobId]
         );
@@ -156,7 +194,7 @@ class BatchJobStore
         return $this->runScript(
             self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
             [self::jobKey($jobId)],
-            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS, max(0, $auditDurationMs)],
+            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds(), max(0, $auditDurationMs)],
             'No se pudo actualizar el progreso del job en Redis',
             ['job_id' => $jobId, 'audit_id' => $auditId]
         );
@@ -173,7 +211,7 @@ class BatchJobStore
         return $this->runScript(
             self::CLAIM_BATCH_TERMINAL_EVENT_LUA,
             [self::jobKey($jobId)],
-            [$eventType, gmdate('Y-m-d\TH:i:s\Z'), self::JOB_TTL_SECONDS],
+            [$eventType, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds()],
             'No se pudo reclamar el evento terminal del batch en Redis',
             ['job_id' => $jobId, 'event_type' => $eventType]
         );
@@ -230,16 +268,17 @@ class BatchJobStore
      *
      * @param  array<string,mixed>  $reservation
      */
-    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation, int $ttl = self::JOB_TTL_SECONDS): bool
+    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation, ?int $ttl = null): bool
     {
         $reservation['dis_id'] = $disId;
         $reservation['token'] = $ownerToken;
         $reservation['claimed_at'] = $reservation['claimed_at'] ?? gmdate('Y-m-d\TH:i:s\Z');
+        $ttlSeconds = ($ttl !== null && $ttl > 0) ? $ttl : self::reservationTtlSeconds();
 
         return $this->redis->setnx(
             self::auditReservationKey($disId),
             self::encodeJson($reservation, 'BatchJobStore::claimAuditReservation'),
-            $ttl
+            $ttlSeconds
         );
     }
 
@@ -391,6 +430,20 @@ job['accumulated_duration_ms'] = (tonumber(job['accumulated_duration_ms']) or 0)
 
 if processed > 0 then
     job['avg_duration_ms'] = math.floor((tonumber(job['accumulated_duration_ms']) or 0) / processed)
+end
+
+local newJobStatus = job['status'] or 'pending'
+local oldJobStatus = previousStatus == '' and 'pending' or previousStatus
+
+if oldJobStatus == 'pending' and newJobStatus == 'processing' then
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_queued', -1)
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', 1)
+elseif oldJobStatus == 'processing' and (newJobStatus == 'completed' or newJobStatus == 'completed_with_errors') then
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', -1)
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_completed', 1)
+elseif oldJobStatus == 'processing' and newJobStatus == 'failed' then
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', -1)
+    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_failed', 1)
 end
 
 job['updated_at'] = now

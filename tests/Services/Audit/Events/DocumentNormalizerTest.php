@@ -331,6 +331,42 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertContains('v1_evidence_normalized', $ops);
     }
 
+    public function testNormalizePreservesExtractionWarnings(): void
+    {
+        $normalizer = new DocumentNormalizer();
+
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'DISPENSA',
+            'fields_config' => $this->fieldsConfig([
+                'NumeroFactura' => 'text',
+            ]),
+            'visual_checks' => [],
+            'extraction_result' => [
+                'fields' => [
+                    'NumeroFactura' => ['valor' => '123'],
+                ],
+                'items' => [],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+                'extraction_warnings' => [
+                    [
+                        'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                        'severity' => 'warning',
+                        'scope' => 'items',
+                        'expected_items_count' => 5,
+                        'extracted_items_count' => 2,
+                    ]
+                ],
+            ],
+        ]);
+
+        $this->assertArrayHasKey('extraction_warnings', $result);
+        $this->assertCount(1, $result['extraction_warnings']);
+        $this->assertSame('ITEM_SEGMENTATION_INCOMPLETE', $result['extraction_warnings'][0]['code']);
+        $this->assertSame(5, $result['extraction_warnings'][0]['expected_items_count']);
+    }
+
     /**
      * @param  array<string,string> $typesByField
      * @return array<int,array{campoNombre:string,tipoCampo:string,tipoDato:string}>

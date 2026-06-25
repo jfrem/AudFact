@@ -55,7 +55,7 @@ final class GeminiConfigTest extends TestCase
     public function testThinkingLevelTakesPrecedenceOverThinkingBudgetWithoutMediaResolutionByDefault(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.1-pro-preview',
+            model: 'gemini-3.5-flash',
             mediaResolution: 'MEDIA_RESOLUTION_HIGH',
             thinkingBudget: 128,
             thinkingLevel: 'low'
@@ -74,7 +74,7 @@ final class GeminiConfigTest extends TestCase
     public function testIncludesMediaResolutionOnlyWhenRequested(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.1-pro-preview',
+            model: 'gemini-3.5-flash',
             mediaResolution: 'MEDIA_RESOLUTION_HIGH'
         );
 
@@ -89,7 +89,7 @@ final class GeminiConfigTest extends TestCase
             new Client(),
             'test-key',
             new GeminiConfig(
-                model: 'gemini-3.1-pro-preview',
+                model: 'gemini-3.5-flash',
                 mediaResolution: 'MEDIA_RESOLUTION_HIGH'
             )
         );
@@ -127,7 +127,7 @@ final class GeminiConfigTest extends TestCase
         $gateway = new GeminiGateway(
             new Client(),
             'test-key',
-            new GeminiConfig(model: 'gemini-3.1-pro-preview')
+            new GeminiConfig(model: 'gemini-3.5-flash')
         );
         $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
         $buildPayload->setAccessible(true);
