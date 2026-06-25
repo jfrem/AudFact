@@ -150,6 +150,9 @@ jobs:
           REDIS_HOST: ${{ vars.REDIS_HOST }}
           REDIS_PORT: ${{ vars.REDIS_PORT }}
           REDIS_PREFIX: ${{ vars.REDIS_PREFIX }}
+          REDIS_MAXMEMORY: ${{ vars.REDIS_MAXMEMORY }}
+          REDIS_MAXMEMORY_POLICY: ${{ vars.REDIS_MAXMEMORY_POLICY }}
+          REDIS_CONTAINER_MEMORY: ${{ vars.REDIS_CONTAINER_MEMORY }}
           REDIS_MODE: ${{ vars.REDIS_MODE }}
           REDIS_PERSISTENT: ${{ vars.REDIS_PERSISTENT }}
           CB_GEMINI_THRESHOLD: ${{ vars.CB_GEMINI_THRESHOLD }}
@@ -160,6 +163,9 @@ jobs:
           AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
           AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
           AUDIT_IDEMPOTENCY_KEY_TTL: ${{ vars.AUDIT_IDEMPOTENCY_KEY_TTL }}
+          AUDIT_JOB_TTL: ${{ vars.AUDIT_JOB_TTL }}
+          AUDIT_STATE_TTL: ${{ vars.AUDIT_STATE_TTL }}
+          AUDIT_RESERVATION_TTL: ${{ vars.AUDIT_RESERVATION_TTL }}
           AUDIT_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_PENDING_RECLAIM_IDLE_MS }}
           AUDIT_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_PENDING_RECLAIM_INTERVAL_MS }}
           AUDIT_EVENT_MAX_RETRIES: ${{ vars.AUDIT_EVENT_MAX_RETRIES }}
@@ -331,6 +337,9 @@ jobs:
             write_env_var 'REDIS_HOST' "${REDIS_HOST:-redis}"
             write_env_var 'REDIS_PORT' "${REDIS_PORT:-6379}"
             write_env_var 'REDIS_PREFIX' "${REDIS_PREFIX:-audfact:}"
+            write_env_var 'REDIS_MAXMEMORY' "${REDIS_MAXMEMORY:-4gb}"
+            write_env_var 'REDIS_MAXMEMORY_POLICY' "${REDIS_MAXMEMORY_POLICY:-volatile-lru}"
+            write_env_var 'REDIS_CONTAINER_MEMORY' "${REDIS_CONTAINER_MEMORY:-5G}"
             write_env_var 'REDIS_PASSWORD' "$REDIS_PASSWORD"
             write_env_var 'REDIS_MODE' "${REDIS_MODE:-standalone}"
             write_env_var 'REDIS_PERSISTENT' "${REDIS_PERSISTENT:-0}"
@@ -344,6 +353,9 @@ jobs:
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"
             write_env_var 'AUDIT_IDEMPOTENCY_KEY_TTL' "${AUDIT_IDEMPOTENCY_KEY_TTL:-300}"
+            write_env_var 'AUDIT_JOB_TTL' "${AUDIT_JOB_TTL:-604800}"
+            write_env_var 'AUDIT_STATE_TTL' "${AUDIT_STATE_TTL:-604800}"
+            write_env_var 'AUDIT_RESERVATION_TTL' "${AUDIT_RESERVATION_TTL:-86400}"
             write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
             write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
             write_env_var 'AUDIT_EVENT_MAX_RETRIES' "${AUDIT_EVENT_MAX_RETRIES:-3}"
