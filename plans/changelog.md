@@ -1,5 +1,57 @@
 # Changelog AudFact
 
+## [2026-06-25] - Refactor: Limpieza clean code del diff activo
+
+### Clean Rebuild / Backend / Frontend
+
+- Eliminado drift documental en `audfact-audit-gemini` removiendo el bloque duplicado de frontmatter/contenido.
+- Endurecido `RedisClient::xAdd()` con soporte opcional de `MAXLEN` para telemetría SSE acotada.
+- Limpiada integración de duplicados documentales en `RulesEvaluationWorker` y `DocumentDuplicationEvaluator`, manteniendo payloads de rechazo persistibles.
+- Pulidos componentes del DAG de auditoría para retirar side-stripes, glass/blur decorativo, `console.error`, whitespace y copy inconsistente.
+- Validación: `git diff --check`, `php -l` en PHP tocado, `npm.cmd run typecheck` y `php vendor/bin/phpunit tests/Services/Audit/Events/AuditEventConsumerTest.php --no-coverage`.
+
+## [2026-06-25] - Feature: Detección de Documentos Duplicados por SHA256 (Clean Rebuild)
+
+### IA Pipeline / Integrity / Clean Rebuild
+
+- **Extracción modular de Evaluador de Duplicados**:
+  - `DocumentDuplicationEvaluator.php`: Creado servicio que agrupa los documentos extraídos por `document_hash` para identificar colisiones binarias. Si detecta hashes idénticos en la misma dispensación, emite un hallazgo `DUP` de severidad alta con resultado `RECHAZADO` y tipo `integrity`.
+- **Integración en Orquestación**:
+  - `RulesEvaluationWorker.php`: Invocación transversal en `aggregateRulesEvaluation()` para inyectar fallos por duplicación directamente sobre las decisiones de los documentos sin alterar reglas de negocio externas.
+- **DOCS-SYNC**: Validada la arquitectura bajo la `clean-rebuild-policy` según el documento SDD.
+
+## [2026-06-23] - Feature: Integración de Grafo DAG en Auditoría Individual (Clean Rebuild)
+
+### Frontend & Observability
+
+- **Trazabilidad en tiempo real (`/audit/single`)**:
+  - `LiveAuditFlow`: Creado un componente modular y desacoplado (`live-audit-flow.tsx`) que inicializa la conexión `useAuditTelemetry` por `auditId` y renderiza internamente el DAG `AuditFlowGraph`.
+  - `AuditSingleConsole`: Modificada la vista para inyectar `<LiveAuditFlow>` de manera no intrusiva dentro de una `SectionCard` durante la ejecución activa del pipeline (`isPolling`) o al finalizar.
+  - Esto proporciona una trazabilidad y observabilidad de nivel granular sin acoplar la lógica de telemetría a la lógica del negocio.
+- **DOCS-SYNC**: Validado bajo la política estricta de `clean-rebuild-policy` y `write-sdd-spec`. Se crearon los artefactos de diseño e implementación según las directivas.
+
+## [2026-06-22] - Fix: Acumulación Idempotente de Telemetría (Clean Rebuild)
+
+### Frontend & Observability
+
+- **Diccionario Idempotente en Zustand**:
+  - `useAuditFlowStore.ts`: Se refactorizó la lógica de telemetría de jobs (`mode === "job"`) para abandonar incrementos aritméticos ciegos (`total++`). Ahora se mantiene un estado derivado de un mapa (`taskStates: Record<string, string>`) indexado por `document_id ?? audit_id`. Esto previene la duplicación visual provocada por reconexiones de SSE o re-renderizados múltiples.
+- **DOCS-SYNC**: Validado bajo la política estricta de `clean-rebuild-policy` según el documento SDD.
+
+## [2026-06-22] - Feature: Telemetría Agregada para Lotes (DAG)
+
+### Backend & Frontend / Observability
+
+- **Telemetría con JobId**:
+  - `TelemetryPublisher` y todos los pipeline workers (`DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`) propagan opcionalmente `$event->jobId` en el payload de telemetría hacia Redis Streams (`audit.telemetry`).
+- **Dual Routing en SSE**:
+  - `AuditFlowController::flowStream` actualizado para soportar tanto `auditId` como `jobId` (`GET /audit/{id}/flow-stream`). Se consulta Redis para inferir el tipo de identidad (`audit:{id}:state` o `job:{id}:state`) y filtrar la telemetría en consecuencia.
+- **DAG Agregado en Frontend**:
+  - Sustituida la interfaz redundante por una topología ReactFlow de tamaño fijo $O(1)$ (`buildAggregatedJobDag`) en `job-detail-client.tsx` que permite procesar lotes de +100 documentos.
+  - `useAuditFlowStore` procesa métricas agregadas (`completed`, `failed`, `total`) para `mode="job"`, permitiendo el renderizado inline de progreso visual de cada fase en los nodos (`custom-nodes.tsx`).
+- **Sincronización (DOCS-SYNC)**:
+  - Actualizados `plans/api-endpoints.md`, `CHANGELOG.md` y revisada la skill `audfact-audit-gemini` con el soporte a `$jobId` en telemetría.
+
 ## [2026-06-19] - Feature: Ampliacion Redis y TTL de auditorias
 
 ### Runtime Docker / Redis

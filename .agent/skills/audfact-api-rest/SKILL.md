@@ -15,12 +15,13 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1.6 KB | Definición de 27 rutas |
+| `app/Routes/web.php` | ~1.8 KB | Definición de 29 rutas |
 | `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 8.9 KB | Configuración dinámica de auditoría por cliente |
 | `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
 | `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ |
+| `app/Controllers/AuditFlowController.php` | 3 KB | Stream SSE de telemetría live por `audit_id` UUID v4 |
 | `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI |
 | `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
 | `app/Controllers/ClientsController.php` | 1.6 KB | Gestión de clientes y catálogo documental |
@@ -31,7 +32,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (27)
+## Endpoints actuales (29)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -45,6 +46,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `POST` | `/clients` | `ClientsController::lookup` |
 | `GET` | `/clients/{clientId}/audit-config` | `AuditConfigController::show` |
 | `POST` | `/clients/{clientId}/audit-config` | `AuditConfigController::save` |
+| `GET` | `/audit/field-catalog` | `AuditConfigController::catalog` |
 | `GET` | `/invoices` | `InvoicesController::index` |
 | `POST` | `/invoices` | `InvoicesController::search` |
 | `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController::downloadByDispensation` |
@@ -62,6 +64,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/audit/dlq` | `AuditDlqController::index` |
 | `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |
+| `GET` | `/audit/{auditId}/flow-stream` | `AuditFlowController::stream` |
 
 ## Flujo de trabajo
 1. Revisar rutas en `app/Routes/web.php`.

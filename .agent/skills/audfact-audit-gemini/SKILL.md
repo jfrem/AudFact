@@ -31,11 +31,13 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, identidad documental, numéricos canónicos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
+| `app/Services/Audit/DocumentDuplicationEvaluator.php` | Servicio funcional que evalúa colisiones SHA256 para prevenir fraude por duplicación documental. |
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items), incluyendo candidatos `valores` de evidencia v1, resolviendo dependencias de normalización cruzada. |
 | `app/Services/Audit/Pipeline/ResolvedAuditValue.php` | DTO inmutable para comparar FDV y documento con el mismo contrato (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`). |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
 | `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
+| `app/Services/Audit/Telemetry/TelemetryPublisher.php` | Publica telemetría live best-effort en `audit.telemetry` desde cada worker en su fase real (`orchestration`, `download`, `extraction`, `normalization`, `policy`, `aggregation`). |
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
@@ -76,6 +78,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
 | `audit.documents` | Orchestrator / Extractor / Normalizer / Policy | `document_registered`, `document_extracted`, `document_rejected`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+| `audit.telemetry` | Workers de auditoría | Eventos live `started`, `completed`, `failed`, `rejected` por fase real del DAG |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
 ## Variables de entorno relevantes
