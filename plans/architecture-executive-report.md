@@ -179,7 +179,7 @@ La arquitectura de AudFact fue concebida bajo principios de inmutabilidad, aisla
 *   **Backend (Core Framework)**: Framework MVC ultra-ligero desarrollado a medida en PHP 8.2-FPM, sin las dependencias ni la sobrecarga típica de Symfony o Laravel. Logra tiempos de bootstrap inferiores a 2ms y cuenta con un router centralizado, un validador de entradas, un sanitizador de seguridad y un manejador de excepciones global.
 *   **Procesamiento Asíncrono e Infraestructura Event-Driven**: Utiliza **Redis 7** como bus de eventos permanente basado en **Redis Streams**. Un pool de 13 procesos en segundo plano (Workers) concurrentes de PHP-CLI persistentes en producción (3 orquestadores de cola, 8 extractores de IA y 2 evaluadores deterministas de políticas) consumen los eventos utilizando grupos de consumo (`XREADGROUP`) y scripts de autoreclamado.
 *   **Base de Datos**: **Microsoft SQL Server (MSSQL)** consumido de forma directa con drivers nativos de PDO.
-*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini mediante un único selector de modelo (`GEMINI_MODEL`). El template y el workflow productivo fijan el modelo operativo por defecto en `gemini-3-flash-preview`; si la variable falta por completo, `GeminiConfig` conserva un fallback local de configuración a `gemini-3.1-pro-preview`. Extracción documental y homologación semántica usan perfiles de generación separados (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`), pero no cambian de modelo.
+*   **Servicios de IA (Gemini API Gateway)**: Integración nativa con la API de Google Gemini mediante un único selector de modelo (`GEMINI_MODEL`). El template y el workflow productivo fijan el modelo operativo por defecto en `gemini-3.5-flash`; si la variable falta por completo, `GeminiConfig` conserva un fallback local de configuración a `gemini-3.5-flash`. Extracción documental y homologación semántica usan perfiles de generación separados (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`), pero no cambian de modelo.
 *   **Almacenamiento de Soportes**: Conexión con **Google Drive API v3** usando la firma segura de aserción JWT mediante Service Account corporativo, descargando los PDFs en caliente como streams de memoria sin persistirlos localmente.
 
 ---
@@ -650,7 +650,7 @@ Uno de los mayores diferenciadores arquitectónicos y legales de AudFact es la *
                                   │ (Lazy Stream)
                                   ▼
    ┌─────────────────────────────────────────────────────────────┐
-   │            IA (Google Gemini API: gemini-3-flash-preview)   │
+   │            IA (Google Gemini API: gemini-3.5-flash)         │
    │               - Solo Extracción Multimodal                  │
    │               - Homologación y Traducción Semántica          │
    │               - Retorna JSON sin Reglas de Negocio          │

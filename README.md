@@ -90,7 +90,7 @@ npm run dev
 | `DB_ENCRYPT` / `DB2_ENCRYPT` | Cifrado SQL Server (`no` temporal en este entorno) |
 | `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server (`yes` temporal) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
-| `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3-flash-preview`) |
+| `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3.5-flash`) |
 | `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN` | Umbral y cooldown del circuit breaker Gemini |
 | `REDIS_HOST` / `REDIS_PORT` | Host y puerto de Redis para pipeline async |
 | `REDIS_PASSWORD` / `REDIS_MODE` | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`) |

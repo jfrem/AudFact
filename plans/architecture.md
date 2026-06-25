@@ -67,19 +67,6 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 ### Servicios de Auditoría IA (`app/Services/Audit/`)
 
-| Componente | Responsabilidad |
-|---|---|
-| `AuditBatchOrchestrator.php` | Orquestación de encolamiento asíncrono (batch), reservas por `DisId`, sellado de job y rollback transaccional |
-| `AuditFindingRules.php` | Reglas compartidas para normalización, severidad, métricas y risk score |
-| `AuditComparisonType.php` | Enum de tipos de comparación (exact/semantic/visual/business) desde `TipoCampo` |
-| `AuditFieldValueType.php` | Enum de `TipoDato` explícito por campo para schema Gemini, normalización y estrategias de comparación |
-| `AuditFindingResult.php` | Enum de resultados canónicos (`COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`, `RECHAZADO`) |
-| `AuditSeverity.php` | Enum de severidades normalizadas (alta/media/baja) |
-| `DocumentQuality.php` | Enum de calidad documental normalizada |
-| `GeminiConfig.php` | Value Object inmutable con parámetros de generación del modelo + factory `fromEnv()` |
-| `GeminiCallMetrics.php` | Normalización de métricas no sensibles de llamadas Gemini (latencia, tokens, cache hits) |
-| `GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, factory `create()` y manejo de errores |
-| `ArticleSemanticMatchJudge.php` | Juez semántico Gemini limitado a homologación de artículos |
 | `ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad (solo `development`) |
 
 **Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`.

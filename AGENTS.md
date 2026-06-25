@@ -262,7 +262,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
 | `GEMINI_API_KEY` | *(vacío)* | ✅ | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | ❌ | Modelo de Gemini a usar |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
 | `GEMINI_TOP_P` | `1.0` | ❌ | Nucleus sampling para determinismo |
