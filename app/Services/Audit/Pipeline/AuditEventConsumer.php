@@ -7,7 +7,6 @@ namespace App\Services\Audit\Pipeline;
 use Core\Env;
 use Core\Logger;
 use Core\RedisClient;
-use Core\RedisUnavailableException;
 use RuntimeException;
 use Throwable;
 

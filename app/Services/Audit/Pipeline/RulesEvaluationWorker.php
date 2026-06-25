@@ -7,16 +7,19 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
+use App\Services\Audit\DocumentDuplicationEvaluator;
 use App\Services\Audit\DeliveryValidityEvaluator;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\ArticleSemanticMatchJudge;
 use Core\Logger;
 use RuntimeException;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 
 final class RulesEvaluationWorker extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
     private DocumentPolicyEngine $policyEngine;
+    private TelemetryPublisher $telemetryPublisher;
 
     private string $consumerName;
 
@@ -25,7 +28,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         ?DocumentPolicyEngine $policyEngine = null,
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null
+        ?string $consumerName = null,
+        ?TelemetryPublisher $telemetryPublisher = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
@@ -40,6 +44,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         $this->consumerName = $consumerName ?? self::defaultConsumerName('policy');
+        $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
     }
 
     protected function stream(): string
@@ -72,22 +77,56 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         [$auditContext, $documentState] = $this->loadPolicyContext($event);
         $facNro = (string) ($auditContext['dis_det_nro'] ?? '');
 
-        $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
-            ? $this->buildRejectedPolicyResult($documentState, $event->payload, $facNro)
-            : $this->policyEngine->evaluate($documentState, $event->payload, $facNro);
-        $durationMs = (int) ((microtime(true) - $start) * 1000);
+        $telemetryMeta = ['worker' => $this->consumer()];
+        $telemetryStartedAt = hrtime(true);
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'policy',
+            $event->documentId,
+            $facNro,
+            $telemetryMeta,
+            $event->jobId
+        );
 
-        $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
-        if (!$this->stateStore->markDocumentEvaluated($event->auditId, $event->documentId, $documentPatch)) {
-            throw new RuntimeException('No se pudo persistir la evaluación documental en Redis');
+        try {
+            $policyResult = $event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED
+                ? $this->buildRejectedPolicyResult($documentState, $event->payload, $facNro)
+                : $this->policyEngine->evaluate($documentState, $event->payload, $facNro);
+            $durationMs = (int) ((microtime(true) - $start) * 1000);
+
+            $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
+            if (!$this->stateStore->markDocumentEvaluated($event->auditId, $event->documentId, $documentPatch)) {
+                throw new RuntimeException('No se pudo persistir la evaluación documental en Redis');
+            }
+
+            Logger::info('Document policy evaluation processed', [
+                'auditId'            => $event->auditId,
+                'documentId'         => $event->documentId,
+                'event_type'         => $event->eventType,
+                'policy_duration_ms' => $durationMs,
+            ]);
+
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'policy',
+                self::elapsedMs($telemetryStartedAt),
+                $event->documentId,
+                $facNro,
+                $telemetryMeta,
+                $event->jobId
+            );
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'policy',
+                self::elapsedMs($telemetryStartedAt),
+                $event->documentId,
+                $facNro,
+                array_merge($telemetryMeta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
         }
-
-        Logger::info('Document policy evaluation processed', [
-            'auditId'            => $event->auditId,
-            'documentId'         => $event->documentId,
-            'event_type'         => $event->eventType,
-            'policy_duration_ms' => $durationMs,
-        ]);
 
         $updatedAudit = $this->stateStore->getAudit($event->auditId);
         if ($updatedAudit === null) {
@@ -199,6 +238,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $facNro = (string) ($audit['dis_det_nro'] ?? '');
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
         $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
+        $duplicatedHashFindings = DocumentDuplicationEvaluator::evaluate($audit);
+        $calculatedFindings = array_merge($calculatedFindings, $duplicatedHashFindings);
         $allFindings = array_merge($allFindings, $calculatedFindings);
         $documentDecisions = $this->normalizeDocumentDecisions($documentDecisions);
         $documentDecisions = $this->mergeCalculatedFindingsIntoDecisions($documentDecisions, $calculatedFindings, $facNro);
@@ -478,6 +519,11 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         return $highest;
     }
 
+    private static function elapsedMs(int $start): int
+    {
+        return max(0, (int) round((hrtime(true) - $start) / 1_000_000));
+    }
+
     /**
      * @param  array<int,array<string,mixed>> $findings
      */
@@ -571,6 +617,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                     continue;
                 }
 
+                if ($this->decisionAlreadyHasFinding($decision, $codigo)) {
+                    continue;
+                }
+
                 $this->rejectDocumentDecision($decision, $codigo, $detail, $facNro);
                 $updated = true;
                 break;
@@ -597,12 +647,27 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     /**
      * @param  array<string,mixed> $decision
      */
+    private function decisionAlreadyHasFinding(array $decision, string $codigo): bool
+    {
+        if (!isset($decision['payload']['hallazgos']) || !is_array($decision['payload']['hallazgos'])) {
+            return false;
+        }
+
+        foreach ($decision['payload']['hallazgos'] as $finding) {
+            if (($finding['Codigo'] ?? '') === $codigo) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string,mixed> $decision
+     */
     private function rejectDocumentDecision(array &$decision, string $codigo, string $detail, string $facNro): void
     {
         $decision['approved'] = false;
-        if ($detail === '') {
-            return;
-        }
 
         if (!isset($decision['payload']) || !is_array($decision['payload'])) {
             $decision['payload'] = AuditFindingRules::buildRejectionPayload($facNro, []);
@@ -611,7 +676,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $decision['payload']['state'] = false;
         $decision['payload']['hallazgos'][] = [
             'Codigo' => $codigo,
-            'Descripcion' => $detail,
+            'Descripcion' => $detail !== '' ? $detail : 'Hallazgo calculado sin detalle adicional.',
         ];
     }
 }

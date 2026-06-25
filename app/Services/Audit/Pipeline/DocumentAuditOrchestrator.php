@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -12,6 +13,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     private AuditStateStore $stateStore;
     private AuditDataService $dataService;
     private DocumentExtractionContractBuilder $contractBuilder;
+    private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
 
     public function __construct(
@@ -20,13 +22,15 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         ?DocumentExtractionContractBuilder $contractBuilder = null,
         ?\Core\RedisClient                $redis           = null,
         ?AuditEventPublisher              $publisher       = null,
-        ?string                           $consumerName    = null
+        ?string                           $consumerName    = null,
+        ?TelemetryPublisher               $telemetryPublisher = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore      = $stateStore      ?? new AuditStateStore($this->redis);
         $this->dataService     = $dataService     ?? new AuditDataService();
         $this->contractBuilder = $contractBuilder ?? new DocumentExtractionContractBuilder();
+        $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName    = $consumerName    ?? self::defaultConsumerName('orchestrator');
     }
 
@@ -51,22 +55,56 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             return;
         }
 
-        if (!$this->stateStore->markAuditStarted($event->auditId)) {
-            throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
-        }
-
         $identity = $this->assertAuditCreated($event);
-        $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
-        $this->assertIdentityContract($event, $identity, $context);
+        $startedAt = hrtime(true);
+        $meta = ['worker' => $this->consumer()];
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'orchestration',
+            null,
+            $identity['dis_det_nro'],
+            $meta,
+            $event->jobId
+        );
 
-        $this->stateStore->patchAudit($event->auditId, [
-            'fac_nit_sec' => $context['nitSec'],
-            'dis_id' => $context['disId'],
-            'numero_factura' => $context['numeroFactura'],
-        ]);
-        $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
+        try {
+            if (!$this->stateStore->markAuditStarted($event->auditId)) {
+                throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
+            }
 
-        $this->registerDocuments($event, $context);
+            $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
+            $this->assertIdentityContract($event, $identity, $context);
+
+            $this->stateStore->patchAudit($event->auditId, [
+                'fac_nit_sec' => $context['nitSec'],
+                'dis_id' => $context['disId'],
+                'numero_factura' => $context['numeroFactura'],
+            ]);
+            $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
+
+            $this->registerDocuments($event, $context);
+
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'orchestration',
+                self::elapsedMs($startedAt),
+                null,
+                $identity['dis_det_nro'],
+                array_merge($meta, ['documents_total' => count($context['configuredDocuments'])]),
+                $event->jobId
+            );
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'orchestration',
+                self::elapsedMs($startedAt),
+                null,
+                $identity['dis_det_nro'],
+                array_merge($meta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
+        }
     }
 
     /**
@@ -436,5 +474,10 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         return $normalized;
+    }
+
+    private static function elapsedMs(int $startedAt): int
+    {
+        return max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000));
     }
 }

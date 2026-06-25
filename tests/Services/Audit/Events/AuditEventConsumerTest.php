@@ -144,6 +144,7 @@ final class AuditEventConsumerTest extends TestCase
             'id'     => '1700000000000-0',
             'fields' => ['event' => $event->toJson()],
         ]]);
+        $redis->expects($this->never())->method('xAdd');
         $redis->expects($this->once())->method('xAck');
 
         $consumer = new MinimalConsumer(redis: $redis, stateStore: $telemetryStore);

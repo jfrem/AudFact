@@ -9,23 +9,27 @@ use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\IdentityDocNormalizer;
 use App\Services\Audit\TextNormalization;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 use Core\Logger;
 use RuntimeException;
 
 final class DocumentNormalizer extends AuditEventConsumer
 {
     private AuditStateStore $stateStore;
+    private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
 
     public function __construct(
         ?AuditStateStore $stateStore = null,
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null
+        ?string $consumerName = null,
+        ?TelemetryPublisher $telemetryPublisher = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
+        $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName = $consumerName ?? self::defaultConsumerName('normalizer');
     }
 
@@ -56,43 +60,77 @@ final class DocumentNormalizer extends AuditEventConsumer
             throw new RuntimeException('document_extracted sin audit_id o document_id');
         }
 
-        $normalized = $this->normalize($event->payload);
-        $durationMs = (int) ((microtime(true) - $start) * 1000);
+        $disDetNro = self::optionalString($event->payload, 'dis_det_nro');
+        $meta = ['worker' => $this->consumer()];
+        $telemetryStartedAt = hrtime(true);
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'normalization',
+            $event->documentId,
+            $disDetNro,
+            $meta,
+            $event->jobId
+        );
 
-        $documentState = [
-            'status'                    => 'normalized',
-            'normalized_result'         => $normalized,
-            'normalized_at'             => gmdate('Y-m-d\TH:i:s\Z'),
-            'normalization_duration_ms' => $durationMs,
-        ];
+        try {
+            $normalized = $this->normalize($event->payload);
+            $durationMs = (int) ((microtime(true) - $start) * 1000);
 
-        if (!$this->stateStore->markDocumentNormalized($event->auditId, $event->documentId, $documentState)) {
-            throw new RuntimeException('No se pudo persistir la normalización del documento en Redis');
+            $documentState = [
+                'status'                    => 'normalized',
+                'normalized_result'         => $normalized,
+                'normalized_at'             => gmdate('Y-m-d\TH:i:s\Z'),
+                'normalization_duration_ms' => $durationMs,
+            ];
+
+            if (!$this->stateStore->markDocumentNormalized($event->auditId, $event->documentId, $documentState)) {
+                throw new RuntimeException('No se pudo persistir la normalización del documento en Redis');
+            }
+
+            Logger::info('Document normalization event processed', [
+                'auditId'                   => $event->auditId,
+                'documentId'                => $event->documentId,
+                'normalization_duration_ms' => $durationMs,
+            ]);
+
+            $this->publisher->publish(AuditEvent::create(
+                eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
+                auditId: $event->auditId,
+                jobId: $event->jobId,
+                documentId: $event->documentId,
+                payload: [
+                    'tipo_documento' => (string) ($normalized['tipo_documento'] ?? ''),
+                    'fields_normalized' => $normalized['fields_normalized'] ?? [],
+                    'items_normalized' => $normalized['items_normalized'] ?? [],
+                    'visual_checks_resultado' => $normalized['visual_checks_resultado'] ?? [],
+                    'document_quality' => $normalized['document_quality'] ?? null,
+                    'quality_notes' => $normalized['quality_notes'] ?? [],
+                    'normalization_log' => $normalized['normalization_log'] ?? [],
+                    'extraction_warnings' => $normalized['extraction_warnings'] ?? [],
+                ],
+                parentEventId: $event->eventId,
+            ));
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'normalization',
+                self::elapsedMs($telemetryStartedAt),
+                $event->documentId,
+                $disDetNro,
+                $meta,
+                $event->jobId
+            );
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'normalization',
+                self::elapsedMs($telemetryStartedAt),
+                $event->documentId,
+                $disDetNro,
+                array_merge($meta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
         }
-
-        Logger::info('Document normalization event processed', [
-            'auditId'                   => $event->auditId,
-            'documentId'                => $event->documentId,
-            'normalization_duration_ms' => $durationMs,
-        ]);
-
-        $this->publisher->publish(AuditEvent::create(
-            eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
-            documentId: $event->documentId,
-            payload: [
-                'tipo_documento' => (string) ($normalized['tipo_documento'] ?? ''),
-                'fields_normalized' => $normalized['fields_normalized'] ?? [],
-                'items_normalized' => $normalized['items_normalized'] ?? [],
-                'visual_checks_resultado' => $normalized['visual_checks_resultado'] ?? [],
-                'document_quality' => $normalized['document_quality'] ?? null,
-                'quality_notes' => $normalized['quality_notes'] ?? [],
-                'normalization_log' => $normalized['normalization_log'] ?? [],
-                'extraction_warnings' => $normalized['extraction_warnings'] ?? [],
-            ],
-            parentEventId: $event->eventId,
-        ));
     }
 
     /**
@@ -140,6 +178,23 @@ final class DocumentNormalizer extends AuditEventConsumer
         }
 
         return $rawType;
+    }
+
+    private static function optionalString(array $payload, string $key): ?string
+    {
+        $value = $payload[$key] ?? null;
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value !== '' ? $value : null;
+    }
+
+    private static function elapsedMs(int $startedAt): int
+    {
+        return max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000));
     }
 
     /**

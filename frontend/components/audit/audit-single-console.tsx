@@ -5,29 +5,17 @@ import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ExternalLink,
-  Loader2,
-  Play,
-} from "lucide-react";
+import { Loader2, Play } from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
 
 import { describeError, isRetryableError } from "@/lib/api/errors";
 
 import { runAuditSingle, getAuditLiveStatus } from "@/lib/api/audfact";
-import type { AuditSingleResponse, AuditLiveStatus } from "@/lib/schemas/domain";
-import { AuditSingleWorkspace } from "@/components/audit/audit-single-workspace";
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
-import { SectionCard } from "@/components/shared/section-card";
-import { EmptyState } from "@/components/shared/empty-state";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { LiveAuditFlow } from "@/components/audit/live-audit-flow";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
 const formSchema = z.object({
   disId: z.string().optional(),
@@ -42,14 +30,11 @@ export function AuditSingleConsole() {
   const searchParams = useSearchParams();
   const prefill = searchParams.get("disId") ?? "";
 
-  const [latestDisId, setLatestDisId] = React.useState<string>("");
-  const [latestDisDetNro, setLatestDisDetNro] = React.useState<string>("");
-  const [latestResult, setLatestResult] = React.useState<AuditSingleResponse | null>(null);
-  const [showConfirm, setShowConfirm] = React.useState(false);
-  const [pendingValues, setPendingValues] = React.useState<FormValues | null>(null);
+  const [activeAuditId, setActiveAuditId] = React.useState<string | null>(null);
 
-  /* ── Polling state ─────────────────────────────────── */
-  const [pollingAuditId, setPollingAuditId] = React.useState<string | null>(null);
+  const [pollingAuditId, setPollingAuditId] = React.useState<string | null>(
+    null,
+  );
 
   const liveStatus = useQuery({
     queryKey: ["audit-live-status", pollingAuditId],
@@ -63,16 +48,16 @@ export function AuditSingleConsole() {
     retry: 2,
   });
 
-  /* Cuando el polling detecta estado terminal ────────── */
   React.useEffect(() => {
     const data = liveStatus.data;
     if (!data?.is_terminal || !pollingAuditId) return;
 
-    const isSuccess = data.status === "completed" || data.status === "manual_review";
+    const isSuccess =
+      data.status === "completed" || data.status === "manual_review";
 
     if (isSuccess) {
       toast.success("Auditoría completada", {
-        description: `Pipeline finalizado — navegue a Resultados para ver el detalle.`,
+        description: `Pipeline finalizado exitosamente.`,
       });
     } else {
       toast.error("La auditoría falló en el pipeline", {
@@ -81,7 +66,6 @@ export function AuditSingleConsole() {
       });
     }
 
-    // Stop polling — don't clear the status data so the card stays visible
     setPollingAuditId(null);
   }, [liveStatus.data, pollingAuditId]);
 
@@ -95,26 +79,30 @@ export function AuditSingleConsole() {
       const toastId = toast.loading("Ejecutando auditoría IA...", {
         description: `DisId: ${values.disId} / Factura: ${values.disDetNro}`,
       });
-      return runAuditSingle(values.disId, values.disDetNro).finally(() => toast.dismiss(toastId));
+      return runAuditSingle(values.disId, values.disDetNro).finally(() =>
+        toast.dismiss(toastId),
+      );
     },
-    onSuccess: (response, values) => {
+    onSuccess: (response) => {
       const data = response.data;
-      setLatestDisId(data.dis_id ?? values.disId ?? "");
-      setLatestDisDetNro(data.dis_det_nro ?? "");
 
       if (data.status === "pending" && data.audit_id) {
-        // Pipeline asíncrono: iniciar polling
-        setLatestResult(data);
+        setActiveAuditId(data.audit_id);
         setPollingAuditId(data.audit_id);
-        toast.info("Auditoría encolada — monitoreando progreso en tiempo real", {
-          duration: 4_000,
-        });
+        toast.info(
+          "Auditoría encolada, monitoreando progreso en tiempo real",
+          {
+            duration: 4_000,
+          },
+        );
       } else {
-        // Resultado síncrono (legacy / future)
-        setLatestResult(data);
+        setActiveAuditId(data.audit_id ?? null);
         const duration = Number(data?.metrics?.totalTimeMs ?? 0);
         toast.success("Auditoría completada", {
-          description: duration > 0 ? `Tiempo: ${(duration / 1000).toFixed(1)}s` : undefined,
+          description:
+            duration > 0
+              ? `Tiempo: ${(duration / 1000).toFixed(1)}s`
+              : undefined,
         });
       }
     },
@@ -135,274 +123,105 @@ export function AuditSingleConsole() {
   });
 
   const handleSubmit = (values: FormValues) => {
-    setPendingValues(values);
-    setShowConfirm(true);
+    setActiveAuditId(null);
+    setPollingAuditId(null);
+    mutation.mutate(values);
   };
 
-  const handleConfirm = () => {
-    setShowConfirm(false);
-    if (pendingValues) {
-      // Reset previous state
-      setLatestResult(null);
-      setPollingAuditId(null);
-      mutation.mutate(pendingValues);
-    }
-  };
-
-  /* ── Determinar qué vista renderizar ───────────────── */
   const isPolling = pollingAuditId !== null;
-  const terminalStatus = liveStatus.data?.is_terminal ? liveStatus.data : null;
 
   return (
-    <>
-      <ConfirmDialog
-        open={showConfirm}
-        variant="info"
-        title="Ejecutar auditoría"
-        description={`Se enviará la entrega ${pendingValues?.disId ?? ""} (${pendingValues?.disDetNro ?? ""}) al pipeline de auditoría IA. Este proceso puede tomar entre 10 y 60 segundos.`}
-        confirmLabel="Ejecutar"
-        onConfirm={handleConfirm}
-        onCancel={() => setShowConfirm(false)}
-        loading={mutation.isPending}
-      />
-
-      <div className="space-y-5">
-        <SectionCard
-          title="Auditoría individual"
-          description="Ejecuta una corrida puntual por ID de Dispensación y revisa el resultado, métricas y evidencia sin salir del flujo."
+    <div className="space-y-5">
+      <div className="rounded-xl border border-white/10 bg-card p-4">
+        <form
+          className="grid gap-4 md:grid-cols-[1fr_1fr_auto]"
+          onSubmit={form.handleSubmit(handleSubmit)}
+          aria-label="Filtros de ejecución"
         >
-          <form
-            className="grid gap-4 md:grid-cols-[1fr_1fr_auto]"
-            onSubmit={form.handleSubmit(handleSubmit)}
-          >
-            <Field>
-              <FieldLabel htmlFor="disId">
-                ID Dispensación (Opcional)
-              </FieldLabel>
-              <Input
-                id="disId"
-                placeholder="Ej. 87723098"
-                aria-invalid={!!form.formState.errors.disId}
-                aria-describedby={form.formState.errors.disId ? "audit-single-disId-error" : undefined}
-                {...form.register("disId")}
-              />
-              {form.formState.errors.disId && (
-                <FieldDescription id="audit-single-disId-error" className="text-rose-300" role="alert">
-                  {form.formState.errors.disId.message}
-                </FieldDescription>
-              )}
-            </Field>
-
-            <Field>
-              <FieldLabel htmlFor="disDetNro">
-                Número de Factura
-              </FieldLabel>
-              <Input
-                id="disDetNro"
-                placeholder="Ej. T38250701547"
-                aria-invalid={!!form.formState.errors.disDetNro}
-                aria-describedby={form.formState.errors.disDetNro ? "audit-single-disDetNro-error" : undefined}
-                {...form.register("disDetNro")}
-              />
-              {form.formState.errors.disDetNro && (
-                <FieldDescription id="audit-single-disDetNro-error" className="text-rose-300" role="alert">
-                  {form.formState.errors.disDetNro.message}
-                </FieldDescription>
-              )}
-            </Field>
-
-            <div className="flex items-end">
-              <Button
-                type="submit"
-                disabled={mutation.isPending || isPolling}
-                aria-busy={mutation.isPending || isPolling}
-                className="w-full sm:w-auto min-w-32"
-                loading={mutation.isPending}
-                loadingLabel="Procesando..."
-              >
-                {isPolling ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    En curso...
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Ejecutar
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </SectionCard>
-
-        {/* ── Estado: Polling en curso ── */}
-        {mutation.isPending ? (
-          <BackendRequestSkeleton
-            description="El backend está reservando la factura e iniciando el pipeline IA."
-            title="Ejecutando auditoría IA"
-            variant="detail"
-          />
-        ) : (isPolling || terminalStatus) && latestResult?.status === "pending" ? (
-          <AuditProgressCard
-            liveStatus={liveStatus.data ?? null}
-            isPolling={isPolling}
-            disId={latestDisId}
-            disDetNro={latestDisDetNro}
-          />
-        ) : latestResult && latestResult.status !== "pending" ? (
-          /* ── Estado: Resultado completo (sync/legacy) ── */
-          <AuditSingleWorkspace
-            disId={latestDisId}
-            disDetNro={latestDisDetNro}
-            result={latestResult}
-          />
-        ) : (
-          /* ── Estado: Sin auditoría ejecutada ── */
-          <SectionCard>
-            <EmptyState
-              title="Sin auditoría ejecutada"
-              description="Ingresa un ID de Dispensación y presiona Ejecutar para iniciar el análisis IA."
+          <Field>
+            <FieldLabel htmlFor="disId">ID Dispensación (opcional)</FieldLabel>
+            <Input
+              id="disId"
+              placeholder="Ej. 87723098"
+              aria-invalid={!!form.formState.errors.disId}
+              aria-describedby={
+                form.formState.errors.disId
+                  ? "audit-single-disId-error"
+                  : undefined
+              }
+              {...form.register("disId")}
             />
-          </SectionCard>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ── Componente de progreso en tiempo real ──────────── */
-
-function AuditProgressCard({
-  liveStatus,
-  isPolling,
-  disId,
-  disDetNro,
-}: {
-  liveStatus: AuditLiveStatus | null;
-  isPolling: boolean;
-  disId: string;
-  disDetNro: string;
-}) {
-  const status = liveStatus?.status ?? "pending";
-  const isTerminal = liveStatus?.is_terminal ?? false;
-  const isSuccess = status === "completed" || status === "manual_review";
-  const isFailed = status === "error" || status === "failed";
-
-  const docsTotal = liveStatus?.docs_total ?? 0;
-  const docsExtracted = liveStatus?.docs_extracted ?? 0;
-  const docsEvaluated = liveStatus?.docs_evaluated ?? 0;
-  const progressPct = docsTotal > 0
-    ? Math.round((docsEvaluated / docsTotal) * 100)
-    : 0;
-
-  return (
-    <SectionCard>
-      <div className="space-y-5">
-        {/* Header */}
-        <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
-              isSuccess && "bg-emerald-500/10 text-emerald-400 ring-emerald-500/20",
-              isFailed && "bg-rose-500/10 text-rose-400 ring-rose-500/20",
-              !isTerminal && "bg-sky-500/10 text-sky-400 ring-sky-500/20",
+            {form.formState.errors.disId && (
+              <FieldDescription
+                id="audit-single-disId-error"
+                className="text-rose-300"
+                role="alert"
+              >
+                {form.formState.errors.disId.message}
+              </FieldDescription>
             )}
-          >
-            {isSuccess ? (
-              <CheckCircle2 className="h-5 w-5" />
-            ) : isFailed ? (
-              <AlertCircle className="h-5 w-5" />
-            ) : (
-              <Loader2 className="h-5 w-5 animate-spin" />
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="disDetNro">Número de Factura</FieldLabel>
+            <Input
+              id="disDetNro"
+              placeholder="Ej. T38250701547"
+              aria-invalid={!!form.formState.errors.disDetNro}
+              aria-describedby={
+                form.formState.errors.disDetNro
+                  ? "audit-single-disDetNro-error"
+                  : undefined
+              }
+              {...form.register("disDetNro")}
+            />
+            {form.formState.errors.disDetNro && (
+              <FieldDescription
+                id="audit-single-disDetNro-error"
+                className="text-rose-300"
+                role="alert"
+              >
+                {form.formState.errors.disDetNro.message}
+              </FieldDescription>
             )}
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold text-white">
-              {isSuccess
-                ? "Auditoría completada"
-                : isFailed
-                  ? "Auditoría fallida"
-                  : status === "processing"
-                    ? "Pipeline en ejecución…"
-                    : "Auditoría encolada…"}
-            </h3>
-            <p className="mt-0.5 text-sm text-slate-400">
-              ID: <span className="font-mono text-slate-300">{disId}</span>
-              {liveStatus?.audit_id ? (
-                <span className="ml-2 text-slate-500">
-                  · ID: {liveStatus.audit_id.slice(0, 12)}…
-                </span>
-              ) : null}
-            </p>
-          </div>
-        </div>
+          </Field>
 
-        {/* Progress bar */}
-        {docsTotal > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>
-                Documentos procesados: {docsEvaluated}/{docsTotal}
-                {docsExtracted > docsEvaluated && (
-                  <span className="ml-1 text-slate-500">
-                    ({docsExtracted} extraídos)
-                  </span>
-                )}
-              </span>
-              <span className="font-semibold tabular-nums text-white">
-                {progressPct}%
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/5">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500 ease-out",
-                  isSuccess && "bg-emerald-500",
-                  isFailed && "bg-rose-500",
-                  !isTerminal && "bg-sky-500",
-                )}
-                style={{ width: `${Math.max(progressPct, isPolling ? 2 : 0)}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Pulsing indicator while polling */}
-        {isPolling && docsTotal === 0 && (
-          <div className="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-4 py-3">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-500" />
-            </span>
-            <p className="text-sm text-slate-400">
-              Esperando a que el pipeline registre documentos…
-            </p>
-          </div>
-        )}
-
-        {/* Error message */}
-        {isFailed && liveStatus?.error_message && (
-          <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 px-4 py-3">
-            <p className="text-sm text-rose-300">{liveStatus.error_message}</p>
-          </div>
-        )}
-
-        {/* CTA for completed */}
-        {isTerminal && isSuccess && (
-          <div className="flex items-center gap-3">
-            <Button asChild variant="outline" className="gap-2">
-              <a href={`/audit/results?facNro=${encodeURIComponent(disDetNro)}`}>
-                Ver Resultados
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+          <div className="flex items-end">
+            <Button
+              type="submit"
+              disabled={mutation.isPending || isPolling}
+              aria-busy={mutation.isPending || isPolling}
+              className="w-full sm:w-auto min-w-32"
+              loading={mutation.isPending}
+              loadingLabel="Procesando..."
+            >
+              {isPolling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  En curso...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4" />
+                  Ejecutar
+                </>
+              )}
             </Button>
-            <p className="text-xs text-slate-500">
-              El resultado completo ha sido persistido y está disponible en el historial.
-            </p>
           </div>
-        )}
+        </form>
       </div>
-    </SectionCard>
+
+      <div className="flex flex-col gap-5 pt-4">
+        <div>
+          <h2 className="[font-family:var(--font-heading)] text-xl font-semibold tracking-tight text-white">
+            Lienzo de Telemetría
+          </h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Observación en vivo y trazabilidad técnica del pipeline de auditoría IA.
+          </p>
+        </div>
+        <LiveAuditFlow auditId={activeAuditId ?? undefined} />
+      </div>
+    </div>
   );
 }

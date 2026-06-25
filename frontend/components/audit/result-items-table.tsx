@@ -16,8 +16,9 @@ function FindingStatusLabel({ status }: { status: AuditFinding["resultado"] }) {
     NO_ENCONTRADO: { label: "No encontrado", className: "text-amber-400" },
     OMITIDO: { label: "Omitido", className: "text-slate-400" },
     NO_CONCLUYENTE: { label: "No concluyente", className: "text-violet-300" },
+    RECHAZADO: { label: "Rechazado", className: "font-semibold text-rose-400" },
   };
-  const entry = config[status];
+  const entry = config[status] ?? { label: status, className: "text-slate-400" };
 
   return <span className={`text-xs font-medium ${entry.className}`}>{entry.label}</span>;
 }
