@@ -9,6 +9,7 @@ use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\GeminiConfig;
 use App\Services\Audit\GeminiCallMetrics;
 use App\Services\Audit\GeminiGateway;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 use Core\Env;
 use Core\Logger;
 use Core\RedisUnavailableException;
@@ -40,6 +41,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private AuditStateStore $stateStore;
     private AttachmentDownloadService $downloader;
     private GeminiGateway $gateway;
+    private TelemetryPublisher $telemetryPublisher;
     private int $cacheTtl;
     private string $extractorVersion;
     private string $consumerName;
@@ -51,13 +53,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ?\Core\RedisClient                  $redis        = null,
         ?AuditEventPublisher                $publisher    = null,
         ?string                             $consumerName = null,
-        ?int                                $cacheTtl     = null
+        ?int                                $cacheTtl     = null,
+        ?TelemetryPublisher                 $telemetryPublisher = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore   = $stateStore ?? new AuditStateStore($this->redis);
         $this->downloader   = $downloader ?? new AttachmentDownloadService();
         $this->gateway      = $gateway    ?? GeminiGateway::create();
+        $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName = $consumerName ?? self::defaultConsumerName('extractor');
 
         $resolvedTtl          = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
@@ -87,11 +91,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     protected function handle(AuditEvent $event): void
     {
-        $totalStartTime = microtime(true);
         if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_REGISTERED) {
             return;
         }
 
+        $totalStartTime = microtime(true);
         if ($event->auditId === null || $event->documentId === null) {
             throw new RuntimeException('document_registered sin audit_id o document_id');
         }
@@ -102,53 +106,135 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $contract      = $this->requiredArray($payload, 'extraction_contract');
         $documentType  = $this->resolveDocumentType($payload);
         $contractHash  = (string) ($payload['contract_hash'] ?? $contract['contract_hash'] ?? '');
+        $telemetryMeta = [
+            'worker' => $this->consumer(),
+            'document_type' => $documentType,
+        ];
 
-        $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
+        $downloadStartedAt = hrtime(true);
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'download',
+            $event->documentId,
+            $disDetNro,
+            $telemetryMeta,
+            $event->jobId
+        );
+
+        try {
+            $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'download',
+                self::elapsedMs($downloadStartedAt),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, ['attachment_id' => $attachmentId]),
+                $event->jobId
+            );
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'download',
+                self::elapsedMs($downloadStartedAt),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
+        }
         $document = $downloaded['document'];
         $documentHash = $downloaded['document_hash'];
 
-        $integrity = DocumentIntegrityValidator::validate($document);
-        if (!$integrity['valid']) {
-            $this->handleRejectedDocument($event, $payload, $document, $integrity);
-            return;
-        }
-
-        $userPrompt = $this->buildUserPrompt($documentType, $payload, $contract);
-        $systemPrompt = $this->buildSystemPrompt($payload, $contract);
-        $promptContextHash = $this->promptContextHash($userPrompt, $systemPrompt);
-        $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $promptContextHash);
-
-        $extraction = $this->resolveExtraction(
-            $compositeCacheKey,
-            $document,
-            $documentType,
-            $payload,
-            $contract,
-            $userPrompt,
-            $systemPrompt,
+        $extractionStartedAt = hrtime(true);
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'extraction',
+            $event->documentId,
             $disDetNro,
-            $event
+            $telemetryMeta,
+            $event->jobId
         );
 
-        $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
+        try {
+            $integrity = DocumentIntegrityValidator::validate($document);
+            if (!$integrity['valid']) {
+                $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                $this->telemetryPublisher->rejected(
+                    $event->auditId,
+                    'extraction',
+                    self::elapsedMs($extractionStartedAt),
+                    $event->documentId,
+                    $disDetNro,
+                    array_merge($telemetryMeta, [
+                        'reason' => (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE'),
+                    ]),
+                    $event->jobId
+                );
+                return;
+            }
 
-        $documentState = $this->buildDocumentState(
-            $documentHash,
-            $document,
-            $extraction,
-            $extractionDurationMs,
-            $contractHash,
-            $promptContextHash
-        );
+            $userPrompt = $this->buildUserPrompt($documentType, $payload, $contract);
+            $systemPrompt = $this->buildSystemPrompt($payload, $contract);
+            $promptContextHash = $this->promptContextHash($userPrompt, $systemPrompt);
+            $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $promptContextHash);
 
-        if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
-            throw new RuntimeException('No se pudo persistir la extracción del documento en Redis');
+            $extraction = $this->resolveExtraction(
+                $compositeCacheKey,
+                $document,
+                $documentType,
+                $payload,
+                $contract,
+                $userPrompt,
+                $systemPrompt,
+                $disDetNro,
+                $event
+            );
+
+            $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
+
+            $documentState = $this->buildDocumentState(
+                $documentHash,
+                $document,
+                $extraction,
+                $extractionDurationMs,
+                $contractHash,
+                $promptContextHash
+            );
+
+            if (!$this->stateStore->markDocumentExtracted($event->auditId, $event->documentId, $documentState)) {
+                throw new RuntimeException('No se pudo persistir la extracción del documento en Redis');
+            }
+
+            $this->publishDocumentExtracted($event, $payload, $documentState);
+
+            $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
+            $this->logDocumentExtracted($event, $documentState, $totalDurationMs);
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'extraction',
+                self::elapsedMs($extractionStartedAt),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, [
+                    'cache_hit' => (bool) ($documentState['cache_hit'] ?? false),
+                    'gemini_duration_ms' => (int) ($documentState['gemini_duration_ms'] ?? 0),
+                ]),
+                $event->jobId
+            );
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'extraction',
+                self::elapsedMs($extractionStartedAt),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
         }
-
-        $this->publishDocumentExtracted($event, $payload, $documentState);
-
-        $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
-        $this->logDocumentExtracted($event, $documentState, $totalDurationMs);
     }
 
     /**
@@ -228,7 +314,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         unset($response['X-Audit-Metrics']);
 
         $extracted = $this->parseGeminiResponse($response, $contract);
-        $this->enforceItemSegmentation($documentType, $payload, $contract, $extracted);
+        $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);
         $this->cachePut($cacheKey, $extracted);
 
         return [
@@ -942,21 +1028,38 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ];
     }
 
-    private function enforceItemSegmentation(string $documentType, array $payload, array $contract, array $extracted): void
+    /**
+     * @param array<string,mixed> $extracted
+     * @return array<string,mixed>
+     */
+    private function annotateItemSegmentation(string $documentType, array $payload, array $contract, array $extracted): array
     {
         if (!$this->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS)) {
-            return;
+            return $extracted;
         }
 
         if (!$this->requiresSegmentedDispensaItems($documentType, $payload)) {
-            return;
+            return $extracted;
         }
 
         $items = $extracted['items'] ?? [];
         $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
-        if (!is_array($items) || count($items) < count($sourceTruthItems)) {
-            throw new RuntimeException('Gemini no segmentó todos los items visibles de la dispensa');
+        $extractedItemsCount = is_array($items) ? count($items) : 0;
+        $expectedItemsCount = count($sourceTruthItems);
+
+        if ($extractedItemsCount < $expectedItemsCount) {
+            $extracted['extraction_warnings'] = $extracted['extraction_warnings'] ?? [];
+            $extracted['extraction_warnings'][] = [
+                'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                'severity' => 'warning',
+                'scope' => 'items',
+                'document_type' => $documentType,
+                'expected_items_count' => $expectedItemsCount,
+                'extracted_items_count' => $extractedItemsCount,
+            ];
         }
+
+        return $extracted;
     }
 
     /**
@@ -1013,6 +1116,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private function resolveDocumentType(array $payload): string
     {
         return trim((string) ($payload['tipo_documento'] ?? 'DOCUMENTO'));
+    }
+
+    private static function elapsedMs(int $startedAt): int
+    {
+        return max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000));
     }
 
     private function requiresSegmentedDispensaItems(string $documentType, array $payload): bool

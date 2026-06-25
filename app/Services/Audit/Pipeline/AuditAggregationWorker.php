@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Models\AuditStatusModel;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 use RuntimeException;
 
 final class AuditAggregationWorker extends AuditEventConsumer
@@ -12,6 +13,7 @@ final class AuditAggregationWorker extends AuditEventConsumer
     private AuditStateStore $stateStore;
     private BatchJobStore $jobStore;
     private AuditStatusModel $auditStatusModel;
+    private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
 
     public function __construct(
@@ -20,13 +22,15 @@ final class AuditAggregationWorker extends AuditEventConsumer
         ?AuditStatusModel $auditStatusModel = null,
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
-        ?string $consumerName = null
+        ?string $consumerName = null,
+        ?TelemetryPublisher $telemetryPublisher = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->jobStore = $jobStore ?? new BatchJobStore($this->redis);
         $this->auditStatusModel = $auditStatusModel ?? new AuditStatusModel();
+        $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName = $consumerName ?? self::defaultConsumerName('aggregator');
     }
 
@@ -58,6 +62,17 @@ final class AuditAggregationWorker extends AuditEventConsumer
         $audit = $this->requireAuditState($event->auditId);
         $finalAudit = $audit;
         $terminalReached = false;
+        $disDetNro = trim((string) ($audit['dis_det_nro'] ?? '')) ?: null;
+        $meta = ['worker' => $this->consumer()];
+        $telemetryStartedAt = hrtime(true);
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'aggregation',
+            null,
+            $disDetNro,
+            $meta,
+            $event->jobId
+        );
 
         try {
             $aggregateStart = hrtime(true);
@@ -92,6 +107,15 @@ final class AuditAggregationWorker extends AuditEventConsumer
             if (!$this->stateStore->completeAudit($event->auditId, $aggregate['completion_payload'])) {
                 if ($this->auditAlreadyTerminal($event->auditId)) {
                     $terminalReached = true;
+                    $this->telemetryPublisher->completed(
+                        $event->auditId,
+                        'aggregation',
+                        self::elapsedMs($telemetryStartedAt),
+                        null,
+                        $disDetNro,
+                        array_merge($meta, ['already_terminal' => true]),
+                        $event->jobId
+                    );
                     return;
                 }
 
@@ -134,12 +158,33 @@ final class AuditAggregationWorker extends AuditEventConsumer
                 $this->publishBatchTerminalEventIfNeeded($this->jobStore, $event->jobId, $event->auditId, $event->eventId);
             }
 
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'aggregation',
+                self::elapsedMs($telemetryStartedAt),
+                null,
+                $disDetNro,
+                array_merge($meta, ['final_status' => $aggregate['final_status']]),
+                $event->jobId
+            );
+
             \Core\Logger::info('Audit aggregation completed', [
                 'auditId'             => $event->auditId,
                 'final_status'        => $aggregate['final_status'],
                 'persistence_ms'      => $persistDurationMs,
                 'total_duration_ms'   => $aggregate['audit_result_data']['DuracionProcesamientoMs'] ?? 0,
             ]);
+        } catch (\Throwable $error) {
+            $this->telemetryPublisher->failed(
+                $event->auditId,
+                'aggregation',
+                self::elapsedMs($telemetryStartedAt),
+                null,
+                $disDetNro,
+                array_merge($meta, ['error_class' => get_class($error)]),
+                $event->jobId
+            );
+            throw $error;
         } finally {
             if ($terminalReached) {
                 $this->jobStore->releaseAuditReservationFromAudit($audit);
@@ -271,13 +316,13 @@ final class AuditAggregationWorker extends AuditEventConsumer
     {
         $timings = AuditTimingSummarizer::buildPhaseTimings($finalAudit);
         $durationMs = (int) ($timings['processing_duration_ms'] ?? 0);
-        $disId = (string) ($auditResultData['DisId'] ?? '');
+        $facNro = (string) ($auditResultData['FacNro'] ?? '');
 
         try {
-            $this->auditStatusModel->updateAuditTimings($disId, $timings, $durationMs);
+            $this->auditStatusModel->updateAuditTimings($facNro, $timings, $durationMs);
         } catch (\Throwable $error) {
             \Core\Logger::error('Audit aggregation: no se pudieron persistir timings finales', [
-                'DisId' => $disId,
+                'FacNro' => $facNro,
                 'error_class' => get_class($error),
                 'error' => $error->getMessage(),
             ]);

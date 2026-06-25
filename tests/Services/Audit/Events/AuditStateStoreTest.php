@@ -43,7 +43,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertSame(0, $decoded['docs_rejected']);
                     return true;
                 }),
-                86400
+                604800
             )
             ->willReturn(true);
 
@@ -90,7 +90,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertIsArray($args[0]);
                     $this->assertSame('processing', $args[0]['status']);
                     $this->assertArrayHasKey('updated_at', $args[0]);
-                    $this->assertSame(86400, $args[1]);
+                    $this->assertSame(604800, $args[1]);
                     return true;
                 })
             )
@@ -354,7 +354,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertSame('audit_created', $args[0]['event_type']);
                     $this->assertSame('audit.inbox', $args[0]['stream']);
                     $this->assertSame(123, $args[0]['queue_wait_ms']);
-                    $this->assertSame(86400, $args[2]);
+                    $this->assertSame(604800, $args[2]);
                     return true;
                 })
             )

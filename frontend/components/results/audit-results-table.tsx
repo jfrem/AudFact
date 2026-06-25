@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Eye } from "lucide-react";
+import { Eye, Activity } from "lucide-react";
+import Link from "next/link";
 
 import {
   Table,
@@ -159,12 +160,13 @@ export function AuditResultsTable({
               <TableHead>Campos</TableHead>
               <TableHead>Tiempo IA</TableHead>
               <TableHead>Fecha</TableHead>
-              <TableHead className="text-right sr-only">Ver</TableHead>
+              <TableHead className="text-right w-[80px]">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((item, index) => {
               const duration = formatDurationMs(resolveAuditDurationMs(item));
+              const flowId = item.FacNro || item.DisId || null;
               return (
                 <TableRow
                   key={`${item.DisId}-${item.FacNro ?? index}`}
@@ -207,13 +209,28 @@ export function AuditResultsTable({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Eye
-                      className={cn(
-                        "ml-auto h-4 w-4 text-slate-600 transition-colors",
-                        "group-hover:text-sky-400"
+                    <div className="flex items-center justify-end gap-3">
+                      {flowId && (
+                        <Link
+                          href={`/audit/flow/${encodeURIComponent(flowId)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center rounded-md p-1 text-slate-500 transition-colors hover:text-sky-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                          title="Ver trazabilidad histórica"
+                          aria-label={`Ver trazabilidad de ${flowId}`}
+                        >
+                          <Activity className="h-4 w-4" aria-hidden="true" />
+                        </Link>
                       )}
-                      aria-hidden="true"
-                    />
+                      <Eye
+                        className={cn(
+                          "h-4 w-4 text-slate-600 transition-colors",
+                          "group-hover:text-sky-400",
+                        )}
+                        aria-hidden="true"
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               );

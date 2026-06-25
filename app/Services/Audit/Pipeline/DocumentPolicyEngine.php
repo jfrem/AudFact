@@ -48,8 +48,10 @@ class DocumentPolicyEngine
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
+        $extractionWarnings = $normalizedPayload['extraction_warnings'] ?? [];
+
         $findings = array_merge(
-            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context),
+            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context, $extractionWarnings),
             VisualCheckEvaluator::evaluate($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
         );
 
@@ -136,9 +138,11 @@ class DocumentPolicyEngine
         array $sourceTruth,
         string $documentType,
         string $documentQuality,
-        array $context
+        array $context,
+        array $extractionWarnings = []
     ): array {
         $findings = [];
+        $itemSegmentationWarning = $this->findItemSegmentationWarning($extractionWarnings);
 
         foreach ($indexedFields as $canonicalField => $fieldConfig) {
             if (strtoupper($fieldConfig['tipoCampo'] ?? '') === 'V') {
@@ -160,6 +164,16 @@ class DocumentPolicyEngine
 
             $tipoCampo    = $fieldConfig['tipoCampo'] ?? 'E';
             $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
+            $isItemSourced = $this->isItemSourcedField($canonicalField, $sourceTruth);
+
+            if ($isItemSourced && $itemSegmentationWarning !== null) {
+                $findings[] = $this->buildItemSegmentationFinding(
+                    $canonicalField, $fieldConfig, $documentType,
+                    $fdvResolution, $docResolution, $internalType, $valueType,
+                    $itemSegmentationWarning
+                );
+                continue;
+            }
 
             $comparison = $this->evaluateDataFieldComparison(
                 $canonicalField,
@@ -179,6 +193,62 @@ class DocumentPolicyEngine
         }
 
         return $findings;
+    }
+
+    private function findItemSegmentationWarning(array $extractionWarnings): ?array
+    {
+        foreach ($extractionWarnings as $warning) {
+            if (($warning['code'] ?? '') === 'ITEM_SEGMENTATION_INCOMPLETE') {
+                return $warning;
+            }
+        }
+        return null;
+    }
+
+    private function isItemSourcedField(string $field, array $sourceTruth): bool
+    {
+        $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
+        if (array_key_exists($field, $header)) {
+            return false;
+        }
+
+        $items = is_array($sourceTruth['items'] ?? null) ? $sourceTruth['items'] : [];
+        foreach ($items as $item) {
+            if (is_array($item) && array_key_exists($field, $item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function buildItemSegmentationFinding(
+        string $canonicalField,
+        array $fieldConfig,
+        string $documentType,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution,
+        string $internalType,
+        AuditFieldValueType $valueType,
+        array $warning
+    ): array {
+        $finding = $this->buildDataFinding(
+            $canonicalField, $fieldConfig,
+            [
+                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+                'detalle' => sprintf(
+                    "La extracción de líneas del documento fue incompleta: se extrajeron %d de %d items esperados. No se confirma el total de %s.",
+                    $warning['extracted_items_count'] ?? 0,
+                    $warning['expected_items_count'] ?? 0,
+                    TextNormalization::humanizeFieldName($canonicalField)
+                ),
+            ],
+            $documentType, $fdvResolution, $docResolution, $internalType, $valueType
+        );
+
+        $finding['extraction_meta'] = $finding['extraction_meta'] ?? [];
+        $finding['extraction_meta']['item_segmentation'] = $warning;
+
+        return $finding;
     }
 
     /**

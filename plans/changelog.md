@@ -1,10 +1,143 @@
 # Changelog AudFact
 
+## [2026-06-25] - Refactor: Limpieza clean code del diff activo
+
+### Clean Rebuild / Backend / Frontend
+
+- Eliminado drift documental en `audfact-audit-gemini` removiendo el bloque duplicado de frontmatter/contenido.
+- Endurecido `RedisClient::xAdd()` con soporte opcional de `MAXLEN` para telemetría SSE acotada.
+- Limpiada integración de duplicados documentales en `RulesEvaluationWorker` y `DocumentDuplicationEvaluator`, manteniendo payloads de rechazo persistibles.
+- Pulidos componentes del DAG de auditoría para retirar side-stripes, glass/blur decorativo, `console.error`, whitespace y copy inconsistente.
+- Validación: `git diff --check`, `php -l` en PHP tocado, `npm.cmd run typecheck` y `php vendor/bin/phpunit tests/Services/Audit/Events/AuditEventConsumerTest.php --no-coverage`.
+
+## [2026-06-25] - Feature: Detección de Documentos Duplicados por SHA256 (Clean Rebuild)
+
+### IA Pipeline / Integrity / Clean Rebuild
+
+- **Extracción modular de Evaluador de Duplicados**:
+  - `DocumentDuplicationEvaluator.php`: Creado servicio que agrupa los documentos extraídos por `document_hash` para identificar colisiones binarias. Si detecta hashes idénticos en la misma dispensación, emite un hallazgo `DUP` de severidad alta con resultado `RECHAZADO` y tipo `integrity`.
+- **Integración en Orquestación**:
+  - `RulesEvaluationWorker.php`: Invocación transversal en `aggregateRulesEvaluation()` para inyectar fallos por duplicación directamente sobre las decisiones de los documentos sin alterar reglas de negocio externas.
+- **DOCS-SYNC**: Validada la arquitectura bajo la `clean-rebuild-policy` según el documento SDD.
+
+## [2026-06-23] - Feature: Integración de Grafo DAG en Auditoría Individual (Clean Rebuild)
+
+### Frontend & Observability
+
+- **Trazabilidad en tiempo real (`/audit/single`)**:
+  - `LiveAuditFlow`: Creado un componente modular y desacoplado (`live-audit-flow.tsx`) que inicializa la conexión `useAuditTelemetry` por `auditId` y renderiza internamente el DAG `AuditFlowGraph`.
+  - `AuditSingleConsole`: Modificada la vista para inyectar `<LiveAuditFlow>` de manera no intrusiva dentro de una `SectionCard` durante la ejecución activa del pipeline (`isPolling`) o al finalizar.
+  - Esto proporciona una trazabilidad y observabilidad de nivel granular sin acoplar la lógica de telemetría a la lógica del negocio.
+- **DOCS-SYNC**: Validado bajo la política estricta de `clean-rebuild-policy` y `write-sdd-spec`. Se crearon los artefactos de diseño e implementación según las directivas.
+
+## [2026-06-22] - Fix: Acumulación Idempotente de Telemetría (Clean Rebuild)
+
+### Frontend & Observability
+
+- **Diccionario Idempotente en Zustand**:
+  - `useAuditFlowStore.ts`: Se refactorizó la lógica de telemetría de jobs (`mode === "job"`) para abandonar incrementos aritméticos ciegos (`total++`). Ahora se mantiene un estado derivado de un mapa (`taskStates: Record<string, string>`) indexado por `document_id ?? audit_id`. Esto previene la duplicación visual provocada por reconexiones de SSE o re-renderizados múltiples.
+- **DOCS-SYNC**: Validado bajo la política estricta de `clean-rebuild-policy` según el documento SDD.
+
+## [2026-06-22] - Feature: Telemetría Agregada para Lotes (DAG)
+
+### Backend & Frontend / Observability
+
+- **Telemetría con JobId**:
+  - `TelemetryPublisher` y todos los pipeline workers (`DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`) propagan opcionalmente `$event->jobId` en el payload de telemetría hacia Redis Streams (`audit.telemetry`).
+- **Dual Routing en SSE**:
+  - `AuditFlowController::flowStream` actualizado para soportar tanto `auditId` como `jobId` (`GET /audit/{id}/flow-stream`). Se consulta Redis para inferir el tipo de identidad (`audit:{id}:state` o `job:{id}:state`) y filtrar la telemetría en consecuencia.
+- **DAG Agregado en Frontend**:
+  - Sustituida la interfaz redundante por una topología ReactFlow de tamaño fijo $O(1)$ (`buildAggregatedJobDag`) en `job-detail-client.tsx` que permite procesar lotes de +100 documentos.
+  - `useAuditFlowStore` procesa métricas agregadas (`completed`, `failed`, `total`) para `mode="job"`, permitiendo el renderizado inline de progreso visual de cada fase en los nodos (`custom-nodes.tsx`).
+- **Sincronización (DOCS-SYNC)**:
+  - Actualizados `plans/api-endpoints.md`, `CHANGELOG.md` y revisada la skill `audfact-audit-gemini` con el soporte a `$jobId` en telemetría.
+
+## [2026-06-19] - Feature: Ampliacion Redis y TTL de auditorias
+
+### Runtime Docker / Redis
+
+- `docker-compose.yml` y `docker-compose.prod.yml` parametrizan Redis con `REDIS_MAXMEMORY=4gb`, `REDIS_MAXMEMORY_POLICY=volatile-lru` y `REDIS_CONTAINER_MEMORY=5G`.
+- `BatchJobStore` resuelve `AUDIT_JOB_TTL` con default de 7 dias y separa reservas por `DisId` mediante `AUDIT_RESERVATION_TTL=86400`.
+- `AuditStateStore` resuelve `AUDIT_STATE_TTL` con default de 7 dias.
+- `.env.example`, documentacion operativa y skills fueron sincronizadas con los nuevos contratos Redis/TTL.
+- Se agrego cobertura focalizada en `RedisTtlConfigTest` para defaults, overrides y fallback ante TTL invalido.
+
+## [2026-06-19] - Feature: Item Segmentation Warning para cantidad no concluyente
+
+### IA Pipeline / Clean Rebuild
+
+- **Evaluación de Segmentación Parcial**:
+  - `DocumentExtractionWorker.php` ya no falla con excepción cuando la cantidad de items extraídos no coincide con los items de la fuente de verdad. En su lugar, agrega una advertencia `ITEM_SEGMENTATION_INCOMPLETE` en el payload de los resultados de extracción.
+  - `DocumentNormalizer.php` se actualizó para propagar `extraction_warnings` a través del proceso de normalización hacia la cola de eventos.
+  - `DocumentPolicyEngine.php` evalúa los `extraction_warnings`. Si detecta `ITEM_SEGMENTATION_INCOMPLETE`, fuerza un resultado `NO_CONCLUYENTE` para todas las evaluaciones del tipo `TipoCampo = 'B'` (Cantidades a nivel de línea/ítem), indicando que la extracción fue parcial. Los campos de cabecera (`TipoCampo != 'B'`) continúan evaluándose normalmente.
+- **DOCS-SYNC**: Validada la arquitectura bajo la `clean-rebuild-policy`.
+
+## [2026-06-19] - Feature: Marcado de auditoría en dispensación de detalle
+
+### Backend & Persistencia
+
+- **AuditStatusModel.php**:
+  - Añadida llamada a `markDispensationAsAudited` luego de procesar los adjuntos para actualizar estado directamente en dispensación.
+  - Implementado `markDispensationAsAudited` para hacer `UPDATE` en `DispensacionDetalleServicio` asignando `DisDetUsuAud='Z-IA'` y `DisDetFecAud=GETDATE()`.
+  - **Clean Rebuild**: Eliminado el método muerto `resolveDispensationIdentity` por falta de uso, reduciendo deuda técnica y alineando el modelo con la política estricta de cero código obsoleto.
+
+## [2026-06-12] - Refactor: Métricas Asíncronas Atómicas (Clean Rebuild)
+
+### Backend & Redis
+
+- **Refactorización de Observabilidad**:
+  - `ObservabilityController::asyncMetrics`: Se eliminó el bucle `SCAN` bloqueante para contar jobs. Ahora consulta `telemetry:async_metrics` atómicamente mediante `HGETALL` en `O(1)`.
+- **Inyección de Contadores (Pipeline)**:
+  - `BatchJobStore`: Se implementaron llamadas atómicas `HINCRBY` directamente desde `MARK_AUDIT_COMPLETED_IN_JOB_LUA` y `initJob` para actualizar las transiciones `jobs_queued`, `jobs_running`, `jobs_completed` y `jobs_failed` en tiempo real, garantizando consistencia y cero impacto de rendimiento.
+  - `AuditEventConsumer`: Se interceptaron los flujos de reintentos (`incrementAttempts`) y fallos (`sendToDeadLetter`) para incrementar `retries` y `terminal_failures` en el hash global, resolviendo el mock previo (`$retries = 0`).
+- **DOCS-SYNC**: Validada la arquitectura bajo la `clean-rebuild-policy`. Se consolidó la especificación técnica en `implementation_plan.md` siguiendo el estándar SDD Nivel A.
+
+## [2026-06-12] - Fix: Actualización de FechaActualizacion en re-auditorías (AuditStatusModel)
+
+### Backend & Persistencia
+
+- **AuditStatusModel.php**:
+  - Se modificó la instrucción `MERGE` (`upsertAuditResultInConnection`) para incluir explícitamente `target.[FechaActualizacion] = GETDATE()` dentro de la cláusula `WHEN MATCHED THEN UPDATE SET`. Esto corrige el problema donde las re-auditorías sobrescribían el registro completo pero dejaban la fecha huérfana.
+  - Se modificó el método `updateAuditTimings` para incluir `[FechaActualizacion] = GETDATE()` al finalizar la persistencia asíncrona de los timings, asegurando trazabilidad de tiempo en la última modificación.
+- **DOCS-SYNC**: Validada la documentación. No hubo cambios de contratos o arquitectura, solo un bugfix de persistencia.
+
+## [2026-06-12] - Fix follow-up: Alineación limpia de resultados por FacNro
+
+### Backend, Tests y Documentación
+
+- **Pipeline batch**:
+  - `AuditBatchOrchestrator` ahora consulta auditorías ya persistidas por `FacNro` (`DisDetNro`) mediante `getAuditDetailByFacNro`, sin restaurar compatibilidad legacy por `DisId`.
+  - Se conserva la reserva Redis por `DisId` para idempotencia global del batch.
+- **Tests**:
+  - `AuditControllerTest` valida `GET /audit/results/{facNro}` con `T38250701547`.
+  - `AuditAggregationWorkerTest` verifica que los timings finales se actualizan por `FacNro`.
+  - Se agregó cobertura de `AuditBatchOrchestrator` para `skipped_existing` por auditoría persistida en `FacNro`.
+- **SQL Server y docs-sync**:
+  - `migration_AudDispEst_updated.sql` se alineó con el esquema productivo: `FacNro` como PK clustered, `FacSec` como `nvarchar(320)` legacy para `DisId` y columna `JobId`.
+  - Se sincronizaron `README.md`, `AGENTS.md`, `plans/api-endpoints.md`, `plans/audit-identity-contract.md`, `plans/database-schema.md`, `plans/features/audit-workflow.md` y las skills `audfact-api-rest`, `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-project-overview`.
+
+## [2026-06-12] - Fix: Resolución de Colisión de Identidad de Auditoría (FacNro vs DisId)
+
+### Backend & Frontend
+
+- **Modelos y SQL Server**:
+  - `AuditStatusModel.php`: Modificado el `MERGE` de inserción/actualización para cruzar los registros estrictamente por `target.[FacNro] = source.[FacNro]` en lugar de `target.[FacSec] = source.[FacSec]`, alineando la lógica PHP con la llave primaria de la base de datos `AudDispEst`.
+  - Se actualizaron los métodos internos (`getAuditDetailByFacNro`, `updateAuditTimings`) para buscar de forma inequívoca usando `$facNro`.
+- **Pipeline & Controladores**:
+  - `AuditAggregationWorker.php`: Adaptado para extraer y guardar los tiempos agregados de auditoría basados en `FacNro`.
+  - `AuditController.php` & `app/Routes/web.php`: Actualizada la ruta REST `GET /audit/results/{disId}` a `GET /audit/results/{facNro}` para que la UI pida el detalle exacto por dispensación, sin sobrescrituras compartidas en memoria.
+- **Frontend**:
+  - `endpoints.ts` y `audfact.ts`: API ajustada para consumir `facNro` en las peticiones.
+  - `AuditResultDetailModal`: Reestructurado para requerir `facNro` como parámetro independiente, garantizando que dispensaciones hijas del mismo `DisId` exhiban sus auditorías individualmente.
+- **Sincronización Documental (DOCS-SYNC)**:
+  - `AGENTS.md`: Actualizado el Mapa de Endpoints REST para reflejar la modificación del endpoint `/audit/results/{facNro}`.
+
 ## [2026-06-11] - Refactor: Resolución Dinámica de Llave DisId desde DisDetNro
 
 ### Backend & Frontend
+
 - **API y Modelos**:
-  - `DispensationController.php`: Flexibilizada la validación de `POST /dispensation` permitiendo que la llave canónica interna `DisId` sea opcional para el cliente (frontend).
+  - `DispensationController.php` y `AuditController.php`: Flexibilizada la validación de `POST /dispensation` y `POST /audit/single` permitiendo que la llave canónica interna `DisId` sea opcional para el cliente (frontend).
   - `DispensationModel.php`: Añadido método de resolución dinámica `resolveIdentityByDisDetNro` que cruza la tabla indexada `DispensacionDetalleServicio` permitiendo recuperar en milisegundos el `DisId` usando solo el `DisDetNro` (Número de factura en la UI), previniendo timeouts.
 - **Sincronización Documental (DOCS-SYNC)**:
   - `plans/api-endpoints.md`: Contrato de `POST /dispensation` actualizado.
@@ -14,6 +147,7 @@
 ## [2026-06-11] - Refactor: Llave Compuesta Obligatoria para Dispensación
 
 ### Backend & Frontend
+
 - **Modelos y Controladores**:
   - `DispensationModel.php`: Implementada validación en `getDispensationData` para lanzar excepción si falta la combinación obligatoria de `facsec` (`DisId`) y `Dispensa` (`DisDetNro`).
   - `DispensationController.php` y `AuditController.php`: Actualizados `show`, `lookup` y `single` para recibir y exigir la llave compuesta.
@@ -27,10 +161,10 @@
   - `plans/api-endpoints.md`: Documentadas las nuevas firmas de la API.
   - Test suite ejecutado 100% exitoso (324 tests).
 
-
 ## [2026-06-11] - Feature: Payload Estructurado JSON en AdjDisObsRec
 
 ### Backend & Persistencia
+
 - **Refactorización de Persistencia de Hallazgos**:
   - `AuditStatusModel.php`: Modificado `normalizeDocumentDecision` para transformar el array `payload` del rechazo en un string JSON (`json_encode($payload, JSON_UNESCAPED_UNICODE)`) en lugar de almacenar texto plano.
 - **Flujo de Evaluacion (Domain)**:
@@ -39,9 +173,11 @@
   - `VisualCheckEvaluator.php` / `DeliveryValidityEvaluator.php`: Propagan el `codigoCampo` configurado hacia el hallazgo resultante.
 - **Sincronización Documental (DOCS-SYNC)**:
   - Tests ajustados y validados (`RulesEvaluationWorkerTest`) para confirmar aserciones sobre `payload.hallazgos[0].Descripcion` en lugar del campo legacy `observation`.
+
 ## [2026-06-11] - Fix: Consistencia de contrato DisId y limpieza documental
 
 ### Backend & Documentación
+
 - **Limpieza del Modelo**:
   - `AttachmentsModel.php`: Actualizado `INNER JOIN vw_discolnet_dispensas` para cruzar explícitamente por `DisId` en lugar de la columna heredada `FacSec` en `countAuditHistory` y `getAuditHistory` (QUAL-001).
   - `DispensationModel.php`: Removidas constantes muertas (`WHERE_DIS_DET_NRO`, `WHERE_FAC_SEC`) y actualizados comentarios del contrato de identidad (QUAL-002).
@@ -51,6 +187,7 @@
   - `.agent/skills/audfact-sqlsrv-models/references/examples.md`: Reflejado el uso de `DisId` en los ejemplos de código SQL (QUAL-003).
 
 ### Bugfixes & Ajustes de Contrato
+
 - **System Prompt E2E**:
   - `AuditConfigController.php`: El campo `systemPrompt` ahora es estrictamente requerido en el payload (puede ser `string` o `null`) para evitar borrados accidentales si el cliente lo omite.
   - `AuditConfigModel.php`: Removido el uso de `COALESCE` en el `MERGE` de `upsertHeader` y forzado el uso de `PDO::PARAM_NULL` para permitir el borrado explícito del prompt del sistema en la base de datos.
@@ -59,6 +196,7 @@
 ## [2026-06-10] - Feature: Migración de identidad E2E de FacSec a DisId
 
 ### Backend & Frontend
+
 - **Contrato de Identidad Actualizado**:
   - Refactorizado el sistema para usar DisId como llave principal en lugar de FacSec, preservando DisId para búsquedas canónicas e interacciones en UI.
   - Actualizados AuditController, AuditDataService y endpoints HTTP para recibir disId en lugar de FacSec.
@@ -71,6 +209,7 @@
 ## [2026-06-09] - Fix: Precision de extraccion documental y limpieza clean rebuild
 
 ### IA Pipeline / Audit Config / Clean Rebuild
+
 - **Descripciones configurables en contrato Gemini**:
   - `DocumentExtractionContractBuilder` prioriza la descripcion configurada desde base de datos/catalogo para `valor.description` y conserva la descripcion local solo como fallback.
   - Esto permite que alias operativos del cliente, como `NumeroFactura` tambien visible como acta de entrega, lleguen al schema sin duplicar reglas hardcodeadas.
@@ -95,6 +234,7 @@
 ## [2026-06-08] - Docs: Alineacion de contrato `-CODIGO- detalle`
 
 ### Documentacion / Skills / Clean Rebuild
+
 - Alineada la documentacion para declarar el contrato como prefijo textual `-CODIGO- detalle` en hallazgos configurables fallidos.
 - Corregidas referencias ambiguas a "sufijo" en `plans/features/audit-workflow.md`, `audfact-audit-gemini` y `audfact-api-rest`.
 - Se mantiene la decision MVP de no agregar una propiedad publica separada para `codigoCampo` en hallazgos.
@@ -103,6 +243,7 @@
 ## [2026-06-03] - Fix: Codigo de Campo en Justificaciones Fallidas y Alineacion de Tests
 
 ### IA Pipeline / Audit Config / Clean Rebuild
+
 - **Hallazgos con codigo funcional (Prefijo)**:
   - Los hallazgos configurables fallidos (`VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` y fallos visuales/calculados con codigo disponible) anteponen el prefijo corto `-CODIGO- ` al `detalle`.
   - Los hallazgos `COINCIDE` conservan el comportamiento actual y no reciben cÃ³digo.
@@ -120,6 +261,7 @@
 ## [2026-06-02] - Fix: Resolucion Multi-Item con Contrato de Valores
 
 ### IA Pipeline / Clean Rebuild / Audit Results
+
 - **Contrato comun FDV/documento**:
   - Agregado `ResolvedAuditValue` para comparar fuente de verdad y evidencia documental con el mismo shape (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`).
   - `FieldValueResolver` ahora resuelve cantidades agregadas, sets `TRACE_TOKEN` y ambiguedad tanto para FDV como para documento.
@@ -138,6 +280,7 @@
 ## [2026-06-02] - Refactor: Clean Code sobre Contrato Gemini Dinamico v2
 
 ### IA Pipeline / Clean Rebuild / Maintainability
+
 - **Builder de contrato**:
   - `DocumentExtractionContractBuilder` separa la seleccion de function declarations dinamicas y normaliza checks visuales activos antes de construir el schema.
   - Se mantiene intacto el contrato generado para payloads validos y el `contract_hash` sigue incluyendo declarations + required names.
@@ -153,6 +296,7 @@
 ## [2026-06-02] - Refactor: Contrato Gemini Dinamico Compacto v2
 
 ### IA Pipeline / Clean Rebuild / Cost Optimization
+
 - **Function declarations dinamicas**:
   - `DocumentExtractionContractBuilder` ahora declara `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando el documento tiene campos/checks activos para esas funciones.
   - `assess_document_quality` se mantiene siempre para trazabilidad de legibilidad.
@@ -169,6 +313,7 @@
 ## [2026-06-02] - Refactor: Prompt Compacto de Extraccion Gemini
 
 ### IA Pipeline / Clean Rebuild / Cost Optimization
+
 - **Extraccion sin valores FDV en prompt**:
   - `DocumentExtractionWorker` ya no inyecta bloques de valores esperados de la fuente de verdad (`Campos de cabecera esperados` / `Campos de linea esperados`) en el prompt de Gemini.
   - Gemini queda limitado a extraer evidencia visible; la comparacion contra FDV sigue viviendo en PHP mediante normalizacion y `DocumentPolicyEngine`.
@@ -188,6 +333,7 @@
 ## [2026-06-02] - Docs: AlineaciÃ³n del Modelo Gemini Real del Pipeline
 
 ### ðŸ“š Documentation / IA Pipeline / Gemini
+
 - **VerificaciÃ³n de uso real de modelos**:
   - Confirmado en `GeminiGateway` que todas las llamadas usan `GeminiConfig::model` en una Ãºnica URL `models/{GEMINI_MODEL}:generateContent`.
   - Confirmado que `DocumentExtractionWorker` y `ArticleSemanticMatchJudge` usan perfiles de generaciÃ³n (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) sin cambiar de modelo.
@@ -199,6 +345,7 @@
 ## [2026-06-02] - Fix: Worker Batch Productivo para AuditorÃ­a Async
 
 ### ðŸŸ¢ Runtime / ProducciÃ³n LAN / Async Jobs
+
 - **CorrecciÃ³n estructural de topologÃ­a productiva**:
   - Agregado `worker-batch` a `docker-compose.prod.yml` usando la misma imagen PHP GHCR y el launcher canÃ³nico `php bin/audit-worker.php batch`.
   - El workflow `.github/workflows/deploy-production.yml` ahora escribe las rÃ©plicas de workers en `.env` y agrega `worker-batch` a los logs de diagnÃ³stico de health check.
@@ -214,6 +361,7 @@
 ## [2026-06-02] - Fix: AlineaciÃ³n de Variables `.env`
 
 ### ðŸŸ¢ ConfiguraciÃ³n / Seguridad / Runtime
+
 - **Contrato Ãºnico de configuraciÃ³n**:
   - `.env.example` queda alineado con `.env` en 92 variables activas, sin duplicados y sin valores con forma de secreto.
   - `.env` fue reestructurado desde `.env.example` preservando valores reales existentes y agregando defaults seguros para variables faltantes.
@@ -229,6 +377,7 @@
 ## [2026-06-02] - Fix: SincronizaciÃ³n GitHub Environment Production
 
 ### ðŸŸ¢ CI/CD / Seguridad / ProducciÃ³n LAN
+
 - **Script estructural para Secrets/Variables**:
   - Creado `scripts/sync-github-production-env.sh` para sincronizar un `.env` productivo local hacia GitHub Environment `production` usando `gh secret set` y `gh variable set`.
   - El script valida que `.env` y `.env.example` tengan el mismo set de claves activas, detecta duplicados, no usa `source`, aborta con `bash -x`, y no imprime valores.
@@ -245,6 +394,7 @@
 ## [2026-06-01] - Docs: SincronizaciÃ³n documental con cÃ³digo actual
 
 ### ðŸ“š Documentation / API / Pipeline / Skills
+
 - **AlineaciÃ³n de endpoints y contratos REST**:
   - Sincronizadas las tablas de rutas con `app/Routes/web.php` (27 rutas), incluyendo `/metrics/async`, `/clients/{clientId}/documents`, audit-config, `/audit/stats`, `/audit/status/{auditId}`, `/audit/results/{facSec}` y `/audit/{facNro}/timings`.
   - Actualizado el contrato de `/invoices`: bÃºsqueda interactiva paginada con `page` y `pageSize`; `limit` queda restringido al batch interno de auditorÃ­a.
@@ -264,6 +414,7 @@
 ## [2026-05-31] - Feature: ValidaciÃ³n Preventiva de Integridad Documental y Rechazo Temprano (Clean Rebuild)
 
 ### ðŸ”´ Resiliencia / IA Pipeline / Integrity / Clean Rebuild
+
 - **IntroducciÃ³n de `DocumentIntegrityValidator`**:
   - ImplementaciÃ³n del nuevo servicio de integridad preventiva `DocumentIntegrityValidator` en `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`.
   - DiseÃ±ado bajo la **Clean Rebuild Policy** para interceptar adjuntos antes de su envÃ­o a Gemini. Detecta de forma proactiva archivos vacÃ­os (0 bytes) y firmas de archivos corruptos.
@@ -282,6 +433,7 @@
 ## [2026-05-30] - Docs: ExpansiÃ³n ArquitectÃ³nica Forense, AlineaciÃ³n E2E, Matiz de MÃ©tricas (ROI) y AuditorÃ­a de TTL en Redis
 
 ### ðŸ“š Documentation / Architecture / Resiliencia / Redis TTL / ROI Refinement
+
 - **ApÃ©ndice TÃ©cnico de Persistencia en Redis (TTL)**:
   - Se realizÃ³ una auditorÃ­a forense completa de los Time-To-Live (TTL) y polÃ­ticas de expiraciÃ³n en la capa de datos en caliente de Redis.
   - Se documentaron formalmente todos los tiempos de expiraciÃ³n reales en el ApÃ©ndice TÃ©cnico (secciÃ³n 7) de [architecture-executive-report.md](file:///c:/Users/USER/Desktop/AudFact/plans/architecture-executive-report.md), detallando: CachÃ© de ExtracciÃ³n Documental (24h), HomologaciÃ³n SemÃ¡ntica (30d), Estado Transitorio de AuditorÃ­as (24h), Estado de Batch Jobs (24h), CachÃ© de Hash de DispensaciÃ³n (24h), Barrera de Idempotencia HTTP (5min), CachÃ© de Consultas PÃºblicas (60s) y Distributed Locks (10s).
@@ -306,10 +458,10 @@
   - ActualizaciÃ³n de las directrices y repositorios de conocimiento en las skills `audfact-audit-gemini` y `audfact-project-overview` para reflejar la topologÃ­a exacta del cÃ³digo.
   - Registro formal del walkthrough en el artefacto final `walkthrough.md`.
 
-
 ## [2026-05-29] - Fix: Incompatibilidad de placeholders nombrados en CTEs con pdo_sqlsrv
 
 ### ðŸŸ¢ Bugfix / SQL / Async Jobs Stability
+
 - **ResoluciÃ³n de Error `SQLSTATE[07002]`**:
   - **Incompatibilidad del Driver SQLSRV**: Corregido el fallo crÃ­tico en `InvoicesModel::getInvoicesForAuditBatch` donde el parser de parÃ¡metros de `pdo_sqlsrv` fallaba al procesar placeholders nombrados dentro de una ExpresiÃ³n de Tabla ComÃºn (CTE `WITH candidates AS ...`), lanzando `SQLSTATE[07002]: COUNT field incorrect or syntax error`.
   - **RefactorizaciÃ³n a Subquery Derivada**: Reemplazada la estructura de consulta con CTE por una subquery derivada estÃ¡ndar (`FROM (SELECT ...) candidates`). Esto preserva el rendimiento de ejecuciÃ³n de la paginaciÃ³n keyset y la lÃ³gica semÃ¡ntica pero asegura compatibilidad nativa absoluta con el driver PDO de SQL Server.
@@ -317,11 +469,13 @@
   - **ActualizaciÃ³n de Tests**: Sincronizada la clase `InvoicesModelTest` para validar los assertions contra la nueva sintaxis de subquery derivada. La suite completa de PHPUnit se encuentra en estado verde con paso exitoso de todas las aserciones.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizados `plans/changelog.md`, la skill principal de base de datos `.agent/skills/audfact-sqlsrv-models/SKILL.md` para aÃ±adir el guardrail de CTEs, y actualizados los artefactos de progreso.
 
 ## [2026-05-29] - Refactor: Pipeline de AuditorÃ­a Async Real e Idempotencia Absoluta
 
 ### ðŸ”µ Architecture / High Concurrency / Idempotency
+
 - **ErradicaciÃ³n del Falso AsÃ­ncrono en `POST /audit/async`**:
   - **Desacoplamiento HTTP**: El endpoint en `AuditController::async()` ya no ejecuta la costosa consulta SQL de facturas ni la orquestaciÃ³n en el hilo del request web. Ahora valida parÃ¡metros, obtiene/calcula la llave de idempotencia, registra el Job en estado `pending` en `BatchJobStore` y publica el evento `batch_requested` al nuevo stream `audit.batch.inbox` en Redis, respondiendo `202 Accepted` de inmediato en menos de 100 ms.
   - **Idempotencia Absoluta por Job/Batch**: ImplementaciÃ³n de polÃ­ticas rigurosas en `BatchJobStore`. Si llega una peticiÃ³n idÃ©ntica con el mismo hash o `X-Idempotency-Key`, se reutiliza atÃ³micamente el job existente. Si llega con el mismo hash pero con diferentes parÃ¡metros, se aborta con `409 Conflict`, evitando colisiones y duplicaciÃ³n de carga bajo alta concurrencia.
@@ -330,12 +484,13 @@
   - **Resultados**: Cero regresiones y paso exitoso de todas las pruebas automatizadas (100% verde).
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizados `plans/api-endpoints.md`, `plans/data-flows.md`, `plans/architecture.md`, `CHANGELOG.md` y la skill principal `.agent/skills/audfact-audit-gemini/SKILL.md` para reflejar la topologÃ­a de 6 servicios y el flujo asÃ­ncrono real.
 
 ## [2026-05-25] - Refactor: Observabilidad final y escalado controlado del pipeline async
 
-
 ### ðŸ”µ Architecture / Performance / Observability
+
 - **TelemetrÃ­a por evento**: `AuditEventConsumer` registra por auditorÃ­a el stream, consumer, evento, espera en cola, tiempo de ejecuciÃ³n del handler, tiempo de ack y estado final del evento.
   - **RecuperaciÃ³n de pending**: el consumer reclama periÃ³dicamente mensajes Redis Streams abandonados con `AUDIT_PENDING_RECLAIM_IDLE_MS` alto para no duplicar llamadas largas a Gemini.
   - **Estado Redis**: `AuditStateStore` agrega `event_timings` y `aggregation_timings` como parte del estado de auditorÃ­a.
@@ -346,11 +501,13 @@
   - **VerificaciÃ³n**: tests focales verdes para consumer, state store, summarizer y aggregator.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizados `CHANGELOG.md`, `README.md`, `AGENTS.md`, `CLAUDE.md`, `plans/architecture.md`, `plans/docker-operations.md`, `.agent/skills/CATALOG.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-runtime-docker/SKILL.md`.
 
 ## [2026-05-25] - Fix: Identidad canÃ³nica de FDV por FacSec
 
 ### ðŸŸ¢ Bugfix / API / Pipeline
+
 - **FacSec como selector canÃ³nico E2E**: `POST /audit/single` ahora recibe `FacSec`; `DocumentAuditOrchestrator` resuelve la FDV por `facsecF` y valida `DisDetNro` Ãºnicamente como llave operativa para adjuntos y `FacNro`.
   - **Modelos**: `DispensationModel` agrega consulta explÃ­cita por `facsecF = :FacSec`, reutilizando el SELECT FDV sin duplicaciÃ³n.
   - **Pipeline**: `AuditDataService` expone `getDispensationByFacSec()` y el orquestador exige `payload.fac_sec` en `audit_created`.
@@ -358,11 +515,13 @@
   - **VerificaciÃ³n**: PHPUnit completo verde (276 tests, 815 assertions, 10 skipped), typecheck frontend verde, dos lotes concurrentes del cliente `2426` completaron 20/20 sin nuevos DLQ.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizados `README.md`, `AGENTS.md`, `plans/api-endpoints.md`, `plans/audit-identity-contract.md`, `plans/data-flows.md`, `CHANGELOG.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-sqlsrv-models/SKILL.md`.
 
 ## [2026-05-21] - Bugfix: NormalizaciÃ³n de Fechas NumÃ©ricas con Espacios
 
 ### ðŸŸ¢ Bugfix / Refactor
+
 - **NormalizaciÃ³n de Fechas NumÃ©ricas**: Mejoras en `AuditFindingRules::normalizeDateToIso` para admitir formatos numÃ©ricos con separador de espacios (ej. `'25 3 2026'`) y descartar horas o minutos sufijos (incluyendo formatos AM/PM de 12 horas).
   - **AuditFindingRules**: Se implementÃ³ una limpieza robusta mediante expresiones regulares para remover horas de 12 o 24 horas y normalizar los espacios como guiones.
   - **Tests Unitarios**: AdiciÃ³n de mÃºltiples casos de prueba a la suite `AuditFindingRulesNormalizationTest` cubriendo ambigÃ¼edades numÃ©ricas con espacios, aÃ±os de dos dÃ­gitos y horas con formatos narrativos.
@@ -371,6 +530,7 @@
 ## [2026-05-20] - Refactor: EstandarizaciÃ³n de Contratos de Fechas (AudFact)
 
 ### ðŸ”µ Architecture / Bugfix
+
 - **RefactorizaciÃ³n de Contratos de Fechas**: Se eliminÃ³ la complejidad dinÃ¡mica en el manejo de fechas en `InvoicesModel` para garantizar que el contrato `dateTo` sea obligatorio en toda la cadena de ejecuciÃ³n, previniendo errores de comparaciÃ³n `NULL` en SQL Server.
   - **Modelos (`InvoicesModel`)**: Se eliminÃ³ el cÃ³digo muerto relacionado con la lÃ³gica de fechas dinÃ¡mica y se actualizÃ³ la firma de `getInvoices` para requerir `string $dateTo`.
   - **Controladores (`InvoicesController`, `AuditController`)**: ImplementaciÃ³n de autocompletado para `dateTo` cuando el parÃ¡metro viene vacÃ­o, usando `dateFrom`.
@@ -380,6 +540,7 @@
 ## [2026-05-20] - Hotfix: Conectividad Frontend-to-Backend en ProducciÃ³n y server-only
 
 ### ðŸŸ¢ Infrastructure / Bugfix
+
 - **INFRA-002**: SoluciÃ³n definitiva a la conectividad entre el frontend Next.js y el backend PHP-FPM/Nginx en producciÃ³n.
   - **EvitaciÃ³n del Bucle Local de Red**: Configurado enrutamiento directo contenedor-a-contenedor a travÃ©s de la red interna de Docker (`http://nginx`) para llamadas SSR y componentes de servidor (RSC/SSR) en el frontend.
   - **ResoluciÃ³n de Error de CompilaciÃ³n**: Se corrigiÃ³ el error estÃ¡tico de compilaciÃ³n `You're importing a component that needs "server-only" which is not supported in the pages/ directory` en `frontend/lib/api/client.ts`. Se eliminÃ³ la importaciÃ³n estÃ¡tica de `@/lib/api/server-config` en favor de la lectura dinÃ¡mica inline de `process.env.INTERNAL_API_URL`.
@@ -390,6 +551,7 @@
 ## [2026-05-20] - Clean Rebuild: Service Oriented Pipeline Phase 5
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-026**: CulminaciÃ³n de la refactorizaciÃ³n arquitectÃ³nica del pipeline de auditorÃ­a orientada a servicios (Fase 5).
   - **ExtracciÃ³n de LÃ³gica**: LÃ³gica legacy extraÃ­da de `AuditFindingRules` hacia los nuevos servicios `VisualCheckEvaluator` y `FieldValueResolver`.
   - **MÃ©tricas Independientes**: CreaciÃ³n de `AuditTimingSummarizer` para calcular latencias en el ciclo de agregaciÃ³n.
@@ -401,11 +563,13 @@
   - **Archivos Creados**: `VisualCheckEvaluator.php`, `FieldValueResolver.php`, `AuditTimingSummarizer.php`.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada `plans/architecture.md` con los nuevos servicios del orquestador. Skills y tareas actualizadas.
 
 ## [2026-05-15] - Clean Rebuild: Hardening de Pipeline y ErradicaciÃ³n de Legacy
 
 ### ðŸ§¹ Cleanup / Refactor
+
 - **PIPELINE-CLEAN-REBUILD**: EjecuciÃ³n estricta de `clean-rebuild-policy` en el pipeline de auditorÃ­a.
   - **EliminaciÃ³n de CÃ³digo Muerto**: Se removiÃ³ el campo obsoleto `confidence` del schema JSON de `ArticleSemanticMatchJudge` y la lÃ³gica hÃ­brida dependiente (`isConservativeMatch()`). Se eliminÃ³ `responseMimeType` de `GeminiConfig` al estar desfasado con Gemini 3.1. Se erradicÃ³ el estado legacy `AMBIGUOUS` de `ExtractionState`.
   - **Estabilidad de Hallazgos**: Se eliminÃ³ la keyword 'confianza' de `AuditFindingRules::observationRequiresManualReview` para evitar falsos positivos de revisiÃ³n manual.
@@ -416,11 +580,13 @@
   - **Archivos Modificados**: `GeminiConfig.php`, `ExtractionState.php`, `ArticleSemanticMatchJudge.php`, `AuditFindingRules.php`, `DocumentPolicyEngine.php`, `DocumentExtractionContractBuilder.php`, `AuditStateStore.php`, `AuditEvent.php`, `AuditDataService.php`, `DocumentExtractionWorker.php`, `JsonRedisStoreTrait.php`, `BatchJobStore.php`, `GeminiConfigTest.php`, `DocumentAuditOrchestratorTest.php`.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada la documentaciÃ³n de `AGENTS.md` y `.env` removiendo referencias a `GEMINI_RESPONSE_MIME`. Evaluada `audfact-audit-gemini`, que se mantiene vigente con el esquema limpio de la v1.
 
 ## [2026-05-13] - EliminaciÃ³n de Artefactos IA en ProducciÃ³n
 
 ### ðŸ”’ Security / Infrastructure
+
 - **INFRA-001**: EliminaciÃ³n de volÃºmenes `responseIA/` del compose productivo.
   - **Problema**: `docker-compose.prod.yml` montaba `./responseIA:/var/www/html/responseIA` en los servicios `php`, `worker-extraction` y `worker-policy`. Aunque el cÃ³digo PHP (`ResponseIADiskStore`, lÃ­nea 46) ya impedÃ­a la escritura en `APP_ENV !== 'development'`, Docker creaba el directorio vacÃ­o en el host al levantar los contenedores.
   - **CorrecciÃ³n**: Eliminados 3 mounts de volumen del compose productivo. Solo `./logs:/var/www/html/logs` persiste como mount en producciÃ³n.
@@ -431,6 +597,7 @@
 ## [2026-05-11] - Infraestructura & DocumentaciÃ³n Visual
 
 ### Docs / Diagrams
+
 - **ARCH-DIAGRAMS**: ActualizaciÃ³n completa de `plans/architecture-diagrams.md` para reflejar la arquitectura **Event-Driven** actual (C4 Model Nivel 1, 2 y 3).
 - **Architecture Walkthrough**: CreaciÃ³n de un walkthrough interactivo con diagramas PNG generados vÃ­a `mmdc` (Mermaid CLI) para facilitar la inducciÃ³n tÃ©cnica.
 - **Secrets Sync**: SincronizaciÃ³n de secretos de producciÃ³n desde el entorno local `.env` hacia GitHub Secrets para habilitar el despliegue automÃ¡tico.
@@ -438,6 +605,7 @@
 ## [2026-05-11] - Skill de Operaciones de Produccion
 
 ### Docs / Ops
+
 - **PROD-OPS-SKILL**: Creada la skill `audfact-production-ops` para que agentes accedan por SSH al servidor LAN `admon@172.16.0.3`, ejecuten diagnosticos seguros y sigan runbooks de deploy/rollback con GitHub Actions self-hosted runner.
   - **Guardrails**: La skill prohibe persistir passwords o imprimir secrets y exige aprobacion explicita para acciones con impacto.
   - **Automatizacion**: Agregado `Invoke-AudFactProdSsh.ps1`, wrapper PowerShell con OpenSSH explicito y `SSH_ASKPASS` temporal.
@@ -446,6 +614,7 @@
 ## [2026-05-08] â€” OptimizaciÃ³n: ReducciÃ³n de Payload de ExtracciÃ³n (Gemini v1)
 
 ### âš¡ Performance / Cleanup
+
 - **AUDIT-023**: EliminaciÃ³n de metadata redundante en el motor de extracciÃ³n Gemini.
   - **Poda de Schema**: Se eliminaron los campos `confianza`, `evidencia` y `ubicacion` del JSON schema generado por `DocumentExtractionContractBuilder`. Esto reduce el tamaÃ±o de la respuesta y el consumo de tokens.
   - **SimplificaciÃ³n DTO**: Refactorizado `ExtractedEvidence` para remover los atributos `confidence`, `justification` y `location`. El DTO ahora transporta exclusivamente la informaciÃ³n decisional y es retrocompatible ignorando claves legacy.
@@ -453,9 +622,11 @@
   - **ActualizaciÃ³n de CÃ³digo Base**: Modificados los comentarios y docblocks en `DocumentPolicyEngine` para reflejar la nueva estructura simplificada.
   - **ValidaciÃ³n**: `DocumentNormalizerTest` actualizado para validar la ausencia de los campos eliminados (191 tests exitosos).
   - **Archivos modificados**: `DocumentExtractionContractBuilder.php`, `ExtractedEvidence.php`, `DocumentNormalizer.php`, `DocumentPolicyEngine.php`, `tests/.../DocumentNormalizerTest.php`
+
 ## [2026-05-05] â€” Hardening de NormalizaciÃ³n: Cierre de Brechas Anti-Glosa (NORM-001)
 
 ### ðŸ”’ Hardening / Bugfix
+
 - **NORM-001**: Cierre de 3 brechas de normalizaciÃ³n que podÃ­an generar falsos `VALOR_DISTINTO` y consecuentes glosas injustificadas.
 
   **Componente 1 â€” Tabla completa de aliases `IDENTITY_DOC_TYPE`** (`AuditFindingRules`):
@@ -482,21 +653,21 @@
   **Archivos modificados**: `AuditFindingRules.php`.
   **Archivos creados**: `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
 
-
 ## [2026-05-04] â€” DepuraciÃ³n: CÃ³digo Muerto y Drift Documental (ARCH-002)
 
 ### ðŸ§¹ Cleanup
+
 - **ARCH-002**: EliminaciÃ³n de cÃ³digo muerto y correcciÃ³n de drift documental en `plans/architecture.md`.
   - **Archivo eliminado**: `ClientConfigurationService.php` â€” fachada hueca sin consumidores (0 imports en todo el proyecto). Era un pass-through 1:1 sobre `AuditConfigModel`, creado en AUDIT-022 pero nunca integrado en el pipeline ni en controllers.
   - **Drift corregido en `architecture.md`**: Eliminada referencia fantasma a `GeminiCircuitBreaker.php` (circuit breaker fue inlineado en `GeminiGateway` en AUDIT-013). Agregada referencia faltante a `GeminiCallMetrics.php`. Corregida ruta `Debug/ResponseIADiskStore.php` â†’ `ResponseIADiskStore.php` (el subdirectorio `Debug/` nunca existiÃ³).
   - **Archivos eliminados**: `app/Services/Audit/ClientConfigurationService.php`
   - **Archivos modificados**: `plans/architecture.md`
 
-
 ## [2026-05-03] â€” Clean Controller: DelegaciÃ³n de OrquestaciÃ³n y ConfiguraciÃ³n (AUDIT-022)
 
 ### ðŸ”µ Architecture / Refactor
-- **AUDIT-022**: RefactorizaciÃ³n de `AuditController` hacia el patrÃ³n *Thin Controller*, delegando la lÃ³gica de negocio a servicios especializados.
+
+- **AUDIT-022**: RefactorizaciÃ³n de `AuditController` hacia el patrÃ³n _Thin Controller_, delegando la lÃ³gica de negocio a servicios especializados.
   - **`AuditBatchOrchestrator`**: Creado para encapsular el encolamiento asÃ­ncrono, la reserva de slots concurrentes en Redis (`BatchJobStore`), la inicializaciÃ³n del estado (`AuditStateStore`) y el rollback transaccional en caso de fallos de persistencia.
   - **`ClientConfigurationService`**: Creado para abstraer la consolidaciÃ³n dinÃ¡mica de la configuraciÃ³n de auditorÃ­a (mezcla de campos hardcodeados y visuales de la DB) y su persistencia.
   - **Resultado**: El controlador `AuditController` redujo su tamaÃ±o y complejidad drÃ¡sticamente (de 614 a 427 lÃ­neas). Las responsabilidades transaccionales ahora residen en clases testeables e independientes.
@@ -508,6 +679,7 @@
 ## [2026-05-03] â€” Clean Rebuild: ErradicaciÃ³n de Legacy en Pipeline (AUDIT-021)
 
 ### ðŸ§¹ Cleanup / Refactor
+
 - **AUDIT-021**: EliminaciÃ³n completa de compatibilidad retroactiva legacy en la capa de normalizaciÃ³n y polÃ­ticas, asumiendo un flujo estrictamente "shape v1" determinista.
   - **`DocumentNormalizer`**: Eliminado el comportamiento hÃ­brido en `normalizeFieldWithLog` y borrado de la lÃ³gica y logs de `legacy_scalar_wrapped_v1`. Se simplificÃ³ `isEmptyRow` asumiendo arrays `['valor']`.
   - **`DocumentPolicyEngine`**: Eliminado el mÃ©todo `unwrapV1()` hÃ­brido, haciendo acceso directo a los arrays v1 inyectados en la extracciÃ³n.
@@ -518,6 +690,7 @@
 ## [2026-05-02] â€” Clean Code Pipeline: Enums Centralizadores (AUDIT-020)
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-020**: EliminaciÃ³n de constantes duplicadas y mÃ©todos redundantes en el pipeline de auditorÃ­a. Sin cambios en API pÃºblica, contratos de eventos ni respuestas REST.
   - **Nuevo enum** `DocumentQuality` (`legible/parcialmente_legible/ilegible`) reemplaza la constante privada `DOCUMENT_QUALITY_ENUM` que existÃ­a duplicada en `DocumentExtractionWorker`, `DocumentNormalizer` y `DocumentPolicyEngine`. Incluye `fromString()` (con validaciÃ³n), `tryFromString()`, `isLegible()` y `preventsConclusion()`.
   - **Nuevo enum** `AuditFindingResult` (`COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE`) reemplaza las constantes privadas `RESULT_*` que existÃ­an duplicadas en `DocumentPolicyEngine` (5), `RulesEvaluationWorker` (3) y `AuditFindingRules` (3). Incluye `isFailure()`, `isDiscrepancy()`, `isInconclusive()`, `isSkipped()`.
@@ -534,6 +707,7 @@
 ## [2026-05-02] â€” FormalizaciÃ³n de Tipos de Valor Auditables (AuditFieldValueType)
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-019**: SeparaciÃ³n formal de "tipo de comparaciÃ³n" (`AuditComparisonType`: E/S/B/V) y "tipo de dato" (`AuditFieldValueType`: text/date/quantity/money/identity_doc_type).
   - **Nuevo enum** `AuditFieldValueType` con factory `fromFieldName()` que consolida 4 heurÃ­sticas dispersas (`str_starts_with('Fecha')`, `str_starts_with('Cantidad')`, `str_starts_with('Vlr')`, `in_array(['TipoDocumentoPaciente', 'TipoDocumentoMedico'])`) en un Ãºnico punto de decisiÃ³n.
   - **MÃ©todos auxiliares**: `isNumericForSchema()` (reemplaza `isNumberField()`), `isQuantitySummable()` (reemplaza `isQuantityField()` en resoluciÃ³n de valores).
@@ -546,11 +720,13 @@
   - **Archivos modificados**: `AuditComparisonType.php`, `DocumentPolicyEngine.php`, `DocumentExtractionContractBuilder.php`
 
 ### ðŸ“š Documentation / Skills
+
 - **DOCS-SYNC**: Skill `audfact-audit-gemini` actualizada con `AuditFieldValueType` en tabla de archivos clave, regla 2 y referencias.
 
 ## [2026-05-01] â€” Limpieza Dead Code y Wrappers Redundantes (Pipeline)
 
 ### ðŸ§¹ Cleanup / Refactor
+
 - **QUAL-001**: Eliminado `TYPE_EXTRACTION_FAILED` â€” constante declarada y ruteada sin productor ni consumer en todo el codebase.
   - Archivos modificados: `AuditEvent.php`, `AuditEventPublisher.php`
 - **QUAL-002**: Limpieza de referencias fantasma a clases eliminadas en refactors AUDIT-013/014.
@@ -569,6 +745,7 @@
 ## [2026-04-28] â€” Docs Sync: Pipeline event-driven & TipoCampo
 
 ### ðŸ“š Documentation / Skills
+
 - **DOCS-SYNC-002**: SincronizaciÃ³n tras detectar drift acumulado contra refactors AUDIT-013/014/015/016 y validaciÃ³n contra el caso golden `T38250701547` (NitSec 2426).
   - **Skill `audfact-audit-gemini`**: bootstrap unificado a `bin/audit-worker.php <rol>` (era lista de 5 binarios consolidados en AUDIT-015), eliminadas filas de archivos fusionados (`DocumentNormalizationWorker`, `AuditResultAggregator`, `ExtractionCache`, `SchemaBuilder` â€” AUDIT-014), corregido naming TipoCampo (el enum `AuditComparisonType::fromTipoCampo()` mapea `E` como default â†’ `EXACT`; el cÃ³digo `D` no existe), eliminada regla "factor de empaque NitSec=2426 â‰¤ 5 unidades / `ACEPTADO_POR_EMPAQUE`" (no implementada en cÃ³digo), agregadas secciones para mecanismo `omitirSi` (`fdv_has`/`fdv_missing`/`doc_quality`), agregaciÃ³n de items en reglas `B` (sumatoria pre-comparaciÃ³n) y contrato real de hallazgo, nota tÃ©cnica sobre thinking tokens en Gemini 3.x, removida referencia al `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md` eliminado en AUDIT-016.
   - **Skill `audfact-project-overview`**: reemplazado el flujo monolÃ­tico (`AuditOrchestrator.auditInvoice` + `EmbeddingGateway` + `RuleEngine` + `AuditPersistenceService`) por el flujo event-driven actual (orchestrator â†’ extraction â†’ normalizer â†’ policy â†’ aggregator); conteos actualizados (8â†’11 controllers, 6â†’7 models, 11â†’22 archivos en `Services/Audit`); endpoints 17â†’22 con `audit-config`, DLQ y timings; patrones actualizados (Template Method, Lua scripts, Builder dinÃ¡mico).
@@ -580,6 +757,7 @@
 ## [2026-04-28] â€” Docs Sync: Perfiles Gemini y Fallback SemÃ¡ntico
 
 ### ðŸ“š Documentation / Skills
+
 - **DOCS-SYNC**: SincronizaciÃ³n documental posterior a la correcciÃ³n del pipeline Gemini.
   - **Skills actualizadas**: `audfact-audit-gemini` documenta `GeminiConfig`, `SemanticMatchJudge`, mÃ©tricas Gemini por tarea, perfiles `GEMINI_EXTRACTION_*` / `GEMINI_SEMANTIC_*`, fallback limpio y no-cache de fallos transitorios.
   - **Runtime actualizado**: `audfact-runtime-docker` documenta que PHP/workers usan cÃ³digo baked en imagen y requieren rebuild/recreate tras cambios de backend.
@@ -589,6 +767,7 @@
 ## [2026-04-28] â€” OptimizaciÃ³n de Performance: Pro-Parallel (82s â†’ 34s)
 
 ### âš¡ Performance / Infrastructure
+
 - **AUDIT-018**: OptimizaciÃ³n masiva de latencia en el pipeline de auditorÃ­a sin pÃ©rdida de calidad.
   - **Paralelismo**: Escalado de `worker-extraction` de 1 a **5 rÃ©plicas** en `docker-compose.yml`. Esto permite que los adjuntos de una factura (promedio 3) se procesen simultÃ¡neamente en lugar de secuencialmente.
   - **ConfiguraciÃ³n Pro-Optimized**: Uso de `gemini-3.1-pro-preview` con `GEMINI_MEDIA_RESOLUTION=MEDIA_RESOLUTION_LOW`. La reducciÃ³n de resoluciÃ³n acelera el procesamiento de la API de Gemini sin degradar la precisiÃ³n en campos crÃ­ticos (CIE-10, firmas).
@@ -598,6 +777,7 @@
 ## [2026-04-27] â€” Limpieza de artefactos muertos del repositorio
 
 ### ðŸ§¹ Cleanup
+
 - **AUDIT-016**: EliminaciÃ³n de documentaciÃ³n obsoleta, variables fantasma y archivos dead del repositorio.
   - **Archivos raÃ­z eliminados**: `ASSESSMENT_AudFact_AuditPipeline_v1.0.md` (66KB), `PLANNING_AudFact_AuditPipelineCleanRebuild_v1.0.md` (67KB), `REPRODUCIBILITY_FRAMEWORK.md` (7KB), `CHANGELOG.md` (duplicado de `plans/changelog.md`), `.env.dev` (sin consumidor).
   - **Directorio eliminado**: `tmp/` (3 JPGs de prueba manual), `app/Services/prompts/` (5 archivos de prompts legacy: v1-v4 + philosophy).
@@ -608,6 +788,7 @@
 ## [2026-04-27] â€” ConsolidaciÃ³n de Bootstrap Scripts (`bin/`)
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-017**: ImplementaciÃ³n de extracciÃ³n selectiva para documentos prescriptivos (FORMULA MEDICA, RECETA, etc.). El `DocumentExtractionWorker` ahora inyecta en el prompt de Gemini la lista de artÃ­culos efectivamente dispensados (segÃºn la FDV), limitando la extracciÃ³n a Ã­tems relevantes y reduciendo el ruido/consumo de tokens en >90% (ej. 2 Ã­tems extraÃ­dos en lugar de 21).
 - **AUDIT-015**: ConsolidaciÃ³n de los scripts ejecutables de los workers en un Ãºnico launcher.
   - **FusiÃ³n `bin/audit-*-worker.php` â†’ `bin/audit-worker.php`**: Se eliminaron 5 scripts de bootstrap casi idÃ©nticos y se reemplazaron por un Ãºnico launcher que usa un registry de configuraciÃ³n.
@@ -617,9 +798,11 @@
   - **Archivos aÃ±adidos**: `bin/audit-worker.php`
   - **Archivos modificados**: `docker-compose.yml` (actualizaciÃ³n de los `command:` de cada servicio).
   - **ValidaciÃ³n E2E**: `T38250701547` procesado correctamente con score idÃ©ntico (15) tras reconstrucciÃ³n de contenedores.
+
 ## [2026-04-27] â€” ConsolidaciÃ³n Pipeline: 17 â†’ 13 archivos
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-014**: ConsolidaciÃ³n del Ã¡rbol `app/Services/Audit/Pipeline/` mediante fusiÃ³n de clases con relaciÃ³n 1:1 exclusiva:
   - **F1: `DocumentNormalizationWorker` â†’ `DocumentNormalizer`**: El thin wrapper (88 lÃ­neas) se eliminÃ³. `DocumentNormalizer` ahora extiende `AuditEventConsumer` directamente, actuando como worker autocontenido.
   - **F2: `AuditResultAggregator` â†’ `AuditAggregationWorker`**: Los mÃ©todos de agregaciÃ³n (normalizaciÃ³n de hallazgos, resoluciÃ³n de status final, severidad) se absorbieron como mÃ©todos privados del worker. Ãšnico consumidor.
@@ -632,11 +815,13 @@
   - **ValidaciÃ³n E2E**: `T38250701547` â†’ `risk_score:15`, `coincidencias:34`, `discrepancias:1` (idÃ©ntico a pre-refactorizaciÃ³n)
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Actualizado `plans/architecture.md` con la estructura consolidada de 13 archivos. Actualizado `plans/changelog.md`.
 
 ## [2026-04-27] â€” ReestructuraciÃ³n Deep: app/Services/Audit
 
 ### ðŸ”µ Architecture / Refactor
+
 - **AUDIT-013**: ReestructuraciÃ³n profunda del Ã¡rbol `app/Services/Audit`:
   - **Rename `Events/` â†’ `Pipeline/`**: El namespace genÃ©rico `Events` se renombrÃ³ a `Pipeline` para reflejar con precisiÃ³n su responsabilidad (pipeline event-driven de auditorÃ­a).
   - **FusiÃ³n `FieldStructure` â†’ `AuditComparisonType`**: Los 6 mÃ©todos estÃ¡ticos de detecciÃ³n de tipo por convenciÃ³n (fechas, cantidades, umbrales semÃ¡nticos) se integraron directamente en el enum `AuditComparisonType`. âˆ’1 archivo.
@@ -645,101 +830,121 @@
   - **Resultado neto**: De 26 archivos dispersos a 22 archivos organizados en 2 subcarpetas (`Pipeline/`, `Debug/`).
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Reconstruido `plans/architecture.md` con la nueva estructura. Actualizado `plans/changelog.md`. Skills `audfact-audit-gemini` y `CATALOG.md` pendientes de actualizaciÃ³n por el rename de namespace.
   - Archivos actualizados: `plans/architecture.md`, `plans/changelog.md`
 
 ## [2026-04-27] â€” RefactorizaciÃ³n ArquitectÃ³nica: GeminiGateway
 
 ### ðŸŸ¢ Calidad de CÃ³digo / Refactor
+
 - **AUDIT-012**: RediseÃ±o completo de la capa de comunicaciÃ³n con IA (`GeminiGateway`).
   - **ExtracciÃ³n de responsabilidades (SRP)**: SeparaciÃ³n de la configuraciÃ³n en un Value Object inmutable (`GeminiConfig`) y extracciÃ³n de la resiliencia en un componente aislado y testeable (`GeminiCircuitBreaker`).
   - **EliminaciÃ³n de cÃ³digo muerto**: Removidas funciones inutilizadas y simplificado el constructor de 12 a 4 parÃ¡metros.
   - **Desacoplamiento de contexto**: El contexto de trazabilidad (`X-Audit-Context-*`) se desacoplÃ³ del array de `generationOverrides`, inyectÃ¡ndose explÃ­citamente como un parÃ¡metro dedicado (`$debugContext`), eliminando el antipatrÃ³n de "bolsa mÃ¡gica".
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada la documentaciÃ³n de arquitectura y el changelog. Validada la cobertura implÃ­cita del catÃ¡logo de skills.
   - Archivos actualizados: `plans/changelog.md`, `plans/architecture.md`
 
 ## [2026-04-27] â€” AuditorÃ­a DinÃ¡mica y ConfiguraciÃ³n Universal
 
 ### ðŸ”µ Features / Architecture
+
 - **AUDIT-009**: ImplementaciÃ³n de **ConfiguraciÃ³n de AuditorÃ­a DinÃ¡mica**. El sistema ahora permite definir metadatos por campo (Exacto, SemÃ¡ntico, Negocio) y severidades (ALTA, MEDIA, BAJA) persistidos en base de datos.
 - **AUDIT-010**: RediseÃ±o de la UI de configuraciÃ³n (`AuditConfigEditor`) para soportar la ediciÃ³n de nuevos tipos de campos y severidades dinÃ¡micas.
 - **AUDIT-011**: Soporte para tipos de campo "S" (SemÃ¡ntico) y "B" (Negocio) en el pipeline de auditorÃ­a, permitiendo validaciones contextuales avanzadas vÃ­a Gemini.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada la documentaciÃ³n de endpoints y las skills de API y AuditorÃ­a Gemini para reflejar el nuevo modelo de datos dinÃ¡mico.
   - Archivos actualizados: `plans/changelog.md`, `plans/api-endpoints.md`, `.agent/skills/audfact-api-rest/SKILL.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
 
 ## [2026-03-24] â€” CorrecciÃ³n Interfaz MCP (GetInvoices)
 
 ### ðŸ”´ Critical Fixes
+
 - **AUDIT-008**: Se solucionÃ³ un desajuste de parÃ¡metros en la tool `GetInvoices` (`app/wrap/core/tools/GetInvoices.php`). La interfaz MCP recibe el parÃ¡metro `date`, pero el cliente HTTP local no lo parseaba a `dateFrom` como lo espera `InvoicesController::index()`, resultando en validaciones HTTP 422 permanentes (bloqueando a los agentes IA de obtener facturas).
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Validada la skill `audfact-mcp-wrap`. No requiere cambios ya que el contrato externo MCP se mantuvo estricto, sÃ³lo cambiÃ³ el mapeo interno.
   - Archivos actualizados: `plans/changelog.md`
-
 
 ## [2026-03-24] â€” ExclusiÃ³n de RegimenPaciente en Fuente de Verdad (AuditorÃ­a IA)
 
 ### ðŸŸ¢ Quality of Life / Business Logic
+
 - **AUDIT-007**: Se modificÃ³ la consulta en `DispensationModel` para excluir el campo `RegimenPaciente` y forzar su valor a `NULL` para clientes especÃ­ficos que no lo reportan consistentemente (NitSec `1045` Positiva, `80455` Suramericana, `2426` Colsanitas).
   - Esto activa la "Regla Absoluta de RÃ©gimen" del `AuditPromptBuilder` (fallback a `N/D`), eliminando falsos positivos en discrepancias donde el rÃ©gimen de los documentos no coincide con la BD.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada la skill `audfact-audit-gemini` para documentar la regla explÃ­cita de exclusiÃ³n para clientes particulares en conjunto con la regla de fallback del prompt.
   - Archivos actualizados: `plans/changelog.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
 
 ## [2026-03-24] â€” ImplementaciÃ³n de Regla de Entregas Parciales (Audit Prompt)
 
 ### ðŸŸ¢ Quality of Life / Business Logic
+
 - **AUDIT-006**: Implementada la regla de **entregas parciales** en `AuditPromptBuilder`. Gemini ahora permite que la cantidad en la Fuente de Verdad sea menor o igual a lo prescrito/autorizado sin reportar discrepancias. Solo se marca como `VALOR_DISTINTO` si el entregado excede el autorizado.
   - Modificado Â§03 para excluir cantidades de comparaciÃ³n exacta.
   - Agregada sub-regla en Â§05 con lÃ³gica de validaciÃ³n dirigida.
   - Actualizado Â§08 (Auto-auditorÃ­a) para forzar verificaciÃ³n de parciales.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Sincronizada la documentaciÃ³n en `plans/features/audit-workflow.md` y la skill `audfact-audit-gemini` para reflejar la nueva capacidad de auditorÃ­a cuantitativa.
   - Archivos actualizados: `plans/changelog.md`, `plans/features/audit-workflow.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
 
 ## [2026-03-20] â€” Robustecimiento de Transacciones, Parseo JSON y Resiliencia Redis (Pipeline Audit)
 
 ### ðŸ”´ Critical Fixes
+
 - **AUDIT-005 / C-01**: Inconsistencia transaccional en `AuditPersistenceService` â†’ Ahora envuelve `upsertAuditResult` y actualizaciÃ³n de adjuntos en una transacciÃ³n PDO; si falla, revierte todo para mantener integridad y pospone la actualizaciÃ³n en la cachÃ© de Redis (`lrem`).
 - **AUDIT-005 / C-02**: Respuestas JSON de Gemini truncadas, malformadas o con llaves sin cerrar â†’ Integrado `JsonRepairHelper` como fallback en `JsonResponseParser` para reparar comas sueltas, strings incompletos y corchetes desbalanceados antes de fallar.
 
 ### ðŸŸ  High Priority Fixes
+
 - **AUDIT-005 / H-01**: PÃ©rdida silenciosa de scripts Lua (`NOSCRIPT`) por reinicios de servidor Redis en Workers â†’ Agregado try/catch en `AuditQueueService::updateJob()` para atrapar el error `NOSCRIPT` y reintentar instantÃ¡neamente recargando y ejecutando el script en crudo con `EVAL`.
 
 ### Refactor (Testing)
+
 - **TEST-001**: 100% de la suite de pruebas unitarias sincronizada con los cambios operacionales. El servicio de persistencia implementa ahora Mocks de PDO con ReflexiÃ³n para verificar commits/rollbacks sin necesitar DB viva.
 - **TEST-002**: SoluciÃ³n de colisiones de namespace (`FakeInvoicesModel`) entre Tests.
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Actualizada skill `audfact-audit-gemini` (incorporando la secciÃ³n Resiliencia vs Errores Formato y el uso del Helper).
   - Archivos actualizados: `plans/changelog.md`, `.agent/skills/audfact-audit-gemini/SKILL.md`
 
 ### Archivos modificados
+
 `app/Services/Audit/AuditPersistenceService.php`, `app/Services/Audit/AuditQueueService.php`, `app/Services/Audit/JsonResponseParser.php`, `app/Services/Audit/JsonRepairHelper.php` (nuevo), `tests/Services/Audit/*`, `tests/Controllers/InvoicesControllerTest.php`, `tests/Models/InvoicesModelTest.php`
 
 ## [2026-03-19] â€” Correcciones Persistencia e Idempotencia (Audit)
+
 - **AUDIT-004 / C-01**: CorrupciÃ³n de datos por truncado en CachÃ© â†’ `AuditPersistenceService` guarda `severity`, `_errorOrigin` y metadata completa.
 - **AUDIT-004 / C-02**: Mapeo invÃ¡lido de PK al re-persistir desde CachÃ© â†’ `AuditController::run` reconstruido para forzar `FacNro` genuino.
 - **AUDIT-004 / Idempotencia**: Controlador usaba prefijo quemado (`audit:result:`) â†’ sincronizado con `REDIS_PREFIX` de Env.
 
 ### ðŸŸ  High Priority Fixes
+
 - **AUDIT-004 / H-01**: DB Fallback sin validaciÃ³n estricta â†’ `AuditStatusModel` devuelve int/false; el caching se aborta ante falla.
 
 ### ðŸŸ¡ Medium / Low Priority
+
 - **AUDIT-004 / M-02 / L-02**: Pre-validaciones abortaban sin array pre-formateado â†’ inyecciÃ³n de `$items` de fallos documentales y MIPRES a `fail()`.
 
 ### Archivos modificados
+
 `app/Services/Audit/AuditPersistenceService.php`, `app/Controllers/AuditController.php`, `app/Services/Audit/AuditPreValidator.php`, `app/Models/AuditStatusModel.php`
 
 ## [2026-03-18] â€” Correcciones AuditorÃ­a Independiente (19 hallazgos)
 
 ### ðŸ”´ Critical Fixes
+
 - **AUDIT-003 / C-01**: SQL Injection en `$limit` de `InvoicesModel` â†’ cast `(int)` defensivo
 - **AUDIT-003 / C-03**: `Response::success()`/`error()` lanzaban excepciones sin documentar â†’ `#[NoReturn]` + `@return never`
 - **AUDIT-003 / C-04**: ComparaciÃ³n de fechas con operadores string â†’ `DateTime` objects (4 sitios en InvoicesController + AuditController)
@@ -747,6 +952,7 @@
 - **AUDIT-003 / C-06**: `set_time_limit(120)` en `AuditOrchestrator` anulaba timeout del controller â†’ eliminado
 
 ### ðŸŸ  High Priority Fixes
+
 - **AUDIT-003 / H-01**: Regla `optional` en `Validator` funcionaba por accidente â†’ implementaciÃ³n explÃ­cita
 - **AUDIT-003 / H-02**: Regla `min_length:` ignorada silenciosamente â†’ implementada en `Validator`
 - **AUDIT-003 / H-03**: Cache key en `AuditController::results()` no invalidable â†’ prefijo `facNitSec`
@@ -754,36 +960,43 @@
 - **AUDIT-003 / H-05**: Sin sanitizaciÃ³n post-validaciÃ³n en `Controller` â†’ `sanitizeData()` con `trim()` + `strip_tags()`
 
 ### ðŸŸ¡ Medium Priority Fixes
+
 - **AUDIT-003 / M-01**: `GROUP BY` 20+ columnas sin agregaciÃ³n en `DispensationModel` â†’ `SELECT DISTINCT`
 - **AUDIT-003 / M-03**: Rate limiting con `REMOTE_ADDR` (IP del proxy Docker) â†’ `RateLimit::getClientIp()` proxy-aware
 - **AUDIT-003 / M-04**: Uso dual de `DisDetNro` en `AuditController::single()` â†’ documentado con comentario
 - **AUDIT-003 / M-05**: PK hardcodeada `id` en `Model` base â†’ `$primaryKey` configurable
 
 ### ðŸ”µ Low Priority Fixes
+
 - **AUDIT-003 / L-01**: Fuga de `facNitSec` en logs de `InvoicesModel` â†’ enmascaramiento `***` + Ãºltimos 3 dÃ­gitos
 - **AUDIT-003 / L-02**: SQL completo en logs de error de `Database` â†’ `[REDACTED]`
 - **AUDIT-003 / L-03**: Regex de `Router` no aceptaba puntos en parÃ¡metros â†’ `[\w.\-]+`
 - **AUDIT-003 / L-04**: `declare(strict_types=1)` aÃ±adido en `Database`, `Validator`, `RateLimit`
 
 ### Descartado
+
 - **C-02 (AutenticaciÃ³n API)**: Postergado a sprint futuro por decisiÃ³n del usuario
 
 ### Archivos modificados (13)
+
 `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php`, `app/Models/Model.php`, `core/Database.php`, `core/Validator.php`, `app/Controllers/Controller.php`, `app/Controllers/InvoicesController.php`, `app/Controllers/AuditController.php`, `app/Services/Audit/AuditOrchestrator.php`, `core/Response.php`, `core/Router.php`, `core/RateLimit.php`, `public/index.php`
 
 ## [2026-03-18] â€” Fix InyecciÃ³n Exhaustiva de Medicamentos (AuditorÃ­a IA)
 
 ### Fix (Prompt)
+
 - **IteraciÃ³n Multi-Medicamento**: `AuditPromptBuilder` itera sobre todos los Ã­tems de `$dispensationData` generando nodos `<medication item="N">` XML individuales, asegurando que la IA valide todos los medicamentos de una dispensaciÃ³n multi-lÃ­nea.
 - **Entregas Parciales (v3.2)**: El sistema permite que la Fuente de Verdad registre cantidades menores o iguales a las prescritas/autorizadas, clasificÃ¡ndolas como `COINCIDE` para evitar falsos positivos en dispensaciones fragmentadas.
   - Archivos modificados: `app/Services/Audit/AuditPromptBuilder.php`
   - Prompt v3.2: 4 capas con axiomas deterministas, motor de 6 dimensiones, protocolo de reconfirmaciÃ³n anti-alucinaciÃ³n, e **iteraciÃ³n multi-medicamento**. Incluye regla de **entregas parciales** (FdV â‰¤ Doc OK).
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Actualizada skill `audfact-audit-gemini` (v3.0â†’v3.1 con iteraciÃ³n multi-medicamento). Corregido drift significativo acumulado en `plans/features/audit-workflow.md`: tabla de archivos obsoleta (`GeminiAuditService` â†’ `AuditOrchestrator`), endpoints faltantes (async, jobStatus, results, documents-history), parÃ¡metro `FacNro`â†’`DisDetNro`, versiÃ³n de prompt (v6.0â†’v3.1), secciÃ³n multi-lÃ­neaâ†’multi-medicamento con XML iterado, y notas tÃ©cnicas sobre filtrado de adjuntos.
   - Archivos actualizados: `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/features/audit-workflow.md`
 
 ### Refactor (Post-Audit Quality)
+
 - **AUDIT-002**: Correcciones robustas post-auditorÃ­a independiente (6 hallazgos):
   - **H-01**: Â§08.7 restaurado con guard rail concreto (`{$totalLineas}` Ã­tems + verificaciÃ³n individual)
   - **M-01**: Supuesto de metadatos comunes (`$ref = $dispensationData[0]`) documentado
@@ -796,6 +1009,7 @@
 ## [2026-03-18] â€” Correcciones CI/CD Pipeline (14 hallazgos)
 
 ### ðŸ”´ Critical Fixes
+
 - **CICD-001**: Deploy separado build de restart â€” build failure ya no causa downtime
   - `docker compose build` (containers siguen corriendo) â†’ `docker compose up -d --force-recreate`
   - Archivos: `.github/workflows/ci.yml`
@@ -805,6 +1019,7 @@
   - Archivos: `ci.yml`, `deploy-frontend.yml`
 
 ### ðŸŸ  High Priority Fixes
+
 - **CICD-004**: `timeout-minutes` agregado a 4 jobs (15min lint, 30min deploy)
 - **CICD-005**: Eliminado `echo` de `NEXT_PUBLIC_API_URL` en logs del workflow
 - **CICD-006**: `.env` en contenedor cambiado de `chmod 644` a `chmod 640`
@@ -813,24 +1028,29 @@
   - Archivos: `docker-compose.yml`, `ci.yml` (.env generation)
 
 ### ðŸŸ¡ Medium Priority Fixes
+
 - **CICD-008**: TODO comment para pin de `shivammathur/setup-php` a SHA
 - **CICD-010**: Secret scan cambiado de `::warning::` a `exit 1` (blocking)
 
 ### ðŸ”µ Low Priority
+
 - **CICD-013**: Warning comment en `docker-compose.ha.yml` sobre source mount
 - **CICD-014**: Zero-source purge agregado a `deploy-frontend.yml`
 
 ### No aplica
+
 - **CICD-011**: LimitaciÃ³n intencional de Next.js (API URL baked at build)
 - **CICD-012**: Falso positivo â€” YAML `|` strip indentation correctamente
 
 ## [2026-03-18] â€” Correcciones AuditorÃ­a Independiente (5 hallazgos)
 
 ### Breaking Change
+
 - **ARCH-001**: `POST /audit/single` â€” ParÃ¡metro renombrado de `FacNro` a `DisDetNro` para reflejar semÃ¡ntica real
   - Archivos modificados: `app/Controllers/AuditController.php`, `AGENTS.md`
 
 ### Fix
+
 - **QUAL-001**: Test `AuditPersistenceServiceTest` usaba campo `hallazgo` (inexistente en schema Gemini) en vez de `detalle`
   - Archivos modificados: `tests/Services/Audit/AuditPersistenceServiceTest.php`
 - **SEC-004**: `Logger::write()` sanitizaba contexto ANTES de serializar excepciones, dejando `trace` sin redactar
@@ -841,12 +1061,14 @@
   - Archivos modificados: `README.md`
 
 ### Diferido
+
 - SEC-001, SEC-002, SEC-003: Diferidos a sprint futuro por decisiÃ³n del usuario
 - GOV-001: Cobertura de tests â€” registrado como TODO
 
 ## [2026-03-17] â€” AuditorÃ­a Independiente Fase 3 (Correcciones)
 
 ### Fix (Async Queue â€” 3 CrÃ­ticos + 4 Altos/Medios)
+
 - **C01**: `POST /audit/async` retornaba HTTP 200 en vez de 202. `Response::success()` ahora recibe `code=202`
   - Archivos modificados: `app/Controllers/AuditController.php`
 - **C02**: Redis `allkeys-lru` podÃ­a evictar metadata de jobs activos. Cambiado a `volatile-lru`
@@ -876,6 +1098,7 @@
   - Archivos modificados: `bin/audit-worker.php`
 
 ### Fix (AuditorÃ­a v2 â€” 2 Medios + 2 Bajos)
+
 - **M-NEW-01**: `run()` y `single()` logueaban `json_encode($data)` y `facNitSec` en cleartext. Sanitizado con enmascaramiento `***`+3 Ãºltimos dÃ­gitos, alineado con `async()`
   - Archivos modificados: `app/Controllers/AuditController.php`
 - **M-NEW-02**: `queueDepth()` retornaba `0` por error Redis (indistinguible de "cola vacÃ­a"). Ahora retorna `null` si Redis no disponible
@@ -886,6 +1109,7 @@
   - Archivos modificados: `bin/audit-worker.php`
 
 ### Docs Sync (Post-ImplementaciÃ³n)
+
 - **DOCS-SYNC**: Actualizado `AGENTS.md` con 3 endpoints faltantes (`/audit/async`, `/audit/jobs/{jobId}`, `/audit/documents-history`), secciones Redis y AuditorÃ­a Async en catÃ¡logo de env vars, variable `GEMINI_SEED`, y nota expandida de sanitizaciÃ³n de logs
   - Archivos modificados: `AGENTS.md`
   - Verificado: `CATALOG.md`, `architecture.md`, `api-endpoints.md`, `README.md`, skills `audfact-audit-gemini` y `audfact-security-guardrails` â€” ya al dÃ­a
@@ -893,13 +1117,14 @@
 ## [2026-03-17]
 
 ### Feature (Escalabilidad Async)
+
 - **Ãmbito**: Sistema asÃ­ncrono de colas para auditorÃ­a IA (Fase 3)
   - Archivos modificados: `core/RedisClient.php`, `app/Services/Audit/AuditQueueService.php`, `bin/audit-worker.php`, `app/Controllers/AuditController.php`, `app/Routes/web.php`, `database/migrations/optimize_audit_indexes.sql`
   - Detalles: Se implementaron colas utilizando listas de Redis (`lpush`, `brpop`, `llen`). El nuevo modelo permite encolar la auditorÃ­a desde un backend y procesar hasta de forma concurrente desde el Worker CLI de PHP evitando el time-out HTTP al orquestar con Gemini.
   - Hito: SincronizaciÃ³n de skills P3 (Colas y Rate Limiting)
 
-
 ### Feature (Pipeline IA)
+
 - **Ãmbito**: ImplementaciÃ³n de Schema DinÃ¡mico para Gemini
   - Archivos modificados: `AuditResponseSchema.php`, `GeminiGateway.php`, `AuditOrchestrator.php`, `AuditPromptBuilder.php`
   - Detalles: El pipeline de auditorÃ­a ahora extrae dinÃ¡micamente los nombres de los documentos (ej. `DISPENSA`, `FORMULA MEDICA`) directamente de la base de datos `AdjuntosDispensacion` y los inyecta en el JSON Schema de Gemini. Esto fuerza a la IA a responder con nomenclatura 100% idÃ©ntica a la BD, eliminando los fallos de conciliaciÃ³n en el modelo `AuditStatusModel` por el uso de nomenclatura SNAKE_CASE impuesta previamente.
@@ -908,6 +1133,7 @@
 ## [2026-03-10]
 
 ### RediseÃ±o Visual Premium (Dashboard)
+
 - **UI/UX HolÃ­stica**: Se implementÃ³ un rediseÃ±o visual completo basado en referentes de alta gama (Falcon, Label, Corona).
 - **Tema Deep Navy**: Paleta de colores profesional (`oklch 0.11`) para reducir fatiga visual y mejorar contraste.
 - **Micro-interacciones**: Se agregaron efectos de "glow border", elevaciÃ³n de tarjetas en hover y animaciones de entrada (`scale-in`, `shimmer`).
@@ -915,10 +1141,12 @@
 - **TipografÃ­a**: ImplementaciÃ³n de Inter (Display) y Outfit para una estÃ©tica moderna.
 
 ### Optimizaciones Docker & Infra
+
 - **Fix Standalone Build**: Se habilitÃ³ `output: 'standalone'` en `next.config.ts` para permitir la creaciÃ³n correcta de imÃ¡genes Docker optimizadas.
 - **Workflow de Rebuild**: Documentado el proceso de reconstrucciÃ³n para el frontend desacoplado.
 
 ### Fixes & Bug Fixes
+
 - **KPI Alertas (Dashboard)**: Se corrigiÃ³ la lÃ³gica de `EstAud` en backend para que marque registros procesados con errores o advertencias. Se robusteciÃ³ el mapeo de estados en frontend.
 - **React Hydration Mismatch (#418)**: Se eliminÃ³ el error diferiendo la renderizaciÃ³n de fechas (`new Date()`) en `DashboardHeader` hasta la etapa del cliente mediante `useEffect`.
 - **NavegaciÃ³n 404 (/settings)**: Se agregÃ³ la pÃ¡gina "ConfiguraciÃ³n (En ConstrucciÃ³n)" para resolver rutas inexistentes de los menÃºs laterales y superior.
@@ -926,23 +1154,27 @@
 ## [2026-03-07]
 
 ### MigraciÃ³n Frontend a Next.js
+
 - **MigraciÃ³n a SPA**: Se migrÃ³ la interfaz originalmente servida como HTML renderizados estÃ¡ticamente desde PHP a una **Arquitectura Desacoplada** con Next.js (App Router).
 - **Stack Frontend**: React 19, TypeScript, Tailwind CSS v4, shadcn/ui, eCharts, Lucide Icons, Zustand y React Query (TanStack).
 - **Consumo de APIs**: Se creÃ³ un cliente `api.ts` estÃ¡ndar y seguro para interactuar con la API PHP existente, unificando los tipos e interfaces.
 
-
 ### OptimizaciÃ³n de EstÃ¡ndares (Skills)
+
 - **AlineaciÃ³n de Endpoints**: Se formalizÃ³ el "PatrÃ³n de Endpoint EstÃ¡ndar" en la skill `audfact-api-rest`. Ahora todos los controladores deben usar `validateQuery` para capturar filtros y devolver respuestas con metadatos de paginaciÃ³n y el objeto `filters` (echo).
 - **Consumo de Datos en Modelos**: Se formalizÃ³ el "PatrÃ³n de Consumo de Datos y Filtrado" en la skill `audfact-sqlsrv-models`. Los modelos ahora deben aceptar un array `$filters` inyectado desde el controlador para construir clÃ¡usulas `WHERE` dinÃ¡micas de manera consistente.
 - **Workflow de GeneraciÃ³n**: Se creÃ³ el archivo `.agent/workflows/generate-endpoint.md` para guiar a los agentes en la creaciÃ³n de nuevos endpoints siguiendo estos estÃ¡ndares.
 - **Impacto**: ReducciÃ³n de la deuda tÃ©cnica y garantÃ­a de una API predecible y uniforme para el frontend.
 
 ## 2026-03-09
+
 - Fix: Implementado deep-linking en tablas de auditorÃ­a (Dashboard) inyectando estado inicial vÃ­a `useSearchParams` hacia las pÃ¡ginas `audit/history` y `audit/single`. Se eliminÃ³ la dependencia exclusiva de hooks de efecto para hidratar variables del URL.
 
 ## 2026-03-08
+
 - Fix: Corregido el mapeo de parÃ¡metros (FacSec a NumeroFactura) en la AuditorÃ­a 1:1.
 - Fix: Resuelto el renderizado vacÃ­o del modal de resultados de AuditorÃ­a 1:1 en la UI gestionando correctamente la envoltura data.data del backend y el estado de error de la IA.
+
 ## 2026-06-08
 
 - **AudFact Core**: Normalización estructural del catálogo AudDispCampo.
@@ -954,7 +1186,6 @@
 - **Docs**: Actualizado plans/api-endpoints.md con nueva ruta de catálogo y reducción del payload en POST.
 
 - **Frontend**: Reforzada la función 'Descubrir campos' (AddFieldFromDispensaDialog) para validar en tiempo real contra el Catálogo de Campos, previniendo la creación de campos huérfanos e infiriendo automáticamente sus tipos.
-
 
 ## 2026-06-10
 

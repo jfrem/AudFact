@@ -146,7 +146,7 @@ Redis almacena:
   y `audit.dlq`;
 - estado por auditoria `audit:{id}:*`;
 - estado de jobs `job:{id}:*`;
-- reservas idempotentes por `FacSec`;
+- reservas idempotentes por `DisId`;
 - cache de extracciones y homologaciones.
 
 Variables operativas:

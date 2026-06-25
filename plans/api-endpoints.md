@@ -183,10 +183,11 @@ Encola auditoría individual sobre una sola dispensación usando la llave compue
 
 ```json
 {
-  "disId": "DIS26-6-...",
   "disDetNro": "87723098"
 }
 ```
+
+*Nota: `disId` es opcional. Si se omite, el backend derivará automáticamente la identidad canónica interna a partir de `disDetNro` para resolver correctamente la persistencia.*
 
 Respuesta exitosa: HTTP `202`.
 
@@ -296,6 +297,24 @@ Respuesta:
 }
 ```
 
+### `GET /audit/{id}/flow-stream`
+
+Stream SSE de telemetria live para la vista de trazabilidad, soportando tanto auditorias individuales como lotes agregados.
+
+Validacion:
+- `id`: path parameter, UUID v4 generado por `POST /audit/single` (`auditId`) o por `POST /audit/async` (`jobId`).
+- `DisDetNro` / `FacNro` no son identificadores validos para este stream live; se usan solo para historial persistido.
+- Se hace dual-routing: verifica en Redis si existe `audit:{id}:state` o `job:{id}:state`. Si no existe ninguno, responde `404`.
+
+Eventos SSE:
+- `connected`: confirma conexion con `{ "id": "<uuid>", "type": "audit|job" }`.
+- `telemetry`: evento de fase live desde `audit.telemetry` filtrado por el ID.
+- `timeout`: cierre controlado despues de 30s con `reconnect_ms`.
+
+Autenticacion:
+- No aplica en esta fase de desarrollo.
+- Antes de exponerlo fuera de una red controlada debe agregarse autenticacion/autorizacion del usuario auditor.
+
 ### `GET /audit/results`
 
 Consulta auditorías persistidas con filtros y paginación.
@@ -325,12 +344,12 @@ Respuesta:
 }
 ```
 
-### `GET /audit/results/{disId}`
+### `GET /audit/results/{facNro}`
 
-Consulta el detalle persistido de una auditoría por la llave canónica `DisId`.
+Consulta el detalle persistido de una auditoría por `FacNro` (`DisDetNro`/`Dispensa`), llave primaria operativa en `AudDispEst`.
 
 Validación:
-- `disId`: string no vacío en ruta.
+- `facNro`: string no vacío en ruta.
 
 Respuesta:
 
@@ -340,6 +359,7 @@ Respuesta:
   "message": "Detalle de auditoría",
   "data": {
     "DisId": "87723098",
+    "FacNro": "T38250701547",
     "findings": [],
     "fieldDecisions": [],
     "documentDecisions": [],

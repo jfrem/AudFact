@@ -71,10 +71,10 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController` | `downloadByDispensation` | Descargar/previsualizar adjunto |
 | `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
 | `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{disId}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por DisId |
+| `GET` | `/audit/results/{facNro}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacNro |
 | `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
 | `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disId` y `disDetNro` |
+| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
 | `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |
@@ -130,13 +130,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `ClientsModel` | `NIT` / `Clientes` | Gestión de EPS/Clientes | `NitSec` |
 | `DispensationModel` | `vw_discolnet_dispensas` | Datos detallados de entrega | `DisDetNro` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Archivos binarios (BLOB/URL) | `AdjDisId` |
-| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `DisId` (almacenado en `FacSec`) |
+| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 
 ### Relaciones Clave
 
 - **Factura ↔ Dispensa**: Relación 1:N. Una factura (`FacSec`) agrupa múltiples dispensaciones (`DisId`).
 - **Dispensa ↔ Adjuntos**: Relación 1:N. Una dispensa tiene múltiples documentos (fórmula, acta, etc.).
-- **Factura ↔ Auditoría**: Relación 1:1. El estado de auditoría se persiste en `AudDispEst` usando la columna legacy `FacSec` (que contiene el `DisId`).
+- **Dispensa ↔ Auditoría**: Relación 1:1 por resultado persistido. `AudDispEst.FacNro` es la PK operativa y contiene el `DisDetNro`; `FacSec` conserva el `DisId` como columna legacy.
 
 ### SQL Server
 
@@ -262,7 +262,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable | Default | Requerida | Módulo / Uso |
 |---|---|---|---|
 | `GEMINI_API_KEY` | *(vacío)* | ✅ | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | ❌ | Modelo de Gemini a usar |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | ❌ | Modelo de Gemini a usar |
 | `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
 | `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
 | `GEMINI_TOP_P` | `1.0` | ❌ | Nucleus sampling para determinismo |
@@ -287,6 +287,9 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `REDIS_PORT` | `6379` | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis |
 | `REDIS_PASSWORD` | `audfact_dev_default` | ❌ | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
 | `REDIS_PREFIX` | `audfact:` | ❌ | `Core\RedisClient` — prefijo para keys (namespace) |
+| `REDIS_MAXMEMORY` | `4gb` | ❌ | `docker-compose*.yml` — límite interno de memoria Redis (`--maxmemory`) |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | ❌ | `docker-compose*.yml` — política de evicción Redis para llaves con TTL |
+| `REDIS_CONTAINER_MEMORY` | `5G` | ❌ | `docker-compose*.yml` — límite de memoria del contenedor Redis |
 | `REDIS_MODE` | `standalone` | ❌ | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster` |
 | `REDIS_SENTINELS` | *(comentado)* | ⚠️ Sentinel | Lista `host:port` separada por comas para modo sentinel |
 | `REDIS_SENTINEL_SERVICE` | *(comentado)* | ⚠️ Sentinel | Nombre del master Sentinel |
@@ -307,13 +310,16 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers |
 | `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController::async` — máximo de facturas por batch |
 | `AUDIT_INTERNAL_API_BASE` | `http://nginx` | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna |
-| `AUDIT_CACHE_TTL` | `86400` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
-| `AUDIT_EXTRACTION_CACHE_TTL` | `86400` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
+| `AUDIT_CACHE_TTL` | `604800` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
+| `AUDIT_EXTRACTION_CACHE_TTL` | `604800` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
+| `AUDIT_JOB_TTL` | `604800` | ❌ | `BatchJobStore` — TTL del estado de jobs batch async |
+| `AUDIT_STATE_TTL` | `604800` | ❌ | `AuditStateStore` — TTL del estado transitorio de auditorías |
+| `AUDIT_RESERVATION_TTL` | `86400` | ❌ | `BatchJobStore` — TTL de reservas por `DisId` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | ❌ | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | ❌ | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending` |
 | `AUDIT_EVENT_MAX_RETRIES` | `3` | ❌ | `AuditEventConsumer` — reintentos antes de DLQ |
@@ -517,7 +523,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy), `docs_rejected` (documentos no procesables rechazados antes de Gemini) y `docs_evaluated`
 - **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
 - **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
-- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `DisId` (columna legacy `FacSec`) sin reescribir adjuntos
+- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacNro` sin reescribir adjuntos
 - **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
 - **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal

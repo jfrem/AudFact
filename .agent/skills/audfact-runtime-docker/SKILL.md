@@ -82,6 +82,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `NEXT_PUBLIC_TIMEZONE` | `America/Bogota` | Zona horaria pública |
 | `DB_POOLING` | `1` | Pooling PDO para conexión default |
 | `DB2_POOLING` | `1` | Pooling PDO para conexión db2 |
+| `REDIS_MAXMEMORY` | `4gb` | Limite interno de memoria Redis (`--maxmemory`) |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | Politica de eviccion Redis para llaves con TTL |
+| `REDIS_CONTAINER_MEMORY` | `5G` | Limite de memoria del contenedor Redis |
 | `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
@@ -92,6 +95,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
+| `AUDIT_JOB_TTL` | `604800` | Retencion de estado de jobs batch async en Redis |
+| `AUDIT_STATE_TTL` | `604800` | Retencion de estado transitorio de auditorias en Redis |
+| `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` |
 
 ## Flujo de revisión
 1. Verificar servicios en `docker-compose.yml` y `docker-compose.prod.yml`.
@@ -107,6 +113,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 5. Escalar workers por variables `.env`, no editando números fijos en `docker-compose*.yml`.
 6. No bajar `AUDIT_PENDING_RECLAIM_IDLE_MS` por debajo del peor caso de duración Gemini.
 7. Nginx debe resolver `php:9000` en runtime vía `resolver 127.0.0.11`; no volver a upstream estático que cachee IPs de contenedores recreados.
+8. Redis debe mantener `REDIS_MAXMEMORY`, `REDIS_MAXMEMORY_POLICY` y `REDIS_CONTAINER_MEMORY` parametrizados en Compose; no volver a limites hardcodeados de 256mb/300M.
 
 ## Anti-patterns ⚠️
 1. **No agregar SQL Server a Docker Compose**.

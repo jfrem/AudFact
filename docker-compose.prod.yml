@@ -48,14 +48,16 @@ services:
       - redis_data:/data
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-4gb}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
     command:
       - sh
       - -c
       - |
         if [ -n "$$REDIS_PASSWORD" ]; then
-          exec redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000 --requirepass "$$REDIS_PASSWORD"
+          exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000 --requirepass "$$REDIS_PASSWORD"
         fi
-        exec redis-server --maxmemory 256mb --maxmemory-policy volatile-lru --save 60 1000
+        exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000
     expose:
       - "6379"
     restart: unless-stopped
@@ -67,7 +69,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 300M
+          memory: ${REDIS_CONTAINER_MEMORY:-5G}
 
   nginx:
     image: ${AUDFACT_NGINX_IMAGE:-ghcr.io/jfrem/audfact-nginx}:${AUDFACT_IMAGE_TAG:-latest}

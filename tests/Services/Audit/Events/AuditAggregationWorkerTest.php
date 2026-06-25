@@ -49,6 +49,7 @@ final class AuditAggregationWorkerTest extends TestCase
         $this->assertSame(1, $hallazgos['timings']['gemini_semantic']['count'] ?? null);
         $this->assertSame(300, $hallazgos['timings']['gemini_total']['total_tokens'] ?? null);
         $this->assertArrayHasKey('sql_persist_ms', $hallazgos['timings']['aggregation'] ?? []);
+        $this->assertSame('T38250701547', $model->lastUpdatedFacNro);
         $this->assertSame(42000, $model->lastUpdatedDurationMs);
         $this->assertArrayNotHasKey('token_usage', $hallazgos['timings']);
         $this->assertCount(2, $publisher->published);
@@ -316,6 +317,7 @@ final class RecordingAuditStatusModel extends AuditStatusModel
     public array $lastDocumentDecisions = [];
     /** @var array<string,mixed> */
     public array $lastUpdatedTimings = [];
+    public string $lastUpdatedFacNro = '';
     public int $lastUpdatedDurationMs = 0;
 
     public function __construct()
@@ -329,8 +331,9 @@ final class RecordingAuditStatusModel extends AuditStatusModel
         return ['DisId' => $auditResultData['DisId']];
     }
 
-    public function updateAuditTimings(string $disId, array $timings, int $durationMs): bool
+    public function updateAuditTimings(string $facNro, array $timings, int $durationMs): bool
     {
+        $this->lastUpdatedFacNro = $facNro;
         $this->lastUpdatedTimings = $timings;
         $this->lastUpdatedDurationMs = $durationMs;
         $payload = json_decode((string) $this->lastAuditResultData['Hallazgos'], true);

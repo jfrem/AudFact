@@ -18,8 +18,8 @@
 
 | Campo | Significado | Ejemplo |
 |---|---|---|
-| `FacSec` | Llave canónica de auditoría; equivale a `Factura.FacSec`, `vw_discolnet_dispensas.facsecF` y `AudDispEst.FacSec` | `89549114` |
-| `FacNro` | En `AudDispEst`, almacena el `DisDetNro` auditado para búsqueda operativa | `D19251100113` |
+| `FacSec` | En `AudDispEst`, columna legacy que almacena `DisId`; en `Factura`, secuencial propio del sistema transaccional | `89549114` |
+| `FacNro` | En `AudDispEst`, almacena el `DisDetNro` auditado y es la PK operativa de resultados persistidos | `D19251100113` |
 | `FacNitSec` | ID del cliente/EPS asociado a la factura | `1165` |
 | `DisDetNro` | Número del detalle de dispensación (= `Dispensa`) | `D19251100113` |
 | `facsecF` | Campo de la FDV que debe mapearse como `FacSec` canónico | `89549114` |

@@ -140,20 +140,20 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene el detalle público de auditoría por DisId.
+     * Obtiene el detalle público de auditoría por FacNro (DisDetNro).
      *
-     * @param  string  $disId  Secuencia única de la factura.
+     * @param  string  $facNro  Número único de la dispensación.
      * @return array<string,mixed>|null Detalle con hallazgos, métricas, timings y decisiones documentales.
      */
-    public function getAuditDetailByDisId(string $disId): ?array
+    public function getAuditDetailByFacNro(string $facNro): ?array
     {
-        $row = $this->fetchAuditRowByDisId($this->readDb, $disId);
+        $row = $this->fetchAuditRowByFacNro($this->readDb, $facNro);
         if ($row === null) {
             return null;
         }
 
-        Logger::info("AuditStatus: búsqueda por DisId", [
-            'disId' => $disId
+        Logger::info("AuditStatus: búsqueda por FacNro", [
+            'facNro' => $facNro
         ]);
 
         return $this->normalizeAuditDetail($row);
@@ -315,6 +315,7 @@ class AuditStatusModel extends Model
             $this->updateAttachmentAuditResultsInConnection(
                 $writeDb,
                 (string) $auditResultData['FacNro'],
+                (string) ($auditResultData['FacNitSec'] ?? ''),
                 $documentDecisions,
             );
 
@@ -347,19 +348,19 @@ class AuditStatusModel extends Model
     /**
      * Actualiza exclusivamente los timings finales de una auditoría ya persistida.
      *
-     * @param  string  $disId  Identificador canónico de la factura auditada.
+     * @param  string  $facNro  Identificador canónico de la dispensación auditada.
      * @param  array<string,mixed>  $timings  Métricas finales del pipeline.
      * @param  int  $durationMs  Duración final en milisegundos.
      */
-    public function updateAuditTimings(string $disId, array $timings, int $durationMs): bool
+    public function updateAuditTimings(string $facNro, array $timings, int $durationMs): bool
     {
-        $disId = trim($disId);
-        if ($disId === '') {
-            throw new \InvalidArgumentException('DisId es obligatorio para actualizar timings.');
+        $facNro = trim($facNro);
+        if ($facNro === '') {
+            throw new \InvalidArgumentException('FacNro es obligatorio para actualizar timings.');
         }
 
         $writeDb = $this->getWriteDb();
-        $row = $this->fetchAuditRowByDisId($writeDb, $disId);
+        $row = $this->fetchAuditRowByFacNro($writeDb, $facNro);
         if ($row === null) {
             return false;
         }
@@ -369,7 +370,7 @@ class AuditStatusModel extends Model
             : '';
         $payload = json_decode($rawHallazgos, true);
         if (!is_array($payload) || array_is_list($payload)) {
-            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$disId}.");
+            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$facNro}.");
         }
 
         $payload['timings'] = $timings;
@@ -382,13 +383,14 @@ class AuditStatusModel extends Model
 
         $sql = "UPDATE Discolnet.dbo.AudDispEst
                 SET [Hallazgos] = :Hallazgos,
-                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs
-                WHERE [FacSec] = :DisId";
+                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs,
+                    [FechaActualizacion] = GETDATE()
+                WHERE [FacNro] = :FacNro";
 
         $stmt = $writeDb->prepare($sql);
         $stmt->bindValue(':Hallazgos', $encoded, PDO::PARAM_STR);
         $stmt->bindValue(':DuracionProcesamientoMs', max(0, $durationMs), PDO::PARAM_INT);
-        $stmt->bindValue(':DisId', $disId, PDO::PARAM_STR);
+        $stmt->bindValue(':FacNro', $facNro, PDO::PARAM_STR);
         $stmt->execute();
 
         return $stmt->rowCount() > 0;
@@ -415,10 +417,10 @@ class AuditStatusModel extends Model
                     :DuracionProcesamientoMs AS [DuracionProcesamientoMs],
                     :FacNitSec AS [FacNitSec]
                 ) AS source
-                ON target.[FacSec] = source.[FacSec]
+                ON target.[FacNro] = source.[FacNro]
                 WHEN MATCHED THEN
                     UPDATE SET
-                        target.[FacNro] = source.[FacNro],
+                        target.[FacSec] = source.[FacSec],
                         target.[EstAud] = source.[EstAud],
                         target.[EstadoDetallado] = source.[EstadoDetallado],
                         target.[RequiereRevisionHumana] = source.[RequiereRevisionHumana],
@@ -428,7 +430,8 @@ class AuditStatusModel extends Model
                         target.[DocumentosProcesados] = source.[DocumentosProcesados],
                         target.[DocumentoFallido] = source.[DocumentoFallido],
                         target.[DuracionProcesamientoMs] = source.[DuracionProcesamientoMs],
-                        target.[FacNitSec] = source.[FacNitSec]
+                        target.[FacNitSec] = source.[FacNitSec],
+                        target.[FechaActualizacion] = GETDATE()
                 WHEN NOT MATCHED THEN
                     INSERT ([FacSec], [FacNro], [EstAud], [EstadoDetallado],
                             [RequiereRevisionHumana], [Severidad], [Hallazgos],
@@ -463,22 +466,27 @@ class AuditStatusModel extends Model
             'EstAud' => $data['EstAud']
         ]);
 
-        return $this->getByDisIdFromConnection($writeDb, $data['DisId']);
+        return $this->getByFacNroFromConnection($writeDb, $data['FacNro']);
     }
 
     /**
-     * Actualiza el estado documental por cada adjunto auditado de la dispensación.
+     * Actualiza el estado documental por cada adjunto físico de la dispensación.
      *
-     * @param \PDO $connection
+     * Itera por adjunto físico (no por decisión lógica) para cubrir
+     * el mapeo M:1 cuando existen múltiples archivos con el mismo tipo documental.
+     *
+     * @param PDO $connection
      * @param string $facNro
+     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
      * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
      */
     private function updateAttachmentAuditResultsInConnection(
         PDO $connection,
         string $facNro,
+        string $nitSec,
         array $documentDecisions
     ): void {
-        $dispensation = $this->getDispensationAttachments($connection, $facNro);
+        $dispensation = $this->getDispensationAttachments($connection, $facNro, $nitSec);
 
         if (empty($dispensation)) {
             throw new \RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
@@ -486,52 +494,55 @@ class AuditStatusModel extends Model
 
         $disId = (string) $dispensation[0]['DisId'];
         $disDetId = (int) $dispensation[0]['DisDetId'];
-        $adjuntos = $dispensation;
 
         ['approve' => $approveStmt, 'reject' => $rejectStmt] = $this->buildAttachmentUpdateStatements($connection);
 
+        // Indexar decisiones por nombre normalizado (uppercase) para búsqueda O(1)
+        $decisionsByName = [];
         foreach ($documentDecisions as $decision) {
-            ['documentName' => $documentName, 'approved' => $approved, 'observation' => $observation] = $this->normalizeDocumentDecision($decision, $facNro);
-            $match = $this->resolveAttachmentByDocumentName($adjuntos, $documentName);
-            if ($match === null) {
-                throw new \RuntimeException(sprintf(
-                    'No se encontró AdjuntosDispensacion para el documento "%s" de la dispensación %s.',
-                    $documentName,
-                    $facNro
-                ));
-            }
+            $norm = $this->normalizeDocumentDecision($decision, $facNro);
+            $key = strtoupper(trim($norm['documentName']));
+            $decisionsByName[$key] = $norm;
+        }
 
-            $adjDisId = (int) $match['AdjDisId'];
+        // Iterar por cada adjunto físico y buscar su decisión correspondiente
+        foreach ($dispensation as $adjunto) {
+            $adjDisId = (int) $adjunto['AdjDisId'];
+            $adjDisNom = trim((string) ($adjunto['AdjDisNom'] ?? ''));
 
-            if ($approved) {
-                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
+            $matchedDecision = $decisionsByName[strtoupper($adjDisNom)] ?? null;
+
+            if ($matchedDecision === null) {
+                Logger::warning('updateAttachmentAuditResults: adjunto físico sin decisión lógica.', [
+                    'adjDisId' => $adjDisId,
+                    'adjDisNom' => $adjDisNom,
+                    'facNro' => $facNro,
+                ]);
                 continue;
             }
 
-            $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $observation);
+            if ($matchedDecision['approved']) {
+                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
+            } else {
+                $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $matchedDecision['observation']);
+            }
         }
+
+        $this->markDispensationAsAudited($connection, $disId, $disDetId);
     }
 
-    /**
-     * @return array{DisId:string|int,DisDetId:string|int}
-     */
-    private function resolveDispensationIdentity(PDO $connection, string $facNro): array
+    private function markDispensationAsAudited(PDO $connection, string $disId, int $disDetId): void
     {
-        $sqlResolve = "SELECT TOP 1 d.DisId, d.DisDetId
-            FROM DispensacionDetalleServicio d WITH (NOLOCK)
-            WHERE d.DisDetNro = :facNro
-            ORDER BY d.DisDetId ASC";
+        $sql = "UPDATE DispensacionDetalleServicio SET
+                    DisDetUsuAud = :auditUser,
+                    DisDetFecAud = GETDATE()
+                WHERE DisId = :disId AND DisDetId = :disDetId";
 
-        $stmtResolve = $connection->prepare($sqlResolve);
-        $stmtResolve->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-        $stmtResolve->execute();
-        $dispensacion = $stmtResolve->fetch(PDO::FETCH_ASSOC);
-
-        if (!$dispensacion) {
-            throw new \RuntimeException("No se encontró DispensacionDetalleServicio para {$facNro}.");
-        }
-
-        return $dispensacion;
+        $stmt = $connection->prepare($sql);
+        $stmt->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
+        $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->execute();
     }
 
     /**
@@ -633,9 +644,9 @@ class AuditStatusModel extends Model
         $statement->bindValue(':adjDisId', $adjDisId, PDO::PARAM_INT);
     }
 
-    private function getByDisIdFromConnection(PDO $connection, string $disId): array|false
+    private function getByFacNroFromConnection(PDO $connection, string $facNro): array|false
     {
-        $row = $this->fetchAuditRowByDisId($connection, $disId);
+        $row = $this->fetchAuditRowByFacNro($connection, $facNro);
         if ($row === null) {
             return false;
         }
@@ -644,11 +655,11 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene una fila cruda de AudDispEst por DisId.
+     * Obtiene una fila cruda de AudDispEst por FacNro.
      *
      * @return array<string,mixed>|null
      */
-    private function fetchAuditRowByDisId(PDO $connection, string $disId): ?array
+    private function fetchAuditRowByFacNro(PDO $connection, string $facNro): ?array
     {
         $sql = "SELECT
                     [FacSec] AS [DisId],
@@ -666,10 +677,10 @@ class AuditStatusModel extends Model
                     [FechaCreacion],
                     [FechaActualizacion]
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
-                WHERE [FacSec] = :disId";
+                WHERE [FacNro] = :facNro";
 
         $stmt = $connection->prepare($sql);
-        $stmt->bindParam(':disId', $disId, PDO::PARAM_STR);
+        $stmt->bindParam(':facNro', $facNro, PDO::PARAM_STR);
         $stmt->execute();
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -879,129 +890,32 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Obtiene los adjuntos de una dispensación para resolver rechazos por documento.
+     * Obtiene los adjuntos de una dispensación con nombre lógico resuelto.
+     *
+     * Usa el mismo JOIN que AttachmentsModel::getRequiredAttachmentsByDisDetNro
+     * (NitMedDocCodAlt → AdjDisCodDocAlt) para garantizar coherencia entre
+     * los nombres que la IA evaluó y los que la persistencia actualiza.
      *
      * @param PDO $connection Conexión de escritura activa
-     * @param string $disId ID de dispensación
-     * @param int $disDetId ID de detalle de dispensación
-     * @return array<int, array{AdjDisId:string|int,AdjDisNom:string}>
+     * @param string $facnro Número de factura (opera como DisDetNro)
+     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
+     * @return array<int, array{AdjDisId:int,AdjDisNom:string,DisId:string,DisDetId:int}>
      */
-    private function getDispensationAttachments(PDO $connection, string $facnro): array
+    private function getDispensationAttachments(PDO $connection, string $facnro, string $nitSec): array
     {
-        $sql = "SELECT a.AdjDisId, a.AdjDisNom, a.DisId, a.DisDetId
+        $sql = "SELECT DISTINCT a.AdjDisId, COALESCE(n.NitMedDocNom, a.AdjDisNom) AS AdjDisNom, a.DisId, a.DisDetId
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                left join DispensacionDetalleServicio d with (nolock) on d.DisId = a.DisId and d.DisDetId = a.DisDetId
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
                 WHERE d.DisDetNro = :facnro
                 ORDER BY a.AdjDisId ASC";
-        // $sql = "SELECT a.AdjDisId, a.AdjDisNom
-        //         FROM AdjuntosDispensacion a WITH (NOLOCK)
-        //         WHERE a.DisId = :disId AND a.DisDetId = :disDetId
-        //         ORDER BY a.AdjDisId ASC";
 
         $stmt = $connection->prepare($sql);
         $stmt->bindParam(':facnro', $facnro, PDO::PARAM_STR);
-        // $stmt->bindParam(':disDetId', $disDetId, PDO::PARAM_INT);
+        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
         $stmt->execute();
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /**
-     * Resuelve un adjunto por nombre con fallback de normalización.
-     *
-     * Estrategia 1: match exacto case-insensitive (cubre >99% con schema dinámico).
-     * Estrategia 2: normalización de texto (acentos, extensiones, caracteres especiales).
-     *
-     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
-     * @param string $documentoFallido Nombre proveniente del pipeline
-     * @return array{AdjDisId:string|int,AdjDisNom:string,strategy:string}|null
-     */
-    private function resolveAttachmentByDocumentName(array $adjuntos, string $documentoFallido): ?array
-    {
-        $input = trim($documentoFallido);
-        if ($input === '') {
-            return null;
-        }
-
-        $exactMatches = $this->findAttachmentMatches(
-            $adjuntos,
-            static fn(string $name) => strtoupper($name) === strtoupper($input),
-            'exact_ci'
-        );
-        if (count($exactMatches) > 1) {
-            throw new \RuntimeException(sprintf(
-                'El documento "%s" coincide con múltiples adjuntos exactos en AdjuntosDispensacion.',
-                $documentoFallido
-            ));
-        }
-        if ($exactMatches !== []) {
-            return $exactMatches[0];
-        }
-
-        $normalizedInput = $this->normalizeDocumentName($input);
-        $normalizedMatches = $this->findAttachmentMatches(
-            $adjuntos,
-            fn(string $name) => $this->normalizeDocumentName($name) === $normalizedInput,
-            'normalized'
-        );
-        if (count($normalizedMatches) > 1) {
-            throw new \RuntimeException(sprintf(
-                'El documento "%s" coincide con múltiples adjuntos normalizados en AdjuntosDispensacion.',
-                $documentoFallido
-            ));
-        }
-        if ($normalizedMatches !== []) {
-            return $normalizedMatches[0];
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<int, array{AdjDisId:string|int,AdjDisNom:string}> $adjuntos
-     * @param callable(string):bool $matcher
-     * @return array<int,array{AdjDisId:string|int,AdjDisNom:string,strategy:string}>
-     */
-    private function findAttachmentMatches(array $adjuntos, callable $matcher, string $strategy): array
-    {
-        $matches = [];
-
-        foreach ($adjuntos as $adjunto) {
-            $name = trim((string) ($adjunto['AdjDisNom'] ?? ''));
-            if ($name === '' || !$matcher($name)) {
-                continue;
-            }
-
-            $matches[] = [
-                'AdjDisId' => $adjunto['AdjDisId'],
-                'AdjDisNom' => $name,
-                'strategy' => $strategy,
-            ];
-        }
-
-        return $matches;
-    }
-
-    /**
-     * Normaliza texto documental para comparación robusta.
-     */
-    private function normalizeDocumentName(string $value): string
-    {
-        $value = trim(strtoupper($value));
-
-        // Quitar extensión común (ejemplo: ".PDF").
-        $value = preg_replace('/\.[A-Z0-9]{2,5}$/', '', $value) ?? $value;
-
-        // Eliminar acentos de forma portable.
-        $ascii = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
-        if ($ascii !== false) {
-            $value = $ascii;
-        }
-
-        // Mantener solo alfanumérico y espacios.
-        $value = preg_replace('/[^A-Z0-9]+/', ' ', $value) ?? $value;
-        $value = preg_replace('/\s+/', ' ', trim($value)) ?? trim($value);
-
-        return $value;
-    }
 }

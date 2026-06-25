@@ -1,6 +1,7 @@
-/* 
-   Migración para la tabla AudDispEst
-   Basado en análisis de respuesta de IA (D14251101574.json)
+/*
+   Migracion de referencia para Discolnet.dbo.AudDispEst.
+   Alineada con el esquema productivo donde FacNro es la llave primaria.
+   No ejecutar en produccion sin respaldo y ventana de mantenimiento.
 */
 
 IF EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[AudDispEst]') AND type in (N'U'))
@@ -10,42 +11,37 @@ END
 GO
 
 CREATE TABLE [dbo].[AudDispEst] (
-    [FacSec]                  NVARCHAR(50)  NOT NULL, -- Secuencia única de la factura (Alfanumérico según JSON)
-    [FacNro]                  NVARCHAR(50)  NOT NULL, -- Número literal de la factura
-    [EstAud]                  BIT           NOT NULL DEFAULT 0, -- 0: Pendiente, 1: Procesado
-    [EstadoDetallado]         VARCHAR(50)   NULL,     -- Ej: 'warning', 'success', 'error'
-    [RequiereRevisionHumana]  BIT           NOT NULL DEFAULT 0, -- Indica si requiere revisión humana
-    [Severidad]               VARCHAR(20)   NULL,     -- Ej: 'low', 'medium', 'high'
-    [Hallazgos]               NVARCHAR(MAX) NULL,     -- Resumen de discrepancias detectadas
-    [DetalleError]            NVARCHAR(MAX) NULL,     -- Detalles técnicos o errores de API
-    [DocumentosProcesados]    INT           NOT NULL DEFAULT 0, -- Cantidad de documentos procesados
-    [DocumentoFallido]        VARCHAR(255)  NULL,     -- Documento específico que falló o tuvo alerta
-    [DuracionProcesamientoMs] INT           NOT NULL DEFAULT 0, -- Tiempo en ms que tardo la auditoria
-    [FacNitSec]               VARCHAR(100)  NULL,     -- Identificador NIT + Secuencia
-    [FechaCreacion]           DATETIME      NOT NULL DEFAULT GETDATE(), -- Fecha de creacion del registro
-    [FechaActualizacion]      DATETIME      NOT NULL DEFAULT GETDATE(), -- Fecha de actualizacion del registro
-    
-    CONSTRAINT [PK_AudDispEst] PRIMARY KEY CLUSTERED ([FacSec] ASC)
+    [FacSec]                  NVARCHAR(320) NOT NULL, -- Columna legacy: almacena DisId
+    [FacNro]                  NVARCHAR(100) NOT NULL, -- DisDetNro/Dispensa auditada; PK real
+    [EstAud]                  BIT           NOT NULL DEFAULT 0,
+    [EstadoDetallado]         VARCHAR(50)   NULL,
+    [RequiereRevisionHumana]  BIT           NOT NULL DEFAULT 0,
+    [Severidad]               VARCHAR(20)   NULL,
+    [Hallazgos]               NVARCHAR(MAX) NULL,
+    [DetalleError]            NVARCHAR(MAX) NULL,
+    [DocumentosProcesados]    INT           NOT NULL DEFAULT 0,
+    [DocumentoFallido]        VARCHAR(255)  NULL,
+    [DuracionProcesamientoMs] INT           NOT NULL DEFAULT 0,
+    [FacNitSec]               VARCHAR(100)  NULL,
+    [FechaCreacion]           DATETIME      NOT NULL DEFAULT GETDATE(),
+    [FechaActualizacion]      DATETIME      NOT NULL DEFAULT GETDATE(),
+    [JobId]                   VARCHAR(50)   NULL,
+
+    CONSTRAINT [PK_AudDispEst] PRIMARY KEY CLUSTERED ([FacNro] ASC)
 );
 GO
 
-/*
-Pendiente de implementar:
-*/
-
--- Índice para búsquedas por número de factura
-CREATE INDEX [IX_AudDispEst_FacNro] ON [dbo].[AudDispEst] ([FacNro]);
+CREATE INDEX [IX_AudDispEst_FacSec] ON [dbo].[AudDispEst] ([FacSec]);
 GO
 
--- Trigger para actualizar FechaActualizacion
 CREATE TRIGGER [TR_AudDispEst_UpdateDate]
 ON [dbo].[AudDispEst]
 AFTER UPDATE
 AS
 BEGIN
-    UPDATE [dbo].[AudDispEst]
+    UPDATE target
     SET [FechaActualizacion] = GETDATE()
-    FROM [dbo].[AudDispEst]
-    INNER JOIN inserted ON [dbo].[AudDispEst].[FacSec] = inserted.[FacSec];
+    FROM [dbo].[AudDispEst] target
+    INNER JOIN inserted ON target.[FacNro] = inserted.[FacNro];
 END;
 GO
