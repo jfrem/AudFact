@@ -471,7 +471,8 @@ abstract class AuditEventConsumer
                     $event->jobId,
                     $event->auditId,
                     AuditStateStore::AUDIT_STATUS_FAILED,
-                    0
+                    0,
+                    $failedPayload['failed_stage']
                 );
                 $this->publishBatchTerminalEventIfNeeded($jobStore, $event->jobId, $event->auditId, $event->eventId);
             }

@@ -10,11 +10,6 @@ use PDOStatement;
 
 /**
  * Modelo de facturas/dispensaciones pendientes de auditoría.
- *
- * @important Dependencia cross-database: este modelo ejecuta JOINs contra
- *            Discolnet.dbo.AudDispEst, que DEBE residir en la misma instancia
- *            SQL Server que la BD principal (DB_NAME). Si la topología cambia,
- *            las queries cross-database dejarán de funcionar.
  */
 class InvoicesModel extends Model
 {
@@ -22,9 +17,6 @@ class InvoicesModel extends Model
 
     /**
      * Obtiene una página de facturas pendientes de auditoría por NIT y rango de fechas.
-     *
-     * El SQL siempre filtra por rango cerrado: DisFecSol >= :dateFromD AND DisFecSol <= :dateToD.
-     * Para consultar un solo día, pasar dateFrom == dateTo.
      *
      * @param  array{facNitSec:int,dateFrom:string,dateTo:string} $filters
      * @return array<int,array<string,mixed>>
@@ -34,12 +26,22 @@ class InvoicesModel extends Model
         [$page, $pageSize] = $this->normalizeSearchPagination($page, $pageSize);
         $offset = ($page - 1) * $pageSize;
 
-        $sql = "SELECT NitSec, DisId, Dispensa
-                FROM (
-                    {$this->invoiceCandidatesSql()}
-                ) candidates
-                ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC
-                OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
+        $finalSelect = "
+            SELECT s.Nitsec AS NitSec, s.DisId, s.Dispensa
+            FROM (
+                SELECT d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S') Auditoria,
+                s.SopOk, case when sum(d.Pend)>0 then 'S' else 'N' end Pend
+                FROM #CRUZE AS d
+                left join #Sopo s on s.DisId=d.DisId and s.DisDetId=d.DisDetId
+                where s.SopOk='1'
+                group by d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S'), s.SopOk
+            ) s
+            WHERE s.Pend='N'
+            ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC
+            OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY;
+        ";
+
+        $sql = $this->buildOptimizedBatchSql($finalSelect);
 
         $stmt = $this->readDb->prepare($sql);
         $this->bindInvoiceFilters($stmt, $filters);
@@ -70,10 +72,20 @@ class InvoicesModel extends Model
      */
     public function countInvoices(array $filters): int
     {
-        $sql = "SELECT COUNT(1) AS total
-                FROM (
-                    {$this->invoiceCandidatesSql()}
-                ) candidates";
+        $finalSelect = "
+            SELECT COUNT(1) AS total
+            FROM (
+                SELECT d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S') Auditoria,
+                s.SopOk, case when sum(d.Pend)>0 then 'S' else 'N' end Pend
+                FROM #CRUZE AS d
+                left join #Sopo s on s.DisId=d.DisId and s.DisDetId=d.DisDetId
+                where s.SopOk='1'
+                group by d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S'), s.SopOk
+            ) s
+            WHERE s.Pend='N';
+        ";
+
+        $sql = $this->buildOptimizedBatchSql($finalSelect);
 
         $stmt = $this->readDb->prepare($sql);
         $this->bindInvoiceFilters($stmt, $filters);
@@ -86,48 +98,96 @@ class InvoicesModel extends Model
     }
 
     /**
-     * Subquery estable de candidatas pendientes; no usar CTE por compatibilidad con pdo_sqlsrv.
+     * Genera el script procedimental con tablas temporales optimizadas y anexa el SELECT final deseado.
      */
-    private function invoiceCandidatesSql(): string
+    private function buildOptimizedBatchSql(string $finalSelect): string
     {
-        return "SELECT tb3.FacNitSec NitSec,tb2.DisId DisId,tb2.DisDetNro Dispensa,MIN(tb1.DisFecSol) DisFecSol
-                FROM Dispensacion tb1 WITH(NOLOCK)
-                left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
-                left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
-                left JOIN FacturaKardex tb4 WITH(NOLOCK) on tb4.FacSec=tb3.FacSec
-                left join tipos t with(nolock) on t.TipCod=tb3.FacTipCod
-                LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb2.DisId
-                LEFT JOIN (
-                    select f.facnro Documento,k.artsec,f.DisId,f.DisDetId,sum(k.KarUni)KarUni
-                    from Factura f WITH(NOLOCK)
-                    inner JOIN FacturaKardex k WITH(NOLOCK) on k.FacSec=f.FacSec
-                    inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
-                    Where t.FueCod='FACT' and f.FacEst='A'
-                    group by f.facnro,k.artsec,f.DisId,f.DisDetId
-                )f on f.DisId=tb2.DisId and f.DisdetId=tb2.DisDetId and f.artsec=tb4.artsec
-                LEFT JOIN(
-                    SELECT DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
-                    WHERE AdjDisOpc='N'
-                    GROUP BY DisId,DisDetId
-                )aud on aud.DisId=tb2.DisId and aud.DisDetId=tb2.DisDetId
-                left join (
-                    SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 OR DATALENGTH(a.AdjDisDoc) > 0 then 1 else 0 end)adj,
-                    sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
+        return "SET NOCOUNT ON;
+
+                IF OBJECT_ID('tempdb..#DISP') IS NOT NULL DROP TABLE #DISP;
+                select f.FacNitSec,dd.DisDetNro Dispensa,isnull(dd.DisAplForRec,'N') Apl,cast(d.DisFecSol as date) fecha,n.NitCom Tercero,pc.PerCliNom Perfil,d.DisId,dd.DisDetId,f.FacSec,sum(k.KarUniCp-k.karuni)Pend
+                ,sum(k.KarUni*k.KarPre)Costo,sum(k.karuniCP*k.KarPrePub)Valor,dd.DisDetUsuAud Auditoria,dd.DisTip,dd.DisDetEst est
+                INTO #Disp
+                from Dispensacion d WITH(NOLOCK) 
+                inner JOIN DispensacionDetalleServicio dd WITH(NOLOCK) on dd.DisId=d.DisId
+                inner JOIN Factura f WITH(NOLOCK) on f.DisId=dd.DisId AND f.DisDetId=dd.DisDetId
+                inner JOIN FacturaKardex k WITH(NOLOCK) on k.FacSec=f.FacSec
+                inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
+                inner join nit n with(nolock) on n.NitSec=f.FacNitSec
+                left join Clientes c with(nolock) on c.NitSec=f.FacNitSec and c.CliSec=f.FacCliSec
+                left join PerfilDeClientes pc with(nolock) on pc.PerCliCod=c.PerCliCod
+                where t.FueCod='DISP' and dd.DisDetEst = 'A'
+                and d.DisFecSol>=:dateFromD and d.DisFecSol<=:dateToD
+                and dd.DisTip<>'A' and k.KarUniCP>0 and isnull(dd.DisAplForRec,'N')='N'
+                and f.FacNitSec=:facNitSec
+                group by f.FacNitSec,dd.DisDetNro,cast(d.DisFecSol as date),d.DisId,dd.DisDetId,f.FacSec,n.NitCom,dd.DisDetUsuAud,pc.PerCliNom,dd.DisTip,dd.DisDetEst,isnull(dd.DisAplForRec,'N');
+                
+                CREATE CLUSTERED INDEX IX_TMP_DISP ON #DISP (Disid,DisDetId);
+
+                IF OBJECT_ID('tempdb..#FACT') IS NOT NULL DROP TABLE #FACT;
+                select f.DisId,f.DisDetId,f.FacNro factura
+                Into #FACT
+                from #DISP d
+                inner join Factura f WITH(NOLOCK) on f.DisId=d.DisId and f.DisDetId=d.DisDetId
+                inner JOIN DispensacionDetalleServicio dd  WITH(NOLOCK) on dd.DisId=f.DisId and dd.DisDetId=f.DisDetId
+                inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
+                where t.FueCod='FACT' and f.FacEst='A' 
+                group by f.DisId,f.DisdetId,f.FacNro;
+                
+                CREATE CLUSTERED INDEX IX_TMP_FACT ON #FACT (DisId,DisDetId);
+
+                IF OBJECT_ID('tempdb..#FACT1') IS NOT NULL DROP TABLE #FACT1;
+                select k.FacSecRem,f.FacNro factura
+                Into #FACT1
+                from #DISP d
+                inner JOIN FacturaKardex k WITH(NOLOCK) on k.FacSecRem=d.FacSec
+                inner join Factura f WITH(NOLOCK) on f.facsec=k.FacSec
+                inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
+                where t.FueCod='FACT' and f.FacEst='A'
+                group by k.FacSecRem,f.FacNro;
+                
+                CREATE CLUSTERED INDEX IX_TMP_FACT1 ON #FACT1 (FacSecRem);
+
+                IF OBJECT_ID('tempdb..#CRUZE') IS NOT NULL DROP TABLE #CRUZE;
+                SELECT d.FacNitSec Nitsec,d.DisId,d.DisDetId,d.Tercero,d.fecha,d.Dispensa,d.Auditoria,d.DisTip,d.Pend
+                INTO #CRUZE
+                FROM #Disp AS d
+                WHERE NOT EXISTS (SELECT 1 FROM #FACT AS f WHERE f.DisId = d.DisId AND f.DisDetId = d.DisDetId)
+                and NOT EXISTS (SELECT 1 FROM #FACT1 AS f WHERE f.FacSecRem = d.FacSec)
+                group by d.FacNitSec,d.DisId,d.DisDetId,d.Tercero,d.fecha,d.Dispensa,d.est,d.Auditoria,d.DisTip,d.Pend;
+                
+                CREATE CLUSTERED INDEX IX_TMP_CRUZE ON #CRUZE (DisId,DisDetId);
+
+                IF OBJECT_ID('tempdb..#Sopo') IS NOT NULL DROP TABLE #Sopo;
+                SELECT s.DisId,s.DisDetId,case when s.adj>=sum(case when dc.NitMedDocTipSer=s.DisTip or dc.NitMedDocTipSer='' then dc.c else 0 end) then 1 else 0 end SopOk,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end estSop
+                Into #Sopo
+                from(
+                    select a.DisId,a.DisDetId,f.FacNitSec,c.DisTip,sum(case when AdjDisDocUrlConf=1 then 1 else 0 end)adj,Min(case a.AdjDisEstSop when 'P' then 0 when 'C'  then 10 else 5 end) EstSop
                     from AdjuntosDispensacion a with(nolock)
-                    left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
-                    left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
-                    GROUP BY a.DisId,a.DisDetId
-                )docadj on docadj.DisId=tb2.DisId and docadj.DisDetId=tb2.DisDetId
-                WHERE t.FueCod='DISP' and tb3.FacEst='A' and tb2.DisDetEst = 'A' and tb4.KarUni>0 and f.Documento is null
-                    and tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD
-                    AND tb3.FacNitSec = :facNitSec
-                    AND tb2.DisTip in ('P','M')
-                    AND tb2.DisDetEst = 'A'
-                    AND (a.EstAud IS NULL)
-                    AND isnull(aud.c,0)<isnull(aud.ca,0)
-                    AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
-                GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro
-                having sum(tb4.KarUniCP-tb4.KarUni) = 0";
+                    INNER JOIN #CRUZE c on c.DisId=a.DisId and c.DisDetId=a.DisDetId
+                    left join (select f.FacNitSec,f.DisId,f.DisDetId from factura f with(nolock) group by f.FacNitSec,f.DisId,f.DisDetId)f on f.DisId=a.DisId and f.DisDetId=a.DisDetId
+                    where a.AdjDisOpc='N'
+                    group by a.DisId,a.DisDetId,f.FacNitSec,c.DisTip
+                )s 
+                left join(
+                    select n.NitSec,isnull(NitMedDocTipSer,'')NitMedDocTipSer,count(*)c 
+                    from NitDocumentos n with(nolock) 
+                    where n.NitMedDocOpc='N' 
+                    group by n.NitSec,isnull(NitMedDocTipSer,'')
+                )dc on dc.NitSec=s.FacNitSec
+                where s.EstSop=0
+                GROUP BY s.DisId,s.DisDetId,s.adj,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end;
+                
+                CREATE CLUSTERED INDEX IX_TMP_SOPO ON #Sopo (DisId,DisDetId);
+
+                {$finalSelect}
+
+                IF OBJECT_ID('tempdb..#DISP') IS NOT NULL DROP TABLE #DISP;
+                IF OBJECT_ID('tempdb..#FACT') IS NOT NULL DROP TABLE #FACT;
+                IF OBJECT_ID('tempdb..#FACT1') IS NOT NULL DROP TABLE #FACT1;
+                IF OBJECT_ID('tempdb..#CRUZE') IS NOT NULL DROP TABLE #CRUZE;
+                IF OBJECT_ID('tempdb..#Sopo') IS NOT NULL DROP TABLE #Sopo;
+        ";
     }
 
     /**
@@ -173,64 +233,33 @@ class InvoicesModel extends Model
 
         $cursorWhere = '';
         if ($cursor !== null && isset($cursor['date'], $cursor['disId'], $cursor['dispensa'])) {
-            $cursorWhere = "WHERE (
-                    DisFecSol > :cursorDate1
-                    OR (DisFecSol = :cursorDate2 AND DisId > :cursorDisId1)
-                    OR (DisFecSol = :cursorDate3 AND DisId = :cursorDisId2 AND Dispensa > :cursorDispensa1)
+            $cursorWhere = "AND (
+                    s.fecha > :cursorDate1
+                    OR (s.fecha = :cursorDate2 AND s.DisId > :cursorDisId1)
+                    OR (s.fecha = :cursorDate3 AND s.DisId = :cursorDisId2 AND s.Dispensa > :cursorDispensa1)
                 )";
         }
 
-        $sql = "SELECT TOP({$safeLimit})
-                    NitSec,
-                    DisId,
-                    Dispensa,
-                    CONVERT(varchar(33), DisFecSol, 126) AS DisFecSol
-                FROM (
-                    SELECT
-                        tb3.FacNitSec NitSec,
-                        tb2.DisId DisId,
-                        tb2.DisDetNro Dispensa,
-                        MIN(tb1.DisFecSol) DisFecSol
-                    FROM Dispensacion tb1 WITH(NOLOCK)
-                    left JOIN DispensacionDetalleServicio tb2  WITH(NOLOCK) on tb2.DisId=tb1.DisId
-                    left JOIN Factura tb3 WITH(NOLOCK) on tb3.DisId=tb2.DisId AND tb3.DisDetId=tb2.DisDetId
-                    left JOIN FacturaKardex tb4 WITH(NOLOCK) on tb4.FacSec=tb3.FacSec
-                    left join tipos t with(nolock) on t.TipCod=tb3.FacTipCod
-                    LEFT JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacSec = tb2.DisId
-                    LEFT JOIN (
-                        select f.facnro Documento,k.artsec,f.DisId,f.DisDetId,sum(k.KarUni)KarUni
-                        from Factura f WITH(NOLOCK)
-                        inner JOIN FacturaKardex k WITH(NOLOCK) on k.FacSec=f.FacSec
-                        inner join tipos t with(nolock) on t.TipCod=f.FacTipCod
-                        Where t.FueCod='FACT' and f.FacEst='A'
-                        group by f.facnro,k.artsec,f.DisId,f.DisDetId
-                    )f on f.DisId=tb2.DisId and f.DisdetId=tb2.DisDetId and f.artsec=tb4.artsec
-                    LEFT JOIN(
-                        SELECT DisId,DisDetId,count(DisId)ca,sum(case when AdjDisEstSop='C' then 1 else 0 end)c from AdjuntosDispensacion with(nolock)
-                        WHERE AdjDisOpc='N'
-                        GROUP BY DisId,DisDetId
-                    )aud on aud.DisId=tb2.DisId and aud.DisDetId=tb2.DisDetId
-                    left join (
-                        SELECT a.DisId,a.DisDetId,sum(case when DATALENGTH(a.AdjDisDocUrl)>0 OR DATALENGTH(a.AdjDisDoc) > 0 then 1 else 0 end)adj,
-                        sum(case when n.NitMedDocId is not null then 1 else 0 end) adjobl
-                        from AdjuntosDispensacion a with(nolock)
-                        left join factura f with(nolock) on f.DisId=a.DisId and f.DisDetId=a.DisDetId
-                        left join NitDocumentos n with(nolock) on n.nitsec=f.FacNitSec and n.NitMedDocCodAlt=a.AdjDisCodDocAlt and n.NitMedDocOpc='N'
-                        GROUP BY a.DisId,a.DisDetId
-                    )docadj on docadj.DisId=tb2.DisId and docadj.DisDetId=tb2.DisDetId
-                    WHERE t.FueCod='DISP' and tb3.FacEst='A' and tb2.DisDetEst = 'A' and tb4.KarUni>0 and f.Documento is null
-                        and tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD
-                        AND tb3.FacNitSec = :facNitSec
-                        AND tb2.DisTip in ('P','M')
-                        AND tb2.DisDetEst = 'A'
-                        AND (a.EstAud IS NULL)
-                        AND isnull(aud.c,0)<isnull(aud.ca,0)
-                        AND isnull(docadj.adj,0)>=isnull(docadj.adjobl,0)
-                    GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro
-                    having sum(tb4.KarUniCP-tb4.KarUni) = 0
-                ) candidates
-                {$cursorWhere}
-                ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC";
+        $finalSelect = "
+            SELECT TOP ({$safeLimit}) 
+                s.Nitsec AS NitSec,
+                s.DisId,
+                s.Dispensa,
+                CONVERT(varchar(33), s.fecha, 126) AS DisFecSol
+            FROM (
+                SELECT d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S') Auditoria,
+                s.SopOk, case when sum(d.Pend)>0 then 'S' else 'N' end Pend
+                FROM #CRUZE AS d
+                left join #Sopo s on s.DisId=d.DisId and s.DisDetId=d.DisDetId
+                where s.SopOk='1'
+                group by d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S'), s.SopOk
+            ) s
+            WHERE s.Pend='N'
+            {$cursorWhere}
+            ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC;
+        ";
+
+        $sql = $this->buildOptimizedBatchSql($finalSelect);
 
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindValue(':facNitSec', $facNitSec, PDO::PARAM_INT);

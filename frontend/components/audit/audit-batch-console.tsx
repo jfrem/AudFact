@@ -8,6 +8,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { ExternalLink, TimerReset } from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
+import { v4 as uuidv4 } from "uuid";
 
 import { describeError, isRetryableError } from "@/lib/api/errors";
 
@@ -31,6 +32,13 @@ const batchSchema = z.object({
 
 type BatchValues = z.infer<typeof batchSchema>;
 
+type BatchPayload = {
+  facNitSec: number;
+  date: string;
+  dateTo?: string;
+  limit: number;
+};
+
 export function AuditBatchConsole({
   defaultLimit,
   timeoutMs,
@@ -43,7 +51,8 @@ export function AuditBatchConsole({
     statusUrl: string;
   } | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [pendingValues, setPendingValues] = React.useState<{ facNitSec: number; date: string; dateTo?: string; limit: number } | null>(null);
+  const [pendingValues, setPendingValues] = React.useState<BatchPayload | null>(null);
+  const idempotencyKeyRef = React.useRef<string>("");
 
   const { data: clients = [] } = useQuery({
     queryKey: ["batch-console-clients"],
@@ -61,9 +70,9 @@ export function AuditBatchConsole({
   });
 
   const asyncMutation = useMutation({
-    mutationFn: (values: { facNitSec: number; date: string; dateTo?: string; limit: number }) => {
+    mutationFn: (values: BatchPayload) => {
       const tid = toast.loading("Encolando batch de auditoría...");
-      return enqueueAuditBatch(values).finally(() => toast.dismiss(tid));
+      return enqueueAuditBatch(values, idempotencyKeyRef.current).finally(() => toast.dismiss(tid));
     },
     onSuccess: (response) => {
       setLastAsyncJob({
@@ -96,6 +105,7 @@ export function AuditBatchConsole({
 
   const requestConfirm = () => {
     form.handleSubmit((formValues) => {
+      idempotencyKeyRef.current = uuidv4();
       setPendingValues({
         facNitSec: Number(formValues.clientNitSec),
         date: formValues.date,

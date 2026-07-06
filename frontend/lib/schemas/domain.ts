@@ -264,6 +264,7 @@ export const AuditJobSchema = z.object({
           audit_id: z.string(),
           status: z.string(),
           dis_det_nro: z.string().nullable().optional(),
+          failed_stage: z.string().nullable().optional(),
         })
         .passthrough(),
     )

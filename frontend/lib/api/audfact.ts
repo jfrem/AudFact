@@ -102,14 +102,20 @@ export function runAuditSingle(disId: string | undefined | null, disDetNro: stri
   );
 }
 
-export function enqueueAuditBatch(payload: {
-  facNitSec: number;
-  date: string;
-  dateTo?: string;
-  limit: number;
-}) {
-  return postJson(endpoints.auditAsync(), payload, AuditJobSchema);
+export function enqueueAuditBatch(
+  payload: {
+    facNitSec: number;
+    date: string;
+    dateTo?: string;
+    limit: number;
+  },
+  idempotencyKey: string,
+) {
+  return postJson(endpoints.auditAsync(), payload, AuditJobSchema, {
+    headers: { "X-Idempotency-Key": idempotencyKey },
+  });
 }
+
 
 export function getAuditJob(jobId: string) {
   return requestJson(endpoints.auditJob(jobId), AuditJobSchema);

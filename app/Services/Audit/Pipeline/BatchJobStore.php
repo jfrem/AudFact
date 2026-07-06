@@ -182,19 +182,21 @@ class BatchJobStore
      *
      * @param  string  $jobId  UUID del job batch.
      * @param  string  $auditId  UUID de la auditoría.
-     * @param  string  $auditStatus  Estado terminal de la auditoría.
-     * @param  int  $auditDurationMs  Duración activa de la auditoría en milisegundos.
+     * @param  string  $status  Estado terminal de la auditoría.
+     * @param  int  $durationMs  Duración activa de la auditoría en milisegundos.
+     * @param  string|null $failedStage Etapa donde falló la auditoría.
      */
     public function markAuditCompletedInJob(
         string $jobId,
         string $auditId,
-        string $auditStatus,
-        int $auditDurationMs = 0
+        string $status,
+        int $durationMs = 0,
+        ?string $failedStage = null
     ): bool {
         return $this->runScript(
             self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
             [self::jobKey($jobId)],
-            [$auditId, $auditStatus, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds(), max(0, $auditDurationMs)],
+            [$auditId, $status, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds(), max(0, $durationMs), $failedStage ?? ''],
             'No se pudo actualizar el progreso del job en Redis',
             ['job_id' => $jobId, 'audit_id' => $auditId]
         );
@@ -385,6 +387,7 @@ local auditStatus = ARGV[2]
 local now = ARGV[3]
 local ttl = tonumber(ARGV[4])
 local auditDurationMs = math.max(0, tonumber(ARGV[5]) or 0)
+local failedStage = ARGV[6]
 
 if type(job['audits']) ~= 'table' or type(job['audits'][auditId]) ~= 'table' then
     return 0
@@ -404,6 +407,11 @@ end
 auditState['status'] = auditStatus
 auditState['completed_at'] = now
 auditState['duration_ms'] = auditDurationMs
+
+if auditStatus == 'failed' and failedStage and failedStage ~= '' then
+    auditState['failed_stage'] = failedStage
+end
+
 job['audits'][auditId] = auditState
 
 if auditStatus == 'failed' then

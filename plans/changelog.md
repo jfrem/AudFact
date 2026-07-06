@@ -1,5 +1,25 @@
 # Changelog AudFact
 
+## [2026-07-06] - Fix: Re-auditoría e Idempotencia Estricta de Lotes (Clean Rebuild)
+
+### IA Pipeline / Clean Rebuild / API
+
+- **Re-auditoría de documentos corregidos**:
+  - Eliminada la validación redundante `isAuditAlreadyPersisted` de `AuditBatchOrchestrator`, desvinculando la tabla de resultados (`AudDispEst`) de la cola de procesamiento. El orquestador ahora confía en la consulta SQL pura (`where s.EstSop = 0`), permitiendo que adjuntos devueltos manualmente al estado 'Pendiente' sean re-auditados.
+  - Se removió la dependencia estructural de `AuditStatusModel` en el orquestador asíncrono, avanzando en la política de cero acoplamiento innecesario.
+- **Idempotencia Estricta Fail-Fast**:
+  - `AuditController::async()` ya no autogenera un UUID si la cabecera `X-Idempotency-Key` está ausente. En su lugar, lanza un error HTTP 400.
+  - Previene que doble clicks en la UI provoquen la generación en cascada de lotes paralelos.
+- **Implementación Frontend**:
+  - `audit-batch-console.tsx` y `audfact.ts` actualizados para inyectar `X-Idempotency-Key` generado mediante la librería `uuid`.
+  - El UUID se enlaza al estado `pendingValues`, garantizando que acciones de reintento utilicen exactamente el mismo key.
+  - Refactorización **Clean-Rebuild** en el frontend:
+    - Extracción de tipo `BatchPayload` en `audit-batch-console.tsx` eliminando redundancia inline.
+    - Separación de responsabilidad en `audit-batch-console.tsx` moviendo el transporte del header (`idempotencyKey`) a un `useRef` dedicado, limpiando el payload de dominio.
+    - Eliminación del código muerto y redundante en `job-detail-client.tsx` (div wrapper innecesario) y `node-inspector.tsx`.
+    - Eliminación de firma opcional permisiva en `audfact.ts`, forzando en compilación la inclusión de la cabecera `idempotencyKey` para alinearse estrictamente al backend (HTTP 400).
+- **DOCS-SYNC**: Generada la especificación SDD Nivel A (`implementation_plan.md`) y documentado en el changelog.
+
 ## [2026-06-25] - Refactor: Limpieza clean code del diff activo
 
 ### Clean Rebuild / Backend / Frontend
