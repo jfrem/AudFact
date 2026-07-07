@@ -11,12 +11,12 @@
 ## Estructura del Proyecto y Organización de Módulos
 
 - **Código fuente**: `core/` (framework), `app/` (aplicación MVC)
-- **Controladores**: `app/Controllers/` — Un controlador por recurso REST
-- **Modelos**: `app/Models/` — Acceso a datos vía PDO, queries embebidas
-- **Servicios**: `app/Services/` (audit pipeline event-driven y servicios de dominio)
-- **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints
-- **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch
-- **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA
+- **Controladores**: `app/Controllers/` — Un controlador por recurso REST.
+- **Modelos**: `app/Models/` — Acceso a datos vía PDO, queries embebidas.
+- **Servicios**: `app/Services/` (audit pipeline event-driven y servicios de dominio).
+- **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints.
+- **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch.
+- **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA.
 - **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.prod.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
@@ -27,22 +27,22 @@
 
 El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el mapeo archivo → skill.
 
-| Skill | Área | Cuándo usar |
-|---|---|---|
-| `audfact-project-overview` | Contexto | Arquitectura, flujos, dependencias |
-| `audfact-api-rest` | REST API | Rutas, controladores, validación |
-| `audfact-audit-gemini` | Auditoría IA | Pipeline Gemini, prompts, schemas |
-| `audfact-sqlsrv-models` | SQL Server | Modelos, queries, BLOBs |
-| `audfact-mcp-wrap` | MCP | Webhook, herramientas, ApiClient |
-| `audfact-runtime-docker` | Docker/Ops | Contenedores, Nginx, conectividad |
-| `audfact-production-ops` | Producción LAN | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
-| `audfact-security-guardrails` | Seguridad | Rate limit, CORS, sanitización |
-| `audfact-docs-sync` | Documentación | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills |
-| `audit-skill-router` | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados |
-| `architecture-assessment` | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad |
-| `code-quality-assessment` | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica |
-| `security-assessment` | Auditoría técnica | Auditoría de seguridad para readiness de release |
-| `technical-governance-assessment` | Auditoría técnica | Evaluación de madurez de gobernanza técnica |
+| Skill                             | Área              | Cuándo usar                                                                                           |
+| --------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `audfact-project-overview`        | Contexto          | Arquitectura, flujos, dependencias                                                                    |
+| `audfact-api-rest`                | REST API          | Rutas, controladores, validación                                                                      |
+| `audfact-audit-gemini`            | Auditoría IA      | Pipeline Gemini, prompts, schemas                                                                     |
+| `audfact-sqlsrv-models`           | SQL Server        | Modelos, queries, BLOBs                                                                               |
+| `audfact-mcp-wrap`                | MCP               | Webhook, herramientas, ApiClient                                                                      |
+| `audfact-runtime-docker`          | Docker/Ops        | Contenedores, Nginx, conectividad                                                                     |
+| `audfact-production-ops`          | Producción LAN    | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
+| `audfact-security-guardrails`     | Seguridad         | Rate limit, CORS, sanitización                                                                        |
+| `audfact-docs-sync`               | Documentación     | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills                                     |
+| `audit-skill-router`              | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados                                 |
+| `architecture-assessment`         | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad                                              |
+| `code-quality-assessment`         | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica                                       |
+| `security-assessment`             | Auditoría técnica | Auditoría de seguridad para readiness de release                                                      |
+| `technical-governance-assessment` | Auditoría técnica | Evaluación de madurez de gobernanza técnica                                                           |
 
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
 
@@ -52,35 +52,35 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 
 > El router gestiona estas rutas en `app/Routes/web.php`. Los parámetros entre `{}` son dinámicos.
 
-| Método | Endpoint | Controlador | Acción | Descripción |
-|---|---|---|---|---|
-| `GET` | `/` | `Controller` | `index` | Bienvenida / Status API |
-| `GET` | `/health` | `HealthController` | `status` | Health check (Docker/System) |
-| `GET` | `/metrics/async` | `ObservabilityController` | `asyncMetrics` | Métricas operativas del pipeline async |
-| `GET` | `/config/public` | `ConfigController` | `publicConfig` | Configuración pública del frontend |
-| `GET` | `/clients` | `ClientsController` | `index` | Listar todos los clientes/EPS |
-| `GET` | `/clients/{clientId}` | `ClientsController` | `show` | Detalle de un cliente específico |
-| `GET` | `/clients/{clientId}/documents` | `ClientsController` | `documents` | Catálogo documental requerido por cliente |
-| `POST` | `/clients` | `ClientsController` | `lookup` | Buscar cliente por filtros |
-| `GET` | `/clients/{clientId}/audit-config` | `AuditConfigController` | `show` | Configuración dinámica de auditoría por cliente |
-| `POST` | `/clients/{clientId}/audit-config` | `AuditConfigController` | `save` | Guardar/reemplazar configuración dinámica de auditoría |
-| `GET` | `/invoices` | `InvoicesController` | `index` | Buscar facturas pendientes con paginación `page`/`pageSize` |
-| `POST` | `/invoices` | `InvoicesController` | `search` | Buscar facturas por fecha/nit con contrato paginado |
-| `GET` | `/dispensation/{DisId}/{DisDetNro}` | `DispensationController` | `show` | Detalle técnico de una dispensa |
-| `POST` | `/dispensation` | `DispensationController` | `lookup` | Buscar dispensa por llave compuesta `DisId` + `DisDetNro` |
-| `GET` | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController` | `downloadByDispensation` | Descargar/previsualizar adjunto |
-| `GET` | `/dispensation/{disDetNro}/attachments/{nitSec}` | `AttachmentsController` | `showByDispensation` | Listar metadatos de adjuntos |
-| `GET` | `/audit/results` | `AuditController` | `results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facNro}` | `AuditController` | `resultDetail` | Detalle persistido de una auditoría por FacNro |
-| `GET` | `/audit/stats` | `AuditController` | `stats` | Conteos agregados para dashboard |
-| `GET` | `/audit/documents-history` | `AuditController` | `documentsHistory` | Historial de documentos auditados por IA |
-| `POST` | `/audit/single` | `AuditController` | `single` | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
-| `POST` | `/audit/async` | `AuditController` | `async` | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202 |
-| `GET` | `/audit/jobs/{jobId}` | `AuditController` | `jobStatus` | Estado y progreso de job asíncrono |
-| `GET` | `/audit/status/{auditId}` | `AuditController` | `status` | Estado Redis de auditoría individual |
-| `GET` | `/audit/dlq` | `AuditDlqController` | `index` | Listado administrativo de eventos `dead_letter` |
-| `POST` | `/audit/dlq/reprocess` | `AuditDlqController` | `reprocess` | Reproceso administrativo de un evento DLQ |
-| `GET` | `/audit/{facNro}/timings` | `AuditController` | `timings` | Timings persistidos por factura |
+| Método | Endpoint                                                        | Controlador               | Acción                   | Descripción                                                                  |
+| ------ | --------------------------------------------------------------- | ------------------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `GET`  | `/`                                                             | `Controller`              | `index`                  | Bienvenida / Status API                                                      |
+| `GET`  | `/health`                                                       | `HealthController`        | `status`                 | Health check (Docker/System)                                                 |
+| `GET`  | `/metrics/async`                                                | `ObservabilityController` | `asyncMetrics`           | Métricas operativas del pipeline async                                       |
+| `GET`  | `/config/public`                                                | `ConfigController`        | `publicConfig`           | Configuración pública del frontend                                           |
+| `GET`  | `/clients`                                                      | `ClientsController`       | `index`                  | Listar todos los clientes/EPS                                                |
+| `GET`  | `/clients/{clientId}`                                           | `ClientsController`       | `show`                   | Detalle de un cliente específico                                             |
+| `GET`  | `/clients/{clientId}/documents`                                 | `ClientsController`       | `documents`              | Catálogo documental requerido por cliente                                    |
+| `POST` | `/clients`                                                      | `ClientsController`       | `lookup`                 | Buscar cliente por filtros                                                   |
+| `GET`  | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `show`                   | Configuración dinámica de auditoría por cliente                              |
+| `POST` | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `save`                   | Guardar/reemplazar configuración dinámica de auditoría                       |
+| `GET`  | `/invoices`                                                     | `InvoicesController`      | `index`                  | Buscar facturas pendientes con paginación `page`/`pageSize`                  |
+| `POST` | `/invoices`                                                     | `InvoicesController`      | `search`                 | Buscar facturas por fecha/nit con contrato paginado                          |
+| `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | `DispensationController`  | `show`                   | Detalle técnico de una dispensa                                              |
+| `POST` | `/dispensation`                                                 | `DispensationController`  | `lookup`                 | Buscar dispensa por llave compuesta `DisId` + `DisDetNro`                    |
+| `GET`  | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController`   | `downloadByDispensation` | Descargar/previsualizar adjunto                                              |
+| `GET`  | `/dispensation/{disDetNro}/attachments/{nitSec}`                | `AttachmentsController`   | `showByDispensation`     | Listar metadatos de adjuntos                                                 |
+| `GET`  | `/audit/results`                                                | `AuditController`         | `results`                | Resumen paginado de auditorías persistidas                                   |
+| `GET`  | `/audit/results/{facNro}`                                       | `AuditController`         | `resultDetail`           | Detalle persistido de una auditoría por FacNro                               |
+| `GET`  | `/audit/stats`                                                  | `AuditController`         | `stats`                  | Conteos agregados para dashboard                                             |
+| `GET`  | `/audit/documents-history`                                      | `AuditController`         | `documentsHistory`       | Historial de documentos auditados por IA                                     |
+| `POST` | `/audit/single`                                                 | `AuditController`         | `single`                 | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
+| `POST` | `/audit/async`                                                  | `AuditController`         | `async`                  | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202             |
+| `GET`  | `/audit/jobs/{jobId}`                                           | `AuditController`         | `jobStatus`              | Estado y progreso de job asíncrono                                           |
+| `GET`  | `/audit/status/{auditId}`                                       | `AuditController`         | `status`                 | Estado Redis de auditoría individual                                         |
+| `GET`  | `/audit/dlq`                                                    | `AuditDlqController`      | `index`                  | Listado administrativo de eventos `dead_letter`                              |
+| `POST` | `/audit/dlq/reprocess`                                          | `AuditDlqController`      | `reprocess`              | Reproceso administrativo de un evento DLQ                                    |
+| `GET`  | `/audit/{facNro}/timings`                                       | `AuditController`         | `timings`                | Timings persistidos por factura                                              |
 
 ---
 
@@ -89,11 +89,13 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 El sistema sigue un pipeline secuencial para cada petición HTTP:
 
 ### 1. Entrada (Nginx & PHP-FPM)
+
 - La petición llega al puerto `:8080` (Host).
 - Nginx (Imagen inmutable con assets empaquetados) recibe y procesa estáticos.
 - Nginx pasa la ejecución dinámica al pool de contenedores `php` vía fastcgi.
 
 ### 2. Bootstrap (`public/index.php`)
+
 - **Autoload**: Carga clases vía Composer.
 - **Env**: Carga variables `.env`.
 - **CORS**: Inyecta headers según `APP_ENV`.
@@ -102,16 +104,19 @@ El sistema sigue un pipeline secuencial para cada petición HTTP:
 - **Middleware**: Registra manejadores (ej: `auth`).
 
 ### 3. Enrutamiento (`Core\Router`)
+
 - El router matchea la URI contra `app/Routes/web.php`.
 - Extrae parámetros dinámicos de la URL.
 - Instancia el controlador correspondiente.
 
 ### 4. Controlador (`app/Controllers/*`)
+
 - **Validación**: Usa `Core\Validator` para limpiar y validar `$_POST`/`$_GET`.
 - **Negocio**: Llama a modelos o servicios de dominio.
 - **Respuesta**: Llama a `Core\Response::success()` o `error()`.
 
 ### 5. Salida (`Core\Response`)
+
 - Serializa datos a JSON.
 - Establece el código HTTP (200, 400, 404, 500).
 - Envía el payload (sin `exit()` — el flujo termina en `index.php`).
@@ -124,13 +129,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Mapeo de Modelos
 
-| Modelo | Tabla / Vista | Propósito | PK / Identificador |
-|---|---|---|---|
-| `InvoicesModel` | `vw_discolnet_dispensas` | Facturas con datos de dispensación | `DisId` |
-| `ClientsModel` | `NIT` / `Clientes` | Gestión de EPS/Clientes | `NitSec` |
-| `DispensationModel` | `vw_discolnet_dispensas` | Datos detallados de entrega | `DisDetNro` |
-| `AttachmentsModel` | `AdjuntosDispensacion` | Archivos binarios (BLOB/URL) | `AdjDisId` |
-| `AuditStatusModel` | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
+| Modelo              | Tabla / Vista                                    | Propósito                                  | PK / Identificador                                       |
+| ------------------- | ------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------- |
+| `InvoicesModel`     | `vw_discolnet_dispensas`                         | Facturas con datos de dispensación         | `DisId`                                                  |
+| `ClientsModel`      | `NIT` / `Clientes`                               | Gestión de EPS/Clientes                    | `NitSec`                                                 |
+| `DispensationModel` | `vw_discolnet_dispensas`                         | Datos detallados de entrega                | `DisDetNro`                                              |
+| `AttachmentsModel`  | `AdjuntosDispensacion`                           | Archivos binarios (BLOB/URL)               | `AdjDisId`                                               |
+| `AuditStatusModel`  | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 
 ### Relaciones Clave
 
@@ -177,160 +182,160 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Aplicación
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `APP_ENV` | `development` | ✅ | `Core\Env` — controla CORS, logs, mensajes de error |
-| `WRAP_API_BASE` | `http://nginx` | ⚠️ Solo MCP | `app/wrap/core/ApiClient.php` — base URL interna |
-| `WWWUSER_ID` | `1000` | ❌ | UID de usuario host para builds/contenedores de desarrollo |
-| `WWWGROUP_ID` | `1000` | ❌ | GID de grupo host para builds/contenedores de desarrollo |
-| `AUDFACT_API_PUBLIC_URL` | `http://localhost:8080` | ⚠️ Deploy/MCP | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
-| `INTERNAL_API_URL` | `http://127.0.0.1:8080` | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx` |
-| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100` | ⚠️ Deploy/CORS | Origen público del frontend usado por el deploy para completar `ALLOWED_ORIGINS` |
-| `WEBHOOK_URL` | `http://localhost:8080/app/wrap/webhook.php` | ⚠️ Solo MCP | URL pública del webhook MCP |
-| `MCP_WEBHOOK_SECRET`| *(vacío)* | ⚠️ Solo MCP | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP |
-| `CAPABILITIES_URL` | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP | URL de capabilities MCP |
+| Variable                      | Default                                           | Requerida         | Módulo / Uso                                                                                                         |
+| ----------------------------- | ------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                     | `development`                                     | ✅                | `Core\Env` — controla CORS, logs, mensajes de error                                                                  |
+| `WRAP_API_BASE`               | `http://nginx`                                    | ⚠️ Solo MCP       | `app/wrap/core/ApiClient.php` — base URL interna                                                                     |
+| `WWWUSER_ID`                  | `1000`                                            | ❌                | UID de usuario host para builds/contenedores de desarrollo                                                           |
+| `WWWGROUP_ID`                 | `1000`                                            | ❌                | GID de grupo host para builds/contenedores de desarrollo                                                             |
+| `AUDFACT_API_PUBLIC_URL`      | `http://localhost:8080`                           | ⚠️ Deploy/MCP     | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
+| `INTERNAL_API_URL`            | `http://127.0.0.1:8080`                           | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx`         |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100`                           | ⚠️ Deploy/CORS    | Origen público del frontend usado por el deploy para completar `ALLOWED_ORIGINS`                                     |
+| `WEBHOOK_URL`                 | `http://localhost:8080/app/wrap/webhook.php`      | ⚠️ Solo MCP       | URL pública del webhook MCP                                                                                          |
+| `MCP_WEBHOOK_SECRET`          | _(vacío)_                                         | ⚠️ Solo MCP       | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP                               |
+| `CAPABILITIES_URL`            | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP       | URL de capabilities MCP                                                                                              |
 
 ### Despliegue Docker/GHCR
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `AUDFACT_PHP_IMAGE` | `ghcr.io/jfrem/audfact-php` | ⚠️ Producción | `docker-compose.prod.yml` — imagen PHP-FPM/workers publicada en GHCR |
-| `AUDFACT_NGINX_IMAGE` | `ghcr.io/jfrem/audfact-nginx` | ⚠️ Producción | `docker-compose.prod.yml` — imagen Nginx publicada en GHCR |
-| `AUDFACT_FRONTEND_IMAGE` | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.prod.yml` — imagen frontend Next.js publicada en GHCR |
-| `AUDFACT_IMAGE_TAG` | `latest` | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual |
-| `AUDFACT_FRONTEND_HOST_PORT` | `3100` | ⚠️ Producción | `docker-compose.prod.yml` — puerto LAN dedicado para el frontend AudFact |
+| Variable                     | Default                          | Requerida     | Módulo / Uso                                                             |
+| ---------------------------- | -------------------------------- | ------------- | ------------------------------------------------------------------------ |
+| `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.prod.yml` — imagen PHP-FPM/workers publicada en GHCR     |
+| `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.prod.yml` — imagen Nginx publicada en GHCR               |
+| `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.prod.yml` — imagen frontend Next.js publicada en GHCR    |
+| `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual      |
+| `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.prod.yml` — puerto LAN dedicado para el frontend AudFact |
 
 ### Frontend público
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `NEXT_PUBLIC_APP_NAME` | `AudFact` | ❌ | `frontend/lib/api/config.ts` / navegación — nombre visible del producto |
-| `NEXT_PUBLIC_DEFAULT_THEME` | `dark` | ❌ | `frontend/lib/api/config.ts` — tema inicial |
-| `NEXT_PUBLIC_POLLING_JOBS_MS` | `5000` | ❌ | `frontend/lib/api/config.ts` — intervalo de polling de jobs |
-| `NEXT_PUBLIC_POLLING_HEALTH_MS` | `30000` | ❌ | `frontend/lib/api/config.ts` — intervalo de polling de health |
-| `NEXT_PUBLIC_LOCALE` | `es-CO` | ❌ | `frontend/lib/api/config.ts` / formatters — locale |
-| `NEXT_PUBLIC_TIMEZONE` | `America/Bogota` | ❌ | `frontend/lib/api/config.ts` / formatters — zona horaria |
+| Variable                        | Default          | Requerida | Módulo / Uso                                                            |
+| ------------------------------- | ---------------- | --------- | ----------------------------------------------------------------------- |
+| `NEXT_PUBLIC_APP_NAME`          | `AudFact`        | ❌        | `frontend/lib/api/config.ts` / navegación — nombre visible del producto |
+| `NEXT_PUBLIC_DEFAULT_THEME`     | `dark`           | ❌        | `frontend/lib/api/config.ts` — tema inicial                             |
+| `NEXT_PUBLIC_POLLING_JOBS_MS`   | `5000`           | ❌        | `frontend/lib/api/config.ts` — intervalo de polling de jobs             |
+| `NEXT_PUBLIC_POLLING_HEALTH_MS` | `30000`          | ❌        | `frontend/lib/api/config.ts` — intervalo de polling de health           |
+| `NEXT_PUBLIC_LOCALE`            | `es-CO`          | ❌        | `frontend/lib/api/config.ts` / formatters — locale                      |
+| `NEXT_PUBLIC_TIMEZONE`          | `America/Bogota` | ❌        | `frontend/lib/api/config.ts` / formatters — zona horaria                |
 
 ### Base de datos (SQL Server)
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `DB_TYPE` | `sqlsrv` | ✅ | `Core\Database` — driver PDO |
-| `DB_HOST` | `localhost` | ✅ | `Core\Database` — host del servidor SQL; en producción usar host/IP limpio sin instancia |
-| `DB_PORT` | `1433` | ✅ | `Core\Database` — puerto SQL Server |
-| `DB_NAME` | `mi_base` | ✅ | `Core\Database` — nombre de la BD |
-| `DB_USER` | `sa` | ✅ | `Core\Database` — usuario |
-| `DB_PASS` | *(vacío)* | ✅ | `Core\Database` — contraseña |
-| `DB_POOLING` | `1` | ❌ | `Core\Database` — connection pooling PDO |
-| `DB_ENCRYPT` | `no` | ❌ | `Core\Database` — cifrado TLS de conexión `default` |
-| `DB_TRUST_SERVER_CERT` | `yes` | ❌ | `Core\Database` — trust del certificado SQL Server de `default` |
-| `DB2_HOST` | `localhost` | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta); en producción usar host/IP limpio sin instancia |
-| `DB2_PORT` | `1433` | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `db2` |
-| `DB2_NAME` | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD de consulta |
-| `DB2_USER` | `sa` | ⚠️ Multi-BD | `Core\Database` — usuario de BD de consulta |
-| `DB2_PASS` | *(vacío)* | ⚠️ Multi-BD | `Core\Database` — contraseña de BD de consulta |
-| `DB2_POOLING` | `1` | ❌ | `Core\Database` — pooling PDO para conexión `db2` |
-| `DB2_ENCRYPT` | `no` | ❌ | `Core\Database` — cifrado TLS de conexión `db2` |
-| `DB2_TRUST_SERVER_CERT` | `yes` | ❌ | `Core\Database` — trust del certificado SQL Server de `db2` |
+| Variable                | Default              | Requerida   | Módulo / Uso                                                                                                    |
+| ----------------------- | -------------------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
+| `DB_TYPE`               | `sqlsrv`             | ✅          | `Core\Database` — driver PDO                                                                                    |
+| `DB_HOST`               | `localhost`          | ✅          | `Core\Database` — host del servidor SQL; en producción usar host/IP limpio sin instancia                        |
+| `DB_PORT`               | `1433`               | ✅          | `Core\Database` — puerto SQL Server                                                                             |
+| `DB_NAME`               | `mi_base`            | ✅          | `Core\Database` — nombre de la BD                                                                               |
+| `DB_USER`               | `sa`                 | ✅          | `Core\Database` — usuario                                                                                       |
+| `DB_PASS`               | _(vacío)_            | ✅          | `Core\Database` — contraseña                                                                                    |
+| `DB_POOLING`            | `1`                  | ❌          | `Core\Database` — connection pooling PDO                                                                        |
+| `DB_ENCRYPT`            | `no`                 | ❌          | `Core\Database` — cifrado TLS de conexión `default`                                                             |
+| `DB_TRUST_SERVER_CERT`  | `yes`                | ❌          | `Core\Database` — trust del certificado SQL Server de `default`                                                 |
+| `DB2_HOST`              | `localhost`          | ⚠️ Multi-BD | `Core\Database` — host SQL Server de conexión `db2` (consulta); en producción usar host/IP limpio sin instancia |
+| `DB2_PORT`              | `1433`               | ⚠️ Multi-BD | `Core\Database` — puerto SQL Server de conexión `db2`                                                           |
+| `DB2_NAME`              | `mi_base_secundaria` | ⚠️ Multi-BD | `Core\Database` — nombre de BD de consulta                                                                      |
+| `DB2_USER`              | `sa`                 | ⚠️ Multi-BD | `Core\Database` — usuario de BD de consulta                                                                     |
+| `DB2_PASS`              | _(vacío)_            | ⚠️ Multi-BD | `Core\Database` — contraseña de BD de consulta                                                                  |
+| `DB2_POOLING`           | `1`                  | ❌          | `Core\Database` — pooling PDO para conexión `db2`                                                               |
+| `DB2_ENCRYPT`           | `no`                 | ❌          | `Core\Database` — cifrado TLS de conexión `db2`                                                                 |
+| `DB2_TRUST_SERVER_CERT` | `yes`                | ❌          | `Core\Database` — trust del certificado SQL Server de `db2`                                                     |
 
 ### Google Drive
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `GOOGLE_DRIVE_CLIENT_EMAIL` | *(vacío)* | ⚠️ Solo adjuntos URL | Service account para acceso a archivos en Drive |
-| `GOOGLE_DRIVE_PRIVATE_KEY` | *(vacío)* | ⚠️ Solo adjuntos URL | Clave privada del service account |
-| `GOOGLE_DRIVE_TLS_VERIFY` | `1` | ❌ | `GoogleDriveAuthService` — validación TLS de conexiones HTTPS a Google Drive (`0` solo para entornos de desarrollo controlados) |
+| Variable                    | Default   | Requerida            | Módulo / Uso                                                                                                                    |
+| --------------------------- | --------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_DRIVE_CLIENT_EMAIL` | _(vacío)_ | ⚠️ Solo adjuntos URL | Service account para acceso a archivos en Drive                                                                                 |
+| `GOOGLE_DRIVE_PRIVATE_KEY`  | _(vacío)_ | ⚠️ Solo adjuntos URL | Clave privada del service account                                                                                               |
+| `GOOGLE_DRIVE_TLS_VERIFY`   | `1`       | ❌                   | `GoogleDriveAuthService` — validación TLS de conexiones HTTPS a Google Drive (`0` solo para entornos de desarrollo controlados) |
 
 ### Logging
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `LOG_LEVEL` | `info` | ❌ | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`) |
-| `LOG_RETENTION_DAYS` | `7` | ❌ | `Core\Logger` — días antes de borrar logs |
-| `LOG_MAX_SIZE_MB` | `10` | ❌ | `Core\Logger` — tamaño máximo por archivo |
+| Variable             | Default | Requerida | Módulo / Uso                                              |
+| -------------------- | ------- | --------- | --------------------------------------------------------- |
+| `LOG_LEVEL`          | `info`  | ❌        | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`) |
+| `LOG_RETENTION_DAYS` | `7`     | ❌        | `Core\Logger` — días antes de borrar logs                 |
+| `LOG_MAX_SIZE_MB`    | `10`    | ❌        | `Core\Logger` — tamaño máximo por archivo                 |
 
 ### Seguridad y red
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `REQUEST_TIMEOUT_MS` | `60000` | ❌ | Timeout general de request (60s) |
-| `ALLOWED_ORIGINS` | *(vacío)* | ⚠️ En prod | `public/index.php` — orígenes CORS permitidos (comma-separated) |
-| `MAX_JSON_SIZE` | `1048576` | ❌ | Tamaño máximo de payload JSON (1 MB) |
+| Variable             | Default   | Requerida  | Módulo / Uso                                                    |
+| -------------------- | --------- | ---------- | --------------------------------------------------------------- |
+| `REQUEST_TIMEOUT_MS` | `60000`   | ❌         | Timeout general de request (60s)                                |
+| `ALLOWED_ORIGINS`    | _(vacío)_ | ⚠️ En prod | `public/index.php` — orígenes CORS permitidos (comma-separated) |
+| `MAX_JSON_SIZE`      | `1048576` | ❌         | Tamaño máximo de payload JSON (1 MB)                            |
 
 ### Gemini API (Auditoría IA)
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `GEMINI_API_KEY` | *(vacío)* | ✅ | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI |
-| `GEMINI_MODEL` | `gemini-3.5-flash` | ❌ | Modelo de Gemini a usar |
-| `GEMINI_TEMPERATURE` | `0.0` | ❌ | Temperatura (0 = determinístico) |
-| `GEMINI_TIMEOUT` | `300` | ❌ | Timeout de la API en segundos |
-| `GEMINI_TOP_P` | `1.0` | ❌ | Nucleus sampling para determinismo |
-| `GEMINI_TOP_K` | `1` | ❌ | Top-K sampling para determinismo |
-| `GEMINI_MAX_OUTPUT_TOKENS` | `8192` | ❌ | Límite de tokens en la respuesta |
-| `GEMINI_MEDIA_RESOLUTION` | `MEDIA_RESOLUTION_HIGH` | ❌ | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`) |
-| `GEMINI_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento (thinking mode) |
-| `GEMINI_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig` |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | ❌ | Límite de salida para extracción documental |
-| `GEMINI_EXTRACTION_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para extracción documental |
-| `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | ❌ | Nivel de razonamiento Gemini 3 para extracción documental |
-| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | ❌ | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3) |
-| `GEMINI_SEMANTIC_THINKING_LEVEL` | *(vacío)* | ❌ | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
-| `GEMINI_SEMANTIC_THINKING_BUDGET` | *(vacío)* | ❌ | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica |
-| `GEMINI_SEED` | `42` | ❌ | Semilla para reproducibilidad (opcional, recomendada en prod) |
+| Variable                              | Default                 | Requerida | Módulo / Uso                                                                                                   |
+| ------------------------------------- | ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
+| `GEMINI_API_KEY`                      | _(vacío)_               | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                            |
+| `GEMINI_MODEL`                        | `gemini-3.5-flash`      | ❌        | Modelo de Gemini a usar                                                                                        |
+| `GEMINI_TEMPERATURE`                  | `0.0`                   | ❌        | Temperatura (0 = determinístico)                                                                               |
+| `GEMINI_TIMEOUT`                      | `300`                   | ❌        | Timeout de la API en segundos                                                                                  |
+| `GEMINI_TOP_P`                        | `1.0`                   | ❌        | Nucleus sampling para determinismo                                                                             |
+| `GEMINI_TOP_K`                        | `1`                     | ❌        | Top-K sampling para determinismo                                                                               |
+| `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                  | ❌        | Límite de tokens en la respuesta                                                                               |
+| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_HIGH` | ❌        | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`)                                              |
+| `GEMINI_THINKING_BUDGET`              | _(vacío)_               | ❌        | Presupuesto de razonamiento (thinking mode)                                                                    |
+| `GEMINI_THINKING_LEVEL`               | _(vacío)_               | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                           |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                  | ❌        | Límite de salida para extracción documental                                                                    |
+| `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_               | ❌        | Presupuesto de razonamiento para extracción documental                                                         |
+| `GEMINI_EXTRACTION_THINKING_LEVEL`    | `MINIMAL`               | ❌        | Nivel de razonamiento Gemini 3 para extracción documental                                                      |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`   | `2048`                  | ❌        | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3)      |
+| `GEMINI_SEMANTIC_THINKING_LEVEL`      | _(vacío)_               | ❌        | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
+| `GEMINI_SEMANTIC_THINKING_BUDGET`     | _(vacío)_               | ❌        | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica                                  |
+| `GEMINI_SEED`                         | `42`                    | ❌        | Semilla para reproducibilidad (opcional, recomendada en prod)                                                  |
 
 ### Redis
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `REDIS_HOST` | `redis` | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis |
-| `REDIS_PORT` | `6379` | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis |
-| `REDIS_PASSWORD` | `audfact_dev_default` | ❌ | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
-| `REDIS_PREFIX` | `audfact:` | ❌ | `Core\RedisClient` — prefijo para keys (namespace) |
-| `REDIS_MAXMEMORY` | `4gb` | ❌ | `docker-compose*.yml` — límite interno de memoria Redis (`--maxmemory`) |
-| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | ❌ | `docker-compose*.yml` — política de evicción Redis para llaves con TTL |
-| `REDIS_CONTAINER_MEMORY` | `5G` | ❌ | `docker-compose*.yml` — límite de memoria del contenedor Redis |
-| `REDIS_MODE` | `standalone` | ❌ | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster` |
-| `REDIS_SENTINELS` | *(comentado)* | ⚠️ Sentinel | Lista `host:port` separada por comas para modo sentinel |
-| `REDIS_SENTINEL_SERVICE` | *(comentado)* | ⚠️ Sentinel | Nombre del master Sentinel |
-| `REDIS_CLUSTER_NODES` | *(comentado)* | ⚠️ Cluster | Lista de nodos `host:port` para modo cluster |
-| `REDIS_PERSISTENT` | `0` | ❌ | Habilita conexiones persistentes Redis en PHP-FPM |
+| Variable                 | Default               | Requerida      | Módulo / Uso                                                                         |
+| ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| `REDIS_HOST`             | `redis`               | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                             |
+| `REDIS_PORT`             | `6379`                | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                    |
+| `REDIS_PASSWORD`         | `audfact_dev_default` | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
+| `REDIS_PREFIX`           | `audfact:`            | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                   |
+| `REDIS_MAXMEMORY`        | `4gb`                 | ❌             | `docker-compose*.yml` — límite interno de memoria Redis (`--maxmemory`)              |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru`        | ❌             | `docker-compose*.yml` — política de evicción Redis para llaves con TTL               |
+| `REDIS_CONTAINER_MEMORY` | `5G`                  | ❌             | `docker-compose*.yml` — límite de memoria del contenedor Redis                       |
+| `REDIS_MODE`             | `standalone`          | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                       |
+| `REDIS_SENTINELS`        | _(comentado)_         | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                              |
+| `REDIS_SENTINEL_SERVICE` | _(comentado)_         | ⚠️ Sentinel    | Nombre del master Sentinel                                                           |
+| `REDIS_CLUSTER_NODES`    | _(comentado)_         | ⚠️ Cluster     | Lista de nodos `host:port` para modo cluster                                         |
+| `REDIS_PERSISTENT`       | `0`                   | ❌             | Habilita conexiones persistentes Redis en PHP-FPM                                    |
 
 ### Circuit Breaker Gemini
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `CB_GEMINI_THRESHOLD` | `3` | ❌ | `GeminiCircuitBreaker` — fallos consecutivos antes de abrir circuito |
-| `CB_GEMINI_COOLDOWN` | `60` | ❌ | `GeminiCircuitBreaker` — segundos antes de half-open |
+| Variable              | Default | Requerida | Módulo / Uso                                                         |
+| --------------------- | ------- | --------- | -------------------------------------------------------------------- |
+| `CB_GEMINI_THRESHOLD` | `3`     | ❌        | `GeminiCircuitBreaker` — fallos consecutivos antes de abrir circuito |
+| `CB_GEMINI_COOLDOWN`  | `60`    | ❌        | `GeminiCircuitBreaker` — segundos antes de half-open                 |
 
 ### Auditoría Async
 
-| Variable | Default | Requerida | Módulo / Uso |
-|---|---|---|---|
-| `AUDIT_BATCH_TIMEOUT` | `3600` | ❌ | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers |
-| `AUDIT_BATCH_MAX_LIMIT` | `100` | ❌ | `AuditController::async` — máximo de facturas por batch |
-| `AUDIT_INTERNAL_API_BASE` | `http://nginx` | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna |
-| `AUDIT_CACHE_TTL` | `604800` | ❌ | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría |
-| `AUDIT_EXTRACTION_CACHE_TTL` | `604800` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de descarga de adjuntos |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
-| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
-| `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
-| `AUDIT_JOB_TTL` | `604800` | ❌ | `BatchJobStore` — TTL del estado de jobs batch async |
-| `AUDIT_STATE_TTL` | `604800` | ❌ | `AuditStateStore` — TTL del estado transitorio de auditorías |
-| `AUDIT_RESERVATION_TTL` | `86400` | ❌ | `BatchJobStore` — TTL de reservas por `DisId` |
-| `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | ❌ | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
-| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | ❌ | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending` |
-| `AUDIT_EVENT_MAX_RETRIES` | `3` | ❌ | `AuditEventConsumer` — reintentos antes de DLQ |
-| `AUDIT_STREAM_BLOCK_MS` | `5000` | ❌ | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll |
-| `AUDIT_DLQ_STREAM` | `audit.dlq` | ❌ | Nombre del stream DLQ |
-| `AUDIT_VERSION_EXTRACTOR` | `gemini-3.x-parallel-fc-v1` | ❌ | Versión de trazabilidad del extractor |
-| `AUDIT_VERSION_NORMALIZER` | `1.0.0` | ❌ | Versión de trazabilidad del normalizador |
-| `AUDIT_VERSION_RULES` | `1.0.0` | ❌ | Versión de trazabilidad de reglas |
-| `AUDIT_NGINX_READ_TIMEOUT` | `3600` | ❌ | Timeout de lectura Nginx para endpoints de auditoría |
-| `AUDIT_FPM_TERMINATE_TIMEOUT` | `3600` | ❌ | Timeout de terminación PHP-FPM para procesos de auditoría |
+| Variable                             | Default                     | Requerida  | Módulo / Uso                                                                        |
+| ------------------------------------ | --------------------------- | ---------- | ----------------------------------------------------------------------------------- |
+| `AUDIT_BATCH_TIMEOUT`                | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers   |
+| `AUDIT_BATCH_MAX_LIMIT`              | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                             |
+| `AUDIT_INTERNAL_API_BASE`            | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                     |
+| `AUDIT_CACHE_TTL`                    | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría           |
+| `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose*.yml` — réplicas de orquestadores `audit_created`                   |
+| `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose*.yml` — réplicas del worker `batch_requested`                       |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose*.yml` — réplicas de descarga de adjuntos                            |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose*.yml` — réplicas de extractores Gemini                              |
+| `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose*.yml` — réplicas de evaluación de reglas                            |
+| `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
+| `AUDIT_JOB_TTL`                      | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                |
+| `AUDIT_STATE_TTL`                    | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                        |
+| `AUDIT_RESERVATION_TTL`              | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                       |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS`      | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`  | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`         |
+| `AUDIT_EVENT_MAX_RETRIES`            | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                      |
+| `AUDIT_STREAM_BLOCK_MS`              | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                     |
+| `AUDIT_DLQ_STREAM`                   | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                               |
+| `AUDIT_VERSION_EXTRACTOR`            | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                               |
+| `AUDIT_VERSION_NORMALIZER`           | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                            |
+| `AUDIT_VERSION_RULES`                | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                   |
+| `AUDIT_NGINX_READ_TIMEOUT`           | `3600`                      | ❌         | Timeout de lectura Nginx para endpoints de auditoría                                |
+| `AUDIT_FPM_TERMINATE_TIMEOUT`        | `3600`                      | ❌         | Timeout de terminación PHP-FPM para procesos de auditoría                           |
 
 ### Leyenda
 
@@ -358,7 +363,6 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 > 📖 **Ver documento dedicado:** [plans/git-workflow.md](file:///c:/Users/USER/Desktop/AudFact/plans/git-workflow.md)
 
-
 ---
 
 ## Planificación Pre-Implementación
@@ -373,15 +377,15 @@ Cada tarea sigue este flujo. El agente gestiona los estados y reporta transicion
 📌 Backlog → 🛠️ Ready → 🧑‍💻 In Dev → 🔍 Review → 🧪 QA → 📦 Deploy → ✅ Done
 ```
 
-| Estado | Significado | Quién actúa |
-|---|---|---|
-| 📌 **Backlog** | Idea o requerimiento sin refinar | Usuario propone |
-| 🛠️ **Ready** | Plan aprobado, criterios de aceptación definidos | Agente planifica → Usuario aprueba |
-| 🧑‍💻 **In Development** | Código en proceso de escritura | Agente implementa |
-| 🔍 **Code Review** | Implementación completa, pendiente de revisión | Agente presenta → Usuario revisa |
-| 🧪 **QA / Testing** | Pruebas de verificación en curso | Agente verifica |
-| 📦 **Ready for Deploy** | Verificado y listo para producción | Agente confirma |
-| ✅ **Done** | Entregado, documentado, y cerrado | Ambos confirman |
+| Estado                  | Significado                                      | Quién actúa                        |
+| ----------------------- | ------------------------------------------------ | ---------------------------------- |
+| 📌 **Backlog**          | Idea o requerimiento sin refinar                 | Usuario propone                    |
+| 🛠️ **Ready**            | Plan aprobado, criterios de aceptación definidos | Agente planifica → Usuario aprueba |
+| 🧑‍💻 **In Development**   | Código en proceso de escritura                   | Agente implementa                  |
+| 🔍 **Code Review**      | Implementación completa, pendiente de revisión   | Agente presenta → Usuario revisa   |
+| 🧪 **QA / Testing**     | Pruebas de verificación en curso                 | Agente verifica                    |
+| 📦 **Ready for Deploy** | Verificado y listo para producción               | Agente confirma                    |
+| ✅ **Done**             | Entregado, documentado, y cerrado                | Ambos confirman                    |
 
 ### Template de plan (obligatorio)
 
@@ -391,62 +395,72 @@ Antes de pasar una tarea de **Backlog → Ready**, el agente debe presentar el s
 ## 📋 Plan de Implementación: [Título]
 
 ### Contexto
+
 [Qué problema resuelve y por qué es necesario]
 
 ### Alcance
+
 - **Archivos a crear**: [lista]
 - **Archivos a modificar**: [lista]
 - **Archivos afectados indirectamente**: [lista]
 
 ### Criterios de Aceptación
+
 1. [ ] [Criterio específico y verificable]
 2. [ ] [Criterio específico y verificable]
 3. [ ] [Criterio específico y verificable]
 
 ### Tareas Técnicas
+
 1. [ ] [Tarea granular]
 2. [ ] [Tarea granular]
 3. [ ] [Tarea granular]
 
 ### Riesgos
+
 - [Riesgo identificado] → [Mitigación]
 
 ### Estimación
+
 - **Complejidad**: [Baja / Media / Alta]
 - **Archivos afectados**: [N]
 
 ### Verificación
+
 - [Cómo se validará que el cambio funciona]
 
 ### Archivos de documentación
+
 - [lista de archivos de documentación a crear o actualizar]
 
 ### Hallazgos relacionados
+
 - [IDs de auditoría si aplica, o "ninguno"]
 ```
 
 ### Reglas de transición
 
-| De → A | Condición requerida |
-|---|---|
-| Backlog → Ready | Plan presentado **y aprobado** por el usuario |
-| Ready → In Dev | Checkpoint creado, skill correspondiente leída |
-| In Dev → Review | Código completo, sin errores de sintaxis |
-| Review → QA | Usuario acepta o agente auto-avanza si la tarea es de complejidad Baja |
-| QA → Deploy | Tests pasan, documentación post-implementación completada |
-| Deploy → Done | Verificación final exitosa |
+| De → A          | Condición requerida                                                    |
+| --------------- | ---------------------------------------------------------------------- |
+| Backlog → Ready | Plan presentado **y aprobado** por el usuario                          |
+| Ready → In Dev  | Checkpoint creado, skill correspondiente leída                         |
+| In Dev → Review | Código completo, sin errores de sintaxis                               |
+| Review → QA     | Usuario acepta o agente auto-avanza si la tarea es de complejidad Baja |
+| QA → Deploy     | Tests pasan, documentación post-implementación completada              |
+| Deploy → Done   | Verificación final exitosa                                             |
 
 ### Niveles de complejidad
 
-| Nivel | Criterio | Aprobación requerida |
-|---|---|---|
-| **Baja** | 1-2 archivos, sin cambio de API, sin riesgo | Plan breve → puede auto-avanzar Review→QA |
-| **Media** | 3-5 archivos, cambio interno, riesgo bajo | Plan completo → esperar aprobación |
-| **Alta** | 6+ archivos, cambio de API/schema, riesgo medio-alto | Plan detallado + discusión → aprobación explícita |
+| Nivel     | Criterio                                             | Aprobación requerida                              |
+| --------- | ---------------------------------------------------- | ------------------------------------------------- |
+| **Baja**  | 1-2 archivos, sin cambio de API, sin riesgo          | Plan breve → puede auto-avanzar Review→QA         |
+| **Media** | 3-5 archivos, cambio interno, riesgo bajo            | Plan completo → esperar aprobación                |
+| **Alta**  | 6+ archivos, cambio de API/schema, riesgo medio-alto | Plan detallado + discusión → aprobación explícita |
 
 ### Integración con Trello
 
 Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
+
 - Crear tarjeta en la lista correspondiente al estado actual
 - Mover tarjeta al avanzar de estado
 - Agregar checklist "Criterios de Aceptación" y "Tareas Técnicas" a la tarjeta
@@ -485,11 +499,13 @@ Esta regla aplica a TODA tarea técnica (análisis, overview, implementación, r
 5. Si la skill no existe, no puede leerse o falla: detener flujo normal, reportar bloqueo y continuar con fallback manual marcado como `provisional sin skill`.
 
 Checklist operativo obligatorio al inicio de cada tarea:
+
 - `Skill detectada`
 - `SKILL.md leído`
 - `Archivos objetivo identificados`
 
 Excepciones (no requieren skill-gate formal):
+
 - Correcciones de typo/formato sin impacto funcional
 - Edición menor de documentación existente
 - Conversación casual sin análisis técnico
@@ -545,26 +561,26 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Archivos que NO deben editarse
 
-| Archivo | Razón |
-|---|---|
-| `vendor/*` | Gestionado por Composer |
-| `.env` | Contiene credenciales reales |
-| `logs/*` | Generados por la aplicación |
-| `responseIA/*` | Respuestas crudas de Gemini para debug |
+| Archivo         | Razón                                               |
+| --------------- | --------------------------------------------------- |
+| `vendor/*`      | Gestionado por Composer                             |
+| `.env`          | Contiene credenciales reales                        |
+| `logs/*`        | Generados por la aplicación                         |
+| `responseIA/*`  | Respuestas crudas de Gemini para debug              |
 | `composer.lock` | Solo modificar indirectamente vía `composer update` |
 
 ### Archivos que SIEMPRE deben actualizarse en conjunto
 
-| Si modificas... | También actualizar... |
-|---|---|
-| `app/Routes/web.php` | `README.md` (tabla de endpoints) |
-| `.env` variables nuevas | `.env.example` |
-| `app/Controllers/*` | Tests correspondientes (cuando existan) |
-| Skills (`SKILL.md`) | `CATALOG.md` |
-| Docker config | `README.md` (instrucciones de setup) |
-| `AGENTS.md` | `CLAUDE.md` (mantener en sync) |
-| Reglas de negocio / dominio | `BUSINESS.md` |
-| Cualquier implementación | `CHANGELOG.md` (ver protocolo abajo) |
+| Si modificas...             | También actualizar...                   |
+| --------------------------- | --------------------------------------- |
+| `app/Routes/web.php`        | `README.md` (tabla de endpoints)        |
+| `.env` variables nuevas     | `.env.example`                          |
+| `app/Controllers/*`         | Tests correspondientes (cuando existan) |
+| Skills (`SKILL.md`)         | `CATALOG.md`                            |
+| Docker config               | `README.md` (instrucciones de setup)    |
+| `AGENTS.md`                 | `CLAUDE.md` (mantener en sync)          |
+| Reglas de negocio / dominio | `BUSINESS.md`                           |
+| Cualquier implementación    | `CHANGELOG.md` (ver protocolo abajo)    |
 
 ---
 
@@ -580,6 +596,7 @@ Agregar entrada en `CHANGELOG.md` (crear si no existe) con el siguiente formato:
 ## [YYYY-MM-DD]
 
 ### Tipo (feat/fix/refactor/security/perf)
+
 - **Ámbito**: Descripción concisa del cambio
   - Archivos modificados: `archivo1.php`, `archivo2.php`
   - Hallazgo resuelto: C01 (si aplica)
@@ -587,6 +604,7 @@ Agregar entrada en `CHANGELOG.md` (crear si no existe) con el siguiente formato:
 ```
 
 Reglas del CHANGELOG:
+
 - Solo cambios **user-facing** o que afecten el comportamiento del sistema
 - No documentar: cambios de formato, typos en comentarios, reordenamiento de imports
 - Ordenar por impacto: Changes primero, Fixes después
@@ -601,15 +619,15 @@ Si el cambio resuelve un hallazgo de auditoría, actualizar la tabla de "Hallazg
 
 Según el tipo de cambio, actualizar las fuentes correspondientes:
 
-| Tipo de cambio | Documentación requerida |
-|---|---|
-| Nuevo endpoint REST | `README.md` tabla de endpoints + `app/Routes/web.php` comentarios |
-| Nueva variable de entorno | `.env.example` + sección "Variables de entorno" de este archivo |
-| Nuevo modelo/controlador | PHPDoc en la clase + skill correspondiente si aplica |
-| Cambio en Docker | `README.md` sección setup + sección "Docker" de este archivo |
-| Nuevo skill | `CATALOG.md` + tabla de skills de este archivo |
-| Cambio en pipeline de auditoría | Sección "Pipeline de auditoría IA" de este archivo |
-| Cambio de seguridad | Sección "Guardrails de seguridad" de este archivo |
+| Tipo de cambio                  | Documentación requerida                                           |
+| ------------------------------- | ----------------------------------------------------------------- |
+| Nuevo endpoint REST             | `README.md` tabla de endpoints + `app/Routes/web.php` comentarios |
+| Nueva variable de entorno       | `.env.example` + sección "Variables de entorno" de este archivo   |
+| Nuevo modelo/controlador        | PHPDoc en la clase + skill correspondiente si aplica              |
+| Cambio en Docker                | `README.md` sección setup + sección "Docker" de este archivo      |
+| Nuevo skill                     | `CATALOG.md` + tabla de skills de este archivo                    |
+| Cambio en pipeline de auditoría | Sección "Pipeline de auditoría IA" de este archivo                |
+| Cambio de seguridad             | Sección "Guardrails de seguridad" de este archivo                 |
 
 ### Paso 4 — Resumen de implementación
 
@@ -654,7 +672,6 @@ Todo método público nuevo o modificado debe tener PHPDoc mínimo:
 
 > 📖 **Ver documento dedicado:** [plans/audit-findings.md](file:///c:/Users/USER/Desktop/AudFact/plans/audit-findings.md)
 
-
 ---
 
 ## Manejo de Errores y Excepciones
@@ -675,12 +692,12 @@ Todo método público nuevo o modificado debe tener PHPDoc mínimo:
 
 ### Reglas de manejo de errores
 
-| Capa | Qué hacer | Qué NO hacer |
-|---|---|---|
-| **Modelo** | Lanzar excepción si la query falla o datos inválidos | Llamar `Response::error()` |
-| **Servicio** | Lanzar excepción con mensaje descriptivo y código HTTP | Hacer `echo` o `exit()` |
+| Capa            | Qué hacer                                                         | Qué NO hacer                        |
+| --------------- | ----------------------------------------------------------------- | ----------------------------------- |
+| **Modelo**      | Lanzar excepción si la query falla o datos inválidos              | Llamar `Response::error()`          |
+| **Servicio**    | Lanzar excepción con mensaje descriptivo y código HTTP            | Hacer `echo` o `exit()`             |
 | **Controlador** | Capturar excepciones → `Response::error($e->getMessage(), $code)` | Dejar pasar excepciones sin manejar |
-| **index.php** | Exception handler global como red de seguridad | Mostrar stack traces en producción |
+| **index.php**   | Exception handler global como red de seguridad                    | Mostrar stack traces en producción  |
 
 ### Exception handler global (actual)
 
@@ -701,9 +718,9 @@ set_exception_handler(function ($e) {
 
 ```json
 {
-    "success": false,
-    "message": "Descripción del error para el cliente",
-    "errors": ["detalle 1", "detalle 2"]   // Opcional, solo si aplica
+  "success": false,
+  "message": "Descripción del error para el cliente",
+  "errors": ["detalle 1", "detalle 2"] // Opcional, solo si aplica
 }
 ```
 
@@ -725,19 +742,19 @@ El logger escribe archivos JSON rotados en `logs/app-{HOSTNAME}-YYYY-MM-DD.log`.
 
 ### Niveles de log
 
-| Nivel | Cuándo usar | Ejemplo |
-|---|---|---|
-| `Logger::error()` | Fallos que impiden completar la operación | Error de conexión SQL, excepción no manejada, API Gemini 500 |
-| `Logger::warning()` | Situaciones anómalas que no bloquean la operación | Rate limit cercano, archivo adjunto omitido por tamaño, respuesta JSON truncada |
-| `Logger::info()` | Operaciones completadas exitosamente, trazabilidad | Query ejecutada, auditoría completada, webhook recibido |
+| Nivel               | Cuándo usar                                        | Ejemplo                                                                         |
+| ------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Logger::error()`   | Fallos que impiden completar la operación          | Error de conexión SQL, excepción no manejada, API Gemini 500                    |
+| `Logger::warning()` | Situaciones anómalas que no bloquean la operación  | Rate limit cercano, archivo adjunto omitido por tamaño, respuesta JSON truncada |
+| `Logger::info()`    | Operaciones completadas exitosamente, trazabilidad | Query ejecutada, auditoría completada, webhook recibido                         |
 
 ### Configuración por variable de entorno
 
-| Variable | Default | Descripción |
-|---|---|---|
-| `LOG_LEVEL` | `info` | Nivel mínimo: `error`, `warning`, o `info` |
-| `LOG_RETENTION_DAYS` | `7` | Días antes de eliminar logs antiguos |
-| `LOG_MAX_SIZE_MB` | `10` | Tamaño máximo por archivo (se vacía al exceder) |
+| Variable             | Default | Descripción                                     |
+| -------------------- | ------- | ----------------------------------------------- |
+| `LOG_LEVEL`          | `info`  | Nivel mínimo: `error`, `warning`, o `info`      |
+| `LOG_RETENTION_DAYS` | `7`     | Días antes de eliminar logs antiguos            |
+| `LOG_MAX_SIZE_MB`    | `10`    | Tamaño máximo por archivo (se vacía al exceder) |
 
 ### Sanitización automática
 
@@ -751,33 +768,33 @@ Se reemplazan por `[REDACTED]` en el contexto del log.
 
 ### Qué loguear vs. qué NO loguear
 
-| ✅ Loguear | ❌ NO loguear |
-|---|---|
-| ID de factura/dispensa procesada | Datos de pacientes (nombre, documento) |
-| Conteo de resultados (`count($result)`) | Contenido completo de respuestas SQL |
-| Errores de API con código HTTP | API keys o tokens completos |
-| Tiempo de ejecución de operaciones | Datos base64 de archivos adjuntos |
-| IP del cliente (para rate limiting) | Contraseñas o secrets |
+| ✅ Loguear                              | ❌ NO loguear                          |
+| --------------------------------------- | -------------------------------------- |
+| ID de factura/dispensa procesada        | Datos de pacientes (nombre, documento) |
+| Conteo de resultados (`count($result)`) | Contenido completo de respuestas SQL   |
+| Errores de API con código HTTP          | API keys o tokens completos            |
+| Tiempo de ejecución de operaciones      | Datos base64 de archivos adjuntos      |
+| IP del cliente (para rate limiting)     | Contraseñas o secrets                  |
 
 ### Formato de entrada de log
 
 ```json
 {
-    "timestamp": "2026-02-22T09:50:00-05:00",
-    "level": "ERROR",
-    "message": "Descripción del evento",
-    "context": {
-        "exception": {
-            "class": "RuntimeException",
-            "message": "Rate limit exceeded",
-            "file": "/var/www/html/core/RateLimit.php:45",
-            "trace": "..."
-        }
+  "timestamp": "2026-02-22T09:50:00-05:00",
+  "level": "ERROR",
+  "message": "Descripción del evento",
+  "context": {
+    "exception": {
+      "class": "RuntimeException",
+      "message": "Rate limit exceeded",
+      "file": "/var/www/html/core/RateLimit.php:45",
+      "trace": "..."
     }
+  }
 }
 ```
 
-```
+````
 
 ---
 
@@ -834,15 +851,15 @@ El equipo debe ser notificado si:
         "firebase/php-jwt": "^7.0"
     }
 }
-```
+````
 
 Dependencias de desarrollo:
 
 ```json
 {
-    "require-dev": {
-        "phpunit/phpunit": "^10.0"
-    }
+  "require-dev": {
+    "phpunit/phpunit": "^10.0"
+  }
 }
 ```
 
@@ -854,14 +871,14 @@ PHPUnit 10 está configurado y activo. Los tests se ejecutan automáticamente en
 
 Checklist de evaluación:
 
-| Criterio | Pregunta a responder |
-|---|---|
-| **Necesidad** | ¿Se puede resolver sin una dependencia externa? |
+| Criterio          | Pregunta a responder                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| **Necesidad**     | ¿Se puede resolver sin una dependencia externa?                    |
 | **Mantenimiento** | ¿El paquete tiene mantenimiento activo? (última release < 6 meses) |
-| **Licencia** | ¿Es compatible con el proyecto? (MIT, Apache 2.0 preferidas) |
-| **Tamaño** | ¿Cuántas sub-dependencias trae? |
-| **Seguridad** | ¿Tiene vulnerabilidades conocidas? (`composer audit`) |
-| **Alternativas** | ¿Existen opciones más ligeras o nativas de PHP? |
+| **Licencia**      | ¿Es compatible con el proyecto? (MIT, Apache 2.0 preferidas)       |
+| **Tamaño**        | ¿Cuántas sub-dependencias trae?                                    |
+| **Seguridad**     | ¿Tiene vulnerabilidades conocidas? (`composer audit`)              |
+| **Alternativas**  | ¿Existen opciones más ligeras o nativas de PHP?                    |
 
 ### Comandos seguros
 
@@ -884,11 +901,11 @@ docker exec -it audfact-php composer update vendor/package
 
 ### Archivos de Composer
 
-| Archivo | ¿Commitear? | Notas |
-|---|---|---|
-| `composer.json` | ✅ Sí | Fuente de verdad de dependencias |
-| `composer.lock` | ✅ Sí | Garantiza versiones reproducibles |
-| `vendor/` | ❌ No | Se regenera con `composer install` |
+| Archivo         | ¿Commitear? | Notas                              |
+| --------------- | ----------- | ---------------------------------- |
+| `composer.json` | ✅ Sí       | Fuente de verdad de dependencias   |
+| `composer.lock` | ✅ Sí       | Garantiza versiones reproducibles  |
+| `vendor/`       | ❌ No       | Se regenera con `composer install` |
 
 > **Nota**: `composer.lock` se commitea normalmente para garantizar builds reproducibles.
 
@@ -913,7 +930,6 @@ docker exec -it audfact-php composer update vendor/package
 
 > 📖 **Ver documento dedicado:** [plans/domain-glossary.md](file:///c:/Users/USER/Desktop/AudFact/plans/domain-glossary.md)
 
-
 ---
 
 ## Decisiones de Arquitectura (ADR)
@@ -926,44 +942,44 @@ docker exec -it audfact-php composer update vendor/package
 
 ### Acciones autónomas (sin necesidad de aprobación)
 
-| Acción | Condición |
-|---|---|
-| Leer archivos del proyecto | Siempre |
-| Ejecutar `git status`, `git log`, `git diff` | Siempre |
-| Ejecutar tests existentes | Siempre |
-| Verificar `docker compose ps` / logs | Siempre |
-| Aplicar formato de código (Prettier/lint) | Solo si los cambios son exclusivamente de formato |
-| Corregir typos en documentación | Si no cambia el significado |
-| Agregar PHPDoc a métodos existentes | Si no cambia la firma del método |
-| Avanzar tarjeta de Review→QA | Solo si complejidad es Baja |
+| Acción                                       | Condición                                         |
+| -------------------------------------------- | ------------------------------------------------- |
+| Leer archivos del proyecto                   | Siempre                                           |
+| Ejecutar `git status`, `git log`, `git diff` | Siempre                                           |
+| Ejecutar tests existentes                    | Siempre                                           |
+| Verificar `docker compose ps` / logs         | Siempre                                           |
+| Aplicar formato de código (Prettier/lint)    | Solo si los cambios son exclusivamente de formato |
+| Corregir typos en documentación              | Si no cambia el significado                       |
+| Agregar PHPDoc a métodos existentes          | Si no cambia la firma del método                  |
+| Avanzar tarjeta de Review→QA                 | Solo si complejidad es Baja                       |
 
 ### Acciones que REQUIEREN aprobación
 
-| Acción | Por qué |
-|---|---|
-| Crear/modificar código PHP | Todo cambio de código requiere plan aprobado |
-| Agregar dependencias Composer | Puede afectar estabilidad y tamaño del proyecto |
-| Modificar `docker-compose.yml` o `Dockerfile` | Afecta el entorno de todos |
-| Crear/eliminar branches Git | Impacta el flujo de trabajo |
-| Merge a `develop` o `main` | Punto de no retorno |
-| Crear tags/releases | Marca versions oficiales |
-| Resolver conflictos de merge | El usuario debe ver ambos lados |
-| Modificar variables de entorno | Pueden romper conectividad |
-| Cambios en prompts de Gemini | Afectan la calidad de las auditorías |
-| Modificar schemas de la base de datos | Impacto en datos existentes |
-| Cambiar configuración de seguridad (CORS, rate limit) | Impacto en producción |
+| Acción                                                | Por qué                                         |
+| ----------------------------------------------------- | ----------------------------------------------- |
+| Crear/modificar código PHP                            | Todo cambio de código requiere plan aprobado    |
+| Agregar dependencias Composer                         | Puede afectar estabilidad y tamaño del proyecto |
+| Modificar `docker-compose.yml` o `Dockerfile`         | Afecta el entorno de todos                      |
+| Crear/eliminar branches Git                           | Impacta el flujo de trabajo                     |
+| Merge a `develop` o `main`                            | Punto de no retorno                             |
+| Crear tags/releases                                   | Marca versions oficiales                        |
+| Resolver conflictos de merge                          | El usuario debe ver ambos lados                 |
+| Modificar variables de entorno                        | Pueden romper conectividad                      |
+| Cambios en prompts de Gemini                          | Afectan la calidad de las auditorías            |
+| Modificar schemas de la base de datos                 | Impacto en datos existentes                     |
+| Cambiar configuración de seguridad (CORS, rate limit) | Impacto en producción                           |
 
 ### Acciones PROHIBIDAS (nunca, bajo ninguna circunstancia)
 
-| Acción | Razón |
-|---|---|
-| Ejecutar queries DELETE/DROP/TRUNCATE en BD | Pérdida de datos irreversible |
-| Publicar secrets o API keys en código/logs | Vulnerabilidad de seguridad |
-| Hacer `git push --force` | Destruye historial |
-| Instalar paquetes del sistema (`apt-get`, etc.) | Fuera del scope del agente |
-| Modificar archivos en `vendor/` | Gestionado por Composer |
-| Acceder a servidores externos no documentados | Sin autorización |
-| Desactivar rate limiting o CORS en producción | Riesgo de seguridad |
+| Acción                                          | Razón                         |
+| ----------------------------------------------- | ----------------------------- |
+| Ejecutar queries DELETE/DROP/TRUNCATE en BD     | Pérdida de datos irreversible |
+| Publicar secrets o API keys en código/logs      | Vulnerabilidad de seguridad   |
+| Hacer `git push --force`                        | Destruye historial            |
+| Instalar paquetes del sistema (`apt-get`, etc.) | Fuera del scope del agente    |
+| Modificar archivos en `vendor/`                 | Gestionado por Composer       |
+| Acceder a servidores externos no documentados   | Sin autorización              |
+| Desactivar rate limiting o CORS en producción   | Riesgo de seguridad           |
 
 ---
 
@@ -971,9 +987,9 @@ docker exec -it audfact-php composer update vendor/package
 
 Este archivo (`AGENTS.md`) es la fuente canónica de guidelines. Los siguientes archivos deben mantenerse en sincronía:
 
-| Archivo | Plataforma | Notas |
-|---|---|---|
-| `AGENTS.md` | Genérico / Antigravity | Fuente canónica ✅ |
-| `CLAUDE.md` | Claude Code | Debe ser copia o symlink de `AGENTS.md` |
-| `GEMINI.md` | Gemini CLI | Puede apuntar al catálogo de skills |
-| `.cursorrules` | Cursor | Versión compacta para Cursor IDE |
+| Archivo        | Plataforma             | Notas                                   |
+| -------------- | ---------------------- | --------------------------------------- |
+| `AGENTS.md`    | Genérico / Antigravity | Fuente canónica ✅                      |
+| `CLAUDE.md`    | Claude Code            | Debe ser copia o symlink de `AGENTS.md` |
+| `GEMINI.md`    | Gemini CLI             | Puede apuntar al catálogo de skills     |
+| `.cursorrules` | Cursor                 | Versión compacta para Cursor IDE        |
