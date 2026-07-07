@@ -49,6 +49,27 @@ jobs:
           done
           echo "Project structure is valid"
 
+      - name: Validate worker services in docker-compose
+        run: |
+          echo "Validating worker services consistency..."
+
+          REGISTERED=$(grep -oP "^    '\K[a-z_]+(?='\s*=>\s*\[)" bin/audit-worker.php)
+          COMPOSE_SERVICES=$(grep -oP '^\s+worker-\K\w+(?=:)' docker-compose.yml | sort -u)
+
+          MISSING=""
+          for worker in $REGISTERED; do
+            if ! echo "$COMPOSE_SERVICES" | grep -qw "$worker"; then
+              MISSING="$MISSING $worker"
+            fi
+          done
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::Workers registrados en bin/audit-worker.php sin servicio en docker-compose.yml:$MISSING"
+            exit 1
+          fi
+
+          echo "All registered workers have corresponding docker-compose services"
+
       - name: Check for secrets in code
         run: |
           echo "Scanning for hardcoded secrets..."

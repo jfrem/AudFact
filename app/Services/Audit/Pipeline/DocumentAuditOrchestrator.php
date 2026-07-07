@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\Telemetry\TelemetryPublisher;
+use DomainException;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -204,7 +205,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         $suffix = $disDetNro !== null ? sprintf(' para DisDetNro "%s"', $disDetNro) : '';
-        throw new RuntimeException(sprintf(
+        throw new DomainException(sprintf(
             'AUDIT_IDENTITY_MISMATCH: %s "%s" difiere de %s "%s"%s',
             $eventLabel,
             $eventValue,
@@ -235,18 +236,18 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         $numeroFactura = trim((string) ($header['NumeroFactura'] ?? ''));
 
         if ($nitSec === '' || $disId === '' || $numeroFactura === '') {
-            throw new RuntimeException('FDV incompleto: nitSec, disId o NumeroFactura vacíos.');
+            throw new DomainException('FDV incompleto: nitSec, disId o NumeroFactura vacíos.');
         }
 
         $auditConfig     = $this->dataService->getAuditConfig($nitSec);
         $clientDocuments = $this->dataService->getClientDocuments($nitSec);
         if ($clientDocuments === []) {
-            throw new RuntimeException("Catálogo documental vacío para NitSec {$nitSec}");
+            throw new DomainException("Catálogo documental vacío para NitSec {$nitSec}");
         }
 
         $attachments = $this->dataService->getAttachments($numeroFactura, $nitSec);
         if ($attachments === []) {
-            throw new RuntimeException("Adjuntos no encontrados para {$numeroFactura}");
+            throw new DomainException("Adjuntos no encontrados para {$numeroFactura}");
         }
 
         return [
@@ -269,17 +270,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         foreach ($context['configuredDocuments'] as $configuredDocument) {
             $catalogDocument = $context['catalogById'][$configuredDocument['doc_id']] ?? null;
             if ($catalogDocument === null) {
-                throw new RuntimeException("DOCUMENT_CONFIG_NOT_FOUND: docId {$configuredDocument['doc_id']}");
+                throw new DomainException("DOCUMENT_CONFIG_NOT_FOUND: docId {$configuredDocument['doc_id']}");
             }
 
             $attachment = $this->matchAttachment($configuredDocument, $catalogDocument, $context['attachments']);
             if ($attachment === null) {
-                throw new RuntimeException('REQUIRED_ATTACHMENT_MISSING: ' . $configuredDocument['document_name']);
+                throw new DomainException('REQUIRED_ATTACHMENT_MISSING: ' . $configuredDocument['document_name']);
             }
 
             $storage = (string) ($attachment['TipoAlmacenamiento'] ?? '');
             if ($storage !== 'BLOB' && $storage !== 'URL') {
-                throw new RuntimeException(
+                throw new DomainException(
                     'ATTACHMENT_NO_CONTENT: ' . $configuredDocument['document_name']
                     . " (TipoAlmacenamiento='{$storage}')"
                 );

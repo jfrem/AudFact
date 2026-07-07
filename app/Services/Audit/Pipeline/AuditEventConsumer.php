@@ -434,7 +434,10 @@ abstract class AuditEventConsumer
             'error' => $error->getMessage(),
         ]);
 
-        if ($attempts >= $this->maxRetries) {
+        $nonRetryable = $error instanceof \DomainException
+            || $error instanceof \InvalidArgumentException;
+
+        if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
             $this->sendToDeadLetter($event, $streamId, $attempts, $error);
             $this->ackMessage($streamId);

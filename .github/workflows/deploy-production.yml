@@ -80,7 +80,7 @@ jobs:
           set -euo pipefail
           DEPLOY_PATH="${DEPLOY_DIR:-$HOME/audfact-prod}"
           mkdir -p "$DEPLOY_PATH/logs"
-          cp docker-compose.prod.yml "$DEPLOY_PATH/docker-compose.prod.yml"
+          cp docker-compose.yml "$DEPLOY_PATH/docker-compose.yml"
           echo "DEPLOY_PATH=$DEPLOY_PATH" >> "$GITHUB_ENV"
 
       - name: Create production environment file
@@ -383,7 +383,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_PATH"
-          docker compose -f docker-compose.prod.yml pull
+          docker compose pull
 
       - name: Preflight SQL connectivity
         run: |
@@ -438,7 +438,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_PATH"
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          docker compose up -d --no-build --profile frontend --remove-orphans
 
       - name: Health check
         run: |
@@ -462,5 +462,5 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose -f docker-compose.prod.yml logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator
+          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-downloader worker-normalizer worker-policy worker-aggregator
           exit 1

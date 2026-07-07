@@ -11,6 +11,7 @@ use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use Core\RedisClient;
+use DomainException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -314,7 +315,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(DomainException::class);
         $this->expectExceptionMessage('Adjuntos no encontrados');
         $orchestrator->processEvent($event);
     }
@@ -349,7 +350,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(DomainException::class);
         $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.dis_id');
         $orchestrator->processEvent($event);
     }
@@ -371,7 +372,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(DomainException::class);
         $this->expectExceptionMessage('AUDIT_IDENTITY_MISMATCH: payload.dis_det_nro');
         $orchestrator->processEvent($event);
     }
