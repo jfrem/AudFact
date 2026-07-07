@@ -36,7 +36,8 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `BatchRequestedWorker` | Consume `batch_requested`, consulta SQL Server, reserva `DisId` y publica `audit_created` |
 | `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos y publica `document_registered` por documento |
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
-| `DocumentExtractionWorker` | Descarga adjuntos, valida integridad, usa cache por `document_hash` e invoca Gemini |
+| `AttachmentDownloadWorker` | Descarga adjuntos, guarda el BLOB temporal en Redis con key lógica `audit:blob:*` y publica `document_downloaded` |
+| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash` e invoca Gemini |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
@@ -53,6 +54,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 batch_requested
   -> audit_created
   -> document_registered
+  -> document_downloaded
   -> document_extracted | document_rejected
   -> document_normalized
   -> rules_evaluated

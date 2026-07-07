@@ -7,7 +7,6 @@ namespace Tests\Services\Audit\Pipeline;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
-use App\Services\Audit\Pipeline\AttachmentDownloadService;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
 use App\Services\Audit\GeminiGateway;
@@ -17,6 +16,8 @@ use RuntimeException;
 
 final class DocumentExtractionWorkerTest extends TestCase
 {
+    private const BLOB_KEY = 'audit:blob:att-1:test-hash';
+
     public function testCacheHitSkipsGeminiAndPublishesDocumentExtracted(): void
     {
         $documentId = AuditEvent::uuidV4();
@@ -25,29 +26,34 @@ final class DocumentExtractionWorkerTest extends TestCase
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
         $redisMock->method('get')
-            ->with($this->stringContains('extraction:'))
-            ->willReturn(json_encode([
-                'fields' => ['NumeroFactura' => 'T38250701547'],
-                'items' => [],
-                'visual_checks' => [],
-                'document_quality' => 'legible',
-                'quality_notes' => [],
-            ]));
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                // extraction cache hit
+                return json_encode([
+                    'fields' => ['NumeroFactura' => 'T38250701547'],
+                    'items' => [],
+                    'visual_checks' => [],
+                    'document_quality' => 'legible',
+                    'quality_notes' => [],
+                ]);
+            });
 
         $gateway = new StubGeminiGateway([]);
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
 
         $this->assertSame(0, $gateway->calls);
         $this->assertCount(1, $publisher->published);
@@ -71,23 +77,29 @@ final class DocumentExtractionWorkerTest extends TestCase
         $hash = hash('sha256', $base64);
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null; // cache miss
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
 
         $this->assertSame(1, $gateway->calls);
         $this->assertDeclaredFunctionNames($gateway, [
@@ -115,6 +127,42 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertArrayNotHasKey('target_context_hash', $publisher->published[0]->payload);
     }
 
+    public function testDownloadedBlobHashMismatchThrowsRuntimeExceptionBeforeGemini(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturn(json_encode([
+            'mime' => 'application/pdf',
+            'data' => $base64,
+            'duration_ms' => 0,
+        ]));
+        $redisMock->expects($this->never())->method('set');
+
+        $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
+        $worker = new DocumentExtractionWorker(
+            stateStore: new ExtractionRecordingStateStore(),
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('document_hash no coincide con el BLOB descargado');
+
+        try {
+            $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
+                'document_hash' => str_repeat('a', 64),
+            ]));
+        } finally {
+            $this->assertSame(0, $gateway->calls);
+            $this->assertCount(0, $publisher->published);
+        }
+    }
+
     public function testDynamicContractWithoutItemsOrVisualsCallsOnlyDeclaredFunctions(): void
     {
         $documentId = AuditEvent::uuidV4();
@@ -124,7 +172,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $fieldsConfig = [
@@ -140,14 +194,13 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
             'tipo_documento' => 'AUTORIZACION',
             'extraction_contract' => $contract,
             'fields_config' => $fieldsConfig,
@@ -161,7 +214,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         ]);
         $this->assertStringNotContainsString('extract_items', $gateway->lastPrompt);
         $this->assertStringNotContainsString('detect_visual_checks', $gateway->lastPrompt);
-        $this->assertStringNotContainsString('arreglo vacío', $gateway->lastPrompt);
+        $this->assertStringNotContainsString('arreglo vacÃ­o', $gateway->lastPrompt);
         $this->assertSame([], $publisher->published[0]->payload['extraction_result']['items']);
         $this->assertSame([], $publisher->published[0]->payload['extraction_result']['visual_checks']);
     }
@@ -174,7 +227,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         $publisher = new ExtractionPublisher();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $fieldsConfig = [
@@ -190,14 +249,13 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
             'extraction_contract' => $contract,
             'fields_config' => $fieldsConfig,
             'visual_checks' => [],
@@ -277,7 +335,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $fieldsConfig = [
@@ -293,14 +357,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         ));
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
             'tipo_documento' => 'AUTORIZACION',
             'extraction_contract' => $contract,
             'fields_config' => $fieldsConfig,
@@ -320,13 +383,18 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->method('set')->willReturn(true);
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
@@ -336,7 +404,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $contract = $this->extractionContract();
         $contract['field_groups']['fields'] = ['TipoDocumentoPaciente', 'DocumentoPaciente', 'NombrePaciente'];
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
             'extraction_contract' => $contract,
             'fields_config' => [
                 ['campoNombre' => 'TipoDocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_type'],
@@ -357,19 +425,27 @@ final class DocumentExtractionWorkerTest extends TestCase
     {
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore(false);
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(json_encode([
-            'fields' => ['NumeroFactura' => 'T38250701547'],
-            'items' => [],
-            'visual_checks' => [],
-            'document_quality' => 'legible',
-            'quality_notes' => [],
-        ]));
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                // extraction cache hit
+                return json_encode([
+                    'fields' => ['NumeroFactura' => 'T38250701547'],
+                    'items' => [],
+                    'visual_checks' => [],
+                    'document_quality' => 'legible',
+                    'quality_notes' => [],
+                ]);
+            });
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway([]),
             redis: $redisMock,
             publisher: $publisher,
@@ -380,7 +456,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectExceptionMessage('No se pudo persistir la extracción');
 
         try {
-            $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+            $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
         } finally {
             $this->assertCount(0, $publisher->published);
         }
@@ -388,12 +464,20 @@ final class DocumentExtractionWorkerTest extends TestCase
 
     public function testInvalidGeminiResponseThrowsRuntimeException(): void
     {
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
         
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway(['candidates' => []]),
             redis: $redisMock,
             publisher: new ExtractionPublisher(),
@@ -403,19 +487,27 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_CANDIDATE');
 
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+        $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
     }
 
     public function testMaxTokensFinishReasonDoesNotCacheOrPublishExtraction(): void
     {
         $publisher = new ExtractionPublisher();
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
         $redisMock->expects($this->never())->method('set');
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse('MAX_TOKENS')),
             redis: $redisMock,
             publisher: $publisher,
@@ -426,7 +518,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectExceptionMessage('GEMINI_EXTRACTION_UNSAFE_FINISH_REASON: MAX_TOKENS');
 
         try {
-            $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+            $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
         } finally {
             $this->assertCount(0, $publisher->published);
         }
@@ -434,13 +526,21 @@ final class DocumentExtractionWorkerTest extends TestCase
 
     public function testMissingParallelFunctionCallThrowsRuntimeException(): void
     {
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
         $redisMock->expects($this->never())->method('set');
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
                 omittedFunction: DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS
             )),
@@ -452,18 +552,26 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_FUNCTION_CALL: extract_items');
 
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+        $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
     }
 
     public function testDuplicateParallelFunctionCallThrowsRuntimeException(): void
     {
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
         $redisMock->expects($this->never())->method('set');
 
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]),
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse(
                 duplicateFunction: DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS
             )),
@@ -475,34 +583,40 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL: extract_fields');
 
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+        $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
     }
 
     public function testInvalidDocumentPublishesDocumentRejectedAndSkipsGemini(): void
     {
         $documentId = AuditEvent::uuidV4();
         $auditId = AuditEvent::uuidV4();
+        $invalidBase64 = base64_encode('not-a-pdf');
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $invalidBase64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->expects($this->never())->method('get');
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
         $redisMock->expects($this->never())->method('set');
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService([
-                'mime' => 'application/pdf',
-                'data' => base64_encode('not-a-pdf'),
-            ]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
+            'document_hash' => hash('sha256', $invalidBase64),
+        ]));
 
         $this->assertSame(0, $gateway->calls);
         $this->assertSame('UNKNOWN_FILE_SIGNATURE', $store->lastRejectedPatch['rejection_reason'] ?? null);
@@ -521,7 +635,13 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse(
@@ -531,8 +651,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             ]
         ));
 
-        $duplicada = "Código Producto y Código Artículo corresponden a conceptos diferentes.";
-        $noDuplicada = "Procesa el documento en español.";
+        $duplicada = "CÃ³digo Producto y CÃ³digo ArtÃ­culo corresponden a conceptos diferentes.";
+        $noDuplicada = "Procesa el documento en espaÃ±ol.";
         $systemPromptCliente = $duplicada . "\n" . $noDuplicada;
 
         $fieldsConfig = [
@@ -540,7 +660,7 @@ final class DocumentExtractionWorkerTest extends TestCase
                 'campoNombre' => 'NumeroFactura',
                 'tipoCampo' => 'E',
                 'tipoDato' => 'text',
-                'description' => $duplicada . " Por ejemplo: Código Producto: 12345.",
+                'description' => $duplicada . " Por ejemplo: CÃ³digo Producto: 12345.",
             ],
         ];
 
@@ -548,14 +668,13 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
             consumerName: 'extractor-test'
         );
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, [
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
             'tipo_documento' => 'FORMULA MEDICA',
             'extraction_contract' => $contract,
             'fields_config' => $fieldsConfig,
@@ -577,14 +696,19 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
@@ -601,7 +725,7 @@ final class DocumentExtractionWorkerTest extends TestCase
             ],
         ];
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, $payloadOverrides));
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, $payloadOverrides));
 
         $this->assertCount(1, $publisher->published);
         $warnings = $publisher->published[0]->payload['extraction_result']['extraction_warnings'] ?? [];
@@ -620,14 +744,19 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
-        $redisMock->method('get')->willReturn(null);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($base64) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+                }
+                return null;
+            });
         $redisMock->expects($this->once())->method('set')->willReturn(true);
 
         $gateway = new StubGeminiGateway($this->geminiFunctionCallResponse());
 
         $worker = new DocumentExtractionWorker(
             stateStore: $store,
-            downloader: new StubDownloadService(['mime' => 'application/pdf', 'data' => $base64]),
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
@@ -643,7 +772,7 @@ final class DocumentExtractionWorkerTest extends TestCase
             ],
         ];
 
-        $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId, $payloadOverrides));
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, $payloadOverrides));
 
         $this->assertCount(1, $publisher->published);
         $warnings = $publisher->published[0]->payload['extraction_result']['extraction_warnings'] ?? [];
@@ -758,7 +887,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         ];
     }
 
-    private function documentRegisteredEvent(
+    private function documentDownloadedEvent(
         string $auditId,
         string $documentId,
         array $payloadOverrides = []
@@ -781,11 +910,13 @@ final class DocumentExtractionWorkerTest extends TestCase
                 ['check' => 'FirmaActaEntrega', 'description' => 'Firma visible', 'severity' => 'CRITICO'],
             ],
             'attempt' => 1,
+            'blob_reference_key' => self::BLOB_KEY,
+            'document_hash' => hash('sha256', $this->validPdfBase64()),
             'contract_hash' => hash('sha256', json_encode($this->extractionContract(), JSON_THROW_ON_ERROR)),
         ];
 
         return AuditEvent::create(
-            eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            eventType: AuditEvent::TYPE_DOCUMENT_DOWNLOADED,
             auditId: $auditId,
             jobId: AuditEvent::uuidV4(),
             payload: array_replace($payload, $payloadOverrides),
@@ -864,18 +995,6 @@ final class DocumentExtractionWorkerTest extends TestCase
                 'items' => ['NombreArticulo'],
             ],
         ];
-    }
-}
-
-final class StubDownloadService extends AttachmentDownloadService
-{
-    public function __construct(private array $document)
-    {
-    }
-
-    public function download(string $attachmentId, string $disDetNro): array
-    {
-        return array_merge($this->document, ['duration_ms' => 0]);
     }
 }
 

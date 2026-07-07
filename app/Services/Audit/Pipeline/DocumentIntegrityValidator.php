@@ -78,6 +78,10 @@ final class DocumentIntegrityValidator
             return self::rejected('MIME_MISMATCH', $declaredMime, $detectedMime, $sizeBytes);
         }
 
+        if ($declaredMime === 'application/pdf' && str_contains($raw, '/Encrypt')) {
+            return self::rejected('ENCRYPTED_DOCUMENT', $declaredMime, $detectedMime, $sizeBytes);
+        }
+
         return [
             'valid' => true,
             'reason' => null,

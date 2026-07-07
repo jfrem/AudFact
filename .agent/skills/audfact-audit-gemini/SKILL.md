@@ -19,11 +19,12 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
 | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
 | `app/Services/Audit/Pipeline/AuditDataService.php` / `AuditDataServiceInterface.php` | Acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
-| `app/Services/Audit/Pipeline/AttachmentDownloadService.php` / `AttachmentDownloadServiceInterface.php` | Descarga del adjunto (Drive/BLOB) por audit-id + document-id |
+| `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | Servicio interno de integración con Drive/Local para descargar binarios |
+| `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, descarga el adjunto, guarda temporalmente el BLOB en Redis y publica `document_downloaded` (o `document_rejected` en fallo) |
 | `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
-| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_registered`, descarga adjunto, calcula `document_hash`, gestiona cache Redis por `contract_hash` + `prompt_context_hash`, invoca Gemini con prompt compacto sin valores FDV y publica `document_extracted` |
+| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_downloaded`, lee BLOB de Redis, calcula `document_hash`, gestiona cache Redis, invoca Gemini con prompt compacto y publica `document_extracted` |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
@@ -56,12 +57,13 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 |---|---|---|
 | `php bin/audit-worker.php batch` | `audit.batch.inbox` | `batch-workers` |
 | `php bin/audit-worker.php orchestrator` | `audit.inbox` | `orchestrator` |
+| `php bin/audit-worker.php downloader` | `audit.documents` | `downloaders` |
 | `php bin/audit-worker.php extraction` | `audit.documents` | `extractors` |
 | `php bin/audit-worker.php normalizer` | `audit.documents` | `normalizers` |
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
 | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` y `docker-compose.prod.yml` levantan los 6 servicios con este mismo binario y argumento distinto (batch 2, orchestrator 3, extraction 8, policy 2; normalizer y aggregator 1).
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` y `docker-compose.prod.yml` levantan los 7 servicios con este mismo binario y argumento distinto.
 
 ### Controllers y endpoints
 
@@ -76,7 +78,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 |---|---|---|
 | `audit.batch.inbox` | `AuditController` | `batch_requested` |
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
-| `audit.documents` | Orchestrator / Extractor / Normalizer / Policy | `document_registered`, `document_extracted`, `document_rejected`, `document_normalized` |
+| `audit.documents` | Orchestrator / Downloader / Extractor / Normalizer / Policy | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
 | `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.telemetry` | Workers de auditoría | Eventos live `started`, `completed`, `failed`, `rejected` por fase real del DAG |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
@@ -106,9 +108,10 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 ## Flujo técnico
 
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
-2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.dis_id` = `FDV.header.DisId` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y adjuntos; publica N `document_registered` en orden ascendente por `docId` con `extraction_contract`, `fields_config`, `visual_checks`, `fuente_verdad` para reglas PHP y `contract_hash`. Ya no publica `target_context` ni `target_context_hash` para Gemini.
-3. `DocumentExtractionWorker` descarga el adjunto por URL interna y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si el documento está corrupto, vacío, tiene MIME no soportado o la firma binaria no coincide, se marca como `rejected` atómicamente en Redis incrementando `docs_rejected`, se publica `document_rejected` y se omite Gemini. Si es válido, calcula `document_hash = sha256(base64_data)`, arma un prompt compacto sin valores FDV de cabecera/línea, calcula `prompt_context_hash`, consulta cache; si hay hit publica `document_extracted` con `cache_hit=true`; si no, invoca Gemini con perfil `extraction` y function calling dinámico. `extract_fields`, `extract_items` y `detect_visual_checks` se declaran solo cuando hay campos/checks activos; `assess_document_quality` se declara siempre. Las funciones omitidas se normalizan como `fields={}`, `items=[]` o `visual_checks=[]` en `extraction_result`.
-4. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
+2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.dis_id` = `FDV.header.DisId` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y publica N `document_registered` en orden ascendente por `docId`.
+3. `AttachmentDownloadWorker` consume `document_registered`, descarga el adjunto por URL interna y lo almacena temporalmente en Redis con key lógica `audit:blob:*` (`RedisClient` aplica `REDIS_PREFIX`). Publica `document_downloaded` con `blob_reference_key` y `document_hash`; si la descarga falla publica `document_rejected`.
+4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si es inválido, marca `rejected`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con function calling dinámico y publica `document_extracted`.
+5. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
 5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue` para comparar cantidades agregadas, sets `TRACE_TOKEN` y valores ambiguos con el mismo contrato. Convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
 6. `AuditAggregationWorker` valida el outcome recibido, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
 7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
@@ -215,6 +218,7 @@ Resultado esperado: `EstadoDetallado: "manual_review"`, 34 coincidencias, 1 disc
 ### Levantar los workers localmente
 ```bash
 php bin/audit-worker.php orchestrator &
+php bin/audit-worker.php downloader &
 php bin/audit-worker.php extraction &
 php bin/audit-worker.php normalizer &
 php bin/audit-worker.php policy &

@@ -86,8 +86,9 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
 | `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox` |
 | `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
-| `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos post-descarga y pre-Gemini |
-| `DocumentExtractionWorker.php` | Worker: consume `document_registered`, descarga adjunto, valida integridad estructural, publica `document_rejected` para adjuntos no procesables o extrae con Gemini y publica `document_extracted` |
+| `AttachmentDownloadWorker.php` | Worker: consume `document_registered`, descarga el adjunto por URL interna, lo almacena temporalmente en Redis con key lógica `audit:blob:*` y publica `document_downloaded` (o `document_rejected` en fallo) |
+| `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
+| `DocumentExtractionWorker.php` | Worker: consume `document_downloaded`, evalúa integridad estructural, extrae con Gemini y publica `document_extracted` |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
 | `RulesEvaluationWorker.php` | Worker: consume `document_normalized` y `document_rejected`, evalúa policy o genera hallazgo de integridad, publica `rules_evaluated` |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
@@ -97,7 +98,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml` y `docker-compose.prod.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml` y `docker-compose.prod.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 
 ---
@@ -121,8 +122,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Modo | Compose | Descripción |
 |---|---|---|
-| Base local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`. |
-| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y los 6 workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`). |
+| Base local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`. |
+| Producción LAN | `docker-compose.prod.yml` | Imágenes GHCR para frontend, PHP, Nginx y los 7 workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`). |
 
 ---
 

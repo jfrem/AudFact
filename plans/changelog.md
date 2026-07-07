@@ -1,5 +1,32 @@
 # Changelog AudFact
 
+## [2026-07-07] - Fix: Detalles de Telemetría en DAG de Lotes
+
+### Frontend / Observability
+
+- **Zustand `useAuditFlowStore`**:
+  - Corregida la acumulación de `details` en modo lote (`mode === "job"`), donde eventos de documentos distintos podían mezclar `gemini_duration_ms`, `reason` y `error_class` en el mismo nodo agregado.
+  - En modo lote, `details` ahora representa el snapshot de metadata del último evento recibido para el nodo; el merge acumulativo se conserva únicamente para auditoría individual.
+- **Validación**: `npm.cmd run typecheck` ejecutado correctamente. `npm.cmd run lint` queda bloqueado por el asistente interactivo de configuración de ESLint del proyecto.
+
+## [2026-07-07] - Refactor: Desacoplamiento de Descarga de Adjuntos (Clean Rebuild)
+
+### IA Pipeline / Clean Rebuild / Architecture
+
+- **Nuevo Worker `AttachmentDownloadWorker`**:
+  - Extraída la responsabilidad de descarga de blobs desde Google Drive / Base de Datos que anteriormente residía en `DocumentExtractionWorker`.
+  - El nuevo worker consume el evento `document_registered`, descarga el adjunto y lo guarda temporalmente en Redis (blob binario).
+  - Publica el evento `document_downloaded` con `blob_reference_key` y `document_hash`; la key lógica del BLOB temporal usa `audit:blob:*` y `RedisClient` aplica `REDIS_PREFIX`.
+- **Refactor `DocumentExtractionWorker`**:
+  - Ya no depende de `AttachmentDownloadService` ni maneja accesos directos al modelo de datos para descargar.
+  - Ahora consume `document_downloaded`, carga el binario desde Redis usando `blob_reference_key` y lo envía a Gemini.
+  - Los tests unitarios prueban este comportamiento mockeando las llamadas a Redis (`blob_reference_key`).
+- **Pipeline Event-Driven Actualizado**:
+  - `audit_created` -> `document_registered` -> `document_downloaded` -> `document_extracted` -> `document_normalized` -> `rules_evaluated` -> `audit_completed`
+- **Operaciones Docker**:
+  - Añadido `worker-downloader` a la topología local de `docker-compose.yml` con 8 réplicas por defecto (`AUDIT_WORKER_DOWNLOADER_REPLICAS`).
+  - Sincronizada la documentación (`README.md`, `AGENTS.md`, `architecture.md`, `docker-operations.md`).
+
 ## [2026-07-06] - Fix: Re-auditoría e Idempotencia Estricta de Lotes (Clean Rebuild)
 
 ### IA Pipeline / Clean Rebuild / API

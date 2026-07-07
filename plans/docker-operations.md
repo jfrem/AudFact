@@ -46,6 +46,7 @@ Variables de capacidad inicial:
 |---|---:|---|
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | `worker-downloader` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
@@ -101,13 +102,13 @@ publicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`
 Comandos de diagnóstico:
 
 ```bash
-wsl docker compose top worker-batch worker-orchestrator worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
 ```
 
-Estrategia: subir primero `worker-extraction` cuando `event_telemetry.by_stream.audit.documents.queue_wait.avg_ms` crece y Gemini no está devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini.
+Estrategia: subir primero `worker-downloader` cuando la espera aparezca en `document_registered` y Drive/SQL no esté saturado. Subir `worker-extraction` cuando la espera aparezca en `document_downloaded` y Gemini no esté devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini.
 
 Si `XINFO GROUPS` muestra `pending > 0` con `lag=0`, hay eventos entregados a un consumer que no hizo `XACK`. Los workers reclaman esos eventos periódicamente cuando superan `AUDIT_PENDING_RECLAIM_IDLE_MS`; no bajar este valor por debajo del peor caso de duración Gemini, porque puede duplicar procesamiento legítimo en curso.
 
@@ -126,12 +127,14 @@ curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
 curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 
-Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch`
-exista y que Redis haya creado el consumer group de batches:
+Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch` y
+`worker-downloader` existan y que Redis haya creado los consumer groups:
 
 ```bash
 docker compose -f docker-compose.prod.yml ps worker-batch
+docker compose -f docker-compose.prod.yml ps worker-downloader
 docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
+docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.documents
 ```
 
 El flujo automatizado vive en:

@@ -21,6 +21,7 @@ class AuditEventPublisher
         AuditEvent::TYPE_AUDIT_CREATED       => self::STREAM_INBOX,
         AuditEvent::TYPE_BATCH_CREATED       => self::STREAM_INBOX,
         AuditEvent::TYPE_DOCUMENT_REGISTERED => self::STREAM_DOCUMENTS,
+        AuditEvent::TYPE_DOCUMENT_DOWNLOADED => self::STREAM_DOCUMENTS,
         AuditEvent::TYPE_DOCUMENT_EXTRACTED  => self::STREAM_DOCUMENTS,
         AuditEvent::TYPE_DOCUMENT_REJECTED   => self::STREAM_DOCUMENTS,
         AuditEvent::TYPE_DOCUMENT_NORMALIZED => self::STREAM_DOCUMENTS,

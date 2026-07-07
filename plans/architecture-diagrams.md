@@ -48,7 +48,8 @@ C4Container
     Container_Boundary(workers, "Workers CLI PHP") {
         Container(batch, "worker-batch", "BatchRequestedWorker", "Consume batch_requested")
         Container(orchestrator, "worker-orchestrator", "DocumentAuditOrchestrator", "Consume audit_created")
-        Container(extraction, "worker-extraction", "DocumentExtractionWorker", "Consume document_registered")
+        Container(downloader, "worker-downloader", "AttachmentDownloadWorker", "Consume document_registered")
+        Container(extraction, "worker-extraction", "DocumentExtractionWorker", "Consume document_downloaded")
         Container(normalizer, "worker-normalizer", "DocumentNormalizer", "Consume document_extracted")
         Container(policy, "worker-policy", "RulesEvaluationWorker", "Consume document_normalized/document_rejected")
         Container(aggregator, "worker-aggregator", "AuditAggregationWorker", "Consume rules_evaluated")
@@ -68,13 +69,14 @@ C4Container
     Rel(php, orchestrator, "Publica audit_created", "Redis Stream")
     Rel(batch, redis, "XREADGROUP/XADD")
     Rel(orchestrator, redis, "XREADGROUP/XADD")
+    Rel(downloader, redis, "XREADGROUP/XADD + blob temporal")
     Rel(extraction, redis, "XREADGROUP/XADD + cache")
     Rel(normalizer, redis, "XREADGROUP/XADD")
     Rel(policy, redis, "XREADGROUP/XADD")
     Rel(aggregator, redis, "XREADGROUP/XADD + cierre")
     Rel(batch, sqlsrv, "Consulta candidatas batch")
     Rel(orchestrator, sqlsrv, "FDV/config/adjuntos")
-    Rel(extraction, gdrive, "Descarga documentos")
+    Rel(downloader, gdrive, "Descarga documentos")
     Rel(extraction, gemini, "Extraccion IA")
     Rel(aggregator, sqlsrv, "Persistencia final")
 ```
@@ -127,6 +129,7 @@ sequenceDiagram
     participant Redis as Redis Streams/State
     participant Batch as BatchRequestedWorker
     participant Orchestrator as DocumentAuditOrchestrator
+    participant Downloader as AttachmentDownloadWorker
     participant Extractor as DocumentExtractionWorker
     participant Gemini as Gemini API
     participant Normalizer as DocumentNormalizer
@@ -139,13 +142,19 @@ sequenceDiagram
     Batch->>Redis: audit_created por FacSec reservado
     Orchestrator->>SQL: FDV + audit-config + adjuntos
     Orchestrator->>Redis: document_registered por adjunto
-    Extractor->>Redis: descarga + DocumentIntegrityValidator
-    alt Documento no procesable
-        Extractor->>Redis: document_rejected
-    else Documento valido
-        Extractor->>Gemini: function calling paralelo
-        Extractor->>Redis: document_extracted
-        Normalizer->>Redis: document_normalized
+    Downloader->>Redis: guarda BLOB temporal
+    alt Descarga fallida
+        Downloader->>Redis: document_rejected
+    else Descarga exitosa
+        Downloader->>Redis: document_downloaded
+        Extractor->>Redis: lee BLOB + DocumentIntegrityValidator
+        alt Documento no procesable
+            Extractor->>Redis: document_rejected
+        else Documento valido
+            Extractor->>Gemini: function calling paralelo
+            Extractor->>Redis: document_extracted
+            Normalizer->>Redis: document_normalized
+        end
     end
     Policy->>Redis: policy_result por documento
     Policy->>Redis: rules_evaluated cuando docs_done + docs_rejected == docs_total
@@ -187,8 +196,12 @@ classDiagram
         +validate(bytes, mime) ValidationResult
     }
 
-    class DocumentExtractionWorker {
+    class AttachmentDownloadWorker {
         +handle(document_registered) void
+    }
+
+    class DocumentExtractionWorker {
+        +handle(document_downloaded) void
     }
 
     class DocumentNormalizer {
@@ -210,6 +223,7 @@ classDiagram
 
     AuditEventConsumer <|-- BatchRequestedWorker
     AuditEventConsumer <|-- DocumentAuditOrchestrator
+    AuditEventConsumer <|-- AttachmentDownloadWorker
     AuditEventConsumer <|-- DocumentExtractionWorker
     AuditEventConsumer <|-- DocumentNormalizer
     AuditEventConsumer <|-- RulesEvaluationWorker
@@ -219,6 +233,7 @@ classDiagram
     RulesEvaluationWorker --> DocumentPolicyEngine
     BatchRequestedWorker --> AuditEventPublisher
     DocumentAuditOrchestrator --> AuditEventPublisher
+    AttachmentDownloadWorker --> AuditEventPublisher
     DocumentExtractionWorker --> AuditEventPublisher
     DocumentNormalizer --> AuditEventPublisher
     RulesEvaluationWorker --> AuditEventPublisher

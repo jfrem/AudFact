@@ -347,7 +347,7 @@ class AuditController extends Controller
         $facNitSec = (int) $data['facNitSec'];
         $limit = isset($data['limit']) ? (int) $data['limit'] : 100;
 
-        $headers = getallheaders();
+        $headers = $this->getRequestHeaders();
         $idempotencyKey = $headers['X-Idempotency-Key'] ?? $headers['x-idempotency-key'] ?? null;
         if ($idempotencyKey === null || trim((string) $idempotencyKey) === '') {
             Response::error('X-Idempotency-Key header is required', 400);
@@ -468,6 +468,14 @@ class AuditController extends Controller
             'updated_at' => (string) ($state['updated_at'] ?? ''),
             'audits'     => $audits,
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function getRequestHeaders(): array
+    {
+        return function_exists('getallheaders') ? getallheaders() : [];
     }
 
     /**

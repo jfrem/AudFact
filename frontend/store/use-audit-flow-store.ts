@@ -131,7 +131,7 @@ export const useAuditFlowStore = create<AuditFlowState>((set, get) => ({
           metrics: newMetrics,
           worker: stringMeta(event, "worker") ?? targetNode.data.worker,
           durationMs: state.mode === "job" ? undefined : numberMeta(event, "duration_ms") ?? targetNode.data.durationMs,
-          details: { ...(targetNode.data.details ?? {}), ...(event.meta ?? {}) },
+          details: eventDetails(state.mode, targetNode.data.details, event.meta),
         },
       };
 
@@ -251,4 +251,22 @@ function stringMeta(event: AuditTelemetryEvent, key: string): string | undefined
 function numberMeta(event: AuditTelemetryEvent, key: string): number | undefined {
   const value = event.meta?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function eventDetails(
+  mode: AuditFlowState["mode"],
+  currentDetails: Record<string, unknown> | undefined,
+  meta: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | undefined {
+  const eventMeta = meta && Object.keys(meta).length > 0 ? { ...meta } : undefined;
+
+  if (mode === "job") {
+    return eventMeta;
+  }
+
+  if (!currentDetails && !eventMeta) {
+    return undefined;
+  }
+
+  return { ...(currentDetails ?? {}), ...(eventMeta ?? {}) };
 }

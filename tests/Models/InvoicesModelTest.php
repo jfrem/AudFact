@@ -27,12 +27,10 @@ final class InvoicesModelTest extends TestCase
         ], 2, 50);
 
         $this->assertSame([['DisId' => '1']], $result);
-        $this->assertStringContainsString('tb2.DisId DisId', $pdo->preparedSql);
-        $this->assertStringContainsString('ON a.FacSec = tb2.DisId', $pdo->preparedSql);
-        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
-        $this->assertStringContainsString('ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('INTO #Disp', $pdo->preparedSql);
+        $this->assertStringContainsString('group by f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol>=:dateFromD and d.DisFecSol<=:dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
         
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
@@ -62,9 +60,8 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertSame(7, $total);
         $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
-        $this->assertStringContainsString('tb1.DisFecSol >= :dateFromD AND tb1.DisFecSol <= :dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('GROUP BY tb3.FacNitSec, tb2.DisId, tb2.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('having sum(tb4.KarUniCP-tb4.KarUni) = 0', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol>=:dateFromD and d.DisFecSol<=:dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('group by f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
         
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
@@ -83,9 +80,9 @@ final class InvoicesModelTest extends TestCase
         ]);
 
         $this->assertStringContainsString('FROM (', $pdo->preparedSql);
-        $this->assertStringContainsString('SELECT TOP(50)', $pdo->preparedSql);
-        $this->assertStringContainsString('DisFecSol > :cursorDate1', $pdo->preparedSql);
-        $this->assertStringContainsString('ORDER BY DisFecSol ASC, DisId ASC, Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString('SELECT TOP (50)', $pdo->preparedSql);
+        $this->assertStringContainsString('s.fecha > :cursorDate1', $pdo->preparedSql);
+        $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate1']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate2']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate3']);

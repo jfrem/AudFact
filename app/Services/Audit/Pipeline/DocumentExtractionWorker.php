@@ -39,7 +39,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private const ERROR_DUPLICATE_FUNCTION_CALL = 'GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL';
 
     private AuditStateStore $stateStore;
-    private AttachmentDownloadService $downloader;
     private GeminiGateway $gateway;
     private TelemetryPublisher $telemetryPublisher;
     private int $cacheTtl;
@@ -48,7 +47,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     public function __construct(
         ?AuditStateStore                    $stateStore   = null,
-        ?AttachmentDownloadService          $downloader   = null,
         ?GeminiGateway                      $gateway      = null,
         ?\Core\RedisClient                  $redis        = null,
         ?AuditEventPublisher                $publisher    = null,
@@ -59,7 +57,6 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         parent::__construct($redis, $publisher, $stateStore);
 
         $this->stateStore   = $stateStore ?? new AuditStateStore($this->redis);
-        $this->downloader   = $downloader ?? new AttachmentDownloadService();
         $this->gateway      = $gateway    ?? GeminiGateway::create();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName = $consumerName ?? self::defaultConsumerName('extractor');
@@ -91,13 +88,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     protected function handle(AuditEvent $event): void
     {
-        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_REGISTERED) {
+        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_DOWNLOADED) {
             return;
         }
 
         $totalStartTime = microtime(true);
         if ($event->auditId === null || $event->documentId === null) {
-            throw new RuntimeException('document_registered sin audit_id o document_id');
+            throw new RuntimeException('document_downloaded sin audit_id o document_id');
         }
 
         $payload       = $event->payload;
@@ -106,46 +103,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $contract      = $this->requiredArray($payload, 'extraction_contract');
         $documentType  = $this->resolveDocumentType($payload);
         $contractHash  = (string) ($payload['contract_hash'] ?? $contract['contract_hash'] ?? '');
+        $blobKey       = $this->requiredString($payload, 'blob_reference_key');
+        $documentHash  = $this->requiredString($payload, 'document_hash');
+
         $telemetryMeta = [
             'worker' => $this->consumer(),
             'document_type' => $documentType,
         ];
-
-        $downloadStartedAt = hrtime(true);
-        $this->telemetryPublisher->started(
-            $event->auditId,
-            'download',
-            $event->documentId,
-            $disDetNro,
-            $telemetryMeta,
-            $event->jobId
-        );
-
-        try {
-            $downloaded = $this->downloadDocumentWithHash($attachmentId, $disDetNro);
-            $this->telemetryPublisher->completed(
-                $event->auditId,
-                'download',
-                self::elapsedMs($downloadStartedAt),
-                $event->documentId,
-                $disDetNro,
-                array_merge($telemetryMeta, ['attachment_id' => $attachmentId]),
-                $event->jobId
-            );
-        } catch (\Throwable $error) {
-            $this->telemetryPublisher->failed(
-                $event->auditId,
-                'download',
-                self::elapsedMs($downloadStartedAt),
-                $event->documentId,
-                $disDetNro,
-                array_merge($telemetryMeta, ['error_class' => get_class($error)]),
-                $event->jobId
-            );
-            throw $error;
-        }
-        $document = $downloaded['document'];
-        $documentHash = $downloaded['document_hash'];
 
         $extractionStartedAt = hrtime(true);
         $this->telemetryPublisher->started(
@@ -158,6 +122,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         );
 
         try {
+            $document = $this->readDownloadedDocument($blobKey, $documentHash);
             $integrity = DocumentIntegrityValidator::validate($document);
             if (!$integrity['valid']) {
                 $this->handleRejectedDocument($event, $payload, $document, $integrity);
@@ -238,17 +203,44 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     }
 
     /**
-     * @return array{document:array<string,mixed>,document_hash:string}
+     * @return array{mime:string,data:string,duration_ms?:int}
      */
-    private function downloadDocumentWithHash(string $attachmentId, string $disDetNro): array
+    private function readDownloadedDocument(string $blobKey, string $expectedDocumentHash): array
     {
-        $document = $this->downloader->download($attachmentId, $disDetNro);
+        self::assertHash($expectedDocumentHash);
 
-        return [
-            'document' => $document,
-            'document_hash' => hash('sha256', $document['data']),
-        ];
+        try {
+            $documentJson = $this->redis->get($blobKey);
+        } catch (RedisUnavailableException $error) {
+            throw new RuntimeException('Redis no disponible al leer BLOB documental', 0, $error);
+        }
+
+        if ($documentJson === null || $documentJson === '') {
+            throw new RuntimeException("BLOB expirado o no encontrado en Redis para key: {$blobKey}");
+        }
+
+        $document = json_decode($documentJson, true);
+        if (!is_array($document)) {
+            throw new RuntimeException("Formato de BLOB inválido en Redis para key: {$blobKey}");
+        }
+
+        $mime = $document['mime'] ?? null;
+        $data = $document['data'] ?? null;
+        if (!is_string($mime) || trim($mime) === '') {
+            throw new RuntimeException("BLOB documental sin MIME válido en Redis para key: {$blobKey}");
+        }
+        if (!is_string($data) || $data === '') {
+            throw new RuntimeException("BLOB documental sin data base64 en Redis para key: {$blobKey}");
+        }
+
+        $actualDocumentHash = hash('sha256', $data);
+        if (!hash_equals($expectedDocumentHash, $actualDocumentHash)) {
+            throw new RuntimeException('document_hash no coincide con el BLOB descargado');
+        }
+
+        return $document;
     }
+
 
     /**
      * @param  array<string,mixed> $document
@@ -1097,7 +1089,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     {
         $value = $payload[$key] ?? null;
         if (!is_array($value)) {
-            throw new RuntimeException($errorMessage ?? "document_registered sin {$key}");
+            throw new RuntimeException($errorMessage ?? "document_downloaded sin {$key}");
         }
 
         return $value;
@@ -1107,7 +1099,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     {
         $value = trim((string) ($payload[$key] ?? ''));
         if ($value === '') {
-            throw new RuntimeException("document_registered sin {$key}");
+            throw new RuntimeException("document_downloaded sin {$key}");
         }
 
         return $value;

@@ -15,8 +15,8 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 | Archivo | Rol |
 |---|---|
-| `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator` |
-| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR, frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` y los 6 workers async |
+| `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator` |
+| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR, frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` y los 7 workers async |
 | `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
@@ -58,7 +58,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ### Producción
-`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
+`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
 
 ## Variables .env obligatorias
 
@@ -91,6 +91,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | Réplicas del worker que consume `document_registered` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
@@ -128,7 +129,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
 # Inspeccionar réplicas reales de workers
-wsl docker compose top worker-batch worker-orchestrator worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy
 
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
