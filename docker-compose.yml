@@ -1,5 +1,32 @@
 services:
+  # ── Frontend (Next.js) ──
+  # Solo se levanta con: docker compose --profile frontend up
+  # En local se usa `npm run dev` directamente.
+  frontend:
+    image: ${AUDFACT_FRONTEND_IMAGE:-ghcr.io/jfrem/audfact-frontend}:${AUDFACT_IMAGE_TAG:-latest}
+    container_name: audfact-frontend
+    profiles:
+      - frontend
+    depends_on:
+      - nginx
+    ports:
+      - "${AUDFACT_FRONTEND_HOST_PORT:-3100}:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      INTERNAL_API_URL: http://nginx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── PHP-FPM ──
   php:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -7,16 +34,15 @@ services:
         ENABLE_XDEBUG: "0"
         WWWUSER_ID: ${WWWUSER_ID:-33}
         WWWGROUP_ID: ${WWWGROUP_ID:-33}
-    # container_name has been REMOVED to allow replica scaling
+    # container_name removed to allow replica scaling
     env_file:
       - .env
-    # El código fuente se integra en la fase de build (Dockerfile).
-    # Ya NO vinculamos ./:/var/www/html para mantener el entorno de producción inmutable y limpio.
     volumes:
       - ./logs:/var/www/html/logs
       - ./responseIA:/var/www/html/responseIA
     expose:
       - "9000"
+    restart: unless-stopped
     deploy:
       replicas: 5
       resources:
@@ -24,27 +50,35 @@ services:
           memory: 512M
           cpus: '0.5'
     healthcheck:
-      # Verificación real: carga app PHP + SELECT 1 contra SQL Server
       test: ["CMD", "php", "/usr/local/bin/audfact-healthcheck.php"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
+  # ── Redis ──
   redis:
     image: redis:7-alpine
     container_name: audfact-redis
     volumes:
       - redis_data:/data
     environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-4gb}
       REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
-    # CICD-007: Redis authentication required
-    command: redis-server --maxmemory ${REDIS_MAXMEMORY:-4gb} --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru} --save 60 1000 --requirepass ${REDIS_PASSWORD:-audfact_dev_default}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000 --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000
     expose:
       - "6379"
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD:-audfact_dev_default}\" ping"]
+      test: ["CMD-SHELL", "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -53,7 +87,9 @@ services:
         limits:
           memory: ${REDIS_CONTAINER_MEMORY:-5G}
 
+  # ── Nginx ──
   nginx:
+    image: ${AUDFACT_NGINX_IMAGE:-ghcr.io/jfrem/audfact-nginx}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/nginx.Dockerfile
@@ -64,15 +100,17 @@ services:
     ports:
       - "8080:80"
     environment:
-      # Solo sustituir variables que empiecen con AUDIT_
       NGINX_ENVSUBST_FILTER: "AUDIT_"
       AUDIT_NGINX_READ_TIMEOUT: ${AUDIT_NGINX_READ_TIMEOUT:-3600}
+    restart: unless-stopped
 
   # ── Pipeline Event-Driven Workers ──
   # Cada worker consume un stream/tipo de evento específico.
-  # Para escalar, usar: docker compose up -d --scale worker-extraction=3
+  # En local: docker compose up --build
+  # En producción: docker compose up --no-build --profile frontend
 
   worker-orchestrator:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -97,6 +135,7 @@ services:
           cpus: '0.5'
 
   worker-batch:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -121,6 +160,7 @@ services:
           cpus: '0.5'
 
   worker-extraction:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -146,6 +186,7 @@ services:
           cpus: '0.8'
 
   worker-downloader:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -170,6 +211,7 @@ services:
           cpus: '0.5'
 
   worker-normalizer:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -192,6 +234,7 @@ services:
           cpus: '0.5'
 
   worker-policy:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -216,6 +259,7 @@ services:
           cpus: '0.5'
 
   worker-aggregator:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile
