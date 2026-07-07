@@ -53,7 +53,7 @@ jobs:
         run: |
           echo "Validating worker services consistency..."
 
-          REGISTERED=$(grep -oP "'\K\w+(?='\s*=>)" bin/audit-worker.php)
+          REGISTERED=$(grep -oP "^    '\K[a-z_]+(?='\s*=>\s*\[)" bin/audit-worker.php)
           COMPOSE_SERVICES=$(grep -oP '^\s+worker-\K\w+(?=:)' docker-compose.yml | sort -u)
 
           MISSING=""
