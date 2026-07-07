@@ -13,7 +13,7 @@ use RuntimeException;
  * Servicio de descarga de adjuntos de dispensación para el pipeline de auditoría.
  *
  * Resuelve adjuntos BLOB/URL desde el modelo y entrega el contenido binario
- * en base64 al extractor documental del pipeline.
+ * en base64 al worker de descarga del pipeline.
  *
  * Contrato de retorno: array{mime:string, data:string (base64), duration_ms:int}
  */

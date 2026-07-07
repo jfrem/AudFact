@@ -8,7 +8,7 @@
   - Controladores: `AuditControllerTest.php`, `AuditDlqControllerTest.php`, `InvoicesControllerTest.php`
   - Core: `CacheTest.php`, `RedisClientTest.php`, `RedisClientStreamParsingTest.php`
   - Modelos: `AttachmentsModelTest.php`, `DispensationModelTest.php`, `InvoicesModelTest.php`
-  - Pipeline/eventos: `DocumentAuditOrchestratorTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentIntegrityValidatorTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditAggregationWorkerTest.php`, `AuditEvent*`, `AuditStateStoreTest.php`
+  - Pipeline/eventos: `DocumentAuditOrchestratorTest.php`, `AttachmentDownloadWorkerTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentIntegrityValidatorTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditAggregationWorkerTest.php`, `AuditEvent*`, `AuditStateStoreTest.php`
   - Policy/scoring: `DocumentPolicyEngineTest.php`, `AuditFindingRulesNormalizationTest.php`, `AuditFieldValueTypeTest.php`, `DeliveryValidityEvaluatorTest.php`, `TextNormalizationTest.php`
   - MCP tools: `GetAttachmentsTest.php`, `GetDispensationTest.php`
 - CI ejecuta pruebas unitarias con `vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always`.

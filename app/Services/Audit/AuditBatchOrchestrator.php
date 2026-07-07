@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
-use App\Models\AuditStatusModel;
 use App\Models\InvoicesModel;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\BatchJobStore;
@@ -26,8 +25,7 @@ final class AuditBatchOrchestrator
         private readonly AuditStateStore $stateStore,
         private readonly BatchJobStore $jobStore,
         private readonly AuditEventPublisher $publisher,
-        private readonly InvoicesModel $invoicesModel,
-        private readonly ?AuditStatusModel $auditStatusModel = null
+        private readonly InvoicesModel $invoicesModel
     ) {}
 
     /**
@@ -98,11 +96,6 @@ final class AuditBatchOrchestrator
 
                     $disDetNro = $invoiceIdentity['dis_det_nro'];
                     $disId = $invoiceIdentity['dis_id'];
-
-                    if ($this->isAuditAlreadyPersisted($disDetNro)) {
-                        $skippedExisting++;
-                        continue;
-                    }
 
                     $auditId = AuditEvent::uuidV4();
                     $reservationToken = AuditEvent::uuidV4();
@@ -208,12 +201,6 @@ final class AuditBatchOrchestrator
         }
 
         return $invoiceIdentity;
-    }
-
-    private function isAuditAlreadyPersisted(string $facNro): bool
-    {
-        return $this->auditStatusModel !== null
-            && $this->auditStatusModel->getAuditDetailByFacNro($facNro) !== null;
     }
 
     /**

@@ -1,7 +1,10 @@
 import React from "react";
+import { useParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { X, Code2, Activity, Hash, Layers, AlertTriangle, Info } from "lucide-react";
 
 import { useAuditFlowStore } from "@/store/use-audit-flow-store";
+import { auditJobQuery } from "@/lib/query/audit";
 
 const STATUS_CLASS = {
   completed: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20",
@@ -11,14 +14,37 @@ const STATUS_CLASS = {
   pending: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
 } as const;
 
+const FAILED_STAGE_MAP: Record<string, string> = {
+  "App\\Services\\Audit\\Pipeline\\DocumentAuditOrchestrator": "orchestration",
+  "App\\Services\\Audit\\Pipeline\\DocumentExtractionWorker": "extraction",
+  "App\\Services\\Audit\\Pipeline\\DocumentNormalizationWorker": "normalization",
+  "App\\Services\\Audit\\Pipeline\\RulesEvaluationWorker": "policy",
+  "final_persistence": "aggregation",
+};
+
 export function NodeInspector() {
   const { selectedNode, setSelectedNode } = useAuditFlowStore();
+
+  const params = useParams();
+  const jobId = typeof params?.jobId === "string" ? params.jobId : undefined;
+  
+  const { data: jobData } = useQuery({
+    ...auditJobQuery(jobId!),
+    enabled: Boolean(jobId),
+  });
 
   if (!selectedNode) {
     return null;
   }
 
   const { data, id } = selectedNode;
+  
+  const failedAudits = jobData?.audits?.filter((a) => 
+    a.status === "failed" && 
+    a.failed_stage && 
+    FAILED_STAGE_MAP[a.failed_stage] === id
+  ) || [];
+
   const hasDetails = data.details && Object.keys(data.details).length > 0;
 
   const observation = typeof data.details?.observation === "string" ? data.details.observation : null;
@@ -84,6 +110,28 @@ export function NodeInspector() {
                   <span className="text-[10px] font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider">Total</span>
                   <span className="text-lg font-light text-slate-700 dark:text-slate-300">{data.metrics.total}</span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {failedAudits.length > 0 && (data.metrics?.failed ? data.metrics.failed > 0 : data.state === "failed") && (
+            <div className="rounded-lg border border-rose-900/50 bg-rose-950/20 p-3 text-rose-200">
+              <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-500">
+                <AlertTriangle className="h-3 w-3" /> Facturas con Fallo Crítico ({failedAudits.length})
+              </span>
+              <div className="text-[11px] leading-relaxed text-rose-200/80 mb-2">
+                Documentos trasladados al <strong>Dead Letter Queue (DLQ)</strong> por estar corruptos, sin páginas, o por errores de origen.
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {failedAudits.map((a) => (
+                  <span
+                    key={a.audit_id}
+                    className="rounded border border-rose-800/60 bg-rose-950/40 px-1.5 py-0.5 font-mono text-[10px] text-rose-300 shadow-sm"
+                    title={`Audit ID: ${a.audit_id}`}
+                  >
+                    {a.dis_det_nro || a.audit_id}
+                  </span>
+                ))}
               </div>
             </div>
           )}

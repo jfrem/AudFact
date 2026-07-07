@@ -100,7 +100,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      <div className="h-1 overflow-hidden rounded-full bg-slate-800/50">
+      <div className="h-1 flex-shrink-0 overflow-hidden rounded-full bg-slate-800/50">
         <div
           className="h-full rounded-full bg-sky-500 transition-all duration-300"
           style={{ width: `${Math.min(progressPct, 100)}%` }}
@@ -112,10 +112,11 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
           variant="destructive"
           className="border-rose-900/50 bg-rose-950/20 text-rose-200"
         >
-          <AlertTriangle className="text-rose-500" />
+          <AlertTriangle className="h-4 w-4 text-rose-500" />
           <AlertDescription>{data.error}</AlertDescription>
         </Alert>
       )}
+
 
       <div className="min-h-[400px] flex-1">
         <AuditFlowGraph />

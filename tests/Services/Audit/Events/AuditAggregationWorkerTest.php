@@ -258,6 +258,7 @@ class AggregationRecordingStateStore extends AuditStateStore
 class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
 {
     public array $lastJobCompletion = [];
+    public array $calls = [];
     private bool $batchTerminalClaimed = false;
     public array $releasedReservations = [];
 
@@ -274,15 +275,23 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
     public function markAuditCompletedInJob(
         string $jobId,
         string $auditId,
-        string $auditStatus,
-        int $auditDurationMs = 0
-    ): bool
-    {
+        string $status,
+        int $durationMs = 0,
+        ?string $failedStage = null
+    ): bool {
+        $this->calls[] = [
+            'method'          => 'markAuditCompletedInJob',
+            'jobId'           => $jobId,
+            'auditId'         => $auditId,
+            'status'          => $status,
+            'durationMs'      => $durationMs,
+            'failedStage'     => $failedStage,
+        ];
         $this->lastJobCompletion = [
             'job_id' => $jobId,
             'audit_id' => $auditId,
-            'status' => $auditStatus,
-            'duration_ms' => $auditDurationMs,
+            'status' => $status,
+            'duration_ms' => $durationMs,
         ];
         return true;
     }

@@ -25,6 +25,7 @@ graph TB
     subgraph Workers["Workers CLI PHP"]
         Batch["worker-batch<br/>2 replicas"]
         Orchestrator["worker-orchestrator<br/>3 replicas"]
+        Downloader["worker-downloader<br/>8 replicas"]
         Extraction["worker-extraction<br/>8 replicas"]
         Normalizer["worker-normalizer<br/>1 replica"]
         Policy["worker-policy<br/>2 replicas"]
@@ -43,14 +44,15 @@ graph TB
     PHP --> Redis
     Redis --> Batch
     Redis --> Orchestrator
+    Redis --> Downloader
     Redis --> Extraction
     Redis --> Normalizer
     Redis --> Policy
     Redis --> Aggregator
     Batch --> SQLSRV
     Orchestrator --> SQLSRV
+    Downloader --> Drive
     Extraction --> Gemini
-    Extraction --> Drive
     Aggregator --> SQLSRV
 ```
 
@@ -60,8 +62,8 @@ graph TB
 
 | Archivo | Uso actual | Observacion |
 |---|---|---|
-| `docker-compose.yml` | Build local/base | Incluye `php`, `redis`, `nginx` y los 6 servicios de worker, incluido `worker-batch`. |
-| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR, publica el frontend y levanta los 6 servicios de worker. |
+| `docker-compose.yml` | Build local/base | Incluye `php`, `redis`, `nginx` y los 7 servicios de worker, incluido `worker-downloader`. |
+| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR, publica el frontend y levanta los 7 servicios de worker. |
 
 ### PHP-FPM
 
@@ -91,6 +93,7 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 |---|---|---:|
 | `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` |
 | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
+| `worker-downloader` | `AttachmentDownloadWorker` | `AUDIT_WORKER_DOWNLOADER_REPLICAS=8` |
 | `worker-extraction` | `DocumentExtractionWorker` | `8` |
 | `worker-normalizer` | `DocumentNormalizer` | `1` |
 | `worker-policy` | `RulesEvaluationWorker` | `2` |

@@ -314,6 +314,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_EXTRACTION_CACHE_TTL` | `604800` | ❌ | `ExtractionCache` — TTL en segundos del cache documental por `document_hash` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | ❌ | `docker-compose*.yml` — réplicas de orquestadores `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas del worker `batch_requested` |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de descarga de adjuntos |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | ❌ | `docker-compose*.yml` — réplicas de extractores Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | ❌ | `docker-compose*.yml` — réplicas de evaluación de reglas |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | ❌ | `BatchJobStore` — TTL de barrera `X-Idempotency-Key` |
@@ -515,8 +516,8 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 ### Pipeline de auditoría IA
 
 - **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
-- **Pipeline event-driven actual**: `audit_created -> document_registered -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
-- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
+- **Pipeline event-driven actual**: `audit_created -> document_registered -> document_downloaded -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
+- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `AttachmentDownloadWorker`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
 - **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
 - **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
 - **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `DisId` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `DisId` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`

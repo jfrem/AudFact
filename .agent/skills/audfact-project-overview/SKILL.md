@@ -33,13 +33,13 @@ AudFact/
 ├── app/
 │   ├── Controllers/     # 11 controladores HTTP (incluye base)
 │   ├── Models/          # 7 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # GoogleDrive + Audit/ (37 archivos: Pipeline/ + raíz)
+│   ├── Services/        # GoogleDrive + Audit/ (40 archivos: Pipeline/ + raíz)
 │   ├── Routes/web.php   # 27 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, extraction×8, normalizer, policy×2, aggregator)
+├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, downloader×8, extraction×8, normalizer, policy×2, aggregator)
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
 ├── responseIA/          # Snapshots de request/response Gemini (debug)
@@ -93,24 +93,29 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ construye `extraction_contract` con cuatro function declarations paralelas desde audit-config
    └─ publica N × `document_registered` en `audit.documents`
 
-3. DocumentExtractionWorker (group: extractors, ×8 réplicas)
+3. AttachmentDownloadWorker (group: downloaders, ×8 réplicas)
    ├─ descarga adjunto (Drive URL o BLOB)
+   ├─ guarda el BLOB temporal en Redis con key lógica `audit:blob:*`
+   └─ publica `document_downloaded` o `document_rejected`
+
+4. DocumentExtractionWorker (group: extractors, ×8 réplicas)
+   ├─ consume `document_downloaded`
    ├─ valida integridad estructural con `DocumentIntegrityValidator`
    ├─ si no es procesable → publica `document_rejected` sin consumir Gemini
-   ├─ document_hash = sha256(file) → cache Redis
+   ├─ document_hash = sha256(base64) → cache Redis
    └─ si es válido: Gemini function calling → publica `document_extracted`
 
-4. DocumentNormalizer (group: normalizers)
+5. DocumentNormalizer (group: normalizers)
    ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío
    └─ publica `document_normalized`
 
-5. RulesEvaluationWorker (group: policy)
+6. RulesEvaluationWorker (group: policy)
    ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
    ├─ `document_rejected` → hallazgo `RECHAZADO` con `tipo_auditoria=integrity`
    ├─ ArticleSemanticMatchJudge como fallback exclusivo de homologación de artículos
    └─ cuando docs_done == docs_total, publica `rules_evaluated` en `audit.results`
 
-6. AuditAggregationWorker (group: aggregator)
+7. AuditAggregationWorker (group: aggregator)
    ├─ AuditResultData + documentDecisions
    ├─ AuditStatusModel.persistAuditResultWithAttachments()
    │    → MERGE Discolnet.dbo.AudDispEst + UPDATE AdjuntosDispensacionDetalle

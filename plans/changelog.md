@@ -1,5 +1,52 @@
 # Changelog AudFact
 
+## [2026-07-07] - Fix: Detalles de Telemetría en DAG de Lotes
+
+### Frontend / Observability
+
+- **Zustand `useAuditFlowStore`**:
+  - Corregida la acumulación de `details` en modo lote (`mode === "job"`), donde eventos de documentos distintos podían mezclar `gemini_duration_ms`, `reason` y `error_class` en el mismo nodo agregado.
+  - En modo lote, `details` ahora representa el snapshot de metadata del último evento recibido para el nodo; el merge acumulativo se conserva únicamente para auditoría individual.
+- **Validación**: `npm.cmd run typecheck` ejecutado correctamente. `npm.cmd run lint` queda bloqueado por el asistente interactivo de configuración de ESLint del proyecto.
+
+## [2026-07-07] - Refactor: Desacoplamiento de Descarga de Adjuntos (Clean Rebuild)
+
+### IA Pipeline / Clean Rebuild / Architecture
+
+- **Nuevo Worker `AttachmentDownloadWorker`**:
+  - Extraída la responsabilidad de descarga de blobs desde Google Drive / Base de Datos que anteriormente residía en `DocumentExtractionWorker`.
+  - El nuevo worker consume el evento `document_registered`, descarga el adjunto y lo guarda temporalmente en Redis (blob binario).
+  - Publica el evento `document_downloaded` con `blob_reference_key` y `document_hash`; la key lógica del BLOB temporal usa `audit:blob:*` y `RedisClient` aplica `REDIS_PREFIX`.
+- **Refactor `DocumentExtractionWorker`**:
+  - Ya no depende de `AttachmentDownloadService` ni maneja accesos directos al modelo de datos para descargar.
+  - Ahora consume `document_downloaded`, carga el binario desde Redis usando `blob_reference_key` y lo envía a Gemini.
+  - Los tests unitarios prueban este comportamiento mockeando las llamadas a Redis (`blob_reference_key`).
+- **Pipeline Event-Driven Actualizado**:
+  - `audit_created` -> `document_registered` -> `document_downloaded` -> `document_extracted` -> `document_normalized` -> `rules_evaluated` -> `audit_completed`
+- **Operaciones Docker**:
+  - Añadido `worker-downloader` a la topología local de `docker-compose.yml` con 8 réplicas por defecto (`AUDIT_WORKER_DOWNLOADER_REPLICAS`).
+  - Sincronizada la documentación (`README.md`, `AGENTS.md`, `architecture.md`, `docker-operations.md`).
+
+## [2026-07-06] - Fix: Re-auditoría e Idempotencia Estricta de Lotes (Clean Rebuild)
+
+### IA Pipeline / Clean Rebuild / API
+
+- **Re-auditoría de documentos corregidos**:
+  - Eliminada la validación redundante `isAuditAlreadyPersisted` de `AuditBatchOrchestrator`, desvinculando la tabla de resultados (`AudDispEst`) de la cola de procesamiento. El orquestador ahora confía en la consulta SQL pura (`where s.EstSop = 0`), permitiendo que adjuntos devueltos manualmente al estado 'Pendiente' sean re-auditados.
+  - Se removió la dependencia estructural de `AuditStatusModel` en el orquestador asíncrono, avanzando en la política de cero acoplamiento innecesario.
+- **Idempotencia Estricta Fail-Fast**:
+  - `AuditController::async()` ya no autogenera un UUID si la cabecera `X-Idempotency-Key` está ausente. En su lugar, lanza un error HTTP 400.
+  - Previene que doble clicks en la UI provoquen la generación en cascada de lotes paralelos.
+- **Implementación Frontend**:
+  - `audit-batch-console.tsx` y `audfact.ts` actualizados para inyectar `X-Idempotency-Key` generado mediante la librería `uuid`.
+  - El UUID se enlaza al estado `pendingValues`, garantizando que acciones de reintento utilicen exactamente el mismo key.
+  - Refactorización **Clean-Rebuild** en el frontend:
+    - Extracción de tipo `BatchPayload` en `audit-batch-console.tsx` eliminando redundancia inline.
+    - Separación de responsabilidad en `audit-batch-console.tsx` moviendo el transporte del header (`idempotencyKey`) a un `useRef` dedicado, limpiando el payload de dominio.
+    - Eliminación del código muerto y redundante en `job-detail-client.tsx` (div wrapper innecesario) y `node-inspector.tsx`.
+    - Eliminación de firma opcional permisiva en `audfact.ts`, forzando en compilación la inclusión de la cabecera `idempotencyKey` para alinearse estrictamente al backend (HTTP 400).
+- **DOCS-SYNC**: Generada la especificación SDD Nivel A (`implementation_plan.md`) y documentado en el changelog.
+
 ## [2026-06-25] - Refactor: Limpieza clean code del diff activo
 
 ### Clean Rebuild / Backend / Frontend

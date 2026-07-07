@@ -9,7 +9,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Backend | PHP 8.2-FPM — Framework MVC custom |
 | Base de datos | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`) |
 | IA | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`) |
-| Pipeline | Event-driven sobre Redis Streams (6 servicios de worker especializados) |
+| Pipeline | Event-driven sobre Redis Streams (7 servicios de worker especializados) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 → PHP-FPM |
 | Contenedores | Docker Compose (dev) / GHCR + docker-compose.prod.yml (prod) |
@@ -25,7 +25,7 @@ AudFact/
 │   ├── Controllers/       # 11 controladores HTTP (incluye base).
 │   ├── Models/            # 7 modelos SQL Server (incluye base).
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
-│   │   └── Audit/         # 15 archivos raíz + Pipeline/ (22 archivos).
+│   │   └── Audit/         # 16 archivos raíz + Pipeline/ (24 archivos).
 │   │       └── Pipeline/  # Workers, policy engine, normalización, agregación.
 │   ├── Routes/            # web.php — 27 rutas registradas.
 │   └── wrap/              # Integración MCP (4 tools).
@@ -96,6 +96,7 @@ npm run dev
 | `REDIS_PASSWORD` / `REDIS_MODE` | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`) |
 | `AUDIT_WORKER_BATCH_REPLICAS` | Réplicas del worker de batches (default: `2`) |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | Réplicas de orquestadores async (default: `3`) |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | Réplicas de descargadores de adjuntos (default: `8`) |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | Réplicas de extractores Gemini (default: `8`) |
 | `AUDIT_WORKER_POLICY_REPLICAS` | Réplicas de evaluación de reglas (default: `2`) |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`) |
@@ -186,11 +187,11 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 ## Pipeline de Auditoría IA
 
-El sistema utiliza un pipeline event-driven sobre Redis Streams con 6 servicios de worker especializados:
+El sistema utiliza un pipeline event-driven sobre Redis Streams con 7 servicios de worker especializados:
 
 ```
-BatchRequestedWorker → DocumentAuditOrchestrator → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditAggregationWorker
-      (batch)              (orchestrator)            (extraction)              (normalizer)         (policy)               (aggregator)
+BatchRequestedWorker → DocumentAuditOrchestrator → AttachmentDownloadWorker → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditAggregationWorker
+      (batch)              (orchestrator)            (downloader)              (extraction)              (normalizer)         (policy)               (aggregator)
 ```
 
 Cada worker consume eventos del stream correspondiente, procesa su etapa y publica el resultado al siguiente. El flujo incluye:
@@ -207,7 +208,7 @@ Características:
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
-- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-extraction` y `worker-policy` sin perder idempotencia por `DisId`.
+- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction` y `worker-policy` sin perder idempotencia por `DisId`.
 
 ## Docker
 
@@ -233,7 +234,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
 AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
-`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 6 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR, no construye en el servidor y levanta la misma topología funcional de workers (`batch`, `orchestrator`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance en producción.
+`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 7 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR, no construye en el servidor y levanta la misma topología funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance en producción.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
 En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.

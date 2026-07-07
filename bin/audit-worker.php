@@ -21,6 +21,10 @@ $registry = [
         'class' => \App\Services\Audit\Pipeline\DocumentExtractionWorker::class,
         'requiredEnv' => ['AUDIT_INTERNAL_API_BASE', 'GEMINI_API_KEY'],
     ],
+    'downloader' => [
+        'class' => \App\Services\Audit\Pipeline\AttachmentDownloadWorker::class,
+        'requiredEnv' => ['AUDIT_INTERNAL_API_BASE'],
+    ],
     'normalizer' => [
         'class' => \App\Services\Audit\Pipeline\DocumentNormalizer::class,
         'requiredEnv' => [],

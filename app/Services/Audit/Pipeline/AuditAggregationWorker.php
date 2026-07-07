@@ -138,7 +138,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
                     $event->jobId,
                     $event->auditId,
                     $aggregate['final_status'],
-                    self::resolveAggregateDurationMs($aggregate)
+                    self::resolveAggregateDurationMs($aggregate),
+                    $aggregate['final_status'] === AuditStateStore::AUDIT_STATUS_FAILED ? 'final_persistence' : null
                 );
             }
             
@@ -280,7 +281,8 @@ final class AuditAggregationWorker extends AuditEventConsumer
                 $event->jobId,
                 $event->auditId,
                 AuditStateStore::AUDIT_STATUS_FAILED,
-                self::resolveAggregateDurationMs($aggregate)
+                self::resolveAggregateDurationMs($aggregate),
+                $failedPayload['failed_stage']
             );
         }
 

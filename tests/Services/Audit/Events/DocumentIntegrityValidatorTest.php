@@ -72,4 +72,17 @@ final class DocumentIntegrityValidatorTest extends TestCase
         $this->assertFalse($result['valid']);
         $this->assertSame('UNSUPPORTED_MIME', $result['reason']);
     }
+
+    public function testRejectsEncryptedPdf(): void
+    {
+        $result = DocumentIntegrityValidator::validate([
+            'mime' => 'application/pdf',
+            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<< /Encrypt 2 0 R >>\nendobj\n"),
+            'duration_ms' => 10,
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('ENCRYPTED_DOCUMENT', $result['reason']);
+        $this->assertSame('application/pdf', $result['detected_mime']);
+    }
 }

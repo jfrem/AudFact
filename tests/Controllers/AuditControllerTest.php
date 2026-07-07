@@ -345,6 +345,11 @@ final class TestableAuditController extends AuditController
         return $this->body;
     }
 
+    protected function getRequestHeaders(): array
+    {
+        return ['X-Idempotency-Key' => 'test-uuid-1234'];
+    }
+
     protected function buildStateStore(): AuditStateStore
     {
         return $this->stateStore ?? new StubAuditStateStore();
