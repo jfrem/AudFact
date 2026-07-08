@@ -7,7 +7,7 @@ curl -X POST http://localhost:8080/audit ^
   -H "Content-Type: application/json" ^
   -d "{\"facNitSec\":1165,\"date\":\"2025-12-30\",\"limit\":1}"
 ```
-2. Verificar archivo generado en `responseIA/<DisDetNro>.json`.
+2. Verificar archivo generado en `logs/responseIA/<DisDetNro>_*.json` cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1`.
 
 ## Failure path: GEMINI_API_KEY faltante
 Condicion: variable de entorno vacia.

@@ -17,7 +17,7 @@
 - **Rutas**: `app/Routes/web.php` — Definición centralizada de endpoints.
 - **Punto de entrada**: `public/index.php` — Bootstrap, CORS, rate limit, dispatch.
 - **MCP Integration**: `app/wrap/` — Webhook y herramientas para agentes IA.
-- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`, `docker-compose.prod.yml`
+- **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
 - **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
@@ -160,7 +160,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - **Archivo de referencia**: `.env.example` — mantenerlo actualizado.
 - **Inmutabilidad**: El código en producción NO puede modificarse desde el host (Zero-Source).
 - Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
-- **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben configurarse como GitHub Variables con host/IP limpio, sin instancia ni puerto embebido. Valores vigentes: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
+- **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben configurarse como GitHub Variables con host/IP limpio, sin instancia ni puerto embebido. `DB_PORT=1433`, `DB2_PORT=1433`.
 
 #### Guardrails de seguridad
 
@@ -199,11 +199,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 | Variable                     | Default                          | Requerida     | Módulo / Uso                                                             |
 | ---------------------------- | -------------------------------- | ------------- | ------------------------------------------------------------------------ |
-| `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.prod.yml` — imagen PHP-FPM/workers publicada en GHCR     |
-| `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.prod.yml` — imagen Nginx publicada en GHCR               |
-| `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.prod.yml` — imagen frontend Next.js publicada en GHCR    |
-| `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.prod.yml` — tag inmutable por SHA o rollback manual      |
-| `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.prod.yml` — puerto LAN dedicado para el frontend AudFact |
+| `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.yml` — imagen PHP-FPM/workers publicada en GHCR          |
+| `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.yml` — imagen Nginx publicada en GHCR                    |
+| `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.yml` — imagen frontend Next.js publicada en GHCR         |
+| `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.yml` — tag inmutable por SHA o rollback manual           |
+| `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.yml` — puerto LAN dedicado para el frontend AudFact      |
 
 ### Frontend público
 
@@ -253,6 +253,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `LOG_LEVEL`          | `info`  | ❌        | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`) |
 | `LOG_RETENTION_DAYS` | `7`     | ❌        | `Core\Logger` — días antes de borrar logs                 |
 | `LOG_MAX_SIZE_MB`    | `10`    | ❌        | `Core\Logger` — tamaño máximo por archivo                 |
+| `AUDIT_RESPONSE_IA_ENABLED` | `1` | ❌ | `ResponseIADiskStore` — snapshots Gemini solo en `APP_ENV=development`; usar `0` en producción |
+| `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | ❌ | `ResponseIADiskStore` — directorio configurable de snapshots locales |
 
 ### Seguridad y red
 
@@ -290,11 +292,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------ |
 | `REDIS_HOST`             | `redis`               | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                             |
 | `REDIS_PORT`             | `6379`                | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                    |
-| `REDIS_PASSWORD`         | `audfact_dev_default` | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
+| `REDIS_PASSWORD`         | _(vacío)_             | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
 | `REDIS_PREFIX`           | `audfact:`            | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                   |
-| `REDIS_MAXMEMORY`        | `4gb`                 | ❌             | `docker-compose*.yml` — límite interno de memoria Redis (`--maxmemory`)              |
-| `REDIS_MAXMEMORY_POLICY` | `volatile-lru`        | ❌             | `docker-compose*.yml` — política de evicción Redis para llaves con TTL               |
-| `REDIS_CONTAINER_MEMORY` | `5G`                  | ❌             | `docker-compose*.yml` — límite de memoria del contenedor Redis                       |
+| `REDIS_MAXMEMORY`        | `4gb`                 | ❌             | `docker-compose.yml` — límite interno de memoria Redis (`--maxmemory`)               |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru`        | ❌             | `docker-compose.yml` — política de evicción Redis para llaves con TTL                |
+| `REDIS_CONTAINER_MEMORY` | `5G`                  | ❌             | `docker-compose.yml` — límite de memoria del contenedor Redis                        |
 | `REDIS_MODE`             | `standalone`          | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                       |
 | `REDIS_SENTINELS`        | _(comentado)_         | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                              |
 | `REDIS_SENTINEL_SERVICE` | _(comentado)_         | ⚠️ Sentinel    | Nombre del master Sentinel                                                           |
@@ -317,11 +319,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_INTERNAL_API_BASE`            | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                     |
 | `AUDIT_CACHE_TTL`                    | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría           |
 | `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose*.yml` — réplicas de orquestadores `audit_created`                   |
-| `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose*.yml` — réplicas del worker `batch_requested`                       |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose*.yml` — réplicas de descarga de adjuntos                            |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose*.yml` — réplicas de extractores Gemini                              |
-| `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose*.yml` — réplicas de evaluación de reglas                            |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                    |
+| `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                        |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de extractores Gemini                               |
+| `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
 | `AUDIT_JOB_TTL`                      | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                |
 | `AUDIT_STATE_TTL`                    | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                        |
@@ -541,7 +543,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
 - **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
 - **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacNro` sin reescribir adjuntos
-- **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
+- **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
 - **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
 - **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
@@ -566,7 +568,7 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 | `vendor/*`      | Gestionado por Composer                             |
 | `.env`          | Contiene credenciales reales                        |
 | `logs/*`        | Generados por la aplicación                         |
-| `responseIA/*`  | Respuestas crudas de Gemini para debug              |
+| `logs/responseIA/*`  | Respuestas crudas de Gemini para debug local        |
 | `composer.lock` | Solo modificar indirectamente vía `composer update` |
 
 ### Archivos que SIEMPRE deben actualizarse en conjunto
@@ -917,10 +919,10 @@ docker exec -it audfact-php composer update vendor/package
 
 ### Contexto operativo CI/CD vigente
 
-- Producción LAN despliega por GitHub Actions con runner `self-hosted` label `audfact-prod-lan`, imágenes GHCR por SHA y `docker-compose.prod.yml`.
+- Producción LAN despliega por GitHub Actions con runner `self-hosted` label `audfact-prod-lan`, imágenes GHCR por SHA y `docker-compose.yml` con perfil `frontend`.
 - El workflow `.github/workflows/deploy-production.yml` regenera `/home/admon/audfact-prod/.env` en cada deploy desde GitHub Secrets/Variables.
-- Incidente resuelto el 2026-05-13: `DB_HOST`/`DB2_HOST` llegaron como `169.46.6.53SQL2022` y `169.46.6.55SQL2022_REPLICA`, provocando `Login timeout expired`, `php` unhealthy y workers reiniciando.
-- Corrección permanente: GitHub Variables `production` quedaron como `DB_HOST=169.46.6.53` y `DB2_HOST=169.46.6.55`.
+- Incidente resuelto el 2026-05-13: `DB_HOST`/`DB2_HOST` llegaron con instancia embebida (ej: `<IP>SQL2022`), provocando `Login timeout expired`, `php` unhealthy y workers reiniciando.
+- Corrección permanente: GitHub Variables `production` quedaron con host/IP limpio (sin instancia ni puerto).
 - Guardrail actual: el workflow normaliza `host\instancia` a host base, rechaza hosts malformados, ejecuta preflight PDO/sqlsrv antes de recrear contenedores y falla temprano si SQL no conecta.
 - Última verificación conocida: workflow `Deploy Production - AudFact` run `25812026509` completó exitosamente con `Preflight SQL connectivity`, `Start production stack` y `Health check`.
 

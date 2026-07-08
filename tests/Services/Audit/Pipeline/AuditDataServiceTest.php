@@ -9,8 +9,8 @@ use App\Models\AuditConfigModel;
 use App\Models\ClientsModel;
 use App\Models\DispensationModel;
 use App\Services\Audit\Pipeline\AuditDataService;
+use DomainException;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 /**
  * Prueba de integración ligera: AuditDataService → DispensationModel stub.
@@ -45,7 +45,7 @@ final class AuditDataServiceTest extends TestCase
 
         $service = $this->buildService($stub);
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(DomainException::class);
         $this->expectExceptionMessage('FDV vacía para filtros');
 
         $service->getDispensation(['dis_id' => 'nonexistent']);
@@ -76,11 +76,37 @@ final class AuditDataServiceTest extends TestCase
         $this->assertArrayHasKey('header', $result);
     }
 
-    private function buildService(SpyDispensationModel $dispensation): AuditDataService
+    public function testGetAuditConfigThrowsDomainExceptionWhenConfigDoesNotExist(): void
+    {
+        $config = new StubAuditConfigModel();
+        $config->nextConfig = null;
+
+        $service = $this->buildService(new SpyDispensationModel(), $config);
+
+        $this->expectException(DomainException::class);
+        $this->expectExceptionMessage("audit-config no existe para NitSec '2426'");
+
+        $service->getAuditConfig('2426');
+    }
+
+    public function testGetAuditConfigThrowsDomainExceptionWhenConfigIsInactive(): void
+    {
+        $config = new StubAuditConfigModel();
+        $config->nextConfig = ['activo' => false];
+
+        $service = $this->buildService(new SpyDispensationModel(), $config);
+
+        $this->expectException(DomainException::class);
+        $this->expectExceptionMessage("audit-config inactiva para NitSec '2426'");
+
+        $service->getAuditConfig('2426');
+    }
+
+    private function buildService(SpyDispensationModel $dispensation, ?AuditConfigModel $configModel = null): AuditDataService
     {
         // Crear stubs sin conexión a BD usando ReflectionClass
         $clientsStub = (new \ReflectionClass(ClientsModel::class))->newInstanceWithoutConstructor();
-        $configStub  = (new \ReflectionClass(AuditConfigModel::class))->newInstanceWithoutConstructor();
+        $configStub  = $configModel ?? (new \ReflectionClass(AuditConfigModel::class))->newInstanceWithoutConstructor();
         $attachStub  = (new \ReflectionClass(AttachmentsModel::class))->newInstanceWithoutConstructor();
 
         return new AuditDataService(
@@ -108,5 +134,20 @@ final class SpyDispensationModel extends DispensationModel
     {
         $this->receivedFilters = $filters;
         return $this->nextRows;
+    }
+}
+
+final class StubAuditConfigModel extends AuditConfigModel
+{
+    /** @var array<string,mixed>|null */
+    public ?array $nextConfig = null;
+
+    public function __construct()
+    {
+    }
+
+    public function getConfig(string $nitSec): ?array
+    {
+        return $this->nextConfig;
     }
 }

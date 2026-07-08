@@ -21,7 +21,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | **IA** | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | **Almacenamiento** | Google Drive (JWT) + BLOB en BD |
 | **Web Server** | Nginx 1.25 → PHP-FPM (FastCGI `:9000`) |
-| **Contenedores** | `docker-compose.yml` (backend, workers, redis) + `docker-compose.prod.yml` (frontend productivo e imágenes GHCR) |
+| **Contenedores** | `docker-compose.yml` unico (backend, workers, redis y frontend productivo por perfil `frontend`) |
 | **Frontend** | Next.js 15.5.15 (App Router) + React 19 |
 | **Dependencias** | Guzzle 7.x, firebase/php-jwt 7.x |
 

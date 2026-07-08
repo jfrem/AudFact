@@ -13,6 +13,7 @@ composer.lock
 /logs/*.log
 /logs/ratelimit.json
 /logs/ratelimit.lock
+/logs/responseIA/
 .phpunit.cache
 /responseIA/
 /tmp/
@@ -40,3 +41,5 @@ Thumbs.db
 CLAUDE.md
 GEMINI.md
 .cursorrules
+.env.production
+*.bak

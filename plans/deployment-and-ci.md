@@ -34,10 +34,10 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 
 | Variable | Requerido | Descripción |
 |---|---|---|
-| `DB_HOST` | ✅ | Host SQL Server escritura sin instancia ni puerto embebido (ej: `169.46.6.53`) |
+| `DB_HOST` | ✅ | Host SQL Server escritura sin instancia ni puerto embebido (ej: `192.168.1.10`) |
 | `DB_PORT` | ✅ | Puerto SQL Server (`1433`) |
 | `DB_NAME` | ✅ | Nombre de base de datos |
-| `DB2_HOST` | ✅ | Host SQL Server lectura sin instancia ni puerto embebido (ej: `169.46.6.55`) |
+| `DB2_HOST` | ✅ | Host SQL Server lectura sin instancia ni puerto embebido (ej: `192.168.1.11`) |
 | `DB2_PORT` | ✅ | Puerto SQL Server lectura (`1433`) |
 | `DB2_NAME` | ✅ | Nombre de BD lectura |
 
@@ -102,7 +102,7 @@ Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.
 
 6. **`DB_HOST appears malformed` en `Create production environment file`**
    - Causa: GitHub Secret `DB_HOST` o `DB2_HOST` contiene instancia, puerto embebido o un host ya corrupto por escaping.
-   - Valores correctos en `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`.
+   - Valores correctos en `production`: `DB_HOST=<IP_ESCRITURA>`, `DB2_HOST=<IP_LECTURA>`, `DB_PORT=1433`, `DB2_PORT=1433`.
    - Prevención: mantener hosts SQL como host/IP limpio y dejar el puerto en `DB_PORT`/`DB2_PORT`.
    - Acción: corregir secrets y relanzar `Deploy Production - AudFact`; no parchear el `.env` del host como solución permanente.
 
@@ -200,15 +200,15 @@ La validación completa del certificado SQL Server también queda diferida tempo
 Produccion fallo porque el workflow genero hosts SQL invalidos en `/home/admon/audfact-prod/.env`:
 
 ```text
-DB_HOST=169.46.6.53SQL2022
-DB2_HOST=169.46.6.55SQL2022_REPLICA
+DB_HOST=<IP_ESCRITURA>SQL2022
+DB2_HOST=<IP_LECTURA>SQL2022_REPLICA
 ```
 
 La causa fue el formato de los valores SQL en GitHub Environment y el manejo del heredoc al escribir `.env`. La correccion permanente fue:
 
 ```text
-DB_HOST=169.46.6.53
-DB2_HOST=169.46.6.55
+DB_HOST=<IP_ESCRITURA>
+DB2_HOST=<IP_LECTURA>
 ```
 
 El workflow ahora normaliza hosts SQL, rechaza valores malformados y ejecuta preflight PDO/sqlsrv antes de levantar contenedores. La corrida manual `Deploy Production - AudFact` `25812026509` confirmo el flujo completo exitoso: `Create production environment file`, `Pull release images`, `Preflight SQL connectivity`, `Start production stack` y `Health check`.

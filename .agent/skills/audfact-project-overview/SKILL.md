@@ -42,8 +42,7 @@ AudFact/
 ├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, downloader×8, extraction×8, normalizer, policy×2, aggregator)
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
-├── responseIA/          # Snapshots de request/response Gemini (debug)
-└── logs/                # Logs rotativos por hostname (HA-safe)
+└── logs/                # Logs rotativos por hostname (HA-safe); `logs/responseIA` solo para snapshots dev
 ```
 
 ## Endpoints REST (27)

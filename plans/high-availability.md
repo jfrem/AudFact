@@ -1,8 +1,8 @@
 # Alta Disponibilidad en AudFact - Documentacion Tecnica
 
 Esta pagina describe la topologia vigente del repositorio. Los archivos Compose
-existentes son `docker-compose.yml` (build local/base) y
-`docker-compose.prod.yml` (imagenes GHCR para produccion LAN).
+existentes se consolidan en `docker-compose.yml` como fuente unica: build local/base
+en desarrollo e imagenes GHCR para produccion LAN con perfil `frontend`.
 
 ---
 
@@ -62,8 +62,7 @@ graph TB
 
 | Archivo | Uso actual | Observacion |
 |---|---|---|
-| `docker-compose.yml` | Build local/base | Incluye `php`, `redis`, `nginx` y los 7 servicios de worker, incluido `worker-downloader`. |
-| `docker-compose.prod.yml` | Produccion LAN | Usa imagenes GHCR, publica el frontend y levanta los 7 servicios de worker. |
+| `docker-compose.yml` | Local y produccion LAN | Incluye `php`, `redis`, `nginx`, frontend por perfil e imagenes GHCR/7 servicios de worker, incluido `worker-downloader`. |
 
 ### PHP-FPM
 

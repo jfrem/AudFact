@@ -8,18 +8,16 @@ use Core\Env;
 use Core\Logger;
 
 /**
- * Servicios de auditoría para persistencia de snapshots request/response en disco.
+ * Persiste snapshots request/response de Gemini para diagnostico local.
  *
- * La clase ResponseIADiskStore se encarga de guardar una copia fiel de la información procesada por el
- * pipeline de auditoría, específicamente lo relacionado con las interacciones con el modelo de IA.
- * Esta funcionalidad es utilizada exclusivamente en el entorno de desarrollo (`development`) para facilitar
- * la depuración y el análisis offline de los resultados obtenidos, sin afectar la operación normal del sistema
- * en producción.
- *
+ * Produccion tiene hard-deny por APP_ENV para evitar escritura accidental de
+ * payloads sensibles aunque la variable de habilitacion quede mal configurada.
  */
 final class ResponseIADiskStore
 {
-    private const DEFAULT_BASE_DIR = '/var/www/html/responseIA';
+    private const DEFAULT_BASE_DIR = '/var/www/html/logs/responseIA';
+    private const ENV_ENABLED = 'AUDIT_RESPONSE_IA_ENABLED';
+    private const ENV_DIR = 'AUDIT_RESPONSE_IA_DIR';
     private const DEFAULT_STATUS = 'unknown';
     private const SOURCE = 'GeminiGateway::sendWithFunctionCalling';
 
@@ -27,18 +25,18 @@ final class ResponseIADiskStore
 
     public function __construct(?string $baseDir = null)
     {
-        $this->baseDir = rtrim($baseDir ?? self::DEFAULT_BASE_DIR, '/\\');
+        $this->baseDir = rtrim($baseDir ?? self::configuredBaseDir(), '/\\');
     }
 
     /**
-     * Persiste snapshot request/response para diagnóstico del pipeline.
+     * Persiste snapshot request/response para diagnostico del pipeline.
      */
     public function persist(array $requestPayload, array $responseBody, array $context): bool
     {
         $appEnv = strtolower(trim((string) Env::get('APP_ENV', 'development')));
         $disDetNro = trim((string) ($context['dis_det_nro'] ?? ''));
 
-        if ($appEnv !== 'development' || $disDetNro === '') {
+        if (!$this->isEnabledForEnvironment($appEnv) || $disDetNro === '') {
             return false;
         }
 
@@ -70,13 +68,20 @@ final class ResponseIADiskStore
             'response' => $responseBody,
         ];
 
-        $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        $json = json_encode(
+            $payload,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        );
         if ($json === false) {
-            Logger::warning('responseIA persist failed: json_encode', ['disDetNro' => $disDetNro, 'json_error' => json_last_error_msg()]);
+            Logger::warning('responseIA persist failed: json_encode', [
+                'disDetNro' => $disDetNro,
+                'json_error' => json_last_error_msg(),
+            ]);
             return false;
         }
 
-        $filename = sprintf('%s_%s_%s%s_%s.json', 
+        $filename = sprintf(
+            '%s_%s_%s%s_%s.json',
             preg_replace('/[^a-zA-Z0-9-]/', '_', $disDetNro) ?? 'unknown',
             preg_replace('/[^a-zA-Z0-9-]/', '_', $status) ?? 'unknown',
             gmdate('Ymd_His'),
@@ -90,11 +95,18 @@ final class ResponseIADiskStore
         $bytes = @file_put_contents($tmpPath, $json, LOCK_EX);
         if ($bytes === false || $bytes <= 0 || !@rename($tmpPath, $finalPath)) {
             @unlink($tmpPath);
-            Logger::warning('responseIA persist failed: write/rename', ['disDetNro' => $disDetNro, 'tmp_path' => $tmpPath]);
+            Logger::warning('responseIA persist failed: write/rename', [
+                'disDetNro' => $disDetNro,
+                'tmp_path' => $tmpPath,
+            ]);
             return false;
         }
 
-        Logger::info('responseIA snapshot persisted', ['disDetNro' => $disDetNro, 'status' => $status, 'bytes' => $bytes]);
+        Logger::info('responseIA snapshot persisted', [
+            'disDetNro' => $disDetNro,
+            'status' => $status,
+            'bytes' => $bytes,
+        ]);
         return true;
     }
 
@@ -118,5 +130,21 @@ final class ResponseIADiskStore
             }
         }
         return $redacted;
+    }
+
+    private static function configuredBaseDir(): string
+    {
+        $baseDir = trim((string) Env::get(self::ENV_DIR, self::DEFAULT_BASE_DIR));
+        return $baseDir !== '' ? $baseDir : self::DEFAULT_BASE_DIR;
+    }
+
+    private function isEnabledForEnvironment(string $appEnv): bool
+    {
+        if ($appEnv !== 'development') {
+            return false;
+        }
+
+        $enabled = strtolower(trim((string) Env::get(self::ENV_ENABLED, '1')));
+        return in_array($enabled, ['1', 'true', 'yes', 'on'], true);
     }
 }

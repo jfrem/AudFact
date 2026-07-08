@@ -43,7 +43,7 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
 Para el stack productivo:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml ps"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose ps"
 ```
 
 ## Runner Self Hosted
@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
 Si falla:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose -f docker-compose.prod.yml logs --tail=120 nginx php worker-batch worker-orchestrator worker-extraction worker-normalizer worker-policy worker-aggregator"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose logs --tail=120 nginx php worker-batch worker-orchestrator worker-downloader worker-extraction worker-normalizer worker-policy worker-aggregator"
 ```
 
 ## Deploy Normal con GitHub Actions
@@ -125,13 +125,13 @@ Checklist antes de disparar deploy:
 Usar solo si el usuario lo pidio o si GitHub Actions no esta disponible. Requiere SHA concreto.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "mkdir -p /home/admon/audfact-prod/logs /home/admon/audfact-prod/responseIA"
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=IMAGE_SHA docker compose -f docker-compose.prod.yml pull"
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=IMAGE_SHA docker compose -f docker-compose.prod.yml up -d --remove-orphans"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "mkdir -p /home/admon/audfact-prod/logs"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=IMAGE_SHA docker compose pull"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=IMAGE_SHA docker compose --profile frontend up -d --no-build --remove-orphans"
 powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "curl -sf http://localhost:8080/health"
 ```
 
-Antes de manual deploy, verificar que `/home/admon/audfact-prod/.env` y `docker-compose.prod.yml` existen. No imprimir `.env`.
+Antes de manual deploy, verificar que `/home/admon/audfact-prod/.env` y `docker-compose.yml` existen. No imprimir `.env`.
 
 ## Rollback
 
@@ -140,8 +140,8 @@ Preferir workflow manual `Deploy Production - AudFact` con `image_tag` igual al 
 Rollback manual, solo con autorizacion:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=SHA_ANTERIOR docker compose -f docker-compose.prod.yml pull"
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=SHA_ANTERIOR docker compose -f docker-compose.prod.yml up -d --remove-orphans"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=SHA_ANTERIOR docker compose pull"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && AUDFACT_IMAGE_TAG=SHA_ANTERIOR docker compose --profile frontend up -d --no-build --remove-orphans"
 ```
 
 ## Troubleshooting
@@ -182,7 +182,7 @@ Health check falla:
 `/health` falla con `database unreachable` o `Login timeout expired`:
 
 - Comparar `curl -sS http://localhost:8080/health` desde el host productivo.
-- Revisar `docker compose -f docker-compose.prod.yml ps`; si `php` esta `unhealthy` y workers reinician, sospechar SQL.
+- Revisar `docker compose ps`; si `php` esta `unhealthy` y workers reinician, sospechar SQL.
 - Inspeccionar solo variables no sensibles:
 
 ```powershell
