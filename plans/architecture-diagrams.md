@@ -2,8 +2,8 @@
 
 > Estado actual: backend PHP 8.2-FPM + Nginx, frontend Next.js 15.5.15,
 > Redis Streams para auditoria asíncrona y SQL Server externo. Fuente
-> operativa: `app/Routes/web.php`, `docker-compose.yml`,
-> `docker-compose.prod.yml` y `app/Services/Audit/Pipeline/*`.
+> operativa: `app/Routes/web.php`, `docker-compose.yml`
+> y `app/Services/Audit/Pipeline/*`.
 
 ---
 

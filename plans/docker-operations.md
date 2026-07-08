@@ -68,10 +68,10 @@ Redis se configura desde Compose mediante variables no sensibles:
 Validaciones operativas despues de deploy:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec redis redis-cli INFO memory
+docker compose exec redis redis-cli INFO memory
 docker stats audfact-redis --no-stream
-docker compose -f docker-compose.prod.yml exec redis redis-cli TTL audfact:job:<jobId>:state
-docker compose -f docker-compose.prod.yml exec redis redis-cli TTL audfact:audit:<auditId>:state
+docker compose exec redis redis-cli TTL audfact:job:<jobId>:state
+docker compose exec redis redis-cli TTL audfact:audit:<auditId>:state
 ```
 
 ## Higiene de `.env`
@@ -116,12 +116,12 @@ Nginx resuelve `php:9000` mediante DNS Docker (`127.0.0.11`) en runtime. Esto ev
 
 ## Despliegue Produccion LAN
 
-Produccion usa imagenes publicadas en GHCR y `docker-compose.prod.yml`; no construye en el servidor.
+Produccion usa imagenes publicadas en GHCR y `docker-compose.yml` con perfil `frontend`; no construye en el servidor.
 
 ```bash
 docker login ghcr.io
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
+AUDFACT_IMAGE_TAG=<sha> docker compose pull
+AUDFACT_IMAGE_TAG=<sha> docker compose --profile frontend up -d --no-build --remove-orphans
 curl -sf http://localhost:8080/health
 curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
 curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
@@ -131,10 +131,10 @@ Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch` y
 `worker-downloader` existan y que Redis haya creado los consumer groups:
 
 ```bash
-docker compose -f docker-compose.prod.yml ps worker-batch
-docker compose -f docker-compose.prod.yml ps worker-downloader
-docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
-docker compose -f docker-compose.prod.yml exec redis redis-cli XINFO GROUPS audfact:audit.documents
+docker compose ps worker-batch
+docker compose ps worker-downloader
+docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
+docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
 ```
 
 El flujo automatizado vive en:
@@ -147,8 +147,8 @@ El flujo automatizado vive en:
 
 - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
 - **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
-- **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. El directorio `responseIA/` solo se monta en desarrollo (`docker-compose.yml`).
+- **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. `responseIA` no tiene volumen dedicado y solo se escribe en desarrollo bajo `AUDIT_RESPONSE_IA_DIR`.
 - **Gemini**: `GEMINI_API_KEY` debe estar vigente en GitHub Environment `production`; una key expirada provoca `400 API key expired` en `worker-extraction` y envía eventos a DLQ.
 - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
 - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells
-- **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.prod.yml`, `logs/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.
+- **Producción Zero-Source**: El directorio persistente del deploy contiene `.env`, `docker-compose.yml`, `logs/` y el volumen Docker de Redis. El checkout de GitHub Actions no se usa como runtime.

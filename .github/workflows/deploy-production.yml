@@ -124,6 +124,8 @@ jobs:
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
           LOG_MAX_SIZE_MB: ${{ vars.LOG_MAX_SIZE_MB }}
+          AUDIT_RESPONSE_IA_ENABLED: ${{ vars.AUDIT_RESPONSE_IA_ENABLED }}
+          AUDIT_RESPONSE_IA_DIR: ${{ vars.AUDIT_RESPONSE_IA_DIR }}
           ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
           MAX_JSON_SIZE: ${{ vars.MAX_JSON_SIZE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -159,6 +161,7 @@ jobs:
           CB_GEMINI_COOLDOWN: ${{ vars.CB_GEMINI_COOLDOWN }}
           AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
           AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
+          AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
           AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
           AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
@@ -308,6 +311,8 @@ jobs:
             write_env_var 'LOG_LEVEL' "${LOG_LEVEL:-warning}"
             write_env_var 'LOG_RETENTION_DAYS' "${LOG_RETENTION_DAYS:-7}"
             write_env_var 'LOG_MAX_SIZE_MB' "${LOG_MAX_SIZE_MB:-10}"
+            write_env_var 'AUDIT_RESPONSE_IA_ENABLED' "${AUDIT_RESPONSE_IA_ENABLED:-0}"
+            write_env_var 'AUDIT_RESPONSE_IA_DIR' "${AUDIT_RESPONSE_IA_DIR:-/var/www/html/logs/responseIA}"
             write_env_var 'ALLOWED_ORIGINS' "$EFFECTIVE_ALLOWED_ORIGINS"
             write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
             printf '\n'
@@ -349,6 +354,7 @@ jobs:
             printf '\n'
             write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
             write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-3}"
+            write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-8}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"

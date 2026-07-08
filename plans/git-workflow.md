@@ -44,6 +44,7 @@ El archivo `.gitignore` **debe existir** antes del primer commit. Contenido mín
 
 # Respuestas crudas de IA (debug)
 /responseIA/
+/logs/responseIA/
 
 # IDE y editores
 .idea/
@@ -67,7 +68,7 @@ composer.phar
 docker/data/
 ```
 
-**NUNCA deben entrar al repo**: `.env`, `logs/`, `vendor/`, `responseIA/`, credenciales, API keys.
+**NUNCA deben entrar al repo**: `.env`, `logs/`, `vendor/`, `responseIA/`, `logs/responseIA/`, credenciales, API keys.
 
 ## Estrategia de branching
 
@@ -171,7 +172,7 @@ security(wrap): C05 agregar autenticación API key al webhook
 - **Específicos**: usar `git add <archivo>` en lugar de `git add .`
 - **Verificados**: asegurarse de que el código funciona antes de commitear
 - **Referenciados**: si resuelve un hallazgo → `fix(core): C01 eliminar exit() de Response`
-- **Sin archivos prohibidos**: `.env`, `logs/`, `vendor/`, `responseIA/`, `composer.lock`
+- **Sin archivos prohibidos**: `.env`, `logs/`, `vendor/`, `responseIA/`, `logs/responseIA/`, `composer.lock`
 
 ## Cuándo hacer commit
 

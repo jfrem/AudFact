@@ -9,7 +9,7 @@ use App\Models\AttachmentsModel;
 use App\Models\ClientsModel;
 use App\Models\DispensationModel;
 use Core\Logger;
-use RuntimeException;
+use DomainException;
 
 /**
  * Servicio de datos para el pipeline de auditoría.
@@ -41,7 +41,7 @@ class AuditDataService
      *
      * @param array<string,string> $filters Filtros (ej. facsec, Dispensa)
      * @return array<string,mixed> Datos formateados de la dispensación con items.
-     * @throws RuntimeException Si la factura no existe.
+     * @throws DomainException Si la factura no existe.
      */
     public function getDispensation(array $filters): array
     {
@@ -50,7 +50,7 @@ class AuditDataService
 
         if ($rows === []) {
             $fstr = json_encode($filters);
-            throw new RuntimeException("FDV vacía para filtros: {$fstr}", 404);
+            throw new DomainException("FDV vacía para filtros: {$fstr}", 404);
         }
 
         $data = DispensationModel::formatDispensation($rows);
@@ -69,7 +69,7 @@ class AuditDataService
      * Obtiene la configuración de auditoría para un cliente (NitSec).
      *
      * @return array<string,mixed> Configuración activa del cliente.
-     * @throws RuntimeException Si la configuración no existe o está inactiva.
+     * @throws DomainException Si la configuración no existe o está inactiva.
      */
     public function getAuditConfig(string $nitSec): array
     {
@@ -77,11 +77,11 @@ class AuditDataService
         $config = $this->auditConfigModel->getConfig($nitSec);
 
         if ($config === null) {
-            throw new RuntimeException("audit-config no existe para NitSec '{$nitSec}'");
+            throw new DomainException("audit-config no existe para NitSec '{$nitSec}'");
         }
 
         if (!($config['activo'] ?? false)) {
-            throw new RuntimeException("audit-config inactiva para NitSec '{$nitSec}'");
+            throw new DomainException("audit-config inactiva para NitSec '{$nitSec}'");
         }
 
         Logger::info('AuditDataService::getAuditConfig', [

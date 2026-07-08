@@ -44,7 +44,7 @@ Consulta el archivo **`CATALOG.md`** → sección "Mapeo Archivo → Skill" para
 | `app/Services/Audit/*.php` | `audfact-audit-gemini/SKILL.md` |
 | `app/Models/*.php`, `core/Database.php` | `audfact-sqlsrv-models/SKILL.md` |
 | `app/wrap/**` | `audfact-mcp-wrap/SKILL.md` |
-| `docker-compose*.yml`, `docker/*`, `.env*` | `audfact-runtime-docker/SKILL.md` |
+| `docker-compose.yml`, `docker/*`, `.env*` | `audfact-runtime-docker/SKILL.md` |
 | `core/RateLimit.php`, `core/Logger.php`, `public/index.php` | `audfact-security-guardrails/SKILL.md` |
 | Cualquier cambio de conteos, estructura o flujo principal | `audfact-project-overview/SKILL.md` |
 | Creación/eliminación/renombrado de archivos gobernados | `CATALOG.md` (Mapeo Archivo → Skill) |

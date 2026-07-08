@@ -76,12 +76,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
             $this->assertIdentityContract($event, $identity, $context);
 
-            $this->stateStore->patchAudit($event->auditId, [
+            if (!$this->stateStore->patchAudit($event->auditId, [
                 'fac_nit_sec' => $context['nitSec'],
                 'dis_id' => $context['disId'],
                 'numero_factura' => $context['numeroFactura'],
-            ]);
-            $this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']));
+            ])) {
+                throw new RuntimeException('No se pudo actualizar el contexto de auditoría en Redis');
+            }
+
+            if (!$this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']))) {
+                throw new RuntimeException('No se pudo registrar el total de documentos de la auditoría');
+            }
 
             $this->registerDocuments($event, $context);
 
@@ -114,17 +119,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     private function assertAuditCreated(AuditEvent $event): array
     {
         if ($event->auditId === null) {
-            throw new RuntimeException('audit_created sin audit_id');
+            throw new InvalidArgumentException('audit_created sin audit_id');
         }
 
         $disId = trim((string) ($event->payload['dis_id'] ?? ''));
         if ($disId === '') {
-            throw new RuntimeException('audit_created sin dis_id');
+            throw new InvalidArgumentException('audit_created sin dis_id');
         }
 
         $disDetNro = trim((string) ($event->payload['dis_det_nro'] ?? ''));
         if ($disDetNro === '') {
-            throw new RuntimeException('audit_created sin dis_det_nro');
+            throw new InvalidArgumentException('audit_created sin dis_det_nro');
         }
 
         return [
@@ -145,7 +150,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      * @param  array{
      *   nitSec:string, disId:string, numeroFactura:string,
      * } $context
-     * @throws RuntimeException Si el evento y la FDV representan identidades distintas.
+     * @throws DomainException Si el evento y la FDV representan identidades distintas.
      */
     private function assertIdentityContract(AuditEvent $event, array $identity, array $context): void
     {
@@ -291,7 +296,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $documentId, $configuredDocument, $catalogDocument, $attachment, $context
             );
 
-            $this->stateStore->registerDocument($event->auditId, $documentId, $documentState);
+            if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
+                throw new RuntimeException('No se pudo registrar el documento en Redis');
+            }
 
             $this->publisher->publish(AuditEvent::create(
                 eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,

@@ -48,9 +48,9 @@ Crear environment `production` con aprobacion manual.
 Para SQL Server en produccion, configurar hosts sin instancia ni puerto embebido. El puerto se define por separado en `DB_PORT` y `DB2_PORT`.
 
 ```text
-DB_HOST=169.46.6.53
+DB_HOST=<IP_ESCRITURA>
 DB_PORT=1433
-DB2_HOST=169.46.6.55
+DB2_HOST=<IP_LECTURA>
 DB2_PORT=1433
 ```
 
@@ -83,12 +83,19 @@ DB2_PORT
 DB2_NAME
 ```
 
-El Environment `production` puede poblarse desde un `.env` productivo con:
+El Environment `production` de GitHub puede poblarse desde la terminal local usando el generador:
 
-```bash
-bash scripts/sync-github-production-env.sh --dry-run
-bash scripts/sync-github-production-env.sh --apply
-```
+1. **Generar entorno de producción localmente:**
+   ```bash
+   wsl bash scripts/sync-github-production-env.sh --generate-env production
+   ```
+   *Nota:* Completa tus contraseñas y URLs públicas en el archivo `.env.production` generado.
+
+2. **Inyectar a GitHub Environments:**
+   ```bash
+   wsl bash scripts/sync-github-production-env.sh --env-file .env.production --dry-run
+   wsl bash scripts/sync-github-production-env.sh --env-file .env.production --apply
+   ```
 
 El script escribe GitHub Secrets/Variables; no copia `.env` al servidor. El
 workflow regenera `/home/admon/audfact-prod/.env` en cada despliegue.
@@ -156,25 +163,25 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 El workflow regeneraba `/home/admon/audfact-prod/.env` desde GitHub Secrets. En ese momento los hosts SQL vivian como secrets de produccion y contenian instancia; el heredoc terminaba generando valores invalidos:
 
 ```text
-DB_HOST=169.46.6.53SQL2022
-DB2_HOST=169.46.6.55SQL2022_REPLICA
+DB_HOST=<IP_ESCRITURA>SQL2022
+DB2_HOST=<IP_LECTURA>SQL2022_REPLICA
 ```
 
 Desde el contenedor PHP, esos hosts no resolvian/conectaban. Las IP limpias si conectaban por TCP y PDO:
 
 ```text
-169.46.6.53:1433 OK
-169.46.6.55:1433 OK
+<IP_ESCRITURA>:1433 OK
+<IP_LECTURA>:1433 OK
 ```
 
 ### Resolucion aplicada
 
 - GitHub Variables del Environment `production` actualizadas:
-  - `DB_HOST=169.46.6.53`
-  - `DB2_HOST=169.46.6.55`
+  - `DB_HOST=<IP_ESCRITURA>`
+  - `DB2_HOST=<IP_LECTURA>`
 - `.github/workflows/deploy-production.yml` ahora:
   - normaliza `host\instancia` a host base;
-  - rechaza hosts malformados como `169.46.6.53SQL2022`;
+  - rechaza hosts malformados como `<IP>SQL2022`;
   - escribe `.env` con `printf`;
   - ejecuta preflight PDO/sqlsrv con la imagen PHP publicada antes de `docker compose up`.
 - Verificacion: workflow `Deploy Production - AudFact` run `25812026509` paso `Create production environment file`, `Preflight SQL connectivity`, `Start production stack` y `Health check`.

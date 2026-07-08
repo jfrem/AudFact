@@ -53,6 +53,11 @@ jobs:
         run: |
           echo "Validating worker services consistency..."
 
+          if [ -f docker-compose.prod.yml ]; then
+            echo "::error::docker-compose.prod.yml is not allowed. docker-compose.yml is the single runtime source of truth."
+            exit 1
+          fi
+
           REGISTERED=$(grep -oP "^    '\K[a-z_]+(?='\s*=>\s*\[)" bin/audit-worker.php)
           COMPOSE_SERVICES=$(grep -oP '^\s+worker-\K\w+(?=:)' docker-compose.yml | sort -u)
 
@@ -68,7 +73,19 @@ jobs:
             exit 1
           fi
 
-          echo "All registered workers have corresponding docker-compose services"
+          EXTRA=""
+          for worker in $COMPOSE_SERVICES; do
+            if ! echo "$REGISTERED" | grep -qw "$worker"; then
+              EXTRA="$EXTRA $worker"
+            fi
+          done
+
+          if [ -n "$EXTRA" ]; then
+            echo "::error::worker-* services in docker-compose.yml without registry entry in bin/audit-worker.php:$EXTRA"
+            exit 1
+          fi
+
+          echo "Worker registry and docker-compose services match"
 
       - name: Check for secrets in code
         run: |

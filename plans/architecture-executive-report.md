@@ -298,7 +298,7 @@ Representa las herramientas activas para el diagnóstico del sistema: el logger 
 *   **Telemetry metrics**: El endpoint `/metrics/async` extrae metadatos embebidos en Redis Streams para calcular el lag de la cola (latencia desde que se solicita un lote hasta que se inicia la extracción) y timings promedio por worker.
 *   **Core\Logger Sanity**: Rotación automática basada en hostname para evitar contenciones de escritura en entornos multirréplica. Filtra y redacta de forma estricta credenciales, tokens, y enmascara automáticamente el `facNitSec` (`***123`) para cumplir con regulaciones de protección de datos de pacientes (GDPR/Habeas Data).
 *   **Error Registry**: Captura global de excepciones mediante manejadores dedicados. Si ocurre un fallo fatal en producción, se enmascara el stack trace de cara al cliente HTTP para evitar fugas de información, registrando el error crudo únicamente en los archivos de log aislados del host.
-*   **Raw debugging**: En entornos de desarrollo (`APP_ENV=development`), los workers salvan instantáneamente el snapshot estructurado devuelto por la API en un directorio local `responseIA/` para auditoría forense de prompts.
+*   **Raw debugging**: En entornos de desarrollo (`APP_ENV=development`), los workers salvan el snapshot estructurado devuelto por la API en `AUDIT_RESPONSE_IA_DIR` (`logs/responseIA` por defecto) cuando `AUDIT_RESPONSE_IA_ENABLED=1`. En producción el código no persiste estos snapshots.
 
 ---
 

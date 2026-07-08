@@ -14,6 +14,8 @@ REPO="${GH_REPO:-}"
 MODE="dry-run"
 SYNC_SECRETS=1
 SYNC_VARIABLES=1
+GENERATE_TARGET=""
+GENERATE_DRY_RUN=0
 
 SECRET_KEYS=(
   DB_USER
@@ -56,6 +58,8 @@ Options:
   --env NAME             GitHub Environment name. Default: production
   --secrets-only         Sync only GitHub Environment secrets
   --variables-only       Sync only GitHub Environment variables
+  --generate-env ENV     Generate a derivative .env or .env.production file for the given env (development|production)
+  --gen-dry-run          Run generation in dry-run mode without modifying files
   --dry-run              Validate and print key classification without writing. Default.
   --apply                Write to GitHub using gh secret set / gh variable set
   -h, --help             Show this help
@@ -99,6 +103,14 @@ while [[ $# -gt 0 ]]; do
       SYNC_SECRETS=0
       shift
       ;;
+    --generate-env)
+      GENERATE_TARGET="$2"
+      shift 2
+      ;;
+    --gen-dry-run)
+      GENERATE_DRY_RUN=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -110,6 +122,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -n "$GENERATE_TARGET" ]]; then
+  if [[ "$GENERATE_TARGET" != "production" && "$GENERATE_TARGET" != "development" ]]; then
+    echo "error: --generate-env target must be 'production' or 'development'." >&2
+    exit 1
+  fi
+fi
 
 if [[ "$SYNC_SECRETS" -eq 0 && "$SYNC_VARIABLES" -eq 0 ]]; then
   echo "error: cannot combine --secrets-only and --variables-only." >&2
@@ -150,6 +169,130 @@ done
 for key in "${REQUIRED_VARIABLE_KEYS[@]}"; do
   IS_REQUIRED_VARIABLE["$key"]=1
 done
+
+# ==========================================
+# ENV GENERATION AUTOMATION
+# ==========================================
+
+get_invariant_value() {
+  local target_env="$1"
+  local key="$2"
+  
+  if [[ "$key" == "APP_ENV" ]]; then
+    echo "$target_env"
+    return 0
+  fi
+  
+  if [[ "$target_env" == "production" ]]; then
+    case "$key" in
+      INTERNAL_API_URL|WRAP_API_BASE|AUDIT_INTERNAL_API_BASE)
+        echo "http://nginx"
+        return 0
+        ;;
+      AUDIT_RESPONSE_IA_ENABLED)
+        echo "0"
+        return 0
+        ;;
+    esac
+  fi
+  return 1
+}
+
+generate_env() {
+  local target_env="$1"
+  local target_file="$ROOT_DIR/.env"
+  if [[ "$target_env" == "production" ]]; then
+    target_file="$ROOT_DIR/.env.production"
+  fi
+
+  if [[ ! -f "$EXAMPLE_FILE" ]]; then
+    echo "error: example env file not found: $EXAMPLE_FILE" >&2
+    exit 1
+  fi
+
+  declare -A existing_values=()
+  if [[ -f "$target_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="${line%$'\r'}"
+      [[ -z "${line//[[:space:]]/}" ]] && continue
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+        existing_values["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+      fi
+    done < "$target_file"
+  fi
+
+  local tmp_file="${target_file}.tmp"
+  if [[ "$GENERATE_DRY_RUN" -eq 1 ]]; then
+    echo "--- BEGIN DRY RUN ($target_file) ---"
+  else
+    > "$tmp_file"
+  fi
+
+  declare -A final_values=()
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local val="${BASH_REMATCH[2]}"
+      local invariant_val
+      
+      if invariant_val=$(get_invariant_value "$target_env" "$key"); then
+        val="$invariant_val"
+      elif [[ -n "${existing_values[$key]+isset}" ]]; then
+        val="${existing_values[$key]}"
+      fi
+
+      final_values["$key"]="$val"
+      if [[ "$GENERATE_DRY_RUN" -eq 1 ]]; then
+        printf '%s=%s\n' "$key" "$val"
+      else
+        printf '%s=%s\n' "$key" "$val" >> "$tmp_file"
+      fi
+    else
+      if [[ "$GENERATE_DRY_RUN" -eq 1 ]]; then
+        printf '%s\n' "$line"
+      else
+        printf '%s\n' "$line" >> "$tmp_file"
+      fi
+    fi
+  done < "$EXAMPLE_FILE"
+
+  if [[ "$GENERATE_DRY_RUN" -eq 1 ]]; then
+    echo "--- END DRY RUN ---"
+  fi
+
+  local missing=0
+  for req_key in "${REQUIRED_SECRET_KEYS[@]}" "${REQUIRED_VARIABLE_KEYS[@]}"; do
+    if [[ -z "${final_values[$req_key]:-}" ]]; then
+      echo "warning: required key '$req_key' is empty." >&2
+      missing=1
+    fi
+  done
+
+  if [[ "$GENERATE_DRY_RUN" -eq 0 ]]; then
+    if [[ -f "$target_file" ]]; then
+      cp -a "$target_file" "${target_file}.bak"
+      echo "info: backup created at ${target_file}.bak"
+    fi
+    mv "$tmp_file" "$target_file"
+    echo "success: generated $target_file for '$target_env' environment."
+  fi
+
+  if [[ $missing -eq 1 ]]; then
+    echo "warning: some required keys are missing values. Please fill them out." >&2
+  fi
+}
+
+if [[ -n "$GENERATE_TARGET" ]]; then
+  generate_env "$GENERATE_TARGET"
+  exit 0
+fi
+
+# ==========================================
+# GITHUB ENVIRONMENTS SYNC
+# ==========================================
 
 parse_env_file() {
   local file="$1"
@@ -285,6 +428,8 @@ fi
 detect_repo() {
   local remote
   remote="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || true)"
+  # Strip embedded username (e.g. https://user@github.com/... -> https://github.com/...)
+  remote="$(printf '%s' "$remote" | sed -E 's|https://[^@]+@github\.com|https://github.com|')"
   case "$remote" in
     https://github.com/*/*.git)
       remote="${remote#https://github.com/}"

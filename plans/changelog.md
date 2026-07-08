@@ -1,5 +1,29 @@
 # Changelog AudFact
 
+## [2026-07-08] - Fix: Clean Rebuild Pipeline y Compose Unico
+
+### IA Pipeline / Runtime / Docs
+
+- **Fail-fast Redis en orquestacion documental**:
+  - `DocumentAuditOrchestrator` ahora valida los booleanos de `patchAudit`, `setAuditDocumentsTotal` y `registerDocument`; si Redis rechaza una escritura, no publica eventos descendentes.
+  - Eventos `audit_created` estructuralmente invalidos usan `InvalidArgumentException`; validaciones insalvables de datos (`FDV` vacia, audit-config ausente/inactiva) usan `DomainException`.
+- **Rollback batch no destructivo tras publicacion**:
+  - `AuditBatchOrchestrator` conserva estado/reservas si ya publico al menos un evento del batch, evitando borrar auditorias que ya entraron al pipeline.
+  - `sealJob` ahora se valida explicitamente antes de publicar `batch_created`.
+- **responseIA controlado por entorno**:
+  - `ResponseIADiskStore` se mantiene para desarrollo, configurable por `AUDIT_RESPONSE_IA_ENABLED` y `AUDIT_RESPONSE_IA_DIR`.
+  - Produccion tiene hard-deny por `APP_ENV=production`; `docker-compose.yml` ya no monta `./responseIA`.
+- **Automatización de Entornos (GitOps/DevOps)**:
+  - `.env.example` promovido como único *Single Source of Truth* para el esquema de configuración.
+  - Refactorizado `scripts/sync-github-production-env.sh` incorporando generador determinista (`--generate-env [development|production]`).
+  - Inyección automática de invariantes arquitectónicos (`APP_ENV=production`, `INTERNAL_API_URL=http://nginx`) y copias de seguridad de `.env`.
+  - Actualizado `.gitignore` para omitir variables productivas derivadas (`.env.production`, `*.bak`).
+- **Compose unico y guardrails**:
+  - `docker-compose.yml` queda como fuente unica de runtime local/produccion con `worker-downloader` incluido.
+  - CI falla si reaparece `docker-compose.prod.yml` o si los servicios `worker-*` no coinciden con `bin/audit-worker.php`.
+  - Deploy productivo escribe explicitamente `AUDIT_WORKER_DOWNLOADER_REPLICAS` y `AUDIT_RESPONSE_IA_*`.
+- **Validacion**: Agregadas pruebas unitarias para fallos Redis en orquestacion, rollback batch post-publicacion, errores de dominio y persistencia `responseIA` por entorno.
+
 ## [2026-07-07] - Fix: Detalles de Telemetría en DAG de Lotes
 
 ### Frontend / Observability
@@ -1071,7 +1095,7 @@
 - **CICD-005**: Eliminado `echo` de `NEXT_PUBLIC_API_URL` en logs del workflow
 - **CICD-006**: `.env` en contenedor cambiado de `chmod 644` a `chmod 640`
   - Archivos: `docker/docker-entrypoint.sh`
-- **CICD-007**: Redis `--requirepass` agregado con default `audfact_dev_default`
+- **CICD-007**: Redis `--requirepass` agregado con contraseña configurable vía `REDIS_PASSWORD`
   - Archivos: `docker-compose.yml`, `ci.yml` (.env generation)
 
 ### ðŸŸ¡ Medium Priority Fixes

@@ -53,6 +53,7 @@ final class AuditBatchOrchestrator
         $skippedLocked = 0;
         $skippedExisting = 0;
         $responseStatus = BatchJobStore::JOB_STATUS_PENDING;
+        $publishedAnyEvent = false;
 
         try {
             if ($externalJobId) {
@@ -111,7 +112,7 @@ final class AuditBatchOrchestrator
                     $reservation = ['dis_id' => $disId, 'token' => $reservationToken];
                     $createdReservations[] = $reservation;
 
-                    if (!$this->initAuditState(
+                    $this->initAuditState(
                         $auditId,
                         $disDetNro,
                         $jobId,
@@ -121,9 +122,7 @@ final class AuditBatchOrchestrator
                         $reservation,
                         $createdReservations,
                         $createdAuditIds
-                    )) {
-                        continue;
-                    }
+                    );
 
                     $eventsToPublish[] = $this->buildAuditCreatedEvent(
                         $auditId,
@@ -155,18 +154,27 @@ final class AuditBatchOrchestrator
                     $total,
                     $skippedLocked,
                     $skippedExisting,
-                    $eventsToPublish
+                    $eventsToPublish,
+                    $publishedAnyEvent
                 );
             }
 
             return $this->buildBatchResponse($jobId, $responseStatus, $total, $skippedLocked, $skippedExisting);
         } catch (RuntimeException $e) {
-            $this->cleanupAsyncEnqueueState(
-                $jobId,
-                $jobInitialized,
-                $createdAuditIds,
-                $createdReservations
-            );
+            if ($publishedAnyEvent) {
+                Logger::error('AuditBatchOrchestrator::enqueueBatch falló después de publicar eventos; no se ejecuta rollback destructivo', [
+                    'job_id' => $jobId,
+                    'published_events_started' => true,
+                    'error' => $e->getMessage(),
+                ]);
+            } else {
+                $this->cleanupAsyncEnqueueState(
+                    $jobId,
+                    $jobInitialized,
+                    $createdAuditIds,
+                    $createdReservations
+                );
+            }
             
             Logger::error('AuditBatchOrchestrator::enqueueBatch falló', [
                 'job_id' => $jobId,
@@ -236,15 +244,15 @@ final class AuditBatchOrchestrator
         array $reservation,
         array &$createdReservations,
         array &$createdAuditIds
-    ): bool {
+    ): void {
         if (!$this->stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $disId)) {
-            Logger::warning('AuditBatchOrchestrator::enqueueBatch no se pudo inicializar auditoría', [
+            Logger::error('AuditBatchOrchestrator::enqueueBatch no se pudo inicializar auditoría', [
                 'job_id' => $jobId,
                 'audit_id' => $auditId,
             ]);
             $this->jobStore->releaseAuditReservation($disId, $reservationToken);
             self::forgetReservation($reservation, $createdReservations);
-            return false;
+            throw new RuntimeException('No se pudo inicializar la auditoría en Redis', 503);
         }
 
         $createdAuditIds[] = $auditId;
@@ -257,7 +265,6 @@ final class AuditBatchOrchestrator
             throw new RuntimeException('No se pudo registrar la auditoría en el job', 503);
         }
 
-        return true;
     }
 
     private function buildAuditCreatedEvent(
@@ -285,14 +292,16 @@ final class AuditBatchOrchestrator
 
     private function publishEmptyBatch(string $jobId, int $skippedLocked, int $skippedExisting): void
     {
-        $this->jobStore->patchJob($jobId, [
+        if (!$this->jobStore->patchJob($jobId, [
             'status' => BatchJobStore::JOB_STATUS_COMPLETED,
             'sealed' => true,
             'total' => 0,
             'accepted' => 0,
             'skipped_locked' => $skippedLocked,
             'skipped_existing' => $skippedExisting,
-        ]);
+        ])) {
+            throw new RuntimeException('No se pudo cerrar el job batch vacío en Redis', 503);
+        }
 
         $this->publisher->publish(AuditEvent::create(
             eventType: AuditEvent::TYPE_BATCH_COMPLETED,
@@ -322,13 +331,16 @@ final class AuditBatchOrchestrator
         int $total,
         int $skippedLocked,
         int $skippedExisting,
-        array $eventsToPublish
+        array $eventsToPublish,
+        bool &$publishedAnyEvent
     ): void {
-        $this->jobStore->sealJob($jobId, $total, [
+        if (!$this->jobStore->sealJob($jobId, $total, [
             'accepted' => $total,
             'skipped_locked' => $skippedLocked,
             'skipped_existing' => $skippedExisting,
-        ]);
+        ])) {
+            throw new RuntimeException('No se pudo sellar el job batch en Redis', 503);
+        }
 
         $this->publisher->publish(AuditEvent::create(
             eventType: AuditEvent::TYPE_BATCH_CREATED,
@@ -346,9 +358,11 @@ final class AuditBatchOrchestrator
                 'skipped_existing' => $skippedExisting,
             ],
         ));
+        $publishedAnyEvent = true;
 
         foreach ($eventsToPublish as $event) {
             $this->publisher->publish($event);
+            $publishedAnyEvent = true;
         }
     }
 

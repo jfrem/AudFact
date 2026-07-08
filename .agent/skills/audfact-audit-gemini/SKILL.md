@@ -47,7 +47,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/ArticleSemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos y nombres de persona; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
 | `app/Services/Audit/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
-| `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `responseIA/` para diagnóstico local |
+| `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `AUDIT_RESPONSE_IA_DIR` solo cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1` |
 
 ### Workers bootstrap (largas ejecuciones)
 
@@ -63,7 +63,7 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
 | `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` y `docker-compose.prod.yml` levantan los 7 servicios con este mismo binario y argumento distinto.
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 7 servicios con este mismo binario y argumento distinto.
 
 ### Controllers y endpoints
 
@@ -101,6 +101,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
+| `AUDIT_RESPONSE_IA_ENABLED`, `AUDIT_RESPONSE_IA_DIR` | Controlan snapshots Gemini locales; producción nunca persiste snapshots por hard-deny de `APP_ENV=production` |
 | `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` | Versionado para trazabilidad en `AuditEvent` |
 
 `GEMINI_MODEL` es el único selector de versión de modelo usado por el gateway. `GeminiConfig` conserva un fallback local si la variable falta, pero `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` son perfiles de generación del mismo modelo configurado; no implementan fallback ni redirección a otra versión Gemini.

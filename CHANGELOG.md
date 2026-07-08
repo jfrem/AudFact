@@ -275,7 +275,7 @@
 - **Guardrail de hosts SQL en deploy**: Se normaliza `DB_HOST`/`DB2_HOST` a host/IP limpio al generar `.env` productivo y se agrega preflight PDO/sqlsrv antes de recrear el stack.
   - Archivos modificados: `.github/workflows/deploy-production.yml`, `.env.example`, `AGENTS.md`, `.agent/skills/CATALOG.md`, `.agent/skills/catalog.json`, `.agent/skills/audfact-production-ops/SKILL.md`, `.agent/skills/audfact-production-ops/references/runbooks.md`, `plans/deployment-github-actions-lan.md`, `plans/deployment-and-ci.md`
   - Hallazgo resuelto: ninguno
-  - Impacto: Evita que un despliegue automatizado regenere hosts inválidos como `169.46.6.53SQL2022` y tumbe la conectividad SQL de producción.
+  - Impacto: Evita que un despliegue automatizado regenere hosts inválidos como `<IP>SQL2022` y tumbe la conectividad SQL de producción.
 
 ### security
 - **Eliminación de `responseIA/` en producción**: Se removieron los volúmenes `./responseIA:/var/www/html/responseIA` de los servicios `php`, `worker-extraction` y `worker-policy` en `docker-compose.prod.yml`. El código (`ResponseIADiskStore`) ya contenía un guardrail (`APP_ENV !== 'development'`), pero el mount de Docker forzaba la creación del directorio vacío en el host de producción.

@@ -1,6 +1,6 @@
 ---
 name: audfact-runtime-docker
-description: Operar y depurar el runtime Docker de AudFact. Usar cuando se cambien docker-compose.yml, docker-compose.prod.yml, docker/Dockerfile, docker/nginx.conf, variables .env o conectividad entre frontend, Nginx, PHP-FPM, Redis, SQL Server y APIs externas.
+description: Operar y depurar el runtime Docker de AudFact. Usar cuando se cambien docker-compose.yml, docker/Dockerfile, docker/nginx.conf, variables .env o conectividad entre frontend, Nginx, PHP-FPM, Redis, SQL Server y APIs externas.
 ---
 
 # AudFact Runtime Docker
@@ -15,8 +15,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 | Archivo | Rol |
 |---|---|
-| `docker-compose.yml` | Runtime base con build local: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator` |
-| `docker-compose.prod.yml` | Producción LAN con imágenes GHCR, frontend Next.js publicado en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` y los 7 workers async |
+| `docker-compose.yml` | Fuente única universal: build local cuando se trabaja en desarrollo, imágenes GHCR en producción, perfil `frontend` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator` |
 | `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
@@ -54,11 +53,11 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | Host | Container | Uso |
 |---|---|---|
 | `./logs` | `/var/www/html/logs` | Logs rotativos |
-| `./responseIA` | `/var/www/html/responseIA` | Snapshots Gemini solo para diagnóstico local/desarrollo |
+| `./logs/responseIA` | `/var/www/html/logs/responseIA` | Subdirectorio de snapshots Gemini cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1` |
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ### Producción
-`docker-compose.prod.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta en producción. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
+`docker-compose.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta como volumen dedicado; en producción `ResponseIADiskStore` tiene hard-deny por `APP_ENV=production`. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
 
 ## Variables .env obligatorias
 
@@ -89,6 +88,8 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
+| `AUDIT_RESPONSE_IA_ENABLED` | `1` dev / `0` prod | Habilita snapshots Gemini solo en `APP_ENV=development` |
+| `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | Directorio configurable de snapshots locales |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | Réplicas del worker que consume `document_registered` |
@@ -101,7 +102,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` |
 
 ## Flujo de revisión
-1. Verificar servicios en `docker-compose.yml` y `docker-compose.prod.yml`.
+1. Verificar servicios en `docker-compose.yml`.
 2. Verificar extensiones en `docker/Dockerfile`.
 3. Validar `frontend/next.config.ts` (output: standalone).
 4. Verificar variables obligatorias en `.env`.
@@ -111,7 +112,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 2. **No hardcodear secretos** — usar `.env`.
 3. SQL Server es **externo** al entorno Docker.
 4. No hornear URLs absolutas del backend en bundles `NEXT_PUBLIC_*`; el navegador y SSR deben usar `/api/backend/*`, y solo el route handler debe resolver `INTERNAL_API_URL` en runtime.
-5. Escalar workers por variables `.env`, no editando números fijos en `docker-compose*.yml`.
+5. Escalar workers por variables `.env`, no editando números fijos en `docker-compose.yml`.
 6. No bajar `AUDIT_PENDING_RECLAIM_IDLE_MS` por debajo del peor caso de duración Gemini.
 7. Nginx debe resolver `php:9000` en runtime vía `resolver 127.0.0.11`; no volver a upstream estático que cachee IPs de contenedores recreados.
 8. Redis debe mantener `REDIS_MAXMEMORY`, `REDIS_MAXMEMORY_POLICY` y `REDIS_CONTAINER_MEMORY` parametrizados en Compose; no volver a limites hardcodeados de 256mb/300M.
@@ -132,8 +133,8 @@ wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && dock
 wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy
 
 # Deploy producción desde imagenes GHCR (runner LAN)
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
+AUDFACT_IMAGE_TAG=<sha> docker compose pull
+AUDFACT_IMAGE_TAG=<sha> docker compose --profile frontend up -d --no-build --remove-orphans
 
 # Sincronizar GitHub Environment production desde un .env productivo
 bash scripts/sync-github-production-env.sh --dry-run

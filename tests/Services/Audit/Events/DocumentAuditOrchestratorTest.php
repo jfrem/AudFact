@@ -12,6 +12,7 @@ use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use Core\RedisClient;
 use DomainException;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -330,9 +331,96 @@ final class DocumentAuditOrchestratorTest extends TestCase
             payload:   ['dis_det_nro' => 'T38250701547']
         );
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('audit_created sin dis_id');
         $orchestrator->processEvent($event);
+    }
+
+    public function testPatchAuditFailureStopsBeforePublishingDocuments(): void
+    {
+        $store = new RecordingStateStore();
+        $store->patchAuditResult = false;
+        $publisher = new InMemoryPublisher();
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService(), $store, $publisher);
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'dis_id' => '87723098',
+                'source' => 'batch',
+            ]
+        );
+
+        try {
+            $orchestrator->processEvent($event);
+            $this->fail('Se esperaba RuntimeException por fallo de patchAudit.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('No se pudo actualizar el contexto de auditoría en Redis', $error->getMessage());
+        }
+
+        $this->assertSame([], $store->registeredDocuments);
+        $this->assertSame([], $publisher->published);
+    }
+
+    public function testDocumentsTotalFailureStopsBeforePublishingDocuments(): void
+    {
+        $store = new RecordingStateStore();
+        $store->setAuditDocumentsTotalResult = false;
+        $publisher = new InMemoryPublisher();
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService(), $store, $publisher);
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'dis_id' => '87723098',
+                'source' => 'batch',
+            ]
+        );
+
+        try {
+            $orchestrator->processEvent($event);
+            $this->fail('Se esperaba RuntimeException por fallo de setAuditDocumentsTotal.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('No se pudo registrar el total de documentos de la auditoría', $error->getMessage());
+        }
+
+        $this->assertSame([], $store->registeredDocuments);
+        $this->assertSame([], $publisher->published);
+    }
+
+    public function testRegisterDocumentFailureDoesNotPublishDocumentRegistered(): void
+    {
+        $store = new RecordingStateStore();
+        $store->registerDocumentResult = false;
+        $publisher = new InMemoryPublisher();
+        $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService(), $store, $publisher);
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId:   AuditEvent::uuidV4(),
+            payload:   [
+                'dis_det_nro' => 'T38250701547',
+                'fac_nit_sec' => '2426',
+                'dis_id' => '87723098',
+                'source' => 'batch',
+            ]
+        );
+
+        try {
+            $orchestrator->processEvent($event);
+            $this->fail('Se esperaba RuntimeException por fallo de registerDocument.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('No se pudo registrar el documento en Redis', $error->getMessage());
+        }
+
+        $this->assertSame([], $store->registeredDocuments);
+        $this->assertSame([], $publisher->published);
     }
 
     public function testBatchDisIdMismatchThrowsIdentityMismatch(): void
@@ -413,13 +501,17 @@ final class DocumentAuditOrchestratorTest extends TestCase
         );
     }
 
-    private function makeOrchestrator(StubAuditDataService $dataService): DocumentAuditOrchestrator
+    private function makeOrchestrator(
+        StubAuditDataService $dataService,
+        ?RecordingStateStore $stateStore = null,
+        ?InMemoryPublisher $publisher = null
+    ): DocumentAuditOrchestrator
     {
         return new DocumentAuditOrchestrator(
-            stateStore:   new RecordingStateStore(),
+            stateStore:   $stateStore ?? new RecordingStateStore(),
             dataService:  $dataService,
             redis:        $this->createMock(RedisClient::class),
-            publisher:    new InMemoryPublisher(),
+            publisher:    $publisher ?? new InMemoryPublisher(),
             consumerName: 'test-orchestrator'
         );
     }
@@ -483,6 +575,9 @@ final class StubAuditDataService extends AuditDataService
 final class RecordingStateStore extends AuditStateStore
 {
     public int $docsTotal = 0;
+    public bool $patchAuditResult = true;
+    public bool $setAuditDocumentsTotalResult = true;
+    public bool $registerDocumentResult = true;
     /** @var array<int,array{auditId:string,documentId:string,state:array<string,mixed>}> */
     public array $registeredDocuments = [];
     /** @var array<int,array<string,mixed>> */
@@ -494,6 +589,10 @@ final class RecordingStateStore extends AuditStateStore
 
     public function patchAudit(string $auditId, array $patch): bool
     {
+        if (!$this->patchAuditResult) {
+            return false;
+        }
+
         $this->patches[] = $patch;
         return true;
     }
@@ -505,12 +604,20 @@ final class RecordingStateStore extends AuditStateStore
 
     public function setAuditDocumentsTotal(string $auditId, int $total): bool
     {
+        if (!$this->setAuditDocumentsTotalResult) {
+            return false;
+        }
+
         $this->docsTotal = $total;
         return true;
     }
 
     public function registerDocument(string $auditId, string $documentId, array $documentState): bool
     {
+        if (!$this->registerDocumentResult) {
+            return false;
+        }
+
         $this->registeredDocuments[] = [
             'auditId'    => $auditId,
             'documentId' => $documentId,

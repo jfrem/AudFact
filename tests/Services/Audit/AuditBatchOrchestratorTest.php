@@ -11,6 +11,7 @@ use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\BatchJobStore;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 
 final class AuditBatchOrchestratorTest extends TestCase
 {
@@ -75,6 +76,41 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertSame('87723098', $publisher->published[1]->payload['dis_id']);
         $this->assertSame('T38250701547', $publisher->published[1]->payload['dis_det_nro']);
     }
+
+    public function testEnqueueBatchDoesNotCleanupStateAfterPublishingAnEvent(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $publisher = new FailingAfterFirstPublishPublisher();
+        $invoicesModel = new BatchOrchestratorInvoicesModel([
+            [
+                'NitSec' => 2426,
+                'DisId' => '87723098',
+                'Dispensa' => 'T38250701547',
+                'DisFecSol' => '2026-06-12T00:00:00',
+            ],
+        ]);
+
+        $orchestrator = new AuditBatchOrchestrator(
+            $stateStore,
+            $jobStore,
+            $publisher,
+            $invoicesModel,
+        );
+
+        try {
+            $orchestrator->enqueueBatch(2426, '2026-06-12', '2026-06-12', 1);
+            $this->fail('Se esperaba RuntimeException por fallo de publicación.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('publish failed', $error->getMessage());
+        }
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_BATCH_CREATED, $publisher->published[0]->eventType);
+        $this->assertSame([], $stateStore->deletedAudits);
+        $this->assertSame([], $jobStore->deletedJobs);
+        $this->assertSame([], $jobStore->releasedReservations);
+    }
 }
 
 final class BatchOrchestratorInvoicesModel extends InvoicesModel
@@ -107,6 +143,10 @@ final class BatchOrchestratorJobStore extends BatchJobStore
     public int $patchJobCalls = 0;
     /** @var array<int,array<string,string|null>> */
     public array $registeredAudits = [];
+    /** @var array<int,string> */
+    public array $deletedJobs = [];
+    /** @var array<int,array{dis_id:string,token:string}> */
+    public array $releasedReservations = [];
 
     public function __construct()
     {
@@ -161,17 +201,22 @@ final class BatchOrchestratorJobStore extends BatchJobStore
 
     public function deleteJob(string $jobId): bool
     {
+        $this->deletedJobs[] = $jobId;
         return true;
     }
 
     public function releaseAuditReservation(string $disId, string $ownerToken): bool
     {
+        $this->releasedReservations[] = ['dis_id' => $disId, 'token' => $ownerToken];
         return true;
     }
 }
 
 final class BatchOrchestratorStateStore extends AuditStateStore
 {
+    /** @var array<int,string> */
+    public array $deletedAudits = [];
+
     public function __construct()
     {
     }
@@ -193,6 +238,7 @@ final class BatchOrchestratorStateStore extends AuditStateStore
 
     public function deleteAudit(string $auditId): bool
     {
+        $this->deletedAudits[] = $auditId;
         return true;
     }
 }
@@ -210,6 +256,26 @@ final class BatchOrchestratorPublisher extends AuditEventPublisher
     {
         $this->published[] = $event;
 
+        return $event->eventId;
+    }
+}
+
+final class FailingAfterFirstPublishPublisher extends AuditEventPublisher
+{
+    /** @var array<int,AuditEvent> */
+    public array $published = [];
+
+    public function __construct()
+    {
+    }
+
+    public function publish(AuditEvent $event): string
+    {
+        if (count($this->published) >= 1) {
+            throw new RuntimeException('publish failed');
+        }
+
+        $this->published[] = $event;
         return $event->eventId;
     }
 }

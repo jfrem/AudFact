@@ -12,7 +12,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Pipeline | Event-driven sobre Redis Streams (7 servicios de worker especializados) |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD |
 | Web Server | Nginx 1.25 → PHP-FPM |
-| Contenedores | Docker Compose (dev) / GHCR + docker-compose.prod.yml (prod) |
+| Contenedores | Docker Compose unico: build local en desarrollo, imagenes GHCR en produccion |
 | Frontend | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui |
 | Dependencias | Guzzle 7.x, firebase/php-jwt 7.x |
 
@@ -74,7 +74,7 @@ npm run dev
 | `AUDFACT_API_PUBLIC_URL` | URL pública del backend usada para URLs MCP/webhook generadas en deploy |
 | `INTERNAL_API_URL` | URL interna usada por el proxy Next.js `/api/backend`; en producción Docker usa `http://nginx` |
 | `AUDFACT_FRONTEND_PUBLIC_URL` | Origen público del frontend usado por deploy/CORS |
-| `AUDFACT_PHP_IMAGE` / `AUDFACT_NGINX_IMAGE` / `AUDFACT_FRONTEND_IMAGE` | Imágenes GHCR usadas por `docker-compose.prod.yml` |
+| `AUDFACT_PHP_IMAGE` / `AUDFACT_NGINX_IMAGE` / `AUDFACT_FRONTEND_IMAGE` | Imágenes GHCR usadas por `docker-compose.yml` en produccion |
 | `AUDFACT_IMAGE_TAG` | Tag inmutable de imágenes GHCR para deploy/rollback |
 | `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN del host para publicar el frontend productivo (default: `3100`) |
 | `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_DEFAULT_THEME` | Configuración pública básica del frontend |
@@ -91,6 +91,7 @@ npm run dev
 | `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server (`yes` temporal) |
 | `GEMINI_API_KEY` | API Key de Google Gemini |
 | `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3.5-flash`) |
+| `AUDIT_RESPONSE_IA_ENABLED` / `AUDIT_RESPONSE_IA_DIR` | Snapshots Gemini locales; solo persisten en `APP_ENV=development` |
 | `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN` | Umbral y cooldown del circuit breaker Gemini |
 | `REDIS_HOST` / `REDIS_PORT` | Host y puerto de Redis para pipeline async |
 | `REDIS_PASSWORD` / `REDIS_MODE` | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`) |
@@ -230,14 +231,14 @@ Nginx resuelve `php:9000` con DNS Docker en runtime para evitar `502` por IPs PH
 ### Producción
 
 ```bash
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml pull
-AUDFACT_IMAGE_TAG=<sha> docker compose -f docker-compose.prod.yml up -d --remove-orphans
+AUDFACT_IMAGE_TAG=<sha> docker compose pull
+AUDFACT_IMAGE_TAG=<sha> docker compose --profile frontend up -d --no-build --remove-orphans
 ```
 
-`docker-compose.yml` conserva la topología local con build desde el repo e incluye los 7 servicios de worker. `docker-compose.prod.yml` usa imágenes publicadas en GHCR, no construye en el servidor y levanta la misma topología funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance en producción.
+`docker-compose.yml` es la fuente unica universal: en desarrollo puede construir desde el repo; en produccion usa imagenes publicadas en GHCR, no construye en el servidor y levanta la misma topologia funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
-En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose productivo monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). El directorio `responseIA/` solo se monta en desarrollo.
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). `responseIA` no tiene volumen dedicado: los snapshots solo se escriben en desarrollo, bajo `AUDIT_RESPONSE_IA_DIR`.
 El contenedor PHP usa un healthcheck empaquetado en `/usr/local/bin/audfact-healthcheck.php`, evitando depender de rutas eliminadas durante el build final.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de línea reales (LF) y no secuencias literales `\r\n`.
@@ -249,7 +250,7 @@ El despliegue productivo está separado en cuatro workflows:
 - `.github/workflows/ci.yml`: valida PHP, Composer, estructura, secretos hardcodeados y PHPUnit.
 - `.github/workflows/frontend-ci.yml`: valida build del frontend Next.js y bloquea bundles con URLs locales de backend embebidas.
 - `.github/workflows/publish-images.yml`: construye `audfact-php`, `audfact-nginx` y `audfact-frontend`, y publica tags `latest` y `${GITHUB_SHA}` en GHCR.
-- `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.prod.yml` y valida `/health`, `/api/backend/health` + `/clients`.
+- `.github/workflows/deploy-production.yml`: corre en el runner self-hosted `audfact-prod-lan`, genera `.env`, hace `docker compose pull`, levanta `docker-compose.yml` con `--profile frontend` y valida `/health`, `/api/backend/health` + `/clients`.
 
 El servidor no necesita IP pública ni SSH expuesto. El runner debe vivir dentro de la LAN y tener salida HTTPS a GitHub/GHCR.
 
