@@ -4,17 +4,17 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 
 ## Stack Tecnológico
 
-| Capa | Tecnología |
-|---|---|
-| Backend | PHP 8.2-FPM — Framework MVC custom |
-| Base de datos | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`) |
-| IA | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`) |
-| Pipeline | Event-driven sobre Redis Streams (7 servicios de worker especializados) |
-| Almacenamiento | Google Drive (JWT) + BLOB en BD |
-| Web Server | Nginx 1.25 → PHP-FPM |
-| Contenedores | Docker Compose unico: build local en desarrollo, imagenes GHCR en produccion |
-| Frontend | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui |
-| Dependencias | Guzzle 7.x, firebase/php-jwt 7.x |
+| Capa           | Tecnología                                                                   |
+| -------------- | ---------------------------------------------------------------------------- |
+| Backend        | PHP 8.2-FPM — Framework MVC custom                                           |
+| Base de datos  | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`)    |
+| IA             | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`)              |
+| Pipeline       | Event-driven sobre Redis Streams (7 servicios de worker especializados)      |
+| Almacenamiento | Google Drive (JWT) + BLOB en BD                                              |
+| Web Server     | Nginx 1.25 → PHP-FPM                                                         |
+| Contenedores   | Docker Compose unico: build local en desarrollo, imagenes GHCR en produccion |
+| Frontend       | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui                        |
+| Dependencias   | Guzzle 7.x, firebase/php-jwt 7.x                                             |
 
 ## Estructura del Proyecto
 
@@ -40,7 +40,7 @@ AudFact/
 
 ## Inicio Rápido
 
-### Prerrequisitos
+### Prerrequisitos.
 
 - Docker + Docker Compose.
 - SQL Server con base de datos de dispensación.
@@ -68,46 +68,46 @@ npm run dev
 
 ### Variables de Entorno
 
-| Variable | Descripción |
-|---|---|
-| `APP_ENV` | Entorno (`development`, `production`) |
-| `AUDFACT_API_PUBLIC_URL` | URL pública del backend usada para URLs MCP/webhook generadas en deploy |
-| `INTERNAL_API_URL` | URL interna usada por el proxy Next.js `/api/backend`; en producción Docker usa `http://nginx` |
-| `AUDFACT_FRONTEND_PUBLIC_URL` | Origen público del frontend usado por deploy/CORS |
-| `AUDFACT_PHP_IMAGE` / `AUDFACT_NGINX_IMAGE` / `AUDFACT_FRONTEND_IMAGE` | Imágenes GHCR usadas por `docker-compose.yml` en produccion |
-| `AUDFACT_IMAGE_TAG` | Tag inmutable de imágenes GHCR para deploy/rollback |
-| `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN del host para publicar el frontend productivo (default: `3100`) |
-| `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_DEFAULT_THEME` | Configuración pública básica del frontend |
-| `NEXT_PUBLIC_POLLING_JOBS_MS` / `NEXT_PUBLIC_POLLING_HEALTH_MS` | Intervalos de polling del frontend |
-| `NEXT_PUBLIC_LOCALE` / `NEXT_PUBLIC_TIMEZONE` | Locale y zona horaria del frontend |
-| `DB_TYPE` | Tipo de BD (`sqlsrv`) |
-| `DB_HOST` / `DB2_HOST` | Host de SQL Server (escritura / lectura) |
-| `DB_PORT` / `DB2_PORT` | Puerto (default: `1433`) |
-| `DB_NAME` / `DB2_NAME` | Nombre de la base de datos |
-| `DB_USER` / `DB2_USER` | Usuario de BD |
-| `DB_PASS` / `DB2_PASS` | Contraseña de BD |
-| `DB_POOLING` / `DB2_POOLING` | Connection pooling PDO por conexión |
-| `DB_ENCRYPT` / `DB2_ENCRYPT` | Cifrado SQL Server (`no` temporal en este entorno) |
-| `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT` | Trust del certificado SQL Server (`yes` temporal) |
-| `GEMINI_API_KEY` | API Key de Google Gemini |
-| `GEMINI_MODEL` | Modelo de Gemini a usar (default: `gemini-3.5-flash`) |
-| `AUDIT_RESPONSE_IA_ENABLED` / `AUDIT_RESPONSE_IA_DIR` | Snapshots Gemini locales; solo persisten en `APP_ENV=development` |
-| `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN` | Umbral y cooldown del circuit breaker Gemini |
-| `REDIS_HOST` / `REDIS_PORT` | Host y puerto de Redis para pipeline async |
-| `REDIS_PASSWORD` / `REDIS_MODE` | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`) |
-| `AUDIT_WORKER_BATCH_REPLICAS` | Réplicas del worker de batches (default: `2`) |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | Réplicas de orquestadores async (default: `3`) |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | Réplicas de descargadores de adjuntos (default: `8`) |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS` | Réplicas de extractores Gemini (default: `8`) |
-| `AUDIT_WORKER_POLICY_REPLICAS` | Réplicas de evaluación de reglas (default: `2`) |
-| `AUDIT_IDEMPOTENCY_KEY_TTL` | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`) |
-| `AUDIT_PENDING_RECLAIM_IDLE_MS` | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`) |
-| `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | Intervalo de escaneo de pending por worker (default: `30000`) |
-| `GOOGLE_DRIVE_CLIENT_EMAIL` | Email cuenta de servicio |
-| `GOOGLE_DRIVE_PRIVATE_KEY` | Clave privada |
-| `LOG_LEVEL` | Nivel de log (`error`, `warning`, `info`) |
-| `ALLOWED_ORIGINS` | Origenes CORS permitidos (comma-separated) |
-| `MCP_WEBHOOK_SECRET` | Secreto para `X-API-KEY` del webhook MCP |
+| Variable                                                               | Descripción                                                                                    |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `APP_ENV`                                                              | Entorno (`development`, `production`)                                                          |
+| `AUDFACT_API_PUBLIC_URL`                                               | URL pública del backend usada para URLs MCP/webhook generadas en deploy                        |
+| `INTERNAL_API_URL`                                                     | URL interna usada por el proxy Next.js `/api/backend`; en producción Docker usa `http://nginx` |
+| `AUDFACT_FRONTEND_PUBLIC_URL`                                          | Origen público del frontend usado por deploy/CORS                                              |
+| `AUDFACT_PHP_IMAGE` / `AUDFACT_NGINX_IMAGE` / `AUDFACT_FRONTEND_IMAGE` | Imágenes GHCR usadas por `docker-compose.yml` en produccion                                    |
+| `AUDFACT_IMAGE_TAG`                                                    | Tag inmutable de imágenes GHCR para deploy/rollback                                            |
+| `AUDFACT_FRONTEND_HOST_PORT`                                           | Puerto LAN del host para publicar el frontend productivo (default: `3100`)                     |
+| `NEXT_PUBLIC_APP_NAME` / `NEXT_PUBLIC_DEFAULT_THEME`                   | Configuración pública básica del frontend                                                      |
+| `NEXT_PUBLIC_POLLING_JOBS_MS` / `NEXT_PUBLIC_POLLING_HEALTH_MS`        | Intervalos de polling del frontend                                                             |
+| `NEXT_PUBLIC_LOCALE` / `NEXT_PUBLIC_TIMEZONE`                          | Locale y zona horaria del frontend                                                             |
+| `DB_TYPE`                                                              | Tipo de BD (`sqlsrv`)                                                                          |
+| `DB_HOST` / `DB2_HOST`                                                 | Host de SQL Server (escritura / lectura)                                                       |
+| `DB_PORT` / `DB2_PORT`                                                 | Puerto (default: `1433`)                                                                       |
+| `DB_NAME` / `DB2_NAME`                                                 | Nombre de la base de datos                                                                     |
+| `DB_USER` / `DB2_USER`                                                 | Usuario de BD                                                                                  |
+| `DB_PASS` / `DB2_PASS`                                                 | Contraseña de BD                                                                               |
+| `DB_POOLING` / `DB2_POOLING`                                           | Connection pooling PDO por conexión                                                            |
+| `DB_ENCRYPT` / `DB2_ENCRYPT`                                           | Cifrado SQL Server (`no` temporal en este entorno)                                             |
+| `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT`                       | Trust del certificado SQL Server (`yes` temporal)                                              |
+| `GEMINI_API_KEY`                                                       | API Key de Google Gemini                                                                       |
+| `GEMINI_MODEL`                                                         | Modelo de Gemini a usar (default: `gemini-3.5-flash`)                                          |
+| `AUDIT_RESPONSE_IA_ENABLED` / `AUDIT_RESPONSE_IA_DIR`                  | Snapshots Gemini locales; solo persisten en `APP_ENV=development`                              |
+| `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN`                           | Umbral y cooldown del circuit breaker Gemini                                                   |
+| `REDIS_HOST` / `REDIS_PORT`                                            | Host y puerto de Redis para pipeline async                                                     |
+| `REDIS_PASSWORD` / `REDIS_MODE`                                        | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`)                               |
+| `AUDIT_WORKER_BATCH_REPLICAS`                                          | Réplicas del worker de batches (default: `2`)                                                  |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`                                   | Réplicas de orquestadores async (default: `3`)                                                 |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de descargadores de adjuntos (default: `8`)                                           |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS`                                     | Réplicas de extractores Gemini (default: `8`)                                                  |
+| `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `2`)                                                |
+| `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS`                                        | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`)                  |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`                                    | Intervalo de escaneo de pending por worker (default: `30000`)                                  |
+| `GOOGLE_DRIVE_CLIENT_EMAIL`                                            | Email cuenta de servicio                                                                       |
+| `GOOGLE_DRIVE_PRIVATE_KEY`                                             | Clave privada                                                                                  |
+| `LOG_LEVEL`                                                            | Nivel de log (`error`, `warning`, `info`)                                                      |
+| `ALLOWED_ORIGINS`                                                      | Origenes CORS permitidos (comma-separated)                                                     |
+| `MCP_WEBHOOK_SECRET`                                                   | Secreto para `X-API-KEY` del webhook MCP                                                       |
 
 > Catálogo completo de variables en [`AGENTS.md`](AGENTS.md) y `.env.example`.
 
@@ -127,36 +127,36 @@ npm run dev
 
 Base URL: `http://localhost:8080`
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| `GET` | `/` | Estado base del API |
-| `GET` | `/health` | Estado de salud del backend |
-| `GET` | `/metrics/async` | Métricas de pipeline asíncrono |
-| `GET` | `/config/public` | Configuración pública del frontend |
-| `GET` | `/clients` | Listar clientes |
-| `GET` | `/clients/{clientId}` | Obtener cliente |
-| `GET` | `/clients/{clientId}/documents` | Documentos requeridos por cliente |
-| `POST` | `/clients` | Buscar cliente por `clientId` |
-| `GET` | `/clients/{clientId}/audit-config` | Configuración de auditoría por cliente |
-| `POST` | `/clients/{clientId}/audit-config` | Guardar configuración de auditoría |
-| `GET` | `/invoices` | Buscar facturas pendientes con paginación `page`/`pageSize` |
-| `POST` | `/invoices` | Buscar facturas por body JSON con el mismo contrato paginado |
-| `GET` | `/dispensation/{DisId}/{DisDetNro}` | Datos de dispensación |
-| `POST` | `/dispensation` | Buscar dispensación por body JSON |
-| `GET` | `/dispensation/{DisDetNro}/attachments/{nitSec}` | Listar adjuntos |
-| `GET` | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto |
-| `POST` | `/audit/single` | Auditoría individual por `disDetNro` (con `disId` opcional) |
-| `POST` | `/audit/async` | Auditoría en lote asíncrona (→ 202) |
-| `GET` | `/audit/jobs/{jobId}` | Estado de auditoría asíncrona |
-| `GET` | `/audit/status/{auditId}` | Estado Redis de una auditoría individual encolada |
-| `GET` | `/audit/results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facNro}` | Detalle persistido por FacNro |
-| `GET` | `/audit/stats` | Conteos agregados para dashboard |
-| `GET` | `/audit/documents-history` | Historial de documentos auditados |
-| `GET` | `/audit/{facNro}/timings` | Timings detallados por factura |
-| `GET` | `/audit/dlq` | Listado de eventos fallidos definitivos |
-| `POST` | `/audit/dlq/reprocess` | Reproceso administrativo de un evento DLQ |
-| `POST` | `/app/wrap/webhook.php` | Endpoint MCP |
+| Método | Ruta                                                            | Descripción                                                  |
+| ------ | --------------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET`  | `/`                                                             | Estado base del API                                          |
+| `GET`  | `/health`                                                       | Estado de salud del backend                                  |
+| `GET`  | `/metrics/async`                                                | Métricas de pipeline asíncrono                               |
+| `GET`  | `/config/public`                                                | Configuración pública del frontend                           |
+| `GET`  | `/clients`                                                      | Listar clientes                                              |
+| `GET`  | `/clients/{clientId}`                                           | Obtener cliente                                              |
+| `GET`  | `/clients/{clientId}/documents`                                 | Documentos requeridos por cliente                            |
+| `POST` | `/clients`                                                      | Buscar cliente por `clientId`                                |
+| `GET`  | `/clients/{clientId}/audit-config`                              | Configuración de auditoría por cliente                       |
+| `POST` | `/clients/{clientId}/audit-config`                              | Guardar configuración de auditoría                           |
+| `GET`  | `/invoices`                                                     | Buscar facturas pendientes con paginación `page`/`pageSize`  |
+| `POST` | `/invoices`                                                     | Buscar facturas por body JSON con el mismo contrato paginado |
+| `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | Datos de dispensación                                        |
+| `POST` | `/dispensation`                                                 | Buscar dispensación por body JSON                            |
+| `GET`  | `/dispensation/{DisDetNro}/attachments/{nitSec}`                | Listar adjuntos                                              |
+| `GET`  | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto                              |
+| `POST` | `/audit/single`                                                 | Auditoría individual por `disDetNro` (con `disId` opcional)  |
+| `POST` | `/audit/async`                                                  | Auditoría en lote asíncrona (→ 202)                          |
+| `GET`  | `/audit/jobs/{jobId}`                                           | Estado de auditoría asíncrona                                |
+| `GET`  | `/audit/status/{auditId}`                                       | Estado Redis de una auditoría individual encolada            |
+| `GET`  | `/audit/results`                                                | Resumen paginado de auditorías persistidas                   |
+| `GET`  | `/audit/results/{facNro}`                                       | Detalle persistido por FacNro                                |
+| `GET`  | `/audit/stats`                                                  | Conteos agregados para dashboard                             |
+| `GET`  | `/audit/documents-history`                                      | Historial de documentos auditados                            |
+| `GET`  | `/audit/{facNro}/timings`                                       | Timings detallados por factura                               |
+| `GET`  | `/audit/dlq`                                                    | Listado de eventos fallidos definitivos                      |
+| `POST` | `/audit/dlq/reprocess`                                          | Reproceso administrativo de un evento DLQ                    |
+| `POST` | `/app/wrap/webhook.php`                                         | Endpoint MCP                                                 |
 
 > Ver documentación detallada en [`plans/api-endpoints.md`](plans/api-endpoints.md)
 
@@ -203,6 +203,7 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 - **Agregación**: Validación del outcome, persistencia en SQL Server y publicación de eventos terminales.
 
 Características:
+
 - Cache de extracción por `document_hash` (idempotencia).
 - Modelo Gemini único por entorno: `GEMINI_MODEL` selecciona la versión usada por extracción y homologación; `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` solo ajustan parámetros de generación por perfil. `GeminiConfig` tiene un fallback local si falta `GEMINI_MODEL`, pero no existe cambio de modelo por etapa ni reintento a otra versión.
 - Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
