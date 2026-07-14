@@ -20,7 +20,7 @@ Usar esta skill para operaciones remotas sobre el servidor de produccion LAN `ad
 - Workflow de deploy: `.github/workflows/deploy-production.yml`
 - Compose productivo: `docker-compose.yml` con perfil `frontend`
 - Sync GitHub Environment: `scripts/sync-github-production-env.sh`
-- Variables SQL vigentes en GitHub Environment `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.55`, `DB_PORT=1433`, `DB2_PORT=1433`. No usar `host\instancia` en produccion.
+- Variables SQL vigentes en GitHub Environment `production`: `DB_HOST=169.46.6.53`, `DB2_HOST=169.46.6.58`, `DB_PORT=1433`, `DB2_PORT=1433`. No usar `host\instancia` en produccion.
 
 ## Guardrails
 
