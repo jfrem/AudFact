@@ -1,5 +1,14 @@
 # Changelog AudFact
 
+## [2026-07-14] - Ops: DB2_HOST de produccion actualizado
+
+### Produccion / GitHub Actions
+
+- **Cambio operativo DB2**:
+  - Actualizada la documentacion operativa de `audfact-production-ops` para reflejar que `DB2_HOST` de produccion cambio de `169.46.6.55` a `169.46.6.58`.
+  - El fallo observado en los runners de GitHub Actions (`SQL preflight db2 failed ... HYT00`) se asocia al host anterior de lectura.
+  - Pendiente aplicar el mismo valor en la GitHub Variable `DB2_HOST` del Environment `production` y relanzar el workflow de deploy.
+
 ## [2026-07-08] - Fix: Clean Rebuild Pipeline y Compose Unico
 
 ### IA Pipeline / Runtime / Docs

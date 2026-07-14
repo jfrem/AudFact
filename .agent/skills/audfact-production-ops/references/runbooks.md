@@ -114,7 +114,7 @@ Checklist antes de disparar deploy:
 - GitHub Environment `production` tiene Secrets/Variables requeridos.
 - Variables SQL de produccion usan host/IP limpio:
   - `DB_HOST=169.46.6.53`
-  - `DB2_HOST=169.46.6.55`
+  - `DB2_HOST=169.46.6.58`
   - `DB_PORT=1433`
   - `DB2_PORT=1433`
 - GHCR contiene imagenes `audfact-php:SHA` y `audfact-nginx:SHA`.
@@ -173,11 +173,11 @@ Health check falla:
 
 `Create production environment file` falla con `DB_HOST appears malformed`:
 
-- Causa: el secret `DB_HOST` o `DB2_HOST` del environment `production` no es host/IP limpio.
+- Causa: la GitHub Variable `DB_HOST` o `DB2_HOST` del Environment `production` no es host/IP limpio.
 - Valores correctos actuales:
   - `DB_HOST=169.46.6.53`
-  - `DB2_HOST=169.46.6.55`
-- Corregir secrets y relanzar el workflow. No editar `/home/admon/audfact-prod/.env` como solucion permanente porque el deploy lo regenera.
+  - `DB2_HOST=169.46.6.58`
+- Corregir variables y relanzar el workflow. No editar `/home/admon/audfact-prod/.env` como solucion permanente porque el deploy lo regenera.
 
 `/health` falla con `database unreachable` o `Login timeout expired`:
 
