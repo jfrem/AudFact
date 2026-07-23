@@ -141,7 +141,7 @@ export function AuditConfigEditor({
       ([docName, doc]) => {
         // Unify data fields
         const dataFields: FieldToggle[] = doc.fields.map((f) => {
-          let tipo = (f.tipoCampo || "E").trim().toUpperCase();
+          const tipo = (f.tipoCampo || "E").trim().toUpperCase();
 
           return {
             campoNombre: f.campoNombre,

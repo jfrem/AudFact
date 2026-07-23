@@ -82,6 +82,10 @@ final class DocumentIntegrityValidator
             return self::rejected('ENCRYPTED_DOCUMENT', $declaredMime, $detectedMime, $sizeBytes);
         }
 
+        if ($declaredMime === 'application/pdf' && !self::pdfHasPages($raw)) {
+            return self::rejected('EMPTY_PDF_NO_PAGES', $declaredMime, $detectedMime, $sizeBytes);
+        }
+
         return [
             'valid' => true,
             'reason' => null,
@@ -126,5 +130,15 @@ final class DocumentIntegrityValidator
         }
 
         return null;
+    }
+
+    /**
+     * Heurística ligera: verifica que un PDF contenga al menos un objeto /Page
+     * (sin trailing 's') en su árbol de objetos. Un PDF con 0 páginas no contiene
+     * este marcador y Gemini lo rechaza con HTTP 400 "The document has no pages".
+     */
+    private static function pdfHasPages(string $raw): bool
+    {
+        return (bool) preg_match('/\/Type\s*\/Page(?!s)\b/', $raw);
     }
 }

@@ -18,7 +18,7 @@ export function AttachmentResultDetailClient({
   disDetNro: string;
   attachments: AttachmentRecord[];
   dispensation: DispensationDetail | null;
-  items: any[];
+  items: Record<string, unknown>[];
 }) {
   const [selected, setSelected] = React.useState<AttachmentRecord | undefined>(
     attachments[0],
@@ -36,7 +36,7 @@ export function AttachmentResultDetailClient({
       <div className="space-y-4 lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto lg:scrollbar-thin lg:pr-1 lg:pb-8">
         <DispensationInfoPanel
           header={header as Record<string, unknown> | undefined}
-          items={items as Record<string, unknown>[]}
+          items={items}
         />
 
         <SectionCard>

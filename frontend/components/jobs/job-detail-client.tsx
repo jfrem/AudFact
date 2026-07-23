@@ -49,7 +49,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
   const processed = data?.processed ?? 0;
   const total = data?.total ?? 0;
   const status = data?.status ?? "queued";
-  const isTerminal = status === "completed" || status === "failed";
+  const isTerminal = status === "completed" || status === "completed_with_errors" || status === "failed";
   const result = data?.result;
 
   return (
@@ -116,7 +116,6 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
           <AlertDescription>{data.error}</AlertDescription>
         </Alert>
       )}
-
 
       <div className="min-h-[400px] flex-1">
         <AuditFlowGraph />

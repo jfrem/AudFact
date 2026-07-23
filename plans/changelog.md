@@ -1,5 +1,24 @@
 # Changelog AudFact
 
+## [2026-07-23] - Feature: Observabilidad E2E, Validaciones Preventivas y Soporte Next 15
+
+### IA Pipeline / Observability / Frontend / Clean Rebuild
+
+- **Métricas y Telemetría Async**:
+  - `ObservabilityController::asyncMetrics` ahora desglosa la profundidad de las 4 colas del pipeline de Redis (`audit.inbox`, `audit.documents`, `audit.results`, `audit.batch.inbox`) en el nuevo campo `streamDepths`.
+  - Fix: Corregido el paso de la key de telemetría a Lua scripts en `BatchJobStore` (`keys[2]`), eliminando la creación de hash sin prefijo `audfact:`.
+- **Health Checks & Resiliencia**:
+  - `HealthController` refactorizado. Nuevo validador ping explícito de DB2 (`database_read`) y Redis (`RedisClient::isAvailable()`), determinando caída granular del sistema.
+  - Reemplazado `uptime_seconds` engañoso por `request_duration_ms`.
+  - Actualizado proxy frontend `/api/health` para validar contra el endpoint interno de nginx (`INTERNAL_API_URL`).
+- **Estados Semánticos Terminales**:
+  - Identidad de estado `completed_with_errors` añadida a lo largo del stack completo (Zustand store, schemas, React UI), previniendo el ocultamiento de problemas parciales en procesamiento de lotes.
+- **Validación de Corrupción Temprana**:
+  - `DocumentIntegrityValidator` ahora evalúa firmas corruptas en runtime mediante heurística regex `EMPTY_PDF_NO_PAGES`. Previene timeouts e invocaciones a Gemini cuando los PDFs llegan corruptos por el legacy system.
+- **Frontend Ops**:
+  - Migración a ESLint Flat Config (`eslint.config.mjs`) estandarizando validaciones bajo Next.js 15.
+- **DOCS-SYNC**: Validada la arquitectura bajo la `clean-rebuild-policy` y completada revisión de drift (0% de desvío de schemas).
+
 ## [2026-07-23] - Refactor: Universalización de Tolerancia de Empaque (Clean Rebuild)
 
 ### IA Pipeline / Arquitectura / Clean Rebuild

@@ -31,16 +31,24 @@ class ObservabilityController extends Controller
         try {
             $redis = $this->buildRedisClient();
 
-            $inboxStream = AuditEventPublisher::STREAM_INBOX;
-            $dlqStream   = AuditEventPublisher::dlqStream();
+            $streams = [
+                'inbox'      => AuditEventPublisher::STREAM_INBOX,
+                'documents'  => AuditEventPublisher::STREAM_DOCUMENTS,
+                'results'    => AuditEventPublisher::STREAM_RESULTS,
+                'batchInbox' => AuditEventPublisher::STREAM_BATCH_INBOX,
+            ];
 
-            // Profundidad del stream principal de eventos de auditoría
-            $queueDepth = (int) $redis->xLen($inboxStream);
+            $streamDepths = [];
+            $totalDepth   = 0;
+            foreach ($streams as $name => $stream) {
+                $depth = (int) $redis->xLen($stream);
+                $streamDepths[$name] = $depth;
+                $totalDepth += $depth;
+            }
 
-            // Profundidad de la Dead Letter Queue
+            $dlqStream       = AuditEventPublisher::dlqStream();
             $deadLetterDepth = (int) $redis->xLen($dlqStream);
 
-            // Métricas operativas desde hash atómico
             $metrics = $redis->hGetAll('telemetry:async_metrics');
             if (!is_array($metrics)) {
                 $metrics = [];
@@ -57,17 +65,17 @@ class ObservabilityController extends Controller
             $terminalFailures = max(0, (int) ($metrics['terminal_failures'] ?? 0));
 
             Response::success([
-                'queueDepth'       => $queueDepth,
+                'queueDepth'       => $totalDepth,
+                'streamDepths'     => $streamDepths,
                 'deadLetterDepth'  => $deadLetterDepth,
                 'jobs'             => $jobCounts,
                 'retries'          => $retries,
                 'terminalFailures' => $terminalFailures,
             ]);
         } catch (\Throwable $e) {
-            // Redis no disponible: devolver ceros para no romper la UI.
-            // El endpoint /health expone el estado real de Redis.
             Response::success([
                 'queueDepth'       => 0,
+                'streamDepths'     => ['inbox' => 0, 'documents' => 0, 'results' => 0, 'batchInbox' => 0],
                 'deadLetterDepth'  => 0,
                 'jobs'             => ['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0],
                 'retries'          => 0,

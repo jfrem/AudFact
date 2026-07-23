@@ -13,7 +13,7 @@ final class DocumentIntegrityValidatorTest extends TestCase
     {
         $result = DocumentIntegrityValidator::validate([
             'mime' => 'application/pdf',
-            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n"),
+            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n"),
             'duration_ms' => 10,
         ]);
 
