@@ -103,8 +103,7 @@ final class DocumentIntegrityValidator
         string $declaredMime,
         ?string $detectedMime,
         int $sizeBytes
-    ): array
-    {
+    ): array {
         return [
             'valid' => false,
             'reason' => $reason,
@@ -139,6 +138,10 @@ final class DocumentIntegrityValidator
      */
     private static function pdfHasPages(string $raw): bool
     {
+        if (str_contains($raw, '/ObjStm')) {
+            return true;
+        }
+
         return (bool) preg_match('/\/Type\s*\/Page(?!s)\b/', $raw);
     }
 }
