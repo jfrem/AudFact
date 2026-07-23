@@ -61,6 +61,7 @@ class DispensationModel extends Model
         'IdEntr',
         'IdRepEnt',
         'IdFact',
+        'FactorConv',
     ];
 
 
@@ -111,7 +112,7 @@ class DispensationModel extends Model
         $sql = "SELECT TOP 1 DisId
                 FROM DispensacionDetalleServicio WITH (NOLOCK)
                 WHERE DisDetNro = :disDetNro";
-        
+
         $stmt = $this->readDb->prepare($sql);
         $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
         $stmt->execute();
@@ -228,6 +229,7 @@ class DispensationModel extends Model
                 LotFec AS FechaVencimiento,
                 Unidades_entr AS CantidadEntregada,
                 Unidades_pres AS CantidadPrescrita,
+                FactorConv,
                 Mipres        AS Mipres,
                 IdPrincipal,
                 IdDirec,

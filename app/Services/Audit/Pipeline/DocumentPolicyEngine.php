@@ -100,6 +100,8 @@ class DocumentPolicyEngine
             'document_id'   => $documentState['document_id'] ?? null,
             'dis_det_nro'   => $documentState['dis_det_nro'] ?? null,
             'document_type' => $documentType,
+            'fac_nit_sec'   => $documentState['fac_nit_sec'] ?? null,
+            'fuente_verdad' => $documentState['fuente_verdad'] ?? null,
         ];
     }
 
@@ -168,8 +170,13 @@ class DocumentPolicyEngine
 
             if ($isItemSourced && $itemSegmentationWarning !== null) {
                 $findings[] = $this->buildItemSegmentationFinding(
-                    $canonicalField, $fieldConfig, $documentType,
-                    $fdvResolution, $docResolution, $internalType, $valueType,
+                    $canonicalField,
+                    $fieldConfig,
+                    $documentType,
+                    $fdvResolution,
+                    $docResolution,
+                    $internalType,
+                    $valueType,
                     $itemSegmentationWarning
                 );
                 continue;
@@ -187,8 +194,14 @@ class DocumentPolicyEngine
             );
 
             $findings[] = $this->buildDataFinding(
-                $canonicalField, $fieldConfig, $comparison, $documentType,
-                $fdvResolution, $docResolution, $internalType, $valueType
+                $canonicalField,
+                $fieldConfig,
+                $comparison,
+                $documentType,
+                $fdvResolution,
+                $docResolution,
+                $internalType,
+                $valueType
             );
         }
 
@@ -232,7 +245,8 @@ class DocumentPolicyEngine
         array $warning
     ): array {
         $finding = $this->buildDataFinding(
-            $canonicalField, $fieldConfig,
+            $canonicalField,
+            $fieldConfig,
             [
                 'resultado' => AuditFindingResult::INCONCLUSIVE->value,
                 'detalle' => sprintf(
@@ -242,7 +256,11 @@ class DocumentPolicyEngine
                     TextNormalization::humanizeFieldName($canonicalField)
                 ),
             ],
-            $documentType, $fdvResolution, $docResolution, $internalType, $valueType
+            $documentType,
+            $fdvResolution,
+            $docResolution,
+            $internalType,
+            $valueType
         );
 
         $finding['extraction_meta'] = $finding['extraction_meta'] ?? [];
@@ -424,7 +442,7 @@ class DocumentPolicyEngine
         if ($valueType->requiresSubsetComparison()) {
             return $this->evaluateSubsetField($field, $fdvValue, $docValue);
         }
-        
+
         if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
             if (TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
                 return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
@@ -433,7 +451,7 @@ class DocumentPolicyEngine
 
         return match ($forcedType) {
             AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo, $valueType),
-            AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue, $valueType),
+            AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue, $valueType, $context),
             default                              => $this->evaluateExactField($field, $fdvValue, $docValue, $valueType),
         };
     }
@@ -564,10 +582,11 @@ class DocumentPolicyEngine
         string $fdvValue,
         string $docValue,
         AuditFieldValueType $valueType
-    ): array
-    {
-        if (AuditFindingRules::normalizeForComparison($valueType, $fdvValue)
-            === AuditFindingRules::normalizeForComparison($valueType, $docValue)) {
+    ): array {
+        if (
+            AuditFindingRules::normalizeForComparison($valueType, $fdvValue)
+            === AuditFindingRules::normalizeForComparison($valueType, $docValue)
+        ) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
@@ -587,8 +606,7 @@ class DocumentPolicyEngine
         array $context,
         string $tipoCampo,
         AuditFieldValueType $valueType
-    ): array
-    {
+    ): array {
         $normalizedFdv = TextNormalization::normalizeText($fdvValue);
         $normalizedDoc = TextNormalization::normalizeText($docValue);
 
@@ -639,7 +657,7 @@ class DocumentPolicyEngine
             'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'detalle'   => sprintf(
                 'En el campo %s, el documento soporte indica "%s" mientras que el registro de dispensación tiene "%s". '
-                . 'La diferencia requiere verificación por parte del auditor.',
+                    . 'La diferencia requiere verificación por parte del auditor.',
                 TextNormalization::humanizeFieldName($field),
                 mb_substr($docValue, 0, 120),
                 mb_substr($fdvValue, 0, 120)
@@ -654,9 +672,9 @@ class DocumentPolicyEngine
         string $field,
         string $fdvValue,
         string $docValue,
-        AuditFieldValueType $valueType
-    ): array
-    {
+        AuditFieldValueType $valueType,
+        array $context
+    ): array {
         if (!$valueType->isQuantitySummable()) {
             return $this->evaluateExactField($field, $fdvValue, $docValue, $valueType);
         }
@@ -671,14 +689,22 @@ class DocumentPolicyEngine
                 'detalle'   => "No fue posible comparar '{$humanField}' porque uno de los valores no es numérico. Registro de dispensación: '{$fdvValue}', documento soporte: '{$docValue}'.",
             ];
         }
-        
-        if ($fdvNumber <= $docNumber) {
+
+        $factorConv = 0.0;
+        $items = $context['fuente_verdad']['items'] ?? [];
+        foreach ($items as $item) {
+            $factorConv += (float)($item['FactorConv'] ?? 0);
+        }
+
+        $factorConv = max(1.0, $factorConv);
+
+        if ($docNumber > ($fdvNumber - $factorConv) && $docNumber <= $fdvNumber) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf('La cantidad en el documento soporte (%.2f) no corresponde con la cantidad del registro de dispensación (%.2f).', $docNumber, $fdvNumber),
+            'detalle'   => sprintf('La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).', $docNumber, $factorConv, $fdvNumber),
         ];
     }
 

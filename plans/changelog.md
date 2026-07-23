@@ -1,13 +1,27 @@
 # Changelog AudFact
 
+## [2026-07-23] - Refactor: Universalización de Tolerancia de Empaque (Clean Rebuild)
+
+### IA Pipeline / Arquitectura / Clean Rebuild
+
+- **Factor de Conversión Universal**:
+  - `DocumentPolicyEngine.php`: Eliminado el hardcode (acoplamiento a cliente `2426`) en el método `evaluateBusinessField`. La tolerancia por tamaño de empaque comercial (`FactorConv`) es ahora una regla universal y agnóstica para todo el ecosistema de dispensación.
+  - Se modificó la regla matemática del motor de políticas a `$docNumber > ($fdvNumber - $factorConv) && $docNumber <= $fdvNumber`.
+  - Esta fórmula estricta obliga a la farmacia a entregar siempre el tratamiento completo (permitiendo redondear hacia arriba exacto según el empaque indivisible) y penaliza/glosa explícitamente las entregas parciales o cantidades injustificadas.
+- **Modelos**:
+  - `DispensationModel.php`: Añadido el campo `FactorConv` al query base (`ITEM_FIELDS`) para proveer el tamaño del empaque a la evaluación.
+- **DOCS-SYNC**: Refactorizado bajo la política estricta de `clean-rebuild-policy`, eliminando deuda técnica y aplicando el Principio Abierto/Cerrado (OCP) sin añadir dependencias en la base de datos (Zero-DB schema drift).
+
 ## [2026-07-14] - Ops: DB2_HOST de produccion actualizado
 
 ### Produccion / GitHub Actions
 
 - **Cambio operativo DB2**:
-  - Actualizada la documentacion operativa de `audfact-production-ops` para reflejar que `DB2_HOST` de produccion cambio de `169.46.6.55` a `169.46.6.58`.
+  - Actualizada la documentacion operativa de `audfact-production-ops` para reflejar que `DB2_HOST` de produccion cambio de `<PROD_DB2_HOST_OLD>` a `<PROD_DB2_HOST_NEW>`.
   - El fallo observado en los runners de GitHub Actions (`SQL preflight db2 failed ... HYT00`) se asocia al host anterior de lectura.
-  - Pendiente aplicar el mismo valor en la GitHub Variable `DB2_HOST` del Environment `production` y relanzar el workflow de deploy.
+  - Recuperacion temporal aplicada por SSH en `/home/admon/audfact-prod/.env` y stack productivo levantado con `docker compose --profile frontend up -d --no-build --remove-orphans`.
+  - Correccion permanente aplicada con GitHub CLI: `DB2_HOST=<PROD_DB2_HOST_NEW>` y `DB_HOST=<PROD_DB_HOST>` quedaron como GitHub Variables limpias del Environment `production`.
+  - Verificados por nombre los GitHub Secrets productivos requeridos (`DB_USER`, `DB_PASS`, `DB2_USER`, `DB2_PASS`, `GEMINI_API_KEY`, `MCP_WEBHOOK_SECRET`) sin exponer valores.
 
 ## [2026-07-08] - Fix: Clean Rebuild Pipeline y Compose Unico
 
