@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Database, HardDrive, ListRestart } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Database, HardDrive, ListRestart, Server } from "lucide-react";
 
 import type { AsyncMetrics, HealthStatus } from "@/lib/schemas/domain";
 import { formatNumber } from "@/lib/formatters";
@@ -17,13 +17,14 @@ export function DashboardHealthStrip({
 }) {
   const backendOk = !healthError && health?.status === "healthy";
   const databaseStatus = health?.services?.database?.status ?? null;
+  const redisStatus = health?.services?.redis?.status ?? null;
   const diskStatus = health?.services?.disk?.status ?? null;
   const queueIncidents = asyncMetrics
     ? asyncMetrics.deadLetterDepth + asyncMetrics.terminalFailures + asyncMetrics.jobs.failed
     : null;
 
   return (
-    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4" aria-label="Estado compacto del sistema">
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-5" aria-label="Estado compacto del sistema">
       <HealthChip
         icon={backendOk ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
         label="API"
@@ -41,6 +42,17 @@ export function DashboardHealthStrip({
             : `Latencia ${health?.services?.database?.latency_ms ?? "N/D"} ms`
         }
         tone={databaseStatus === "ok" ? "success" : "warning"}
+      />
+      <HealthChip
+        icon={<Server className="h-4 w-4" />}
+        label="Redis"
+        value={redisStatus === "ok" ? "Conectado" : redisStatus ?? "N/D"}
+        detail={
+          healthError
+            ? "Sin lectura de health"
+            : `Latencia ${health?.services?.redis?.latency_ms ?? "N/D"} ms`
+        }
+        tone={redisStatus === "ok" ? "success" : "warning"}
       />
       <HealthChip
         icon={<HardDrive className="h-4 w-4" />}

@@ -195,7 +195,7 @@ class BatchJobStore
     ): bool {
         return $this->runScript(
             self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
-            [self::jobKey($jobId)],
+            [self::jobKey($jobId), 'telemetry:async_metrics'],
             [$auditId, $status, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds(), max(0, $durationMs), $failedStage ?? ''],
             'No se pudo actualizar el progreso del job en Redis',
             ['job_id' => $jobId, 'audit_id' => $auditId]
@@ -444,14 +444,14 @@ local newJobStatus = job['status'] or 'pending'
 local oldJobStatus = previousStatus == '' and 'pending' or previousStatus
 
 if oldJobStatus == 'pending' and newJobStatus == 'processing' then
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_queued', -1)
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', 1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_running', 1)
 elseif oldJobStatus == 'processing' and (newJobStatus == 'completed' or newJobStatus == 'completed_with_errors') then
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', -1)
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_completed', 1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_running', -1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_completed', 1)
 elseif oldJobStatus == 'processing' and newJobStatus == 'failed' then
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_running', -1)
-    redis.call('HINCRBY', 'telemetry:async_metrics', 'jobs_failed', 1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_running', -1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_failed', 1)
 end
 
 job['updated_at'] = now

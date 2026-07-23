@@ -26,7 +26,7 @@ export const PublicConfigSchema = z.object({
 export const HealthSchema = z.object({
   status: z.string(),
   timestamp: z.number().optional(),
-  uptime_seconds: z.number().optional(),
+  request_duration_ms: z.number().optional(),
   environment: z.string().optional(),
   php_version: z.string().optional(),
   services: z
@@ -38,6 +38,22 @@ export const HealthSchema = z.object({
           latency_ms: z.number().optional(),
         })
         .passthrough(),
+      database_read: z
+        .object({
+          status: z.string(),
+          message: z.string().optional(),
+          latency_ms: z.number().optional(),
+        })
+        .passthrough()
+        .optional(),
+      redis: z
+        .object({
+          status: z.string(),
+          message: z.string().optional(),
+          latency_ms: z.number().optional(),
+        })
+        .passthrough()
+        .optional(),
       disk: z.object({ status: z.string() }).passthrough(),
       memory: z.object({ status: z.string() }).passthrough(),
     })
@@ -46,6 +62,12 @@ export const HealthSchema = z.object({
 
 export const AsyncMetricsSchema = z.object({
   queueDepth: z.number().int().nonnegative(),
+  streamDepths: z.object({
+    inbox: z.number().int().nonnegative(),
+    documents: z.number().int().nonnegative(),
+    results: z.number().int().nonnegative(),
+    batchInbox: z.number().int().nonnegative(),
+  }).optional(),
   deadLetterDepth: z.number().int().nonnegative(),
   jobs: z.object({
     queued: z.number().int().nonnegative(),
@@ -274,9 +296,10 @@ export const AuditJobSchema = z.object({
   const total = val.total || 0;
   const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
   
-  let status: "queued" | "running" | "completed" | "failed" = "queued";
+  let status: "queued" | "running" | "completed" | "completed_with_errors" | "failed" = "queued";
   if (val.status === "processing") status = "running";
-  else if (val.status === "completed" || val.status === "completed_with_errors") status = "completed";
+  else if (val.status === "completed") status = "completed";
+  else if (val.status === "completed_with_errors") status = "completed_with_errors";
   else if (val.status === "failed") status = "failed";
 
   return {
@@ -288,7 +311,7 @@ export const AuditJobSchema = z.object({
     total,
     createdAt: val.created_at || null,
     startedAt: val.created_at || null,
-    completedAt: (status === "completed" || status === "failed") ? (val.updated_at || null) : null,
+    completedAt: (status === "completed" || status === "completed_with_errors" || status === "failed") ? (val.updated_at || null) : null,
     result: {
       succeeded: val.done || 0,
       failed: val.failed || 0,

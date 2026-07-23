@@ -40,11 +40,11 @@ Estado base del API.
 
 ### `GET /health`
 
-Health check funcional del backend. Devuelve estado global y detalle de base de datos, disco y memoria.
+Health check funcional del backend. Devuelve estado global y detalle de base de datos (escritura y lectura DB2), Redis, disco, memoria y latencia (`request_duration_ms`).
 
 ### `GET /metrics/async`
 
-Métricas operativas del pipeline async en Redis: profundidad de cola, DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
+Métricas operativas del pipeline async en Redis: profundidad de cola general (`queueDepth`), desglose de latencia por colas (`streamDepths`), DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
 
 ### `GET /config/public`
 

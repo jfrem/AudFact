@@ -781,7 +781,7 @@ final class DocumentExtractionWorkerTest extends TestCase
 
     private function validPdfBase64(): string
     {
-        return base64_encode("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
+        return base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n");
     }
 
     /**
