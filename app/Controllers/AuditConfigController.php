@@ -114,9 +114,11 @@ class AuditConfigController extends Controller
             $systemPrompt = $trimmed !== '' ? $trimmed : null;
         }
 
+        $factorConv = (bool) ($body['factorConv'] ?? false);
+
         $sanitizedFields = $this->sanitizeFields($body['fields']);
 
-        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt);
+        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt, $factorConv);
 
         Response::success(
             ['fieldCount' => count($sanitizedFields)],

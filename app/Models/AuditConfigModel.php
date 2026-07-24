@@ -94,6 +94,7 @@ class AuditConfigModel extends Model
             'nitSec'       => $nitSec,
             'activo'       => (bool) $header['Activo'],
             'systemPrompt' => $header['SystemPrompt'],
+            'factorConv'   => (bool) ($header['FactorConv'] ?? false),
             'documents'    => $documents,
         ];
     }
@@ -104,7 +105,7 @@ class AuditConfigModel extends Model
     public function getHeader(string $nitSec): ?array
     {
         $sql = "
-            SELECT FacNitSec, SystemPrompt, Activo, FecCre, FecMod
+            SELECT FacNitSec, SystemPrompt, Activo, FecCre, FecMod, FactorConv
             FROM Discolnet.dbo.AudDisp WITH (NOLOCK)
             WHERE FacNitSec = :nitSec
         ";
@@ -135,14 +136,15 @@ class AuditConfigModel extends Model
     public function saveConfig(
         string $nitSec,
         array $fields,
-        ?string $systemPrompt = null
+        ?string $systemPrompt = null,
+        bool $factorConv = false
     ): bool {
         $db = $this->getWriteDb();
 
         try {
             $db->beginTransaction();
 
-            $this->upsertHeader($db, $nitSec, $systemPrompt);
+            $this->upsertHeader($db, $nitSec, $systemPrompt, $factorConv);
             $this->replaceFields($db, $nitSec, $fields);
 
             $db->commit();
@@ -171,7 +173,7 @@ class AuditConfigModel extends Model
      * Inserta o actualiza la fila en AudDisp.
      * Usa MERGE para ser idempotente (primera vez crea, siguientes actualizan).
      */
-    private function upsertHeader(\PDO $db, string $nitSec, ?string $systemPrompt): void
+    private function upsertHeader(\PDO $db, string $nitSec, ?string $systemPrompt, bool $factorConv = false): void
     {
         $sql = "
             MERGE Discolnet.dbo.AudDisp AS target
@@ -180,10 +182,11 @@ class AuditConfigModel extends Model
             WHEN MATCHED THEN
                 UPDATE SET
                     SystemPrompt = :promptU,
+                    FactorConv   = :fcU,
                     FecMod       = GETDATE()
             WHEN NOT MATCHED THEN
-                INSERT (FacNitSec, SystemPrompt, Activo, FecCre, FecMod)
-                VALUES (:nitSecI, :promptI, 1, GETDATE(), GETDATE());";
+                INSERT (FacNitSec, SystemPrompt, Activo, FactorConv, FecCre, FecMod)
+                VALUES (:nitSecI, :promptI, 1, :fcI, GETDATE(), GETDATE());";
 
         $stmt = $db->prepare($sql);
         $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
@@ -197,6 +200,10 @@ class AuditConfigModel extends Model
         }
 
         $stmt->bindValue(':nitSecI', $nitSec, PDO::PARAM_STR);
+
+        $fcVal = $factorConv ? 1 : 0;
+        $stmt->bindValue(':fcU', $fcVal, PDO::PARAM_INT);
+        $stmt->bindValue(':fcI', $fcVal, PDO::PARAM_INT);
 
         $stmt->execute();
     }
