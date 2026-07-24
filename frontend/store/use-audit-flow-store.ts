@@ -44,12 +44,12 @@ const PHASE_COLUMN: Record<string, number> = {
 };
 
 const PHASE_LABEL: Record<string, string> = {
-  orchestration: "Orquestacion",
+  orchestration: "Orquestación",
   download: "Descarga",
-  extraction: "Extraccion",
-  normalization: "Normalizacion",
+  extraction: "Extracción",
+  normalization: "Normalización",
   policy: "Reglas",
-  aggregation: "Agregacion",
+  aggregation: "Agregación",
 };
 
 const initialDag = buildInitialDag();
@@ -106,17 +106,19 @@ export const useAuditFlowStore = create<AuditFlowState>((set, get) => ({
         let total = 0;
         let completed = 0;
         let failed = 0;
+        let rejected = 0;
         for (const tState of Object.values(newTaskStates)) {
           total++;
           if (tState === "completed") completed++;
-          if (tState === "failed" || tState === "rejected") failed++;
+          if (tState === "failed") failed++;
+          if (tState === "rejected") rejected++;
         }
 
-        newMetrics = { total, completed, failed };
+        newMetrics = { total, completed, failed, rejected };
 
-        const processed = completed + failed;
+        const processed = completed + failed + rejected;
         if (total > 0 && processed >= total) {
-          newNodeState = failed > 0 ? "failed" : "completed";
+          newNodeState = failed > 0 ? "failed" : rejected > 0 ? "rejected" : "completed";
         } else if (total > 0) {
           newNodeState = "running";
         }

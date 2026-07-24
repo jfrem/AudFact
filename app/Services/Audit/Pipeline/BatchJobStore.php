@@ -408,7 +408,7 @@ auditState['status'] = auditStatus
 auditState['completed_at'] = now
 auditState['duration_ms'] = auditDurationMs
 
-if auditStatus == 'failed' and failedStage and failedStage ~= '' then
+if (auditStatus == 'failed' or auditStatus == 'manual_review') and failedStage and failedStage ~= '' then
     auditState['failed_stage'] = failedStage
 end
 

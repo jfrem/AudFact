@@ -80,7 +80,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
               icon={<XCircle className="h-4 w-4 text-rose-400" />}
             />
             <Metric
-              label="Omitidos"
+              label="Revisión"
               value={formatNumber(result?.skipped ?? 0)}
               icon={<AlertTriangle className="h-4 w-4 text-amber-400" />}
             />

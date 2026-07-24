@@ -435,13 +435,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $reason = (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
 
         $patch = [
-            'rejection_reason'    => $reason,
-            'document_type'       => $documentType,
-            'mime'                => (string) ($integrity['declared_mime'] ?? $document['mime'] ?? ''),
-            'detected_mime'       => $integrity['detected_mime'] ?? null,
-            'size_bytes'          => (int) ($integrity['size_bytes'] ?? 0),
+            'rejection_reason'     => $reason,
+            'rejection_origin'     => static::class,
+            'document_type'        => $documentType,
+            'mime'                 => (string) ($integrity['declared_mime'] ?? $document['mime'] ?? ''),
+            'detected_mime'        => $integrity['detected_mime'] ?? null,
+            'size_bytes'           => (int) ($integrity['size_bytes'] ?? 0),
             'download_duration_ms' => (int) ($document['duration_ms'] ?? 0),
-            'rejected_at'         => gmdate('Y-m-d\TH:i:s\Z'),
+            'rejected_at'          => gmdate('Y-m-d\TH:i:s\Z'),
         ];
 
         if (!$this->stateStore->markDocumentRejected(

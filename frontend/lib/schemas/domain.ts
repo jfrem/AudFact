@@ -302,6 +302,16 @@ export const AuditJobSchema = z.object({
   else if (val.status === "completed_with_errors") status = "completed_with_errors";
   else if (val.status === "failed") status = "failed";
 
+  let succeeded = val.done || 0;
+  let skipped = 0;
+  if (val.audits.length > 0) {
+    succeeded = 0;
+    for (const a of val.audits) {
+      if (a.status === "completed") succeeded++;
+      else if (a.status === "manual_review") skipped++;
+    }
+  }
+
   return {
     jobId: val.job_id,
     status,
@@ -313,9 +323,9 @@ export const AuditJobSchema = z.object({
     startedAt: val.created_at || null,
     completedAt: (status === "completed" || status === "completed_with_errors" || status === "failed") ? (val.updated_at || null) : null,
     result: {
-      succeeded: val.done || 0,
+      succeeded,
       failed: val.failed || 0,
-      skipped: 0,
+      skipped,
     },
     error: null,
     statusUrl: `/audit/jobs/${val.job_id}`,
@@ -324,7 +334,7 @@ export const AuditJobSchema = z.object({
       accumulatedDurationMs: val.accumulated_duration_ms || 0,
       throughputPerSec: val.throughput_per_sec || 0,
     },
-    audits: val.audits || [],
+    audits: val.audits,
   };
 });
 

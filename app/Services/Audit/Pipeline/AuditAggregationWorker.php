@@ -134,12 +134,19 @@ final class AuditAggregationWorker extends AuditEventConsumer
             );
 
             if ($event->jobId !== null) {
+                $stageForJob = match (true) {
+                    $aggregate['final_status'] === AuditStateStore::AUDIT_STATUS_FAILED => 'final_persistence',
+                    ((int) ($finalAudit['docs_rejected'] ?? 0)) > 0 => DocumentExtractionWorker::class,
+                    $aggregate['final_status'] === AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW => RulesEvaluationWorker::class,
+                    default => null,
+                };
+
                 $this->jobStore->markAuditCompletedInJob(
                     $event->jobId,
                     $event->auditId,
                     $aggregate['final_status'],
                     self::resolveAggregateDurationMs($aggregate),
-                    $aggregate['final_status'] === AuditStateStore::AUDIT_STATUS_FAILED ? 'final_persistence' : null
+                    $stageForJob
                 );
             }
             

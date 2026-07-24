@@ -106,7 +106,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 'policy_duration_ms' => $durationMs,
             ]);
 
-            $this->telemetryPublisher->completed(
+            $isRejected = ($policyResult['document_decision']['approved'] ?? true) === false;
+            $telemetryAction = $isRejected ? 'rejected' : 'completed';
+
+            $this->telemetryPublisher->$telemetryAction(
                 $event->auditId,
                 'policy',
                 self::elapsedMs($telemetryStartedAt),
