@@ -462,6 +462,7 @@ Respuesta:
     "nitSec": "2426",
     "activo": true,
     "systemPrompt": "...",
+    "factorConv": false,
     "documents": {
       "DISPENSA": {
         "docId": 1,
@@ -507,6 +508,7 @@ Body:
 ```json
 {
   "systemPrompt": "...",
+  "factorConv": false,
   "fields": [
     {
       "docId": 1,

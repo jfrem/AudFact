@@ -102,6 +102,7 @@ class DocumentPolicyEngine
             'document_type' => $documentType,
             'fac_nit_sec'   => $documentState['fac_nit_sec'] ?? null,
             'fuente_verdad' => $documentState['fuente_verdad'] ?? null,
+            'usa_factor_conv' => (bool) ($documentState['factor_conv'] ?? false),
         ];
     }
 
@@ -698,17 +699,39 @@ class DocumentPolicyEngine
 
         $factorConv = max(1.0, $factorConv);
 
-        if ($docNumber > ($fdvNumber - $factorConv) && $docNumber <= $fdvNumber) {
+        $isMatch = ($context['usa_factor_conv'] ?? false)
+            ? $this->isQuantityWithinTolerance($docNumber, $fdvNumber, $factorConv)
+            : $docNumber >= $fdvNumber;
+
+        if ($isMatch) {
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf('La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).', $docNumber, $factorConv, $fdvNumber),
+            'detalle'   => sprintf(
+                'La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).',
+                $docNumber,
+                $factorConv,
+                $fdvNumber
+            ),
         ];
     }
 
+    /**
+     * Banda simétrica ±1 factor de conversión.
+     *
+     * Aprueba si |Autorizado − Facturado| < Factor, rechaza parciales
+     * grandes y excesos grandes por igual.
+     */
+    private function isQuantityWithinTolerance(float $docNumber, float $fdvNumber, float $factorConv): bool
+    {
+        $lowerBound = $fdvNumber - $factorConv;
+        $upperBound = $fdvNumber + $factorConv;
 
+        return ($docNumber > $lowerBound && $docNumber <= $fdvNumber)
+            || ($docNumber < $upperBound && $docNumber >= $fdvNumber);
+    }
 
     /**
      * @param  array<int,array<string,mixed>> $findings

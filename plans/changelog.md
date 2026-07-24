@@ -1,5 +1,21 @@
 # Changelog AudFact
 
+## [2026-07-24] - Feature: Configuración de FactorConv por cliente y refactor de clean code
+
+### IA Pipeline / Arquitectura / Clean Rebuild
+
+- **Configuración de cliente dinámica**:
+  - `AuditConfigModel.php`: Agregado soporte para persistir el flag `FactorConv` en la tabla `AudDisp` usando una instrucción `MERGE` limpia y agregando el campo al payload de `getConfig`.
+  - `AuditConfigController.php`: Ahora expone y recibe `factorConv` en el JSON para el guardado.
+- **Tolerancia por factor de empaque (`DocumentPolicyEngine.php`)**:
+  - La lógica de tolerancia (banda simétrica) ahora se activa dinámicamente mediante el flag `usa_factor_conv` inyectado por el `DocumentAuditOrchestrator` desde la configuración.
+  - El modo estricto (`Auth >= Fact`) permanece como default (OFF).
+- **Clean Rebuild Policy**:
+  - Refactorizado el engine `evaluateBusinessField` separando la fórmula compleja en un método semántico `isQuantityWithinTolerance` e integrando un ternario limpio, mejorando la legibilidad e intención del código.
+- **DOCS-SYNC**:
+  - Actualizado el payload en `plans/api-endpoints.md`.
+  - Verificada la trazabilidad 1:1 en el plan de implementación.
+
 ## [2026-07-23] - Feature: Observabilidad E2E, Validaciones Preventivas y Soporte Next 15
 
 ### IA Pipeline / Observability / Frontend / Clean Rebuild

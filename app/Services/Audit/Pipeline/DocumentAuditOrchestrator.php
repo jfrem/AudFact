@@ -346,6 +346,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'fields_config'      => $configuredDocument['fields'],
             'visual_checks'      => $configuredDocument['visual_checks'],
             'system_prompt'      => $context['auditConfig']['systemPrompt'] ?? null,
+            'factor_conv'        => $context['auditConfig']['factorConv'] ?? false,
             'fuente_verdad'      => $context['fuenteVerdad'],
             'contract_hash'      => $contractHash,
         ];
