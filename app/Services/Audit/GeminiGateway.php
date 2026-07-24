@@ -159,7 +159,9 @@ class GeminiGateway
                 }
 
                 $this->saveDebugLog($payload, ['error' => $errorMessage], $ctx, 'http_error');
-                $this->cbRecordFailure($httpCode);
+                if ($httpCode !== 400) {
+                    $this->cbRecordFailure($httpCode);
+                }
                 throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
             }
         }
