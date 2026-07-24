@@ -26,6 +26,7 @@ export type AuditNodeData = {
     total: number;
     completed: number;
     failed: number;
+    rejected: number;
   };
 };
 
@@ -54,8 +55,8 @@ const Y_SPACING = 150;
 
 const DOCUMENT_PHASES = [
   { key: "download", label: "Descarga", column: 1 },
-  { key: "extraction", label: "Extraccion", column: 2 },
-  { key: "normalization", label: "Normalizacion", column: 3 },
+  { key: "extraction", label: "Extracción", column: 2 },
+  { key: "normalization", label: "Normalización", column: 3 },
   { key: "policy", label: "Reglas", column: 4 },
 ] as const;
 
@@ -65,7 +66,7 @@ export function buildInitialDag(): { nodes: AuditNode[]; edges: Edge[] } {
       {
         id: "orchestration",
         position: { x: X_START, y: Y_START },
-        data: { label: "Orquestacion", state: "pending" },
+        data: { label: "Orquestación", state: "pending" },
         type: "auditNode",
       },
     ],
@@ -74,7 +75,7 @@ export function buildInitialDag(): { nodes: AuditNode[]; edges: Edge[] } {
 }
 
 export function buildAggregatedJobDag(): { nodes: AuditNode[]; edges: Edge[] } {
-  const defaultMetrics = () => ({ total: 0, completed: 0, failed: 0 });
+  const defaultMetrics = () => ({ total: 0, completed: 0, failed: 0, rejected: 0 });
   const nodes: AuditNode[] = [
     {
       id: "orchestration",
@@ -132,7 +133,7 @@ export function buildDagFromHistory(
       id: "orchestration",
       position: { x: X_START, y: Y_START },
       data: {
-        label: "Orquestacion",
+        label: "Orquestación",
         state: "completed",
         durationMs: numberValue(timings?.pipeline?.created_to_started_ms),
       },
@@ -147,7 +148,7 @@ export function buildDagFromHistory(
       id: "aggregation",
       position: { x: X_START + X_SPACING, y: Y_START },
       data: {
-        label: "Agregacion",
+        label: "Agregación",
         state: result.EstadoDetallado === "failed" ? "failed" : "completed",
       },
       type: "auditNode",
@@ -198,7 +199,7 @@ export function buildDagFromHistory(
     id: "aggregation",
     position: { x: X_START + X_SPACING * 5, y: Y_START + ((documents.length - 1) * Y_SPACING) / 2 },
     data: {
-      label: "Agregacion y Persistencia",
+      label: "Agregación y Persistencia",
       state: isSuccessfulStatus(result.EstadoDetallado) ? "completed" : "failed",
       durationMs: numberValue(timings?.pipeline?.rules_to_completed_ms),
     },

@@ -1,5 +1,14 @@
 # Changelog AudFact
 
+## [2026-07-24] - Fix: Corrección de estado terminal (ámbar) en nodos del DAG y UI
+### Frontend & Pipeline Telemetry
+- **RulesEvaluationWorker**: Modificado para emitir eventos de telemetría de estado `rejected` en lugar de `completed` cuando un documento falla validaciones de reglas, permitiendo distinguir un éxito de un hallazgo funcional para la interfaz.
+- **AuditAggregationWorker**: Refactorizado a `match` expression (PHP 8) para simplificar la delegación de estado de políticas en la agregación de resultados.
+- **Frontend DAG Store (`use-audit-flow-store.ts`)**: Actualizado para procesar los eventos de telemetría `rejected`, agregando contadores granulares por nodo. Ajustada la precedencia visual del nodo (fallo crítico en rojo prevalece sobre rechazo funcional en ámbar, que prevalece sobre éxito).
+- **DAG Builder**: Se corrigió el FQCN de `RulesEvaluationWorker` a `policy` en el mapa objetivo para mantener consistencia. Además, se normalizaron las etiquetas (labels) incluyendo tildes ("Orquestación", "Extracción", etc.).
+- **Inspector UI (`node-inspector.tsx`)**: Estabilizado el grid de métricas con 4 columnas fijas (Éxitos, Fallos, Revisión, Total) para prevenir saltos visuales durante la renderización en vivo.
+- **DOCS-SYNC**: Actualizado el changelog y revisada la conformidad con las skills.
+
 ## [2026-07-24] - Fix: Resiliencia de extracción ante PDFs vacíos (Clean Rebuild)
 
 ### IA Pipeline / Clean Rebuild / Arquitectura

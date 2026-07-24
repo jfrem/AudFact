@@ -106,6 +106,12 @@ export function AuditNodeComponent({ data }: { data: AuditNodeData }) {
               <span className="text-emerald-600 dark:text-emerald-400 font-medium" title="Completado">{data.metrics.completed}</span>
               <span className="text-slate-400">/</span>
               <span className="text-red-600 dark:text-red-400 font-medium" title="Fallido">{data.metrics.failed}</span>
+              {(data.metrics.rejected ?? 0) > 0 && (
+                <>
+                  <span className="text-slate-400">/</span>
+                  <span className="text-amber-600 dark:text-amber-400 font-medium" title="Revisión">{data.metrics.rejected}</span>
+                </>
+              )}
               <span className="text-slate-400">/</span>
               <span className="text-slate-600 dark:text-slate-300" title="Total">{data.metrics.total}</span>
             </div>
@@ -118,6 +124,10 @@ export function AuditNodeComponent({ data }: { data: AuditNodeData }) {
           <div
             className="bg-emerald-500 transition-all duration-500 ease-out"
             style={{ width: `${(data.metrics.completed / data.metrics.total) * 100}%` }}
+          />
+          <div
+            className="bg-amber-500 transition-all duration-500 ease-out"
+            style={{ width: `${((data.metrics.rejected ?? 0) / data.metrics.total) * 100}%` }}
           />
           <div
             className="bg-red-500 transition-all duration-500 ease-out"

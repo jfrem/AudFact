@@ -17,7 +17,7 @@ const STATUS_CLASS = {
 const FAILED_STAGE_MAP: Record<string, string> = {
   "App\\Services\\Audit\\Pipeline\\DocumentAuditOrchestrator": "orchestration",
   "App\\Services\\Audit\\Pipeline\\DocumentExtractionWorker": "extraction",
-  "App\\Services\\Audit\\Pipeline\\DocumentNormalizationWorker": "normalization",
+  "App\\Services\\Audit\\Pipeline\\DocumentNormalizer": "normalization",
   "App\\Services\\Audit\\Pipeline\\RulesEvaluationWorker": "policy",
   "final_persistence": "aggregation",
 };
@@ -42,6 +42,12 @@ export function NodeInspector() {
   const failedAudits = jobData?.audits?.filter((a) => 
     a.status === "failed" && 
     a.failed_stage && 
+    FAILED_STAGE_MAP[a.failed_stage] === id
+  ) || [];
+
+  const reviewAudits = jobData?.audits?.filter((a) =>
+    a.status === "manual_review" &&
+    a.failed_stage &&
     FAILED_STAGE_MAP[a.failed_stage] === id
   ) || [];
 
@@ -97,7 +103,7 @@ export function NodeInspector() {
               <span className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 <Layers className="h-3 w-3" /> Rendimiento de Lote
               </span>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-4 gap-2 text-center">
                 <div className="flex flex-col rounded-md border border-emerald-100 bg-emerald-50 py-1.5 dark:border-emerald-900/50 dark:bg-emerald-500/10">
                   <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Éxitos</span>
                   <span className="text-lg font-light text-emerald-700 dark:text-emerald-300">{data.metrics.completed}</span>
@@ -105,6 +111,10 @@ export function NodeInspector() {
                 <div className="flex flex-col rounded-md border border-red-100 bg-red-50 py-1.5 dark:border-red-900/50 dark:bg-red-500/10">
                   <span className="text-[10px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">Fallos</span>
                   <span className="text-lg font-light text-red-700 dark:text-red-300">{data.metrics.failed}</span>
+                </div>
+                <div className="flex flex-col rounded-md border border-amber-100 bg-amber-50 py-1.5 dark:border-amber-900/50 dark:bg-amber-500/10">
+                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Revisión</span>
+                  <span className="text-lg font-light text-amber-700 dark:text-amber-300">{data.metrics.rejected ?? 0}</span>
                 </div>
                 <div className="flex flex-col rounded-md border border-slate-200 bg-slate-100 py-1.5 dark:border-slate-700 dark:bg-slate-800">
                   <span className="text-[10px] font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider">Total</span>
@@ -115,25 +125,21 @@ export function NodeInspector() {
           )}
 
           {failedAudits.length > 0 && (data.metrics?.failed ? data.metrics.failed > 0 : data.state === "failed") && (
-            <div className="rounded-lg border border-rose-900/50 bg-rose-950/20 p-3 text-rose-200">
-              <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-500">
-                <AlertTriangle className="h-3 w-3" /> Facturas con Fallo Crítico ({failedAudits.length})
-              </span>
-              <div className="text-[11px] leading-relaxed text-rose-200/80 mb-2">
-                Documentos trasladados al <strong>Dead Letter Queue (DLQ)</strong> por estar corruptos, sin páginas, o por errores de origen.
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {failedAudits.map((a) => (
-                  <span
-                    key={a.audit_id}
-                    className="rounded border border-rose-800/60 bg-rose-950/40 px-1.5 py-0.5 font-mono text-[10px] text-rose-300 shadow-sm"
-                    title={`Audit ID: ${a.audit_id}`}
-                  >
-                    {a.dis_det_nro || a.audit_id}
-                  </span>
-                ))}
-              </div>
-            </div>
+            <AuditBadgeList
+              variant="rose"
+              title={`Facturas con Fallo Crítico (${failedAudits.length})`}
+              description="Documentos trasladados al Dead Letter Queue (DLQ) por estar completamente corruptos o por caídas de infraestructura."
+              audits={failedAudits}
+            />
+          )}
+
+          {reviewAudits.length > 0 && (
+            <AuditBadgeList
+              variant="amber"
+              title={`Documentos en Revisión (${reviewAudits.length})`}
+              description="Documentos rechazados por integridad (PDF vacíos, corruptos) procesados como revisión manual."
+              audits={reviewAudits}
+            />
           )}
 
           {data.error && (
@@ -200,5 +206,51 @@ export function NodeInspector() {
         </div>
       </div>
     </aside>
+  );
+}
+
+/* ─── Subcomponente: lista de badges de auditoría por variante ─── */
+
+const BADGE_VARIANT = {
+  rose: {
+    container: "rounded-lg border border-rose-900/50 bg-rose-950/20 p-3 text-rose-200",
+    header: "mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-500",
+    body: "text-[11px] leading-relaxed text-rose-200/80 mb-2",
+    badge: "rounded border border-rose-800/60 bg-rose-950/40 px-1.5 py-0.5 font-mono text-[10px] text-rose-300 shadow-sm",
+  },
+  amber: {
+    container: "rounded-lg border border-amber-900/50 bg-amber-950/20 p-3 text-amber-200",
+    header: "mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-500",
+    body: "text-[11px] leading-relaxed text-amber-200/80 mb-2",
+    badge: "rounded border border-amber-800/60 bg-amber-950/40 px-1.5 py-0.5 font-mono text-[10px] text-amber-300 shadow-sm",
+  },
+} as const;
+
+function AuditBadgeList({
+  variant,
+  title,
+  description,
+  audits,
+}: {
+  variant: keyof typeof BADGE_VARIANT;
+  title: string;
+  description: string;
+  audits: { audit_id: string; dis_det_nro?: string | null }[];
+}) {
+  const styles = BADGE_VARIANT[variant];
+  return (
+    <div className={styles.container}>
+      <span className={styles.header}>
+        <AlertTriangle className="h-3 w-3" /> {title}
+      </span>
+      <div className={styles.body}>{description}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {audits.map((a) => (
+          <span key={a.audit_id} className={styles.badge} title={`Audit ID: ${a.audit_id}`}>
+            {a.dis_det_nro || a.audit_id}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
