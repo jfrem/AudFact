@@ -996,6 +996,98 @@ final class DocumentExtractionWorkerTest extends TestCase
             ],
         ];
     }
+
+    public function testGemini400ErrorEmitsDocumentRejectedInsteadOfThrowing(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+
+        // Simula la excepción lanzada por GeminiGateway al recibir 400
+        $gateway = new StubThrowingGeminiGateway(
+            new RuntimeException('Error HTTP Gemini FC: The document has no pages.', 400)
+        );
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('EMPTY_PDF_NO_PAGES', $publisher->published[0]->payload['rejection_reason']);
+        $this->assertSame('EMPTY_PDF_NO_PAGES', $store->lastRejectedPatch['rejection_reason']);
+    }
+
+    public function testGemini500ErrorThrowsRuntimeException(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+
+        // Simula una excepción de servidor
+        $gateway = new StubThrowingGeminiGateway(
+            new RuntimeException('Error HTTP Gemini FC: Internal Server Error', 500)
+        );
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Internal Server Error');
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+    }
+}
+
+final class StubThrowingGeminiGateway extends GeminiGateway
+{
+    public function __construct(private RuntimeException $exception)
+    {
+    }
+
+    public function sendWithFunctionCalling(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $tools,
+        array $toolConfig,
+        string $taskType,
+        array $generationOverrides = [],
+        ?array $debugContext = null
+    ): array {
+        throw $this->exception;
+    }
 }
 
 final class StubGeminiGateway extends GeminiGateway

@@ -145,17 +145,42 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $promptContextHash = $this->promptContextHash($userPrompt, $systemPrompt);
             $compositeCacheKey = $this->compositeCacheKey($documentHash, $contractHash, $promptContextHash);
 
-            $extraction = $this->resolveExtraction(
-                $compositeCacheKey,
-                $document,
-                $documentType,
-                $payload,
-                $contract,
-                $userPrompt,
-                $systemPrompt,
-                $disDetNro,
-                $event
-            );
+            try {
+                $extraction = $this->resolveExtraction(
+                    $compositeCacheKey,
+                    $document,
+                    $documentType,
+                    $payload,
+                    $contract,
+                    $userPrompt,
+                    $systemPrompt,
+                    $disDetNro,
+                    $event
+                );
+            } catch (RuntimeException $geminiError) {
+                if ($this->isGeminiDocumentContentError($geminiError)) {
+                    $reason = $this->classifyGeminiContentError($geminiError);
+                    $integrity = [
+                        'valid'         => false,
+                        'reason'        => $reason,
+                        'declared_mime' => $document['mime'] ?? '',
+                        'detected_mime' => null,
+                        'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
+                    ];
+                    $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                    $this->telemetryPublisher->rejected(
+                        $event->auditId,
+                        'extraction',
+                        self::elapsedMs($extractionStartedAt),
+                        $event->documentId,
+                        $disDetNro,
+                        array_merge($telemetryMeta, ['reason' => $reason]),
+                        $event->jobId
+                    );
+                    return;
+                }
+                throw $geminiError;
+            }
 
             $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
 
@@ -800,6 +825,30 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private function contractRequiresFunction(array $contract, string $functionName): bool
     {
         return in_array($functionName, $this->requiredFunctionNames($contract), true);
+    }
+
+    private function isGeminiDocumentContentError(RuntimeException $e): bool
+    {
+        if ($e->getCode() !== 400) {
+            return false;
+        }
+
+        $msg = $e->getMessage();
+
+        return stripos($msg, 'no pages') !== false
+            || stripos($msg, 'could not be decoded') !== false;
+    }
+
+    private function classifyGeminiContentError(RuntimeException $e): string
+    {
+        $msg = $e->getMessage();
+        if (stripos($msg, 'no pages') !== false) {
+            return 'EMPTY_PDF_NO_PAGES';
+        }
+        if (stripos($msg, 'could not be decoded') !== false) {
+            return 'GEMINI_DECODE_FAILURE';
+        }
+        return 'GEMINI_CONTENT_REJECTED';
     }
 
     private function hasVisualCheck(mixed $visualChecks, string $expectedName): bool

@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-07-24] - Fix: Resiliencia de extracción ante PDFs vacíos (Clean Rebuild)
+
+### IA Pipeline / Clean Rebuild / Arquitectura
+
+- **Interceptación de HTTP 400 en Gemini**:
+  - `GeminiGateway.php`: Excluye los errores 400 (como `The document has no pages`) del Circuit Breaker. Estos errores de contenido no indican una falla de infraestructura o indisponibilidad de la API, previniendo cierres espurios del circuito y bloqueos masivos.
+  - `DocumentExtractionWorker.php`: Se envuelve la resolución de extracción para capturar `RuntimeException(400)`. Si corresponde a un error de contenido, se marca el documento explícitamente como `document_rejected` (motivo: `EMPTY_PDF_NO_PAGES` o `GEMINI_DECODE_FAILURE`) y se emite la telemetría correspondiente sin crashear el worker.
+  - Esto desbloquea el flujo de auditoría permitiendo que los otros documentos del lote terminen normalmente e impidiendo que estos casos caigan infinitamente en Dead Letter Queue.
+- **DOCS-SYNC**:
+  - Validada la arquitectura bajo la `clean-rebuild-policy`.
+  - Agregadas y corridas nuevas pruebas unitarias en `DocumentExtractionWorkerTest` mockeando el Gateway y confirmando el rechazo suave y el manejo 500.
+
 ## [2026-07-24] - Feature: Configuración de FactorConv por cliente y refactor de clean code
 
 ### IA Pipeline / Arquitectura / Clean Rebuild
