@@ -1,5 +1,12 @@
 # Changelog AudFact
 
+## [2026-07-25] - Docs: Optimización y actualización de README.md
+
+### Documentación / Configuración
+
+- **Limpieza de métricas frágiles**: Se eliminaron los conteos fijos (número de controladores, modelos, tests) del `README.md` que generan fricción de mantenimiento.
+- **Documentación de Gemini 3.6**: Se actualizó la descripción del stack y del pipeline IA para reflejar el soporte nativo al *Thinking Mode* de Gemini (`GEMINI_EXTRACTION_THINKING_LEVEL`), demostrando la madurez de la orquestación actual.
+- Correcciones menores de ortografía y formato en la tabla de tecnologías.
 ## [2026-07-24] - Fix: Corrección de estado terminal (ámbar) en nodos del DAG y UI
 ### Frontend & Pipeline Telemetry
 - **RulesEvaluationWorker**: Modificado para emitir eventos de telemetría de estado `rejected` en lugar de `completed` cuando un documento falla validaciones de reglas, permitiendo distinguir un éxito de un hallazgo funcional para la interfaz.
