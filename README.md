@@ -12,7 +12,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Pipeline       | Event-driven sobre Redis Streams (7 servicios de worker especializados)      |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD                                              |
 | Web Server     | Nginx 1.25 → PHP-FPM                                                         |
-| Contenedores   | Docker Compose unico: build local en desarrollo, imagenes GHCR en produccion |
+| Contenedores   | Docker Compose único: build local en desarrollo, imágenes GHCR en producción |
 | Frontend       | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui                        |
 | Dependencias   | Guzzle 7.x, firebase/php-jwt 7.x                                             |
 
@@ -22,20 +22,20 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 AudFact/
 ├── frontend/              # Frontend SPA en Next.js (App Router)
 ├── app/
-│   ├── Controllers/       # 11 controladores HTTP (incluye base).
-│   ├── Models/            # 7 modelos SQL Server (incluye base).
+│   ├── Controllers/       # Controladores HTTP REST.
+│   ├── Models/            # Modelos de acceso a datos SQL Server.
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
-│   │   └── Audit/         # 16 archivos raíz + Pipeline/ (24 archivos).
+│   │   └── Audit/         # Lógica central del dominio de auditoría.
 │   │       └── Pipeline/  # Workers, policy engine, normalización, agregación.
-│   ├── Routes/            # web.php — 27 rutas registradas.
-│   └── wrap/              # Integración MCP (4 tools).
+│   ├── Routes/            # web.php — Definición centralizada de rutas.
+│   └── wrap/              # Integración MCP.
 ├── bin/                   # audit-worker.php — launcher unificado de workers.
-├── core/                  # Framework: Router, DB, Validator, Response, Logger, RedisClient (12 archivos).
+├── core/                  # Framework custom: Router, DB, Validator, Response, Logger, RedisClient.
 ├── public/                # Entry point (index.php API).
-├── docker/                # Dockerfile + nginx.conf + nginx-ha.conf.template + healthcheck.
+├── docker/                # Archivos de configuración Docker y Nginx.
 ├── logs/                  # Logs rotados por fecha.
-├── plans/                 # Documentación del proyecto.
-└── tests/                 # 31 archivos PHP de test — PHPUnit.
+├── plans/                 # Documentación técnica y especificaciones.
+└── tests/                 # Pruebas unitarias e integración — PHPUnit.
 ```
 
 ## Inicio Rápido
@@ -205,7 +205,8 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 Características:
 
 - Cache de extracción por `document_hash` (idempotencia).
-- Modelo Gemini único por entorno: `GEMINI_MODEL` selecciona la versión usada por extracción y homologación; `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` solo ajustan parámetros de generación por perfil. `GeminiConfig` tiene un fallback local si falta `GEMINI_MODEL`, pero no existe cambio de modelo por etapa ni reintento a otra versión.
+- Modelo Gemini base configurable (`GEMINI_MODEL`).
+- Soporte nativo para **Thinking Mode** (razonamiento profundo latente) configurable independientemente por tipo de tarea (`GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_LEVEL`). La clase `GeminiConfig` centraliza esta orquestación y garantiza compatibilidad entre versiones del modelo.
 - Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
@@ -301,9 +302,8 @@ vendor/bin/phpunit
 vendor/bin/phpunit --filter="testEvaluateBuildsFindingsAndDocumentDecision"
 ```
 
-- **236 tests**, 717 assertions, 0 fallos.
-- **24 archivos de test** cubriendo: controladores, modelos, normalización, pipeline de auditoría, configuración Gemini y golden-set replay.
-- Tests skipped: 10 (requieren conexión a SQL Server / Redis).
+- Tests unitarios y de integración cubriendo: controladores, modelos, normalización, pipeline de auditoría, configuración Gemini y golden-set replay.
+- Las aserciones que requieren base de datos o Redis se saltan (skipped) de forma segura si la infraestructura no está disponible en el entorno local.
 
 ## Documentación
 
