@@ -34,7 +34,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; pipeline selecciona por `DisId` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
 | `AuditConfigModel` | `Discolnet.dbo.AudDisp` + `Discolnet.dbo.AudDispCampo` | Configuración dinámica por cliente; lee y reemplaza campos activos, severidad, descripción visual, `TipoDato` y `CodigoCampo` |
-| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos (UPDATE aprobada/rechazada) |
+| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos. Incorpora lógica de fallback (si un hallazgo sintético u huérfano no encuentra su `AdjDisId` físico, se acopla a la `DISPENSA`). |
 | `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
 
 `AuditStatusModel` expone `auditExecuted` como campo derivado para resultados públicos: una auditoría terminal con payload persistido (`findings`, `timings` o documentos procesados) cuenta como ejecutada aunque `EstAud=0` por requerir revisión humana.

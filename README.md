@@ -1,8 +1,8 @@
-# AudFact — Sistema de Auditoría Documental Automatizada
+# AudFact — Sistema de Auditoría Documental Automatizada.
 
 Sistema de auditoría documental automatizada para el sector salud colombiano. Compara documentos escaneados (Actas de Entrega, Fórmulas Médicas, Autorizaciones) contra datos de dispensación en SQL Server, utilizando un **pipeline event-driven** sobre Redis Streams con **Google Gemini API** como motor de análisis multimodal (IA + OCR).
 
-## Stack Tecnológico
+## Stack Tecnológico.
 
 | Capa           | Tecnología                                                                   |
 | -------------- | ---------------------------------------------------------------------------- |
@@ -16,7 +16,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Frontend       | Next.js 15.5.15 (React 19) + Tailwind CSS + shadcn/ui                        |
 | Dependencias   | Guzzle 7.x, firebase/php-jwt 7.x                                             |
 
-## Estructura del Proyecto
+## Estructura del Proyecto.
 
 ```
 AudFact/

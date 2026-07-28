@@ -275,7 +275,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_TOP_P`                        | `1.0`                   | ❌        | Nucleus sampling para determinismo                                                                             |
 | `GEMINI_TOP_K`                        | `1`                     | ❌        | Top-K sampling para determinismo                                                                               |
 | `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                  | ❌        | Límite de tokens en la respuesta                                                                               |
-| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_HIGH` | ❌        | `GeminiConfig` — Resolución de imágenes (`LOW`, `MEDIUM`, `HIGH`)                                              |
+| `GEMINI_MEDIA_RESOLUTION`             | `medium`                | ❌        | `GeminiConfig` — Resolución de imágenes (`low`, `medium`, `high`, `ultra_high`)                                |
 | `GEMINI_THINKING_BUDGET`              | _(vacío)_               | ❌        | Presupuesto de razonamiento (thinking mode)                                                                    |
 | `GEMINI_THINKING_LEVEL`               | _(vacío)_               | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                           |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                  | ❌        | Límite de salida para extracción documental                                                                    |

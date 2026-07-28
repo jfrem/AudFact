@@ -35,15 +35,15 @@ final class GeminiConfig
         Env::load();
 
         return new self(
-            model:           (string) Env::get('GEMINI_MODEL', 'gemini-3.5-flash'),
-            temperature:     self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
-            topP:            self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
-            topK:            self::nullableInt(Env::get('GEMINI_TOP_K', null)),
+            model: (string) Env::get('GEMINI_MODEL', 'gemini-3.5-flash'),
+            temperature: self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
+            topP: self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
+            topK: self::nullableInt(Env::get('GEMINI_TOP_K', null)),
             maxOutputTokens: (int) Env::get('GEMINI_MAX_OUTPUT_TOKENS', 8192),
             mediaResolution: self::nullableString(Env::get('GEMINI_MEDIA_RESOLUTION', null)),
-            thinkingBudget:  self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
-            thinkingLevel:   self::nullableString(Env::get('GEMINI_THINKING_LEVEL', null)),
-            seed:            self::nullableInt(Env::get('GEMINI_SEED', null)),
+            thinkingBudget: self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
+            thinkingLevel: self::nullableString(Env::get('GEMINI_THINKING_LEVEL', null)),
+            seed: self::nullableInt(Env::get('GEMINI_SEED', null)),
         );
     }
 
@@ -64,9 +64,6 @@ final class GeminiConfig
             'seed'        => $this->seed,
         ], fn($value) => $value !== null);
 
-        if ($includeMediaResolution && $this->mediaResolution !== null) {
-            $base['mediaResolution'] = $this->mediaResolution;
-        }
 
         // Gemini 3 usa thinkingLevel; Gemini 2.5 usa thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
