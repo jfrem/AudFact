@@ -240,6 +240,14 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     {
         $facNro = (string) ($audit['dis_det_nro'] ?? '');
         [$allFindings, $documentDecisions] = $this->collectPolicyOutputs($audit);
+
+        // Incorporar rechazos sintéticos del Orquestador (e.g., Autorizacion='R' sin PDF)
+        foreach (($audit['synthetic_rejections'] ?? []) as $rejection) {
+            if (is_array($rejection)) {
+                $documentDecisions[] = $rejection;
+            }
+        }
+
         $calculatedFindings = DeliveryValidityEvaluator::evaluate($audit, $allFindings);
         $duplicatedHashFindings = DocumentDuplicationEvaluator::evaluate($audit);
         $calculatedFindings = array_merge($calculatedFindings, $duplicatedHashFindings);

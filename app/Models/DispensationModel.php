@@ -39,6 +39,7 @@ class DispensationModel extends Model
         'FechaAutorizacion',
         'NITDiscolmets',
         'NumeroAutorizacion',
+        'Autorizacion',
         'FirmaActaEntrega',
     ];
 
@@ -93,10 +94,10 @@ class DispensationModel extends Model
      * Aliases snake_case (pipeline) y PascalCase (REST) están soportados.
      */
     private const ALLOWED_FILTERS = [
-        'dis_id'      => 'facsec',
-        'dis_det_nro' => 'Dispensa',
-        'DisId'       => 'facsec',
-        'Dispensa'    => 'Dispensa',
+        'dis_id'      => 'v.facsec',
+        'dis_det_nro' => 'v.Dispensa',
+        'DisId'       => 'v.facsec',
+        'Dispensa'    => 'v.Dispensa',
     ];
 
     /**
@@ -151,9 +152,9 @@ class DispensationModel extends Model
         }
 
         $resolvedColumns = array_map(fn(string $k) => self::ALLOWED_FILTERS[$k], array_keys($filters));
-        if (!in_array('facsec', $resolvedColumns, true) || !in_array('Dispensa', $resolvedColumns, true)) {
+        if (!in_array('v.facsec', $resolvedColumns, true) || !in_array('v.Dispensa', $resolvedColumns, true)) {
             throw new \InvalidArgumentException(
-                'DispensationModel requiere filtros para ambas columnas: facsec (DisId) y Dispensa (DisDetNro)'
+                'DispensationModel requiere filtros para ambas columnas: DisId y DisDetNro'
             );
         }
 
@@ -176,8 +177,8 @@ class DispensationModel extends Model
         string $logKey
     ): array {
         $sql = "SELECT DISTINCT
-                facsec AS DisId,
-                Dispensa AS NumeroFactura,
+                v.facsec AS DisId,
+                v.Dispensa AS NumeroFactura,
 
                 -- Cliente/EPS
                 Cliente,
@@ -213,7 +214,16 @@ class DispensationModel extends Model
                 Fecha_autorizacion AS FechaAutorizacion,
 
                 -- Autorización
-                Autorizacion AS NumeroAutorizacion,
+                iif(Autorizacion=v.Dispensa,'',Autorizacion) AS NumeroAutorizacion,
+                CASE
+                    WHEN (Autorizacion = v.Dispensa OR LEN(Autorizacion) = 0)
+                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'N'
+                    WHEN (Autorizacion = v.Dispensa OR LEN(Autorizacion) = 0)
+                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'N' THEN 'R'
+                    WHEN (Autorizacion <> v.Dispensa AND LEN(Autorizacion) > 0)
+                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'R'
+                    ELSE 'S'
+                END AS Autorizacion,
                 Tipo_servicio AS Tipo,
 
                 -- Producto
@@ -239,7 +249,11 @@ class DispensationModel extends Model
                 IdFact,
                 '828002423' NITDiscolmets,
                 'Obligatorio' FirmaActaEntrega
-            FROM vw_discolnet_dispensas
+            FROM vw_discolnet_dispensas v
+            LEFT JOIN Factura f WITH (NOLOCK) ON f.DisId = v.facsec AND f.DisDetId = v.DisDetId
+            LEFT JOIN FacturaKardex k WITH (NOLOCK) ON k.FacSec = f.FacSec
+            LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK)
+                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = k.KarConDisRefCod
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
 

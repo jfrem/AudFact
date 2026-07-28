@@ -75,6 +75,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
             $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
             $this->assertIdentityContract($event, $identity, $context);
+            $this->filterDocumentsByAutorizacion($event, $context);
 
             if (!$this->stateStore->patchAudit($event->auditId, [
                 'fac_nit_sec' => $context['nitSec'],
@@ -89,6 +90,12 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             }
 
             $this->registerDocuments($event, $context);
+
+            if (!empty($context['syntheticRejections'])) {
+                $this->stateStore->patchAudit($event->auditId, [
+                    'synthetic_rejections' => $context['syntheticRejections'],
+                ]);
+            }
 
             $this->telemetryPublisher->completed(
                 $event->auditId,
@@ -287,13 +294,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             if ($storage !== 'BLOB' && $storage !== 'URL') {
                 throw new DomainException(
                     'ATTACHMENT_NO_CONTENT: ' . $configuredDocument['document_name']
-                    . " (TipoAlmacenamiento='{$storage}')"
+                        . " (TipoAlmacenamiento='{$storage}')"
                 );
             }
 
             $documentId = AuditEvent::uuidV4();
             $documentState = $this->buildDocumentState(
-                $documentId, $configuredDocument, $catalogDocument, $attachment, $context
+                $documentId,
+                $configuredDocument,
+                $catalogDocument,
+                $attachment,
+                $context
             );
 
             if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
@@ -336,8 +347,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'status'             => 'registered',
             'attachment_id'      => $attachmentId,
             'download_url'       => '/dispensation/' . rawurlencode((string) $context['numeroFactura'])
-                                    . '/attachments/download/' . rawurlencode($attachmentId),
-            'tipo_almacenamiento'=> (string) ($attachment['TipoAlmacenamiento'] ?? ''),
+                . '/attachments/download/' . rawurlencode($attachmentId),
+            'tipo_almacenamiento' => (string) ($attachment['TipoAlmacenamiento'] ?? ''),
             'dis_det_nro'        => $context['numeroFactura'],
             'numero_factura'     => $context['numeroFactura'],
             'dis_id'             => $context['disId'],
@@ -483,6 +494,88 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
 
         return $normalized;
+    }
+
+    /**
+     * Filtra documentos de autorización según la regla E2E del campo Autorizacion de la FDV.
+     *
+     * - 'N': Excluye el documento de AUTORIZACION completamente (no se envía a Gemini).
+     * - 'R': Si el PDF de autorización no existe, remueve el documento de configuredDocuments
+     *        e inyecta un hallazgo sintético de rechazo en el contexto.
+     * - 'S': No modifica nada (flujo normal).
+     *
+     * @param array<string,mixed> $context Pasado por referencia para mutar configuredDocuments.
+     */
+    private function filterDocumentsByAutorizacion(AuditEvent $event, array &$context): void
+    {
+        $autorizacion = trim((string) ($context['fuenteVerdad']['header']['Autorizacion'] ?? 'S'));
+
+        if ($autorizacion === 'S') {
+            return;
+        }
+
+        $authDocIndex = null;
+        foreach ($context['configuredDocuments'] as $index => $doc) {
+            if (($doc['document_name_normalized'] ?? '') === 'AUTORIZACION') {
+                $authDocIndex = $index;
+                break;
+            }
+        }
+
+        if ($authDocIndex === null) {
+            return;
+        }
+
+        $authDoc = $context['configuredDocuments'][$authDocIndex];
+        $disDetNro = $context['numeroFactura'];
+
+        if ($autorizacion === 'N') {
+            // Excluir completamente — no enviar a Gemini aunque el PDF exista
+            array_splice($context['configuredDocuments'], $authDocIndex, 1);
+            \Core\Logger::info('Orchestrator: documento AUTORIZACION excluido por regla E2E (Autorizacion=N)', [
+                'dis_det_nro' => $disDetNro,
+                'doc_id' => $authDoc['doc_id'],
+                'audit_id' => $event->auditId,
+            ]);
+            return;
+        }
+
+        // Autorizacion === 'R': verificar si existe adjunto físico
+        $catalogDocument = $context['catalogById'][$authDoc['doc_id']] ?? null;
+        $attachment = $catalogDocument !== null
+            ? $this->matchAttachment($authDoc, $catalogDocument, $context['attachments'])
+            : null;
+
+        if ($attachment !== null) {
+            // El PDF existe a pesar de la inconsistencia — auditar normalmente
+            return;
+        }
+
+        // PDF faltante + inconsistencia: remover de configuredDocuments e inyectar hallazgo sintético
+        array_splice($context['configuredDocuments'], $authDocIndex, 1);
+
+        $context['syntheticRejections'] ??= [];
+        $context['syntheticRejections'][] = [
+            'documentName' => $authDoc['document_name'],
+            'approved' => false,
+            'payload' => [
+                'state' => false,
+                'Dispensa' => $disDetNro,
+                'fechaAuditoria' => date('Y-m-d H:i:s.v'),
+                'hallazgos' => [
+                    [
+                        'Codigo' => 'AUT',
+                        'Descripcion' => 'Autorización requerida por el cliente pero no adjuntada.',
+                    ],
+                ],
+            ],
+        ];
+
+        \Core\Logger::info('Orchestrator: documento AUTORIZACION removido con hallazgo sintético (Autorizacion=R, PDF faltante)', [
+            'dis_det_nro' => $disDetNro,
+            'doc_id' => $authDoc['doc_id'],
+            'audit_id' => $event->auditId,
+        ]);
     }
 
     private static function elapsedMs(int $startedAt): int

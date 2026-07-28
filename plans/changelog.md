@@ -1,14 +1,32 @@
 # Changelog AudFact
 
+## [2026-07-28] - Feature: Orquestación inteligente de autorizaciones ('SinAutorizacion') y fallback de glosas
+
+### IA Pipeline / Clean Rebuild / SQL Server
+
+- **Exclusión determinística de IA**:
+  - `DocumentAuditOrchestrator.php` ahora evalúa el campo calculado `Autorizacion` proveniente de la consulta enriquecida en `DispensationModel` con `vw_discolnet_dispensas`.
+  - Si el contrato indica explícitamente `ConDisRefSinAut = 'S'` (estado `'N'`), el documento de autorización se elimina de la configuración _antes_ de la petición a Gemini, ahorrando el 100% de procesamiento y tokens (0 alucinaciones).
+- **Inyección sintética de hallazgos**:
+  - Si la dispensación requiere autorización pero la farmacia no la adjuntó (estado `'R'`), el orquestador inyecta una decisión sintética determinística de rechazo (código catálogo `AUT`) sin encolar un documento fantasma.
+  - `RulesEvaluationWorker.php` adaptado mediante _clean merge_ para absorber estas decisiones sintéticas de forma nativa.
+- **Mecanismo de Fallback para Decisiones Huérfanas**:
+  - `AuditStatusModel.php`: Las glosas inyectadas de forma sintética (cuyo documento físico y `AdjDisId` no existen) ahora se asocian de forma automática y controlada al adjunto físico principal (`DISPENSA`).
+  - Verificado de manera E2E en la tabla `AdjuntosDispensacion` mediante un query manual en SQL Server.
+- **DOCS-SYNC**: Protocolo completado, changelog actualizado y skills revalidadas.
+
 ## [2026-07-25] - Docs: Optimización y actualización de README.md
 
 ### Documentación / Configuración
 
 - **Limpieza de métricas frágiles**: Se eliminaron los conteos fijos (número de controladores, modelos, tests) del `README.md` que generan fricción de mantenimiento.
-- **Documentación de Gemini 3.6**: Se actualizó la descripción del stack y del pipeline IA para reflejar el soporte nativo al *Thinking Mode* de Gemini (`GEMINI_EXTRACTION_THINKING_LEVEL`), demostrando la madurez de la orquestación actual.
+- **Documentación de Gemini 3.6**: Se actualizó la descripción del stack y del pipeline IA para reflejar el soporte nativo al _Thinking Mode_ de Gemini (`GEMINI_EXTRACTION_THINKING_LEVEL`), demostrando la madurez de la orquestación actual.
 - Correcciones menores de ortografía y formato en la tabla de tecnologías.
+
 ## [2026-07-24] - Fix: Corrección de estado terminal (ámbar) en nodos del DAG y UI
+
 ### Frontend & Pipeline Telemetry
+
 - **RulesEvaluationWorker**: Modificado para emitir eventos de telemetría de estado `rejected` en lugar de `completed` cuando un documento falla validaciones de reglas, permitiendo distinguir un éxito de un hallazgo funcional para la interfaz.
 - **AuditAggregationWorker**: Refactorizado a `match` expression (PHP 8) para simplificar la delegación de estado de políticas en la agregación de resultados.
 - **Frontend DAG Store (`use-audit-flow-store.ts`)**: Actualizado para procesar los eventos de telemetría `rejected`, agregando contadores granulares por nodo. Ajustada la precedencia visual del nodo (fallo crítico en rojo prevalece sobre rechazo funcional en ámbar, que prevalece sobre éxito).
@@ -100,7 +118,7 @@
   - `ResponseIADiskStore` se mantiene para desarrollo, configurable por `AUDIT_RESPONSE_IA_ENABLED` y `AUDIT_RESPONSE_IA_DIR`.
   - Produccion tiene hard-deny por `APP_ENV=production`; `docker-compose.yml` ya no monta `./responseIA`.
 - **Automatización de Entornos (GitOps/DevOps)**:
-  - `.env.example` promovido como único *Single Source of Truth* para el esquema de configuración.
+  - `.env.example` promovido como único _Single Source of Truth_ para el esquema de configuración.
   - Refactorizado `scripts/sync-github-production-env.sh` incorporando generador determinista (`--generate-env [development|production]`).
   - Inyección automática de invariantes arquitectónicos (`APP_ENV=production`, `INTERNAL_API_URL=http://nginx`) y copias de seguridad de `.env`.
   - Actualizado `.gitignore` para omitir variables productivas derivadas (`.env.production`, `*.bak`).
@@ -927,7 +945,7 @@
 
 - **AUDIT-018**: OptimizaciÃ³n masiva de latencia en el pipeline de auditorÃ­a sin pÃ©rdida de calidad.
   - **Paralelismo**: Escalado de `worker-extraction` de 1 a **5 rÃ©plicas** en `docker-compose.yml`. Esto permite que los adjuntos de una factura (promedio 3) se procesen simultÃ¡neamente en lugar de secuencialmente.
-  - **ConfiguraciÃ³n Pro-Optimized**: Uso de `gemini-3.1-pro-preview` con `GEMINI_MEDIA_RESOLUTION=MEDIA_RESOLUTION_LOW`. La reducciÃ³n de resoluciÃ³n acelera el procesamiento de la API de Gemini sin degradar la precisiÃ³n en campos crÃ­ticos (CIE-10, firmas).
+  - **ConfiguraciÃ³n Pro-Optimized**: Uso de `gemini-3.1-pro-preview` con `GEMINI_MEDIA_RESOLUTION=medium`. La reducciÃ³n de resoluciÃ³n acelera el procesamiento de la API de Gemini sin degradar la precisiÃ³n en campos crÃ­ticos (CIE-10, firmas).
   - **Resultado**: ReducciÃ³n del tiempo total de auditorÃ­a de **82 segundos a 34 segundos** (mejora del 58%) para una factura estÃ¡ndar de 3 documentos escaneados.
   - **Archivos modificados**: `docker-compose.yml`, `.env`, `.env.example`, `app/Services/Audit/GeminiConfig.php`.
 

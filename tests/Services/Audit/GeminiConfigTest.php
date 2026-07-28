@@ -56,7 +56,7 @@ final class GeminiConfigTest extends TestCase
     {
         $config = new GeminiConfig(
             model: 'gemini-3.5-flash',
-            mediaResolution: 'MEDIA_RESOLUTION_HIGH',
+            mediaResolution: 'medium',
             thinkingBudget: 128,
             thinkingLevel: 'low'
         );
@@ -71,16 +71,16 @@ final class GeminiConfigTest extends TestCase
         $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
     }
 
-    public function testIncludesMediaResolutionOnlyWhenRequested(): void
+    public function testDoesNotIncludeMediaResolutionEvenWhenRequested(): void
     {
         $config = new GeminiConfig(
             model: 'gemini-3.5-flash',
-            mediaResolution: 'MEDIA_RESOLUTION_HIGH'
+            mediaResolution: 'medium'
         );
 
         $generationConfig = $config->toGenerationConfig(includeMediaResolution: true);
 
-        $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
+        $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
     }
 
     public function testGatewayAppliesMediaResolutionOnlyForExtractionProfile(): void
@@ -90,7 +90,7 @@ final class GeminiConfigTest extends TestCase
             'test-key',
             new GeminiConfig(
                 model: 'gemini-3.5-flash',
-                mediaResolution: 'MEDIA_RESOLUTION_HIGH'
+                mediaResolution: 'medium'
             )
         );
         $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
@@ -119,7 +119,7 @@ final class GeminiConfigTest extends TestCase
         );
 
         $this->assertArrayNotHasKey('mediaResolution', $semanticPayload['generationConfig']);
-        $this->assertSame('MEDIA_RESOLUTION_HIGH', $extractionPayload['generationConfig']['mediaResolution']);
+        $this->assertArrayNotHasKey('mediaResolution', $extractionPayload['generationConfig']);
     }
 
     public function testGatewayRejectsFilesForSemanticProfile(): void

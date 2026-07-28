@@ -506,11 +506,13 @@ class AuditStatusModel extends Model
         }
 
         // Iterar por cada adjunto físico y buscar su decisión correspondiente
+        $matchedKeys = [];
         foreach ($dispensation as $adjunto) {
             $adjDisId = (int) $adjunto['AdjDisId'];
             $adjDisNom = trim((string) ($adjunto['AdjDisNom'] ?? ''));
+            $normalizedName = strtoupper($adjDisNom);
 
-            $matchedDecision = $decisionsByName[strtoupper($adjDisNom)] ?? null;
+            $matchedDecision = $decisionsByName[$normalizedName] ?? null;
 
             if ($matchedDecision === null) {
                 Logger::warning('updateAttachmentAuditResults: adjunto físico sin decisión lógica.', [
@@ -521,10 +523,43 @@ class AuditStatusModel extends Model
                 continue;
             }
 
+            $matchedKeys[] = $normalizedName;
+
             if ($matchedDecision['approved']) {
                 $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
             } else {
                 $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $matchedDecision['observation']);
+            }
+        }
+
+        // Decisiones huérfanas: rechazos de documentos sin adjunto físico (e.g., AUT)
+        $orphanedDecisions = array_diff_key($decisionsByName, array_flip($matchedKeys));
+        if (!empty($orphanedDecisions)) {
+            $fallbackAdjunto = null;
+            foreach ($dispensation as $adj) {
+                if (strtoupper(trim($adj['AdjDisNom'] ?? '')) === 'DISPENSA') {
+                    $fallbackAdjunto = $adj;
+                    break;
+                }
+            }
+            $fallbackAdjunto ??= $dispensation[0];
+            $fallbackAdjDisId = (int) $fallbackAdjunto['AdjDisId'];
+
+            foreach ($orphanedDecisions as $key => $orphan) {
+                if (!$orphan['approved']) {
+                    $this->applyRejectedAttachmentDecision(
+                        $rejectStmt,
+                        $disId,
+                        $disDetId,
+                        $fallbackAdjDisId,
+                        $orphan['observation']
+                    );
+                    Logger::info('updateAttachmentAuditResults: decisión huérfana asignada a fallback ANE.', [
+                        'documentName' => $orphan['documentName'],
+                        'fallbackAdjDisId' => $fallbackAdjDisId,
+                        'facNro' => $facNro,
+                    ]);
+                }
             }
         }
 
@@ -917,5 +952,4 @@ class AuditStatusModel extends Model
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
-
 }
