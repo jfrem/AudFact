@@ -1,8 +1,24 @@
 # Changelog AudFact
 
-## [2026-07-28] - Feature: Orquestación inteligente de autorizaciones ('SinAutorizacion') y fallback de glosas
+## [2026-07-29] - Refactor: Clean Code en Reglas de Auditoría y Tests
+
+### IA Pipeline / Clean Rebuild
+
+- **Estandarización de reglas de auditoría y pruebas**:
+  - Alineación de constantes (`NIT`, `AUTH_NUMBER`) en `AuditFieldValueType.php` para mejor legibilidad.
+  - Refactorización de lógicas condicionales (ternarios) en `normalizeNit` dentro de `AuditFindingRules.php`.
+  - Adición de comentarios de intención describiendo ramas lógicas de inferencia semántica (`MONEY`, `QUANTITY`) en `AuditFindingRules.php`.
+  - Limpieza de espaciados vacíos superfluos en pipeline IA.
+  - Implementación de separadores de sección en `AuditFindingRulesNormalizationTest.php` mejorando la estructuración de la suite de testing.
+- **DOCS-SYNC**: Validada la sincronización; no hubo alteraciones arquitectónicas.
+
+## [2026-07-28] - Feature: Orquestación inteligente de autorizaciones ('SinAutorizacion'), fallback de glosas y normalización numérica en campos texto (0 == .00)
 
 ### IA Pipeline / Clean Rebuild / SQL Server
+
+- **Normalización numérica en campos de texto (0 == .00)**:
+  - `AuditFindingRules::normalizeForComparison` normaliza automáticamente valores escalares puramente numéricos (`0`, `.00`, `0.00`, `1,500.00`) incluso cuando el campo en `audit-config` está configurado con `tipoDato: text` (`TEXT`), resolviendo falsos positivos en campos monetarios o saldos cobrados (`VlrCobrado`).
+  - Verificado con test unitario en `AuditFindingRulesNormalizationTest`.
 
 - **Exclusión determinística de IA**:
   - `DocumentAuditOrchestrator.php` ahora evalúa el campo calculado `Autorizacion` proveniente de la consulta enriquecida en `DispensationModel` con `vw_discolnet_dispensas`.

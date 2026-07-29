@@ -706,6 +706,12 @@ final class DocumentNormalizer extends AuditEventConsumer
             return [$normalizedName, $operations];
         }
 
+        if ($valueType === AuditFieldValueType::AUTH_NUMBER) {
+            $normalizedAuth = AuditFindingRules::normalizeAuthNumber($value);
+            $operations = $normalizedAuth === $value ? [] : ['auth_number_prefix_removed'];
+            return [$normalizedAuth, $operations];
+        }
+
         return [$value, []];
     }
 

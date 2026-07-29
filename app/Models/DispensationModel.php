@@ -29,6 +29,7 @@ class DispensationModel extends Model
         'TipoDocumentoPaciente',
         'DocumentoPaciente',
         'FechaNacimiento',
+        'EstadoPaciente',
         'RegimenPaciente',
         'Medico',
         'TipoDocumentoMedico',
@@ -77,7 +78,7 @@ class DispensationModel extends Model
     public static function formatDispensation(array $rows): array
     {
         if ($rows === []) {
-            return ['header' => [], 'items' => []];
+            return ['header' => new \stdClass(), 'items' => []];
         }
 
         $header = array_intersect_key($rows[0], array_flip(self::HEADER_FIELDS));
@@ -193,6 +194,7 @@ class DispensationModel extends Model
                 Paciente_doct AS TipoDocumentoPaciente,
                 Paciente_doc AS DocumentoPaciente,
                 Fecha_nac AS FechaNacimiento,
+                'Activo' AS EstadoPaciente,
                 CASE
                     WHEN NitSec IN ('1045', '80455','2426') THEN NULL
                     WHEN Regimen = 'Subsidiado' THEN 'Subsidiado'

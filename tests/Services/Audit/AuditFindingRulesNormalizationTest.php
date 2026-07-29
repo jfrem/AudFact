@@ -295,4 +295,57 @@ final class AuditFindingRulesNormalizationTest extends TestCase
         $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::MONEY, '1.500,00'));
         $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::MONEY, '1,500.00'));
     }
+
+    // ─── TEXT — Normalización numérica en texto ──────────────────────────
+
+    public function testNormalizeForComparisonNormalizesNumericScalarsInText(): void
+    {
+        $this->assertSame('0', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '0'));
+        $this->assertSame('0', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '.00'));
+        $this->assertSame('0', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '0.00'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '1500.00'));
+        $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '1,500.00'));
+
+        // Los alfanuméricos o no numéricos se mantienen como texto
+        $this->assertSame('MD015582 A', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, 'MD015582-A'));
+        $this->assertSame('00123A', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '00123A'));
+    }
+
+    // ─── NIT / AUTH_NUMBER — Normalización ────────────────────────────────
+
+    public function testNormalizeForComparisonRoutesNitCorrectly(): void
+    {
+        // Strip dígito de verificación
+        $this->assertSame('828002423', AuditFindingRules::normalizeForComparison(AuditFieldValueType::NIT, '828002423-5'));
+        $this->assertSame('900123456', AuditFindingRules::normalizeForComparison(AuditFieldValueType::NIT, '900.123.456-7'));
+
+        // NIT limpio sin dígito de verificación
+        $this->assertSame('828002423', AuditFindingRules::normalizeForComparison(AuditFieldValueType::NIT, '828002423'));
+
+        // NIT con espacios
+        $this->assertSame('828002423', AuditFindingRules::normalizeForComparison(AuditFieldValueType::NIT, ' 828002423 '));
+
+        // Vacío
+        $this->assertSame('', AuditFindingRules::normalizeForComparison(AuditFieldValueType::NIT, ''));
+    }
+
+    public function testNormalizeAuthNumber(): void
+    {
+        // Con prefijo separado por guion
+        $this->assertSame('365230818', AuditFindingRules::normalizeAuthNumber('0746-365230818'));
+        $this->assertSame('365230818', AuditFindingRules::normalizeAuthNumber(' 0746 - 365230818 '));
+        $this->assertSame('365230818', AuditFindingRules::normalizeAuthNumber('AUTH-0746-365230818'));
+
+        // Sin prefijo (ej. Cliente 2426)
+        $this->assertSame('49547343', AuditFindingRules::normalizeAuthNumber('49547343'));
+
+        // Vacío
+        $this->assertSame('', AuditFindingRules::normalizeAuthNumber(''));
+    }
+
+    public function testNormalizeForComparisonRoutesAuthNumberCorrectly(): void
+    {
+        $this->assertSame('365230818', AuditFindingRules::normalizeForComparison(AuditFieldValueType::AUTH_NUMBER, '0746-365230818'));
+        $this->assertSame('49547343', AuditFindingRules::normalizeForComparison(AuditFieldValueType::AUTH_NUMBER, '49547343'));
+    }
 }

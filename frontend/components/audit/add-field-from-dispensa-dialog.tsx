@@ -100,9 +100,8 @@ export function AddFieldFromDispensaDialog({
   onAddFields,
   catalog,
 }: Props) {
-  const [invoiceNumber, setInvoiceNumber] = React.useState("");
-  const [disIdNumber, setDisIdNumber] = React.useState("");
-  const [loading, setLoading] = React.useState(false);
+    const [invoiceNumber, setInvoiceNumber] = React.useState("");
+    const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [validated, setValidated] = React.useState(false);
   const [selectedDocName, setSelectedDocName] = React.useState(initialDocName);
@@ -127,7 +126,6 @@ export function AddFieldFromDispensaDialog({
   React.useEffect(() => {
     if (!open) {
       setInvoiceNumber("");
-      setDisIdNumber("");
       setLoading(false);
       setError(null);
       setValidated(false);
@@ -155,9 +153,8 @@ export function AddFieldFromDispensaDialog({
 
   const handleSearch = async () => {
     const trimmed = invoiceNumber.trim();
-    const disIdTrimmed = disIdNumber.trim();
-    if (!trimmed || !disIdTrimmed) {
-      setError("Ingresa el ID de Dispensación y el número de factura.");
+    if (!trimmed) {
+      setError("Ingresa el número de factura.");
       return;
     }
 
@@ -168,7 +165,7 @@ export function AddFieldFromDispensaDialog({
     setFields([]);
 
     try {
-      const data = await getDispensationDetail(disIdTrimmed, trimmed);
+      const data = await getDispensationDetail(null, trimmed);
 
       if (!data) {
         setError("No se encontró información para esa factura.");
@@ -340,19 +337,6 @@ export function AddFieldFromDispensaDialog({
         {/* Search bar area */}
         <div className="shrink-0 border-b border-white/[0.04] bg-slate-900/30 px-5 py-3 sm:px-6">
           <div className="mx-auto flex max-w-4xl gap-2.5">
-            <div className="relative flex-1 group max-w-[150px]">
-              <Input
-                type="text"
-                value={disIdNumber}
-                onChange={(e) => {
-                  setDisIdNumber(e.target.value);
-                  setError(null);
-                }}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                placeholder="ID (ej: 45)"
-                className="h-11 bg-slate-950/50 px-4 font-mono sm:text-[15px]"
-              />
-            </div>
             <div className="relative flex-1 group">
               <FileText className="absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-cyan-400" />
               <Input
@@ -371,12 +355,12 @@ export function AddFieldFromDispensaDialog({
             <Button
               type="button"
               onClick={handleSearch}
-              disabled={loading || !invoiceNumber.trim() || !disIdNumber.trim()}
+              disabled={loading || !invoiceNumber.trim()}
               loading={loading}
               loadingLabel="Buscando"
               className={cn(
                 "h-11 rounded-lg px-5 font-bold transition-transform duration-200 active:scale-[0.98] sm:px-7",
-                loading || !invoiceNumber.trim() || !disIdNumber.trim()
+                loading || !invoiceNumber.trim()
                   ? "bg-slate-800/50 text-slate-500"
                   : "bg-cyan-500 text-slate-950 hover:bg-cyan-400",
               )}
