@@ -25,6 +25,8 @@ enum AuditFieldValueType: string
     case PERSON_NAME         = 'person_name';
     case INSTITUTION_NAME    = 'institution_name';
     case ARTICLE_NAME        = 'article_name';
+    case NIT                 = 'nit';
+    case AUTH_NUMBER         = 'auth_number';
 
     /**
      * Resuelve el tipo de dato explícito recibido desde audit-config.

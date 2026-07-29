@@ -1,3 +1,16 @@
+## [2026-07-28]
+
+### fix
+- **Normalización numérica en campos de texto (0 == .00)**: `AuditFindingRules::normalizeForComparison` ahora normaliza automáticamente valores numéricos escalares (`0`, `.00`, `0.00`, `1,500.00`) cuando el campo se compara como texto (`default`/`TEXT`), eliminando falsos positivos de formato entre el valor documental (`'0'`) y el registro monetario en BD (`'.00'`).
+  - Archivos modificados: `app/Services/Audit/AuditFindingRules.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+  - Impacto: Campos monetarios o de saldos configurados como `text` comparan equivalencia numérica sin generar discrepancias de formato.
+- **Tipo de dato `NIT` para normalización de dígito de verificación**: Nuevo `AuditFieldValueType::NIT` que elimina el sufijo `-X` (dígito de verificación) y separadores de miles en NITs colombianos, resolviendo falsos positivos donde Gemini extrae `828002423-5` pero la FDV contiene `828002423`.
+  - Archivos modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/AuditFindingRules.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+  - Acción requerida: Cambiar `tipoDato` del campo `DIS` (NITDiscolmets) de `text` a `nit` en la audit-config del cliente.
+- **Tipo de dato `auth_number` para eliminación de prefijos en autorizaciones**: Nuevo `AuditFieldValueType::AUTH_NUMBER` (`auth_number`) que elimina prefijos separados por guion (ej. `0746-365230818` → `365230818`) sin afectar números puros (ej. `49547343` del cliente 2426).
+  - Archivos modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/AuditFindingRules.php`, `app/Services/Audit/Pipeline/DocumentNormalizer.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+  - Acción requerida: Cambiar `tipoDato` del campo `AUT` (NumeroAutorizacion) de `text` a `auth_number` en el catálogo o audit-config del cliente.
+
 ## [2026-06-12]
 
 ### fix

@@ -95,7 +95,7 @@ class AuditConfigModel extends Model
             'activo'       => (bool) $header['Activo'],
             'systemPrompt' => $header['SystemPrompt'],
             'factorConv'   => (bool) ($header['FactorConv'] ?? false),
-            'documents'    => $documents,
+            'documents'    => empty($documents) ? new \stdClass() : $documents,
         ];
     }
 

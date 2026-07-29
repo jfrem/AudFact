@@ -11,8 +11,6 @@ final class AuditFindingRules
 {
     public const FIELD_DELIVERY_VALIDITY = 'VigenciaEntrega';
 
-
-
     public static function isCalculatedVisualCheck(string $field): bool
     {
         return $field === self::FIELD_DELIVERY_VALIDITY;
@@ -120,6 +118,10 @@ final class AuditFindingRules
 
     /**
      * Normaliza un valor para comparación según el tipo de dato configurado.
+     *
+     * Para campos sin tipo numérico explícito (default/TEXT), intenta normalización
+     * numérica antes de caer a texto, eliminando falsos positivos de formato
+     * como "0" vs ".00".
      */
     public static function normalizeForComparison(AuditFieldValueType $valueType, string $value): string
     {
@@ -127,10 +129,45 @@ final class AuditFindingRules
             AuditFieldValueType::IDENTITY_DOC_TYPE => IdentityDocNormalizer::normalizeDocType($value),
             AuditFieldValueType::IDENTITY_DOC_NUMBER => IdentityDocNormalizer::normalizeDocNumber($value),
             AuditFieldValueType::DATE => self::normalizeDateToIso($value) ?? TextNormalization::normalizeText($value),
+            AuditFieldValueType::NIT => self::normalizeNit($value),
+            AuditFieldValueType::AUTH_NUMBER => self::normalizeAuthNumber($value),
             AuditFieldValueType::QUANTITY,
             AuditFieldValueType::MONEY => self::normalizeNumberForComparison($value),
-            default => TextNormalization::normalizeText($value),
+            default => self::normalizeNumberForComparison($value),
         };
+    }
+
+    /**
+     * Normaliza un NIT colombiano para comparación.
+     *
+     * Elimina el dígito de verificación (sufijo -X) y cualquier separador
+     * de miles, dejando solo el número base: "828.002.423-5" → "828002423".
+     */
+    public static function normalizeNit(string $value): string
+    {
+        $cleaned = preg_replace('/[\s.]+/', '', trim($value)) ?? trim($value);
+
+        $cleaned = preg_replace('/-\d$/', '', $cleaned) ?? $cleaned;
+
+        return $cleaned;
+    }
+
+    /**
+     * Normaliza un número de autorización para comparación.
+     *
+     * Elimina prefijos separados por guion (ej. "0746-365230818" → "365230818").
+     * Si no hay guion, conserva el número original sin espacios ni separadores.
+     */
+    public static function normalizeAuthNumber(string $value): string
+    {
+        $trimmed = trim($value);
+
+        if (str_contains($trimmed, '-')) {
+            $parts = explode('-', $trimmed);
+            $trimmed = trim((string) end($parts));
+        }
+
+        return preg_replace('/[\s.]+/', '', $trimmed) ?? $trimmed;
     }
 
     public static function normalizeNumberForComparison(string $value): string
