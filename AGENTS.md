@@ -482,7 +482,7 @@ Si el proyecto tiene tablero Trello activo (ID: `68edb398ddef3c93dda9b92a`):
 ### Comportamiento general
 
 - **Idioma**: toda comunicación en Español (Latinoamérica)
-- **Contexto de negocio obligatorio**: leer [`BUSINESS.md`](./BUSINESS.md) ANTES de cualquier implementación que involucre reglas de negocio, validaciones, pipeline de auditoría o lógica de dominio. Este documento explica el dominio de dispensación farmacéutica, la cadena POS/MIPRES, y las reglas que gobiernan cada decisión técnica.
+- **Contexto de negocio obligatorio**: ver sección **Business Domain Gate** más abajo. Leer [`BUSINESS.md`](./BUSINESS.md) es prerrequisito antes de tocar código de dominio.
 - **Documentación primero**: OBLIGATORIO revisar planes (`plans/api-endpoints.md`, `plans/architecture.md`, etc.) ANTES de intentar adivinar URLs, comandos o la estructura del ruteo.
 - **Verificar en código**: responder con alta confianza; no adivinar comportamientos
 - **Skill-first**: antes de analizar, responder o modificar, detectar y cargar la skill aplicable desde `.agent/skills/CATALOG.md`
@@ -512,6 +512,50 @@ Excepciones (no requieren skill-gate formal):
 - Edición menor de documentación existente
 - Conversación casual sin análisis técnico
 
+### Business Domain Gate (Global)
+
+> **OBLIGATORIO** — Esta regla tiene la misma jerarquía que el Skill Gate.
+> Su omisión es un defecto de proceso, incluso si el cambio es "solo refactor" o "solo clean code".
+
+Antes de **crear, modificar, refactorizar o eliminar** código en cualquiera de los archivos o directorios listados abajo, el agente **DEBE** leer [`BUSINESS.md`](./BUSINESS.md) y confirmar que comprende las reglas de dominio que gobiernan la lógica que va a tocar.
+
+#### Archivos y directorios que disparan el Business Gate
+
+| Ruta / Patrón | Motivo |
+|---|---|
+| `app/Services/Audit/**` | Pipeline IA, reglas de negocio, normalización, policy engine |
+| `app/Models/DispensationModel.php` | Fuente de Verdad (FDV), campos de dispensación |
+| `app/Models/AuditStatusModel.php` | Persistencia de resultados de auditoría |
+| `app/Models/AuditConfigModel.php` | Configuración dinámica de auditoría por cliente |
+| `app/Models/AttachmentsModel.php` | Adjuntos documentales del expediente |
+| `app/Controllers/AuditController.php` | Endpoints de auditoría (single, async, results) |
+| `app/Controllers/AuditConfigController.php` | Configuración de campos auditables por EPS |
+| `app/Controllers/AuditDlqController.php` | Dead Letter Queue de auditoría |
+| `bin/audit-*.php` | Workers del pipeline event-driven |
+| Cualquier archivo que contenga lógica de comparación de campos (`TipoCampo`, `TipoDato`, `normalizeForComparison`, `evaluateBusinessField`) | Reglas de evaluación de la auditoría |
+
+#### Checklist obligatorio (Business Gate)
+
+Antes de escribir la primera línea de código en archivos del gate, el agente debe verificar:
+
+- [ ] `BUSINESS.md leído` — Leer el documento completo (no solo una sección).
+- [ ] `Reglas de dominio identificadas` — Declarar qué reglas de negocio (sección 9 de BUSINESS.md) aplican al cambio.
+- [ ] `Impacto en decisiones de auditoría evaluado` — Confirmar que el cambio no altera la semántica de `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `NO_CONCLUYENTE` u `OMITIDO` de forma no intencionada.
+
+#### Qué sucede si el agente omite el Business Gate
+
+Si se detecta que un agente modificó archivos del gate sin haber leído `BUSINESS.md`:
+
+1. El cambio debe ser revisado manualmente por el usuario antes de mergearse.
+2. El agente debe documentar la omisión en el commit o PR como deuda de proceso.
+3. En sesiones futuras, el agente debe priorizar la lectura del Business Gate al inicio de la conversación si anticipa trabajo en el dominio.
+
+#### Excepciones (no requieren Business Gate formal)
+
+- Cambios exclusivamente de formato/whitespace sin impacto semántico.
+- Actualización de comentarios o docstrings que no alteran lógica.
+- Cambios en archivos de test que no modifican la lógica bajo prueba.
+
 ### Regla Obligatoria de Auditoría (Skill Gate)
 
 Cuando el usuario solicite auditar/revisar/evaluar/assessment de un repositorio o proyecto, el agente debe:
@@ -532,6 +576,8 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 - Formato/lint automático: si los cambios son solo de formato, aplicar sin preguntar; si son semánticos, consultar
 
 ### Pipeline de auditoría IA
+
+> ⚠️ **Business Gate requerido**: Cualquier cambio en esta sección exige haber completado el checklist del **Business Domain Gate** antes de escribir código. Ver sección anterior.
 
 - **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
 - **Pipeline event-driven actual**: `audit_created -> document_registered -> document_downloaded -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
