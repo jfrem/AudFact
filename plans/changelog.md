@@ -10,7 +10,9 @@
   - Adición de comentarios de intención describiendo ramas lógicas de inferencia semántica (`MONEY`, `QUANTITY`) en `AuditFindingRules.php`.
   - Limpieza de espaciados vacíos superfluos en pipeline IA.
   - Implementación de separadores de sección en `AuditFindingRulesNormalizationTest.php` mejorando la estructuración de la suite de testing.
-- **DOCS-SYNC**: Validada la sincronización; no hubo alteraciones arquitectónicas.
+- **DOCS-SYNC / Gobernanza Técnica**:
+  - **AGENTS.md**: Incorporada sección formal **Business Domain Gate (Global)** obligando la revisión del contexto de negocio antes de modificar el pipeline o modelos de dominio.
+  - **BUSINESS.md**: Reforzada identificación del servicio MIPRES mediante el **número de prescripción de 20 dígitos** como criterio primario. Corregido alias de Validador de Derechos (`VDD`) y documentado Golden Case MIPRES (`Q30260100253`) para el cliente `2624`.
 
 ## [2026-07-28] - Feature: Orquestación inteligente de autorizaciones ('SinAutorizacion'), fallback de glosas y normalización numérica en campos texto (0 == .00)
 

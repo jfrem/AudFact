@@ -39,14 +39,14 @@ Cada dispensación genera un expediente documental (fórmula médica, autorizaci
 
 ## 3. Actores del Dominio
 
-| Actor | Rol | Relación con AudFact |
-|---|---|---|
-| **Discolmets** | Gestor farmacéutico. Dispensa y factura | Operador del sistema. Usuario interno |
-| **EPS** (Cliente) | Entidad Promotora de Salud. Contrata la dispensación y paga facturas | Destinatario de la factura. 22 EPS activas actualmente |
-| **Paciente** | Persona que recibe los medicamentos | Sujeto de la dispensación. Sus datos son protegidos (Habeas Data) |
-| **Médico / Prescriptor** | Profesional de salud que emite la fórmula médica | Su firma y datos aparecen en la fórmula. Se validan en auditoría |
-| **IPS** | Institución Prestadora de Salud donde se prescribe | Aparece en los documentos como origen de la prescripción |
-| **Auditor interno** | Personal de Discolmets que revisa hallazgos | Usuario principal del dashboard. Decide sobre casos `manual_review` |
+| Actor                    | Rol                                                                  | Relación con AudFact                                                |
+| ------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Discolmets**           | Gestor farmacéutico. Dispensa y factura                              | Operador del sistema. Usuario interno                               |
+| **EPS** (Cliente)        | Entidad Promotora de Salud. Contrata la dispensación y paga facturas | Destinatario de la factura. 22 EPS activas actualmente              |
+| **Paciente**             | Persona que recibe los medicamentos                                  | Sujeto de la dispensación. Sus datos son protegidos (Habeas Data)   |
+| **Médico / Prescriptor** | Profesional de salud que emite la fórmula médica                     | Su firma y datos aparecen en la fórmula. Se validan en auditoría    |
+| **IPS**                  | Institución Prestadora de Salud donde se prescribe                   | Aparece en los documentos como origen de la prescripción            |
+| **Auditor interno**      | Personal de Discolmets que revisa hallazgos                          | Usuario principal del dashboard. Decide sobre casos `manual_review` |
 
 ---
 
@@ -66,23 +66,27 @@ Médico prescribe          Paciente recibe         Discolmets cobra
 ```
 
 ### 4.1 Prescripción (Fórmula Médica)
+
 - El médico prescribe medicamentos al paciente.
 - Genera la **Fórmula Médica** con: paciente, diagnóstico (CIE), medicamentos, cantidades, firma del prescriptor.
 - Alias POS: `ORD` · Alias MIPRES: `OPF`
 
 ### 4.2 Autorización (si aplica)
+
 - La EPS autoriza la dispensación mediante un número de autorización.
 - Contiene: paciente, diagnóstico, medicamento autorizado, vigencia.
 - **Regla de vigencia**: la entrega debe realizarse dentro de los días de vigencia desde la fecha de autorización (generalmente 60 días, configurable por EPS).
 - Alias POS: `AUT` · Alias MIPRES: `PDE`
 
 ### 4.3 Dispensación y Entrega (Acta de Entrega)
+
 - Discolmets entrega los medicamentos al paciente o su acudiente.
 - El paciente **firma el acta de entrega** como constancia de recepción.
 - Contiene: todos los datos del expediente + firma + fecha de entrega + cantidades + lotes.
 - Alias POS: `ANE` (Dispensa) · Alias MIPRES: `CRC` (Acta de Entrega)
 
 ### 4.4 Facturación
+
 - Discolmets agrupa dispensaciones en facturas y las radica ante la EPS.
 - **AudFact audita ANTES de la radicación** para detectar y corregir problemas que generarían glosa.
 
@@ -93,29 +97,40 @@ Médico prescribe          Paciente recibe         Discolmets cobra
 El sistema audita actualmente dos tipos de servicio. Cada uno tiene documentación y reglas distintas:
 
 ### POS (Plan Obligatorio de Salud)
+
 - Medicamentos incluidos en el plan básico de cobertura.
 - **Documentos típicos**: Fórmula (`ORD`), Autorización (`AUT`), Dispensa (`ANE`).
 - **Campos clave**: `CUM` (Código Único de Medicamento) presente, `Mipres` vacío.
 - IDs de trazabilidad Mipres: todos en `"0"`.
 
 ### MIPRES (Mi Prescripción)
+
 - Medicamentos o dispositivos **NO incluidos** en el plan básico, prescritos vía el sistema electrónico del Ministerio de Salud.
-- **Documentos típicos**: Fórmula (`OPF`), Autorización (`PDE`), Acta de Entrega (`CRC`), y posibles adicionales: Validador de Derechos (`PDE`), Testigo a Ruego (`FDE`).
-- **Campos clave**: `Mipres` con número de prescripción (ej: `20251022157002502904`), `CUM` puede estar vacío (dispositivos médicos).
+- **Identificador definitivo**: El **número de prescripción Mipres** (ej: `20251023179002510524`) es el criterio primario e inequívoco que determina si una entrega es MIPRES. Este número de 20 dígitos es generado por el sistema electrónico del Ministerio de Salud y aparece impreso en el documento de autorización. Si el campo `Mipres` de la FDV contiene un valor distinto de vacío o `"0"`, la entrega es MIPRES.
+- **Documentos típicos**: Fórmula (`OPF`), Autorización (`PDE`), Acta de Entrega (`CRC`), y posibles adicionales: Validador de Derechos (`VDD`), Testigo a Ruego (`FDE`).
+- **Campos clave**: `Mipres` con número de prescripción, `CUM` puede estar vacío (dispositivos médicos).
 - IDs de trazabilidad Mipres completos: `IdPrincipal`, `IdDirec`, `IdProg`, `IdEntr`, `IdRepEnt`, `IdFact`.
 - Puede incluir **Régimen** del paciente (Contributivo / Subsidiado).
 
+### Cómo identificar el tipo de servicio
+
+> **Regla de oro**: Si la autorización del expediente contiene un número de prescripción Mipres (20 dígitos), la entrega es MIPRES. Si el campo `Mipres` de la FDV está vacío o en `"0"`, es POS.
+
+Este criterio es más confiable que la presencia/ausencia de documentos adicionales (como el Validador de Derechos), ya que un cliente puede exigir o no esos documentos según su configuración particular.
+
 ### Diferencias documentales
 
-| Aspecto | POS | MIPRES |
-|---|---|---|
-| Alias Acta de Entrega | `ANE` ("DISPENSA") | `CRC` ("ACTA DE ENTREGA") |
-| Alias Autorización | `AUT` | `PDE` |
-| Alias Fórmula | `ORD` | `OPF` |
-| Documentos adicionales | — | Validador de Derechos, Testigo a Ruego |
-| CUM | Siempre presente | Puede estar vacío (dispositivos) |
-| Número Mipres | Vacío | Obligatorio |
-| IDs trazabilidad Mipres | Todos `"0"` | Todos con valor real |
+| Aspecto                                 | POS                           | MIPRES                                            |
+| --------------------------------------- | ----------------------------- | ------------------------------------------------- |
+| **Criterio primario de identificación** | `Mipres` vacío o `"0"` en FDV | `Mipres` con número de prescripción de 20 dígitos |
+| Alias Acta de Entrega                   | `ANE` ("DISPENSA")            | `CRC` ("ACTA DE ENTREGA")                         |
+| Alias Autorización                      | `AUT`                         | `PDE`                                             |
+| Alias Fórmula                           | `ORD`                         | `OPF`                                             |
+| Alias Validador de Derechos             | —                             | `VDD`                                             |
+| Documentos adicionales                  | —                             | Validador de Derechos, Testigo a Ruego            |
+| CUM                                     | Siempre presente              | Puede estar vacío (dispositivos)                  |
+| Número Mipres                           | Vacío                         | Obligatorio                                       |
+| IDs trazabilidad Mipres                 | Todos `"0"`                   | Todos con valor real                              |
 
 ---
 
@@ -124,6 +139,7 @@ El sistema audita actualmente dos tipos de servicio. Cada uno tiene documentaci�
 Discolmets atiende actualmente 22 clientes configurados en el sistema. La lista incluye EPS, aseguradoras y entidades territoriales. Algunos manejan ambos servicios (POS + MIPRES), otros solo uno.
 
 Cada cliente define:
+
 - **Catálogo de documentos obligatorios** — qué documentos se exigen por dispensación (endpoint `/clients/{id}/documents`).
 - **Configuración de auditoría** — qué campos auditar, con qué tipo de comparación y qué severidad (endpoint `/clients/{id}/audit-config`).
 
@@ -141,12 +157,12 @@ La **Fuente de Verdad** es el registro de dispensación almacenado en SQL Server
 
 Cada campo se audita con un tipo de comparación específico, definido en el `audit-config` del cliente:
 
-| Tipo | Código | Descripción | Ejemplo |
-|---|---|---|---|
-| **Exacto** | `E` | Debe coincidir carácter a carácter (normalizado) | `DocumentoPaciente`: `"12132213"` vs `"12132213"` |
-| **Semántico** | `S` | Similitud textual — Gemini juzga equivalencia | `NombrePaciente`: `"GARCIA ABSALON"` vs `"ABSALON GARCIA"` |
-| **Business** | `B` | Lógica de negocio — PHP calcula sumatorias y límites | `CantidadEntregada` ≤ `CantidadAutorizada` / `CantidadPrescrita` |
-| **Visual** | `V` | Verificación visual en la imagen del documento | `FirmaActaEntrega`: PRESENTE / AUSENTE |
+| Tipo          | Código | Descripción                                          | Ejemplo                                                          |
+| ------------- | ------ | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| **Exacto**    | `E`    | Debe coincidir carácter a carácter (normalizado)     | `DocumentoPaciente`: `"12132213"` vs `"12132213"`                |
+| **Semántico** | `S`    | Similitud textual — Gemini juzga equivalencia        | `NombrePaciente`: `"GARCIA ABSALON"` vs `"ABSALON GARCIA"`       |
+| **Business**  | `B`    | Lógica de negocio — PHP calcula sumatorias y límites | `CantidadEntregada` ≤ `CantidadAutorizada` / `CantidadPrescrita` |
+| **Visual**    | `V`    | Verificación visual en la imagen del documento       | `FirmaActaEntrega`: PRESENTE / AUSENTE                           |
 
 ### 7.3 Configuración Runtime de Campos
 
@@ -174,39 +190,39 @@ autorizado/prescrito; en dispensa, la cantidad debe reflejar lo efectivamente en
 
 ### 7.4 Resultados Posibles por Campo
 
-| Resultado | Significado | Acción |
-|---|---|---|
-| `COINCIDE` | El valor del documento coincide con la FDV | ✅ Sin hallazgo |
-| `VALOR_DISTINTO` | El valor difiere — posible error o fraude | 🔴 Hallazgo reportado |
-| `NO_ENCONTRADO` | Gemini no pudo extraer el campo del documento | ⚠️ Hallazgo — documento puede estar incompleto o ilegible |
-| `NO_CONCLUYENTE` | Gemini encontró similitud parcial pero no puede confirmar | 🟡 Requiere revisión humana |
-| `OMITIDO` | Campo sin valor auditable o no evaluado por condición interna del engine; `omitirSi` no existe en el runtime actual | ➖ No evaluado |
+| Resultado        | Significado                                                                                                         | Acción                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `COINCIDE`       | El valor del documento coincide con la FDV                                                                          | ✅ Sin hallazgo                                           |
+| `VALOR_DISTINTO` | El valor difiere — posible error o fraude                                                                           | 🔴 Hallazgo reportado                                     |
+| `NO_ENCONTRADO`  | Gemini no pudo extraer el campo del documento                                                                       | ⚠️ Hallazgo — documento puede estar incompleto o ilegible |
+| `NO_CONCLUYENTE` | Gemini encontró similitud parcial pero no puede confirmar                                                           | 🟡 Requiere revisión humana                               |
+| `OMITIDO`        | Campo sin valor auditable o no evaluado por condición interna del engine; `omitirSi` no existe en el runtime actual | ➖ No evaluado                                            |
 
 ### 7.5 Visual Checks (Verificaciones Visuales)
 
-| Check | Documento | Qué verifica |
-|---|---|---|
-| `FirmaActaEntrega` | Acta de Entrega / Dispensa | Firma o sello del paciente/acudiente que recibió |
-| `FirmaPrescriptor` | Fórmula Médica | Firma del médico que prescribió |
-| `VigenciaEntrega` | Autorización | Que la entrega se hizo dentro de los días de vigencia desde la autorización |
+| Check              | Documento                  | Qué verifica                                                                |
+| ------------------ | -------------------------- | --------------------------------------------------------------------------- |
+| `FirmaActaEntrega` | Acta de Entrega / Dispensa | Firma o sello del paciente/acudiente que recibió                            |
+| `FirmaPrescriptor` | Fórmula Médica             | Firma del médico que prescribió                                             |
+| `VigenciaEntrega`  | Autorización               | Que la entrega se hizo dentro de los días de vigencia desde la autorización |
 
 ### 7.6 Decisión Final por Documento
 
 Cada documento recibe un veredicto:
 
-| Veredicto | Condición |
-|---|---|
-| `approved: true` | Ningún hallazgo del documento tiene resultado fallido (`VALOR_DISTINTO`, `NO_ENCONTRADO` o `NO_CONCLUYENTE`) |
+| Veredicto         | Condición                                                                                                         |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `approved: true`  | Ningún hallazgo del documento tiene resultado fallido (`VALOR_DISTINTO`, `NO_ENCONTRADO` o `NO_CONCLUYENTE`)      |
 | `approved: false` | Al menos un hallazgo del documento tiene resultado fallido (`VALOR_DISTINTO`, `NO_ENCONTRADO` o `NO_CONCLUYENTE`) |
 
 ### 7.7 Estado Final de la Auditoría
 
-| Estado | Significado |
-|---|---|
-| `completed` | Todos los documentos aprobados, sin hallazgos |
+| Estado          | Significado                                                       |
+| --------------- | ----------------------------------------------------------------- |
+| `completed`     | Todos los documentos aprobados, sin hallazgos                     |
 | `manual_review` | Al menos un documento con hallazgos que requieren revisión humana |
-| `error` | Error técnico durante el procesamiento (IA, descarga, etc.) |
-| `failed` | Fallo irrecuperable — no se pudo completar la auditoría |
+| `error`         | Error técnico durante el procesamiento (IA, descarga, etc.)       |
+| `failed`        | Fallo irrecuperable — no se pudo completar la auditoría           |
 
 ---
 
@@ -216,26 +232,27 @@ Auditoría POS para Positiva Compañía de Seguros. Paciente: Garcia Absalon. Pr
 
 ### Resultado
 
-| Métrica | Valor |
-|---|---|
-| Estado final | `manual_review` |
-| Documentos procesados | 3 (Fórmula, Autorización, Dispensa) |
-| Total campos auditados | 36 |
-| Coincidencias | 34 |
-| Discrepancias | 1 (`CodigoDiagnostico` NO_ENCONTRADO en fórmula) |
-| No concluyentes | 1 (`NombreArticulo` en fórmula) |
-| Risk Score | 20 |
-| Duración | ~14.6 segundos |
+| Métrica                | Valor                                            |
+| ---------------------- | ------------------------------------------------ |
+| Estado final           | `manual_review`                                  |
+| Documentos procesados  | 3 (Fórmula, Autorización, Dispensa)              |
+| Total campos auditados | 36                                               |
+| Coincidencias          | 34                                               |
+| Discrepancias          | 1 (`CodigoDiagnostico` NO_ENCONTRADO en fórmula) |
+| No concluyentes        | 1 (`NombreArticulo` en fórmula)                  |
+| Risk Score             | 20                                               |
+| Duración               | ~14.6 segundos                                   |
 
 ### Veredicto por documento
 
-| Documento | Aprobado | Observación |
-|---|---|---|
-| DISPENSA | ✅ Sí | Todos los campos coinciden |
-| AUTORIZACION | ✅ Sí | Cantidad autorizada `100` cubre entrega parcial `50`; datos clave coinciden |
-| FORMULA MEDICA | ❌ No | `CodigoDiagnostico` no encontrado y `NombreArticulo` NO_CONCLUYENTE |
+| Documento      | Aprobado | Observación                                                                 |
+| -------------- | -------- | --------------------------------------------------------------------------- |
+| DISPENSA       | ✅ Sí    | Todos los campos coinciden                                                  |
+| AUTORIZACION   | ✅ Sí    | Cantidad autorizada `100` cubre entrega parcial `50`; datos clave coinciden |
+| FORMULA MEDICA | ❌ No    | `CodigoDiagnostico` no encontrado y `NombreArticulo` NO_CONCLUYENTE         |
 
 ### Verificaciones especiales exitosas
+
 - **VigenciaEntrega**: FechaAutorización `2025-07-27` + 60 días = `2025-09-25`. Entrega `2025-07-29` ✅ dentro de vigencia.
 - **FirmaActaEntrega**: `PRESENTE` — firma manuscrita visible ✅
 - **FirmaPrescriptor**: `PRESENTE` ✅
@@ -250,22 +267,62 @@ y que el pipeline post-refactor preserve las métricas de Gemini en el resultado
 persistido. El campo `Lote` se clasifica como `TRACE_TOKEN` y se evalúa con
 lógica de conjuntos.
 
-| Métrica | Valor |
-|---|---|
-| Estado final | `manual_review` |
-| Documentos procesados | 3 (Fórmula, Autorización, Dispensa) |
-| Total campos auditados | 37 |
-| Coincidencias | 33 |
-| Discrepancias | 1 (`CodigoDiagnostico` NO_ENCONTRADO en `DISPENSA`) |
-| No concluyentes | 3 (`NombreArticulo` en fórmula, `IPS` en dispensa, `NombreArticulo` en dispensa) |
-| Risk Score | 40 |
+| Métrica                | Valor                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| Estado final           | `manual_review`                                                                  |
+| Documentos procesados  | 3 (Fórmula, Autorización, Dispensa)                                              |
+| Total campos auditados | 37                                                                               |
+| Coincidencias          | 33                                                                               |
+| Discrepancias          | 1 (`CodigoDiagnostico` NO_ENCONTRADO en `DISPENSA`)                              |
+| No concluyentes        | 3 (`NombreArticulo` en fórmula, `IPS` en dispensa, `NombreArticulo` en dispensa) |
+| Risk Score             | 40                                                                               |
 
 Verificaciones clave:
+
 - **Lote**: FDV `{645B01A, E245513E}` = documento `{645B01A, E245513E}` → `COINCIDE`.
 - **Autorización**: aprobada; `CantidadEntregada` `60` coincide con el techo autorizado registrado.
 - **Diagnóstico en acta**: el `audit-config` vigente del cliente `2426` activa `CodigoDiagnostico` en `DISPENSA`; Gemini no lo encuentra visible en el acta y el motor lo marca como `NO_ENCONTRADO`.
 - **Dispensa**: no aprobada por `CodigoDiagnostico` ausente y revisión semántica de `IPS` y `NombreArticulo`, no por trazabilidad.
 - **Métricas Gemini**: 3 llamadas de extracción, 2 llamadas semánticas, 5 llamadas remotas en total, `cache_hit_rate = 0` y tokens totales `20044`.
+
+### Caso complementario MIPRES: auditoría con hallazgos (`Q30260100253`)
+
+Este caso valida el pipeline completo para una **entrega MIPRES** del cliente 2624.
+Se identificó como MIPRES porque el expediente contiene un número de prescripción
+Mipres (`20251023179002510524`) en la autorización.
+
+| Métrica               | Valor                                                             |
+| --------------------- | ----------------------------------------------------------------- |
+| Estado final          | `manual_review`                                                   |
+| Tipo de servicio      | **MIPRES**                                                        |
+| Documentos procesados | 4 (Fórmula, Autorización, Acta de Entrega, Validador de Derechos) |
+| Documentos aprobados  | 2 (Fórmula Médica, Validador de Derechos)                         |
+| Documentos rechazados | 2 (Autorización, Acta de Entrega)                                 |
+| Duración              | ~7.2 segundos (con cache de extracción al 100%)                   |
+
+#### Veredicto por documento
+
+| Documento             | Aprobado | Observación                                                                   |
+| --------------------- | -------- | ----------------------------------------------------------------------------- |
+| VALIDADOR DE DERECHOS | ✅ Sí    | `EstadoPaciente` = "ACTIVO" coincide con FDV. Identidad del paciente validada |
+| FORMULA MEDICA        | ✅ Sí    | Todos los campos coinciden                                                    |
+| AUTORIZACION          | ❌ No    | 2 hallazgos: fecha distinta, vigencia vencida                                 |
+
+#### Hallazgos detectados
+
+| Código | Documento       | Hallazgo                           | Detalle                                                                        |
+| ------ | --------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| `FAU`  | Autorización    | `FechaAutorizacion` VALOR_DISTINTO | FDV: `2025-10-30`, Documento: `2025-10-24`                                     |
+| `PRD`  | Autorización    | `CodigoProducto` VALOR_DISTINTO    | FDV: `MD015582, A`, Documento: solo `MD015582`                                 |
+| `VIG`  | Autorización    | `VigenciaEntrega` VALOR_DISTINTO   | Entrega `2026-01-06` supera vigencia `2025-12-29` (60 días desde autorización) |
+| `PRD`  | Acta de Entrega | `CodigoProducto` VALOR_DISTINTO    | FDV: `MD015582, A`, Documento: solo `MD015582`                                 |
+
+#### Verificaciones específicas MIPRES exitosas
+
+- **EstadoPaciente**: Validador de Derechos muestra "ACTIVO" → coincide con FDV (valor hardcodeado por regla de dominio) ✅
+- **FirmaPrescriptor**: `PRESENTE` en Fórmula Médica ✅
+- **FirmaActaEntrega**: `PRESENTE` en Acta de Entrega ✅
+- **Identidad del paciente**: `DocumentoPaciente` y `TipoDocumentoPaciente` coinciden en los 4 documentos ✅
 
 ---
 
@@ -274,26 +331,31 @@ Verificaciones clave:
 Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación explícita:
 
 ### Reglas de consistencia documental
+
 1. **Identidad del paciente**: `DocumentoPaciente` + `TipoDocumentoPaciente` deben coincidir en TODOS los documentos del expediente y contra la FDV (registro de dispensación).
 2. **Diagnóstico**: `CodigoDiagnostico` (CIE) debe coincidir entre fórmula, autorización y acta.
 3. **Prescriptor**: `Medico` debe coincidir entre fórmula y acta de entrega.
 4. **Número de autorización**: `NumeroAutorizacion` debe coincidir entre autorización y acta.
 
 ### Reglas de cantidades
+
 5. **CantidadEntregada ≤ techo documental**: No se puede entregar más de lo formulado ni más de lo autorizado. Si hay autorización, `CantidadAutorizada` es techo; si no hay autorización, el techo es `CantidadPrescrita`.
 6. **Entrega completa preferible, entrega parcial válida**: `CantidadEntregada = techo` es ideal; `CantidadEntregada < techo` es válida como entrega parcial; `CantidadEntregada > techo` es `VALOR_DISTINTO`.
 
 ### Reglas de vigencia y temporalidad
+
 7. **Vigencia de autorización**: La entrega debe ocurrir dentro del plazo de vigencia desde la fecha de autorización (generalmente 60 días, configurable por EPS).
 8. **Vigencia de fórmula**: La fórmula médica debe estar vigente al momento de la dispensación.
 9. **Orden temporal**: `FechaFormula ≤ FechaAutorizacion ≤ FechaEntrega`.
 
 ### Reglas de completitud
+
 10. **Firma del acta de entrega**: Obligatoria. Sin firma no hay constancia de recepción.
 11. **Firma del prescriptor**: Obligatoria en la fórmula médica.
 12. **Documentos obligatorios**: Según la configuración del cliente, todos los documentos deben estar presentes.
 
 ### Reglas de autenticidad
+
 13. **Sin alteración**: Los documentos no deben mostrar señales de manipulación digital o física.
 14. **Correspondencia**: Los documentos deben pertenecer a la misma dispensación — no se aceptan documentos de otro paciente o entrega.
 
@@ -305,16 +367,16 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 
 ### Causas comunes de glosa que AudFact detecta
 
-| Causa | Tipo de hallazgo | Severidad |
-|---|---|---|
-| Acta de entrega sin firma del paciente | Visual — `FirmaActaEntrega: AUSENTE` | Alta |
-| Medicamento entregado ≠ medicamento autorizado | Semántico — `NombreArticulo: DISCREPANCIA` | Alta |
-| Cantidad entregada > cantidad formulada/autorizada | Business — `CantidadEntregada: DISCREPANCIA` | Alta |
-| Autorización vencida al momento de la entrega | Visual — `VigenciaEntrega: DISCREPANCIA` | Alta |
-| Documento de otro paciente | Exacto — `DocumentoPaciente: DISCREPANCIA` | Alta |
-| Diagnóstico no coincide entre documentos | Exacto — `CodigoDiagnostico: DISCREPANCIA` | Alta |
-| Fórmula sin firma del médico | Visual — `FirmaPrescriptor: AUSENTE` | Alta |
-| Campo ilegible o no extraíble del escaneo | Exacto — `campo: NO_ENCONTRADO` | Media |
+| Causa                                              | Tipo de hallazgo                             | Severidad |
+| -------------------------------------------------- | -------------------------------------------- | --------- |
+| Acta de entrega sin firma del paciente             | Visual — `FirmaActaEntrega: AUSENTE`         | Alta      |
+| Medicamento entregado ≠ medicamento autorizado     | Semántico — `NombreArticulo: DISCREPANCIA`   | Alta      |
+| Cantidad entregada > cantidad formulada/autorizada | Business — `CantidadEntregada: DISCREPANCIA` | Alta      |
+| Autorización vencida al momento de la entrega      | Visual — `VigenciaEntrega: DISCREPANCIA`     | Alta      |
+| Documento de otro paciente                         | Exacto — `DocumentoPaciente: DISCREPANCIA`   | Alta      |
+| Diagnóstico no coincide entre documentos           | Exacto — `CodigoDiagnostico: DISCREPANCIA`   | Alta      |
+| Fórmula sin firma del médico                       | Visual — `FirmaPrescriptor: AUSENTE`         | Alta      |
+| Campo ilegible o no extraíble del escaneo          | Exacto — `campo: NO_ENCONTRADO`              | Media     |
 
 ---
 
@@ -322,30 +384,30 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 
 > Para el glosario técnico con mapeo a tablas de BD, ver [`plans/domain-glossary.md`](plans/domain-glossary.md).
 
-| Término | Significado |
-|---|---|
-| **Dispensación** | Acto de entregar medicamentos a un paciente bajo una fórmula médica |
-| **Factura** | Documento de cobro que Discolmets emite a la EPS, agrupando dispensaciones |
-| **EPS** | Entidad Promotora de Salud — cliente de Discolmets |
-| **IPS** | Institución Prestadora de Salud — donde el médico prescribe |
-| **Glosa** | Rechazo de una factura por la EPS debido a errores documentales |
-| **Radicación** | Proceso de entregar la factura y sus soportes a la EPS para cobro |
-| **POS** | Plan Obligatorio de Salud — medicamentos cubiertos por el plan básico |
-| **MIPRES** | Mi Prescripción — sistema electrónico para medicamentos fuera del POS |
-| **CUM** | Código Único de Medicamento (registro INVIMA Colombia) |
-| **CIE** | Clasificación Internacional de Enfermedades (código diagnóstico) |
-| **NIT** | Número de Identificación Tributaria (Colombia) |
-| **Fórmula Médica** | Prescripción del médico que autoriza la entrega |
-| **Autorización** | Aprobación de la EPS para que se realice la dispensación |
-| **Acta de Entrega** | Documento firmado por el paciente al recibir los medicamentos |
-| **FDV** | Fuente de Verdad — datos del sistema Discolnet en SQL Server |
-| **Copago** | Valor que paga el paciente directamente (si aplica) |
-| **Lote** | Identificador del lote de fabricación del medicamento |
-| **Testigo a Ruego** | Persona que firma en nombre del paciente cuando este no puede |
-| **Validador de Derechos** | Documento que confirma la afiliación activa del paciente a la EPS |
-| **audit-config** | Configuración por cliente que define qué campos auditar y con qué reglas |
-| **TipoDato** | Tipo explícito del valor auditable; gobierna schema Gemini, normalización y estrategia fina de comparación |
-| **Risk Score** | Puntuación numérica de riesgo calculada por el motor de reglas |
+| Término                   | Significado                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **Dispensación**          | Acto de entregar medicamentos a un paciente bajo una fórmula médica                                        |
+| **Factura**               | Documento de cobro que Discolmets emite a la EPS, agrupando dispensaciones                                 |
+| **EPS**                   | Entidad Promotora de Salud — cliente de Discolmets                                                         |
+| **IPS**                   | Institución Prestadora de Salud — donde el médico prescribe                                                |
+| **Glosa**                 | Rechazo de una factura por la EPS debido a errores documentales                                            |
+| **Radicación**            | Proceso de entregar la factura y sus soportes a la EPS para cobro                                          |
+| **POS**                   | Plan Obligatorio de Salud — medicamentos cubiertos por el plan básico                                      |
+| **MIPRES**                | Mi Prescripción — sistema electrónico para medicamentos fuera del POS                                      |
+| **CUM**                   | Código Único de Medicamento (registro INVIMA Colombia)                                                     |
+| **CIE**                   | Clasificación Internacional de Enfermedades (código diagnóstico)                                           |
+| **NIT**                   | Número de Identificación Tributaria (Colombia)                                                             |
+| **Fórmula Médica**        | Prescripción del médico que autoriza la entrega                                                            |
+| **Autorización**          | Aprobación de la EPS para que se realice la dispensación                                                   |
+| **Acta de Entrega**       | Documento firmado por el paciente al recibir los medicamentos                                              |
+| **FDV**                   | Fuente de Verdad — datos del sistema Discolnet en SQL Server                                               |
+| **Copago**                | Valor que paga el paciente directamente (si aplica)                                                        |
+| **Lote**                  | Identificador del lote de fabricación del medicamento                                                      |
+| **Testigo a Ruego**       | Persona que firma en nombre del paciente cuando este no puede                                              |
+| **Validador de Derechos** | Documento que confirma la afiliación activa del paciente a la EPS                                          |
+| **audit-config**          | Configuración por cliente que define qué campos auditar y con qué reglas                                   |
+| **TipoDato**              | Tipo explícito del valor auditable; gobierna schema Gemini, normalización y estrategia fina de comparación |
+| **Risk Score**            | Puntuación numérica de riesgo calculada por el motor de reglas                                             |
 
 ---
 
@@ -353,18 +415,18 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 
 Tabla puente entre conceptos de negocio y su implementación técnica:
 
-| Concepto de Negocio | Implementación Técnica | Archivo(s) Clave |
-|---|---|---|
-| Dispensación | Vista `vw_discolnet_dispensas`: `Dispensa` = `DisDetNro` | `app/Models/DispensationModel.php` |
-| Factura | `Factura.FacSec` = `vw_discolnet_dispensas.facsecF` = `AudDispEst.FacSec` | `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php` |
-| Documentos del expediente | Tabla `AdjuntosDispensacion` | `app/Models/AttachmentsModel.php` |
-| Catálogo de documentos por EPS | Tabla `NitDocumentos` | `app/Models/AttachmentsModel.php` |
-| Configuración de auditoría | Tablas `NitDocumentos` + `NitMedDoc*` | Endpoint `/clients/{id}/audit-config` |
-| Extracción IA de documentos | Google Gemini API (multimodal) | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` |
-| Comparación exacta / semántica | Motor de reglas PHP | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` |
-| Verificaciones visuales | Gemini detecta + PHP decide | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php` |
-| Resultado de auditoría | Tabla `AudDispEst`: `FacSec` llave canónica, `FacNro` = `DisDetNro` | `app/Models/AuditStatusModel.php` |
-| Decisión por documento | `document_decisions` en resultado | `RulesEvaluationWorker.php` |
-| Vigencia de entrega | Cálculo PHP: `FechaAutorizacion + N días` | `RulesEvaluationWorker.php` |
-| Glosa (prevención) | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO` | Dashboard frontend |
-| Clientes (EPS) | Tablas `NIT` + `Clientes` | `app/Models/ClientsModel.php` |
+| Concepto de Negocio            | Implementación Técnica                                                    | Archivo(s) Clave                                                   |
+| ------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Dispensación                   | Vista `vw_discolnet_dispensas`: `Dispensa` = `DisDetNro`                  | `app/Models/DispensationModel.php`                                 |
+| Factura                        | `Factura.FacSec` = `vw_discolnet_dispensas.facsecF` = `AudDispEst.FacSec` | `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php` |
+| Documentos del expediente      | Tabla `AdjuntosDispensacion`                                              | `app/Models/AttachmentsModel.php`                                  |
+| Catálogo de documentos por EPS | Tabla `NitDocumentos`                                                     | `app/Models/AttachmentsModel.php`                                  |
+| Configuración de auditoría     | Tablas `NitDocumentos` + `NitMedDoc*`                                     | Endpoint `/clients/{id}/audit-config`                              |
+| Extracción IA de documentos    | Google Gemini API (multimodal)                                            | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`         |
+| Comparación exacta / semántica | Motor de reglas PHP                                                       | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`             |
+| Verificaciones visuales        | Gemini detecta + PHP decide                                               | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php`           |
+| Resultado de auditoría         | Tabla `AudDispEst`: `FacSec` llave canónica, `FacNro` = `DisDetNro`       | `app/Models/AuditStatusModel.php`                                  |
+| Decisión por documento         | `document_decisions` en resultado                                         | `RulesEvaluationWorker.php`                                        |
+| Vigencia de entrega            | Cálculo PHP: `FechaAutorizacion + N días`                                 | `RulesEvaluationWorker.php`                                        |
+| Glosa (prevención)             | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO`                                | Dashboard frontend                                                 |
+| Clientes (EPS)                 | Tablas `NIT` + `Clientes`                                                 | `app/Models/ClientsModel.php`                                      |
