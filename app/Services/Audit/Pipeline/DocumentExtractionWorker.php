@@ -25,6 +25,26 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         Para verificaciones visuales usa presente=false cuando el elemento no sea visible.
         Invoca cada función permitida exactamente una vez en el mismo turno.
         No devuelvas texto libre; responde únicamente con function calls.
+
+        Extrae el texto **exactamente** como aparece en la imagen. La precisión es prioritaria sobre la rapidez.
+
+        Antes de responder, realiza una segunda verificación de todos los caracteres visualmente ambiguos, especialmente:
+        * 0 ↔ O ↔ D ↔ Q
+        * 1 ↔ I ↔ l
+        * 2 ↔ Z
+        * 3 ↔ E
+        * 5 ↔ S
+        * 6 ↔ G
+        * 8 ↔ B
+        * rn ↔ m
+        * vv ↔ w
+        * cl ↔ d
+
+        No decidas un carácter únicamente por su apariencia. Verifica su forma, el contexto y el patrón esperado (texto, número o código).
+        Nunca sustituyas caracteres para formar palabras más "probables" ni completes información mediante suposiciones. En códigos, matrículas, seriales o identificadores, transcribe únicamente lo que sea visible.
+
+        Si un carácter sigue siendo ambiguo después de revisarlo, indícalo usando el formato `[0/O]`, `[5/S]` o similar, en lugar de adivinar.
+        Entrega la respuesta solo después de confirmar que cada carácter ambiguo ha sido revisado individualmente.
     TEXT;
 
     private const DEFAULT_CACHE_TTL = 86400;

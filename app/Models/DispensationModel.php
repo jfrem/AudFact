@@ -230,7 +230,7 @@ class DispensationModel extends Model
 
                 -- Producto
                 Codigo AS CodigoArticulo,
-                Codigo_aut AS CodigoProducto,
+                LEFT(Codigo_aut, CHARINDEX('-', Codigo_aut + '-') - 1) AS CodigoProducto,
                 Producto AS NombreArticulo,
                 Laboratorio,
                 CASE
