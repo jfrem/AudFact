@@ -26,7 +26,7 @@ AudFact/
 │   ├── Models/            # Modelos de acceso a datos SQL Server.
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA.
 │   │   └── Audit/         # Lógica central del dominio de auditoría.
-│   │       └── Pipeline/  # Workers, policy engine, normalización, agregación.
+│   │       └── Pipeline/  # Workers, policy engine, normalización y persistencia.
 │   ├── Routes/            # web.php — Definición centralizada de rutas.
 │   └── wrap/              # Integración MCP.
 ├── bin/                   # audit-worker.php — launcher unificado de workers.
@@ -100,6 +100,8 @@ npm run dev
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de descargadores de adjuntos (default: `8`)                                           |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS`                                     | Réplicas de extractores Gemini (default: `8`)                                                  |
 | `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `2`)                                                |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `3`)                                           |
+| `AUDIT_PERSISTENCE_QUEUE_TTL`                                          | TTL de turnos, pendientes y deduplicación de persistencia por job (default: `604800`)          |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`                                        | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`)                  |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`                                    | Intervalo de escaneo de pending por worker (default: `30000`)                                  |
@@ -139,6 +141,7 @@ Base URL: `http://localhost:8080`
 | `POST` | `/clients`                                                      | Buscar cliente por `clientId`                                |
 | `GET`  | `/clients/{clientId}/audit-config`                              | Configuración de auditoría por cliente                       |
 | `POST` | `/clients/{clientId}/audit-config`                              | Guardar configuración de auditoría                           |
+| `GET`  | `/audit/field-catalog`                                          | Catálogo de campos configurables de auditoría                |
 | `GET`  | `/invoices`                                                     | Buscar facturas pendientes con paginación `page`/`pageSize`  |
 | `POST` | `/invoices`                                                     | Buscar facturas por body JSON con el mismo contrato paginado |
 | `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | Datos de dispensación                                        |
@@ -154,6 +157,7 @@ Base URL: `http://localhost:8080`
 | `GET`  | `/audit/stats`                                                  | Conteos agregados para dashboard                             |
 | `GET`  | `/audit/documents-history`                                      | Historial de documentos auditados                            |
 | `GET`  | `/audit/{facNro}/timings`                                       | Timings detallados por factura                               |
+| `GET`  | `/audit/{auditId}/flow-stream`                                  | Telemetría SSE en vivo por auditoría                         |
 | `GET`  | `/audit/dlq`                                                    | Listado de eventos fallidos definitivos                      |
 | `POST` | `/audit/dlq/reprocess`                                          | Reproceso administrativo de un evento DLQ                    |
 | `POST` | `/app/wrap/webhook.php`                                         | Endpoint MCP                                                 |
@@ -162,13 +166,14 @@ Base URL: `http://localhost:8080`
 
 ### Nota de Optimización (Pipeline IA)
 
-El pipeline de auditoría (`POST /audit/single` y `POST /audit/async`) aplica prefiltrado SQL
-de adjuntos requeridos (`AdjDisOpc='N'`) antes de preparar archivos para Gemini.
+El pipeline de auditoría (`POST /audit/single` y `POST /audit/async`) enumera
+todos los adjuntos físicos y ejecuta una reconciliación global uno-a-uno antes
+de preparar archivos para Gemini.
 
-- Objetivo: reducir I/O y volumen de documentos procesados por la IA.
+- Objetivo: impedir asociaciones por primer candidato, ambigüedad o reutilización física.
 - Alcance: solo flujo interno de auditoría.
 - Importante: el endpoint público `GET /dispensation/{DisDetNro}/attachments/{nitSec}`
-  conserva el listado completo de adjuntos para UX/operación.
+  conserva sus campos históricos para UX/operación; no expone el shape `physical_*` interno.
 
 ### Contrato de Identidad de Auditoría
 
@@ -191,16 +196,16 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 El sistema utiliza un pipeline event-driven sobre Redis Streams con 7 servicios de worker especializados:
 
 ```
-BatchRequestedWorker → DocumentAuditOrchestrator → AttachmentDownloadWorker → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditAggregationWorker
-      (batch)              (orchestrator)            (downloader)              (extraction)              (normalizer)         (policy)               (aggregator)
+BatchRequestedWorker → DocumentAuditOrchestrator → AttachmentDownloadWorker → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditPersistenceWorker
+      (batch)              (orchestrator)            (downloader)              (extraction)              (normalizer)         (policy)                (persistence)
 ```
 
 Cada worker consume eventos del stream correspondiente, procesa su etapa y publica el resultado al siguiente. El flujo incluye:
 
-- **Extracción**: Descarga de adjuntos, validación estructural con `DocumentIntegrityValidator` y análisis multimodal con Gemini (parallel function calling).
+- **Extracción**: Descarga tipada de adjuntos, verificación exacta del BLOB contra `DATALENGTH`, validación estructural con `DocumentIntegrityValidator` y análisis multimodal con Gemini (parallel function calling).
 - **Normalización**: Estandarización de valores extraídos (fechas, cantidades, tipos de documento).
-- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV), conversión de `document_rejected` en hallazgo canónico `RECHAZADO`, consolidación de outcome final y cálculo de risk score.
-- **Agregación**: Validación del outcome, persistencia en SQL Server y publicación de eventos terminales.
+- **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV); solo convierte rechazos de contenido emitidos por extracción y validados contra una allowlist cerrada en hallazgo canónico `RECHAZADO`.
+- **Persistencia**: Cola justa con un turno activo por job, escritura dual transaccional en SQL Server, reconexión PDO por operación y publicación de eventos terminales.
 
 Características:
 
@@ -209,9 +214,12 @@ Características:
 - Soporte nativo para **Thinking Mode** (razonamiento profundo latente) configurable independientemente por tipo de tarea (`GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_LEVEL`). La clase `GeminiConfig` centraliza esta orquestación y garantiza compatibilidad entre versiones del modelo.
 - Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
+- PDO fresco por operación SQL y replay solo para lecturas/escrituras idempotentes, con backoff fijo de 1/5/30 segundos.
+- Los fallos técnicos de SQL, Drive o transferencia BLOB nunca se convierten en decisiones documentales; al agotarse SQL pasan a DLQ y liberan el turno en la misma entrega.
+- Cola `audit.persistence:{queue}` que impide que una factura lenta bloquee la persistencia de otros jobs; cada job mantiene un solo turno SQL activo y las 3 réplicas atienden jobs distintos en paralelo.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
-- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction` y `worker-policy` sin perder idempotencia por `DisId`.
+- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-policy` y `worker-persistence` sin perder idempotencia por `DisId`.
 
 ## Docker
 
@@ -237,7 +245,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose pull
 AUDFACT_IMAGE_TAG=<sha> docker compose --profile frontend up -d --no-build --remove-orphans
 ```
 
-`docker-compose.yml` es la fuente unica universal: en desarrollo puede construir desde el repo; en produccion usa imagenes publicadas en GHCR, no construye en el servidor y levanta la misma topologia funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`) para que `/audit/async` avance.
+`docker-compose.yml` es la fuente unica universal: en desarrollo puede construir desde el repo; en produccion usa imagenes publicadas en GHCR, no construye en el servidor y levanta la misma topologia funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence`) para que `/audit/async` avance.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
 En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). `responseIA` no tiene volumen dedicado: los snapshots solo se escriben en desarrollo, bajo `AUDIT_RESPONSE_IA_DIR`.

@@ -38,11 +38,13 @@ C4Component
 
         Component(model_attachments, "AttachmentsModel", "PHP Model / PDO db2", "SELECT AdjuntosDispensacion\nLee BLOB binario con\nSQLSRV_ENCODING_BINARY\nStreamea descarga")
 
-        Component(model_audit_status, "AuditStatusModel", "PHP Model / PDO default (34.5KB)", "persistAuditResultWithAttachments():\nMERGE dbo.AudDispEst\nUPDATE AdjuntosDispensacionDetalle\nLee historial, stats, documents-history, timings")
+        Component(model_audit_status, "AuditStatusModel", "PHP Model / PDO", "Solo lectura de dbo.AudDispEst:\nhistorial, detalle, stats,\ndocuments-history y timings")
+
+        Component(model_audit_persistence, "AuditResultPersistenceModel", "PHP Model / PDO default", "Escritura transaccional:\nUPSERT serializable dbo.AudDispEst\nUPDATE set-based AdjuntosDispensacion\nUPDATE trazabilidad")
 
         Component(model_audit_config, "AuditConfigModel", "PHP Model / PDO default", "CRUD de configuración de auditoría por NitSec\nJSON serializado en BD")
 
-        Component(db_core, "Core\\Database", "PHP static class / Singleton", "Gestiona 2 conexiones PDO:\n'default' (DB_*) → escrituras + AuditStatusModel\n'db2' (DB2_*) → lecturas legacy Discolnet\nFingerprint-based connection cache.\nTransacción atomic callback.\nConfigurable: pooling, TLS, timeout.")
+        Component(db_core, "Core\\Database", "PHP static class / Singleton", "Gestiona 2 conexiones PDO:\n'default' (DB_*) → escrituras\n'db2' (DB2_*) → lecturas legacy Discolnet\nFingerprint-based connection cache.\nTransacción atomic callback.\nConfigurable: pooling, TLS, timeout.")
 
         Component(google_drive_svc, "GoogleDriveAuthService", "PHP Service / JWT", "Genera Bearer token OAuth2\nvía Service Account (client_email + private_key).\nTLS configurable (GOOGLE_DRIVE_TLS_VERIFY).\nUsado por AttachmentsController para adjuntos URL.")
 
@@ -78,7 +80,8 @@ C4Component
     Rel(model_dispensation, db_core, "getConnection('db2')")
     Rel(model_clients, db_core, "getConnection('db2')")
     Rel(model_attachments, db_core, "getConnection('db2') + BLOB encoding")
-    Rel(model_audit_status, db_core, "getConnection('default') para MERGE/UPDATE")
+    Rel(model_audit_status, db_core, "Lectura consistente de resultados")
+    Rel(model_audit_persistence, db_core, "getConnection('default') para transacción")
     Rel(model_audit_config, db_core, "getConnection('default')")
 
     Rel(db_core, sqlserver_ext, "PDO sqlsrv — 2 conexiones\ndefault: escritura\ndb2: lectura legacy")

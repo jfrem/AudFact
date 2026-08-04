@@ -1,3 +1,4 @@
-display_name: Governance Assessment
-short_description: Evaluate engineering governance maturity across ownership, reviews, incidents, and debt governance.
-default_prompt: Apply technical-governance-assessment to this team or repository and return findings, domain/global scoring, maturity result, and 30-60-90 plan.
+interface:
+  display_name: "Governance Assessment"
+  short_description: "Evalúa ownership, revisiones e incidentes."
+  default_prompt: "Usa $technical-governance-assessment para evaluar la madurez técnica y producir scoring, hallazgos y un plan 30-60-90."

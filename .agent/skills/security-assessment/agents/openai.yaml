@@ -1,3 +1,4 @@
-display_name: Security Audit
-short_description: Audit security controls, vulnerability exposure, and release hardening with deterministic scoring.
-default_prompt: Run the security-assessment skill on this repository and provide evidence-based findings, score, and remediation plan.
+interface:
+  display_name: "Security Audit"
+  short_description: "Audita controles, vulnerabilidades y hardening."
+  default_prompt: "Usa $security-assessment para auditar el repositorio con evidencia, scoring y un plan de remediación."

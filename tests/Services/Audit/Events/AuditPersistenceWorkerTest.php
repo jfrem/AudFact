@@ -4,34 +4,38 @@ declare(strict_types=1);
 
 namespace Tests\Services\Audit\Pipeline;
 
-use App\Models\AuditStatusModel;
-use App\Services\Audit\Pipeline\AuditAggregationWorker;
+use App\Models\AuditResultPersistenceModel;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditPersistenceQueue;
+use App\Services\Audit\Pipeline\AuditPersistenceWorker;
 use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
-final class AuditAggregationWorkerTest extends TestCase
+final class AuditPersistenceWorkerTest extends TestCase
 {
     public function testRulesEvaluatedPersistsCompletesAuditAndPublishesBatchTerminalEvent(): void
     {
         $auditId = AuditEvent::uuidV4();
         $jobId = AuditEvent::uuidV4();
-        $publisher = new AggregationPublisher();
+        $publisher = new PersistencePublisher();
         $store = new AggregationRecordingStateStore($auditId, $jobId);
-        $model = new RecordingAuditStatusModel();
+        $model = new RecordingAuditResultPersistenceModel();
+        $queue = new RecordingAuditPersistenceQueue();
         
         $jobStore = new RecordingBatchJobStore($store);
         
-        $worker = new AuditAggregationWorker(
+        $worker = new AuditPersistenceWorker(
             stateStore: $store,
             jobStore: $jobStore,
-            auditStatusModel: $model,
+            persistenceModel: $model,
+            persistenceQueue: $queue,
             redis: $this->createMock(RedisClient::class),
             publisher: $publisher,
-            consumerName: 'aggregator-test'
+            consumerName: 'persistence-test'
         );
 
         $worker->processEvent(AuditEvent::create(
@@ -61,28 +65,35 @@ final class AuditAggregationWorkerTest extends TestCase
             'status' => 'manual_review',
             'duration_ms' => 42000,
         ], $jobStore->lastJobCompletion);
+        $this->assertSame(
+            [['87723098', 'reservation-token']],
+            $jobStore->releasedReservations
+        );
+        $this->assertSame([$auditId], $queue->advancedAuditIds);
     }
 
     public function testDoesNotPublishAuditCompletedWhenSqlPersistenceFails(): void
     {
         $auditId = AuditEvent::uuidV4();
         $jobId = AuditEvent::uuidV4();
-        $publisher = new AggregationPublisher();
+        $publisher = new PersistencePublisher();
         $store = new AggregationRecordingStateStore($auditId, $jobId);
+        $queue = new RecordingAuditPersistenceQueue();
         
         $jobStore = clone new RecordingBatchJobStore($store);
         
-        $worker = new AuditAggregationWorker(
+        $worker = new AuditPersistenceWorker(
             stateStore: $store,
             jobStore: $jobStore,
-            auditStatusModel: new FailingAuditStatusModel(),
+            persistenceModel: new FailingAuditResultPersistenceModel(),
+            persistenceQueue: $queue,
             redis: $this->createMock(RedisClient::class),
             publisher: $publisher,
-            consumerName: 'aggregator-test'
+            consumerName: 'persistence-test'
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('persistir el resultado final');
+        $this->expectExceptionMessage('sql-down');
 
         try {
             $worker->processEvent(AuditEvent::create(
@@ -92,17 +103,138 @@ final class AuditAggregationWorkerTest extends TestCase
                 payload: self::rulesOutcomePayload('error')
             ));
         } finally {
-            $this->assertSame('failed', $store->lastCompletion['status'] ?? null);
-            $this->assertTrue($store->lastCompletion['requires_manual_review'] ?? false);
-            $this->assertSame([
-                'job_id' => $jobId,
-                'audit_id' => $auditId,
-                'status' => 'failed',
-                'duration_ms' => 42000,
-            ], $jobStore->lastJobCompletion);
-            $this->assertCount(2, $publisher->published);
-            $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $publisher->published[0]->eventType);
-            $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
+            $this->assertSame([], $store->lastCompletion);
+            $this->assertSame([], $jobStore->lastJobCompletion);
+            $this->assertSame([], $publisher->published);
+            $this->assertSame([], $queue->advancedAuditIds);
+        }
+    }
+
+    public function testValidMappingRejectionContractReachesSqlPersistence(): void
+    {
+        // Arrange:
+        $auditId = AuditEvent::uuidV4();
+        $jobId = AuditEvent::uuidV4();
+        $store = new AggregationRecordingStateStore($auditId, $jobId);
+        $model = new RecordingAuditResultPersistenceModel();
+        $queue = new RecordingAuditPersistenceQueue();
+        $payload = self::rulesOutcomePayload('manual_review');
+        $payload['document_decisions'][0] = [
+            'documentName' => 'AUTORIZACION',
+            'approved' => false,
+            'doc_id' => '2',
+            'attachment_id' => null,
+            'candidate_attachment_ids' => ['4', '6'],
+            'rejection_category' => DocumentMappingRejectionReason::CATEGORY,
+            'rejection_reason' => DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_AMBIGUOUS,
+            'payload' => [
+                'state' => false,
+                'hallazgos' => [[
+                    'Codigo' => 'MAP',
+                    'Descripcion' => 'Asociación física ambigua.',
+                ]],
+            ],
+        ];
+        $worker = new AuditPersistenceWorker(
+            stateStore: $store,
+            jobStore: new RecordingBatchJobStore($store),
+            persistenceModel: $model,
+            persistenceQueue: $queue,
+            redis: $this->createMock(RedisClient::class),
+            publisher: new PersistencePublisher(),
+            consumerName: 'persistence-test'
+        );
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_RULES_EVALUATED,
+            auditId: $auditId,
+            jobId: $jobId,
+            payload: $payload
+        );
+
+        // Act:
+        $worker->processEvent($event);
+
+        // Assert:
+        $this->assertSame('manual_review', $store->lastCompletion['status'] ?? null);
+        $this->assertSame(DocumentMappingRejectionReason::CATEGORY, $model->lastDocumentDecisions[0]['rejection_category']);
+        $this->assertSame(
+            DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_AMBIGUOUS,
+            $model->lastDocumentDecisions[0]['rejection_reason']
+        );
+        $this->assertSame(['4', '6'], $model->lastDocumentDecisions[0]['candidate_attachment_ids']);
+        $this->assertSame([$auditId], $queue->advancedAuditIds);
+    }
+
+    public function testDownloadErrorIsBlockedBeforeSqlPersistence(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $jobId = AuditEvent::uuidV4();
+        $store = new AggregationRecordingStateStore($auditId, $jobId);
+        $model = new RecordingAuditResultPersistenceModel();
+        $queue = new RecordingAuditPersistenceQueue();
+        $payload = self::rulesOutcomePayload('manual_review');
+        $payload['document_decisions'][0]['rejection_class'] = 'document_content';
+        $payload['document_decisions'][0]['rejection_reason'] = 'DOWNLOAD_ERROR';
+
+        $worker = new AuditPersistenceWorker(
+            stateStore: $store,
+            jobStore: new RecordingBatchJobStore($store),
+            persistenceModel: $model,
+            persistenceQueue: $queue,
+            redis: $this->createMock(RedisClient::class),
+            publisher: new PersistencePublisher(),
+            consumerName: 'persistence-test'
+        );
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('razón técnica prohibida');
+
+        try {
+            $worker->processEvent(AuditEvent::create(
+                eventType: AuditEvent::TYPE_RULES_EVALUATED,
+                auditId: $auditId,
+                jobId: $jobId,
+                payload: $payload
+            ));
+        } finally {
+            $this->assertSame([], $model->lastAuditResultData);
+            $this->assertSame([], $store->lastCompletion);
+            $this->assertSame([], $queue->advancedAuditIds);
+        }
+    }
+
+    public function testInvalidContentRejectionContractIsBlockedBeforeSql(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $jobId = AuditEvent::uuidV4();
+        $store = new AggregationRecordingStateStore($auditId, $jobId);
+        $model = new RecordingAuditResultPersistenceModel();
+        $payload = self::rulesOutcomePayload('manual_review');
+        $payload['document_decisions'][0]['rejection_class'] = 'technical_failure';
+        $payload['document_decisions'][0]['rejection_reason'] = 'UNKNOWN_FILE_SIGNATURE';
+
+        $worker = new AuditPersistenceWorker(
+            stateStore: $store,
+            jobStore: new RecordingBatchJobStore($store),
+            persistenceModel: $model,
+            persistenceQueue: new RecordingAuditPersistenceQueue(),
+            redis: $this->createMock(RedisClient::class),
+            publisher: new PersistencePublisher(),
+            consumerName: 'persistence-test'
+        );
+
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('rechazo documental inválido');
+
+        try {
+            $worker->processEvent(AuditEvent::create(
+                eventType: AuditEvent::TYPE_RULES_EVALUATED,
+                auditId: $auditId,
+                jobId: $jobId,
+                payload: $payload
+            ));
+        } finally {
+            $this->assertSame([], $model->lastAuditResultData);
         }
     }
 
@@ -318,7 +450,7 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
     }
 }
 
-final class RecordingAuditStatusModel extends AuditStatusModel
+final class RecordingAuditResultPersistenceModel extends AuditResultPersistenceModel
 {
     /** @var array<string,mixed> */
     public array $lastAuditResultData = [];
@@ -333,43 +465,44 @@ final class RecordingAuditStatusModel extends AuditStatusModel
     {
     }
 
-    public function persistAuditResultWithAttachments(array $auditResultData, array $documentDecisions): array|false
+    public function persist(array $auditResultData, array $documentDecisions): void
     {
         $this->lastAuditResultData = $auditResultData;
         $this->lastDocumentDecisions = $documentDecisions;
-        return ['DisId' => $auditResultData['DisId']];
     }
 
-    public function updateAuditTimings(string $facNro, array $timings, int $durationMs): bool
+    public function updateFinalTimings(
+        string $facNro,
+        string $hallazgosJson,
+        int $durationMs
+    ): bool
     {
         $this->lastUpdatedFacNro = $facNro;
-        $this->lastUpdatedTimings = $timings;
         $this->lastUpdatedDurationMs = $durationMs;
-        $payload = json_decode((string) $this->lastAuditResultData['Hallazgos'], true);
+        $payload = json_decode($hallazgosJson, true);
         if (is_array($payload)) {
-            $payload['timings'] = $timings;
-            $payload['total_duration_ms'] = $durationMs;
-            $this->lastAuditResultData['Hallazgos'] = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $this->lastUpdatedTimings = $payload['timings'] ?? [];
         }
+        $this->lastAuditResultData['Hallazgos'] = $hallazgosJson;
         $this->lastAuditResultData['DuracionProcesamientoMs'] = $durationMs;
 
         return true;
     }
 }
 
-final class FailingAuditStatusModel extends AuditStatusModel
+final class FailingAuditResultPersistenceModel extends AuditResultPersistenceModel
 {
     public function __construct()
     {
     }
 
-    public function persistAuditResultWithAttachments(array $auditResultData, array $documentDecisions): array|false
+    public function persist(array $auditResultData, array $documentDecisions): void
     {
         throw new RuntimeException('sql-down');
     }
 }
 
-final class AggregationPublisher extends AuditEventPublisher
+final class PersistencePublisher extends AuditEventPublisher
 {
     /** @var array<int,AuditEvent> */
     public array $published = [];
@@ -382,5 +515,21 @@ final class AggregationPublisher extends AuditEventPublisher
     {
         $this->published[] = $event;
         return 'stream-' . count($this->published);
+    }
+}
+
+final class RecordingAuditPersistenceQueue extends AuditPersistenceQueue
+{
+    /** @var array<int,string> */
+    public array $advancedAuditIds = [];
+
+    public function __construct()
+    {
+    }
+
+    public function advance(AuditEvent $event): bool
+    {
+        $this->advancedAuditIds[] = (string) $event->auditId;
+        return true;
     }
 }

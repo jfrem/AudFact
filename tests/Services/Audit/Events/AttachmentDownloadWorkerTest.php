@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\AttachmentDownloadService;
+use App\Services\Audit\Pipeline\AttachmentDownloadException;
 use App\Services\Audit\Pipeline\AttachmentDownloadWorker;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
@@ -56,7 +57,7 @@ final class AttachmentDownloadWorkerTest extends TestCase
         $this->assertArrayNotHasKey('data', $event->payload);
     }
 
-    public function testDownloadFailurePublishesDocumentRejectedWithoutRethrow(): void
+    public function testDownloadFailurePropagatesWithoutPublishingDocumentRejected(): void
     {
         $stateStore = new DownloadRecordingStateStore();
         $publisher = new DownloadPublisher();
@@ -65,19 +66,27 @@ final class AttachmentDownloadWorkerTest extends TestCase
 
         $worker = new AttachmentDownloadWorker(
             stateStore: $stateStore,
-            downloader: new StubAttachmentDownloadService(error: new RuntimeException('Adjunto no disponible')),
+            downloader: new StubAttachmentDownloadService(error: new AttachmentDownloadException(
+                AttachmentDownloadException::SOURCE_NOT_FOUND,
+                'Adjunto no disponible'
+            )),
             redis: $redis,
             publisher: $publisher,
             consumerName: 'downloader-test',
             blobTtl: 60
         );
 
-        $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
+        $this->expectException(AttachmentDownloadException::class);
+        $this->expectExceptionMessage('Adjunto no disponible');
 
-        $this->assertSame('DOWNLOAD_ERROR', $stateStore->lastRejectedPatch['rejection_reason'] ?? null);
-        $this->assertSame('Adjunto no disponible', $stateStore->lastRejectedPatch['message'] ?? null);
-        $this->assertCount(1, $publisher->published);
-        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        try {
+            $worker->processEvent(
+                $this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4())
+            );
+        } finally {
+            $this->assertSame([], $stateStore->lastRejectedPatch);
+            $this->assertSame([], $publisher->published);
+        }
     }
 
     public function testBlobPersistenceFailureThrowsAndDoesNotPublishDownloaded(): void

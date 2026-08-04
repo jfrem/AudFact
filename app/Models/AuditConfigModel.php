@@ -46,10 +46,17 @@ class AuditConfigModel extends Model
             WHERE ac.FacNitSec = :nitSec AND ac.Activo = 1 AND nd.NitMedDocOpc = 'N'
             ORDER BY nd.NitMedDocId ASC, cat.EsVisual ASC, ac.Orden ASC";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->read(function (PDO $connection) use ($sql, $nitSec): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         Logger::info('AuditConfigModel::getConfig', [
             'nitSec'   => $nitSec,
@@ -109,10 +116,17 @@ class AuditConfigModel extends Model
             FROM Discolnet.dbo.AudDisp WITH (NOLOCK)
             WHERE FacNitSec = :nitSec
         ";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        return $this->read(function (PDO $connection) use ($sql, $nitSec): ?array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -139,30 +153,43 @@ class AuditConfigModel extends Model
         ?string $systemPrompt = null,
         bool $factorConv = false
     ): bool {
-        $db = $this->getWriteDb();
+        return $this->nonReplayableWrite(function (PDO $db) use (
+            $nitSec,
+            $fields,
+            $systemPrompt,
+            $factorConv
+        ): bool {
+            try {
+                $db->beginTransaction();
+                $this->upsertHeader($db, $nitSec, $systemPrompt, $factorConv);
+                $this->replaceFields($db, $nitSec, $fields);
+                $db->commit();
+            } catch (\Throwable $error) {
+                try {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                } catch (\Throwable $rollbackError) {
+                    Logger::error('AuditConfigModel::saveConfig rollback fallido', [
+                        'nitSec' => $nitSec,
+                        'error_class' => $rollbackError::class,
+                    ]);
+                }
 
-        try {
-            $db->beginTransaction();
-
-            $this->upsertHeader($db, $nitSec, $systemPrompt, $factorConv);
-            $this->replaceFields($db, $nitSec, $fields);
-
-            $db->commit();
+                Logger::error('AuditConfigModel::saveConfig — ERROR', [
+                    'nitSec' => $nitSec,
+                    'error_class' => $error::class,
+                ]);
+                throw $error;
+            }
 
             Logger::info('AuditConfigModel::saveConfig — OK', [
-                'nitSec'     => $nitSec,
+                'nitSec' => $nitSec,
                 'fieldCount' => count($fields),
             ]);
 
             return true;
-        } catch (\Throwable $e) {
-            $db->rollBack();
-            Logger::error('AuditConfigModel::saveConfig — ERROR', [
-                'nitSec' => $nitSec,
-                'error'  => $e->getMessage(),
-            ]);
-            throw $e;
-        }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -205,7 +232,11 @@ class AuditConfigModel extends Model
         $stmt->bindValue(':fcU', $fcVal, PDO::PARAM_INT);
         $stmt->bindValue(':fcI', $fcVal, PDO::PARAM_INT);
 
-        $stmt->execute();
+        try {
+            $stmt->execute();
+        } finally {
+            $stmt->closeCursor();
+        }
     }
 
     /**
@@ -220,7 +251,11 @@ class AuditConfigModel extends Model
         $delSql  = "DELETE FROM Discolnet.dbo.AudDispCampo WHERE FacNitSec = :nitSec";
         $delStmt = $db->prepare($delSql);
         $delStmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $delStmt->execute();
+        try {
+            $delStmt->execute();
+        } finally {
+            $delStmt->closeCursor();
+        }
 
         if (empty($fields)) {
             return;
@@ -235,28 +270,32 @@ class AuditConfigModel extends Model
                  :description, :severity)";
         $insStmt = $db->prepare($insSql);
 
-        foreach ($fields as $field) {
-            $docId       = (int)    $field['docId'];
-            $campo       = (string) $field['campoNombre'];
-            $orden       = (int)    ($field['orden']     ?? 0);
-            $description = $field['description'] ?? null;
-            $severity    = $field['severity']    ?? null;
+        try {
+            foreach ($fields as $field) {
+                $docId       = (int)    $field['docId'];
+                $campo       = (string) $field['campoNombre'];
+                $orden       = (int)    ($field['orden']     ?? 0);
+                $description = $field['description'] ?? null;
+                $severity    = $field['severity']    ?? null;
 
-            $insStmt->bindValue(':nitSec',      $nitSec, PDO::PARAM_STR);
-            $insStmt->bindValue(':docId',       $docId, PDO::PARAM_INT);
-            $insStmt->bindValue(':campoNombre', $campo, PDO::PARAM_STR);
-            $insStmt->bindValue(':orden',       $orden, PDO::PARAM_INT);
-            if ($description === null) {
-                $insStmt->bindValue(':description', null, PDO::PARAM_NULL);
-            } else {
-                $insStmt->bindValue(':description', (string) $description, PDO::PARAM_STR);
+                $insStmt->bindValue(':nitSec',      $nitSec, PDO::PARAM_STR);
+                $insStmt->bindValue(':docId',       $docId, PDO::PARAM_INT);
+                $insStmt->bindValue(':campoNombre', $campo, PDO::PARAM_STR);
+                $insStmt->bindValue(':orden',       $orden, PDO::PARAM_INT);
+                if ($description === null) {
+                    $insStmt->bindValue(':description', null, PDO::PARAM_NULL);
+                } else {
+                    $insStmt->bindValue(':description', (string) $description, PDO::PARAM_STR);
+                }
+                if ($severity === null) {
+                    $insStmt->bindValue(':severity', null, PDO::PARAM_NULL);
+                } else {
+                    $insStmt->bindValue(':severity', (string) $severity, PDO::PARAM_STR);
+                }
+                $insStmt->execute();
             }
-            if ($severity === null) {
-                $insStmt->bindValue(':severity', null, PDO::PARAM_NULL);
-            } else {
-                $insStmt->bindValue(':severity', (string) $severity, PDO::PARAM_STR);
-            }
-            $insStmt->execute();
+        } finally {
+            $insStmt->closeCursor();
         }
     }
 
@@ -269,9 +308,16 @@ class AuditConfigModel extends Model
                        Descripcion, Severidad, EsVisual
                 FROM Discolnet.dbo.AudDispCampoCatalogo WITH (NOLOCK)
                 ORDER BY EsVisual ASC, CampoNombre ASC";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->read(function (PDO $connection) use ($sql): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
     }
 
     /**
@@ -281,9 +327,16 @@ class AuditConfigModel extends Model
     {
         $sql = "SELECT 1 FROM Discolnet.dbo.AudDispCampoCatalogo WITH (NOLOCK)
                 WHERE CampoNombre = :campo";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':campo', $campoNombre, PDO::PARAM_STR);
-        $stmt->execute();
-        return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+        return $this->read(function (PDO $connection) use ($sql, $campoNombre): bool {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':campo', $campoNombre, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
     }
 }

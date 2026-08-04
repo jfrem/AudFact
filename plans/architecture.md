@@ -14,7 +14,10 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|
 | `Router.php` | Despacho de rutas, manejo de métodos HTTP |
 | `Route.php` | Registro de rutas con middleware |
-| `Database.php` | Singleton PDO (sqlsrv/mysql) |
+| `Database.php` | Fábrica de conexiones PDO nombradas; expone conexión cacheada para health/HTTP y apertura fresca para operaciones SQL |
+| `SqlServerConnectionExecutor.php` | Ejecuta cada operación con PDO fresco, clasifica fase/modo y aplica retry acotado solo cuando el replay es seguro |
+| `SqlServerOperationMode.php` | Modos `READ`, `IDEMPOTENT_WRITE` y `NON_REPLAYABLE_WRITE` |
+| `SqlServerOperationException.php` | Excepción técnica sanitizada con conexión, fase, modo, intentos y SQLSTATE |
 | `Middleware.php` | Pipeline de middleware |
 | `Validator.php` | Validación de datos de entrada |
 | `Response.php` | Respuestas JSON estandarizadas |
@@ -52,15 +55,16 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Modelo | Tabla/Vista Principal | Operaciones |
 |---|---|---|
-| `Model.php` | Base — CRUD genérico | `all()`, `find()`, `create()`, `update()`, `delete()` |
+| `Model.php` | Base de ejecución SQL | Callbacks `read()`, `idempotentWrite()` y `nonReplayableWrite()` sin retener PDO |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
 | `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `DisId` como llave canónica |
-| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | `getAttachmentsByDisDetNro()`, `getAttachmentByIdForDisDetNro()`, `getAttachmentBlobStreamByIdForDisDetNro()` |
+| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | Metadata, stream HTTP y materialización BLOB para pipeline con `bytes === DATALENGTH` en la misma consulta |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
-| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | `searchAuditSummaries()`, `getAuditDetailByFacNro()`, `persistAuditResultWithAttachments()` |
+| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` | `searchAuditSummaries()`, `getAuditDetailByFacNro()`, `getTimingsByFacNro()` |
+| `AuditResultPersistenceModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | `persist()` transaccional y `updateFinalTimings()` sin read-before-write |
 
-**Dependencias**: `core/Database` (PDO sqlsrv).
+**Dependencias**: `core/SqlServerConnectionExecutor` sobre `core/Database` (PDO sqlsrv). Los modelos no conservan conexiones entre eventos.
 **Interfaz**: Invocados por Controllers y Worker.
 
 ---
@@ -79,26 +83,31 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | Worker / Componente | Responsabilidad |
 |---|---|
 | `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `AuditEventPublisher.php` | Publica a `audit.batch.inbox`, `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
-| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, recuperación de `pending`, ack, reintentos, envío a DLQ, cierre terminal de auditorías fallidas y telemetría por evento |
+| `AuditEventPublisher.php` | Publica a `audit.batch.inbox`, `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq`; rechaza `rules_evaluated` para impedir bypass del scheduler |
+| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, recuperación de `pending`, ack, reintentos, envío a DLQ, cierre terminal y telemetría; agotamiento SQL y fallos técnicos de descarga terminan con DLQ/ACK en la misma entrega |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
-| `BatchJobStore.php` | Claves Redis de jobs y reservas idempotentes (`job:{id}:*`, `audit:reservation:disid:*`, progreso, idempotency keys) |
-| `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback |
+| `BatchJobStore.php` | Claves Redis de jobs/reservas y transición atómica de métricas según el estado anterior del job, incluyendo terminal directo de lotes de una auditoría |
+| `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback; distingue fuente ausente/vacía, transferencia incompleta y fallo externo como errores técnicos |
 | `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox` |
-| `DocumentAuditOrchestrator.php` | Worker: consume `audit_created`, construye schema Gemini, publica N `document_registered` |
-| `AttachmentDownloadWorker.php` | Worker: consume `document_registered`, descarga el adjunto por URL interna, lo almacena temporalmente en Redis con key lógica `audit:blob:*` y publica `document_downloaded` (o `document_rejected` en fallo) |
+| `DocumentAuditOrchestrator.php` | Consume `audit_created`, ejecuta la reconciliación global 1:1 y publica `document_registered` solo para matches; registra y publica `document_rejected` para fallos de mapping sin invocar Gemini |
+| `DocumentAttachmentMatcher.php` | Matcher puro y determinista en tres pasadas: nombre exacto normalizado, ID corroborado y alias único |
+| `DocumentAttachmentMatchResult.php` | DTO readonly que impide `logical_doc_id` o `attachment_id` duplicados en matches |
+| `DocumentMappingRejectionReason.php` | Taxonomía cerrada de rechazos `DOCUMENT_MAPPING`: missing, ambiguous, no content y reused |
+| `AttachmentDownloadWorker.php` | Worker: consume `document_registered`, descarga y almacena el adjunto en Redis; publica `document_downloaded` y propaga cualquier fallo técnico sin crear decisiones documentales |
+| `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
-| `DocumentExtractionWorker.php` | Worker: consume `document_downloaded`, evalúa integridad estructural, extrae con Gemini y publica `document_extracted` |
+| `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes, valida integridad y extrae con Gemini |
 | `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
-| `RulesEvaluationWorker.php` | Worker: consume `document_normalized` y `document_rejected`, evalúa policy o genera hallazgo de integridad, publica `rules_evaluated` |
+| `RulesEvaluationWorker.php` | Consume `document_normalized` y valida por separado rechazos de contenido y mapping; estos últimos generan hallazgo `MAP`, severidad alta y resultado `RECHAZADO` |
+| `AuditPersistenceQueue.php` | Único productor de `audit.persistence:{queue}`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
 | `AuditTimingSummarizer.php` | Cálculo de latencias de pipeline, telemetría por stream y tiempos de agregación |
-| `AuditAggregationWorker.php` | Worker: consume `rules_evaluated`, persiste SQL, cierra Redis, recalcula timings finales y publica `audit_completed` |
+| `AuditPersistenceWorker.php` | Worker: bloquea decisiones contaminadas (`DOWNLOAD_ERROR` o contrato de rechazo inválido), persiste SQL, libera el turno, recalcula timings y publica el terminal |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=1`, `policy=2`, `aggregator=1`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=1`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 
 ---
@@ -122,8 +131,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Modo | Compose | Descripción |
 |---|---|---|
-| Local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`. |
-| Producción LAN | `docker-compose.yml` + `--profile frontend` | Imágenes GHCR para frontend, PHP, Nginx y los 7 workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator`). |
+| Local | `docker-compose.yml` | Build desde repo: `php` x5, `redis`, `nginx` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence`. |
+| Producción LAN | `docker-compose.yml` + `--profile frontend` | Imágenes GHCR para frontend, PHP, Nginx y los 7 workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence`). |
 
 ---
 
@@ -133,6 +142,8 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 |---|---|
 | Framework PHP custom | Control total sobre el pipeline, sin overhead de frameworks grandes |
 | PDO sqlsrv | Acceso nativo a SQL Server con prepared statements |
+| Un turno SQL por job | Evita head-of-line blocking entre jobs sin eliminar la doble persistencia exigida por dominio |
+| `aggregation` como nombre de telemetría | Compatibilidad temporal limitada al contrato del DAG. Responsable: Pipeline/Frontend. Retiro: migrar schema y store UI a `persistence`. Validación: `ObservabilityControllerTest` + typecheck frontend. El runtime y las clases no conservan el agregador |
 | Gemini Flash (no Pro) | Balance costo/velocidad para análisis multimodal masivo |
 | Dual storage (BLOB + Drive URL) | Compatibilidad con documentos legacy (BLOB) y nuevos (Drive) |
 | MCP como capa separada | Reutiliza la API REST existente sin duplicar lógica |

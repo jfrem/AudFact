@@ -29,7 +29,7 @@ graph TB
         Extraction["worker-extraction<br/>8 replicas"]
         Normalizer["worker-normalizer<br/>1 replica"]
         Policy["worker-policy<br/>2 replicas"]
-        Aggregator["worker-aggregator<br/>1 replica"]
+        Persistence["worker-persistence<br/>3 replicas"]
     end
 
     SQLSRV["SQL Server externo<br/>:1433"]
@@ -48,12 +48,12 @@ graph TB
     Redis --> Extraction
     Redis --> Normalizer
     Redis --> Policy
-    Redis --> Aggregator
+    Redis --> Persistence
     Batch --> SQLSRV
     Orchestrator --> SQLSRV
     Downloader --> Drive
     Extraction --> Gemini
-    Aggregator --> SQLSRV
+    Persistence --> SQLSRV
 ```
 
 ---
@@ -96,7 +96,7 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 | `worker-extraction` | `DocumentExtractionWorker` | `8` |
 | `worker-normalizer` | `DocumentNormalizer` | `1` |
 | `worker-policy` | `RulesEvaluationWorker` | `2` |
-| `worker-aggregator` | `AuditAggregationWorker` | `1` |
+| `worker-persistence` | `AuditPersistenceWorker` | `AUDIT_WORKER_PERSISTENCE_REPLICAS=3` |
 
 Los nombres de consumer incluyen rol + hostname + PID para que Redis refleje
 replicas reales y para que `XAUTOCLAIM` pueda recuperar mensajes `pending`
@@ -144,8 +144,8 @@ El endpoint público `GET /health` sigue existiendo para monitoreo externo.
 
 Redis almacena:
 
-- streams `audit.batch.inbox`, `audit.inbox`, `audit.documents`, `audit.results`
-  y `audit.dlq`;
+- streams `audit.batch.inbox`, `audit.inbox`, `audit.documents`,
+  `audit.persistence:{queue}`, `audit.results` y `audit.dlq`;
 - estado por auditoria `audit:{id}:*`;
 - estado de jobs `job:{id}:*`;
 - reservas idempotentes por `DisId`;
@@ -160,9 +160,30 @@ Variables operativas:
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle minimo para reclamar pending |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Frecuencia de escaneo pending |
 | `AUDIT_DLQ_STREAM` | `audit.dlq` | Stream de dead letters |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion por job |
+
+`AuditPersistenceQueue` usa Lua para conservar como maximo un evento activo por
+job. Las tres replicas pueden persistir tres jobs distintos en paralelo, pero
+no permiten que dos facturas del mismo job compitan simultaneamente en SQL
+Server.
 
 No reducir `AUDIT_PENDING_RECLAIM_IDLE_MS` por debajo del peor caso Gemini:
 puede duplicar trabajo legítimo en curso.
+
+### Recuperación SQL sin PDO retenido
+
+Los workers de larga vida no guardan conexiones PDO en los modelos.
+`SqlServerConnectionExecutor` abre una conexión por intento y descarta la
+referencia al terminar el callback. Las lecturas y escrituras idempotentes
+reintentan desconexiones con pausas de 1/5/30 segundos; las escrituras no
+reproducibles se ejecutan una sola vez.
+
+`HYT00` solo es transitorio durante `openConnection()`. Un `HYT00` de statement,
+deadlock o error de datos no se repite para evitar duplicar trabajo incierto.
+Si la política SQL se agota, el consumer publica DLQ, hace ACK y libera el turno
+en la misma entrega. `XAUTOCLAIM` permanece para procesos realmente
+abandonados, no como temporizador de recuperación de una excepción SQL ya
+retornada.
 
 ---
 
@@ -174,7 +195,9 @@ puede duplicar trabajo legítimo en curso.
 | Timeouts FPM | `AUDIT_FPM_TERMINATE_TIMEOUT` en `php-fpm-pool.conf.template`. |
 | Gemini retry/backoff | `GeminiGateway` con reintentos para 429/5xx y `GeminiCircuitBreaker`. |
 | Integridad documental | `DocumentIntegrityValidator` rechaza adjuntos vacios, corruptos o con MIME inconsistente antes de Gemini. |
-| DLQ | `AuditEventConsumer` publica `dead_letter` tras agotar reintentos. |
+| Resiliencia SQL | PDO fresco por intento; replay acotado por fase y modo de operación. |
+| Taxonomía documental | Fallos SQL/Drive/transferencia son técnicos; solo extracción puede producir rechazos de contenido. |
+| DLQ | `AuditEventConsumer` publica `dead_letter`; agotamiento SQL y descarga técnica hacen ACK terminal en la misma entrega. |
 
 `AUDIT_BATCH_TIMEOUT` permanece en `.env.example` por compatibilidad, pero el
 flujo actual de lote es 202 asincrono: `AuditController::async` publica

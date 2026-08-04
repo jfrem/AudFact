@@ -34,6 +34,7 @@ class ObservabilityController extends Controller
             $streams = [
                 'inbox'      => AuditEventPublisher::STREAM_INBOX,
                 'documents'  => AuditEventPublisher::STREAM_DOCUMENTS,
+                'persistence' => AuditEventPublisher::STREAM_PERSISTENCE,
                 'results'    => AuditEventPublisher::STREAM_RESULTS,
                 'batchInbox' => AuditEventPublisher::STREAM_BATCH_INBOX,
             ];
@@ -64,24 +65,32 @@ class ObservabilityController extends Controller
             $retries = max(0, (int) ($metrics['retries'] ?? 0));
             $terminalFailures = max(0, (int) ($metrics['terminal_failures'] ?? 0));
 
-            Response::success([
+            $payload = [
                 'queueDepth'       => $totalDepth,
                 'streamDepths'     => $streamDepths,
                 'deadLetterDepth'  => $deadLetterDepth,
                 'jobs'             => $jobCounts,
                 'retries'          => $retries,
                 'terminalFailures' => $terminalFailures,
-            ]);
+            ];
         } catch (\Throwable $e) {
-            Response::success([
+            $payload = [
                 'queueDepth'       => 0,
-                'streamDepths'     => ['inbox' => 0, 'documents' => 0, 'results' => 0, 'batchInbox' => 0],
+                'streamDepths'     => [
+                    'inbox' => 0,
+                    'documents' => 0,
+                    'persistence' => 0,
+                    'results' => 0,
+                    'batchInbox' => 0,
+                ],
                 'deadLetterDepth'  => 0,
                 'jobs'             => ['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0],
                 'retries'          => 0,
                 'terminalFailures' => 0,
-            ]);
+            ];
         }
+
+        Response::success($payload);
     }
 
     protected function buildRedisClient(): RedisClient

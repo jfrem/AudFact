@@ -34,34 +34,61 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 |---|---|
 | `AuditController` | Valida solicitudes, resuelve identidad en `single`, registra jobs y publica eventos iniciales |
 | `BatchRequestedWorker` | Consume `batch_requested`, consulta SQL Server, reserva `DisId` y publica `audit_created` |
-| `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos y publica `document_registered` por documento |
+| `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos, reconcilia documentos lógicos con adjuntos físicos y publica registros o rechazos controlados |
+| `DocumentAttachmentMatcher` | Aplica una reconciliación global 1:1 por nombre exacto, ID corroborado y alias único, sin I/O ni heurística de primer candidato |
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
-| `AttachmentDownloadWorker` | Descarga adjuntos, guarda el BLOB temporal en Redis con key lógica `audit:blob:*` y publica `document_downloaded` |
-| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash` e invoca Gemini |
+| `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, guarda el BLOB temporal en Redis y propaga fallos técnicos sin publicar rechazos funcionales |
+| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
 | `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
-| `RulesEvaluationWorker` | Evalúa reglas por documento, convierte `document_rejected` en hallazgo `RECHAZADO` y construye el outcome final |
-| `AuditAggregationWorker` | Valida, persiste en SQL, cierra Redis y publica eventos terminales |
+| `RulesEvaluationWorker` | Evalúa reglas y convierte contratos cerrados de contenido o `DOCUMENT_MAPPING`; mapping produce código `MAP`, severidad alta y resultado `RECHAZADO` |
+| `AuditPersistenceQueue` | Deduplica `rules_evaluated` y mantiene un solo turno de persistencia activo por job |
+| `AuditPersistenceWorker` | Consume `audit.persistence:{queue}`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
-| `BatchJobStore` | Estado Redis por job, idempotencia HTTP y reservas por `DisId` |
-| `AuditStatusModel` | Persistencia en `Discolnet.dbo.AudDispEst` y actualización de `AdjuntosDispensacion` |
+| `BatchJobStore` | Estado Redis por job, idempotencia/reservas y contadores atómicos `queued/running/completed/failed` basados en transiciones del job |
+| `AuditResultPersistenceModel` | Escritura transaccional en `Discolnet.dbo.AudDispEst`, `AdjuntosDispensacion` y `DispensacionDetalleServicio` |
+| `AuditStatusModel` | Lectura de resultados y timings persistidos |
 
 ## Flujo de Eventos
 
 ```text
 batch_requested
   -> audit_created
-  -> document_registered
+  -> document_registered | document_rejected (mapping)
   -> document_downloaded
-  -> document_extracted | document_rejected
+  -> document_extracted | document_rejected (contenido)
   -> document_normalized
   -> rules_evaluated
   -> audit_completed | audit_failed | batch_completed | batch_completed_with_errors
 ```
 
-`document_rejected` salta la normalización y entra directamente a policy. `RulesEvaluationWorker` lo transforma en un hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity`.
+`document_rejected` salta descarga/extracción/normalización según su origen y
+entra directamente a policy. El orquestador solo puede emitir categoría
+`DOCUMENT_MAPPING` con `logical_doc_id`, candidatos y una razón de la allowlist
+de mapping; el extractor solo puede emitir clase `document_content`. Fallos de
+PDO, SQL Server, Drive o transferencia BLOB son técnicos: terminan en DLQ y
+nunca se convierten en un hallazgo funcional.
+
+### Concurrencia de Persistencia
+
+`RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. La cola permite un solo `rules_evaluated` activo por `job_id`; los restantes quedan ordenados en un ZSET por secuencia global. Jobs distintos sí publican un turno simultáneo en `audit.persistence:{queue}`, por lo que las 3 réplicas de `worker-persistence` procesan hasta 3 jobs en paralelo sin que una factura lenta bloquee a las demás.
+
+El turno avanza únicamente después del cierre exitoso o después de la terminalización DLQ. Una redelivery posterior a `advance` es idempotente. Las dos persistencias exigidas por dominio permanecen dentro de la misma transacción SQL.
+
+### Resiliencia SQL/PDO
+
+Cada callback de modelo recibe un PDO fresco. Las lecturas y la persistencia
+dual idempotente admiten hasta cuatro aperturas, separadas por 1, 5 y 30
+segundos, ante desconexiones de conexión. `HYT00` se reintenta solo si ocurre al
+abrir; un timeout de statement, deadlock o escritura no reproducible no se
+repite automáticamente.
+
+Al agotar la política, `AuditEventConsumer` publica DLQ, hace ACK y ejecuta los
+hooks terminales en la misma entrega. `AuditPersistenceWorker` aplica una
+barrera independiente antes de SQL y rechaza cualquier resultado que contenga
+`DOWNLOAD_ERROR` o un contrato de rechazo inválido.
 
 ## Evaluacion Multi-Item
 
@@ -101,6 +128,8 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Workers que resuelven FDV/config/adjuntos |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Workers que consumen Gemini |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Workers de evaluación de reglas |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | Workers SQL globales; la cola limita a uno por job |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retención de turnos, pendientes y deduplicación |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | TTL de `X-Idempotency-Key` para `/audit/async` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar mensajes pending |
 | `AUDIT_EVENT_MAX_RETRIES` | `3` | Reintentos antes de enviar a DLQ |

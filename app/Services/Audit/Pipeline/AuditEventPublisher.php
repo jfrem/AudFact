@@ -12,8 +12,9 @@ use RuntimeException;
 
 class AuditEventPublisher
 {
-    public const STREAM_INBOX     = 'audit.inbox';
-    public const STREAM_DOCUMENTS = 'audit.documents';
+    public const STREAM_INBOX       = 'audit.inbox';
+    public const STREAM_DOCUMENTS   = 'audit.documents';
+    public const STREAM_PERSISTENCE = 'audit.persistence:{queue}';
     public const STREAM_RESULTS     = 'audit.results';
     public const STREAM_BATCH_INBOX = 'audit.batch.inbox';
 
@@ -25,7 +26,6 @@ class AuditEventPublisher
         AuditEvent::TYPE_DOCUMENT_EXTRACTED  => self::STREAM_DOCUMENTS,
         AuditEvent::TYPE_DOCUMENT_REJECTED   => self::STREAM_DOCUMENTS,
         AuditEvent::TYPE_DOCUMENT_NORMALIZED => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_RULES_EVALUATED     => self::STREAM_RESULTS,
         AuditEvent::TYPE_AUDIT_COMPLETED     => self::STREAM_RESULTS,
         AuditEvent::TYPE_AUDIT_FAILED        => self::STREAM_RESULTS,
         AuditEvent::TYPE_BATCH_COMPLETED     => self::STREAM_RESULTS,

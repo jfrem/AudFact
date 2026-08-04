@@ -7,7 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Models\AttachmentsModel;
 use App\Services\GoogleDriveAuthService;
 use Core\Logger;
-use RuntimeException;
+use Throwable;
 
 /**
  * Servicio de descarga de adjuntos de dispensación para el pipeline de auditoría.
@@ -35,7 +35,8 @@ class AttachmentDownloadService
         $attachment = $this->model->getAttachmentByIdForDisDetNro($attachmentId, $disDetNro);
 
         if (!$attachment) {
-            throw new RuntimeException(
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::SOURCE_NOT_FOUND,
                 "Adjunto '{$attachmentId}' no encontrado para dispensación '{$disDetNro}'"
             );
         }
@@ -50,7 +51,8 @@ class AttachmentDownloadService
             return $this->downloadFromBlob($attachmentId, $disDetNro, $attachment, $start);
         }
 
-        throw new RuntimeException(
+        throw new AttachmentDownloadException(
+            AttachmentDownloadException::SOURCE_EMPTY,
             "Adjunto '{$attachmentId}' sin contenido (TipoAlmacenamiento='{$storage}')"
         );
     }
@@ -63,22 +65,52 @@ class AttachmentDownloadService
     {
         $fileId = trim((string) ($attachment['AdjDisDocUrl'] ?? ''));
         if ($fileId === '') {
-            throw new RuntimeException('Adjunto URL sin fileId de Google Drive');
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::SOURCE_NOT_FOUND,
+                'Adjunto URL sin identificador de Google Drive'
+            );
         }
 
-        $service = new GoogleDriveAuthService();
-        $tmp     = $service->downloadFileToTemp($fileId, 'adj_');
-
         try {
+            $service = new GoogleDriveAuthService();
+            $tmp = $service->downloadFileToTemp($fileId, 'adj_');
+
             $mime = mime_content_type($tmp['path']) ?: 'application/octet-stream';
             $raw  = file_get_contents($tmp['path']);
             if ($raw === false) {
-                throw new RuntimeException("No se pudo leer el archivo temporal: {$tmp['path']}");
+                throw new AttachmentDownloadException(
+                    AttachmentDownloadException::EXTERNAL_TRANSFER_FAILED,
+                    'No se pudo leer el archivo temporal de Google Drive'
+                );
+            }
+            if ($raw === '') {
+                throw new AttachmentDownloadException(
+                    AttachmentDownloadException::SOURCE_EMPTY,
+                    'Google Drive entregó un adjunto vacío'
+                );
             }
             $data = base64_encode($raw);
+        } catch (AttachmentDownloadException $error) {
+            throw $error;
+        } catch (Throwable $error) {
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::EXTERNAL_TRANSFER_FAILED,
+                'Falló la transferencia del adjunto desde Google Drive',
+                $error
+            );
         } finally {
-            if (file_exists($tmp['path'])) {
-                unlink($tmp['path']);
+            try {
+                if (
+                    isset($tmp['path'])
+                    && is_string($tmp['path'])
+                    && file_exists($tmp['path'])
+                ) {
+                    unlink($tmp['path']);
+                }
+            } catch (Throwable $cleanupError) {
+                Logger::warning('No se pudo limpiar el temporal de Google Drive', [
+                    'error_class' => $cleanupError::class,
+                ]);
             }
         }
 
@@ -102,20 +134,31 @@ class AttachmentDownloadService
         array  $attachment,
         float  $start
     ): array {
-        $blob   = $this->model->getAttachmentBlobStreamByIdForDisDetNro($attachmentId, $disDetNro);
-        $stream = $blob['stream'] ?? null;
-
-        if (!is_resource($stream)) {
-            throw new RuntimeException("BLOB no disponible para adjunto '{$attachmentId}'");
+        $blob = $this->model->getAttachmentBlobBytesByIdForDisDetNro(
+            $attachmentId,
+            $disDetNro
+        );
+        if ($blob === null) {
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::SOURCE_NOT_FOUND,
+                "BLOB no encontrado para adjunto '{$attachmentId}'"
+            );
         }
 
-        $raw = stream_get_contents($stream);
-        if (is_callable($blob['close'])) {
-            ($blob['close'])();
+        $raw = $blob['bytes'];
+        $expectedSize = $blob['expected_size'];
+        if ($expectedSize <= 0 || $raw === '') {
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::SOURCE_EMPTY,
+                "BLOB vacío para adjunto '{$attachmentId}'"
+            );
         }
 
-        if ($raw === false || $raw === '') {
-            throw new RuntimeException("BLOB vacío para adjunto '{$attachmentId}'");
+        if (strlen($raw) !== $expectedSize) {
+            throw new AttachmentDownloadException(
+                AttachmentDownloadException::INCOMPLETE_TRANSFER,
+                "Transferencia BLOB incompleta para adjunto '{$attachmentId}'"
+            );
         }
 
         $name = (string) ($attachment['AdjDisNom'] ?? '');

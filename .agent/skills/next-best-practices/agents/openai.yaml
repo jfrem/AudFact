@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next.js Best Practices"
+  short_description: "Aplica convenciones seguras de Next.js App Router."
+  default_prompt: "Usa $next-best-practices para implementar o revisar este cambio de Next.js con las convenciones del App Router."

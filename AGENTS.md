@@ -43,8 +43,16 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `code-quality-assessment`         | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica                                       |
 | `security-assessment`             | Auditoría técnica | Auditoría de seguridad para readiness de release                                                      |
 | `technical-governance-assessment` | Auditoría técnica | Evaluación de madurez de gobernanza técnica                                                           |
+| `next-best-practices`             | Frontend Next.js  | Convenciones de App Router, Server Components, datos, errores y self-hosting                           |
+| `next-cache-components`           | Frontend Next.js  | Caché y PPR únicamente durante una migración confirmada a Next.js 16+                                  |
+| `next-upgrade`                    | Frontend Next.js  | Actualización incremental de Next.js con guías oficiales y codemods                                    |
+| `impeccable`                      | UI/UX             | Diseño, auditoría y refinamiento de interfaces frontend                                                |
+| `clean-rebuild-policy`            | Gobernanza técnica | Clean rebuild, eliminación de legacy y límites estrictos de MVP                                       |
+| `write-sdd-spec`                  | Especificación    | Diseño técnico determinista, trazabilidad, migración y rollback antes de implementar                   |
+| `phpunit-test-architect`          | Testing / TDD     | Contratos ejecutables y suites unitarias completas para PHP 8.2+ con PHPUnit 10+                       |
 
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
+Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_shared/scripts/validate-skills.mjs`.
 
 ---
 
@@ -64,6 +72,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `POST` | `/clients`                                                      | `ClientsController`       | `lookup`                 | Buscar cliente por filtros                                                   |
 | `GET`  | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `show`                   | Configuración dinámica de auditoría por cliente                              |
 | `POST` | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `save`                   | Guardar/reemplazar configuración dinámica de auditoría                       |
+| `GET`  | `/audit/field-catalog`                                          | `AuditConfigController`   | `catalog`                | Catálogo de campos disponibles para configurar auditorías                    |
 | `GET`  | `/invoices`                                                     | `InvoicesController`      | `index`                  | Buscar facturas pendientes con paginación `page`/`pageSize`                  |
 | `POST` | `/invoices`                                                     | `InvoicesController`      | `search`                 | Buscar facturas por fecha/nit con contrato paginado                          |
 | `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | `DispensationController`  | `show`                   | Detalle técnico de una dispensa                                              |
@@ -81,6 +90,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `GET`  | `/audit/dlq`                                                    | `AuditDlqController`      | `index`                  | Listado administrativo de eventos `dead_letter`                              |
 | `POST` | `/audit/dlq/reprocess`                                          | `AuditDlqController`      | `reprocess`              | Reproceso administrativo de un evento DLQ                                    |
 | `GET`  | `/audit/{facNro}/timings`                                       | `AuditController`         | `timings`                | Timings persistidos por factura                                              |
+| `GET`  | `/audit/{auditId}/flow-stream`                                  | `AuditFlowController`     | `stream`                 | Telemetría SSE en vivo por auditoría                                         |
 
 ---
 
@@ -135,7 +145,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `ClientsModel`      | `NIT` / `Clientes`                               | Gestión de EPS/Clientes                    | `NitSec`                                                 |
 | `DispensationModel` | `vw_discolnet_dispensas`                         | Datos detallados de entrega                | `DisDetNro`                                              |
 | `AttachmentsModel`  | `AdjuntosDispensacion`                           | Archivos binarios (BLOB/URL)               | `AdjDisId`                                               |
-| `AuditStatusModel`  | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
+| `AuditStatusModel`  | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Lectura de resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
+| `AuditResultPersistenceModel` | `dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Escritura transaccional del resumen, hallazgos documentales y trazabilidad | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 
 ### Relaciones Clave
 
@@ -324,9 +335,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de extractores Gemini                               |
 | `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`  | `3`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                        |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
 | `AUDIT_JOB_TTL`                      | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                |
 | `AUDIT_STATE_TTL`                    | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                        |
+| `AUDIT_PERSISTENCE_QUEUE_TTL`        | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job          |
 | `AUDIT_RESERVATION_TTL`              | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                       |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`      | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`  | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`         |
@@ -525,7 +538,8 @@ Antes de **crear, modificar, refactorizar o eliminar** código en cualquiera de 
 |---|---|
 | `app/Services/Audit/**` | Pipeline IA, reglas de negocio, normalización, policy engine |
 | `app/Models/DispensationModel.php` | Fuente de Verdad (FDV), campos de dispensación |
-| `app/Models/AuditStatusModel.php` | Persistencia de resultados de auditoría |
+| `app/Models/AuditStatusModel.php` | Lectura de resultados y timings de auditoría |
+| `app/Models/AuditResultPersistenceModel.php` | Escritura transaccional del resultado global y detalle documental |
 | `app/Models/AuditConfigModel.php` | Configuración dinámica de auditoría por cliente |
 | `app/Models/AttachmentsModel.php` | Adjuntos documentales del expediente |
 | `app/Controllers/AuditController.php` | Endpoints de auditoría (single, async, results) |
@@ -581,18 +595,18 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 - **Archivos críticos**: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` y `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` gobiernan la decisión final del pipeline y requieren review cuidadoso
 - **Pipeline event-driven actual**: `audit_created -> document_registered -> document_downloaded -> document_extracted -> document_normalized -> rules_evaluated -> audit_completed`
-- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `AttachmentDownloadWorker`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditAggregationWorker`
-- **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditStatusModel::persistAuditResultWithAttachments()`
-- **Agregación final**: `AuditAggregationWorker` valida el outcome de `rules_evaluated`, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
+- **Workers event-driven clave**: `DocumentAuditOrchestrator`, `AttachmentDownloadWorker`, `DocumentExtractionWorker`, `DocumentNormalizer`, `RulesEvaluationWorker`, `AuditPersistenceWorker`
+- **Outcome final**: `RulesEvaluationWorker` transforma los resultados de policy + estado Redis a `audit_result_data` y `document_decisions` compatibles con `AuditResultPersistenceModel::persist()`
+- **Persistencia final**: `AuditPersistenceQueue` mantiene un turno activo por job y `AuditPersistenceWorker` valida el outcome, persiste en SQL, cierra Redis y publica eventos terminales; no toma decisiones funcionales de auditoría
 - **Idempotencia global**: `POST /audit/single` y `POST /audit/async` reservan `DisId` en Redis con owner token antes de publicar `audit_created`; la FDV se resuelve por `DisId` y `DisDetNro` queda como llave operativa de adjuntos/`FacNro`
 - **Estado Redis por auditoría**: `AuditStateStore` conserva `docs_total`, `docs_extracted`, `docs_done` (documentos normalizados listos para policy), `docs_rejected` (documentos no procesables rechazados antes de Gemini) y `docs_evaluated`
-- **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditAggregationWorker` agrega `aggregation_timings` de build/persistencia/cierre
+- **Observabilidad Redis por auditoría**: `AuditEventConsumer` persiste `event_timings` con espera en cola, duración del handler, duración del ack, stream, consumer y tipo de evento; `AuditPersistenceWorker` conserva `aggregation_timings` como contrato de telemetría consumido por el frontend
 - **Recuperación de pending Redis Streams**: `AuditEventConsumer` reclama periódicamente mensajes `pending` con idle alto (`AUDIT_PENDING_RECLAIM_IDLE_MS`) para recuperar workers caídos sin duplicar extracciones Gemini largas
-- **Timings finales persistidos**: el agregador recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacNro` sin reescribir adjuntos
-- **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `policy=2`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
-- **Cierre de auditoría**: el agregador final marca `completed`, `manual_review`, `error` o `failed`; `AuditEventConsumer` solo puede marcar `failed` al agotar reintentos y enviar a DLQ para evitar locks huérfanos
+- **Timings finales persistidos**: el worker de persistencia recalcula `phase_timings` después de `completed_at` y actualiza `AudDispEst` por `FacNro` sin releer ni reescribir adjuntos
+- **Escalado inicial de workers**: defaults de `docker-compose.yml` `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `policy=2`, `persistence=3`; ajustar por `.env` según backlog real, cuota Gemini y presión sobre SQL Server
+- **Cierre de auditoría**: `AuditPersistenceWorker` marca `completed`, `manual_review` o `error`; `AuditEventConsumer` marca `failed` solo al agotar reintentos y libera el siguiente turno antes del ACK terminal
 - **Persistencia final**: `audit_completed` solo se publica después de persistencia exitosa en `AudDispEst` y `AdjuntosDispensacion`; el batch publica `batch_completed` o `batch_completed_with_errors` cuando el job llega a estado terminal
-- **Fallo final de persistencia**: si la persistencia SQL falla, el agregador debe marcar la auditoría como `failed` en Redis, publicar `audit_failed` y cerrar el batch con `batch_completed_with_errors` cuando corresponda
+- **Fallo final de persistencia**: un error SQL se reintenta sin terminalizar anticipadamente; al agotar intentos, `AuditEventConsumer` marca `failed`, publica `audit_failed`, actualiza el batch y `AuditPersistenceWorker` libera el siguiente turno del job
 - **Gemini API**: sujeto a rate limits (HTTP 429) y errores de disponibilidad (HTTP 503)
 - **Rechazo preventivo pre-Gemini**: `DocumentIntegrityValidator` puede publicar `document_rejected` para adjuntos vacíos, corruptos, con MIME inconsistente o no soportados. `RulesEvaluationWorker` convierte ese evento en hallazgo canónico `RECHAZADO` con `tipo_auditoria=integrity` y no consume Gemini.
 - **Contrato Gemini y prompts**: `DocumentAuditOrchestrator` publica `extraction_contract` parametrizado por `audit-config`; `DocumentExtractionContractBuilder` construye las cuatro funciones paralelas (`extract_fields`, `extract_items`, `detect_visual_checks`, `assess_document_quality`); `DocumentExtractionWorker` genera el user prompt por documento y combina las llamadas en `extraction_result`. Cualquier cambio afecta la calidad de las auditorías.
@@ -1041,3 +1055,13 @@ Este archivo (`AGENTS.md`) es la fuente canónica de guidelines. Los siguientes 
 | `CLAUDE.md`    | Claude Code            | Debe ser copia o symlink de `AGENTS.md` |
 | `GEMINI.md`    | Gemini CLI             | Puede apuntar al catálogo de skills     |
 | `.cursorrules` | Cursor                 | Versión compacta para Cursor IDE        |
+
+---
+
+## Tooling y Comandos Útiles
+
+### GitHub CLI (`gh`)
+- **Lectura de issues largos:** Al usar `gh issue view`, la terminal y el paginador pueden truncar la salida. Para extraer el cuerpo completo de manera confiable (especialmente para SDD y specs largas), usa SIEMPRE:
+  ```bash
+  gh issue view <id> --json body --jq '.body'
+  ```

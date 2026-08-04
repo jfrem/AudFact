@@ -37,8 +37,8 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
    - `payload.dis_id` debe coincidir con `FDV.header.DisId`;
    - `payload.dis_det_nro` debe coincidir con `FDV.header.NumeroFactura`;
    - si el evento trae `fac_nit_sec`, debe coincidir con `FDV.header.NitSec`.
-7. `AuditAggregationWorker` persiste `FacSec = audit.dis_id` (columna legacy) y `FacNro = audit.dis_det_nro`.
-8. `AuditStatusModel` hace `MERGE` con `ON target.FacNro = source.FacNro`; en cada escritura conserva `FacSec = audit.dis_id` como columna legacy que almacena `DisId`.
+7. `AuditPersistenceWorker` entrega el outcome a `AuditResultPersistenceModel`, que persiste `FacSec = audit.dis_id` (columna legacy) y `FacNro = audit.dis_det_nro`.
+8. `AuditResultPersistenceModel` ejecuta un upsert serializable por `FacNro`; en cada escritura conserva `FacSec = audit.dis_id` como columna legacy que almacena `DisId`.
 
 ## Adjuntos
 

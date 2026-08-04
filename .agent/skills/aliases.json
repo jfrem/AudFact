@@ -21,9 +21,12 @@
     "documentation": "audfact-docs-sync",
     "next": "next-best-practices",
     "frontend": "next-best-practices",
-    "ui": "ui-ux-pro-max",
-    "ux": "ui-ux-pro-max",
-    "design": "ui-ux-pro-max",
-    "impeccable": "impeccable"
+    "ui": "impeccable",
+    "ux": "impeccable",
+    "design": "impeccable",
+    "impeccable": "impeccable",
+    "phpunit": "phpunit-test-architect",
+    "tdd": "phpunit-test-architect",
+    "test-architect": "phpunit-test-architect"
   }
 }

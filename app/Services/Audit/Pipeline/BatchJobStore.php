@@ -388,6 +388,7 @@ local now = ARGV[3]
 local ttl = tonumber(ARGV[4])
 local auditDurationMs = math.max(0, tonumber(ARGV[5]) or 0)
 local failedStage = ARGV[6]
+local oldJobStatus = tostring(job['status'] or 'pending')
 
 if type(job['audits']) ~= 'table' or type(job['audits'][auditId]) ~= 'table' then
     return 0
@@ -441,11 +442,16 @@ if processed > 0 then
 end
 
 local newJobStatus = job['status'] or 'pending'
-local oldJobStatus = previousStatus == '' and 'pending' or previousStatus
 
-if oldJobStatus == 'pending' and newJobStatus == 'processing' then
+if oldJobStatus == 'pending' then
     redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
-    redis.call('HINCRBY', KEYS[2], 'jobs_running', 1)
+    if newJobStatus == 'processing' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_running', 1)
+    elseif newJobStatus == 'completed' or newJobStatus == 'completed_with_errors' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_completed', 1)
+    elseif newJobStatus == 'failed' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_failed', 1)
+    end
 elseif oldJobStatus == 'processing' and (newJobStatus == 'completed' or newJobStatus == 'completed_with_errors') then
     redis.call('HINCRBY', KEYS[2], 'jobs_running', -1)
     redis.call('HINCRBY', KEYS[2], 'jobs_completed', 1)

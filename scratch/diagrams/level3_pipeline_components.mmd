@@ -1,7 +1,7 @@
 C4Component
     title AudFact — C4 Nivel 3: Componentes del Audit Pipeline
 
-    Container_Ext(redis, "Redis 7 Streams", "audit.inbox / audit.documents / audit.results / audit.dlq")
+    Container_Ext(redis, "Redis 7 Streams", "audit.inbox / audit.documents / audit.persistence:{queue} / audit.results / audit.dlq")
     Container_Ext(sqlserver, "SQL Server", "Discolnet")
     Container_Ext(gemini, "Google Gemini API", "Function Calling")
     Container_Ext(gdrive, "Google Drive", "Adjuntos URL")
@@ -10,7 +10,7 @@ C4Component
 
         Component(audit_event, "AuditEvent", "PHP final class", "Contrato inmutable de evento.\n11 tipos (audit_created → audit_completed).\nValidación UUID v4 + ISO-8601.\nVersioned: versionExtractor, versionNormalizer, versionRules.")
 
-        Component(event_publisher, "AuditEventPublisher", "PHP class", "Publica eventos al stream correcto.\nMapeo tipo → stream (STREAM_BY_TYPE).\nStream DLQ configurable via AUDIT_DLQ_STREAM.\naudit.inbox | audit.documents | audit.results | audit.dlq")
+        Component(event_publisher, "AuditEventPublisher", "PHP class", "Publica eventos al stream correcto.\nMapeo tipo → stream (STREAM_BY_TYPE).\nRechaza rules_evaluated para impedir bypass.\nStream DLQ configurable via AUDIT_DLQ_STREAM.")
 
         Component(event_consumer, "AuditEventConsumer", "PHP abstract class", "Base Template Method para todos los workers.\nXREADGROUP + XACK + retry counter.\nxAutoClaim para pending messages (crash recovery).\nDLQ tras AUDIT_EVENT_MAX_RETRIES (default: 3).\nSIGTERM/SIGINT graceful shutdown.")
 
@@ -30,9 +30,13 @@ C4Component
 
         Component(semantic_judge, "SemanticMatchJudge", "PHP class → GeminiGateway", "Homologación semántica de artículos.\nUsa perfil semantic_match (sin archivos).\nDevuelve: COINCIDE | VALOR_DISTINTO | NO_CONCLUYENTE.")
 
-        Component(rules_worker, "RulesEvaluationWorker", "PHP class extends AuditEventConsumer", "Consume: document_normalized de audit.documents.\nInvoca DocumentPolicyEngine por documento.\nCuando docs_evaluated == docs_total:\nPublica rules_evaluated en audit.results.")
+        Component(rules_worker, "RulesEvaluationWorker", "PHP class extends AuditEventConsumer", "Consume: document_normalized/rejected.\nInvoca DocumentPolicyEngine por documento.\nGuarda el outcome canónico.\nEncola rules_evaluated cuando termina la auditoría.")
 
-        Component(aggregator, "AuditAggregationWorker", "PHP class extends AuditEventConsumer", "Consume: rules_evaluated de audit.results.\nAuditResultData + documentDecisions por documento.\nAuditStatusModel.persistAuditResultWithAttachments():\n→ MERGE dbo.AudDispEst\n→ UPDATE AdjuntosDispensacionDetalle\nPublica audit_completed | audit_failed.")
+        Component(persistence_queue, "AuditPersistenceQueue", "PHP class / Redis Lua", "Único productor de audit.persistence:{queue}.\nDeduplica por audit_id.\nUn evento activo por job.\nPromueve el siguiente al cerrar el turno.")
+
+        Component(persistence_worker, "AuditPersistenceWorker", "PHP class extends AuditEventConsumer", "Consume: rules_evaluated de audit.persistence:{queue}.\nValida el outcome canónico.\nPersiste SQL, cierra Redis y libera el turno.\nPublica audit_completed | audit_failed.")
+
+        Component(persistence_model, "AuditResultPersistenceModel", "PHP Model / PDO sqlsrv", "Transacción única:\n→ UPSERT serializable dbo.AudDispEst\n→ UPDATE set-based AdjuntosDispensacion\n→ UPDATE trazabilidad DispensacionDetalleServicio")
 
         Component(batch_job_store, "BatchJobStore", "PHP class / Redis Hash", "Rastrea progreso de auditorías en lote.\nCampos: total, completed, errors, status.\nTTL configurable via AUDIT_CACHE_TTL.")
     }
@@ -58,18 +62,21 @@ C4Component
     Rel(rules_worker, event_consumer, "Extiende (Template Method)")
     Rel(rules_worker, policy_engine, "evaluate(extractedData, targetContext)")
     Rel(rules_worker, state_store, "markDocumentEvaluated(), storeRulesEvaluation()")
-    Rel(rules_worker, event_publisher, "Publica rules_evaluated")
+    Rel(rules_worker, persistence_queue, "enqueue(rules_evaluated)")
 
     Rel(policy_engine, semantic_judge, "Fallback homologación artículos")
     Rel(semantic_judge, gemini_gateway, "sendWithFunctionCalling()\ntask: semantic_match")
     Rel(gemini_gateway, gemini, "POST generateContent\nFunction Calling")
     Rel(gemini_gateway, redis, "Circuit Breaker state\ncb:gemini:state / cb:gemini:fails")
 
-    Rel(aggregator, event_consumer, "Extiende (Template Method)")
-    Rel(aggregator, state_store, "getAudit(), completeAudit()")
-    Rel(aggregator, sqlserver, "MERGE AudDispEst\nUPDATE AdjuntosDispensacionDetalle")
-    Rel(aggregator, event_publisher, "Publica audit_completed | audit_failed\n| batch_completed[_with_errors]")
-    Rel(aggregator, batch_job_store, "Actualiza progreso del job")
+    Rel(persistence_queue, redis, "EVAL Lua + XADD audit.persistence:{queue}")
+    Rel(persistence_worker, event_consumer, "Extiende (Template Method)")
+    Rel(persistence_worker, state_store, "getAudit(), completeAudit()")
+    Rel(persistence_worker, persistence_queue, "advance() tras éxito o DLQ")
+    Rel(persistence_worker, persistence_model, "persist(), updateFinalTimings()")
+    Rel(persistence_model, sqlserver, "Transacción PDO sqlsrv")
+    Rel(persistence_worker, event_publisher, "Publica audit_completed | audit_failed\n| batch_completed[_with_errors]")
+    Rel(persistence_worker, batch_job_store, "Actualiza progreso del job")
 
     Rel(event_consumer, redis, "XREADGROUP, XACK, xAutoClaim, XADD")
     Rel(event_publisher, redis, "XADD a stream correspondiente")

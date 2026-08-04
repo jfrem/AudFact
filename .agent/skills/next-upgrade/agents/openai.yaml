@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next.js Upgrade"
+  short_description: "Actualiza Next.js con guías oficiales y codemods."
+  default_prompt: "Usa $next-upgrade para actualizar Next.js mediante la ruta incremental, codemods y verificaciones oficiales."

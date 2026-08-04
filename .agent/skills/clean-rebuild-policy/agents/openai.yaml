@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clean Rebuild Policy"
+  short_description: "Aplica clean rebuild y límites estrictos de MVP."
+  default_prompt: "Usa $clean-rebuild-policy para diseñar el cambio sin compatibilidad legacy, código muerto ni alcance fuera del MVP."

@@ -164,10 +164,12 @@ jobs:
           AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
           AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
+          AUDIT_WORKER_PERSISTENCE_REPLICAS: ${{ vars.AUDIT_WORKER_PERSISTENCE_REPLICAS }}
           AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
           AUDIT_IDEMPOTENCY_KEY_TTL: ${{ vars.AUDIT_IDEMPOTENCY_KEY_TTL }}
           AUDIT_JOB_TTL: ${{ vars.AUDIT_JOB_TTL }}
           AUDIT_STATE_TTL: ${{ vars.AUDIT_STATE_TTL }}
+          AUDIT_PERSISTENCE_QUEUE_TTL: ${{ vars.AUDIT_PERSISTENCE_QUEUE_TTL }}
           AUDIT_RESERVATION_TTL: ${{ vars.AUDIT_RESERVATION_TTL }}
           AUDIT_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_PENDING_RECLAIM_IDLE_MS }}
           AUDIT_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_PENDING_RECLAIM_INTERVAL_MS }}
@@ -357,10 +359,12 @@ jobs:
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-8}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_PERSISTENCE_REPLICAS' "${AUDIT_WORKER_PERSISTENCE_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"
             write_env_var 'AUDIT_IDEMPOTENCY_KEY_TTL' "${AUDIT_IDEMPOTENCY_KEY_TTL:-300}"
             write_env_var 'AUDIT_JOB_TTL' "${AUDIT_JOB_TTL:-604800}"
             write_env_var 'AUDIT_STATE_TTL' "${AUDIT_STATE_TTL:-604800}"
+            write_env_var 'AUDIT_PERSISTENCE_QUEUE_TTL' "${AUDIT_PERSISTENCE_QUEUE_TTL:-604800}"
             write_env_var 'AUDIT_RESERVATION_TTL' "${AUDIT_RESERVATION_TTL:-86400}"
             write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
             write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
@@ -468,5 +472,5 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-downloader worker-normalizer worker-policy worker-aggregator
+          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-downloader worker-normalizer worker-policy worker-persistence
           exit 1

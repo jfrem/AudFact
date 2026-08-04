@@ -1,3 +1,4 @@
-display_name: Audit Router
-short_description: Route audit requests to the minimal domain skill set and return one consolidated report.
-default_prompt: Route this audit request with audit-skill-router, select the correct domains, and produce one consolidated scored report.
+interface:
+  display_name: "Audit Router"
+  short_description: "Enruta auditorías al conjunto mínimo de dominios."
+  default_prompt: "Usa $audit-skill-router para seleccionar los dominios correctos y producir un único reporte consolidado."

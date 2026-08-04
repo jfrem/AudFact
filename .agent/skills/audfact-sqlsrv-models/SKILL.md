@@ -13,17 +13,21 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 
 ## Archivos clave
 
-| Archivo | Tamaño | Rol |
-|---|---|---|
-| `core/Database.php` | 5.8 KB | Singleton PDO: conexiones, transacciones, queries |
-| `app/Models/Model.php` | 4 KB | Base abstracta con `$fillable`, `$table`, CRUD |
-| `app/Models/ClientsModel.php` | 1.6 KB | Búsqueda/lookup de clientes |
-| `app/Models/InvoicesModel.php` | 1.1 KB | Búsqueda de facturas por facNitSec/fecha |
-| `app/Models/DispensationModel.php` | 3.4 KB | Source of truth: datos de dispensación |
-| `app/Models/AttachmentsModel.php` | 5.3 KB | Resolución de adjuntos (URL Drive o BLOB con stream optimizado) y consulta optimizada de requeridos (`AdjDisOpc='N'`) para pipeline IA |
-| `app/Models/AuditConfigModel.php` | 10 KB | Lectura/escritura de configuración dinámica (`AudDisp`, `AudDispCampo`) incluyendo `CodigoCampo` |
-| `app/Models/AuditStatusModel.php` | 17 KB | Persistencia de auditoría: `AudDispEst` (upsert MERGE) + `AdjuntosDispensacion` (updateAuditResult: aprobada masiva / rechazada puntual) |
-| `database/migrations/optimize_audit_indexes.sql` | 1 KB | Contiene índices non-clustered esenciales para el rendimiento del Query en InvoicesController limitando timeouts (`FacNitSec`, `FacFec`, `DisId` cubriendo colas) |
+| Archivo | Rol |
+|---|---|
+| `core/Database.php` | Construye conexiones PDO nombradas; ofrece acceso cacheado y apertura fresca |
+| `core/SqlServerConnectionExecutor.php` | Ejecuta callbacks con PDO fresco y retry por fase/modo |
+| `core/SqlServerOperationMode.php` | Clasifica lectura, escritura idempotente y escritura no reproducible |
+| `core/SqlServerOperationException.php` | Propaga contexto SQL sanitizado sin credenciales ni DSN |
+| `app/Models/Model.php` | Base con helpers `read`, `idempotentWrite` y `nonReplayableWrite`; no retiene PDO |
+| `app/Models/ClientsModel.php` | Búsqueda/lookup de clientes |
+| `app/Models/InvoicesModel.php` | Búsqueda de facturas por facNitSec/fecha |
+| `app/Models/DispensationModel.php` | Source of truth: datos de dispensación |
+| `app/Models/AttachmentsModel.php` | Contrato público histórico de adjuntos y enumeración física interna URL/BLOB para reconciliación del pipeline |
+| `app/Models/AuditConfigModel.php` | Lectura/escritura de configuración dinámica (`AudDisp`, `AudDispCampo`) |
+| `app/Models/AuditStatusModel.php` | Lectura de resultados, detalle y timings de auditoría |
+| `app/Models/AuditResultPersistenceModel.php` | Escritura dual transaccional idempotente y timings no reproducibles |
+| `database/migrations/optimize_audit_indexes.sql` | Índices non-clustered para búsquedas de facturas |
 
 ## Modelos y tablas
 
@@ -32,10 +36,11 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
 | `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `vw_discolnet_dispensas.DisId` como llave canónica de auditoría |
 | `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; pipeline selecciona por `DisId` |
-| `AttachmentsModel` | `AdjuntosDispensacion` | Adjuntos URL Drive o BLOB (stream en memoria) + variante de consulta `getRequiredAttachmentsByDisDetNro` para prefiltrado en auditoría IA |
+| `AttachmentsModel` | `AdjuntosDispensacion` | El endpoint conserva aliases históricos; el pipeline enumera todas las filas físicas por `attachment_id`, hace `LEFT JOIN` al catálogo con `NitSec` en el `ON` y materializa bytes + `DATALENGTH` al descargar |
 | `AuditConfigModel` | `Discolnet.dbo.AudDisp` + `Discolnet.dbo.AudDispCampo` | Configuración dinámica por cliente; lee y reemplaza campos activos, severidad, descripción visual, `TipoDato` y `CodigoCampo` |
-| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` | Estado de auditoría (upsert MERGE) + resultado en adjuntos. Incorpora lógica de fallback (si un hallazgo sintético u huérfano no encuentra su `AdjDisId` físico, se acopla a la `DISPENSA`). |
-| `Model` (base) | — | `$fillable`, `$table`, helpers CRUD |
+| `AuditStatusModel` | `Discolnet.dbo.AudDispEst` | Lectura de resumen, detalle, estadísticas, historial y timings persistidos. |
+| `AuditResultPersistenceModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Upsert serializable por `FacNro`, resultados documentales set-based y trazabilidad en una transacción. Conserva el fallback de hallazgos sintéticos o huérfanos hacia la `DISPENSA`. |
+| `Model` (base) | — | Ejecuta callbacks SQL por nombre y modo; nunca conserva una conexión PDO |
 
 `AuditStatusModel` expone `auditExecuted` como campo derivado para resultados públicos: una auditoría terminal con payload persistido (`findings`, `timings` o documentos procesados) cuenta como ejecutada aunque `EstAud=0` por requerir revisión humana.
 
@@ -48,21 +53,31 @@ vw_discolnet_dispensas.DisId == AudDispEst.FacSec (columna legacy)
 DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 ```
 
-`AudDispEst.FacNro` es la PK operativa de resultados persistidos; `AuditStatusModel` hace `MERGE`, detalle y timings por `FacNro`, mientras `FacSec` conserva `DisId`.
+`AudDispEst.FacNro` es la PK operativa de resultados persistidos; `AuditResultPersistenceModel` hace `UPDATE WITH (UPDLOCK, SERIALIZABLE)` e `INSERT` cuando no existe, mientras `AuditStatusModel` consulta detalle y timings por `FacNro`. `FacSec` conserva `DisId`.
 
 `vw_discolnet_dispensas.facsec` es legacy/de agrupación y no debe mapearse como `DisId`.
 
-## Database.php — Capacidades
+## Conexiones y ejecución
 
 | Método | Descripción |
 |---|---|
-| `getConnection($name)` | Singleton con pool estático, named connections (`DB_*` / `{PREFIX}_DB_*`) |
+| `getConnection($name)` | Conexión cacheada por fingerprint; usar para health y consumidores puntuales, no en modelos de workers largos |
+| `openConnection($name)` | PDO nuevo no registrado en el cache; punto de entrada del executor |
 | `closeConnection($name)` | Cierra una o todas las conexiones |
 | `hasConnection($name)` | Verifica si una conexión está activa |
 | `getActiveConnections()` | Lista conexiones activas |
-| `transaction(callable)` | Transacción con auto-rollback en excepción |
-| `query($sql, $params)` | Query preparado con logging de errores |
-| `lastInsertId()` | Último ID insertado |
+| `SqlServerConnectionExecutor::execute()` | Abre PDO por intento, ejecuta callback y descarta la referencia |
+
+Política del executor:
+
+- Intentos máximos: 4; pausas antes de los intentos 2/3/4: 1, 5 y 30 segundos.
+- `READ` e `IDEMPOTENT_WRITE`: replay de errores de conexión `08*`,
+  `SHUTDOWN` y `HYT00` solo durante apertura.
+- Durante statement/commit, solo se repiten desconexiones `08*` y `SHUTDOWN`.
+- `HYT00` de statement, deadlock, error de datos y
+  `NON_REPLAYABLE_WRITE` no se reproducen automáticamente.
+- Cada intento recibe un objeto PDO distinto. Nunca guardar ese PDO en una
+  propiedad, singleton de modelo o closure de larga vida.
 
 **DSN**: `sqlsrv:Server={host},{port};Database={db};TrustServerCertificate=yes;ConnectionPooling={0|1};LoginTimeout={timeout}`
 
@@ -72,14 +87,22 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 - `EMULATE_PREPARES` = false — queries nativos
 - `STRINGIFY_FETCHES` = false — tipos nativos
 
-## Model base — Herencia
+## Model base — Ejecución por callback
 
 ```php
 class MiModel extends Model
 {
-    protected $table = 'mi_tabla';
-    protected $fillable = ['campo1', 'campo2'];
-    // Hereda: $this->db (PDO connection)
+    public function find(string $id): ?array
+    {
+        return $this->read(function (\PDO $pdo) use ($id): ?array {
+            $stmt = $pdo->prepare('SELECT * FROM mi_tabla WHERE id = :id');
+            $stmt->execute([':id' => $id]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $stmt->closeCursor();
+
+            return $row === false ? null : $row;
+        });
+    }
 }
 ```
 
@@ -88,7 +111,7 @@ class MiModel extends Model
 2. Validar tipo de parámetros (`PDO::PARAM_INT`, `PDO::PARAM_STR`, `PDO::PARAM_LOB`).
 3. Mantener consultas parametrizadas.
 4. Registrar logs técnicos solo con contexto útil.
-5. Probar ruta/controlador que consume el modelo.
+5. Elegir explícitamente el modo de replay y probar ruta/worker que consume el modelo.
 
 ## Reglas de implementación
 1. **No concatenar valores de usuario en SQL** — siempre parametrizar.
@@ -97,7 +120,10 @@ class MiModel extends Model
 4. **En streams BLOB, cerrar cursor y recurso siempre**.
 5. No mover lógica de negocio al SQL si rompe mantenibilidad.
 6. **Estandarización de Modelos**: Los métodos de búsqueda deben aceptar un array `$filters` (proveniente de `validateQuery` del controlador) para construir cláusulas `WHERE` dinámicas.
-7. Usar `Database::transaction()` para operaciones multi-statement.
+7. Encapsular toda transacción multi-statement dentro de un único callback `idempotentWrite()` o `nonReplayableWrite()`; rollback best-effort sin ocultar la excepción primaria.
+8. Para persistencia concurrente de resultados, evitar `MERGE` y read-before-write; usar bloqueo serializable por la PK operativa.
+9. Actualizar hallazgos documentales de una auditoría de forma set-based, no con un `UPDATE` por adjunto.
+10. En el pipeline BLOB, obtener bytes y `DATALENGTH` en la misma consulta y exigir igualdad exacta antes de publicar el documento.
 
 ## Patrón de Consumo de Datos y Filtrado 💎
 
@@ -134,7 +160,17 @@ public function getItems(int $page, int $pageSize, array $filters = []): array
     $params['offset'] = $offset;
     $params['pageSize'] = $pageSize;
 
-    return $this->db->query($sql, $params)->fetchAll();
+    return $this->read(function (\PDO $pdo) use ($sql, $params): array {
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':offset', $params['offset'], \PDO::PARAM_INT);
+        $stmt->bindValue(':pageSize', $params['pageSize'], \PDO::PARAM_INT);
+        // Bindear los filtros escalares restantes según su tipo.
+        $stmt->execute();
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+
+        return $rows;
+    });
 }
 ```
 
@@ -157,8 +193,14 @@ public function countItems(array $filters = []): int
             INNER JOIN vw_discolnet_dispensas v ON a.DisId = v.FacSec
             WHERE {$whereSql}";
 
-    $row = $this->db->query($sql, $params)->fetch();
-    return (int) ($row['total'] ?? 0);
+    return $this->read(function (\PDO $pdo) use ($sql, $params): int {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
+
+        return (int) ($row['total'] ?? 0);
+    });
 }
 ```
 
@@ -167,7 +209,7 @@ public function countItems(array $filters = []): int
 2. **No olvidar `PDO::PARAM_LOB` para columnas BLOB** — sin esto el stream no funciona.
 3. **No crear conexiones nombradas sin documentarlas** — agregar prefix `{NAME}_DB_*` en `.env.example`.
 4. **No ignorar `TrustServerCertificate=yes`** — requerido para SQL Server con certificados auto-firmados.
-5. **No dejar conexiones abiertas innecesariamente** — el Singleton las cache pero `closeConnection()` existe.
+5. **No retener PDO en propiedades de modelos/workers** — cada operación debe recibir la conexión desde `SqlServerConnectionExecutor`.
 6. **No hardcodear valores de filtros** — usar siempre el array `$filters` inyectado desde el controlador.
 7. **No bindear arrays directamente a parámetros PDO** — El driver SQLSRV lo interpreta como *Table-Valued Parameter* y lanza error `SQLSTATE[IMSSP]`. Itera el array y mapea variables escalares con `bindValue`.
 8. **No usar Expresiones de Tabla Comunes (CTEs / `WITH`) con placeholders nombrados en pdo_sqlsrv**: El driver de SQL Server para PDO falla al mapear y contar descriptores de parámetros nombrados dentro de CTEs, lanzando el error `SQLSTATE[07002]: COUNT field incorrect or syntax error`. En su lugar, usa subqueries convencionales derivadas en la cláusula `FROM`, las cuales son completamente compatibles con placeholders nombrados y semánticamente idénticas para el optimizador de SQL Server.
@@ -189,30 +231,57 @@ $sql = "SELECT DisId, Dispensa
         ORDER BY DisId ASC
         OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
-$stmt = $this->db->prepare($sql);
-$stmt->bindValue(':facNitSec', $facNitSec, \PDO::PARAM_INT);
-$stmt->bindValue(':date', $date, \PDO::PARAM_STR);
-$stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
-$stmt->bindValue(':pageSize', $pageSize, \PDO::PARAM_INT);
-$stmt->execute();
-return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+return $this->read(function (\PDO $pdo) use ($sql, $facNitSec, $date, $offset, $pageSize): array {
+    $stmt = $pdo->prepare($sql);
+    $stmt->bindValue(':facNitSec', $facNitSec, \PDO::PARAM_INT);
+    $stmt->bindValue(':date', $date, \PDO::PARAM_STR);
+    $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+    $stmt->bindValue(':pageSize', $pageSize, \PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    $stmt->closeCursor();
+
+    return $rows;
+});
 ```
 
 ### Ejemplo 2: lectura de BLOB como stream
 ```php
-$stmt = $this->db->prepare("SELECT a.AdjDisDoc FROM AdjuntosDispensacion a LEFT JOIN DispensacionDetalleServicio d ON d.DisId=a.DisId WHERE a.AdjDisId=:id AND d.DisDetNro=:disDetNro");
-$stmt->bindParam(':id', $attachmentId, \PDO::PARAM_STR);
-$stmt->bindParam(':disDetNro', $disDetNro, \PDO::PARAM_STR);
-$stmt->execute();
-$stmt->bindColumn(1, $stream, \PDO::PARAM_LOB);
+return $this->read(function (\PDO $pdo) use ($attachmentId, $disDetNro): array {
+    $stmt = $pdo->prepare(
+        'SELECT a.AdjDisDoc, DATALENGTH(a.AdjDisDoc) AS BlobSize
+         FROM AdjuntosDispensacion a
+         INNER JOIN DispensacionDetalleServicio d ON d.DisId = a.DisId
+         WHERE a.AdjDisId = :id AND d.DisDetNro = :disDetNro'
+    );
+    $stmt->execute([':id' => $attachmentId, ':disDetNro' => $disDetNro]);
+    $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+    $stmt->closeCursor();
+
+    return ['bytes' => (string) $row['AdjDisDoc'], 'expected_size' => (int) $row['BlobSize']];
+});
 ```
 
 ### Ejemplo 3: transacción
 ```php
-Database::transaction(function ($conn) use ($data) {
-    $stmt = $conn->prepare("INSERT INTO tabla (col) VALUES (:val)");
-    $stmt->execute([':val' => $data['val']]);
-    return $conn->lastInsertId();
+return $this->idempotentWrite(function (\PDO $pdo) use ($data): string {
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('UPDATE tabla SET col = :val WHERE id = :id');
+        $stmt->execute([':val' => $data['val'], ':id' => $data['id']]);
+        $pdo->commit();
+
+        return $data['id'];
+    } catch (\Throwable $error) {
+        if ($pdo->inTransaction()) {
+            try {
+                $pdo->rollBack();
+            } catch (\Throwable) {
+                // El rollback secundario no reemplaza el error primario.
+            }
+        }
+        throw $error;
+    }
 });
 ```
 
@@ -223,6 +292,8 @@ Database::transaction(function ($conn) use ($data) {
 4. Compatible con controladores actuales.
 5. Sin regresión en endpoints relacionados.
 6. BLOB streams cerrados correctamente.
+7. Modo de operación (`READ`, idempotente o no reproducible) justificado.
+8. Ningún PDO almacenado después del callback.
 
 ## ⚠️ Auto-Sync (OBLIGATORIO post-implementación)
 

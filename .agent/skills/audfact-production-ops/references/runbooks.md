@@ -78,7 +78,7 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
 Si falla:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose logs --tail=120 nginx php worker-batch worker-orchestrator worker-downloader worker-extraction worker-normalizer worker-policy worker-aggregator"
+powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\scripts\Invoke-AudFactProdSsh.ps1 -Command "cd /home/admon/audfact-prod && docker compose logs --tail=120 nginx php worker-batch worker-orchestrator worker-downloader worker-extraction worker-normalizer worker-policy worker-persistence"
 ```
 
 ## Deploy Normal con GitHub Actions

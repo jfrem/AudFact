@@ -114,12 +114,12 @@ class AuditDataService
     /**
      * Obtiene los adjuntos asociados a una dispensación.
      *
-     * @return array<int,array<string,mixed>> Lista de adjuntos con metadata y BLOBs.
+     * @return array<int,array<string,mixed>> Filas físicas de adjuntos, una por attachment_id.
      */
     public function getAttachments(string $disDetNro, string $nitSec): array
     {
         $start = microtime(true);
-        $atts  = $this->attachmentsModel->getRequiredAttachmentsByDisDetNro($disDetNro, $nitSec);
+        $atts  = $this->attachmentsModel->getPhysicalAttachmentsByDisDetNro($disDetNro, $nitSec);
 
         Logger::info('AuditDataService::getAttachments', [
             'dis_det_nro' => $disDetNro,

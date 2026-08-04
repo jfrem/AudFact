@@ -15,7 +15,7 @@ final class DocumentDuplicationEvaluator
     public static function evaluate(array $audit): array
     {
         $findings = [];
-        $documentsByHash = [];
+        $documentsByHashAndAttachment = [];
 
         foreach (($audit['documents'] ?? []) as $documentState) {
             if (!is_array($documentState)) {
@@ -27,15 +27,20 @@ final class DocumentDuplicationEvaluator
                 continue;
             }
 
-            $documentsByHash[$hash][] = self::documentName($documentState);
-        }
-
-        foreach ($documentsByHash as $hash => $documentNames) {
-            if (count($documentNames) <= 1) {
+            $attachmentId = trim((string) ($documentState['attachment_id'] ?? ''));
+            if ($attachmentId === '') {
                 continue;
             }
 
-            foreach ($documentNames as $documentName) {
+            $documentsByHashAndAttachment[$hash][$attachmentId] ??= self::documentName($documentState);
+        }
+
+        foreach ($documentsByHashAndAttachment as $hash => $documentsByAttachmentId) {
+            if (count($documentsByAttachmentId) <= 1) {
+                continue;
+            }
+
+            foreach ($documentsByAttachmentId as $documentName) {
                 $findings[] = self::finding($hash, $documentName);
             }
         }

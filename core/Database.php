@@ -31,6 +31,33 @@ class Database
             return self::$connections[$cacheKey];
         }
 
+        try {
+            self::$connections[$cacheKey] = self::createConnection($name, $config);
+        } catch (\RuntimeException $error) {
+            Logger::error("Error de conexión a la base de datos '{$name}'", [
+                'error_class' => $error::class,
+            ]);
+            throw $error;
+        }
+        self::$connectionAliases[$name] = $cacheKey;
+        Logger::info("Conexión a base de datos '{$name}' establecida correctamente.");
+
+        return self::$connections[$cacheKey];
+    }
+
+    /**
+     * Abre una conexion nueva sin registrarla en el cache estatico.
+     */
+    public static function openConnection(string $name = 'default'): PDO
+    {
+        return self::createConnection($name, self::resolveConnectionConfig($name));
+    }
+
+    /**
+     * @param array{host:string,port:string,db:string,user:string,pass:string,persistent:bool,pooling:bool,timeout:int,encrypt:string,trustCert:string} $config
+     */
+    private static function createConnection(string $name, array $config): PDO
+    {
         $host = $config['host'];
         $port = $config['port'];
         $db = $config['db'];
@@ -82,12 +109,8 @@ class Database
         $dsn .= ";LoginTimeout={$timeout}";
 
         try {
-            self::$connections[$cacheKey] = new PDO($dsn, $user, $pass, $options);
-            self::$connectionAliases[$name] = $cacheKey;
-            Logger::info("Conexión a base de datos '{$name}' establecida correctamente.");
-            return self::$connections[$cacheKey];
+            return new PDO($dsn, $user, $pass, $options);
         } catch (PDOException $e) {
-            Logger::error("Error de conexión a la base de datos '{$name}': " . $e->getMessage());
             throw new \RuntimeException("Error de conexión a la base de datos '{$name}'", 500, $e);
         }
     }

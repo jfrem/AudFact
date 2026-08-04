@@ -1,3 +1,4 @@
-display_name: Architecture Review
-short_description: Review architecture boundaries, coupling, and scalability risks with deterministic scoring.
-default_prompt: Review this repository architecture using the architecture-assessment skill and provide findings, score, and 30-60-90 plan.
+interface:
+  display_name: "Architecture Review"
+  short_description: "Evalúa límites, acoplamiento y escalabilidad."
+  default_prompt: "Usa $architecture-assessment para revisar la arquitectura con evidencia, scoring y un plan 30-60-90."

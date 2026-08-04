@@ -50,7 +50,6 @@
       "name": "audfact-frontend",
       "skills": [
         "next-best-practices",
-        "ui-ux-pro-max",
         "impeccable",
         "audfact-docs-sync"
       ]
@@ -60,6 +59,13 @@
       "skills": [
         "audfact-docs-sync",
         "audfact-project-overview"
+      ]
+    },
+    {
+      "name": "audfact-testing",
+      "skills": [
+        "phpunit-test-architect",
+        "audfact-docs-sync"
       ]
     }
   ]

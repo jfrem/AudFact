@@ -4,38 +4,45 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use Core\Database;
+use Core\SqlServerConnectionExecutor;
+use Core\SqlServerOperationMode;
 
 class Model
 {
-    protected \PDO $readDb;
-    protected ?\PDO $writeDb = null;
+    protected SqlServerConnectionExecutor $executor;
     protected string $table = '';
     protected string $readConnectionName = 'db2';
     protected string $writeConnectionName = 'default';
 
-
-    /**
-     * Inicializa conexiones separadas para lectura y escritura.
-     *
-     * @return void
-     */
-    public function __construct()
+    public function __construct(?SqlServerConnectionExecutor $executor = null)
     {
-        $this->readDb = Database::getConnection($this->readConnectionName);
+        $this->executor = $executor ?? new SqlServerConnectionExecutor();
     }
 
-    /**
-     * Retorna la conexión de escritura, instanciándola on-demand (lazy).
-     * Modelos de solo lectura nunca crean esta conexión.
-     *
-     * @return \PDO
-     */
-    protected function getWriteDb(): \PDO
+    protected function read(callable $operation): mixed
     {
-        if ($this->writeDb === null) {
-            $this->writeDb = Database::getConnection($this->writeConnectionName);
-        }
-        return $this->writeDb;
+        return $this->executor->execute(
+            $this->readConnectionName,
+            SqlServerOperationMode::READ,
+            $operation
+        );
+    }
+
+    protected function idempotentWrite(callable $operation): mixed
+    {
+        return $this->executor->execute(
+            $this->writeConnectionName,
+            SqlServerOperationMode::IDEMPOTENT_WRITE,
+            $operation
+        );
+    }
+
+    protected function nonReplayableWrite(callable $operation): mixed
+    {
+        return $this->executor->execute(
+            $this->writeConnectionName,
+            SqlServerOperationMode::NON_REPLAYABLE_WRITE,
+            $operation
+        );
     }
 }

@@ -1,6 +1,6 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-*-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
 ---
 
 # AudFact Audit Gemini (Event-Driven)
@@ -15,16 +15,21 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | Archivo | Rol |
 |---|---|
 | `app/Services/Audit/Pipeline/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq` |
-| `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y envío a DLQ automático |
+| `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq`; `rules_evaluated` debe pasar exclusivamente por `AuditPersistenceQueue` |
+| `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y DLQ; SQL agotado y descarga técnica son terminales en la misma entrega |
 | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
-| `app/Services/Audit/Pipeline/AuditDataService.php` / `AuditDataServiceInterface.php` | Acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
-| `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | Servicio interno de integración con Drive/Local para descargar binarios |
-| `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, descarga el adjunto, guarda temporalmente el BLOB en Redis y publica `document_downloaded` (o `document_rejected` en fallo) |
+| `app/Services/Audit/Pipeline/AuditDataService.php` | Facade concreta de acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
+| `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | Descarga Drive/BLOB, valida bytes esperados y clasifica fallos técnicos |
+| `app/Services/Audit/Pipeline/AttachmentDownloadException.php` | Taxonomía tipada de fuente ausente/vacía, transferencia incompleta y fallo externo |
+| `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, guarda el BLOB en Redis y publica solo `document_downloaded`; propaga fallos técnicos |
+| `app/Services/Audit/Pipeline/DocumentRejectionReason.php` | Allowlist cerrada para rechazos comprobados de contenido |
+| `app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php` | Categoría y allowlist cerrada para rechazos de asociación lógica/física |
+| `app/Services/Audit/Pipeline/DocumentAttachmentMatcher.php` | Matcher puro, determinista y global 1:1 por nombre, ID corroborado y alias único |
+| `app/Services/Audit/Pipeline/DocumentAttachmentMatchResult.php` | DTO readonly que impide IDs lógicos o físicos duplicados en matches |
 | `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
-| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, resuelve FDV/config/adjuntos, construye `extraction_contract` desde `audit-config` y publica N `document_registered` |
+| `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, reconcilia todos los adjuntos físicos 1:1, publica matches y emite rechazos `DOCUMENT_MAPPING` controlados |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
-| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Consume `document_downloaded`, lee BLOB de Redis, calcula `document_hash`, gestiona cache Redis, invoca Gemini con prompt compacto y publica `document_extracted` |
+| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Extrae con Gemini y es el productor exclusivo de rechazos `document_content`, siempre con clase/origen/razón válidos |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
@@ -35,12 +40,14 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/DocumentDuplicationEvaluator.php` | Servicio funcional que evalúa colisiones SHA256 para prevenir fraude por duplicación documental. |
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items), incluyendo candidatos `valores` de evidencia v1, resolviendo dependencias de normalización cruzada. |
 | `app/Services/Audit/Pipeline/ResolvedAuditValue.php` | DTO inmutable para comparar FDV y documento con el mismo contrato (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`). |
-| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, y publica `rules_evaluated` cuando todos los documentos están normalizados o rechazados y evaluados |
-| `app/Services/Audit/Pipeline/AuditAggregationWorker.php` | Consume `rules_evaluated`, valida el outcome final, persiste en SQL y publica eventos terminales. No toma decisiones funcionales de auditoría. |
+| `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, guarda el outcome y lo entrega a `AuditPersistenceQueue` cuando todos los documentos están evaluados |
+| `app/Services/Audit/Pipeline/AuditPersistenceQueue.php` | Scheduler Redis/Lua idempotente: mantiene un evento activo por job y promueve el siguiente al cerrar el turno |
+| `app/Services/Audit/Pipeline/AuditPersistenceWorker.php` | Consume `rules_evaluated`, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales. No toma decisiones funcionales de auditoría. |
+| `app/Models/AuditResultPersistenceModel.php` | Escritura SQL transaccional del resumen, hallazgos por adjunto y trazabilidad de la factura |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
 | `app/Services/Audit/Telemetry/TelemetryPublisher.php` | Publica telemetría live best-effort en `audit.telemetry` desde cada worker en su fase real (`orchestration`, `download`, `extraction`, `normalization`, `policy`, `aggregation`). |
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
-| `app/Services/Audit/Pipeline/BatchJobStore.php` | Claves Redis `job:{id}` para batches async (claim slot, registrar audits, marcar completado) |
+| `app/Services/Audit/Pipeline/BatchJobStore.php` | Estado batch, reservas y métricas atómicas; las transiciones usan `job.status` y cubren `pending -> completed` directo |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
 | `app/Services/Audit/AuditFieldValueType.php` | Enum strategy-based de `TipoDato` explícito en `audit-config`: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/IDENTITY_DOC_NUMBER/CODE/TRACE_TOKEN/PERSON_NAME/INSTITUTION_NAME/ARTICLE_NAME/NIT`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTraceSetComparison()` (TRACE_TOKEN), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE, TRACE_TOKEN), `allowsSemanticGeminiFallback()` (ARTICLE_NAME y PERSON_NAME). `NIT` normaliza el número tributario colombiano eliminando el dígito de verificación (`-X`) y separadores de miles. Prohibido inferir tipos por nombre del campo. |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
@@ -61,7 +68,7 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 | `php bin/audit-worker.php extraction` | `audit.documents` | `extractors` |
 | `php bin/audit-worker.php normalizer` | `audit.documents` | `normalizers` |
 | `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
-| `php bin/audit-worker.php aggregator` | `audit.results` | `aggregator` |
+| `php bin/audit-worker.php persistence` | `audit.persistence:{queue}` | `persistence` |
 
 El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 7 servicios con este mismo binario y argumento distinto.
 
@@ -78,8 +85,9 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 |---|---|---|
 | `audit.batch.inbox` | `AuditController` | `batch_requested` |
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
-| `audit.documents` | Orchestrator / Downloader / Extractor / Normalizer / Policy | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
-| `audit.results` | Policy / Aggregator | `rules_evaluated`, `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+| `audit.documents` | Orchestrator (`registered`/mapping `rejected`), Downloader (`downloaded`), Extractor (`extracted`/content `rejected`), Normalizer (`normalized`) | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
+| `audit.persistence:{queue}` | `AuditPersistenceQueue` | `rules_evaluated` |
+| `audit.results` | Persistence Worker | `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.telemetry` | Workers de auditoría | Eventos live `started`, `completed`, `failed`, `rejected` por fase real del DAG |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
@@ -88,7 +96,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | Variable | Uso |
 |---|---|
 | `GEMINI_API_KEY` | Credencial obligatoria para el extractor |
-| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3-flash-preview`) |
+| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.5-flash`) |
 | `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica; en Gemini 3.1 dejar `THINKING_LEVEL` vacío si se desea omitir `thinkingConfig` |
@@ -99,6 +107,8 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | `AUDIT_JOB_TTL` | TTL de estado de jobs batch async en Redis (default 604800) |
 | `AUDIT_STATE_TTL` | TTL de estado transitorio de auditorias en Redis (default 604800) |
 | `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | Réplicas SQL globales (default 3); la cola limita a una activa por job |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | TTL de turnos, pendientes y deduplicación de persistencia (default 604800) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
 | `AUDIT_RESPONSE_IA_ENABLED`, `AUDIT_RESPONSE_IA_DIR` | Controlan snapshots Gemini locales; producción nunca persiste snapshots por hard-deny de `APP_ENV=production` |
@@ -109,13 +119,14 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 ## Flujo técnico
 
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
-2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV (`/dispensation/{DisDetNro}`), valida el contrato de identidad (`payload.dis_id` = `FDV.header.DisId` cuando venga del batch), obtiene `audit-config` por `NitSec`, catálogo documental y publica N `document_registered` en orden ascendente por `docId`. Adicionalmente evalúa requerimientos sintéticos por contrato (ej. `ConDisRefSinAut` en facturas); si un documento no es requerido se elimina del config, si es requerido pero no fue proporcionado por la farmacia, en vez de encolarlo inyecta un hallazgo sintético directo a Redis.
-3. `AttachmentDownloadWorker` consume `document_registered`, descarga el adjunto por URL interna y lo almacena temporalmente en Redis con key lógica `audit:blob:*` (`RedisClient` aplica `REDIS_PREFIX`). Publica `document_downloaded` con `blob_reference_key` y `document_hash`; si la descarga falla publica `document_rejected`.
-4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Si es inválido estructuralmente, marca `rejected`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con function calling dinámico. Si Gemini lanza HTTP 400 por error de contenido (ej. "no pages"), captura la excepción y emite `document_rejected` en vez de fallar. Si es exitoso, publica `document_extracted`.
+2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV, `audit-config`, catálogo y todos los adjuntos físicos. Ejecuta una sola reconciliación global mediante `DocumentAttachmentMatcher`: nombre exacto normalizado, ID corroborado y alias único. Cada `attachment_id` se usa como máximo una vez. Los matches publican `document_registered` con trazabilidad lógica/física; missing, ambiguous, no content y reused se registran como rechazados y publican `document_rejected` con `rejection_category=DOCUMENT_MAPPING`, sin descarga ni Gemini. La regla `Autorizacion=R` reutiliza ese mismo resultado y solo transforma ausencia real en el hallazgo sintético `AUT` existente.
+3. `AttachmentDownloadWorker` consume `document_registered`, descarga el adjunto y lo almacena temporalmente en Redis con key lógica `audit:blob:*` (`RedisClient` aplica `REDIS_PREFIX`). Para BLOB exige `bytes === DATALENGTH`. Publica `document_downloaded`; fuente ausente/vacía, transferencia parcial, SQL o Drive son fallos técnicos y se propagan, nunca publican `document_rejected`.
+4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Es el único productor autorizado de rechazos de contenido: todo rechazo incluye `rejection_class=document_content`, origen exacto y razón de `DocumentRejectionReason`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con function calling dinámico. Si Gemini lanza HTTP 400 por error de contenido confirmado, emite el rechazo tipado. Si es exitoso, publica `document_extracted`.
 5. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
-5. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue` para comparar cantidades agregadas, sets `TRACE_TOKEN` y valores ambiguos con el mismo contrato. Convierte `document_rejected` en un `policy_result` canónico con hallazgo `RECHAZADO`, severidad `HIGH` y `tipo_auditoria=integrity`; usa `ArticleSemanticMatchJudge` solo como fallback text-only de homologación de artículos (`TipoDato=article_name`) con perfil `semantic_match`, espera `docs_done + docs_rejected >= docs_total` y `docs_evaluated >= docs_total`, aplica visuales calculables como `VigenciaEntrega` a nivel agregado y publica `rules_evaluated` con hallazgos, métricas, `document_decisions`, `audit_result_data` y `completion_payload`.
-6. `AuditAggregationWorker` valida el outcome recibido, persiste en `AudDispEst` + `AdjuntosDispensacion` y publica `audit_completed` (o `audit_failed` si persistencia falla).
-7. Fallos recuperables se reintentan hasta `AUDIT_EVENT_MAX_RETRIES`; al agotar, `AuditEventConsumer` genera `dead_letter` automáticamente.
+6. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue`. Valida dos contratos cerrados sin fallback: contenido solo desde `DocumentExtractionWorker` y mapping solo desde `DocumentAuditOrchestrator`. Mapping genera hallazgo `MAP`, severidad alta, `RECHAZADO` e `integrity`, preservando `logical_doc_id` y candidatos. Cualquier evento legacy o `DOWNLOAD_ERROR` falla técnicamente. Espera `docs_done + docs_rejected >= docs_total`, guarda el outcome y lo encola en `AuditPersistenceQueue`.
+7. `AuditPersistenceQueue` publica un único turno activo por job en `audit.persistence:{queue}`; jobs diferentes pueden usar las tres réplicas en paralelo.
+8. `AuditPersistenceWorker` aplica una barrera independiente contra `DOWNLOAD_ERROR` y contratos de rechazo inválidos, ejecuta la transacción dual idempotente sobre `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`, libera el turno y publica `audit_completed`.
+9. SQL usa PDO fresco por operación y replay interno solo para lectura/escritura idempotente, con pausas de 1/5/30 segundos. Al agotar SQL o ante un fallo técnico tipado de descarga, `AuditEventConsumer` genera `dead_letter`, hace ACK y ejecuta el cierre terminal en la misma entrega; no espera `XAUTOCLAIM`.
 
 ## Reglas de implementación (estrictas)
 
@@ -144,7 +155,12 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 17. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
 18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
 19. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
-20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` se persiste como `AudDispEst.FacNro`, que es la PK operativa de resultados; `AuditStatusModel` consulta detalle, `MERGE` y timings por `FacNro`. Ver `plans/audit-identity-contract.md`.
+20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` se persiste como `AudDispEst.FacNro`, que es la PK operativa de resultados; `AuditResultPersistenceModel` hace el upsert serializable y `AuditStatusModel` consulta detalle y timings por `FacNro`. Ver `plans/audit-identity-contract.md`.
+21. **Persistencia justa y atómica**: máximo un evento SQL activo por job; nunca separar el resumen, los hallazgos del adjunto y la trazabilidad en transacciones distintas.
+22. **Sin bypass de scheduling**: está prohibido publicar `rules_evaluated` mediante `AuditEventPublisher`; usar siempre `AuditPersistenceQueue`.
+23. **Fallo técnico no es rechazo documental**: PDO, SQL Server, Drive, fuente ausente/vacía durante descarga y transferencia parcial deben propagarse como excepciones técnicas. Está prohibido emitir `DOWNLOAD_ERROR`, `document_rejected` o un hallazgo funcional desde descarga. La ausencia o falta de contenido detectada durante la reconciliación de metadata sí pertenece a `DOCUMENT_MAPPING` y ocurre antes de encolar descarga.
+24. **Productores segregados y defensa en profundidad**: `DocumentAuditOrchestrator` solo publica rechazos `DOCUMENT_MAPPING`; `DocumentExtractionWorker` solo publica rechazos `document_content`. `RulesEvaluationWorker` valida categoría/clase, origen y allowlist, y `AuditPersistenceWorker` repite la barrera antes de SQL.
+25. **Reconciliación cerrada 1:1**: no seleccionar el primer candidato ni reutilizar un `attachment_id`. La única API del matcher es `matchAll()` y las únicas estrategias válidas son `exact_name`, `validated_id` y `unique_alias`.
 
 ## Omisiones de campos (runtime actual)
 
@@ -223,7 +239,7 @@ php bin/audit-worker.php downloader &
 php bin/audit-worker.php extraction &
 php bin/audit-worker.php normalizer &
 php bin/audit-worker.php policy &
-php bin/audit-worker.php aggregator &
+php bin/audit-worker.php persistence &
 ```
 
 ### Listar DLQ
@@ -238,8 +254,8 @@ curl http://localhost:8080/audit/dlq?limit=20
 3. Workers procesan el flujo completo para `T38250701547` (cliente 2426).
 4. Búsqueda de nombres legacy de cola y llamadas Redis list (`LPUSH`/`BRPOP`) sin coincidencias; tampoco debe existir orquestador monolítico anterior en `app/Services/Audit/`.
 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
-6. Persistencia final en `AudDispEst` + `AdjuntosDispensacion`.
-7. PHPUnit completo verde antes de merge; suite actual organizada en 31 archivos PHP bajo `tests/`.
+6. Persistencia final transaccional en `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`.
+7. PHPUnit completo verde antes de merge; suite actual organizada en 47 archivos PHP bajo `tests/`.
 8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` valida los fixtures golden.
 9. Hallazgos de tipo `CODE`/`TRACE_TOKEN` incluyen `valueType` y arrays de valores FDV/documento cuando aplican.
 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.

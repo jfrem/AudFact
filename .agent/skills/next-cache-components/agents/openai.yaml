@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next.js Cache Components"
+  short_description: "Guía caché y PPR para migraciones a Next.js 16."
+  default_prompt: "Usa $next-cache-components para diseñar la estrategia de caché y PPR durante una migración confirmada a Next.js 16 o superior."

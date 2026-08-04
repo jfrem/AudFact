@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Tests\Models;
 
 use App\Models\DispensationModel;
-use App\Models\Model;
+use Core\SqlServerConnectionExecutor;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
-use ReflectionProperty;
 
 final class DispensationModelTest extends TestCase
 {
@@ -62,15 +60,10 @@ final class DispensationModelTest extends TestCase
 
     private function makeModelWithReadDb(DispensationFakePdo $pdo): DispensationModel
     {
-        $reflection = new ReflectionClass(DispensationModel::class);
-        /** @var DispensationModel $model */
-        $model = $reflection->newInstanceWithoutConstructor();
-
-        $property = new ReflectionProperty(Model::class, 'readDb');
-        $property->setAccessible(true);
-        $property->setValue($model, $pdo);
-
-        return $model;
+        return new DispensationModel(new SqlServerConnectionExecutor(
+            connector: static fn(string $name): PDO => $pdo,
+            sleeper: static function (int $milliseconds): void {}
+        ));
     }
 }
 

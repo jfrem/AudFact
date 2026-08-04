@@ -620,6 +620,11 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $this->assertSame(0, $gateway->calls);
         $this->assertSame('UNKNOWN_FILE_SIGNATURE', $store->lastRejectedPatch['rejection_reason'] ?? null);
+        $this->assertSame('document_content', $store->lastRejectedPatch['rejection_class'] ?? null);
+        $this->assertSame(
+            DocumentExtractionWorker::class,
+            $store->lastRejectedPatch['rejection_origin'] ?? null
+        );
         $this->assertSame('FORMULA MEDICA', $store->lastRejectedPatch['document_type'] ?? null);
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
@@ -1031,6 +1036,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
         $this->assertSame('EMPTY_PDF_NO_PAGES', $publisher->published[0]->payload['rejection_reason']);
+        $this->assertSame('document_content', $publisher->published[0]->payload['rejection_class']);
         $this->assertSame('EMPTY_PDF_NO_PAGES', $store->lastRejectedPatch['rejection_reason']);
     }
 

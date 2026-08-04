@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impeccable Frontend"
+  short_description: "Diseña y refina interfaces frontend distintivas."
+  default_prompt: "Usa $impeccable para diseñar o refinar esta interfaz con contexto de producto y calidad de producción."

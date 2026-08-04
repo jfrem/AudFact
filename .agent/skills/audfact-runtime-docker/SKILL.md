@@ -15,7 +15,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 
 | Archivo | Rol |
 |---|---|
-| `docker-compose.yml` | Fuente única universal: build local cuando se trabaja en desarrollo, imágenes GHCR en producción, perfil `frontend` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `aggregator` |
+| `docker-compose.yml` | Fuente única universal: build local cuando se trabaja en desarrollo, imágenes GHCR en producción, perfil `frontend` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence` |
 | `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
@@ -57,7 +57,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ### Producción
-`docker-compose.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta como volumen dedicado; en producción `ResponseIADiskStore` tiene hard-deny por `APP_ENV=production`. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-aggregator`.
+`docker-compose.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta como volumen dedicado; en producción `ResponseIADiskStore` tiene hard-deny por `APP_ENV=production`. La topología productiva incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-normalizer`, `worker-policy` y `worker-persistence`.
 
 ## Variables .env obligatorias
 
@@ -84,7 +84,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `REDIS_MAXMEMORY` | `4gb` | Limite interno de memoria Redis (`--maxmemory`) |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | Politica de eviccion Redis para llaves con TTL |
 | `REDIS_CONTAINER_MEMORY` | `5G` | Limite de memoria del contenedor Redis |
-| `GEMINI_MODEL` | `gemini-3-flash-preview` | Modelo de auditoría IA |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | Modelo de auditoría IA |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `MINIMAL` | Nivel de razonamiento Gemini 3 para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
@@ -95,11 +95,13 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | Réplicas del worker que consume `document_registered` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | Réplicas SQL globales; la cola limita a una activa por job |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
 | `AUDIT_JOB_TTL` | `604800` | Retencion de estado de jobs batch async en Redis |
 | `AUDIT_STATE_TTL` | `604800` | Retencion de estado transitorio de auditorias en Redis |
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia |
 
 ## Flujo de revisión
 1. Verificar servicios en `docker-compose.yml`.
@@ -130,7 +132,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
 # Inspeccionar réplicas reales de workers
-wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy worker-persistence
 
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose pull
