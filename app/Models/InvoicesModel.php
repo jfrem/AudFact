@@ -43,14 +43,24 @@ class InvoicesModel extends Model
 
         $sql = $this->buildOptimizedBatchSql($finalSelect);
 
-        $stmt = $this->readDb->prepare($sql);
-        $this->bindInvoiceFilters($stmt, $filters);
-        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
-        $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+        $result = $this->read(function (PDO $connection) use (
+            $sql,
+            $filters,
+            $offset,
+            $pageSize
+        ): array {
+            $stmt = $connection->prepare($sql);
+            $this->bindInvoiceFilters($stmt, $filters);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            $stmt->bindValue(':pageSize', $pageSize, PDO::PARAM_INT);
+            $stmt->execute();
 
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         $maskedNitSec = '***' . substr((string) $filters['facNitSec'], -3);
         Logger::info('Executed SQL invoice search', [
@@ -87,12 +97,17 @@ class InvoicesModel extends Model
 
         $sql = $this->buildOptimizedBatchSql($finalSelect);
 
-        $stmt = $this->readDb->prepare($sql);
-        $this->bindInvoiceFilters($stmt, $filters);
-        $stmt->execute();
+        $row = $this->read(function (PDO $connection) use ($sql, $filters): array|false {
+            $stmt = $connection->prepare($sql);
+            $this->bindInvoiceFilters($stmt, $filters);
+            $stmt->execute();
 
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         return (int) ($row['total'] ?? 0);
     }
@@ -261,25 +276,36 @@ class InvoicesModel extends Model
 
         $sql = $this->buildOptimizedBatchSql($finalSelect);
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindValue(':facNitSec', $facNitSec, PDO::PARAM_INT);
-        $stmt->bindValue(':dateFromD', $dateFrom);
-        $stmt->bindValue(':dateToD', $dateTo);
+        $result = $this->read(function (PDO $connection) use (
+            $sql,
+            $facNitSec,
+            $dateFrom,
+            $dateTo,
+            $cursorWhere,
+            $cursor
+        ): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':facNitSec', $facNitSec, PDO::PARAM_INT);
+            $stmt->bindValue(':dateFromD', $dateFrom);
+            $stmt->bindValue(':dateToD', $dateTo);
 
-        if ($cursorWhere !== '') {
-            $stmt->bindValue(':cursorDate1', (string) $cursor['date']);
-            $stmt->bindValue(':cursorDate2', (string) $cursor['date']);
-            $stmt->bindValue(':cursorDate3', (string) $cursor['date']);
+            if ($cursorWhere !== '') {
+                $stmt->bindValue(':cursorDate1', (string) $cursor['date']);
+                $stmt->bindValue(':cursorDate2', (string) $cursor['date']);
+                $stmt->bindValue(':cursorDate3', (string) $cursor['date']);
+                $stmt->bindValue(':cursorDisId1', (string) $cursor['disId']);
+                $stmt->bindValue(':cursorDisId2', (string) $cursor['disId']);
+                $stmt->bindValue(':cursorDispensa1', (string) $cursor['dispensa']);
+            }
 
-            $stmt->bindValue(':cursorDisId1', (string) $cursor['disId']);
-            $stmt->bindValue(':cursorDisId2', (string) $cursor['disId']);
+            $stmt->execute();
 
-            $stmt->bindValue(':cursorDispensa1', (string) $cursor['dispensa']);
-        }
-
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         $maskedNitSec = '***' . substr((string) $facNitSec, -3);
         Logger::info('Executed SQL audit batch candidates', [

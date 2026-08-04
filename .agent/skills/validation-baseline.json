@@ -1,8 +1,9 @@
 {
   "baseline": "audfact-skills-validation",
-  "version": 1,
-  "updated_at": "2026-05-11",
+  "version": 4,
+  "updated_at": "2026-08-03",
   "root": ".agent/skills",
+  "validator": ".agent/skills/_shared/scripts/validate-skills.mjs",
   "checks": {
     "required_root_files": [
       "CATALOG.md",
@@ -87,6 +88,110 @@
       "files": [
         ".agent/skills/audfact-project-overview/SKILL.md",
         ".agent/skills/audfact-project-overview/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audfact-docs-sync",
+      "path": ".agent/skills/audfact-docs-sync",
+      "files": [
+        ".agent/skills/audfact-docs-sync/SKILL.md",
+        ".agent/skills/audfact-docs-sync/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "audit-skill-router",
+      "path": ".agent/skills/audit-skill-router",
+      "files": [
+        ".agent/skills/audit-skill-router/SKILL.md",
+        ".agent/skills/audit-skill-router/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "architecture-assessment",
+      "path": ".agent/skills/architecture-assessment",
+      "files": [
+        ".agent/skills/architecture-assessment/SKILL.md",
+        ".agent/skills/architecture-assessment/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "code-quality-assessment",
+      "path": ".agent/skills/code-quality-assessment",
+      "files": [
+        ".agent/skills/code-quality-assessment/SKILL.md",
+        ".agent/skills/code-quality-assessment/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "security-assessment",
+      "path": ".agent/skills/security-assessment",
+      "files": [
+        ".agent/skills/security-assessment/SKILL.md",
+        ".agent/skills/security-assessment/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "technical-governance-assessment",
+      "path": ".agent/skills/technical-governance-assessment",
+      "files": [
+        ".agent/skills/technical-governance-assessment/SKILL.md",
+        ".agent/skills/technical-governance-assessment/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "next-best-practices",
+      "path": ".agent/skills/next-best-practices",
+      "files": [
+        ".agent/skills/next-best-practices/SKILL.md",
+        ".agent/skills/next-best-practices/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "next-cache-components",
+      "path": ".agent/skills/next-cache-components",
+      "files": [
+        ".agent/skills/next-cache-components/SKILL.md",
+        ".agent/skills/next-cache-components/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "next-upgrade",
+      "path": ".agent/skills/next-upgrade",
+      "files": [
+        ".agent/skills/next-upgrade/SKILL.md",
+        ".agent/skills/next-upgrade/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "clean-rebuild-policy",
+      "path": ".agent/skills/clean-rebuild-policy",
+      "files": [
+        ".agent/skills/clean-rebuild-policy/SKILL.md",
+        ".agent/skills/clean-rebuild-policy/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "impeccable",
+      "path": ".agent/skills/impeccable",
+      "files": [
+        ".agent/skills/impeccable/SKILL.md",
+        ".agent/skills/impeccable/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "write-sdd-spec",
+      "path": ".agent/skills/write-sdd-spec",
+      "files": [
+        ".agent/skills/write-sdd-spec/SKILL.md",
+        ".agent/skills/write-sdd-spec/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "phpunit-test-architect",
+      "path": ".agent/skills/phpunit-test-architect",
+      "files": [
+        ".agent/skills/phpunit-test-architect/SKILL.md",
+        ".agent/skills/phpunit-test-architect/agents/openai.yaml"
       ]
     }
   ],

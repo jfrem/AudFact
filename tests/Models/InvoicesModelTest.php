@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Tests\Models;
 
 use App\Models\InvoicesModel;
-use App\Models\Model;
+use Core\SqlServerConnectionExecutor;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
-use ReflectionProperty;
 
 final class InvoicesModelTest extends TestCase
 {
@@ -93,15 +91,10 @@ final class InvoicesModelTest extends TestCase
 
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel
     {
-        $reflection = new ReflectionClass(InvoicesModel::class);
-        /** @var InvoicesModel $model */
-        $model = $reflection->newInstanceWithoutConstructor();
-
-        $property = new ReflectionProperty(Model::class, 'readDb');
-        $property->setAccessible(true);
-        $property->setValue($model, $pdo);
-
-        return $model;
+        return new InvoicesModel(new SqlServerConnectionExecutor(
+            connector: static fn(string $name): PDO => $pdo,
+            sleeper: static function (int $milliseconds): void {}
+        ));
     }
 }
 

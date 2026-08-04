@@ -122,6 +122,7 @@ final class AuditStateStoreTest extends TestCase
 
     public function testRegisterDocumentStoresDocumentStateWithEval(): void
     {
+        // Arrange:
         $auditId = AuditEvent::uuidV4();
         $documentId = AuditEvent::uuidV4();
 
@@ -129,7 +130,10 @@ final class AuditStateStoreTest extends TestCase
             ->expects($this->once())
             ->method('eval')
             ->with(
-                $this->stringContains("audit['documents']"),
+                $this->logicalAnd(
+                    $this->stringContains("audit['documents']"),
+                    $this->logicalNot($this->stringContains("audit['docs_rejected']"))
+                ),
                 [AuditStateStore::auditKey($auditId)],
                 $this->callback(function (array $args) use ($documentId): bool {
                     $this->assertSame($documentId, $args[0]);
@@ -140,10 +144,14 @@ final class AuditStateStoreTest extends TestCase
             )
             ->willReturn(1);
 
-        $this->assertTrue($this->store->registerDocument($auditId, $documentId, [
+        // Act:
+        $registered = $this->store->registerDocument($auditId, $documentId, [
             'status' => 'registered',
             'document_name' => 'DISPENSA',
-        ]));
+        ]);
+
+        // Assert:
+        $this->assertTrue($registered);
     }
 
     public function testMarkDocumentExtractedUpdatesDocumentAndCounters(): void

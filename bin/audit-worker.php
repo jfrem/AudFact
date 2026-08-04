@@ -33,8 +33,8 @@ $registry = [
         'class' => \App\Services\Audit\Pipeline\RulesEvaluationWorker::class,
         'requiredEnv' => ['GEMINI_API_KEY'],
     ],
-    'aggregator' => [
-        'class' => \App\Services\Audit\Pipeline\AuditAggregationWorker::class,
+    'persistence' => [
+        'class' => \App\Services\Audit\Pipeline\AuditPersistenceWorker::class,
         'requiredEnv' => [],
     ],
     'batch' => [

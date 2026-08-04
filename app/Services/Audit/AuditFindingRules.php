@@ -395,15 +395,27 @@ final class AuditFindingRules
         $hasComma = str_contains($normalized, ',');
 
         if ($hasDot && $hasComma) {
-            $lastDot   = strrpos($normalized, '.');
-            $lastComma = strrpos($normalized, ',');
-            if ($lastComma !== false && $lastDot !== false && $lastComma > $lastDot) {
+            $lastDot   = (int) strrpos($normalized, '.');
+            $lastComma = (int) strrpos($normalized, ',');
+            if ($lastComma > $lastDot) {
                 $normalized = str_replace(['.', ','], ['', '.'], $normalized);
             } else {
                 $normalized = str_replace(',', '', $normalized);
             }
         } elseif ($hasComma) {
-            $normalized = str_replace(',', '.', $normalized);
+            $parts = explode(',', $normalized);
+            $lastPart = end($parts);
+            if (strlen((string) $lastPart) === 3) {
+                $normalized = str_replace(',', '', $normalized);
+            } else {
+                $normalized = str_replace(',', '.', $normalized);
+            }
+        } elseif ($hasDot) {
+            $parts = explode('.', $normalized);
+            $lastPart = end($parts);
+            if (strlen((string) $lastPart) === 3) {
+                $normalized = str_replace('.', '', $normalized);
+            }
         }
 
         if (!is_numeric($normalized)) {

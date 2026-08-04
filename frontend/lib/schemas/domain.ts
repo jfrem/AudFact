@@ -65,6 +65,7 @@ export const AsyncMetricsSchema = z.object({
   streamDepths: z.object({
     inbox: z.number().int().nonnegative(),
     documents: z.number().int().nonnegative(),
+    persistence: z.number().int().nonnegative(),
     results: z.number().int().nonnegative(),
     batchInbox: z.number().int().nonnegative(),
   }).optional(),
@@ -363,6 +364,12 @@ export const AuditDocumentDecisionSchema = z.object({
   documentName: z.string(),
   approved: z.boolean(),
   observation: z.string().nullable().optional(),
+  doc_id: z.string().nullable().optional(),
+  attachment_id: z.string().nullable().optional(),
+  rejection_class: z.string().nullable().optional(),
+  rejection_category: z.string().nullable().optional(),
+  rejection_reason: z.string().nullable().optional(),
+  candidate_attachment_ids: z.array(z.string()).optional(),
 }).passthrough();
 
 export const AuditResultDetailSchema = AuditResultRecordSchema.extend({

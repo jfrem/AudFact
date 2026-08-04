@@ -49,6 +49,7 @@ Variables de capacidad inicial:
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | `worker-downloader` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | `worker-persistence` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | escaneo de pending |
 
@@ -64,6 +65,7 @@ Redis se configura desde Compose mediante variables no sensibles:
 | `AUDIT_JOB_TTL` | `604800` | Retencion de `job:{jobId}:state` durante 7 dias. |
 | `AUDIT_STATE_TTL` | `604800` | Retencion de `audit:{auditId}:state` durante 7 dias. |
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` durante 24h. |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia por job. |
 
 Validaciones operativas despues de deploy:
 
@@ -102,13 +104,14 @@ publicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`
 Comandos de diagnóstico:
 
 ```bash
-wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy
+wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy worker-persistence
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
+wsl docker compose exec redis redis-cli XINFO GROUPS 'audfact:audit.persistence:{queue}'
 ```
 
-Estrategia: subir primero `worker-downloader` cuando la espera aparezca en `document_registered` y Drive/SQL no esté saturado. Subir `worker-extraction` cuando la espera aparezca en `document_downloaded` y Gemini no esté devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini.
+Estrategia: subir primero `worker-downloader` cuando la espera aparezca en `document_registered` y Drive/SQL no esté saturado. Subir `worker-extraction` cuando la espera aparezca en `document_downloaded` y Gemini no esté devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini. Escalar `worker-persistence` solo cuando varios jobs distintos acumulen espera y SQL Server conserve capacidad; la cola siempre limita a una persistencia activa por job.
 
 Si `XINFO GROUPS` muestra `pending > 0` con `lag=0`, hay eventos entregados a un consumer que no hizo `XACK`. Los workers reclaman esos eventos periódicamente cuando superan `AUDIT_PENDING_RECLAIM_IDLE_MS`; no bajar este valor por debajo del peor caso de duración Gemini, porque puede duplicar procesamiento legítimo en curso.
 

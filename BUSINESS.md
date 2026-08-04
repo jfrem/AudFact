@@ -425,7 +425,7 @@ Tabla puente entre conceptos de negocio y su implementación técnica:
 | Extracción IA de documentos    | Google Gemini API (multimodal)                                            | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`         |
 | Comparación exacta / semántica | Motor de reglas PHP                                                       | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`             |
 | Verificaciones visuales        | Gemini detecta + PHP decide                                               | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php`           |
-| Resultado de auditoría         | Tabla `AudDispEst`: `FacSec` llave canónica, `FacNro` = `DisDetNro`       | `app/Models/AuditStatusModel.php`                                  |
+| Resultado de auditoría         | Tabla `AudDispEst`: `FacSec` conserva `DisId`, `FacNro` = `DisDetNro`     | `app/Models/AuditResultPersistenceModel.php`, `app/Models/AuditStatusModel.php` |
 | Decisión por documento         | `document_decisions` en resultado                                         | `RulesEvaluationWorker.php`                                        |
 | Vigencia de entrega            | Cálculo PHP: `FechaAutorizacion + N días`                                 | `RulesEvaluationWorker.php`                                        |
 | Glosa (prevención)             | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO`                                | Dashboard frontend                                                 |

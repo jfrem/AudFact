@@ -10,6 +10,7 @@ use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
+use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
 use Core\RedisClient;
 use DomainException;
 use InvalidArgumentException;
@@ -20,6 +21,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
 {
     public function testAuditCreatedFor2426PublishesThreeDocumentRegisteredEventsWithContractPayload(): void
     {
+        // Arrange:
         $publisher  = new InMemoryPublisher();
         $store      = new RecordingStateStore();
         $redis      = $this->createMock(RedisClient::class);
@@ -75,9 +77,9 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ],
             ],
             attachments: [
-                ['id_documento' => '1', 'nombre_documento' => 'DISPENSA',       'nombre_alternativo' => 'ANE',  'TipoAlmacenamiento' => 'URL'],
-                ['id_documento' => '2', 'nombre_documento' => 'AUTORIZACION',   'nombre_alternativo' => 'AUT',  'TipoAlmacenamiento' => 'URL'],
-                ['id_documento' => '3', 'nombre_documento' => 'FORMULA MEDICA', 'nombre_alternativo' => 'FORM', 'TipoAlmacenamiento' => 'URL'],
+                ['attachment_id' => '1', 'physical_catalog_id' => '1', 'physical_document_name' => 'DISPENSA',       'physical_catalog_alias' => 'ANE',  'storage_type' => 'URL'],
+                ['attachment_id' => '2', 'physical_catalog_id' => '2', 'physical_document_name' => 'AUTORIZACION',   'physical_catalog_alias' => 'AUT',  'storage_type' => 'URL'],
+                ['attachment_id' => '3', 'physical_catalog_id' => '3', 'physical_document_name' => 'FORMULA MEDICA', 'physical_catalog_alias' => 'FORM', 'storage_type' => 'URL'],
             ],
         );
 
@@ -101,8 +103,10 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
+        // Act:
         $orchestrator->processEvent($event);
 
+        // Assert:
         $this->assertSame(['87723098'], $dataService->requestedDisIds);
 
         // Comportamiento esperado: 3 documentos registrados y publicados
@@ -116,6 +120,12 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('ANE', $payload['nombre_alternativo']);
         $this->assertSame('/dispensation/T38250701547/attachments/download/1', $payload['download_url']);
         $this->assertSame('URL', $payload['tipo_almacenamiento']);
+        $this->assertSame('1', $payload['doc_id']);
+        $this->assertSame('1', $payload['attachment_id']);
+        $this->assertSame('1', $payload['physical_catalog_id']);
+        $this->assertSame('DISPENSA', $payload['physical_document_name']);
+        $this->assertSame('exact_name', $payload['attachment_match_strategy']);
+        $this->assertSame(['1'], $payload['attachment_match_candidates']);
         $this->assertArrayNotHasKey('extraction_schema', $payload);
         $this->assertIsArray($payload['extraction_contract']);
         $this->assertContractFunctionNames($payload['extraction_contract'], [
@@ -206,6 +216,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
     public function testFallbackMatchesAttachmentByNormalizedName(): void
     {
+        // Arrange:
         $publisher   = new InMemoryPublisher();
         $store       = new RecordingStateStore();
         $redis       = $this->createMock(RedisClient::class);
@@ -236,7 +247,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ],
             ],
             attachments: [
-                ['id_documento' => '99', 'nombre_documento' => 'FORMULA MEDICA', 'nombre_alternativo' => 'FORM', 'TipoAlmacenamiento' => 'BLOB'],
+                ['attachment_id' => '99', 'physical_catalog_id' => '99', 'physical_document_name' => 'FORMULA MEDICA', 'physical_catalog_alias' => 'FORM', 'storage_type' => 'BLOB'],
             ],
         );
 
@@ -258,16 +269,21 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
+        // Act:
         $orchestrator->processEvent($event);
 
+        // Assert:
         $this->assertCount(1, $publisher->published);
         $this->assertSame('FORMULA_MEDICA', $publisher->published[0]->payload['tipo_documento']);
         $this->assertSame('99', $publisher->published[0]->payload['attachment_id']);
         $this->assertSame('prompt-fixture', $publisher->published[0]->payload['system_prompt']);
     }
 
-    public function testMissingRequiredAttachmentThrowsRuntimeException(): void
+    public function testMissingRequiredAttachmentPublishesControlledMappingRejection(): void
     {
+        // Arrange:
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
         $redis       = $this->createMock(RedisClient::class);
         $dataService = new StubAuditDataService(
             dispensation: [
@@ -299,11 +315,11 @@ final class DocumentAuditOrchestratorTest extends TestCase
         );
 
         $orchestrator = new DocumentAuditOrchestrator(
-            stateStore:    new RecordingStateStore(),
+            stateStore:    $store,
             dataService:   $dataService,
 
             redis:         $redis,
-            publisher:     new InMemoryPublisher(),
+            publisher:     $publisher,
             consumerName:  'test-orchestrator'
         );
 
@@ -316,9 +332,106 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ]
         );
 
-        $this->expectException(DomainException::class);
-        $this->expectExceptionMessage('Adjuntos no encontrados');
+        // Act:
         $orchestrator->processEvent($event);
+
+        // Assert:
+        $this->assertSame(1, $store->docsTotal);
+        $this->assertCount(1, $store->registeredDocuments);
+        $this->assertCount(1, $store->rejectedDocuments);
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame(
+            DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_MISSING,
+            $publisher->published[0]->payload['rejection_reason']
+        );
+        $this->assertSame(
+            DocumentMappingRejectionReason::CATEGORY,
+            $publisher->published[0]->payload['rejection_category']
+        );
+        $this->assertSame('DISPENSA', $publisher->published[0]->payload['document_type']);
+        $this->assertSame('1', $publisher->published[0]->payload['logical_doc_id']);
+        $this->assertSame([], $publisher->published[0]->payload['candidate_attachment_ids']);
+        $this->assertNotEmpty($publisher->published[0]->payload['rejected_at']);
+        $this->assertSame('registered', $store->registeredDocuments[0]['state']['status']);
+        $this->assertSame('', $store->registeredDocuments[0]['state']['attachment_id']);
+        $this->assertNull($store->registeredDocuments[0]['state']['attachment_match_strategy']);
+        $this->assertSame(
+            DocumentMappingRejectionReason::CATEGORY,
+            $store->rejectedDocuments[0]['patch']['rejection_category']
+        );
+    }
+
+    public function test2624OrchestrationPublishesFourDistinctPhysicalMappings(): void
+    {
+        // Arrange:
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $documents = [
+            'DISPENSA' => ['docId' => 1, 'fields' => [], 'visualChecks' => []],
+            'AUTORIZACION' => ['docId' => 2, 'fields' => [], 'visualChecks' => []],
+            'FORMULA MEDICA' => ['docId' => 3, 'fields' => [], 'visualChecks' => []],
+            'VALIDADOR DE DERECHOS' => ['docId' => 4, 'fields' => [], 'visualChecks' => []],
+        ];
+        $dataService = new StubAuditDataService(
+            dispensation: [
+                'header' => [
+                    'NitSec' => '2624',
+                    'DisId' => '87723098',
+                    'NumeroFactura' => 'T38250701547',
+                    'Autorizacion' => 'S',
+                ],
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
+                ['NitMedDocId' => 2, 'NitMedDocCodAlt' => 'PDE', 'NitMedDocNom' => 'AUTORIZACION'],
+                ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'OPF', 'NitMedDocNom' => 'FORMULA MEDICA'],
+                ['NitMedDocId' => 4, 'NitMedDocCodAlt' => 'PDE', 'NitMedDocNom' => 'VALIDADOR DE DERECHOS'],
+            ],
+            auditConfig: ['nitSec' => '2624', 'activo' => true, 'documents' => $documents],
+            attachments: [
+                ['attachment_id' => '1', 'physical_catalog_id' => '1', 'physical_document_name' => 'DISPENSA', 'physical_catalog_alias' => 'ANE', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '6', 'physical_catalog_id' => '6', 'physical_document_name' => 'AUTORIZACION', 'physical_catalog_alias' => 'PDE', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '3', 'physical_catalog_id' => '3', 'physical_document_name' => 'FORMULA MEDICA', 'physical_catalog_alias' => 'OPF', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '4', 'physical_catalog_id' => '4', 'physical_document_name' => 'VALIDADOR DE DERECHOS', 'physical_catalog_alias' => 'PDE', 'storage_type' => 'BLOB'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            payload: ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098']
+        );
+
+        // Act:
+        $orchestrator->processEvent($event);
+
+        // Assert:
+        $this->assertSame(4, $store->docsTotal);
+        $this->assertSame([], $store->rejectedDocuments);
+        $this->assertCount(4, $publisher->published);
+        $this->assertSame(
+            [
+                AuditEvent::TYPE_DOCUMENT_REGISTERED,
+                AuditEvent::TYPE_DOCUMENT_REGISTERED,
+                AuditEvent::TYPE_DOCUMENT_REGISTERED,
+                AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            ],
+            array_column($publisher->published, 'eventType')
+        );
+        $this->assertSame(['1', '6', '3', '4'], array_column(
+            array_column($store->registeredDocuments, 'state'),
+            'attachment_id'
+        ));
+        $this->assertSame(['exact_name', 'exact_name', 'exact_name', 'exact_name'], array_column(
+            array_column($store->registeredDocuments, 'state'),
+            'attachment_match_strategy'
+        ));
+        $this->assertCount(4, array_unique(array_column(
+            array_column($store->registeredDocuments, 'state'),
+            'attachment_id'
+        )));
     }
 
     public function testMissingDisIdThrowsRuntimeException(): void
@@ -496,7 +609,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
                 ],
             ],
             attachments: [
-                ['id_documento' => '1', 'nombre_documento' => 'DISPENSA', 'nombre_alternativo' => 'ANE', 'TipoAlmacenamiento' => 'URL'],
+                ['attachment_id' => '1', 'physical_catalog_id' => '1', 'physical_document_name' => 'DISPENSA', 'physical_catalog_alias' => 'ANE', 'storage_type' => 'URL'],
             ],
         );
     }
@@ -582,6 +695,8 @@ final class RecordingStateStore extends AuditStateStore
     public array $registeredDocuments = [];
     /** @var array<int,array<string,mixed>> */
     public array $patches = [];
+    /** @var array<int,array{auditId:string,documentId:string,patch:array<string,mixed>}> */
+    public array $rejectedDocuments = [];
 
     public function __construct()
     {
@@ -622,6 +737,16 @@ final class RecordingStateStore extends AuditStateStore
             'auditId'    => $auditId,
             'documentId' => $documentId,
             'state'      => $documentState,
+        ];
+        return true;
+    }
+
+    public function markDocumentRejected(string $auditId, string $documentId, array $patch = []): bool
+    {
+        $this->rejectedDocuments[] = [
+            'auditId' => $auditId,
+            'documentId' => $documentId,
+            'patch' => $patch,
         ];
         return true;
     }

@@ -44,7 +44,7 @@ Health check funcional del backend. Devuelve estado global y detalle de base de 
 
 ### `GET /metrics/async`
 
-Métricas operativas del pipeline async en Redis: profundidad de cola general (`queueDepth`), desglose de latencia por colas (`streamDepths`), DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
+Métricas operativas del pipeline async en Redis: profundidad general (`queueDepth`), desglose por stream (`inbox`, `documents`, `persistence`, `results`, `batchInbox`), DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
 
 ### `GET /config/public`
 
@@ -168,6 +168,11 @@ Lista metadatos de adjuntos para una dispensación.
 Campos de identidad en la respuesta:
 - `dispensacion_id`: `AdjuntosDispensacion.DisId`
 - `dis_det_nro`: `DispensacionDetalleServicio.DisDetNro`
+- `cliente`, `id_documento`, `nombre_documento`, `nombre_alternativo`
+- `almacenamiento_remoto`, `TipoAlmacenamiento`
+
+Este contrato público no expone los nombres internos `physical_*` usados por el
+matcher del pipeline.
 
 ### `GET /dispensation/{DisDetNro}/attachments/download/{attachmentId}`
 
@@ -420,7 +425,9 @@ Parámetros opcionales:
 
 ### `POST /audit/dlq/reprocess`
 
-Reprocesa un evento de DLQ republicando su evento original al stream canónico.
+Reprocesa un evento de DLQ. Los eventos `rules_evaluated` pasan por
+`AuditPersistenceQueue` para restablecer su deduplicación sin omitir el turno
+por job; los demás eventos se republican a su stream canónico.
 
 ```json
 {

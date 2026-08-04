@@ -117,7 +117,8 @@ sequenceDiagram
     participant G as Google Gemini API
     participant NW as DocumentNormalizer
     participant RW as RulesEvaluationWorker
-    participant AW as AuditAggregationWorker
+    participant PQ as AuditPersistenceQueue
+    participant PW as AuditPersistenceWorker
 
     Note over API,R: Fase HTTP Express (< 100ms)
     API->>R: Guarda/Chequea Job en Redis (BatchJobStore)
@@ -140,16 +141,23 @@ sequenceDiagram
     BW->>R: Actualiza metadata del job (Total facturas)
 
     R->>AO: xReadGroup (Consumer: orchestrator)
-    AO->>R: XADD audit.documents {document_registered}
+    AO->>DB: Consulta adjuntos físicos sin filtrar opcionalidad
+    AO->>AO: Reconciliación global 1:1 (nombre, ID corroborado, alias único)
+    alt Mapping inequívoco
+        AO->>R: XADD audit.documents {document_registered}
+    else Missing / ambiguous / no content / reused
+        AO->>R: Estado rejected + XADD audit.documents {document_rejected, category=DOCUMENT_MAPPING}
+        R->>RW: Policy genera hallazgo MAP sin descarga ni Gemini
+    end
     
     par Paralelo por cada Documento
         R->>DW: xReadGroup (Consumer: downloaders)
-        DW->>R: Guarda BLOB temporal audit:blob:*
+        DW->>DB: Lectura BLOB con PDO db2 fresco y validación bytes = DATALENGTH
         alt Descarga fallida
-            DW->>R: XADD audit.documents {document_rejected}
-            R->>RW: xReadGroup (Consumer: policy-engine)
-            RW->>RW: Genera hallazgo RECHAZADO tipo_auditoria=integrity
+            DW->>R: Telemetría failed + XADD audit.dlq + XACK
+            Note over DW,R: Fallo técnico; no document_rejected ni hallazgo funcional
         else Descarga exitosa
+            DW->>R: Guarda BLOB temporal audit:blob:*
             DW->>R: XADD audit.documents {document_downloaded}
             R->>EW: xReadGroup (Consumer: extractors)
             EW->>IV: valida tamaño, MIME y magic bytes
@@ -170,12 +178,15 @@ sequenceDiagram
 
     R->>RW: xReadGroup (Consumer: policy-engine)
     RW->>RW: Evaluación de Reglas vs FDV
-    RW->>R: XADD audit.results {rules_evaluated}
+    RW->>PQ: Encola rules_evaluated
+    PQ->>R: XADD audit.persistence:{queue} (un turno activo por job)
 
-    R->>AW: xReadGroup (Consumer: aggregator)
-    AW->>DB: Persistencia Final (AudDispEst)
-    AW->>R: XADD audit.results {audit_completed}
-    AW->>R: DEL audit:reservation:disid:{DisId} (owner token)
+    R->>PW: xReadGroup (Consumer: persistence)
+    PW->>DB: PDO default fresco + transacción idempotente dual
+    Note over PW,DB: Reintentos por desconexión: 1s / 5s / 30s
+    PW->>PQ: Libera turno y promueve el siguiente evento del job
+    PW->>R: XADD audit.results {audit_completed}
+    PW->>R: DEL audit:reservation:disid:{DisId} (owner token)
 ```
 
 ### Eventos Clave (Redis Streams)
@@ -187,8 +198,14 @@ sequenceDiagram
 | `document_registered` | `audit.documents` | Orchestrator | Downloader | Registra un adjunto para descarga |
 | `document_downloaded` | `audit.documents` | Downloader | Extractor | Transporta `blob_reference_key` y `document_hash` sin incluir base64 en el evento |
 | `document_extracted` | `audit.documents` | Extractor | Normalizer | Transporta datos crudos extraídos de Gemini |
-| `document_rejected` | `audit.documents` | Downloader / Extractor | Rule Engine | Transporta rechazo preventivo de descarga o de adjuntos vacíos, corruptos, con MIME inconsistente o no soportados, sin consumir Gemini |
+| `document_rejected` | `audit.documents` | Orchestrator / Extractor | Rule Engine | Transporta rechazos cerrados de mapping (`DOCUMENT_MAPPING`) o contenido (`document_content`) según origen; nunca representa una falla SQL/Drive/transferencia |
 | `document_normalized` | `audit.documents` | Normalizer | Rule Engine | Transporta datos estandarizados listos para reglas |
-| `rules_evaluated` | `audit.results` | Rule Engine | Aggregator | Transporta veredicto de reglas y auditoría |
-| `audit_completed` | `audit.results` | Aggregator | Bus Global / Job Store | Persiste en DB y notifica fin del proceso |
+| `rules_evaluated` | `audit.persistence:{queue}` | Rule Engine / Scheduler | Persistence Worker | Transporta el veredicto respetando un turno activo por job |
+| `audit_completed` | `audit.results` | Persistence Worker | Bus Global / Job Store | Confirma la transacción SQL y notifica fin del proceso |
 | `dead_letter` | `audit.dlq` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual administrativamente |
+
+Las operaciones SQL de lectura y escritura se ejecutan con un PDO fresco por
+intento. Las lecturas y escrituras idempotentes pueden repetirse ante
+desconexiones (`08*`, `SHUTDOWN`; `HYT00` solo en apertura). Cuando esa política
+se agota, `AuditEventConsumer` envía a DLQ, hace ACK y libera el turno en la
+misma entrega; no depende de los 600 segundos de `XAUTOCLAIM`.

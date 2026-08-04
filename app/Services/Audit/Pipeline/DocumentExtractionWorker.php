@@ -30,15 +30,28 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         Antes de responder, realiza una segunda verificación de todos los caracteres visualmente ambiguos, especialmente:
         * 0 ↔ O ↔ D ↔ Q
-        * 1 ↔ I ↔ l
+        * 1 ↔ I ↔ l ↔ 7 ↔ T
         * 2 ↔ Z
         * 3 ↔ E
+        * 4 ↔ A ↔ H
         * 5 ↔ S
-        * 6 ↔ G
+        * 6 ↔ G ↔ C
         * 8 ↔ B
+        * 9 ↔ q ↔ g
+        * P ↔ R ↔ F
+        * U ↔ V ↔ Y ↔ W
+        * M ↔ N ↔ W
+        * K ↔ X
+        * L ↔ I
         * rn ↔ m
         * vv ↔ w
         * cl ↔ d
+        * h ↔ b
+        * c ↔ e ↔ o ↔ a
+        * n ↔ h ↔ m
+        * t ↔ f ↔ l
+        * i ↔ j
+        * u ↔ v ↔ y
 
         No decidas un carácter únicamente por su apariencia. Verifica su forma, el contexto y el patrón esperado (texto, número o código).
         Nunca sustituyas caracteres para formar palabras más "probables" ni completes información mediante suposiciones. En códigos, matrículas, seriales o identificadores, transcribe únicamente lo que sea visible.
@@ -57,6 +70,30 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private const ERROR_INVALID_ARGS = 'GEMINI_EXTRACTION_INVALID_ARGS';
     private const ERROR_UNEXPECTED_FUNCTION_CALL = 'GEMINI_EXTRACTION_UNEXPECTED_FUNCTION_CALL';
     private const ERROR_DUPLICATE_FUNCTION_CALL = 'GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL';
+
+    /**
+     * Política de recuperación por función. Las funciones NO listadas aquí
+     * son críticas: su ausencia lanza excepción sin intentar recovery.
+     *
+     * - retryable: admite segunda llamada selectiva a Gemini (Fase 2)
+     * - fallback:  valor por defecto si la Fase 2 también falla (Fase 3)
+     *
+     * @see retryMissingFunctions() — Fase 2
+     * @see parseGeminiResponse()   — Orquestación de las 3 fases
+     */
+    private const FUNCTION_RECOVERY_POLICY = [
+        'detect_visual_checks' => [
+            'retryable' => true,
+            'fallback'  => ['visual_checks' => []],
+        ],
+        'assess_document_quality' => [
+            'retryable' => true,
+            'fallback'  => [
+                'document_quality' => 'legible',
+                'quality_notes'    => ['Fallback automático: Gemini omitió tras retry selectivo'],
+            ],
+        ],
+    ];
 
     private AuditStateStore $stateStore;
     private GeminiGateway $gateway;
@@ -153,7 +190,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     $event->documentId,
                     $disDetNro,
                     array_merge($telemetryMeta, [
-                        'reason' => (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE'),
+                        'reason' => (string) ($integrity['reason'] ?? ''),
                     ]),
                     $event->jobId
                 );
@@ -350,7 +387,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             : null;
         unset($response['X-Audit-Metrics']);
 
-        $extracted = $this->parseGeminiResponse($response, $contract);
+        $extracted = $this->parseGeminiResponse(
+            $response, $contract, $document, $documentType, $payload,
+            [
+                'dis_det_nro'   => $disDetNro,
+                'audit_id'      => $event->auditId,
+                'document_id'   => $event->documentId,
+                'document_type' => $documentType,
+            ]
+        );
         $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);
         $this->cachePut($cacheKey, $extracted);
 
@@ -452,9 +497,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         array $integrity
     ): void {
         $documentType = $this->resolveDocumentType($payload);
-        $reason = (string) ($integrity['reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
+        $reason = (string) ($integrity['reason'] ?? '');
+        if (!DocumentRejectionReason::isAllowed($reason)) {
+            throw new \DomainException(
+                'La extracción intentó publicar una razón documental no permitida.'
+            );
+        }
 
         $patch = [
+            'rejection_class'      => DocumentRejectionReason::REJECTION_CLASS,
             'rejection_reason'     => $reason,
             'rejection_origin'     => static::class,
             'document_type'        => $documentType,
@@ -864,12 +915,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     {
         $msg = $e->getMessage();
         if (stripos($msg, 'no pages') !== false) {
-            return 'EMPTY_PDF_NO_PAGES';
+            return DocumentRejectionReason::EMPTY_PDF_NO_PAGES;
         }
         if (stripos($msg, 'could not be decoded') !== false) {
-            return 'GEMINI_DECODE_FAILURE';
+            return DocumentRejectionReason::GEMINI_DECODE_FAILURE;
         }
-        return 'GEMINI_CONTENT_REJECTED';
+
+        throw new \DomainException('Error de contenido Gemini sin clasificación permitida.', 0, $e);
     }
 
     private function hasVisualCheck(mixed $visualChecks, string $expectedName): bool
@@ -959,8 +1011,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         return array_values($strings);
     }
 
-    private function parseGeminiResponse(array $response, array $contract): array
-    {
+    private function parseGeminiResponse(
+        array $response,
+        array $contract,
+        array $document,
+        string $documentType,
+        array $payload,
+        array $debugContext
+    ): array {
         $requiredNames = $this->requiredFunctionNames($contract);
         $candidate = $this->extractPrimaryCandidate($response);
         $this->assertSuccessfulFinishReason($candidate);
@@ -968,7 +1026,157 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $parts = $this->extractCandidateParts($candidate);
         $calls = $this->extractFunctionCalls($parts, $requiredNames);
 
+        // ── Detectar funciones faltantes ──
+        $missingRecoverable = [];
+        foreach ($requiredNames as $name) {
+            if (!array_key_exists($name, $calls)) {
+                if (!array_key_exists($name, self::FUNCTION_RECOVERY_POLICY)) {
+                    throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$name}");
+                }
+                $missingRecoverable[] = $name;
+            }
+        }
+
+        if ($missingRecoverable !== []) {
+            $auditId = $debugContext['audit_id'] ?? null;
+
+            Logger::info('Parallel FC incompleto: intentando retry selectivo', [
+                'missing_functions'  => $missingRecoverable,
+                'received_functions' => array_keys($calls),
+                'audit_id'           => $auditId,
+                'document_type'      => $documentType,
+            ]);
+            $this->incrementMetric('parallel_fc_retry_attempted');
+
+            // ── Fase 2: Retry selectivo ──
+            try {
+                $retryCalls = $this->retryMissingFunctions(
+                    $document, $documentType, $contract, $payload,
+                    $missingRecoverable, $debugContext
+                );
+                foreach ($retryCalls as $name => $args) {
+                    if (!array_key_exists($name, $calls)) {
+                        $calls[$name] = $args;
+                    }
+                }
+                $recovered = array_intersect($missingRecoverable, array_keys($retryCalls));
+                if ($recovered !== []) {
+                    $this->incrementMetric('parallel_fc_retry_recovered');
+                }
+            } catch (\Throwable $retryError) {
+                Logger::warning('Retry selectivo falló', [
+                    'missing_functions' => $missingRecoverable,
+                    'retry_error'       => $retryError->getMessage(),
+                    'audit_id'          => $auditId,
+                ]);
+            }
+
+            // ── Fase 3: Fallback último recurso ──
+            foreach ($missingRecoverable as $name) {
+                if (!array_key_exists($name, $calls)) {
+                    $calls[$name] = self::FUNCTION_RECOVERY_POLICY[$name]['fallback'];
+                    $this->incrementMetric('parallel_fc_fallback_applied');
+                    Logger::warning('Fallback de último recurso activado', [
+                        'function_name' => $name,
+                        'audit_id'      => $auditId,
+                    ]);
+                }
+            }
+        }
+
         return $this->validateParallelExtractionPayload($calls);
+    }
+
+    /**
+     * Fase 2: Retry selectivo — segunda llamada a Gemini solo con funciones faltantes.
+     *
+     * Reutiliza buildSystemPrompt() (mismo prompt) y extractFunctionCalls() (mismo parser)
+     * para evitar divergencia y duplicación.
+     *
+     * Validado empíricamente: 100% recuperación en 3/3 pruebas con Acta de Entrega
+     * de 17 items (X62260101059). ~190 tokens salida, ~3.4s duración.
+     *
+     * @param  array<string,mixed> $document      BLOB (mime + data)
+     * @param  string              $documentType  Tipo documental
+     * @param  array<string,mixed> $contract      Contrato de extracción
+     * @param  array<string,mixed> $payload       Payload del evento (para buildSystemPrompt)
+     * @param  array<int,string>   $missingNames  Funciones a recuperar
+     * @param  array<string,mixed> $debugContext  Contexto para logs
+     * @return array<string,array<string,mixed>>  Funciones recuperadas
+     */
+    private function retryMissingFunctions(
+        array $document,
+        string $documentType,
+        array $contract,
+        array $payload,
+        array $missingNames,
+        array $debugContext
+    ): array {
+        $allDeclarations = $this->contractFunctionDeclarations($contract);
+        $retryDeclarations = array_values(array_filter(
+            $allDeclarations,
+            fn(array $decl) => in_array($decl['name'] ?? '', $missingNames, true)
+        ));
+
+        if ($retryDeclarations === []) {
+            return [];
+        }
+
+        $systemPrompt = $this->buildSystemPrompt($payload, $contract);
+
+        $retryPrompt = "Documento objetivo: {$documentType}.\n"
+            . "Analiza el documento y ejecuta las siguientes funciones: "
+            . implode(', ', $missingNames) . ".\n"
+            . "Invoca cada función exactamente una vez en el mismo turno.";
+
+        $retryResponse = $this->gateway->sendWithFunctionCalling(
+            $retryPrompt,
+            [[
+                'mime'  => $document['mime'],
+                'data'  => $document['data'],
+                'label' => $documentType,
+            ]],
+            $systemPrompt,
+            [['functionDeclarations' => $retryDeclarations]],
+            [
+                'functionCallingConfig' => [
+                    'mode' => 'ANY',
+                    'allowedFunctionNames' => $missingNames,
+                ],
+            ],
+            GeminiGateway::TASK_EXTRACTION,
+            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                'maxOutputTokens' => 2048,
+            ]),
+            array_merge($debugContext, ['call_purpose' => 'retry_missing_functions'])
+        );
+
+        unset($retryResponse['X-Audit-Metrics']);
+
+        $retryCandidate = $this->extractPrimaryCandidate($retryResponse);
+        $this->assertSuccessfulFinishReason($retryCandidate);
+        $retryParts = $this->extractCandidateParts($retryCandidate);
+        $retryCalls = $this->extractFunctionCalls($retryParts, $missingNames);
+
+        Logger::info('Retry selectivo completado', [
+            'requested'  => $missingNames,
+            'recovered'  => array_keys($retryCalls),
+            'audit_id'   => $debugContext['audit_id'] ?? null,
+        ]);
+
+        return $retryCalls;
+    }
+
+    /**
+     * Incrementa un contador de telemetría en Redis (best-effort).
+     */
+    private function incrementMetric(string $metric): void
+    {
+        try {
+            $this->redis->hIncrBy('telemetry:async_metrics', $metric, 1);
+        } catch (\Throwable) {
+            // Best-effort — nunca interrumpir el flujo por telemetría
+        }
     }
 
     /**
@@ -1038,11 +1246,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $calls[$name] = $args;
         }
 
-        foreach ($requiredNames as $requiredName) {
-            if (!array_key_exists($requiredName, $calls)) {
-                throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$requiredName}");
-            }
-        }
+        // La validación de funciones faltantes se delega a parseGeminiResponse()
+        // que implementa las 3 fases de recuperación (retry selectivo + fallback).
 
         return $calls;
     }
@@ -1077,7 +1282,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY
         );
         $documentQuality = $this->validateDocumentQuality($qualityArgs['document_quality'] ?? null);
-        $qualityNotes = $this->requiredArray($qualityArgs, 'quality_notes', 'Gemini retornó assess_document_quality sin quality_notes');
+        $qualityNotes = is_array($qualityArgs['quality_notes'] ?? null)
+            ? $qualityArgs['quality_notes']
+            : ['Evaluación de calidad por defecto (propiedad no suministrada por la IA)'];
         $this->validateItems($items);
         $this->validateVisualChecks($visualChecks);
 

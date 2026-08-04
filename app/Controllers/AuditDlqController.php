@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditPersistenceQueue;
 use Core\RedisClient;
 use Core\Response;
 
@@ -104,7 +105,11 @@ class AuditDlqController extends Controller
 
         try {
             $event = AuditEvent::fromArray($original);
-            $this->buildEventPublisher()->publish($event);
+            if ($event->eventType === AuditEvent::TYPE_RULES_EVALUATED) {
+                $this->buildPersistenceQueue()->reprocess($event);
+            } else {
+                $this->buildEventPublisher()->publish($event);
+            }
         } catch (\Throwable $e) {
             Response::error('No se pudo reprocesar el evento DLQ', 503);
         }
@@ -125,5 +130,10 @@ class AuditDlqController extends Controller
     protected function buildEventPublisher(): AuditEventPublisher
     {
         return new AuditEventPublisher($this->buildRedisClient());
+    }
+
+    protected function buildPersistenceQueue(): AuditPersistenceQueue
+    {
+        return new AuditPersistenceQueue($this->buildRedisClient());
     }
 }

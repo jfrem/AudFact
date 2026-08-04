@@ -20,6 +20,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     private AuditStateStore $stateStore;
     private DocumentPolicyEngine $policyEngine;
     private TelemetryPublisher $telemetryPublisher;
+    private AuditPersistenceQueue $persistenceQueue;
 
     private string $consumerName;
 
@@ -29,7 +30,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null,
-        ?TelemetryPublisher $telemetryPublisher = null
+        ?TelemetryPublisher $telemetryPublisher = null,
+        ?AuditPersistenceQueue $persistenceQueue = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
@@ -45,6 +47,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         $this->consumerName = $consumerName ?? self::defaultConsumerName('policy');
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
+        $this->persistenceQueue = $persistenceQueue ?? new AuditPersistenceQueue($this->redis);
     }
 
     protected function stream(): string
@@ -141,17 +144,16 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
 
         $rulesEvaluation = $this->aggregateRulesEvaluation($updatedAudit);
-        if (!$this->storeRulesEvaluationOnce($event, $rulesEvaluation)) {
-            return;
-        }
-
-        $this->publisher->publish(AuditEvent::create(
+        $rulesEvaluation = $this->ensureRulesEvaluationStored($event, $rulesEvaluation);
+        $persistenceEvent = AuditEvent::create(
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
             auditId: $event->auditId,
             jobId: $event->jobId,
             payload: $rulesEvaluation,
             parentEventId: $event->eventId,
-        ));
+        );
+
+        $this->persistenceQueue->enqueue($persistenceEvent);
     }
 
     private function isPolicyInputEvent(AuditEvent $event): bool
@@ -217,16 +219,20 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
     /**
      * @param  array<string,mixed> $rulesEvaluation
+     * @return array<string,mixed>
      */
-    private function storeRulesEvaluationOnce(AuditEvent $event, array $rulesEvaluation): bool
+    private function ensureRulesEvaluationStored(
+        AuditEvent $event,
+        array $rulesEvaluation
+    ): array
     {
         if ($this->stateStore->storeRulesEvaluation((string) $event->auditId, $rulesEvaluation)) {
-            return true;
+            return $rulesEvaluation;
         }
 
         $latestAudit = $this->stateStore->getAudit((string) $event->auditId);
         if (is_array($latestAudit) && is_array($latestAudit['rules_evaluated_result'] ?? null)) {
-            return false;
+            return $latestAudit['rules_evaluated_result'];
         }
 
         throw new RuntimeException('No se pudo persistir rules_evaluated en Redis');
@@ -337,10 +343,59 @@ final class RulesEvaluationWorker extends AuditEventConsumer
      */
     private function buildRejectedPolicyResult(array $documentState, array $payload, string $facNro): array
     {
-        $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
-            (string) ($payload['document_type'] ?? $documentState['document_type'] ?? $payload['tipo_documento'] ?? 'DOCUMENTO')
+        $rejectionCategory = (string) (
+            $payload['rejection_category']
+            ?? $documentState['rejection_category']
+            ?? ''
         );
-        $reason = (string) ($payload['rejection_reason'] ?? $documentState['rejection_reason'] ?? 'UNKNOWN_FILE_INTEGRITY_FAILURE');
+        if ($rejectionCategory === DocumentMappingRejectionReason::CATEGORY) {
+            return $this->buildMappingRejectedPolicyResult($documentState, $payload, $facNro);
+        }
+
+        return $this->buildContentRejectedPolicyResult($documentState, $payload, $facNro);
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @param  array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function buildContentRejectedPolicyResult(array $documentState, array $payload, string $facNro): array
+    {
+        $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
+            (string) (
+                $payload['document_type']
+                ?? $documentState['document_type']
+                ?? $documentState['tipo_documento']
+                ?? $payload['tipo_documento']
+                ?? 'DOCUMENTO'
+            )
+        );
+        $rejectionClass = (string) (
+            $payload['rejection_class']
+            ?? $documentState['rejection_class']
+            ?? ''
+        );
+        $rejectionOrigin = (string) (
+            $payload['rejection_origin']
+            ?? $documentState['rejection_origin']
+            ?? ''
+        );
+        $reason = (string) (
+            $payload['rejection_reason']
+            ?? $documentState['rejection_reason']
+            ?? ''
+        );
+        if (
+            $rejectionClass !== DocumentRejectionReason::REJECTION_CLASS
+            || $rejectionOrigin !== DocumentExtractionWorker::class
+            || !DocumentRejectionReason::isAllowed($reason)
+        ) {
+            throw new \DomainException(
+                'document_rejected no cumple el contrato de rechazo documental.'
+            );
+        }
+
         $detail = "Documento rechazado por validación de integridad: {$reason}";
         $finding = [
             'severidad'         => AuditSeverity::HIGH->value,
@@ -362,11 +417,113 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'document_decision' => [
                 'documentName' => $documentName,
                 'approved'     => false,
+                'rejection_class' => $rejectionClass,
+                'rejection_reason' => $reason,
                 'payload'      => AuditFindingRules::buildRejectionPayload($facNro, [
                     [
                         'Codigo' => 'INTEGRIDAD',
                         'Descripcion' => "Documento no procesable: {$reason}"
                     ]
+                ]),
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed> $documentState
+     * @param  array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function buildMappingRejectedPolicyResult(array $documentState, array $payload, string $facNro): array
+    {
+        $documentName = DocumentExtractionContractBuilder::normalizeDocumentName(
+            (string) (
+                $payload['document_type']
+                ?? $documentState['document_type']
+                ?? $documentState['tipo_documento']
+                ?? 'DOCUMENTO'
+            )
+        );
+        $rejectionOrigin = (string) (
+            $payload['rejection_origin']
+            ?? $documentState['rejection_origin']
+            ?? ''
+        );
+        $reason = (string) (
+            $payload['rejection_reason']
+            ?? $documentState['rejection_reason']
+            ?? ''
+        );
+        if (
+            $rejectionOrigin !== DocumentAuditOrchestrator::class
+            || !DocumentMappingRejectionReason::isAllowed($reason)
+        ) {
+            throw new \DomainException(
+                'document_rejected no cumple el contrato de rechazo de asociación documental.'
+            );
+        }
+
+        $logicalDocId = trim((string) (
+            $payload['logical_doc_id']
+            ?? $documentState['logical_doc_id']
+            ?? $documentState['doc_id']
+            ?? ''
+        ));
+        if ($logicalDocId === '') {
+            throw new \DomainException('document_rejected de mapping sin logical_doc_id.');
+        }
+
+        $rawCandidates = $payload['candidate_attachment_ids']
+            ?? $documentState['candidate_attachment_ids']
+            ?? [];
+        if (!is_array($rawCandidates)) {
+            throw new \DomainException('document_rejected de mapping con candidatos inválidos.');
+        }
+        $candidateAttachmentIds = [];
+        foreach ($rawCandidates as $candidateId) {
+            if (!is_scalar($candidateId)) {
+                throw new \DomainException('document_rejected de mapping con candidato inválido.');
+            }
+            $candidateId = trim((string) $candidateId);
+            if ($candidateId !== '') {
+                $candidateAttachmentIds[$candidateId] = true;
+            }
+        }
+        $candidateAttachmentIds = array_map('strval', array_keys($candidateAttachmentIds));
+        sort($candidateAttachmentIds, SORT_NATURAL);
+
+        $detail = "No fue posible asociar de forma inequívoca el documento lógico '{$documentName}' con un adjunto físico: {$reason}.";
+        $finding = [
+            'severidad'         => AuditSeverity::HIGH->value,
+            'campo'             => 'ASOCIACION_DOCUMENTAL',
+            'codigoCampo'       => 'MAP',
+            'documento'         => $documentName,
+            'valorDocumento'    => null,
+            'valorFuenteVerdad' => null,
+            'resultado'         => AuditFindingResult::REJECTED->value,
+            'detalle'           => $detail,
+            'tipo_auditoria'    => 'integrity',
+        ];
+
+        return [
+            'document_name' => $documentName,
+            'hallazgos' => [
+                'items' => [$finding],
+                'metrics' => AuditFindingRules::summarizeMetrics([$finding]),
+            ],
+            'document_decision' => [
+                'documentName' => $documentName,
+                'approved' => false,
+                'doc_id' => $logicalDocId,
+                'attachment_id' => null,
+                'candidate_attachment_ids' => $candidateAttachmentIds,
+                'rejection_category' => DocumentMappingRejectionReason::CATEGORY,
+                'rejection_reason' => $reason,
+                'payload' => AuditFindingRules::buildRejectionPayload($facNro, [
+                    [
+                        'Codigo' => 'MAP',
+                        'Descripcion' => $detail,
+                    ],
                 ]),
             ],
         ];
@@ -386,11 +543,30 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
 
             $payload = $decision['payload'] ?? null;
-            $normalized[] = [
+            $normalizedDecision = [
                 'documentName' => $name,
                 'approved' => (bool) ($decision['approved'] ?? false),
                 'payload' => is_array($payload) ? $payload : null,
+                'doc_id' => is_scalar($decision['doc_id'] ?? null) ? (string) $decision['doc_id'] : null,
+                'attachment_id' => is_scalar($decision['attachment_id'] ?? null) ? (string) $decision['attachment_id'] : null,
             ];
+            if (array_key_exists('rejection_reason', $decision)) {
+                $normalizedDecision['rejection_reason'] = (string) (
+                    $decision['rejection_reason'] ?? ''
+                );
+                if (array_key_exists('rejection_class', $decision)) {
+                    $normalizedDecision['rejection_class'] = (string) $decision['rejection_class'];
+                }
+                if (array_key_exists('rejection_category', $decision)) {
+                    $normalizedDecision['rejection_category'] = (string) $decision['rejection_category'];
+                }
+                if (array_key_exists('candidate_attachment_ids', $decision)) {
+                    $normalizedDecision['candidate_attachment_ids'] = is_array($decision['candidate_attachment_ids'])
+                        ? array_values($decision['candidate_attachment_ids'])
+                        : [];
+                }
+            }
+            $normalized[] = $normalizedDecision;
         }
 
         return $normalized;

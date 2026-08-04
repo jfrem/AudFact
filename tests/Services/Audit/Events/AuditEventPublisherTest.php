@@ -86,18 +86,15 @@ final class AuditEventPublisherTest extends TestCase
         $this->publisher->publish($event);
     }
 
-    public function testRulesEvaluatedRoutesToResultsStream(): void
+    public function testRulesEvaluatedCannotBypassPersistenceQueue(): void
     {
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
             auditId: AuditEvent::uuidV4(),
         );
 
-        $this->redis
-            ->expects($this->once())
-            ->method('xAdd')
-            ->with(AuditEventPublisher::STREAM_RESULTS, $this->anything())
-            ->willReturn('1700000000002-0');
+        $this->redis->expects($this->never())->method('xAdd');
+        $this->expectException(InvalidArgumentException::class);
 
         $this->publisher->publish($event);
     }

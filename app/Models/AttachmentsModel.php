@@ -43,11 +43,18 @@ class AttachmentsModel extends Model
                 LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
                 WHERE d.DisDetNro = :disDetNro AND n.NitSec = :nitSec";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
-        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $result = $this->read(function (PDO $connection) use ($sql, $disDetNro, $nitSec): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         Logger::info("Documentos adjuntos obtenidos", [
             'disDetNro' => $disDetNro,
@@ -58,45 +65,53 @@ class AttachmentsModel extends Model
     }
 
     /**
-     * Obtiene únicamente adjuntos marcados como requeridos para el pipeline de auditoría IA.
-     *
-     * Regla SQL: AdjDisOpc='N' (no opcional).
-     * Este método se usa solo en prevalidación de auditoría y no afecta el endpoint público
-     * de listado completo de adjuntos.
+     * Obtiene todos los adjuntos físicos vinculados a una dispensación sin filtrar por opcionalidad lógica,
+     * garantizando un mapeo uno-a-uno e identificadores físicos explícitos para el pipeline IA.
      *
      * @param string $disDetNro Identificador operativo de dispensación.
      * @param string $nitSec NIT del cliente
      * @return array
      */
-    public function getRequiredAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
     {
         $sql = "SELECT
                 a.DisId AS [dispensacion_id],
                 d.DisDetNro AS [dis_det_nro],
-                n.NitSec AS [cliente],
-                a.AdjDisId AS [id_documento],
-                NitMedDocNom AS [nombre_documento],
-                NitMedDocCodAlt AS [nombre_alternativo],
-                AdjDisDocUrl AS [almacenamiento_remoto],
+                a.AdjDisId AS [attachment_id],
+                n.NitMedDocId AS [physical_catalog_id],
+                n.NitMedDocNom AS [physical_document_name],
+                n.NitMedDocCodAlt AS [physical_catalog_alias],
+                a.AdjDisCodDocAlt AS [physical_stored_alias],
+                a.AdjDisDocUrl AS [remote_storage],
                 CASE
-                    WHEN AdjDisDoc IS NOT NULL AND DATALENGTH(AdjDisDoc) > 0 THEN 'BLOB'
-                    WHEN AdjDisDocUrl IS NOT NULL AND AdjDisDocUrl <> '' THEN 'URL'
+                    WHEN a.AdjDisDoc IS NOT NULL AND DATALENGTH(a.AdjDisDoc) > 0 THEN 'BLOB'
+                    WHEN a.AdjDisDocUrl IS NOT NULL AND a.AdjDisDocUrl <> '' THEN 'URL'
                     ELSE 'SIN_DOCUMENTOS'
-                END AS TipoAlmacenamiento
+                END AS [storage_type]
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
+                INNER JOIN DispensacionDetalleServicio d WITH (NOLOCK)
+                    ON d.DisId = a.DisId
+                   AND d.DisDetId = a.DisDetId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK)
+                    ON n.NitMedDocId = a.AdjDisId
+                   AND n.NitSec = :nitSec
                 WHERE d.DisDetNro = :disDetNro
-                  AND n.NitMedDocOpc = 'N'
-                ORDER BY n.NitMedDocId ASC, a.AdjDisId ASC";
+                ORDER BY a.AdjDisId ASC";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
-        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $result = $this->read(function (PDO $connection) use ($sql, $disDetNro, $nitSec): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
+            $stmt->execute();
 
-        Logger::info("Documentos adjuntos requeridos obtenidos", [
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
+
+        Logger::info("Adjuntos físicos obtenidos para resolución", [
             'disDetNro' => $disDetNro,
             'resultCount' => count($result)
         ]);
@@ -126,17 +141,23 @@ class AttachmentsModel extends Model
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :disDetNro";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
-        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
-        $stmt->execute();
-
         Logger::info("Fetching attachment for dispensation", [
             'attachmentId' => $attachmentId,
             'disDetNro' => $disDetNro
         ]);
 
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        return $this->read(function (PDO $connection) use ($sql, $attachmentId, $disDetNro): array|false {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':attachmentId', $attachmentId, PDO::PARAM_STR);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
     }
 
     /**
@@ -151,34 +172,85 @@ class AttachmentsModel extends Model
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
                 WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :disDetNro";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':attachmentId', $attachmentId, PDO::PARAM_STR);
-        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
-        $stmt->execute();
+        return $this->read(function (PDO $connection) use ($sql, $attachmentId, $disDetNro): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':attachmentId', $attachmentId, PDO::PARAM_STR);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->execute();
 
-        $stream = null;
-        // Vincular la columna BLOB como stream
-        $stmt->bindColumn(1, $stream, PDO::PARAM_LOB);
+            $stream = null;
+            $stmt->bindColumn(1, $stream, PDO::PARAM_LOB);
 
-        if (!$stmt->fetch(PDO::FETCH_BOUND)) {
-            $stmt->closeCursor();
+            if (!$stmt->fetch(PDO::FETCH_BOUND)) {
+                $stmt->closeCursor();
+                return [
+                    'stream' => null,
+                    'close' => static function (): void {},
+                ];
+            }
+
+            Logger::info("Fetching attachment BLOB stream for dispensation", [
+                'attachmentId' => $attachmentId,
+                'disDetNro' => $disDetNro
+            ]);
+
             return [
-                'stream' => null,
-                'close' => function () {}
+                'stream' => $stream,
+                'close' => static function () use ($stmt, $connection): void {
+                    $stmt->closeCursor();
+                    unset($connection);
+                },
             ];
-        }
+        });
+    }
 
-        Logger::info("Fetching attachment BLOB stream for dispensation", [
-            'attachmentId' => $attachmentId,
-            'disDetNro' => $disDetNro
-        ]);
+    /**
+     * Materializa el BLOB y su longitud declarada dentro del mismo intento SQL.
+     *
+     * @return array{bytes:string,expected_size:int}|null
+     */
+    public function getAttachmentBlobBytesByIdForDisDetNro(
+        string $attachmentId,
+        string $disDetNro
+    ): ?array {
+        $sql = "SELECT a.AdjDisDoc, DATALENGTH(a.AdjDisDoc) AS BlobSize
+                FROM AdjuntosDispensacion a WITH (NOLOCK)
+                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK)
+                    ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
+                WHERE a.AdjDisId = :attachmentId AND d.DisDetNro = :disDetNro";
 
-        return [
-            'stream' => $stream,
-            'close' => function () use ($stmt) {
+        return $this->read(function (PDO $connection) use ($sql, $attachmentId, $disDetNro): ?array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':attachmentId', $attachmentId, PDO::PARAM_STR);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->execute();
+
+            $blob = null;
+            $expectedSize = null;
+            $stmt->bindColumn(1, $blob, PDO::PARAM_LOB);
+            $stmt->bindColumn(2, $expectedSize, PDO::PARAM_INT);
+
+            try {
+                if (!$stmt->fetch(PDO::FETCH_BOUND)) {
+                    return null;
+                }
+
+                if (is_resource($blob)) {
+                    $bytes = stream_get_contents($blob);
+                } elseif (is_string($blob)) {
+                    $bytes = $blob;
+                } else {
+                    $bytes = '';
+                }
+
+                return [
+                    'bytes' => is_string($bytes) ? $bytes : '',
+                    'expected_size' => max(0, (int) $expectedSize),
+                ];
+            } finally {
                 $stmt->closeCursor();
             }
-        ];
+        });
     }
 
     /**
@@ -209,9 +281,16 @@ class AttachmentsModel extends Model
                     GROUP BY v.Dispensa, a.DisId, a.DisDetId, a.AdjDisId, a.AdjDisNom, a.AdjDisEstSop, a.AdjDisObsRec, a.AdjDisUsuAudi, a.AdJDisFecAudi, a.AdjDisUsuRec
                 ) AS SubQuery";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->execute($params);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        $result = $this->read(function (PDO $connection) use ($sql, $params): array|false {
+            $stmt = $connection->prepare($sql);
+            $stmt->execute($params);
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
         return $result ? (int) $result['total'] : 0;
     }
 
@@ -268,14 +347,26 @@ class AttachmentsModel extends Model
                     a.AdJDisFecAudi DESC
                 OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
-        $stmt = $this->readDb->prepare($sql);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        $stmt->bindValue(':offset', (int) $offset, PDO::PARAM_INT);
-        $stmt->bindValue(':pageSize', (int) $pageSize, PDO::PARAM_INT);
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $result = $this->read(function (PDO $connection) use (
+            $sql,
+            $params,
+            $offset,
+            $pageSize
+        ): array {
+            $stmt = $connection->prepare($sql);
+            foreach ($params as $key => $value) {
+                $stmt->bindValue($key, $value);
+            }
+            $stmt->bindValue(':offset', (int) $offset, PDO::PARAM_INT);
+            $stmt->bindValue(':pageSize', (int) $pageSize, PDO::PARAM_INT);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         Logger::info("Historial de auditorias de documentos obtenido", [
             'filters' => $filters,
@@ -287,4 +378,3 @@ class AttachmentsModel extends Model
         return $result;
     }
 }
-

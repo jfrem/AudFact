@@ -1,3 +1,4 @@
-display_name: Code Quality Assessment
-short_description: Assess maintainability, complexity, testing posture, and technical debt with deterministic scoring.
-default_prompt: Assess this repository with the code-quality-assessment skill and deliver prioritized findings with domain and global scoring.
+interface:
+  display_name: "Code Quality Assessment"
+  short_description: "Evalúa mantenibilidad, pruebas y deuda técnica."
+  default_prompt: "Usa $code-quality-assessment para evaluar el repositorio y entregar hallazgos priorizados con scoring determinista."

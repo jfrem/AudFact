@@ -162,7 +162,7 @@ La arquitectura de AudFact fue concebida bajo principios de inmutabilidad, aisla
                                             │      WORKER DE BATCH Y AUDITORÍA     │
                                             │  BatchRequested ──► Orchestrator     │
                                             │  Extraction     ──► Normalizer       │
-                                            │  PolicyEngine   ──► Aggregator       │
+                                            │  PolicyEngine   ──► Persistence      │
                                             └──────────────────┬───────────────────┘
                                                                │
                                          ┌─────────────────────┴───────────────────┐
@@ -238,6 +238,7 @@ Detalla los componentes especializados que gobiernan el pipeline asíncrono even
 *   **DocumentExtractionContractBuilder**: Ensamblador dinámico de esquemas estructurados de extracción documental para Google Gemini (Parallel Function Calling).
 *   **GeminiGateway**: Cliente HTTP de Gemini con control de cuotas, Circuit Breaker integrado en Redis y reintentos exponenciales.
 *   **DocumentPolicyEngine**: Evaluador de reglas invariantes del negocio (coincidencia de datos personales, vigencias y control de cantidades).
+*   **AuditPersistenceQueue / Worker**: Scheduler Redis/Lua con un turno activo por job y worker SQL horizontal; conserva las dos escrituras exigidas por dominio dentro de una transacción.
 *   **ArticleSemanticMatchJudge**: Evaluador semántico por IA para la homologación de nombres de medicamentos contra la base de datos oficial.
 
 ---
@@ -382,7 +383,8 @@ sequenceDiagram
         Worker->>Redis: SETEX extraction:cache:v1:{composite_hash} (TTL 24h)
     end
     Worker->>DocumentPolicyEngine: Evaluar Reglas Deterministas (PHP)
-    Worker->>SQL Server: Persistir Resultados en dbo.AudDispEst
+    Worker->>Redis: Encolar rules_evaluated con un turno activo por job
+    Worker->>SQL Server: Persistir AudDispEst + hallazgos + trazabilidad en una transaccion
     Worker->>Redis: XACK audit.inbox audit_group [EventId]
 ```
 
@@ -696,7 +698,7 @@ El pipeline asíncrono no es una caja negra. Cada evento inyectado en `audit.inb
 * `created_at`: Marca de tiempo de la solicitud de auditoría.
 * `orchestrated_at`: Marca de tiempo cuando el orchestrator asignó los documentos.
 * `extracted_at`: Marca de tiempo final del procesamiento por IA.
-Estos marcadores permiten calcular en tiempo real el tiempo de espera en cola, el tiempo de ejecución de la Inteligencia Artificial y el rendimiento de los workers de políticas. Esta información es consolidada automáticamente por el worker agregador y expuesta en el endpoint de observabilidad `/metrics/async`.
+Estos marcadores permiten calcular en tiempo real el tiempo de espera en cola, el tiempo de ejecución de la Inteligencia Artificial y el rendimiento de los workers de políticas. `AuditPersistenceWorker` consolida los timings finales; por compatibilidad con el DAG del frontend, esa fase aún se expone como `aggregation`. El endpoint `/metrics/async` reporta además la profundidad de `audit.persistence:{queue}`.
 
 ---
 

@@ -20,9 +20,9 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 8.9 KB | Configuración dinámica de auditoría por cliente |
 | `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
-| `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ |
+| `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ; `rules_evaluated` se reencola mediante el scheduler de persistencia |
 | `app/Controllers/AuditFlowController.php` | 3 KB | Stream SSE de telemetría live por `audit_id` UUID v4 |
-| `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI |
+| `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI, incluido el stream `persistence` |
 | `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
 | `app/Controllers/ClientsController.php` | 1.6 KB | Gestión de clientes y catálogo documental |
 | `app/Controllers/ConfigController.php` | 0.6 KB | Configuración pública frontend |

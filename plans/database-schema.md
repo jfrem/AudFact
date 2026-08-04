@@ -121,6 +121,18 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 
 **Usada por**: `AttachmentsModel`, `InvoicesModel` (LEFT JOIN con `AdjDisOpc='N'` para filtrar docs obligatorios conformes)
 
+Para el pipeline, `AttachmentsModel` obtiene `AdjDisDoc` y
+`DATALENGTH(AdjDisDoc)` en la misma consulta, materializa los bytes dentro del
+callback PDO y rechaza técnicamente cualquier lectura parcial. El endpoint HTTP
+conserva su contrato de streaming independiente.
+
+La enumeración previa a Gemini usa `getPhysicalAttachmentsByDisDetNro`: parte
+de `AdjuntosDispensacion`, une `NitDocumentos` con `LEFT JOIN` y aplica `NitSec`
+dentro del `ON`, no en `WHERE`. Así conserva todos los adjuntos físicos aunque
+no tengan catálogo compatible. Expone internamente `attachment_id`,
+`physical_catalog_id`, nombre, aliases y `storage_type`; este shape no reemplaza
+el contrato público histórico de listado de adjuntos.
+
 ---
 
 ### `DispensacionDetalleServicio`
@@ -171,7 +183,13 @@ AudFact opera sobre una base de datos **SQL Server** existente del sistema de di
 | `Hallazgos` | nvarchar(max) | Payload persistido de hallazgos, decisiones y timings |
 | `JobId` | varchar(50) | Job batch asociado cuando aplica |
 
-**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas por `FacSec`/`DisId`), `AuditStatusModel` (MERGE por `FacNro` para guardar resultados)
+**Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas por `FacSec`/`DisId`), `AuditStatusModel` (lectura por `FacNro`) y `AuditResultPersistenceModel` (upsert serializable por `FacNro`)
+
+`AuditResultPersistenceModel` reproduce la transacción completa únicamente
+cuando el error es una desconexión y la operación sigue siendo idempotente. La
+persistencia de `AudDispEst`, hallazgos de `AdjuntosDispensacion` y trazabilidad
+de `DispensacionDetalleServicio` permanece atómica; este endurecimiento no
+requiere DDL ni migración de esquema.
 
 ---
 

@@ -19,17 +19,25 @@ public function searchInvoices(array $filters, int $page = 1, int $pageSize = 20
             ORDER BY DisId ASC, Dispensa ASC
             OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
 
-    $stmt = $this->db->prepare($sql);
-    $stmt->bindValue(':facNitSec', (int) $filters['facNitSec'], \PDO::PARAM_INT);
-    $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
-    $stmt->bindValue(':pageSize', $pageSize, \PDO::PARAM_INT);
-    $stmt->execute();
+    return $this->read(function (\PDO $pdo) use ($sql, $filters, $offset, $pageSize): array {
+        $stmt = $pdo->prepare($sql);
+        $stmt->bindValue(':facNitSec', (int) $filters['facNitSec'], \PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+        $stmt->bindValue(':pageSize', $pageSize, \PDO::PARAM_INT);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt->closeCursor();
 
-    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        return $rows;
+    });
 }
 ```
 
 Para batches internos, `InvoicesModel::getInvoicesForAuditBatch()` usa keyset pagination con `TOP({$safeLimit})`, tope `1..1000` y subquery derivada; evitar CTEs por compatibilidad con `pdo_sqlsrv`.
+
+El callback recibe un PDO fresco por intento. No guardar `$pdo` en propiedades
+ni closures de larga vida; `SqlServerConnectionExecutor` controla el replay de
+lecturas y escrituras idempotentes.
 
 ## Failure path: concatenacion insegura
 No hacer:

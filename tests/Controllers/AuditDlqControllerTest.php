@@ -7,6 +7,7 @@ namespace Tests\Controllers;
 use App\Controllers\AuditDlqController;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditPersistenceQueue;
 use Core\Exceptions\HttpResponseException;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -100,6 +101,48 @@ final class AuditDlqControllerTest extends TestCase
         $this->assertSame($original->eventId, $publisher->published[0]->eventId);
     }
 
+    public function testReprocessRoutesRulesEvaluatedThroughPersistenceQueue(): void
+    {
+        $original = AuditEvent::create(
+            eventType: AuditEvent::TYPE_RULES_EVALUATED,
+            auditId: AuditEvent::uuidV4(),
+            jobId: AuditEvent::uuidV4(),
+            payload: ['final_status' => 'completed'],
+        );
+        $deadLetter = AuditEvent::create(
+            eventType: AuditEvent::TYPE_DEAD_LETTER,
+            auditId: $original->auditId,
+            jobId: $original->jobId,
+            payload: [
+                'failed_event_type' => $original->eventType,
+                'failed_stage' => 'Persistence',
+                'failed_stream' => AuditEventPublisher::STREAM_PERSISTENCE,
+                'attempts' => 3,
+                'original_event' => $original->toArray(),
+            ]
+        );
+
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('xRange')->willReturn([[
+            'id' => '1700000000001-0',
+            'fields' => ['event' => $deadLetter->toJson()],
+        ]]);
+        $publisher = new DlqPublisher();
+        $queue = new DlqPersistenceQueue();
+        $controller = new TestableAuditDlqController(
+            body: ['streamId' => '1700000000001-0'],
+            redis: $redis,
+            publisher: $publisher,
+            persistenceQueue: $queue,
+        );
+
+        $response = self::captureResponse(static fn() => $controller->reprocess());
+
+        $this->assertSame(200, $response->getCode());
+        $this->assertSame([$original->eventId], $queue->reprocessedEventIds);
+        $this->assertSame([], $publisher->published);
+    }
+
     public function testReprocessReturns404WhenEventMissing(): void
     {
         $redis = $this->createMock(RedisClient::class);
@@ -132,6 +175,7 @@ final class TestableAuditDlqController extends AuditDlqController
         private array $body = [],
         private ?RedisClient $redis = null,
         private ?AuditEventPublisher $publisher = null,
+        private ?AuditPersistenceQueue $persistenceQueue = null,
     ) {
     }
 
@@ -148,6 +192,11 @@ final class TestableAuditDlqController extends AuditDlqController
     protected function buildEventPublisher(): AuditEventPublisher
     {
         return $this->publisher ?? new DlqPublisher();
+    }
+
+    protected function buildPersistenceQueue(): AuditPersistenceQueue
+    {
+        return $this->persistenceQueue ?? new DlqPersistenceQueue();
     }
 
     private function createRedisFailure(): RedisClient
@@ -169,5 +218,21 @@ final class DlqPublisher extends AuditEventPublisher
     {
         $this->published[] = $event;
         return 'stream-' . count($this->published);
+    }
+}
+
+final class DlqPersistenceQueue extends AuditPersistenceQueue
+{
+    /** @var array<int,string> */
+    public array $reprocessedEventIds = [];
+
+    public function __construct()
+    {
+    }
+
+    public function reprocess(AuditEvent $event): int
+    {
+        $this->reprocessedEventIds[] = $event->eventId;
+        return self::ENQUEUE_DISPATCHED;
     }
 }

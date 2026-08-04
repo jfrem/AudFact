@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use Core\Env;
 use Core\Logger;
 use Core\RedisClient;
+use Core\SqlServerOperationException;
 use RuntimeException;
 use Throwable;
 
@@ -61,6 +62,10 @@ abstract class AuditEventConsumer
     abstract protected function consumer(): string;
 
     abstract protected function handle(AuditEvent $event): void;
+
+    protected function afterTerminalFailure(AuditEvent $event, Throwable $error): void
+    {
+    }
 
     final public function processEvent(AuditEvent $event): void
     {
@@ -435,11 +440,14 @@ abstract class AuditEventConsumer
         ]);
 
         $nonRetryable = $error instanceof \DomainException
-            || $error instanceof \InvalidArgumentException;
+            || $error instanceof \InvalidArgumentException
+            || $error instanceof SqlServerOperationException
+            || $error instanceof AttachmentDownloadException;
 
         if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
             $this->sendToDeadLetter($event, $streamId, $attempts, $error);
+            $this->afterTerminalFailure($event, $error);
             $this->ackMessage($streamId);
             $this->clearAttempts($event->eventId);
         }

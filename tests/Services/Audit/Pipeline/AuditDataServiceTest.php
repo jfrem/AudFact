@@ -102,12 +102,36 @@ final class AuditDataServiceTest extends TestCase
         $service->getAuditConfig('2426');
     }
 
-    private function buildService(SpyDispensationModel $dispensation, ?AuditConfigModel $configModel = null): AuditDataService
+    public function testGetAttachmentsUsesPhysicalQueryOnlyInsideAuditPipeline(): void
     {
+        // Arrange:
+        $attachments = new SpyAttachmentsModel();
+        $attachments->physicalResult = [[
+            'attachment_id' => '6',
+            'physical_document_name' => 'AUTORIZACION',
+            'storage_type' => 'BLOB',
+        ]];
+        $service = $this->buildService(new SpyDispensationModel(), attachmentsModel: $attachments);
+
+        // Act:
+        $result = $service->getAttachments('T38250701547', '2624');
+
+        // Assert:
+        $this->assertSame($attachments->physicalResult, $result);
+        $this->assertSame([['T38250701547', '2624']], $attachments->physicalCalls);
+        $this->assertSame([], $attachments->publicCalls);
+    }
+
+    private function buildService(
+        SpyDispensationModel $dispensation,
+        ?AuditConfigModel $configModel = null,
+        ?AttachmentsModel $attachmentsModel = null
+    ): AuditDataService {
         // Crear stubs sin conexión a BD usando ReflectionClass
         $clientsStub = (new \ReflectionClass(ClientsModel::class))->newInstanceWithoutConstructor();
         $configStub  = $configModel ?? (new \ReflectionClass(AuditConfigModel::class))->newInstanceWithoutConstructor();
-        $attachStub  = (new \ReflectionClass(AttachmentsModel::class))->newInstanceWithoutConstructor();
+        $attachStub  = $attachmentsModel
+            ?? (new \ReflectionClass(AttachmentsModel::class))->newInstanceWithoutConstructor();
 
         return new AuditDataService(
             dispensationModel: $dispensation,
@@ -149,5 +173,31 @@ final class StubAuditConfigModel extends AuditConfigModel
     public function getConfig(string $nitSec): ?array
     {
         return $this->nextConfig;
+    }
+}
+
+final class SpyAttachmentsModel extends AttachmentsModel
+{
+    /** @var array<int,array<string,mixed>> */
+    public array $physicalResult = [];
+    /** @var array<int,array{0:string,1:string}> */
+    public array $physicalCalls = [];
+    /** @var array<int,array{0:string,1:string}> */
+    public array $publicCalls = [];
+
+    public function __construct()
+    {
+    }
+
+    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    {
+        $this->physicalCalls[] = [$disDetNro, $nitSec];
+        return $this->physicalResult;
+    }
+
+    public function getAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    {
+        $this->publicCalls[] = [$disDetNro, $nitSec];
+        return [];
     }
 }

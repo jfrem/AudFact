@@ -1,4 +1,5 @@
 ---
+name: audfact-docs-sync
 description: Usar esta skill OBLIGATORIAMENTE al finalizar cualquier tarea de código, desarrollo o bugfix para asegurar que la documentación del proyecto Y las skills del agente se sincronicen con los cambios arquitectónicos y operativos.
 ---
 

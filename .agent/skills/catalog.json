@@ -1,11 +1,11 @@
 {
   "catalog": "audfact-skills",
-  "generated_at": "2026-06-01",
+  "generated_at": "2026-08-03",
   "skills": [
     {
       "name": "audfact-api-rest",
       "path": ".agent/skills/audfact-api-rest",
-      "description": "Endpoints REST en PHP MVC. Cubre 27 rutas en web.php, controladores REST y validación centralizada."
+      "description": "Endpoints REST en PHP MVC. Cubre 29 rutas en web.php, controladores REST y validación centralizada."
     },
     {
       "name": "audfact-audit-gemini",
@@ -93,14 +93,19 @@
       "name": "clean-rebuild-policy"
     },
     {
-      "path": ".agent/skills/ui-ux-pro-max",
-      "description": "Inteligencia de diseño UI/UX para web y móvil: estilos, colores, tipografía y accesibilidad.",
-      "name": "ui-ux-pro-max"
-    },
-    {
       "path": ".agent/skills/impeccable",
       "description": "Diseño frontend distintivo y producción de interfaces pulidas para AudFact.",
       "name": "impeccable"
+    },
+    {
+      "path": ".agent/skills/write-sdd-spec",
+      "description": "Produce especificaciones SDD deterministas, auditables y trazables antes de implementar cambios.",
+      "name": "write-sdd-spec"
+    },
+    {
+      "path": ".agent/skills/phpunit-test-architect",
+      "description": "Diseña suites PHPUnit 10+ como contratos ejecutables alineados con las convenciones arquitectónicas de AudFact.",
+      "name": "phpunit-test-architect"
     }
   ]
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "PHPUnit Test Architect"
+  short_description: "Diseña contratos ejecutables con PHPUnit 10+."
+  default_prompt: "Usa $phpunit-test-architect para convertir este requisito en una suite PHPUnit completa."

@@ -52,38 +52,38 @@ final class DocumentIntegrityValidator
         $declaredMime = trim((string) ($document['mime'] ?? ''));
 
         if ($base64Data === '') {
-            return self::rejected('EMPTY_DOCUMENT', $declaredMime, null, 0);
+            return self::rejected(DocumentRejectionReason::EMPTY_DOCUMENT, $declaredMime, null, 0);
         }
 
         $raw = base64_decode($base64Data, true);
         if ($raw === false || $raw === '') {
-            return self::rejected('EMPTY_DOCUMENT', $declaredMime, null, 0);
+            return self::rejected(DocumentRejectionReason::EMPTY_DOCUMENT, $declaredMime, null, 0);
         }
 
         $sizeBytes = strlen($raw);
         if ($sizeBytes < self::MIN_VALID_SIZE) {
-            return self::rejected('DOCUMENT_TOO_SMALL', $declaredMime, null, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::DOCUMENT_TOO_SMALL, $declaredMime, null, $sizeBytes);
         }
 
         if (!in_array($declaredMime, self::SUPPORTED_MIMES, true)) {
-            return self::rejected('UNSUPPORTED_MIME', $declaredMime, null, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::UNSUPPORTED_MIME, $declaredMime, null, $sizeBytes);
         }
 
         $detectedMime = self::detectMimeFromMagicBytes($raw);
         if ($detectedMime === null) {
-            return self::rejected('UNKNOWN_FILE_SIGNATURE', $declaredMime, null, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::UNKNOWN_FILE_SIGNATURE, $declaredMime, null, $sizeBytes);
         }
 
         if ($detectedMime !== $declaredMime) {
-            return self::rejected('MIME_MISMATCH', $declaredMime, $detectedMime, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::MIME_MISMATCH, $declaredMime, $detectedMime, $sizeBytes);
         }
 
         if ($declaredMime === 'application/pdf' && str_contains($raw, '/Encrypt')) {
-            return self::rejected('ENCRYPTED_DOCUMENT', $declaredMime, $detectedMime, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::ENCRYPTED_DOCUMENT, $declaredMime, $detectedMime, $sizeBytes);
         }
 
         if ($declaredMime === 'application/pdf' && !self::pdfHasPages($raw)) {
-            return self::rejected('EMPTY_PDF_NO_PAGES', $declaredMime, $detectedMime, $sizeBytes);
+            return self::rejected(DocumentRejectionReason::EMPTY_PDF_NO_PAGES, $declaredMime, $detectedMime, $sizeBytes);
         }
 
         return [

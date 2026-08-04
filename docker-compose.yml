@@ -255,7 +255,7 @@ services:
           memory: 512M
           cpus: '0.5'
 
-  worker-aggregator:
+  worker-persistence:
     image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
@@ -270,9 +270,10 @@ services:
       - ./logs:/var/www/html/logs
     depends_on:
       - redis
-    command: php bin/audit-worker.php aggregator
+    command: php bin/audit-worker.php persistence
     restart: on-failure
     deploy:
+      replicas: ${AUDIT_WORKER_PERSISTENCE_REPLICAS:-3}
       resources:
         limits:
           memory: 512M

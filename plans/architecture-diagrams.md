@@ -52,7 +52,7 @@ C4Container
         Container(extraction, "worker-extraction", "DocumentExtractionWorker", "Consume document_downloaded")
         Container(normalizer, "worker-normalizer", "DocumentNormalizer", "Consume document_extracted")
         Container(policy, "worker-policy", "RulesEvaluationWorker", "Consume document_normalized/document_rejected")
-        Container(aggregator, "worker-aggregator", "AuditAggregationWorker", "Consume rules_evaluated")
+        Container(persistence, "worker-persistence", "AuditPersistenceWorker", "Consume reglas en cola justa por job")
     }
 
     ContainerDb(sqlsrv, "SQL Server", "External DB", "Discolnet legacy + auditoria")
@@ -73,12 +73,12 @@ C4Container
     Rel(extraction, redis, "XREADGROUP/XADD + cache")
     Rel(normalizer, redis, "XREADGROUP/XADD")
     Rel(policy, redis, "XREADGROUP/XADD")
-    Rel(aggregator, redis, "XREADGROUP/XADD + cierre")
+    Rel(persistence, redis, "Scheduler Lua + XREADGROUP/XADD + cierre")
     Rel(batch, sqlsrv, "Consulta candidatas batch")
     Rel(orchestrator, sqlsrv, "FDV/config/adjuntos")
     Rel(downloader, gdrive, "Descarga documentos")
     Rel(extraction, gemini, "Extraccion IA")
-    Rel(aggregator, sqlsrv, "Persistencia final")
+    Rel(persistence, sqlsrv, "Persistencia dual transaccional")
 ```
 
 ---
@@ -134,7 +134,7 @@ sequenceDiagram
     participant Gemini as Gemini API
     participant Normalizer as DocumentNormalizer
     participant Policy as RulesEvaluationWorker
-    participant Aggregator as AuditAggregationWorker
+    participant Persistence as AuditPersistenceQueue / Worker
     participant SQL as SQL Server
 
     API->>Redis: batch_requested o audit_created
@@ -157,9 +157,10 @@ sequenceDiagram
         end
     end
     Policy->>Redis: policy_result por documento
-    Policy->>Redis: rules_evaluated cuando docs_done + docs_rejected == docs_total
-    Aggregator->>SQL: persistAuditResultWithAttachments()
-    Aggregator->>Redis: audit_completed o audit_failed
+    Policy->>Redis: encola rules_evaluated cuando docs_done + docs_rejected == docs_total
+    Redis->>Persistence: un turno activo por job
+    Persistence->>SQL: persist() en una transaccion
+    Persistence->>Redis: libera turno + audit_completed o audit_failed
 ```
 
 ---
@@ -217,7 +218,12 @@ classDiagram
         +evaluate(document, fdv, config) array
     }
 
-    class AuditAggregationWorker {
+    class AuditPersistenceQueue {
+        +enqueue(rules_evaluated) void
+        +advance(event) void
+    }
+
+    class AuditPersistenceWorker {
         +handle(rules_evaluated) void
     }
 
@@ -227,7 +233,7 @@ classDiagram
     AuditEventConsumer <|-- DocumentExtractionWorker
     AuditEventConsumer <|-- DocumentNormalizer
     AuditEventConsumer <|-- RulesEvaluationWorker
-    AuditEventConsumer <|-- AuditAggregationWorker
+    AuditEventConsumer <|-- AuditPersistenceWorker
     DocumentAuditOrchestrator --> DocumentExtractionContractBuilder
     DocumentExtractionWorker --> DocumentIntegrityValidator
     RulesEvaluationWorker --> DocumentPolicyEngine
@@ -236,6 +242,8 @@ classDiagram
     AttachmentDownloadWorker --> AuditEventPublisher
     DocumentExtractionWorker --> AuditEventPublisher
     DocumentNormalizer --> AuditEventPublisher
-    RulesEvaluationWorker --> AuditEventPublisher
-    AuditAggregationWorker --> AuditEventPublisher
+    RulesEvaluationWorker --> AuditPersistenceQueue
+    AuditPersistenceQueue --> AuditEventPublisher
+    AuditPersistenceWorker --> AuditPersistenceQueue
+    AuditPersistenceWorker --> AuditEventPublisher
 ```

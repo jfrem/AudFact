@@ -48,6 +48,8 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 | `AUDFACT_FRONTEND_HOST_PORT` | — | Puerto LAN del frontend productivo (`3100` por defecto) |
 | `AUDFACT_FRONTEND_PUBLIC_URL` | — | Origen público del frontend para CORS |
 | `AUDFACT_API_PUBLIC_URL` | — | URL pública del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL` |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | — | Réplicas globales de `worker-persistence` (`3` por defecto) |
+| `AUDIT_PERSISTENCE_QUEUE_TTL` | — | Retención del scheduler justo por job (`604800` por defecto) |
 
 El `.env` generado por el workflow mantiene el mismo set base de variables
 activas documentadas en `.env.example`. Los valores sensibles se obtienen desde
@@ -74,8 +76,15 @@ Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.
 5. Genera `.env` dinámicamente desde GitHub Secrets/Variables con hosts SQL normalizados a host/IP limpio.
 6. Ejecuta preflight SQL con la imagen PHP publicada antes de recrear el stack.
 7. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
-8. `docker compose pull` → `docker compose up -d --remove-orphans`
+8. `docker compose pull` → `docker compose up -d --remove-orphans`; Compose reemplaza `worker-aggregator` por tres réplicas de `worker-persistence`.
 9. Health check con **retry loop** (5 intentos, 10s entre cada uno)
+
+> [!IMPORTANT]
+> El primer despliegue que introduce `audit.persistence:{queue}` requiere una
+> ventana de transición: detener nueva entrada de jobs y confirmar que el grupo
+> `aggregator` del stream anterior no tenga `pending` ni `lag`. Solo entonces se
+> debe ejecutar el paso 8. El código no conserva un consumidor legacy y el
+> workflow no migra eventos en vuelo entre streams.
 
 ### Inconsistencias recurrentes y cómo evitarlas
 

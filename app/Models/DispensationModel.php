@@ -115,10 +115,17 @@ class DispensationModel extends Model
                 FROM DispensacionDetalleServicio WITH (NOLOCK)
                 WHERE DisDetNro = :disDetNro";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':disDetNro', $disDetNro, PDO::PARAM_STR);
-        $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $this->read(function (PDO $connection) use ($sql, $disDetNro): array|false {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':disDetNro', $disDetNro, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         if (!$row || empty($row['DisId'])) {
             throw new \RuntimeException("No se encontró la dispensación con número {$disDetNro}.");
@@ -259,13 +266,19 @@ class DispensationModel extends Model
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
 
-        $stmt = $this->readDb->prepare($sql);
-        foreach ($bindings as $param => $val) {
-            $stmt->bindValue($param, $val, PDO::PARAM_STR);
-        }
-        $stmt->execute();
-        $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt->closeCursor();
+        $result = $this->read(function (PDO $connection) use ($sql, $bindings): array {
+            $stmt = $connection->prepare($sql);
+            foreach ($bindings as $param => $val) {
+                $stmt->bindValue($param, $val, PDO::PARAM_STR);
+            }
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         Logger::info("Executed SQL: ", [
             $logKey     => $bindings,

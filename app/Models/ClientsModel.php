@@ -23,10 +23,17 @@ class ClientsModel extends Model
                 n.NitSec,
                 n.NitCom
             order by n.NitCom Asc";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':clientId', $clientId, PDO::PARAM_INT);
-        $stmt->execute();
-        $result = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        $result = $this->read(function (PDO $connection) use ($sql, $clientId): ?array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':clientId', $clientId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
         Logger::info("Executed SQL: ", [
             'clientId' => $clientId,
             'result' => count($result ?? [])
@@ -49,9 +56,16 @@ class ClientsModel extends Model
                 n.NitSec,
                 n.NitCom
             order by n.NitCom Asc";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $results = $this->read(function (PDO $connection) use ($sql): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
         Logger::info("Executed SQL to fetch all clients", [
             'resultCount' => count($results)
         ]);
@@ -69,10 +83,17 @@ class ClientsModel extends Model
             WHERE NitSec = :clientId
             AND NitMedDocOpc = 'N'
             ORDER BY NitMedDocId ASC";
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':clientId', $clientId, PDO::PARAM_INT);
-        $stmt->execute();
-        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $results = $this->read(function (PDO $connection) use ($sql, $clientId): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':clientId', $clientId, PDO::PARAM_INT);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
         Logger::info("Executed SQL to fetch documents by client", [
             'clientId' => $clientId,
             'resultCount' => count($results)

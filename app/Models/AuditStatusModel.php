@@ -5,27 +5,20 @@ declare(strict_types=1);
 namespace App\Models;
 
 use PDO;
-use PDOStatement;
 use Core\Logger;
-use Core\Cache;
+use Core\SqlServerOperationException;
+use Core\SqlServerOperationMode;
 
 /**
  * Modelo de estado de auditoría de dispensaciones.
  *
- * @important Dependencia cross-database: TODAS las queries de este modelo operan
- *            contra Discolnet.dbo.AudDispEst (SELECT, MERGE, INSERT). Esta tabla
+ * @important Dependencia cross-database: las lecturas de este modelo operan
+ *            contra Discolnet.dbo.AudDispEst. Esta tabla
  *            DEBE residir en la misma instancia SQL Server que la BD principal
  *            (DB_NAME). Si la topología cambia, este modelo dejará de funcionar.
  */
 class AuditStatusModel extends Model
 {
-    private const AUDIT_USER = 'Z-IA';
-    private const ATTACHMENT_STATUS_APPROVED = 'C';
-    private const ATTACHMENT_STATUS_REJECTED = 'R';
-    private const ATTACHMENT_REJECTED_FLAG = 'S';
-    private const ATTACHMENT_APPROVED_FLAG = 'N';
-    private const REJECTION_SUPPORT_CODE = 30;
-
     /**
      * Auditorías prefieren consistencia fuerte de lectura después de escritura.
      * Si `default` no está disponible, degrada a `db2` para no romper el histórico.
@@ -33,22 +26,6 @@ class AuditStatusModel extends Model
      * @var string
      */
     protected string $readConnectionName = 'default';
-
-    public function __construct()
-    {
-        try {
-            $this->readDb = \Core\Database::getConnection($this->readConnectionName);
-        } catch (\RuntimeException $e) {
-            Logger::warning('AuditStatusModel: fallback de lectura hacia db2', [
-                'preferredConnection' => $this->readConnectionName,
-                'fallbackConnection' => 'db2',
-                'error' => $e->getMessage(),
-            ]);
-
-            $this->readConnectionName = 'db2';
-            $this->readDb = \Core\Database::getConnection($this->readConnectionName);
-        }
-    }
 
     /**
      * Resumen agregado de estados de auditoría para el dashboard.
@@ -60,47 +37,69 @@ class AuditStatusModel extends Model
      */
     public function getStateSummary(): array
     {
-        $sql = "SELECT
+        $stateSql = "SELECT
                     [EstadoDetallado],
                     COUNT(*) AS total
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
                 GROUP BY [EstadoDetallado]";
-
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->execute();
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $byState = [];
-        $grandTotal = 0;
-        foreach ($rows as $row) {
-            $state = strtoupper(trim((string) ($row['EstadoDetallado'] ?? 'UNKNOWN')));
-            $count = (int) ($row['total'] ?? 0);
-            $byState[$state] = $count;
-            $grandTotal += $count;
-        }
-
-        $sqlDocs = "SELECT
+        $documentsSql = "SELECT
                         COUNT(*) AS total
                     FROM AdjuntosDispensacion WITH (NOLOCK)
                     WHERE AdjDisUsuAudi IS NOT NULL";
-        $stmtDocs = $this->readDb->prepare($sqlDocs);
-        $stmtDocs->execute();
-        $docsTotal = (int) ($stmtDocs->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
-
-        $sqlLast = "SELECT TOP 1 [FechaCreacion]
+        $lastAuditSql = "SELECT TOP 1 [FechaCreacion]
                     FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
                     ORDER BY [FechaCreacion] DESC";
-        $stmtLast = $this->readDb->prepare($sqlLast);
-        $stmtLast->execute();
-        $lastRow = $stmtLast->fetch(PDO::FETCH_ASSOC);
-        $lastAuditAt = $lastRow ? (string) ($lastRow['FechaCreacion'] ?? '') : null;
 
-        return [
-            'total'            => $grandTotal,
-            'byState'          => $byState,
-            'documentsAudited' => $docsTotal,
-            'lastAuditAt'      => $lastAuditAt ?: null,
-        ];
+        return $this->readWithFallback(function (PDO $connection) use (
+            $stateSql,
+            $documentsSql,
+            $lastAuditSql
+        ): array {
+            $stateStatement = $connection->prepare($stateSql);
+            $stateStatement->execute();
+            try {
+                $rows = $stateStatement->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stateStatement->closeCursor();
+            }
+
+            $byState = [];
+            $grandTotal = 0;
+            foreach ($rows as $row) {
+                $state = strtoupper(trim((string) ($row['EstadoDetallado'] ?? 'UNKNOWN')));
+                $count = (int) ($row['total'] ?? 0);
+                $byState[$state] = $count;
+                $grandTotal += $count;
+            }
+
+            $documentsStatement = $connection->prepare($documentsSql);
+            $documentsStatement->execute();
+            try {
+                $documentsTotal = (int) (
+                    $documentsStatement->fetch(PDO::FETCH_ASSOC)['total'] ?? 0
+                );
+            } finally {
+                $documentsStatement->closeCursor();
+            }
+
+            $lastAuditStatement = $connection->prepare($lastAuditSql);
+            $lastAuditStatement->execute();
+            try {
+                $lastRow = $lastAuditStatement->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $lastAuditStatement->closeCursor();
+            }
+            $lastAuditAt = $lastRow
+                ? (string) ($lastRow['FechaCreacion'] ?? '')
+                : null;
+
+            return [
+                'total' => $grandTotal,
+                'byState' => $byState,
+                'documentsAudited' => $documentsTotal,
+                'lastAuditAt' => $lastAuditAt ?: null,
+            ];
+        });
     }
 
     /**
@@ -117,10 +116,17 @@ class AuditStatusModel extends Model
                 WHERE [FacNro] = :facNro
                 ORDER BY [FechaCreacion] DESC";
 
-        $stmt = $this->readDb->prepare($sql);
-        $stmt->bindParam(':facNro', $facNro, PDO::PARAM_STR);
-        $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $this->readWithFallback(function (PDO $connection) use ($sql, $facNro): array|false {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':facNro', $facNro, PDO::PARAM_STR);
+            $stmt->execute();
+
+            try {
+                return $stmt->fetch(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         if ($row === false || !is_array($row)) {
             return null;
@@ -147,7 +153,9 @@ class AuditStatusModel extends Model
      */
     public function getAuditDetailByFacNro(string $facNro): ?array
     {
-        $row = $this->fetchAuditRowByFacNro($this->readDb, $facNro);
+        $row = $this->readWithFallback(
+            fn(PDO $connection): ?array => $this->fetchAuditRowByFacNro($connection, $facNro)
+        );
         if ($row === null) {
             return null;
         }
@@ -171,13 +179,19 @@ class AuditStatusModel extends Model
         $sql = "SELECT COUNT(*) AS total
                 FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
                 {$where}";
-        $stmt = $this->readDb->prepare($sql);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value, PDO::PARAM_STR);
-        }
-        $stmt->execute();
+        return $this->readWithFallback(function (PDO $connection) use ($sql, $params): int {
+            $stmt = $connection->prepare($sql);
+            foreach ($params as $key => $value) {
+                $stmt->bindValue($key, $value, PDO::PARAM_STR);
+            }
+            $stmt->execute();
 
-        return (int)($stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+            try {
+                return (int) ($stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
     }
 
     /**
@@ -211,21 +225,34 @@ class AuditStatusModel extends Model
         $params[':offset'] = $offset;
         $params[':pageSize'] = $pageSize;
 
-        $stmt = $this->readDb->prepare($sql);
-        foreach ($params as $key => $value) {
-            $type = is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR;
-            $stmt->bindValue($key, $value, $type);
-        }
-        $stmt->execute();
+        $rows = $this->readWithFallback(function (PDO $connection) use (
+            $sql,
+            $params,
+            $filters,
+            $page,
+            $pageSize
+        ): array {
+            $stmt = $connection->prepare($sql);
+            foreach ($params as $key => $value) {
+                $type = is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR;
+                $stmt->bindValue($key, $value, $type);
+            }
+            $stmt->execute();
 
-        Logger::info("AuditStatus: searchAuditSummaries", [
-            'filters' => array_keys($filters),
-            'page'    => $page,
-            'pageSize' => $pageSize,
-            'results' => $stmt->rowCount()
-        ]);
+            try {
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                Logger::info("AuditStatus: searchAuditSummaries", [
+                    'filters' => array_keys($filters),
+                    'page' => $page,
+                    'pageSize' => $pageSize,
+                    'results' => count($rows),
+                ]);
 
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                return $rows;
+            } finally {
+                $stmt->closeCursor();
+            }
+        });
 
         return array_map(fn(array $row): array => $this->normalizeAuditSummary($row), $rows ?: []);
     }
@@ -251,442 +278,18 @@ class AuditStatusModel extends Model
         }
 
         if (!empty($filters['dateFrom'])) {
-            $conditions[] = '[FechaCreacion] >= :dateFrom';
+            $conditions[] = 'ISNULL([FechaActualizacion], [FechaCreacion]) >= :dateFrom';
             $params[':dateFrom'] = $filters['dateFrom'];
         }
 
         if (!empty($filters['dateTo'])) {
-            $conditions[] = '[FechaCreacion] < DATEADD(day, 1, CAST(:dateTo AS DATE))';
+            $conditions[] = 'ISNULL([FechaActualizacion], [FechaCreacion]) < DATEADD(day, 1, CAST(:dateTo AS DATE))';
             $params[':dateTo'] = $filters['dateTo'];
         }
 
         $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
         return [$where, $params];
-    }
-
-    /**
-     * Inserta o actualiza un resultado de auditoría usando MERGE de SQL Server.
-     * Si DisId existe → UPDATE; si no → INSERT.
-     * @param array $data Datos de auditoría mapeados a columnas de AudDispEst
-     * @return array|false Registro resultante
-     */
-    public function upsertAuditResult(array $data): array|false
-    {
-        if (empty($data['DisId'])) {
-            throw new \InvalidArgumentException('DisId is required for upsert');
-        }
-        $writeDb = $this->getWriteDb();
-
-        return $this->upsertAuditResultInConnection($writeDb, $data);
-    }
-
-    /**
-     * Persiste el resumen global y actualiza el estado documental por adjunto
-     * en una única transacción.
-     *
-     * @param array<string,mixed> $auditResultData
-     * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
-     */
-    public function persistAuditResultWithAttachments(
-        array $auditResultData,
-        array $documentDecisions
-    ): array|false {
-        if (empty($auditResultData['DisId']) || empty($auditResultData['FacNro'])) {
-            throw new \InvalidArgumentException('DisId y FacNro son obligatorios para persistir la auditoría.');
-        }
-
-        if ($documentDecisions === []) {
-            throw new \InvalidArgumentException('La auditoría no produjo decisiones documentales para persistencia.');
-        }
-
-        $writeDb = $this->getWriteDb();
-
-        Logger::info('AuditTrace: persist_audit_start', [
-            'DisId' => (string) $auditResultData['DisId'],
-            'FacNro' => (string) $auditResultData['FacNro'],
-            'decisions_count' => count($documentDecisions),
-        ]);
-
-        try {
-            $writeDb->beginTransaction();
-
-            $record = $this->upsertAuditResultInConnection($writeDb, $auditResultData);
-            $this->updateAttachmentAuditResultsInConnection(
-                $writeDb,
-                (string) $auditResultData['FacNro'],
-                (string) ($auditResultData['FacNitSec'] ?? ''),
-                $documentDecisions,
-            );
-
-            $writeDb->commit();
-            Cache::invalidateQueryResults((string) ($auditResultData['FacNitSec'] ?? 'all'));
-
-            Logger::info('AuditTrace: persist_audit_committed', [
-                'DisId' => (string) $auditResultData['DisId'],
-                'FacNro' => (string) $auditResultData['FacNro'],
-            ]);
-
-            return $record;
-        } catch (\Throwable $e) {
-            if ($writeDb->inTransaction()) {
-                $writeDb->rollBack();
-            }
-
-            Logger::error('persistAuditResultWithAttachments: transacción revertida', [
-                'DisId' => $auditResultData['DisId'],
-                'FacNro' => $auditResultData['FacNro'],
-                'error_class' => get_class($e),
-                'error_file' => $e->getFile(),
-                'error_line' => $e->getLine(),
-                'error' => $e->getMessage(),
-            ]);
-            throw $e;
-        }
-    }
-
-    /**
-     * Actualiza exclusivamente los timings finales de una auditoría ya persistida.
-     *
-     * @param  string  $facNro  Identificador canónico de la dispensación auditada.
-     * @param  array<string,mixed>  $timings  Métricas finales del pipeline.
-     * @param  int  $durationMs  Duración final en milisegundos.
-     */
-    public function updateAuditTimings(string $facNro, array $timings, int $durationMs): bool
-    {
-        $facNro = trim($facNro);
-        if ($facNro === '') {
-            throw new \InvalidArgumentException('FacNro es obligatorio para actualizar timings.');
-        }
-
-        $writeDb = $this->getWriteDb();
-        $row = $this->fetchAuditRowByFacNro($writeDb, $facNro);
-        if ($row === null) {
-            return false;
-        }
-
-        $rawHallazgos = isset($row['Hallazgos']) && is_string($row['Hallazgos'])
-            ? $row['Hallazgos']
-            : '';
-        $payload = json_decode($rawHallazgos, true);
-        if (!is_array($payload) || array_is_list($payload)) {
-            throw new \RuntimeException("Hallazgos inválido para actualizar timings de {$facNro}.");
-        }
-
-        $payload['timings'] = $timings;
-        $payload['total_duration_ms'] = max(0, $durationMs);
-
-        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($encoded === false) {
-            throw new \RuntimeException('No se pudieron serializar los timings finales: ' . json_last_error_msg());
-        }
-
-        $sql = "UPDATE Discolnet.dbo.AudDispEst
-                SET [Hallazgos] = :Hallazgos,
-                    [DuracionProcesamientoMs] = :DuracionProcesamientoMs,
-                    [FechaActualizacion] = GETDATE()
-                WHERE [FacNro] = :FacNro";
-
-        $stmt = $writeDb->prepare($sql);
-        $stmt->bindValue(':Hallazgos', $encoded, PDO::PARAM_STR);
-        $stmt->bindValue(':DuracionProcesamientoMs', max(0, $durationMs), PDO::PARAM_INT);
-        $stmt->bindValue(':FacNro', $facNro, PDO::PARAM_STR);
-        $stmt->execute();
-
-        return $stmt->rowCount() > 0;
-    }
-
-    /**
-     * @param \PDO $writeDb
-     * @param array<string,mixed> $data
-     */
-    private function upsertAuditResultInConnection(\PDO $writeDb, array $data): array|false
-    {
-        $sql = "MERGE Discolnet.dbo.AudDispEst AS target
-                USING (SELECT
-                    :DisId AS [FacSec],
-                    :FacNro AS [FacNro],
-                    CAST(:EstAud AS BIT) AS [EstAud],
-                    :EstadoDetallado AS [EstadoDetallado],
-                    CAST(:RequiereRevisionHumana AS BIT) AS [RequiereRevisionHumana],
-                    :Severidad AS [Severidad],
-                    :Hallazgos AS [Hallazgos],
-                    :DetalleError AS [DetalleError],
-                    :DocumentosProcesados AS [DocumentosProcesados],
-                    :DocumentoFallido AS [DocumentoFallido],
-                    :DuracionProcesamientoMs AS [DuracionProcesamientoMs],
-                    :FacNitSec AS [FacNitSec]
-                ) AS source
-                ON target.[FacNro] = source.[FacNro]
-                WHEN MATCHED THEN
-                    UPDATE SET
-                        target.[FacSec] = source.[FacSec],
-                        target.[EstAud] = source.[EstAud],
-                        target.[EstadoDetallado] = source.[EstadoDetallado],
-                        target.[RequiereRevisionHumana] = source.[RequiereRevisionHumana],
-                        target.[Severidad] = source.[Severidad],
-                        target.[Hallazgos] = source.[Hallazgos],
-                        target.[DetalleError] = source.[DetalleError],
-                        target.[DocumentosProcesados] = source.[DocumentosProcesados],
-                        target.[DocumentoFallido] = source.[DocumentoFallido],
-                        target.[DuracionProcesamientoMs] = source.[DuracionProcesamientoMs],
-                        target.[FacNitSec] = source.[FacNitSec],
-                        target.[FechaActualizacion] = GETDATE()
-                WHEN NOT MATCHED THEN
-                    INSERT ([FacSec], [FacNro], [EstAud], [EstadoDetallado],
-                            [RequiereRevisionHumana], [Severidad], [Hallazgos],
-                            [DetalleError], [DocumentosProcesados], [DocumentoFallido],
-                            [DuracionProcesamientoMs], [FacNitSec])
-                    VALUES (source.[FacSec], source.[FacNro], source.[EstAud],
-                            source.[EstadoDetallado], source.[RequiereRevisionHumana],
-                            source.[Severidad], source.[Hallazgos], source.[DetalleError],
-                            source.[DocumentosProcesados], source.[DocumentoFallido],
-                            source.[DuracionProcesamientoMs], source.[FacNitSec]);";
-
-        $stmt = $writeDb->prepare($sql);
-
-        // Bind con tipos PDO explícitos por columna
-        $stmt->bindParam(':DisId', $data['DisId'], PDO::PARAM_STR);
-        $stmt->bindParam(':FacNro', $data['FacNro'], PDO::PARAM_STR);
-        $stmt->bindParam(':EstAud', $data['EstAud'], PDO::PARAM_INT);
-        $stmt->bindParam(':EstadoDetallado', $data['EstadoDetallado'], PDO::PARAM_STR);
-        $stmt->bindParam(':RequiereRevisionHumana', $data['RequiereRevisionHumana'], PDO::PARAM_INT);
-        $stmt->bindParam(':Severidad', $data['Severidad'], PDO::PARAM_STR);
-        $stmt->bindParam(':Hallazgos', $data['Hallazgos'], PDO::PARAM_STR);
-        $stmt->bindParam(':DetalleError', $data['DetalleError'], PDO::PARAM_STR);
-        $stmt->bindParam(':DocumentosProcesados', $data['DocumentosProcesados'], PDO::PARAM_INT);
-        $stmt->bindParam(':DocumentoFallido', $data['DocumentoFallido'], PDO::PARAM_STR);
-        $stmt->bindParam(':DuracionProcesamientoMs', $data['DuracionProcesamientoMs'], PDO::PARAM_INT);
-        $stmt->bindParam(':FacNitSec', $data['FacNitSec'], PDO::PARAM_STR);
-
-        $stmt->execute();
-
-        Logger::info("AuditStatus: upsert ejecutado", [
-            'DisId' => $data['DisId'],
-            'EstAud' => $data['EstAud']
-        ]);
-
-        return $this->getByFacNroFromConnection($writeDb, $data['FacNro']);
-    }
-
-    /**
-     * Actualiza el estado documental por cada adjunto físico de la dispensación.
-     *
-     * Itera por adjunto físico (no por decisión lógica) para cubrir
-     * el mapeo M:1 cuando existen múltiples archivos con el mismo tipo documental.
-     *
-     * @param PDO $connection
-     * @param string $facNro
-     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
-     * @param array<int,array{documentName:string,approved:bool,observation:?string}> $documentDecisions
-     */
-    private function updateAttachmentAuditResultsInConnection(
-        PDO $connection,
-        string $facNro,
-        string $nitSec,
-        array $documentDecisions
-    ): void {
-        $dispensation = $this->getDispensationAttachments($connection, $facNro, $nitSec);
-
-        if (empty($dispensation)) {
-            throw new \RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
-        }
-
-        $disId = (string) $dispensation[0]['DisId'];
-        $disDetId = (int) $dispensation[0]['DisDetId'];
-
-        ['approve' => $approveStmt, 'reject' => $rejectStmt] = $this->buildAttachmentUpdateStatements($connection);
-
-        // Indexar decisiones por nombre normalizado (uppercase) para búsqueda O(1)
-        $decisionsByName = [];
-        foreach ($documentDecisions as $decision) {
-            $norm = $this->normalizeDocumentDecision($decision, $facNro);
-            $key = strtoupper(trim($norm['documentName']));
-            $decisionsByName[$key] = $norm;
-        }
-
-        // Iterar por cada adjunto físico y buscar su decisión correspondiente
-        $matchedKeys = [];
-        foreach ($dispensation as $adjunto) {
-            $adjDisId = (int) $adjunto['AdjDisId'];
-            $adjDisNom = trim((string) ($adjunto['AdjDisNom'] ?? ''));
-            $normalizedName = strtoupper($adjDisNom);
-
-            $matchedDecision = $decisionsByName[$normalizedName] ?? null;
-
-            if ($matchedDecision === null) {
-                Logger::warning('updateAttachmentAuditResults: adjunto físico sin decisión lógica.', [
-                    'adjDisId' => $adjDisId,
-                    'adjDisNom' => $adjDisNom,
-                    'facNro' => $facNro,
-                ]);
-                continue;
-            }
-
-            $matchedKeys[] = $normalizedName;
-
-            if ($matchedDecision['approved']) {
-                $this->applyApprovedAttachmentDecision($approveStmt, $disId, $disDetId, $adjDisId);
-            } else {
-                $this->applyRejectedAttachmentDecision($rejectStmt, $disId, $disDetId, $adjDisId, $matchedDecision['observation']);
-            }
-        }
-
-        // Decisiones huérfanas: rechazos de documentos sin adjunto físico (e.g., AUT)
-        $orphanedDecisions = array_diff_key($decisionsByName, array_flip($matchedKeys));
-        if (!empty($orphanedDecisions)) {
-            $fallbackAdjunto = null;
-            foreach ($dispensation as $adj) {
-                if (strtoupper(trim($adj['AdjDisNom'] ?? '')) === 'DISPENSA') {
-                    $fallbackAdjunto = $adj;
-                    break;
-                }
-            }
-            $fallbackAdjunto ??= $dispensation[0];
-            $fallbackAdjDisId = (int) $fallbackAdjunto['AdjDisId'];
-
-            foreach ($orphanedDecisions as $key => $orphan) {
-                if (!$orphan['approved']) {
-                    $this->applyRejectedAttachmentDecision(
-                        $rejectStmt,
-                        $disId,
-                        $disDetId,
-                        $fallbackAdjDisId,
-                        $orphan['observation']
-                    );
-                    Logger::info('updateAttachmentAuditResults: decisión huérfana asignada a fallback ANE.', [
-                        'documentName' => $orphan['documentName'],
-                        'fallbackAdjDisId' => $fallbackAdjDisId,
-                        'facNro' => $facNro,
-                    ]);
-                }
-            }
-        }
-
-        $this->markDispensationAsAudited($connection, $disId, $disDetId);
-    }
-
-    private function markDispensationAsAudited(PDO $connection, string $disId, int $disDetId): void
-    {
-        $sql = "UPDATE DispensacionDetalleServicio SET
-                    DisDetUsuAud = :auditUser,
-                    DisDetFecAud = GETDATE()
-                WHERE DisId = :disId AND DisDetId = :disDetId";
-
-        $stmt = $connection->prepare($sql);
-        $stmt->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
-        $stmt->bindValue(':disId', $disId, PDO::PARAM_STR);
-        $stmt->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
-        $stmt->execute();
-    }
-
-    /**
-     * @return array{approve:PDOStatement,reject:PDOStatement}
-     */
-    private function buildAttachmentUpdateStatements(PDO $connection): array
-    {
-        $approveSql = "UPDATE AdjuntosDispensacion SET
-                            AdjDisObsRec  = NULL,
-                            RecConSopCod  = NULL,
-                            AdjDisEstSop  = :approvedStatus,
-                            AdjDisUsuAudi = :auditUser,
-                            AdJDisFecAudi = GETDATE(),
-                            AdjDisRec     = :approvedFlag,
-                            AdjDisUsuRec  = NULL,
-                            AdjDisFecRec  = NULL
-                        WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
-
-        $rejectSql = "UPDATE AdjuntosDispensacion SET
-                            AdjDisObsRec  = :observation,
-                            RecConSopCod  = :supportCode,
-                            AdjDisEstSop  = :rejectedStatus,
-                            AdjDisRec     = :rejectedFlag,
-                            AdjDisUsuRec  = :rejectedBy,
-                            AdjDisFecRec  = GETDATE(),
-                            AdjDisUsuAudi = :auditedBy,
-                            AdJDisFecAudi = GETDATE()
-                       WHERE DisId = :disId AND DisDetId = :disDetId AND AdjDisId = :adjDisId";
-
-        return [
-            'approve' => $connection->prepare($approveSql),
-            'reject' => $connection->prepare($rejectSql),
-        ];
-    }
-
-    /**
-     * @param array<string,mixed> $decision
-     * @return array{documentName:string,approved:bool,observation:?string}
-     */
-    private function normalizeDocumentDecision(array $decision, string $facNro): array
-    {
-        $documentName = trim((string) ($decision['documentName'] ?? ''));
-        if ($documentName === '') {
-            throw new \InvalidArgumentException("La decisión documental de {$facNro} no tiene documentName.");
-        }
-
-        $approved = (bool) ($decision['approved'] ?? false);
-        $observation = null;
-
-        if (!$approved) {
-            $payload = $decision['payload'] ?? null;
-            if (!is_array($payload) || empty($payload['hallazgos'])) {
-                throw new \InvalidArgumentException(sprintf(
-                    'El documento "%s" de la dispensación %s requiere un payload estructurado de rechazo con hallazgos.',
-                    $documentName,
-                    $facNro
-                ));
-            }
-            $observation = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
-
-        return [
-            'documentName' => $documentName,
-            'approved' => $approved,
-            'observation' => $observation,
-        ];
-    }
-
-    private function applyApprovedAttachmentDecision(PDOStatement $statement, string $disId, int $disDetId, int $adjDisId): void
-    {
-        $this->bindAttachmentIdentifiers($statement, $disId, $disDetId, $adjDisId);
-        $statement->bindValue(':approvedStatus', self::ATTACHMENT_STATUS_APPROVED, PDO::PARAM_STR);
-        $statement->bindValue(':auditUser', self::AUDIT_USER, PDO::PARAM_STR);
-        $statement->bindValue(':approvedFlag', self::ATTACHMENT_APPROVED_FLAG, PDO::PARAM_STR);
-        $statement->execute();
-    }
-
-    private function applyRejectedAttachmentDecision(
-        PDOStatement $statement,
-        string $disId,
-        int $disDetId,
-        int $adjDisId,
-        ?string $observation
-    ): void {
-        $this->bindAttachmentIdentifiers($statement, $disId, $disDetId, $adjDisId);
-        $statement->bindValue(':observation', $observation, PDO::PARAM_STR);
-        $statement->bindValue(':supportCode', self::REJECTION_SUPPORT_CODE, PDO::PARAM_INT);
-        $statement->bindValue(':rejectedStatus', self::ATTACHMENT_STATUS_REJECTED, PDO::PARAM_STR);
-        $statement->bindValue(':rejectedFlag', self::ATTACHMENT_REJECTED_FLAG, PDO::PARAM_STR);
-        $statement->bindValue(':rejectedBy', self::AUDIT_USER, PDO::PARAM_STR);
-        $statement->bindValue(':auditedBy', self::AUDIT_USER, PDO::PARAM_STR);
-        $statement->execute();
-    }
-
-    private function bindAttachmentIdentifiers(PDOStatement $statement, string $disId, int $disDetId, int $adjDisId): void
-    {
-        $statement->bindValue(':disId', $disId, PDO::PARAM_STR);
-        $statement->bindValue(':disDetId', $disDetId, PDO::PARAM_INT);
-        $statement->bindValue(':adjDisId', $adjDisId, PDO::PARAM_INT);
-    }
-
-    private function getByFacNroFromConnection(PDO $connection, string $facNro): array|false
-    {
-        $row = $this->fetchAuditRowByFacNro($connection, $facNro);
-        if ($row === null) {
-            return false;
-        }
-
-        return $this->normalizeAuditDetail($row);
     }
 
     /**
@@ -717,9 +320,13 @@ class AuditStatusModel extends Model
         $stmt = $connection->prepare($sql);
         $stmt->bindParam(':facNro', $facNro, PDO::PARAM_STR);
         $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        try {
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return is_array($row) ? $row : null;
+            return is_array($row) ? $row : null;
+        } finally {
+            $stmt->closeCursor();
+        }
     }
 
     /**
@@ -924,32 +531,28 @@ class AuditStatusModel extends Model
         return $this->nullableString($value);
     }
 
-    /**
-     * Obtiene los adjuntos de una dispensación con nombre lógico resuelto.
-     *
-     * Usa el mismo JOIN que AttachmentsModel::getRequiredAttachmentsByDisDetNro
-     * (NitMedDocCodAlt → AdjDisCodDocAlt) para garantizar coherencia entre
-     * los nombres que la IA evaluó y los que la persistencia actualiza.
-     *
-     * @param PDO $connection Conexión de escritura activa
-     * @param string $facnro Número de factura (opera como DisDetNro)
-     * @param string $nitSec NIT del cliente para resolver nombres vía NitDocumentos
-     * @return array<int, array{AdjDisId:int,AdjDisNom:string,DisId:string,DisDetId:int}>
-     */
-    private function getDispensationAttachments(PDO $connection, string $facnro, string $nitSec): array
+    private function readWithFallback(callable $operation): mixed
     {
-        $sql = "SELECT DISTINCT a.AdjDisId, COALESCE(n.NitMedDocNom, a.AdjDisNom) AS AdjDisNom, a.DisId, a.DisDetId
-                FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
-                WHERE d.DisDetNro = :facnro
-                ORDER BY a.AdjDisId ASC";
+        try {
+            return $this->read($operation);
+        } catch (SqlServerOperationException $error) {
+            if ($error->phase() !== 'connect' && !$error->retryExhausted()) {
+                throw $error;
+            }
 
-        $stmt = $connection->prepare($sql);
-        $stmt->bindParam(':facnro', $facnro, PDO::PARAM_STR);
-        $stmt->bindParam(':nitSec', $nitSec, PDO::PARAM_STR);
-        $stmt->execute();
+            Logger::warning('AuditStatusModel: fallback de lectura hacia db2', [
+                'preferredConnection' => $this->readConnectionName,
+                'fallbackConnection' => 'db2',
+                'phase' => $error->phase(),
+                'sql_state' => $error->sqlState(),
+            ]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            return $this->executor->execute(
+                'db2',
+                SqlServerOperationMode::READ,
+                $operation
+            );
+        }
     }
+
 }

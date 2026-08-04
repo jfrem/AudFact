@@ -60,7 +60,13 @@ class DocumentPolicyEngine
         return [
             'document_name'     => $documentType,
             'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
-            'document_decision' => $this->buildDocumentDecision($documentType, $findings, $facNro),
+            'document_decision' => $this->buildDocumentDecision(
+                $documentType, 
+                $findings, 
+                $facNro,
+                $documentState['doc_id'] ?? null,
+                $documentState['attachment_id'] ?? null
+            ),
             'gemini_semantic_metrics' => [
                 'semantic' => $this->semanticMetrics,
                 'semantic_calls' => count($this->semanticMetrics),
@@ -737,7 +743,13 @@ class DocumentPolicyEngine
      * @param  array<int,array<string,mixed>> $findings
      * @return array{documentName:string,approved:bool,payload?:array<string,mixed>}
      */
-    private function buildDocumentDecision(string $documentType, array $findings, string $facNro): array
+    private function buildDocumentDecision(
+        string $documentType, 
+        array $findings, 
+        string $facNro,
+        mixed $docId = null,
+        mixed $attachmentId = null
+    ): array
     {
         $approved  = true;
         $hallazgos = [];
@@ -777,6 +789,8 @@ class DocumentPolicyEngine
             'documentName' => DocumentExtractionContractBuilder::normalizeDocumentName($documentType),
             'approved'     => $approved,
             'payload'      => $payload,
+            'doc_id'       => is_scalar($docId) ? (string)$docId : null,
+            'attachment_id'=> is_scalar($attachmentId) ? (string)$attachmentId : null,
         ];
     }
 }

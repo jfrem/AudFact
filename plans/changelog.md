@@ -1,6 +1,95 @@
 # Changelog AudFact
 
+## [2026-08-03] - Issue #27: reconciliación documental física 1:1
+
+### Backend & Pipeline IA
+- `AuditDataService` usa una consulta física interna sin filtrar opcionalidad; el endpoint público de adjuntos conserva sus campos históricos y el frontend mantiene ese contrato.
+- Se reconstruyó `DocumentAttachmentMatcher` como servicio puro con una única API `matchAll()`, tres pasadas deterministas (nombre exacto, ID corroborado, alias único) y asignación global uno-a-uno por `attachment_id`.
+- `DocumentAttachmentMatchResult` es readonly y rechaza IDs lógicos o físicos duplicados. `DocumentMappingRejectionReason` separa las cuatro causas de mapping de la taxonomía de contenido.
+- `DocumentAuditOrchestrator` registra matches con trazabilidad lógica/física. Missing, ambiguous, no content y reused se registran como rechazados y publican `document_rejected` de categoría `DOCUMENT_MAPPING` sin descarga ni Gemini.
+- `RulesEvaluationWorker` transforma esos rechazos en hallazgos `MAP`, severidad alta, resultado `RECHAZADO` y tipo `integrity`; `AuditPersistenceWorker` valida nuevamente el contrato antes de SQL.
+- `DocumentDuplicationEvaluator` solo genera `DUP` cuando un mismo hash pertenece a `attachment_id` físicos distintos; estados repetidos del mismo adjunto no inflan hallazgos.
+- Cobertura añadida para el caso 2624, matcher/DTO, orquestación, Redis, policy, persistencia, modelo físico, API interna y deduplicación. Suite completa: 407 tests, 1431 aserciones, 1 integración opt-in omitida y 0 fallos. TypeScript `tsc --noEmit` también finaliza sin errores.
+
+### Gobernanza y alineación de skills
+- Reconciliados los 20 directorios reales de `.agent/skills` con `CATALOG.md`, `catalog.json`, aliases, bundles y `validation-baseline.json` v2. La entrada inexistente `ui-ux-pro-max` fue retirada del catálogo local y se incorporó `write-sdd-spec`.
+- Añadido `.agent/skills/_shared/scripts/validate-skills.mjs`, validador Node sin dependencias externas para impedir drift entre directorios, catálogo, baseline, aliases, bundles, frontmatter, metadatos y referencias locales.
+- Normalizados los 20 metadatos `agents/openai.yaml`: nodo `interface`, prompts con token `$skill-name` y descripciones de 25–64 caracteres. Se agregó el `name` faltante al frontmatter de `audfact-docs-sync`.
+- Corregidas todas las rutas ejecutables de Impeccable desde `.gemini/skills/...` hacia la ubicación real `.agent/skills/...`; el loader fue ejecutado correctamente desde la ruta corregida.
+- Sincronizados conteos y contratos verificables: 29 rutas, 12 controladores, 8 modelos, 47 servicios PHP (46 bajo `app/Services/Audit`) y 47 archivos PHP de prueba. El modelo Gemini por defecto documentado quedó alineado con `GeminiConfig` y `.env.example` en `gemini-3.5-flash`.
+- Actualizados `AGENTS.md`, `README.md`, `plans/overview.md` y `plans/testing-strategy.md` para reflejar las skills, endpoints y conteos actuales.
+- El contrato de `document_rejected` quedó segregado por categoría y productor: mapping en el orquestador, contenido en el extractor. La revisión de la tool MCP `GetDispensation` permanece fuera del alcance de Issue #27.
+
+### Nueva skill PHPUnit Test Architect
+- Creada `.agent/skills/phpunit-test-architect` con flujo operativo, contrato de diseño PHPUnit 10+, contrato estricto de salida y ocho casos de evaluación. La skill produce únicamente suites unitarias como especificación ejecutable y nunca código de producción.
+- Registrada como la skill 21 en `CATALOG.md`, `catalog.json`, aliases y `validation-baseline.json` v3; añadido el bundle `audfact-testing` para combinar diseño de pruebas y sincronización documental.
+- Sincronizados `AGENTS.md` y `plans/testing-strategy.md` con sus triggers, alcance, reglas AAA, dobles de prueba e integración con las skills funcionales del repositorio.
+
+### Convenciones AudFact para PHPUnit Test Architect
+- Añadida `references/audfact-project-conventions.md` con la estructura real de directorios, mapeo PSR-4, ausencia comprobada de una clase base propia de tests, clases base productivas, resolución manual de dependencias, contrato `HttpResponseException` y clasificación dominio/aplicación/infraestructura.
+- Extendidos los casos de evaluación de 8 a 12 para cubrir controladores, modelos SQL Server, namespaces canónicos y dependencias concretas sin interfaces; actualizado `validation-baseline.json` a v4.
+- Corregido drift en `audfact-project-overview` y `audfact-audit-gemini`: el runtime no declara `AuditDataServiceInterface` ni `AttachmentDownloadServiceInterface`; ambos servicios son clases concretas con inyección opcional y defaults de producción.
+
+## [2026-07-31] - Refactor: Resolución Determinística de Adjuntos Físicos, Mapeo Lógico-Físico y Resiliencia en Extracción
+
+### Backend & Pipeline IA
+- **Resolución Determinística de Mapeo (Issue #27 / Clean Code)**:
+  - `DocumentAttachmentMatcher.php`: Implementado servicio determinístico en 3 fases (`EXACT_NAME` -> `CORROBORATED_ID` -> `UNIQUE_ALIAS`), lanzando `DOCUMENT_ATTACHMENT_AMBIGUOUS` en caso de colisión.
+  - `DocumentAuditOrchestrator.php`: Adaptado para usar `DocumentAttachmentMatcher` y pasar `doc_id` y `attachment_id` en rejections sintéticas y `documentState`.
+  - `DocumentPolicyEngine.php` & `RulesEvaluationWorker.php`: Expuesta la tupla `(doc_id, attachment_id)` dentro de cada objeto `document_decision` en las respuestas REST y payloads guardados.
+  - `AuditDataService.php`: Corregido llamado a `getPhysicalAttachmentsByDisDetNro()` resolviendo llamadas a métodos legacy no existentes en la consulta de adjuntos físicos.
+  - `DocumentExtractionWorker.php`: Añadido fallback defensivo para `quality_notes` cuando Gemini 3.6 Flash devuelve una función `assess_document_quality` parcial o sin el parámetro opcional, evitando caídas inesperadas y retención de eventos en la cola.
+- **Acceso a Datos**:
+  - `AttachmentsModel.php` & `AttachmentsController.php`: Actualizados para utilizar la vista determinística física de SQL Server (`getPhysicalAttachmentsByDisDetNro`) eliminando emulaciones del modelo anterior.
+
+### Frontend (Next.js)
+- **Contrato de Datos**:
+  - `domain.ts`: Actualizados esquemas Zod (`AttachmentSchema` y `AuditDocumentDecisionSchema`) para validar `attachment_id`, `physical_document_name`, `storage_type`, `physical_catalog_id`, `doc_id`, `rejection_class` y `rejection_reason`.
+  - `attachment-list.tsx` & `attachment-viewer-panel.tsx`: Mapeados los nuevos nombres de propiedades manteniendo intacta la maquetación visual previa.
+
+### DOCS-SYNC / Gobernanza Técnica
+- Suite completa de pruebas unitarias (`phpunit.bat`) ejecutada al 100% (389/389 pasados).
+- Verificación end-to-end operativa en lote (`POST /audit/async` - Job `9eefdd76-910e-4a4a-b3b5-7698b4fece98`) con 5/5 auditorías procesadas exitosamente.
+- Reconstrucción de imágenes Docker verificada en container runtime.
+
+## [2026-07-30] - Implementacion preventiva: Resiliencia SQL/PDO y falsos rechazos
+
+- Se implemento en `staging` un ejecutor SQL por operacion con PDO fresco, modos `READ`, `IDEMPOTENT_WRITE` y `NON_REPLAYABLE_WRITE`, y reintentos acotados con pausas de 1/5/30 segundos. `HYT00` solo se reintenta durante apertura; errores de statement, deadlocks y escrituras no reproducibles no se repiten automaticamente.
+- Los modelos dejaron de retener PDO de `db2` o `default`. La transaccion idempotente de persistencia dual puede reconstruirse completa tras una desconexion y conserva la excepcion primaria aunque falle el rollback.
+- La descarga BLOB del pipeline materializa bytes y exige igualdad con `DATALENGTH`. Fallos SQL, Drive, adjunto ausente, vacio o transferencia parcial son tecnicos: no publican `document_rejected` ni generan hallazgos de integridad.
+- `DocumentExtractionWorker` es el unico productor permitido de `document_rejected`; policy exige clase `document_content`, origen y razon de una allowlist cerrada. Persistencia aplica una segunda barrera que rechaza payloads contaminados con `DOWNLOAD_ERROR`.
+- El agotamiento SQL termina el evento en DLQ y hace ACK en la misma entrega, liberando el turno del job sin esperar los 600 segundos de `XAUTOCLAIM`.
+- Se preservaron la persistencia dual transaccional y `updateFinalTimings()` por contrato de dominio. El saneamiento historico permanece separado en `plans/sdd-sql-incident-remediation.md`.
+- La prueba operativa detecto y corrigio un contador de observabilidad: `BatchJobStore` usaba el estado anterior de cada auditoria para transicionar metricas del job. Ahora usa `job.status`, evitando falsos `jobs_running` tras completar lotes multi-auditoria.
+- Verificacion automatizada: 389 tests, 1332 assertions, 1 integracion opt-in omitida; lint correcto en 136 archivos. Se sincronizaron README, arquitectura, flujos, estrategia de pruebas y skills afectadas.
+- Validacion operativa local en dos rondas de tres jobs simultaneos: 15/15 auditorias persistidas, cero fallos de job, cero DLQ y cero retries. `sql_persist_ms`: min 2283, promedio 2423, p50 2369 y p95/max 3045 ms. La inyeccion ODBC y la comparacion relativa contra baseline siguen siendo gates separados antes de produccion.
+
 ## [2026-07-29] - Refactor: Clean Code en Reglas de Auditoría y Tests
+
+### Persistencia concurrente / Clean Rebuild
+
+- **Eliminación del head-of-line blocking global**:
+  - Se eliminó `AuditAggregationWorker` y el rol `aggregator`; no se conserva adaptador ni ruta legacy.
+  - `AuditPersistenceQueue` implementa scheduling idempotente con Redis/Lua: mantiene una sola persistencia activa por job y permite que jobs distintos progresen en paralelo.
+  - `worker-persistence` se configura con `AUDIT_WORKER_PERSISTENCE_REPLICAS=3`; `AUDIT_PERSISTENCE_QUEUE_TTL` controla la retención de turnos, pendientes y deduplicación.
+- **Persistencia de dominio preservada y optimizada**:
+  - `AuditResultPersistenceModel` mantiene las dos escrituras exigidas por negocio: reporte de hallazgos sobre adjuntos y trazabilidad completa de la auditoría.
+  - El resumen en `AudDispEst`, los resultados documentales en `AdjuntosDispensacion` y la marca en `DispensacionDetalleServicio` se confirman dentro de una sola transacción.
+  - El upsert usa `UPDATE WITH (UPDLOCK, SERIALIZABLE)` + `INSERT` condicional, elimina el read-before-write y sustituye los updates N+1 por una actualización set-based.
+  - `AuditStatusModel` queda dedicado exclusivamente a lectura.
+- **Resiliencia y observabilidad**:
+  - Los fallos SQL se reintentan antes de DLQ y el turno se libera únicamente al completar o agotar definitivamente el evento.
+  - `/metrics/async` incluye la profundidad del stream de persistencia y corrige el manejo de respuesta que ocultaba métricas reales con ceros.
+  - La etiqueta de telemetría `aggregation` se conserva temporalmente solo como contrato del DAG frontend; el runtime se denomina `persistence`.
+- **Cobertura y configuración**:
+  - Se agregaron pruebas unitarias del scheduler, worker, modelo SQL y observabilidad, más una integración opt-in contra Redis real.
+  - Se sincronizaron Compose, workflow de producción, `.env.example`, documentación, diagramas y skills. No se realizó despliegue a producción como parte de este cambio.
+
+### Hotfix / OCR & Dispensation
+
+- **Regresión en CodigoProducto (Autorización)**:
+  - **DocumentExtractionWorker**: Restaurado el prompt estricto del motor OCR (`Extrae el texto **exactamente**...` y `Si un carácter sigue siendo ambiguo...`). Esto previene alucinaciones en modelos de menor tamaño (Gemini "Low") al lidiar con ambigüedades como la `D` interpretada como `0` en códigos alfanuméricos.
+  - **DispensationModel**: Implementado truncado de sufijos en `Codigo_aut` (`LEFT(Codigo_aut, CHARINDEX('-', Codigo_aut + '-') - 1) AS CodigoProducto`). Esto alinea el código de producto del registro maestro con los códigos impresos en los soportes físicos al descartar sufijos condicionales en la base de datos (e.g., `MD015582-X` → `MD015582`).
 
 ### IA Pipeline / Clean Rebuild
 
@@ -1343,6 +1432,11 @@
 - **KPI Alertas (Dashboard)**: Se corrigiÃ³ la lÃ³gica de `EstAud` en backend para que marque registros procesados con errores o advertencias. Se robusteciÃ³ el mapeo de estados en frontend.
 - **React Hydration Mismatch (#418)**: Se eliminÃ³ el error diferiendo la renderizaciÃ³n de fechas (`new Date()`) en `DashboardHeader` hasta la etapa del cliente mediante `useEffect`.
 - **NavegaciÃ³n 404 (/settings)**: Se agregÃ³ la pÃ¡gina "ConfiguraciÃ³n (En ConstrucciÃ³n)" para resolver rutas inexistentes de los menÃºs laterales y superior.
+- Agregado filtro "tb3.FacEst='A'" en InvoicesModel::invoiceCandidatesSql y getInvoicesForAuditBatch para evitar encolar múltiples auditorías de una misma dispensa por tener versiones anuladas activas, resolviendo registros duplicados en el pipeline y la base de datos AudDispEst. (Skill actualizada: audfact-sqlsrv-models/SKILL.md no requirió cambios, pero fue revisada).
+
+## 2026-08-03
+
+- **Bugfix (Auditoría v2)**: Se mejoró la lógica de normalización numérica `parseNumber` en `AuditFindingRules` para identificar correctamente los separadores de miles y decimales en el contexto colombiano (AudFact), resolviendo el problema de falsos positivos `VALOR_DISTINTO` en los montos (como `VlrCobrado`) causados por los formatos reportados por la IA (`20.100` ahora se normaliza como `20100` en lugar de `20.1`).
 
 ## [2026-03-07]
 

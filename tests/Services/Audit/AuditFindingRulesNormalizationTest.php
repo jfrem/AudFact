@@ -305,6 +305,10 @@ final class AuditFindingRulesNormalizationTest extends TestCase
         $this->assertSame('0', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '0.00'));
         $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '1500.00'));
         $this->assertSame('1500', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '1,500.00'));
+        $this->assertSame('20100', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '20.100'));
+        $this->assertSame('20100', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '20,100'));
+        $this->assertSame('20.15', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '20.15'));
+        $this->assertSame('20.15', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, '20,15'));
 
         // Los alfanuméricos o no numéricos se mantienen como texto
         $this->assertSame('MD015582 A', AuditFindingRules::normalizeForComparison(AuditFieldValueType::TEXT, 'MD015582-A'));

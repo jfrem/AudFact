@@ -31,21 +31,21 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 AudFact/
 ├── frontend/           # Aplicación Next.js (Dashboard + Gestión)
 ├── app/
-│   ├── Controllers/     # 11 controladores HTTP (incluye base)
-│   ├── Models/          # 7 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # GoogleDrive + Audit/ (40 archivos: Pipeline/ + raíz)
-│   ├── Routes/web.php   # 27 rutas registradas
+│   ├── Controllers/     # 12 controladores HTTP (incluye base)
+│   ├── Models/          # 8 modelos SQL Server (incluye base Model.php)
+│   ├── Services/        # 47 servicios PHP; 46 bajo Audit/ (Pipeline/ + raíz)
+│   ├── Routes/web.php   # 29 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, downloader×8, extraction×8, normalizer, policy×2, aggregator)
+├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, downloader×8, extraction×8, normalizer, policy×2, persistence×3)
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
 └── logs/                # Logs rotativos por hostname (HA-safe); `logs/responseIA` solo para snapshots dev
 ```
 
-## Endpoints REST (27)
+## Endpoints REST (29)
 
 > Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
@@ -61,11 +61,12 @@ AudFact/
 | POST | `/clients` | ClientsController::lookup |
 | GET | `/clients/{clientId}/audit-config` | AuditConfigController::show |
 | POST | `/clients/{clientId}/audit-config` | AuditConfigController::save |
+| GET | `/audit/field-catalog` | AuditConfigController::catalog |
 | GET | `/invoices` | InvoicesController::index |
 | POST | `/invoices` | InvoicesController::search |
 | GET | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | AttachmentsController::downloadByDispensation |
 | GET | `/dispensation/{disDetNro}/attachments/{nitSec}` | AttachmentsController::showByDispensation |
-| GET | `/dispensation/{DisDetNro}` | DispensationController::show |
+| GET | `/dispensation/{DisId}/{DisDetNro}` | DispensationController::show |
 | POST | `/dispensation` | DispensationController::lookup |
 | GET | `/audit/results` | AuditController::results |
 | GET | `/audit/results/{facNro}` | AuditController::resultDetail |
@@ -78,6 +79,7 @@ AudFact/
 | GET | `/audit/{facNro}/timings` | AuditController::timings |
 | GET | `/audit/dlq` | AuditDlqController::index |
 | POST | `/audit/dlq/reprocess` | AuditDlqController::reprocess |
+| GET | `/audit/{auditId}/flow-stream` | AuditFlowController::stream |
 
 ## Flujo principal — Auditoría IA (event-driven)
 
@@ -88,19 +90,22 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    └─ publica `audit_created` en stream `audit.inbox` (202 con audit_id)
 
 2. DocumentAuditOrchestrator (group: orchestrator)
-   ├─ resuelve FDV (DispensationModel) + audit-config (AuditConfigModel) + adjuntos
+   ├─ resuelve FDV, audit-config y adjuntos mediante AuditDataService sobre modelos PHP
+   ├─ reconcilia globalmente documentos lógicos ↔ adjuntos físicos (nombre, ID corroborado, alias único)
+   ├─ missing/ambiguous/no-content/reused → document_rejected category=DOCUMENT_MAPPING
    ├─ construye `extraction_contract` con cuatro function declarations paralelas desde audit-config
    └─ publica N × `document_registered` en `audit.documents`
 
 3. AttachmentDownloadWorker (group: downloaders, ×8 réplicas)
    ├─ descarga adjunto (Drive URL o BLOB)
+   ├─ exige transferencia BLOB completa (`bytes === DATALENGTH`)
    ├─ guarda el BLOB temporal en Redis con key lógica `audit:blob:*`
-   └─ publica `document_downloaded` o `document_rejected`
+   └─ publica `document_downloaded`; fallos técnicos se propagan a DLQ
 
 4. DocumentExtractionWorker (group: extractors, ×8 réplicas)
    ├─ consume `document_downloaded`
    ├─ valida integridad estructural con `DocumentIntegrityValidator`
-   ├─ si no es procesable → publica `document_rejected` sin consumir Gemini
+   ├─ productor exclusivo de `document_rejected` por contenido comprobado
    ├─ document_hash = sha256(base64) → cache Redis
    └─ si es válido: Gemini function calling → publica `document_extracted`
 
@@ -110,14 +115,17 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 6. RulesEvaluationWorker (group: policy)
    ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
-   ├─ `document_rejected` → hallazgo `RECHAZADO` con `tipo_auditoria=integrity`
+   ├─ valida por separado mapping (orquestador) y contenido (extractor)
+   ├─ mapping inválido genera hallazgo MAP sin pasar por Gemini
    ├─ ArticleSemanticMatchJudge como fallback exclusivo de homologación de artículos
-   └─ cuando docs_done == docs_total, publica `rules_evaluated` en `audit.results`
+   └─ cuando docs_done == docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
 
-7. AuditAggregationWorker (group: aggregator)
+7. AuditPersistenceWorker (group: persistence, ×3 réplicas)
    ├─ AuditResultData + documentDecisions
-   ├─ AuditStatusModel.persistAuditResultWithAttachments()
-   │    → MERGE Discolnet.dbo.AudDispEst + UPDATE AdjuntosDispensacionDetalle
+   ├─ un turno activo por job; jobs distintos persisten en paralelo
+   ├─ bloquea `DOWNLOAD_ERROR` y contratos de rechazo inválidos
+   ├─ AuditResultPersistenceModel.persist()
+   │    → PDO fresco + transacción idempotente dual con retry 1/5/30 s
    └─ publica `audit_completed` | `audit_failed` | `batch_completed[_with_errors]`
 
 Reintentos por evento → DLQ (`audit.dlq`) tras AUDIT_EVENT_MAX_RETRIES (3).
@@ -136,8 +144,9 @@ Reintentos por evento → DLQ (`audit.dlq`) tras AUDIT_EVENT_MAX_RETRIES (3).
 
 ## Patrones de diseño
 
-- **Singleton**: `Database::getConnection()` — pool de conexiones PDO (default + db2).
-- **Strategy**: `AuditDataServiceInterface`, `AttachmentDownloadServiceInterface`.
+- **Conexión cacheada**: `Database::getConnection()` — reservada para consumidores puntuales como health.
+- **Retry por operación**: `SqlServerConnectionExecutor` abre PDO fresco y solo reproduce lecturas o escrituras idempotentes.
+- **Inyección pragmática**: servicios y workers reciben colaboradores concretos por constructor con defaults de producción; el runtime actual no declara interfaces propias para `AuditDataService` ni `AttachmentDownloadService`.
 - **Template Method**: `AuditEventConsumer` (XREADGROUP + ack + retry + DLQ; subclases sólo implementan `handle()`).
 - **Builder dinámico**: `DocumentExtractionContractBuilder` arma `extract_fields`, `extract_items`, `detect_visual_checks` y `assess_document_quality` desde `audit-config`.
 - **Chain of Responsibility**: Middleware pipeline en `Core\Router`.

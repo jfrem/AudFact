@@ -12,7 +12,6 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     private const DEFAULT_BLOB_TTL_SECONDS = 3600;
     private const BLOB_KEY_PREFIX = 'audit:blob';
 
-    private AuditStateStore $stateStore;
     private AttachmentDownloadService $downloader;
     private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
@@ -29,7 +28,6 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
-        $this->stateStore         = $stateStore         ?? new AuditStateStore($this->redis);
         $this->downloader         = $downloader         ?? new AttachmentDownloadService();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName       = $consumerName       ?? self::defaultConsumerName('downloader');
@@ -83,18 +81,21 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         try {
             $document = $this->downloader->download($attachmentId, $disDetNro);
         } catch (\Throwable $error) {
-            $this->telemetryPublisher->rejected(
+            $this->telemetryPublisher->failed(
                 $event->auditId,
                 'download',
                 self::elapsedMs($downloadStartedAt),
                 $event->documentId,
                 $disDetNro,
-                array_merge($telemetryMeta, ['error_class' => get_class($error)]),
+                array_merge($telemetryMeta, [
+                    'error_class' => get_class($error),
+                    'reason_code' => $error instanceof AttachmentDownloadException
+                        ? $error->reasonCode()
+                        : null,
+                ]),
                 $event->jobId
             );
-
-            $this->rejectDownload($event, $payload, $error);
-            return;
+            throw $error;
         }
 
         try {
@@ -166,35 +167,6 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         if (!$this->redis->set($blobKey, $encoded, $this->blobTtl)) {
             throw new RuntimeException('No se pudo persistir BLOB documental en Redis');
         }
-    }
-
-    /**
-     * @param array<string,mixed> $payload
-     */
-    private function rejectDownload(AuditEvent $event, array $payload, \Throwable $error): void
-    {
-        $patch = [
-            'rejection_reason' => 'DOWNLOAD_ERROR',
-            'message' => $error->getMessage(),
-            'rejected_at' => gmdate('Y-m-d\TH:i:s\Z'),
-        ];
-
-        if (!$this->stateStore->markDocumentRejected(
-            (string) $event->auditId,
-            (string) $event->documentId,
-            $patch
-        )) {
-            throw new RuntimeException('No se pudo marcar descarga rechazada en Redis', 0, $error);
-        }
-
-        $this->publisher->publish(AuditEvent::create(
-            eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
-            documentId: $event->documentId,
-            payload: array_merge($payload, $patch),
-            parentEventId: $event->eventId
-        ));
     }
 
     /**

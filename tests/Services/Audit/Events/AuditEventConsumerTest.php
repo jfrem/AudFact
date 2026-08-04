@@ -6,9 +6,13 @@ namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventConsumer;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use Core\RedisClient;
 use Core\RedisUnavailableException;
+use Core\SqlServerOperationException;
+use Core\SqlServerOperationMode;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -172,6 +176,67 @@ final class AuditEventConsumerTest extends TestCase
         $this->expectExceptionMessage('Redis no disponible al iniciar consumer');
         $consumer->run();
     }
+
+    public function testTerminalFailureRunsHookBeforeAcknowledgingMessage(): void
+    {
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+        );
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xGroupCreate')->willReturn(true);
+        $redis->method('xReadGroup')->willReturn([[
+            'id' => '1700000000003-0',
+            'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->method('xAdd')->willReturn('1700000000004-0');
+        $redis->expects($this->once())
+            ->method('xAck')
+            ->with('test.stream', 'test-group', '1700000000003-0');
+
+        $consumer = new TerminalFailureConsumer(redis: $redis);
+        $consumer->run(1);
+
+        $this->assertSame([$event->eventId], $consumer->terminalFailureEventIds);
+    }
+
+    public function testSqlRetryExhaustionDeadLettersAndAcksImmediately(): void
+    {
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_RULES_EVALUATED,
+            auditId: AuditEvent::uuidV4()
+        );
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xGroupCreate')->willReturn(true);
+        $redis->method('incr')->willReturn(1);
+        $redis->method('xReadGroup')->willReturn([[
+            'id' => '1700000000005-0',
+            'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects($this->once())
+            ->method('xAck')
+            ->with('test.stream', 'test-group', '1700000000005-0');
+
+        $publisher = new ConsumerRecordingPublisher();
+        $error = new SqlServerOperationException(
+            'default',
+            'operation',
+            SqlServerOperationMode::IDEMPOTENT_WRITE,
+            4,
+            '08S01',
+            true,
+            new \PDOException('SQLSTATE[08S01] Communication link failure')
+        );
+        $consumer = new SqlTerminalFailureConsumer($error, $redis, $publisher);
+
+        $consumer->run(1);
+
+        $this->assertCount(1, $publisher->deadLetters);
+        $this->assertSame(AuditEvent::TYPE_DEAD_LETTER, $publisher->deadLetters[0]->eventType);
+        $this->assertSame([$event->eventId], $consumer->terminalFailureEventIds);
+    }
 }
 
 final class RecordingTelemetryStateStore extends AuditStateStore
@@ -213,5 +278,92 @@ final class MinimalConsumer extends AuditEventConsumer
     protected function handle(AuditEvent $event): void
     {
         $this->handled[] = $event;
+    }
+}
+
+final class TerminalFailureConsumer extends AuditEventConsumer
+{
+    /** @var array<int,string> */
+    public array $terminalFailureEventIds = [];
+
+    protected function stream(): string
+    {
+        return 'test.stream';
+    }
+
+    protected function group(): string
+    {
+        return 'test-group';
+    }
+
+    protected function consumer(): string
+    {
+        return 'test-consumer';
+    }
+
+    protected function handle(AuditEvent $event): void
+    {
+        throw new InvalidArgumentException('evento no recuperable');
+    }
+
+    protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void
+    {
+        $this->terminalFailureEventIds[] = $event->eventId;
+    }
+}
+
+final class SqlTerminalFailureConsumer extends AuditEventConsumer
+{
+    /** @var array<int,string> */
+    public array $terminalFailureEventIds = [];
+
+    public function __construct(
+        private SqlServerOperationException $failure,
+        RedisClient $redis,
+        AuditEventPublisher $publisher
+    ) {
+        parent::__construct($redis, $publisher);
+    }
+
+    protected function stream(): string
+    {
+        return 'test.stream';
+    }
+
+    protected function group(): string
+    {
+        return 'test-group';
+    }
+
+    protected function consumer(): string
+    {
+        return 'test-consumer';
+    }
+
+    protected function handle(AuditEvent $event): void
+    {
+        throw $this->failure;
+    }
+
+    protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void
+    {
+        $this->terminalFailureEventIds[] = $event->eventId;
+    }
+}
+
+final class ConsumerRecordingPublisher extends AuditEventPublisher
+{
+    /** @var array<int,AuditEvent> */
+    public array $deadLetters = [];
+
+    public function __construct()
+    {
+    }
+
+    public function publishDeadLetter(AuditEvent $event): string
+    {
+        $this->deadLetters[] = $event;
+
+        return 'dead-letter-1';
     }
 }
