@@ -33,7 +33,7 @@ AudFact/
 ├── app/
 │   ├── Controllers/     # 12 controladores HTTP (incluye base)
 │   ├── Models/          # 8 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # 47 servicios PHP; 46 bajo Audit/ (Pipeline/ + raíz)
+│   ├── Services/        # 51 servicios PHP; 50 bajo Audit/ (Pipeline/ + raíz)
 │   ├── Routes/web.php   # 29 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
@@ -105,9 +105,11 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 4. DocumentExtractionWorker (group: extractors, ×8 réplicas)
    ├─ consume `document_downloaded`
    ├─ valida integridad estructural con `DocumentIntegrityValidator`
+   ├─ delega estado transitorio y cache a `ExtractionCacheManager`
    ├─ productor exclusivo de `document_rejected` por contenido comprobado
-   ├─ document_hash = sha256(base64) → cache Redis
-   └─ si es válido: Gemini function calling → publica `document_extracted`
+   ├─ si es válido: construye prompts dinámicos con `ExtractionPromptBuilder`
+   ├─ Gemini function calling
+   └─ parsea y recupera con `GeminiResponseParser` (política 3 fases) → publica `document_extracted`
 
 5. DocumentNormalizer (group: normalizers)
    ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío

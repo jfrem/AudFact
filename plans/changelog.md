@@ -1,5 +1,21 @@
 # Changelog AudFact
 
+## [2026-08-05] - Sincronización de Documentación y Refactorización SDD
+
+### Backend & Pipeline IA
+- **Clean Architecture en Extracción Documental**: Reestructuración de `DocumentExtractionWorker` en un orquestador delgado con responsabilidades segregadas.
+- **Nuevos Servicios**: Implementación de `ExtractionCacheManager`, `ExtractionPromptBuilder` y `GeminiResponseParser`.
+- **Fechas**: Soporte en `normalizeDateToIso` para formatos ISO 8601 con zona horaria (ej. `T08:51:04.000-05:00`), con 5 tests nuevos en `AuditFindingRulesNormalizationTest.php`.
+- **Gobernanza documental**: Actualización de la skill `audfact-audit-gemini/SKILL.md` con las nuevas clases del pipeline según la Matriz de Impacto en Skills.
+- **Merge y Despliegue**: Unificación de la rama dev con 525 archivos modificados.
+
+## [2026-08-04] - SDD v3: Resiliencia en Extracción Documental
+
+### Backend & Pipeline IA
+- **Extracción de Documentos (SDD v3)**:
+  - `DocumentExtractionWorker.php`: Implementada política de recuperación en 3 fases (`FUNCTION_RECOVERY_POLICY`) para mitigar la omisión de funciones en respuestas de Gemini (Fase 1: Happy Path, Fase 2: Retry Selectivo, Fase 3: Fallback Determinista Semántico).
+  - Añadida telemetría Redis (`telemetry:async_metrics`) mediante `hIncrBy` para monitorear intentos de extracción, hits en Fase 2 y hits en Fase 3 por tipo de documento, proveyendo observabilidad sobre el comportamiento interno del LLM.
+
 ## [2026-08-03] - Issue #27: reconciliación documental física 1:1
 
 ### Backend & Pipeline IA

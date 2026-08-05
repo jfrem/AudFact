@@ -447,6 +447,14 @@ abstract class AuditEventConsumer
         if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
             $this->sendToDeadLetter($event, $streamId, $attempts, $error);
+            Logger::critical('Evento enviado a DLQ tras agotar reintentos', [
+                'alert_type'  => 'dlq_event',
+                'audit_id'    => $event->auditId,
+                'event_type'  => $event->eventType,
+                'stream'      => $this->stream(),
+                'attempts'    => $attempts,
+                'error'       => $error->getMessage(),
+            ]);
             $this->afterTerminalFailure($event, $error);
             $this->ackMessage($streamId);
             $this->clearAttempts($event->eventId);
