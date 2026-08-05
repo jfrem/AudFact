@@ -226,7 +226,8 @@ class GeminiGateway
         if ($fails !== null && $fails >= $threshold) {
             $this->cbRedis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
 
-            Logger::warning('Circuit Breaker ABIERTO', [
+            Logger::critical('Circuit Breaker Gemini ABIERTO', [
+                'alert_type'         => 'circuit_breaker_open',
                 'fallosConsecutivos' => $fails,
                 'threshold'          => $threshold,
                 'cooldownSeconds'    => $cooldown,

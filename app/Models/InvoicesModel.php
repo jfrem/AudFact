@@ -174,14 +174,16 @@ class InvoicesModel extends Model
                 CREATE CLUSTERED INDEX IX_TMP_CRUZE ON #CRUZE (DisId,DisDetId);
 
                 IF OBJECT_ID('tempdb..#Sopo') IS NOT NULL DROP TABLE #Sopo;
-                SELECT s.DisId,s.DisDetId,case when s.adj>=sum(case when dc.NitMedDocTipSer=s.DisTip or dc.NitMedDocTipSer='' then dc.c else 0 end) then 1 else 0 end SopOk,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end estSop
+                SELECT s.DisId,s.DisDetId,case when s.adj>=sum(case when dc.NitMedDocTipSer=s.DisTip or dc.NitMedDocTipSer='' then dc.c else 0 end) and s.adj>=s.AdjTot then 1 else 0 end SopOk,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end estSop
                 Into #Sopo
                 from(
-                    select a.DisId,a.DisDetId,f.FacNitSec,c.DisTip,sum(case when AdjDisDocUrlConf=1 then 1 else 0 end)adj,Min(case a.AdjDisEstSop when 'P' then 0 when 'C'  then 10 else 5 end) EstSop
+                    select a.DisId,a.DisDetId,f.FacNitSec,c.DisTip,
+                    sum(case when a.AdjDisOpc='N' then 1 else 0 end)AdjTot,
+                    sum(case when AdjDisDocUrlConf=1 and a.AdjDisOpc='N' then 1 else 0 end)adj,Min(case a.AdjDisEstSop when 'P' then 0 when 'C'  then 10 else 5 end) EstSop
                     from AdjuntosDispensacion a with(nolock)
                     INNER JOIN #CRUZE c on c.DisId=a.DisId and c.DisDetId=a.DisDetId
                     left join (select f.FacNitSec,f.DisId,f.DisDetId from factura f with(nolock) group by f.FacNitSec,f.DisId,f.DisDetId)f on f.DisId=a.DisId and f.DisDetId=a.DisDetId
-                    where a.AdjDisOpc='N'
+                    --where a.AdjDisOpc='N'
                     group by a.DisId,a.DisDetId,f.FacNitSec,c.DisTip
                 )s 
                 left join(
@@ -191,7 +193,7 @@ class InvoicesModel extends Model
                     group by n.NitSec,isnull(NitMedDocTipSer,'')
                 )dc on dc.NitSec=s.FacNitSec
                 where s.EstSop=0
-                GROUP BY s.DisId,s.DisDetId,s.adj,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end;
+                GROUP BY s.DisId,s.DisDetId,s.adj,case s.EstSop when 0 then 'P' when 5 then 'R' else 'C' end,s.AdjTot;
                 
                 CREATE CLUSTERED INDEX IX_TMP_SOPO ON #Sopo (DisId,DisDetId);
 

@@ -329,6 +329,16 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
             $decision = $policyResult['document_decision'] ?? null;
             if (is_array($decision)) {
+                $rawNotes = $document['extraction_result']['quality_notes']
+                    ?? $document['normalized_result']['quality_notes']
+                    ?? [];
+                $qualityNotes = array_values(array_filter(
+                    is_array($rawNotes) ? $rawNotes : [],
+                    fn($n) => is_string($n) && trim($n) !== ''
+                ));
+                if ($qualityNotes !== []) {
+                    $decision['quality_notes'] = $qualityNotes;
+                }
                 $documentDecisions[] = $decision;
             }
         }

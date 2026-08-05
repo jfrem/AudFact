@@ -29,7 +29,10 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, reconcilia todos los adjuntos físicos 1:1, publica matches y emite rechazos `DOCUMENT_MAPPING` controlados |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
-| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Extrae con Gemini y es el productor exclusivo de rechazos `document_content`, siempre con clase/origen/razón válidos |
+| `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Orquestador delgado que consume `document_downloaded`, delega estado a Redis, genera prompts y parsea respuestas. Produce rechazos `document_content`. |
+| `app/Services/Audit/Pipeline/ExtractionCacheManager.php` | Administra estado transitorio y cache de extracción Gemini en Redis mediante `HSET`/`HGET`. |
+| `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php` | Construye payloads modulares JSON Schema y prompts de contexto para inyección a Gemini. |
+| `app/Services/Audit/Pipeline/GeminiResponseParser.php` | Implementa política de recuperación en 3 fases (Primary, Retry JSON-repair, Fallback Regex) para respuestas LLM truncadas. |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |

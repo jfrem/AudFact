@@ -191,6 +191,11 @@ final class AuditFindingRules
             return null;
         }
 
+        // 1a. Strip ISO 8601 datetime suffix with T separator and optional timezone/Z:
+        //     "2026-01-09T08:51:04.000-05:00" → "2026-01-09"
+        //     "2026-01-09T08:51:04Z"           → "2026-01-09"
+        $candidate = (string) preg_replace('/T\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:\d{2}|Z)?$/i', '', $candidate);
+
         $dateOnly = (string) preg_replace('/\s+\d{1,2}:\d{2}(:\d{2})?(\s*[a-zA-Z.\s]+)?$/i', '', $candidate);
         $dateOnly = trim($dateOnly);
         if ($dateOnly === '') {

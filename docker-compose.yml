@@ -226,6 +226,7 @@ services:
     command: php bin/audit-worker.php normalizer
     restart: on-failure
     deploy:
+      replicas: ${AUDIT_WORKER_NORMALIZER_REPLICAS:-2}
       resources:
         limits:
           memory: 512M

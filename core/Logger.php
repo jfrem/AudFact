@@ -24,14 +24,14 @@ class Logger
         }
 
         $level = strtolower((string)Env::get('LOG_LEVEL', self::$minLevel));
-        if (in_array($level, ['error', 'warning', 'info'], true)) {
+        if (in_array($level, ['critical', 'error', 'warning', 'info'], true)) {
             self::$minLevel = $level;
         }
     }
 
     private static function shouldLog(string $level): bool
     {
-        $order = ['error' => 3, 'warning' => 2, 'info' => 1];
+        $order = ['critical' => 4, 'error' => 3, 'warning' => 2, 'info' => 1];
         $levelKey = strtolower($level);
         $minKey = strtolower(self::$minLevel);
         if (!isset($order[$levelKey], $order[$minKey])) {
@@ -236,5 +236,10 @@ class Logger
     public static function info(string $message, array $context = []): void
     {
         self::write('INFO', $message, $context);
+    }
+
+    public static function critical(string $message, array $context = []): void
+    {
+        self::write('CRITICAL', $message, $context);
     }
 }

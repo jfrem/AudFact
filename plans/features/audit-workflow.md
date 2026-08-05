@@ -38,7 +38,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `DocumentAttachmentMatcher` | Aplica una reconciliación global 1:1 por nombre exacto, ID corroborado y alias único, sin I/O ni heurística de primer candidato |
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
 | `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, guarda el BLOB temporal en Redis y propaga fallos técnicos sin publicar rechazos funcionales |
-| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini y produce exclusivamente rechazos de contenido |
+| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
