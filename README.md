@@ -272,8 +272,7 @@ bash scripts/sync-github-production-env.sh --dry-run
 bash scripts/sync-github-production-env.sh --apply
 ```
 
-El script actualiza GitHub Secrets/Variables, no copia `.env` al servidor. El
-workflow de deploy regenera `/home/admon/audfact-prod/.env` desde GitHub en cada
+El script actualiza GitHub Secrets/Variables, no copia `.env` al servidor. El workflow de deploy regenera `/home/admon/audfact-prod/.env` desde GitHub en cada
 despliegue. Para `--apply`, el `.env` fuente debe ser productivo: `APP_ENV=production`,
 URLs públicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`.
 
