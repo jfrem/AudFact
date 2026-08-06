@@ -28,6 +28,7 @@ class AttachmentsModel extends Model
         $sql = "SELECT
                 a.DisId AS [dispensacion_id],
                 d.DisDetNro AS [dis_det_nro],
+                a.AdjDisId AS [id_adjunto_fisico],
                 n.NitSec AS [cliente],
                 NitMedDocId AS [id_documento],
                 NitMedDocNom AS [nombre_documento],
@@ -40,7 +41,7 @@ class AttachmentsModel extends Model
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
                 LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId=a.AdjDisId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCod = a.AdjDisCodDoc AND n.NitMedDocNom = a.AdjDisNom
                 WHERE d.DisDetNro = :disDetNro AND n.NitSec = :nitSec";
 
         $result = $this->read(function (PDO $connection) use ($sql, $disDetNro, $nitSec): array {
@@ -93,7 +94,8 @@ class AttachmentsModel extends Model
                     ON d.DisId = a.DisId
                    AND d.DisDetId = a.DisDetId
                 LEFT JOIN NitDocumentos n WITH (NOLOCK)
-                    ON n.NitMedDocId = a.AdjDisId
+                    ON n.NitMedDocCod = a.AdjDisCodDoc
+                   AND n.NitMedDocNom = a.AdjDisNom
                    AND n.NitSec = :nitSec
                 WHERE d.DisDetNro = :disDetNro
                 ORDER BY a.AdjDisId ASC";
