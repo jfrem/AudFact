@@ -17,7 +17,7 @@ export function AttachmentViewerPanel({
   disDetNro: string;
   attachment?: AttachmentRecord;
 }) {
-  const attachmentId = attachment?.id_documento;
+  const attachmentId = attachment?.id_adjunto_fisico;
   const attachmentName = attachment?.nombre_documento ?? "Adjunto";
   const attachmentAlias = attachment?.nombre_alternativo ?? "Sin alias";
   const storageType = attachment?.TipoAlmacenamiento ?? "N/D";

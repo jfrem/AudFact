@@ -36,7 +36,7 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
 | `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `vw_discolnet_dispensas.DisId` como llave canónica de auditoría |
 | `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; pipeline selecciona por `DisId` |
-| `AttachmentsModel` | `AdjuntosDispensacion` | El endpoint conserva aliases históricos; el pipeline enumera todas las filas físicas por `attachment_id`, hace `LEFT JOIN` al catálogo con `NitSec` en el `ON` y materializa bytes + `DATALENGTH` al descargar |
+| `AttachmentsModel` | `AdjuntosDispensacion` | Expone `AdjDisId` como `id_adjunto_fisico` para aislar los archivos. Cruza con el catálogo mediante la llave compuesta `NitMedDocCod` + `AdjDisNom` para evitar productos cartesianos (NO se puede cruzar `NitMedDocId = AdjDisId`). |
 | `AuditConfigModel` | `Discolnet.dbo.AudDisp` + `Discolnet.dbo.AudDispCampo` | Configuración dinámica por cliente; lee y reemplaza campos activos, severidad, descripción visual, `TipoDato` y `CodigoCampo` |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` | Lectura de resumen, detalle, estadísticas, historial y timings persistidos. |
 | `AuditResultPersistenceModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Upsert serializable por `FacNro`, resultados documentales set-based y trazabilidad en una transacción. Conserva el fallback de hallazgos sintéticos o huérfanos hacia la `DISPENSA`. |

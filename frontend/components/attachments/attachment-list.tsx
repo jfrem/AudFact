@@ -46,7 +46,7 @@ export function AttachmentList({
         )}
       >
         {items.map((attachment) => {
-          const id = String(attachment.id_documento ?? attachment.nombre_documento ?? "");
+          const id = String(attachment.id_adjunto_fisico ?? attachment.id_documento ?? attachment.nombre_documento ?? "");
           const active = selectedId === id;
 
           return (
