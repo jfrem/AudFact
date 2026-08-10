@@ -13,7 +13,7 @@ El despliegue usa un runner self-hosted dentro de la LAN:
    - `ghcr.io/jfrem/audfact-php:<sha>`
    - `ghcr.io/jfrem/audfact-nginx:<sha>`
    - `ghcr.io/jfrem/audfact-frontend:<sha>`
-3. `Deploy Production - AudFact` corre en `audfact-prod-lan`, descarga esas imagenes y levanta `docker-compose.prod.yml`.
+3. `Deploy Production - AudFact` corre en `audfact-prod-lan`, descarga esas imagenes y levanta `docker-compose.yml` (archivo único, perfil `--profile frontend`).
 
 ## Runner LAN
 
@@ -132,8 +132,8 @@ AUDFACT_FRONTEND_HOST_PORT=<puerto>
 Luego ejecuta:
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --remove-orphans
+docker compose pull
+docker compose up -d --remove-orphans --profile frontend
 ```
 
 ## Guardrails
@@ -145,7 +145,7 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - No dejar `responseIA/` dentro del contexto de build Docker.
 - No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
 - El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.
-- `docker-compose.prod.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
+- `docker-compose.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
 - Renovar `GEMINI_API_KEY` en el GitHub Environment `production` antes de validar extracciones; una key expirada provoca errores `400 API key expired` en `worker-extraction`.
 
 ## Incidente CI/CD 2026-05-13: hosts SQL malformados
@@ -155,7 +155,7 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - `GET /health` en produccion respondia `status=unhealthy`.
 - `GET /dispensation/T38250701547` respondia `500` despues de aproximadamente 30 segundos.
 - Los contenedores `php` estaban `unhealthy`.
-- Workers `orchestrator`, `extraction` y `aggregator` reiniciaban por `SQLSTATE[HYT00] Login timeout expired`.
+- Workers `orchestrator`, `extraction` y **`persistence`** reiniciaban por `SQLSTATE[HYT00] Login timeout expired`.
 - Frontend, Nginx, Redis y runner self-hosted estaban activos.
 
 ### Causa raiz

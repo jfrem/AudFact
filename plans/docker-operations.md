@@ -4,16 +4,33 @@
 
 ```
 ┌────────────────┐
-│ Next.js Front  │
+│ Next.js Front   │
 │ :3100→:3000    │
 └───────┬────────┘
         │ SSR/API interna
         ▼
-┌─────────────┐     ┌───────────────┐     ┌──────────────┐
-│   Nginx     │────▶│   PHP-FPM     │────▶│  SQL Server  │
-│  :8080→:80  │     │   :9000       │     │  (externo)   │
-└─────────────┘     └───────────────┘     └──────────────┘
+┌─────────────┐  HTTP   ┌───────────────┐  SQL   ┌──────────────┐
+│   Nginx       │───►│   PHP-FPM (x5) │───►│  SQL Server   │
+│  :8080→:80   │     │   :9000        │      │  (externo)    │
+└─────────────┘     └───────────────┘      └──────────────┘
+                              │                       ▲
+                          Redis Streams              │ SQL
+                              │                       │
+          ┌───────────────────┬───────────────────┤
+          ▼                   ▼                   ▼
+┌─────────────┐  ┌─────────────┐  ┌──────────────────┐
+│ orchestrator  │  │  downloader  │  │ extraction (x8)  │
+│    (x3)       │  │    (x8)     │  └────────┬─────────┘
+└─────────────┘  └─────────────┘           │
+                                         Gemini API
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ normalizer   │  │   policy     │  │ persistence  │  │   batch      │
+│   (x2)       │  │   (x2)      │  │   (x3)       │  │   (x2)      │
+└─────────────┘  └─────────────┘  └────────┬─────┘  └─────────────┘
+                                         │ SQL Server
 ```
+
+Total workers en producción: **27 réplicas** (3+8+8+2+2+3+2). Ver tabla de escalado más abajo.
 
 ## Troubleshooting Docker
 
@@ -36,6 +53,18 @@ wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && dock
 wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Desktop/AudFact && docker compose up -d"
 ```
 
+## Cron / Ejecuciones en lote
+
+Las tareas programadas (como la auditoría en lote) se deben ejecutar accediendo al contenedor PHP en ejecución, no levantando uno nuevo. Ejemplo:
+
+```bash
+# Ejecución estándar
+docker compose exec php php bin/schedule-daily-batches.php
+
+# Ejecución de prueba (dry-run)
+docker compose exec php php bin/schedule-daily-batches.php --dry-run
+```
+
 ## Escalado de workers async
 
 El pipeline usa Redis Streams con consumer groups y nombres de consumer únicos por host + PID. Esto evita que varias réplicas del mismo servicio colapsen en un único nombre lógico al inspeccionar Redis.
@@ -48,6 +77,7 @@ Variables de capacidad inicial:
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | `worker-downloader` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `2` | `worker-normalizer` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | `worker-persistence` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |

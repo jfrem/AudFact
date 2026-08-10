@@ -302,12 +302,23 @@ Respuesta:
 }
 ```
 
-### `GET /audit/{id}/flow-stream`
+#### Valores válidos de `status`
 
-Stream SSE de telemetria live para la vista de trazabilidad, soportando tanto auditorias individuales como lotes agregados.
+| Valor | Descripción |
+|---|---|
+| `pending` | Auditoría encolada, aún no procesada por el orchestrator |
+| `processing` | Al menos un documento está siendo procesado activamente |
+| `completed` | Auditoría completada sin hallazgos de alta severidad |
+| `manual_review` | Completada con hallazgos que requieren revisión humana |
+| `error` | Completada con discrepancias documentales no críticas — requiere análisis posterior pero no bloquea |
+| `failed` | Error fatal de pipeline (timeout, Gemini caído, excepción no recuperable) — el análisis no se completó |
 
-Validacion:
-- `id`: path parameter, UUID v4 generado por `POST /audit/single` (`auditId`) o por `POST /audit/async` (`jobId`).
+### `GET /audit/{auditId}/flow-stream`
+
+Stream SSE de telemetría live para la vista de trazabilidad, soportando tanto auditorías individuales como lotes agregados.
+
+Validación:
+- `auditId`: path parameter, UUID v4 generado por `POST /audit/single` (`audit_id`) o por `POST /audit/async` (`job_id`).
 - `DisDetNro` / `FacNro` no son identificadores validos para este stream live; se usan solo para historial persistido.
 - Se hace dual-routing: verifica en Redis si existe `audit:{id}:state` o `job:{id}:state`. Si no existe ninguno, responde `404`.
 

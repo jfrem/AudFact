@@ -180,8 +180,17 @@ el contrato público histórico de listado de adjuntos.
 | `FacSec` | nvarchar(320) | Columna legacy que almacena `vw_discolnet_dispensas.DisId` |
 | `EstAud` | bit | Estado de auditoría (0 = pendiente/manual, 1 = procesada) |
 | `EstadoDetallado` | varchar(50) | Estado funcional terminal o en curso (`completed`, `manual_review`, `failed`, etc.) |
-| `Hallazgos` | nvarchar(max) | Payload persistido de hallazgos, decisiones y timings |
-| `JobId` | varchar(50) | Job batch asociado cuando aplica |
+| `RequiereRevisionHumana` | bit | Flag explícito de revisión humana (`true` cuando `EstadoDetallado = manual_review`) |
+| `Severidad` | nvarchar | Severidad máxima de los hallazgos: `alta`, `media`, `baja` |
+| `Hallazgos` | nvarchar(max) | Payload persistido de hallazgos, decisiones y timings (JSON completo con `items`, `field_decisions`, `document_decisions`, `metrics` y `timings`) |
+| `DetalleError` | nvarchar | Resumen legible del resultado o del primer hallazgo que causó el rechazo |
+| `DocumentosProcesados` | int | Cantidad de documentos evaluados en la auditoría (típicamente 3-4) |
+| `DocumentoFallido` | nvarchar | Tipo del primer documento que falló (si aplica): `FORMULA MEDICA`, `AUTORIZACION`, `DISPENSA`, `ACTA DE ENTREGA` |
+| `DuracionProcesamientoMs` | int | Duración total del pipeline en ms (end-to-end) |
+| `FacNitSec` | nvarchar | Identificador del cliente/EPS asociado a la auditoría |
+| `FechaCreacion` | datetime | Timestamp de creación del registro de auditoría |
+| `FechaActualizacion` | datetime | Timestamp de última actualización del registro |
+| `JobId` | varchar(50) | Job batch asociado cuando la auditoría fue encolada como parte de un lote (`POST /audit/async`). ⚠️ **No se inserta** en el `INSERT` inicial de `AuditResultPersistenceModel`; la columna existe en el schema pero el path de escritura actual no la asigna. Valor consultado desde Redis (`BatchJobStore`) cuando aplique. |
 
 **Usada por**: `InvoicesModel` (LEFT JOIN para filtrar dispensaciones no auditadas por `FacSec`/`DisId`), `AuditStatusModel` (lectura por `FacNro`) y `AuditResultPersistenceModel` (upsert serializable por `FacNro`)
 
@@ -211,22 +220,37 @@ requiere DDL ni migración de esquema.
 
 ### `Discolnet.dbo.AudDispCampo`
 
-**Propósito**: Campos configurables por documento y cliente para extracción/evaluación.
+**Propósito**: Campos configurables por documento y cliente para extracción/evaluación (tabla de asignación; los metadatos de campo vienen de `AudDispCampoCatalogo`).
 
 | Columna | Tipo | Descripción |
 |---|---|---|
 | `FacNitSec` | int/varchar | Cliente/NIT |
 | `NitMedDocId` | int | Documento requerido asociado |
-| `CampoNombre` | varchar | Nombre canónico del campo o visual check |
-| `TipoCampo` | varchar | Tipo de campo (`E`, `S`, `V`, etc.) |
-| `TipoDato` | varchar/null | Tipo explícito usado por schema Gemini y normalización |
+| `CampoNombre` | varchar | Nombre canónico del campo (FK → `AudDispCampoCatalogo.CampoNombre`) |
 | `Activo` | bit/int | Indica si el campo participa en runtime |
 | `Orden` | int | Orden estable de procesamiento/presentación |
-| `DescripcionOverride` | varchar/null | Descripción custom para visual checks |
-| `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) |
-| `CodigoCampo` | varchar/null | Código funcional del campo; se conserva en `audit-config` y se antepone como prefijo textual `-CODIGO- ` al `detalle` de hallazgos fallidos |
+| `DescripcionOverride` | varchar/null | Descripción custom que sobreescribe la de catálogo para visual checks |
+| `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) que sobreescribe la de catálogo |
 
 **Usada por**: `AuditConfigModel` (`getConfig()`, `saveConfig()` con reemplazo `DELETE + INSERT`).
+
+---
+
+### `Discolnet.dbo.AudDispCampoCatalogo`
+
+**Propósito**: Catálogo global de campos de extracción y visual checks. Define los metadatos de cada campo; `AudDispCampo` hace referencia a este catálogo por `CampoNombre`.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `CampoNombre` | varchar (PK funcional) | Nombre canónico del campo o visual check |
+| `TipoCampo` | varchar | Tipo de campo (`E`=extracción, `S`=semejanza, `V`=visual, etc.) |
+| `TipoDato` | varchar/null | Tipo explícito para schema Gemini y normalización |
+| `EsVisual` | bit | Si es `1`, el campo es un visual check (no extracción Gemini) |
+| `Descripcion` | varchar/null | Descripción por defecto del campo (puede ser sobreescrita por `AudDispCampo.DescripcionOverride`) |
+| `Severidad` | varchar/null | Severidad por defecto (`alta`, `media`, `baja`); puede sobreescribirse vía `AudDispCampo.SeveridadOverride` |
+| `CodigoCampo` | varchar/null | Código funcional del campo; se antepone como prefijo `-CODIGO- ` al `detalle` de hallazgos fallidos |
+
+**Usada por**: `AuditConfigModel` (`getConfig()` vía `INNER JOIN`, y `catalog()` — devuelve el catálogo completo de campos disponibles para configuración de auditoría).
 
 ---
 

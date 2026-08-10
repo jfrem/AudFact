@@ -60,7 +60,7 @@ sequenceDiagram
     participant API as ApiClient
     participant REST as API REST Interna
 
-    AI->>WH: POST /wrap/webhook.php {jsonrpc: "2.0", method: "tools/call", params: {name: "get_clients"}}
+    AI->>WH: POST /app/wrap/webhook.php {jsonrpc: "2.0", method: "tools/call", params: {name: "get_clients"}}
     WH->>MCP: handleRequest()
     MCP->>MCP: Identificar tool
     MCP->>Tool: execute(params)
@@ -195,6 +195,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | `batch_requested` | `audit.batch.inbox` | Controller | Batch Worker | Encola la solicitud del lote para consulta de base de datos pesada |
 | `audit_created` | `audit.inbox` | Batch Worker / Sync Controller | Orchestrator | Inicia la orquestación de una auditoría individual |
+| `batch_created` | `audit.inbox` | Batch Worker | Orchestrator | Evento de apertura de lote (metadata de job); no tiene documentos |
 | `document_registered` | `audit.documents` | Orchestrator | Downloader | Registra un adjunto para descarga |
 | `document_downloaded` | `audit.documents` | Downloader | Extractor | Transporta `blob_reference_key` y `document_hash` sin incluir base64 en el evento |
 | `document_extracted` | `audit.documents` | Extractor | Normalizer | Transporta datos crudos extraídos de Gemini |
@@ -202,6 +203,9 @@ sequenceDiagram
 | `document_normalized` | `audit.documents` | Normalizer | Rule Engine | Transporta datos estandarizados listos para reglas |
 | `rules_evaluated` | `audit.persistence:{queue}` | Rule Engine / Scheduler | Persistence Worker | Transporta el veredicto respetando un turno activo por job |
 | `audit_completed` | `audit.results` | Persistence Worker | Bus Global / Job Store | Confirma la transacción SQL y notifica fin del proceso |
+| `audit_failed` | `audit.results` | Persistence Worker | Bus Global / Job Store | Notifica fallo irrecuperable de la auditoría (no se pudo persistir) |
+| `batch_completed` | `audit.results` | Batch Worker / Job Store | Bus Global | Notifica que el lote terminó sin errores |
+| `batch_completed_with_errors` | `audit.results` | Batch Worker / Job Store | Bus Global | Notifica que el lote terminó pero con auditorías fallidas |
 | `dead_letter` | `audit.dlq` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual administrativamente |
 
 Las operaciones SQL de lectura y escritura se ejecutan con un PDO fresco por
