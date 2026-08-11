@@ -162,6 +162,7 @@ export const AttachmentSchema = z.object({
   dispensacion_id: ScalarSchema.optional(),
   dis_det_nro: z.string().optional(),
   cliente: ScalarSchema.optional(),
+  id_adjunto_fisico: ScalarSchema.optional(),
   id_documento: ScalarSchema.optional(),
   nombre_documento: z.string().optional(),
   nombre_alternativo: z.string().optional(),

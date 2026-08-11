@@ -12,10 +12,17 @@
 - **BUG corregido**: Eliminado el tope hardcodeado de `min(100, N)` en `bin/schedule-daily-batches.php` línea 44. El límite ahora es configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) sin restricción artificial.
 - **Nueva variable de entorno**: `AUDIT_BATCH_CRON_LIMIT` — controla el límite por cliente para el CLI cron. Agregada a `.env.example`.
 
-### Correcciones Documentales
-- **`plans/architecture-executive-report.md`**: Corregida afirmación falsa sobre "AOF con política `everysec`" → documentada la realidad: RDB snapshots.
-- **`plans/architecture.md`**: Agregada restricción del tope hardcodeado de 100 en el CLI.
-- **`README.md`**: Documentado el tope de `--limit` y agregada nota informativa.
+## [2026-08-06] - Fix: Resolución de producto cartesiano en adjuntos (Clean Code / UI)
+
+### Backend & Frontend / UI
+- **Resolución de llaves físicas vs lógicas**:
+  - `AttachmentsModel.php`: Reemplazado el `LEFT JOIN` inconsistente (`NitMedDocId = AdjDisId`) por una llave compuesta robusta (`NitMedDocCod` + `AdjDisNom`) que evita el producto cartesiano cuando múltiples archivos físicos mapean al mismo documento lógico en Discolnet.
+  - Se agregó la exposición explícita de `a.AdjDisId AS [id_adjunto_fisico]` para aislar la identidad física de la descarga.
+- **Frontend / React Key Fix**:
+  - Actualizado el esquema de dominio (`domain.ts`) para reconocer `id_adjunto_fisico`.
+  - `attachment-list.tsx`: Resuelto el error de React `Encountered two children with the same key` usando el ID físico en lugar del ID de catálogo.
+  - `audit-result-detail-modal.tsx`: Refactorizado para pasar el ID correcto al panel del visor y solicitar el preview preciso, alineando el contrato visual con el contrato interno del pipeline de auditoría.
+- **Gobernanza**: Actualizada la matriz documental y la skill de SQL (`audfact-sqlsrv-models`).
 
 ## [2026-08-05] - Sincronización de Documentación y Refactorización SDD
 

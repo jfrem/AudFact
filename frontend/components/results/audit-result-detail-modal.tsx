@@ -427,7 +427,7 @@ function AttachmentsTab({
     <div className="space-y-4">
       <AttachmentList
         items={attachments}
-        selectedId={selected?.attachment_id ? String(selected.attachment_id) : undefined}
+        selectedId={String(selected?.id_adjunto_fisico ?? selected?.id_documento ?? selected?.nombre_documento ?? "")}
         onSelect={onSelect}
         orientation="horizontal"
       />
