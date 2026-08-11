@@ -340,6 +340,7 @@ jobs:
             write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-42}"
             printf '\n'
             write_env_var 'AUDIT_BATCH_MAX_LIMIT' "${AUDIT_BATCH_MAX_LIMIT:-100}"
+            write_env_var 'AUDIT_BATCH_CRON_LIMIT' "${AUDIT_BATCH_CRON_LIMIT:-5000}"
             write_env_var 'AUDIT_BATCH_TIMEOUT' "${AUDIT_BATCH_TIMEOUT:-3600}"
             write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
             write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"

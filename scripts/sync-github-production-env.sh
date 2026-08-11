@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Disable path conversion in Git Bash (MSYS) when calling Windows native executables (like gh.exe)
+# to prevent mangling POSIX absolute paths into Windows paths.
+export MSYS_NO_PATHCONV=1
 if [[ "$-" == *x* ]]; then
   echo "error: do not run this script with xtrace/bash -x; it would risk exposing secrets." >&2
   exit 2
