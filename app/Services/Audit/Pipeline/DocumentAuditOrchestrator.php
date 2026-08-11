@@ -36,7 +36,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         $this->contractBuilder = $contractBuilder ?? new DocumentExtractionContractBuilder();
         $this->attachmentMatcher = $attachmentMatcher ?? new DocumentAttachmentMatcher();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName    = $consumerName    ?? self::defaultConsumerName('orchestrator');
+        $this->consumerName    = $consumerName    ?? self::defaultConsumerName(AuditEventPublisher::GROUP_ORCHESTRATOR);
     }
 
     protected function stream(): string
@@ -46,7 +46,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'orchestrator';
+        return AuditEventPublisher::GROUP_ORCHESTRATOR;
     }
 
     protected function consumer(): string

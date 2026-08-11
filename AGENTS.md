@@ -206,6 +206,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `WEBHOOK_URL`                 | `http://localhost:8080/app/wrap/webhook.php`      | ⚠️ Solo MCP       | URL pública del webhook MCP                                                                                          |
 | `MCP_WEBHOOK_SECRET`          | _(vacío)_                                         | ⚠️ Solo MCP       | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP                               |
 | `CAPABILITIES_URL`            | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP       | URL de capabilities MCP                                                                                              |
+| `AUDIT_STREAM_MAXLEN`         | `100000`                                          | ❌                | Límite aproximado de entradas (MAXLEN ~) por stream Redis de auditoría para evitar crecimiento infinito (OOM)        |
 
 ### Despliegue Docker/GHCR
 

@@ -42,7 +42,7 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'downloaders';
+        return AuditEventPublisher::GROUP_DOWNLOADERS;
     }
 
     protected function consumer(): string

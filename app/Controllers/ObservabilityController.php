@@ -31,18 +31,26 @@ class ObservabilityController extends Controller
         try {
             $redis = $this->buildRedisClient();
 
-            $streams = [
-                'inbox'      => AuditEventPublisher::STREAM_INBOX,
-                'documents'  => AuditEventPublisher::STREAM_DOCUMENTS,
-                'persistence' => AuditEventPublisher::STREAM_PERSISTENCE,
-                'results'    => AuditEventPublisher::STREAM_RESULTS,
-                'batchInbox' => AuditEventPublisher::STREAM_BATCH_INBOX,
+            $streamGroups = [
+                'inbox'       => [AuditEventPublisher::STREAM_INBOX, [AuditEventPublisher::GROUP_ORCHESTRATOR]],
+                'documents'   => [AuditEventPublisher::STREAM_DOCUMENTS, [
+                    AuditEventPublisher::GROUP_DOWNLOADERS,
+                    AuditEventPublisher::GROUP_EXTRACTORS,
+                    AuditEventPublisher::GROUP_NORMALIZERS,
+                    AuditEventPublisher::GROUP_POLICY
+                ]],
+                'persistence' => [AuditEventPublisher::STREAM_PERSISTENCE, [AuditEventPublisher::GROUP_PERSISTENCE]],
+                'results'     => [AuditEventPublisher::STREAM_RESULTS, []],
+                'batchInbox'  => [AuditEventPublisher::STREAM_BATCH_INBOX, [AuditEventPublisher::GROUP_BATCH]],
             ];
 
             $streamDepths = [];
             $totalDepth   = 0;
-            foreach ($streams as $name => $stream) {
-                $depth = (int) $redis->xLen($stream);
+            foreach ($streamGroups as $name => [$stream, $groups]) {
+                $depth = 0;
+                foreach ($groups as $group) {
+                    $depth += $redis->xPending($stream, $group);
+                }
                 $streamDepths[$name] = $depth;
                 $totalDepth += $depth;
             }

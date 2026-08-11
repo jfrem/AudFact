@@ -60,7 +60,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->stateStore          = $stateStore ?? new AuditStateStore($this->redis);
         $this->gateway             = $gateway    ?? GeminiGateway::create();
         $this->telemetryPublisher  = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName        = $consumerName ?? self::defaultConsumerName('extractor');
+        $this->consumerName        = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_EXTRACTORS);
 
         $resolvedTtl = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
         $resolvedTtl = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;
@@ -83,7 +83,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'extractors';
+        return AuditEventPublisher::GROUP_EXTRACTORS;
     }
 
     protected function consumer(): string

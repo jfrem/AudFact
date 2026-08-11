@@ -1,5 +1,12 @@
 # Changelog AudFact
 
+## [2026-08-11] - Fix: Corrección de Métricas Fantasma y Crecimiento de Streams (Clean Rebuild)
+
+### Backend / Pipeline Asíncrono
+- **Corrección de Queue Depth**: El endpoint `/metrics/async` (ObservabilityController) ahora calcula la profundidad real sumando `XPENDING` por cada *consumer group*, en lugar de usar `XLEN` (que reportaba el histórico total de eventos procesados y generaba una métrica falsa de ~19,000 pendientes).
+- **Límite OOM en Redis**: Implementado `MAXLEN ~ 100000` en todos los flujos de publicación (`AuditEventPublisher`) para evitar que los streams crezcan indefinidamente. Variable configurable vía `AUDIT_STREAM_MAXLEN`.
+- **Desacoplamiento Estricto (Clean Architecture)**: Refactorización total de la definición de *Consumer Groups*. Los nombres (ej. `orchestrator`, `downloaders`, etc.) fueron extraídos de 7 *workers* distintos (magic strings) y del Controlador, y centralizados como constantes `GROUP_*` en `AuditEventPublisher`, protegiendo al sistema ante futuros cambios y cumpliendo rigurosamente la directriz de arquitectura limpia de la política `/clean-rebuild-policy`.
+- **Limpieza de Drifts (Jobs Running)**: Se eliminó código temporal y de un solo uso. La corrección del drift de métricas acumulativas en `telemetry:async_metrics` se documentó como un comando SSH de ejecución única en el entorno de producción (`HSET jobs_queued 0 jobs_running 0`).
 ## [2026-08-08] - Auditoría de Resiliencia del Pipeline y Corrección Documental
 
 ### Verificación contra Código Fuente

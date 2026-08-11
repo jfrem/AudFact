@@ -45,7 +45,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             $this->policyEngine = $policyEngine;
         }
 
-        $this->consumerName = $consumerName ?? self::defaultConsumerName('policy');
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_POLICY);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->persistenceQueue = $persistenceQueue ?? new AuditPersistenceQueue($this->redis);
     }
@@ -57,7 +57,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'policy';
+        return AuditEventPublisher::GROUP_POLICY;
     }
 
     protected function consumer(): string

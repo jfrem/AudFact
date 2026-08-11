@@ -786,6 +786,40 @@ class RedisClient
     }
 
     /**
+     * XPENDING summary — retorna la cantidad de entries pendientes en un consumer group.
+     *
+     * Comando: XPENDING stream group
+     * Retorna: [pending_count, min_id, max_id, [[consumer, count], ...]]
+     *
+     * @return int Cantidad de entries pendientes (0 si Redis no disponible o grupo no existe)
+     */
+    public function xPending(string $stream, string $group): int
+    {
+        if (!$this->isAvailable()) {
+            return 0;
+        }
+
+        try {
+            $raw = $this->client->executeRaw([
+                'XPENDING', $this->prefix . $stream, $group,
+            ]);
+
+            $normalized = $this->normalizeRedisTree($raw);
+            // Primer elemento del summary es el pending count
+            return (isset($normalized[0]) && is_numeric($normalized[0]))
+                ? max(0, (int) $normalized[0])
+                : 0;
+        } catch (\Exception $e) {
+            Logger::warning('Redis XPENDING falló', [
+                'stream' => $stream,
+                'group' => $group,
+                'error' => $e->getMessage(),
+            ]);
+            return 0;
+        }
+    }
+
+    /**
      * Previene clonación del singleton.
      */
     private function __clone() {}

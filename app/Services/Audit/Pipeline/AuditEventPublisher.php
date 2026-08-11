@@ -18,6 +18,14 @@ class AuditEventPublisher
     public const STREAM_RESULTS     = 'audit.results';
     public const STREAM_BATCH_INBOX = 'audit.batch.inbox';
 
+    public const GROUP_ORCHESTRATOR = 'orchestrator';
+    public const GROUP_DOWNLOADERS  = 'downloaders';
+    public const GROUP_EXTRACTORS   = 'extractors';
+    public const GROUP_NORMALIZERS  = 'normalizers';
+    public const GROUP_POLICY       = 'policy';
+    public const GROUP_PERSISTENCE  = 'persistence';
+    public const GROUP_BATCH        = 'batch-workers';
+
     private const STREAM_BY_TYPE = [
         AuditEvent::TYPE_AUDIT_CREATED       => self::STREAM_INBOX,
         AuditEvent::TYPE_BATCH_CREATED       => self::STREAM_INBOX,
@@ -33,11 +41,17 @@ class AuditEventPublisher
         AuditEvent::TYPE_BATCH_REQUESTED     => self::STREAM_BATCH_INBOX,
     ];
 
+    private const DEFAULT_STREAM_MAXLEN = 100000;
+
     private RedisClient $redis;
+    private ?int $streamMaxLen;
 
     public function __construct(?RedisClient $redis = null)
     {
         $this->redis = $redis ?? RedisClient::getInstance();
+        $raw = Env::get('AUDIT_STREAM_MAXLEN', (string) self::DEFAULT_STREAM_MAXLEN);
+        $parsed = is_numeric($raw) ? (int) $raw : self::DEFAULT_STREAM_MAXLEN;
+        $this->streamMaxLen = $parsed > 0 ? $parsed : null;
     }
 
     public function publish(AuditEvent $event): string
@@ -59,7 +73,7 @@ class AuditEventPublisher
     private function publishTo(string $stream, AuditEvent $event): string
     {
         try {
-            $id = $this->redis->xAdd($stream, ['event' => $event->toJson()]);
+            $id = $this->redis->xAdd($stream, ['event' => $event->toJson()], $this->streamMaxLen);
         } catch (RedisUnavailableException $e) {
             Logger::error('AuditEventPublisher: Redis falló publicando evento', [
                 'stream' => $stream,

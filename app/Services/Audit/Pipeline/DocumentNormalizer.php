@@ -30,7 +30,7 @@ final class DocumentNormalizer extends AuditEventConsumer
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName = $consumerName ?? self::defaultConsumerName('normalizer');
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_NORMALIZERS);
     }
 
     protected function stream(): string
@@ -40,7 +40,7 @@ final class DocumentNormalizer extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'normalizers';
+        return AuditEventPublisher::GROUP_NORMALIZERS;
     }
 
     protected function consumer(): string

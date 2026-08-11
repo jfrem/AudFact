@@ -12,17 +12,22 @@ use PHPUnit\Framework\TestCase;
 
 final class ObservabilityControllerTest extends TestCase
 {
-    public function testAsyncMetricsIncludesPersistenceQueueDepth(): void
+    public function testAsyncMetricsUsesPendingEntriesNotXLen(): void
     {
         $redis = $this->createMock(RedisClient::class);
-        $redis->method('xLen')->willReturnMap([
-            [AuditEventPublisher::STREAM_INBOX, 1],
-            [AuditEventPublisher::STREAM_DOCUMENTS, 2],
-            [AuditEventPublisher::STREAM_PERSISTENCE, 5],
-            [AuditEventPublisher::STREAM_RESULTS, 3],
-            [AuditEventPublisher::STREAM_BATCH_INBOX, 4],
-            [AuditEventPublisher::dlqStream(), 6],
+
+        // xPending retorna pendientes reales por (stream, group)
+        $redis->method('xPending')->willReturnMap([
+            [AuditEventPublisher::STREAM_INBOX, 'orchestrator', 1],
+            [AuditEventPublisher::STREAM_DOCUMENTS, 'downloaders', 2],
+            [AuditEventPublisher::STREAM_DOCUMENTS, 'extractors', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS, 'normalizers', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS, 'policy', 0],
+            [AuditEventPublisher::STREAM_PERSISTENCE, 'persistence', 5],
+            [AuditEventPublisher::STREAM_BATCH_INBOX, 'batch-workers', 4],
         ]);
+        // DLQ sigue usando xLen (no tiene consumer group)
+        $redis->method('xLen')->willReturn(6);
         $redis->method('hGetAll')->willReturn([]);
         $controller = new TestableObservabilityController($redis);
 
@@ -33,7 +38,8 @@ final class ObservabilityControllerTest extends TestCase
 
         $this->assertSame(200, $response->getCode());
         $this->assertSame(5, $data['streamDepths']['persistence']);
-        $this->assertSame(15, $data['queueDepth']);
+        $this->assertSame(2, $data['streamDepths']['documents']);
+        $this->assertSame(12, $data['queueDepth']); // 1+2+5+0+4
         $this->assertSame(6, $data['deadLetterDepth']);
     }
 

@@ -37,7 +37,7 @@ final class AuditPersistenceWorker extends AuditEventConsumer
         $this->persistenceModel = $persistenceModel ?? new AuditResultPersistenceModel();
         $this->persistenceQueue = $persistenceQueue ?? new AuditPersistenceQueue($this->redis);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName = $consumerName ?? self::defaultConsumerName('persistence');
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_PERSISTENCE);
     }
 
     protected function stream(): string
@@ -47,7 +47,7 @@ final class AuditPersistenceWorker extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'persistence';
+        return AuditEventPublisher::GROUP_PERSISTENCE;
     }
 
     protected function consumer(): string
