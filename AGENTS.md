@@ -20,7 +20,7 @@
 - **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
-- **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
+- **Docs/Plans**: `plans/` — Documentación y planificación fuente de verdad para los agentes. La documentación para humanos se genera con Docusaurus y se sirve en `/docs/`.
 - **Zero-Source**: El Host de producción solo contiene orquestación y secretos. El código vive dentro de las imágenes.
 
 ### Skills disponibles

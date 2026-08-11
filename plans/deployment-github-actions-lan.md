@@ -102,20 +102,43 @@ workflow regenera `/home/admon/audfact-prod/.env` en cada despliegue.
 
 ## Flujo de Deploy
 
-```text
-push main
-  -> CI
-  -> publish GHCR images
-  -> deploy-production en runner LAN
-  -> generar .env con hosts SQL normalizados
-  -> docker compose pull
-  -> preflight SQL con la imagen PHP publicada
-  -> docker compose up -d
-  -> curl http://localhost:8080/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/backend/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
-  -> verificar worker-batch activo para procesar audit.batch.inbox
+```mermaid
+flowchart TD
+    %% Github Phase
+    Push["🚀 push main"]
+    CI["✔️ CI"]
+    GHCR["📦 publish GHCR images"]
+    
+    %% Deploy Phase
+    Deploy["🖥️ deploy-production en runner LAN"]
+    Env["🔐 generar .env con hosts SQL normalizados"]
+    Pull["⬇️ docker compose pull"]
+    Preflight["🗄️ preflight SQL con la imagen PHP publicada"]
+    Up["🐳 docker compose up -d"]
+    
+    %% Validation Phase
+    subgraph HealthChecks ["💚 Health Checks Post-Deploy"]
+        direction TB
+        HC1["curl :8080/health"]
+        HC2["curl :3100/api/health"]
+        HC3["curl :3100/api/backend/health"]
+        HC4["curl :3100/clients"]
+        HC5["verificar worker-batch activo<br/>para procesar audit.batch.inbox"]
+        HC1 --> HC2 --> HC3 --> HC4 --> HC5
+    end
+
+    %% Flow
+    Push --> CI --> GHCR --> Deploy --> Env --> Pull --> Preflight --> Up --> HealthChecks
+
+    %% Styles
+    classDef action fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef runner fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef check fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+
+    class Push,CI,GHCR action
+    class Deploy,Env,Pull,Preflight,Up runner
+    class HC1,HC2,HC3,HC4,HC5 check
+    style HealthChecks fill:transparent,stroke:#10b981,stroke-width:2px,stroke-dasharray: 5 5,color:#6ee7b7,rx:10px
 ```
 
 ## Rollback

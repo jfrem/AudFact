@@ -280,5 +280,18 @@ services:
           memory: 512M
           cpus: '0.5'
 
+  docs:
+    image: ${AUDFACT_DOCS_IMAGE:-ghcr.io/jfrem/audfact-docs}:${AUDFACT_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/docs.Dockerfile
+    profiles:
+      - docs
+    restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - audfact-docs
+
 volumes:
   redis_data:

@@ -1,0 +1,43 @@
+graph TD
+    classDef lb fill:#f0fdfa,stroke:#0d9488,stroke-width:2px,color:#115e59;
+    classDef pool fill:#faf5ff,stroke:#9333ea,stroke-width:2px,color:#581c87;
+    classDef breaker fill:#fff7ed,stroke:#ea580c,stroke-width:2px,color:#7c2d12;
+    classDef stream fill:#eff6ff,stroke:#2563eb,stroke-width:2px,color:#1e3a8a;
+
+    subgraph Capa_Balanceo_HA ["Alta Disponibilidad de Entrada"]
+        Traffic["Tráfico Concurrente"] --> Nginx["Nginx Load Balancer - least_conn"]
+        Nginx -->|keepalive 32| FastCGI["FastCGI Upstream Connection"]
+        FastCGI -->|Falla de Réplica| NextUpstream["fastcgi_next_upstream: reenvía petición"]
+    end
+    class Traffic,Nginx,FastCGI,NextUpstream lb;
+
+    subgraph Capa_Computo_PHP ["Pool de Procesos Estático PHP-FPM"]
+        FastCGI --> PHP_Replica1[php-fpm replica_01]
+        FastCGI --> PHP_Replica2[php-fpm replica_02]
+        FastCGI --> PHP_Replica3[php-fpm replica_03]
+        FastCGI --> PHP_Replica4[php-fpm replica_04]
+        FastCGI --> PHP_Replica5[php-fpm replica_05]
+        
+        PHP_Replica1 -.-> InfoNode["Config: pm.max_children = 10 (Sin overhead de creación)"]
+    end
+    class PHP_Replica1,PHP_Replica2,PHP_Replica3,PHP_Replica4,PHP_Replica5 pool;
+
+    subgraph Resiliencia_Eventos_Redis ["Redis Streams & Reclaiming"]
+        Worker["Worker Event Consumer"] -->|XREADGROUP| Stream["Stream: audit.inbox"]
+        Worker -->|Caída de Worker o Timeout| IdleCheck["Event Reclaimed: AUDIT_PENDING_RECLAIM_IDLE_MS"]
+        IdleCheck -->|xAutoClaim| DeadWorkerRecover["Reclamado por Worker Activo - Sin pérdida"]
+        IdleCheck -->|Más de 3 Fallos Consecutivos| DLQ["Audit DLQ: audit.dead_letter"]
+    end
+    class Worker,Stream,IdleCheck,DeadWorkerRecover,DLQ stream;
+
+    subgraph Resiliencia_IA_Gemini ["Gemini API Gateway"]
+        PHP_Replica1 & Worker -->|Request IA| Gateway[GeminiGateway]
+        Gateway -->|Verifica Circuit Breaker| CB{"cb:gemini:* Key en Redis"}
+        
+        CB -->|Abierto - Error Activo| FastFail["Retorno Rápido Fallido - Protege Sistema"]
+        CB -->|Cerrado - OK| CallAPI["Llamada Google Gemini API"]
+        
+        CallAPI -->|Error 429 / 5xx| Retry["Exponential Backoff: 1s -> 2s -> 4s"]
+        Retry -->|Límite Superado| OpenCB["Abrir Circuit Breaker"]
+    end
+    class Gateway,CB,FastFail,CallAPI,Retry,OpenCB breaker;

@@ -1,0 +1,21 @@
+C4Context
+    title AudFact — C4 Nivel 1: Contexto del Sistema
+
+    Person(auditor, "Auditor de Glosas", "Profesional de salud que revisa dispensaciones farmacéuticas y glosas.")
+    Person(agente_ia, "Agente IA / MCP Client", "Sistema externo que consume las herramientas MCP vía webhook.")
+
+    System(audfact, "AudFact", "Sistema de auditoría documental automatizada.\nCompara documentos escaneados contra registros de dispensación\nusando IA multimodal (Google Gemini).")
+
+    System_Ext(gemini, "Google Gemini API", "Modelo multimodal de IA.\nEjecuta extracción de campos y\nhomologación semántica via Function Calling.")
+
+    System_Ext(sqlserver, "SQL Server (Discolnet)", "Base de datos legada.\nContiene dispensaciones (vw_discolnet_dispensas),\nadjuntos (AdjuntosDispensacion) y\nresultados de auditoría (AudDispEst).")
+
+    System_Ext(gdrive, "Google Drive", "Almacenamiento de documentos adjuntos\n(Actas de Entrega, Fórmulas Médicas)\nvía Service Account JWT.")
+
+    Rel(auditor, audfact, "Consulta facturas, dispara auditorías,\nrevisa resultados y glosas", "HTTPS / Next.js UI")
+    Rel(agente_ia, audfact, "Invoca herramientas MCP\n(GetClients, GetInvoices, GetDispensation, GetAttachments)", "HTTP + X-API-KEY")
+    Rel(audfact, gemini, "Envía documentos + prompts,\nrecibe extracción estructurada (FC)", "HTTPS / Guzzle")
+    Rel(audfact, sqlserver, "Lee dispensaciones y adjuntos (db2).\nEscribe resultados de auditoría (default)", "PDO sqlsrv / TCP 1433")
+    Rel(audfact, gdrive, "Descarga adjuntos tipo URL\nvía token JWT de service account", "HTTPS")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

@@ -13,24 +13,51 @@ Las glosas documentales representan **pérdidas financieras directas del 100%** 
 ### El Firewall Automatizado: AudFact
 **AudFact** se diseñó e implementó como un **Firewall de Pre-Auditoría Automatizada** basado en Inteligencia Artificial Multimodal (Google Gemini API). El sistema intercepta el 100% de las facturas (`FacSec`) y dispensaciones asociadas (`DisId`) antes de ser radicadas ante la EPS, auditando digitalmente todos los soportes documentales escaneados.
 
-```
-                  SOPORTES DOCUMENTALES ESCANEADOS (PDF / IMAGEN)
-                                         │
-                                         ▼
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                                AUDFACT FIREWALL                                   │
-│                                                                                   │
-│  1. Extracción Multimodal Gemini ──► 2. Homologación Semántica ──► 3. Reglas      │
-│     (SHA256 Content-Hash Cache)         (Article Match Judge)        Invariantes  │
-└───────────────────────────────────────────────────┬───────────────────────────────┘
-                                                    │
-                          ┌─────────────────────────┴─────────────────────────┐
-                          ▼                                                   ▼
-               [completed] SIN HALLAZGOS                           [manual_review] CON ERRORES
-                          │                                                   │
-                          ▼                                                   ▼
-            Reducción de Riesgo de Glosas                       Intervención y Corrección Manual
-                (Sujeto a Validación)                                 (Pérdida Mitigada)
+```mermaid
+flowchart TD
+    %% Input
+    Input[("📄 Soportes Documentales Escaneados<br/>(PDF / Imagen)")]
+
+    %% Firewall Container
+    subgraph Firewall [🛡️ AUDFACT FIREWALL]
+        direction LR
+        step1["🧠 1. Extracción Multimodal Gemini<br/><i>(SHA256 Content-Hash Cache)</i>"]
+        step2["🔍 2. Homologación Semántica<br/><i>(Article Match Judge)</i>"]
+        step3["⚖️ 3. Reglas Invariantes"]
+
+        step1 ==> step2 ==> step3
+    end
+
+    %% Connection
+    Input ==> Firewall
+
+    %% Outputs
+    SinHallazgos["✅ [completed]<br/>SIN HALLAZGOS"]
+    ConErrores["❌ [manual_review]<br/>CON ERRORES"]
+
+    Firewall ==> SinHallazgos
+    Firewall ==> ConErrores
+
+    %% Outcomes
+    OutcomeOk["Reducción de Riesgo de Glosas<br/><i>(Sujeto a Validación)</i>"]
+    OutcomeBad["Intervención y Corrección Manual<br/><i>(Pérdida Mitigada)</i>"]
+
+    SinHallazgos -.-> OutcomeOk
+    ConErrores -.-> OutcomeBad
+
+    %% Styling
+    classDef input fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#f8fafc
+    classDef step fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef ok fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5,rx:8px,ry:8px
+    classDef error fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fef2f2,rx:8px,ry:8px
+    classDef outcome fill:transparent,stroke:none,color:#cbd5e1,font-style:italic
+
+    class Input input
+    class step1,step2,step3 step
+    class SinHallazgos ok
+    class ConErrores error
+    class OutcomeOk,OutcomeBad outcome
+    style Firewall fill:transparent,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 5 5,color:#ef4444,rx:10px
 ```
 
 ### Análisis de Retorno de Inversión (ROI) y Eficiencia
@@ -131,47 +158,50 @@ Donde:
 
 La arquitectura de AudFact fue concebida bajo principios de inmutabilidad, aislamiento de procesos, alta disponibilidad y resiliencia. A continuación se detalla el stack tecnológico implementado:
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                NEXT.JS FRONTEND                                  │
-│                   React Server Components (RSC) + Tailwind CSS                   │
-└────────────────────────────────────────┬─────────────────────────────────────────┘
-                                         │ Proxy Reverso HTTP / Puerto LAN :3100
-                                         ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                             NGINX LOAD BALANCER 1.25                             │
-│                  Balanceo least_conn + Keepalive + TLS Offloading                │
-└────────────────────────────────────────┬─────────────────────────────────────────┘
-                                         │ FastCGI Protocol / DNS Docker php:9000
-                                         ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                        PHP 8.2-FPM API (Custom MVC Core)                         │
-│                    Static Process Pool + Fail-Closed Rate Limiter                │
-└──────────────────────────┬────────────────────────────┬──────────────────────────┘
-                           │                            │
-                           ▼ Connection Pool            ▼ Redis Streams Event Pipe
-┌──────────────────────────────────────┐    ┌──────────────────────────────────────┐
-│       MICROSOFT SQL SERVER DB        │    │          REDIS 7 DATA STORE          │
-│Conexión 'default' transaccional (W)  │    │  Streams: audit.inbox / result       │
-│Conexión 'db2' lectura de vistas (R)  │    │  Caché de Extracción SHA256          │
-└──────────────────────────────────────┘    │  Rate Limiting APCu + Scripts LUA    │
-                                            └──────────────────┬───────────────────┘
-                                                               │
-                                                               ▼ Workers Concurrentes
-                                            ┌──────────────────────────────────────┐
-                                            │      WORKER DE BATCH Y AUDITORÍA     │
-                                            │  BatchRequested ──► Orchestrator     │
-                                            │  Extraction     ──► Normalizer       │
-                                            │  PolicyEngine   ──► Persistence      │
-                                            └──────────────────┬───────────────────┘
-                                                               │
-                                         ┌─────────────────────┴───────────────────┐
-                                         ▼ Integraciones Externas                  ▼
-                             ┌───────────────────────┐           ┌───────────────────┐
-                             │    GOOGLE DRIVE API   │           │ GOOGLE GEMINI API │
-                             │ JWT Service Account   │           │ Parallel Function │
-                             │ v3 Files Stream (PDF) │           │ Structured Output │
-                             └───────────────────────┘           └───────────────────┘
+```mermaid
+flowchart TD
+    %% Nodes
+    NextJS["🌐 NEXT.JS FRONTEND<br/><i>React Server Components (RSC) + Tailwind CSS</i>"]
+    Nginx["⚙️ NGINX LOAD BALANCER 1.25<br/><i>Balanceo least_conn + Keepalive + TLS Offloading</i>"]
+    PHP["🐘 PHP 8.2-FPM API (Custom MVC Core)<br/><i>Static Process Pool + Fail-Closed Rate Limiter</i>"]
+    
+    SQL["🗄️ MICROSOFT SQL SERVER DB<br/><i>Conexión 'default' transaccional (W)<br/>Conexión 'db2' lectura de vistas (R)</i>"]
+    
+    Redis["🟥 REDIS 7 DATA STORE<br/><i>Streams: audit.inbox / result<br/>Caché de Extracción SHA256<br/>Rate Limiting APCu + Scripts LUA</i>"]
+    
+    Worker["👷 WORKER DE BATCH Y AUDITORÍA<br/><i>BatchRequested ──► Orchestrator<br/>Extraction ──► Normalizer<br/>PolicyEngine ──► Persistence</i>"]
+    
+    Drive["☁️ GOOGLE DRIVE API<br/><i>JWT Service Account<br/>v3 Files Stream (PDF)</i>"]
+    Gemini["✨ GOOGLE GEMINI API<br/><i>Parallel Function<br/>Structured Output</i>"]
+
+    %% Connections
+    NextJS -- "Proxy Reverso HTTP / Puerto LAN :3100" --> Nginx
+    Nginx -- "FastCGI Protocol / DNS Docker php:9000" --> PHP
+    
+    PHP -- "Connection Pool" --> SQL
+    PHP -- "Redis Streams Event Pipe" --> Redis
+    
+    Redis -- "Workers Concurrentes" --> Worker
+    
+    Worker -- "Integraciones Externas" --> Drive
+    Worker -- "Integraciones Externas" --> Gemini
+
+    %% Styling
+    classDef frontend fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef proxy fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef api fill:#312e81,stroke:#6366f1,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef db fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef cache fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef worker fill:#78350f,stroke:#d97706,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef external fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+
+    class NextJS frontend
+    class Nginx proxy
+    class PHP api
+    class SQL db
+    class Redis cache
+    class Worker worker
+    class Drive,Gemini external
 ```
 
 *   **Frontend**: Construido con **Next.js** usando React Server Components (RSC) y Vanilla CSS, utilizando proxy dinámico y caché local en cliente para garantizar una navegación de alta velocidad sin retardos. Expuesto en producción en el puerto LAN `:3100`.
@@ -193,7 +223,7 @@ Para comprender en profundidad la topología de la aplicación, el flujo de dato
 ### Diagrama 1: Context Diagram (C4 Level 1)
 Describe la frontera del sistema AudFact, identificando cómo interactúan los usuarios (auditores farmacéuticos) y los agentes de inteligencia artificial con el ecosistema de AudFact y los sistemas externos de Discolmets y Google.
 
-![Context Diagram](../scratch/diagrams/level1_context.png)
+![Context Diagram](./diagrams/level1_context.png)
 
 *   **Auditor de Glosas**: Consume la aplicación a través de la interfaz web para revisar discrepancias detectadas.
 *   **Agente MCP / Cliente Webhook**: Utiliza el protocolo MCP para consultar el estado del servidor, ejecutar auditorías o invocar herramientas del pipeline.
@@ -206,7 +236,7 @@ Describe la frontera del sistema AudFact, identificando cómo interactúan los u
 ### Diagrama 2: Container Diagram (C4 Level 2)
 Detalla los límites físicos del despliegue bajo Docker Compose, mostrando las responsabilidades de los contenedores de frontend, proxy, backend y base de datos, así como el pipeline de workers asíncronos distribuidos en Redis.
 
-![Container Diagram](../scratch/diagrams/level2_containers.png)
+![Container Diagram](./diagrams/level2_containers.png)
 
 *   **Next.js Frontend**: Interfaz web premium inyectada con variables de configuración pública.
 *   **Nginx Load Balancer**: Orquestador de entrada web que rutea tráfico HTTP y FastCGI de forma segura.
@@ -219,7 +249,7 @@ Detalla los límites físicos del despliegue bajo Docker Compose, mostrando las 
 ### Diagrama 3: Component Diagram (C4 Level 3) — REST API Core
 Muestra el desglose interno de los componentes lógicos que conforman el backend síncrono de la aplicación, desde el bootstrap de entrada hasta el despacho en los controladores REST.
 
-![Component Diagram - API Core](../scratch/diagrams/level3_api_components.png)
+![Component Diagram - API Core](./diagrams/level3_api_components.png)
 
 *   **public/index.php**: Bootstrap central que inicializa el entorno, gestiona los manejadores de excepciones y aplica el Rate Limit fail-closed.
 *   **Router**: Motor de mapeo y emparejamiento de URLs dinámicas que despacha la petición al controlador correspondiente.
@@ -232,7 +262,7 @@ Muestra el desglose interno de los componentes lógicos que conforman el backend
 ### Diagrama 4: Component Diagram (C4 Level 3) — Audit Pipeline
 Detalla los componentes especializados que gobiernan el pipeline asíncrono event-driven de auditoría automatizada con IA.
 
-![Component Diagram - Audit Pipeline](../scratch/diagrams/level3_pipeline_components.png)
+![Component Diagram - Audit Pipeline](./diagrams/level3_pipeline_components.png)
 
 *   **AuditEventConsumer**: Clase base abstracta que gestiona la lectura de streams, la deserialización de payloads, la confirmación de lectura (`XACK`) y el desvío a DLQ ante excepciones repetidas.
 *   **DocumentExtractionContractBuilder**: Ensamblador dinámico de esquemas estructurados de extracción documental para Google Gemini (Parallel Function Calling).
@@ -246,7 +276,7 @@ Detalla los componentes especializados que gobiernan el pipeline asíncrono even
 ### Diagrama 5: Flujo de Autenticación y Autorización
 Ilustra el flujo de seguridad en tres niveles: autenticación del auditor vía web, validación robusta del webhook de agentes MCP usando API-Key inyectada en cabeceras HTTP, y el protocolo OAuth2 JWT para el consumo de Google Drive sin intervención humana.
 
-![Authentication and Authorization Flow](../scratch/diagrams/auth_flow.png)
+![Authentication and Authorization Flow](./diagrams/auth_flow.png)
 
 *   **CORS y Rate Limit**: Nginx y el framework PHP aplican de forma inmediata controles sobre las peticiones HTTP del auditor, bloqueando accesos cruzados o ráfagas sospechosas (100 req/min).
 *   **MCP Webhook Security**: Autenticación obligatoria mediante la cabecera `X-API-KEY` validada de forma estricta contra `MCP_WEBHOOK_SECRET`. Un fallo en esta firma corta inmediatamente la conexión retornando HTTP 401.
@@ -257,7 +287,7 @@ Ilustra el flujo de seguridad en tres niveles: autenticación del auditor vía w
 ### Diagrama 6: Flujo Principal de Negocio (POS vs MIPRES y Mitigación de Glosa)
 Representa la cadena de dispensación farmacéutica de Colombia y detalla la lógica de bifurcación de AudFact según el tipo de medicamento (POS vs MIPRES), mostrando cómo se validan las invariantes del negocio para blindar la facturación.
 
-![Business Flow POS vs MIPRES](../scratch/diagrams/business_flow.png)
+![Business Flow POS vs MIPRES](./diagrams/business_flow.png)
 
 *   **Ruta POS (Plan Obligatorio de Salud)**: Requiere corroboración estricta de la Fórmula Médica (`ORD`), la Autorización de Entrega (`AUT`) y el Acta de Dispensa Física (`ANE`), verificando los códigos `CUM` del medicamento entregado.
 *   **Ruta MIPRES (No POS)**: Lógica de alta complejidad regulada por el Ministerio. Coteja la Prescripción (`OPF`), el Direccionamiento (`PDE`) y el Acta de Entrega CRC (`CRC`), obligando a que existan los 6 identificadores de trazabilidad del Minsalud y las firmas manuscritas del médico y del paciente.
@@ -268,7 +298,7 @@ Representa la cadena de dispensación farmacéutica de Colombia y detalla la ló
 ### Diagrama 7: Flujo de Datos y Persistencia (Estrategia Dual SQL Server y Redis)
 Explica la arquitectura de persistencia optimizada: el uso de la base de consulta `db2` para la lectura de vistas masivas legacy sin alterar el rendimiento, el canal de escritura transaccional `default`, y la capa de almacenamiento en caché en Redis.
 
-![Data and Persistence Flow](../scratch/diagrams/data_persistence_flow.png)
+![Data and Persistence Flow](./diagrams/data_persistence_flow.png)
 
 *   **Named Connections Pool**: `Core\Database` mantiene pools separados. Las lecturas pesadas sobre vistas legacy (`vw_discolnet_dispensas`) y tablas de clientes se enrutan mediante `db2` en modo solo lectura (`SELECT`).
 *   **Transaccionalidad Directa**: Las escrituras rápidas, actualizaciones de estados de auditoría (`dbo.AudDispEst`) e inserciones de metadatos de soportes en `AdjuntosDispensacionDetalle` ocurren de forma aislada a través del pool `default` (MERGE/UPDATE/INSERT).
@@ -282,7 +312,7 @@ Explica la arquitectura de persistencia optimizada: el uso de la base de consult
 ### Diagrama 8: Pipeline CI/CD (GitHub Actions, Docker GHCR y LAN CD Runner)
 Muestra el ciclo de entrega e integración continua: compilación inmutable, pruebas unitarias, distribución en contenedores en el registro GitHub Container Registry (GHCR) y el despliegue local automatizado en la LAN de producción.
 
-![CI/CD Pipeline](../scratch/diagrams/cicd_pipeline.png)
+![CI/CD Pipeline](./diagrams/cicd_pipeline.png)
 
 *   **Fase CI**: Ejecutada en servidores de GitHub. Ejecuta linters estáticos, compila el bundle de producción del frontend Next.js y valida el backend ejecutando la suite de pruebas unitarias/integración de PHPUnit.
 *   **Fase de Empaquetado e Inmutabilidad**: Construye imágenes Docker multi-stage seguras (`audfact-php`, `audfact-nginx` y `audfact-frontend`), versionadas por el hash SHA del commit, y las publica en el registro privado de GHCR.
@@ -294,7 +324,7 @@ Muestra el ciclo de entrega e integración continua: compilación inmutable, pru
 ### Diagrama 9: Arquitectura de Observabilidad y Monitoreo
 Representa las herramientas activas para el diagnóstico del sistema: el logger rotativo seguro con máscara GDPR, métricas de latencia de colas en Redis y captura semántica de excepciones.
 
-![Observability and Monitoring](../scratch/diagrams/observability_mon.png)
+![Observability and Monitoring](./diagrams/observability_mon.png)
 
 *   **Telemetry metrics**: El endpoint `/metrics/async` extrae metadatos embebidos en Redis Streams para calcular el lag de la cola (latencia desde que se solicita un lote hasta que se inicia la extracción) y timings promedio por worker.
 *   **Core\Logger Sanity**: Rotación automática basada en hostname para evitar contenciones de escritura en entornos multirréplica. Filtra y redacta de forma estricta credenciales, tokens, y enmascara automáticamente el `facNitSec` (`***123`) para cumplir con regulaciones de protección de datos de pacientes (GDPR/Habeas Data).
@@ -306,7 +336,7 @@ Representa las herramientas activas para el diagnóstico del sistema: el logger 
 ### Diagrama 10: Estrategias de Escalabilidad, Concurrencia y Resiliencia
 Detalla cómo el sistema tolera fallos de infraestructura, picos de concurrencia y sobrecarga de APIs externas.
 
-![Scalability and Resilience](../scratch/diagrams/scalability_resilience.png)
+![Scalability and Resilience](./diagrams/scalability_resilience.png)
 
 *   **Static process pool (PHP-FPM)**: Configurado con `pm=static` y `pm.max_children=10` en cada una de las 5 réplicas del clúster (50 procesos listos). Esto elimina el overhead de creación y destrucción de procesos en picos de demanda. Nginx utiliza la política de balanceo `least_conn` con `keepalive 32` hacia upstream sockets.
 *   **Event Recovery (xAutoClaim)**: Si un worker de extracción o normalización sufre una caída fatal del sistema a mitad del procesamiento, el `AuditEventConsumer` recuperará el evento de forma transparente usando `xAutoClaim` tras expirar el intervalo de inactividad (`AUDIT_PENDING_RECLAIM_IDLE_MS`), procesándolo en un nodo activo. Si un mensaje falla de forma consecutiva 3 veces, es transferido a la cola administrativa de errores `dead_letter` (`audit.dlq`) para evitar bucles de fallas infinitas.
@@ -414,7 +444,7 @@ $claimed = $redis->xAutoClaim(
 El costo y la latencia asociados a las llamadas repetidas de modelos de lenguaje (LLM) son mitigados críticamente en AudFact mediante una caché estructurada de extracción documental:
 1. Al recibir un documento (Fórmula médica, Acta de entrega, Autorización de EPS) a través de Google Drive o un adjunto de base de datos, el sistema calcula un hash criptográfico **SHA256** compuesto. Este hash une cuatro componentes clave: el hash del contenido del documento, el hash de la estructura del contrato de extracción, el `prompt_context_hash` calculado desde los prompts reales y la versión del extractor.
 2. Se realiza una consulta atómica en Redis bajo la clave `extraction:cache:v1:{composite_hash}`.
-3. **Escenario de Cache Hit**: Si la clave existe, el payload JSON de extracción previamente validado por la IA se lee de forma local. El sistema omite por completo la llamada HTTPS cifrada a la API de Gemini (ahorrando costos de API y reduciendo el tiempo de respuesta de ~5-8 segundos a **<10ms**).
+3. **Escenario de Cache Hit**: Si la clave existe, el payload JSON de extracción previamente validado por la IA se lee de forma local. El sistema omite por completo la llamada HTTPS cifrada a la API de Gemini (ahorrando costos de API y reduciendo el tiempo de respuesta de ~5-8 segundos a **&lt;10ms**).
 4. **Escenario de Cache Miss**: Si no existe, se realiza la extracción documental multimodal en Gemini, y el resultado es guardado inmediatamente en Redis con un TTL parametrizable de 7 dias (`AUDIT_EXTRACTION_CACHE_TTL`), lo que provee una ventana acotada de protección contra re-auditorías de lotes o reintentos del frontend.
 
 ---
@@ -506,34 +536,57 @@ El procesamiento por Inteligencia Artificial no es infalible. A pesar de los esq
 
 Para blindar la integridad del sistema, el worker de extracción (`DocumentExtractionWorker`) no inyecta los datos de forma directa en el motor de políticas. En su lugar, implementa un pipeline secuencial de validación y control de calidad en la capa de software PHP:
 
-```
-[Gemini Gateway Output]
-          │
-          ▼
-┌──────────────────────────────────┐
-│ PHP validation: JSON Schema      │
-│ (types, formats & constraints)   │
-└─────────────────┬────────────────┘
-                  │
-        ┌─────────┴─────────┐
-        ▼                   ▼
-   [Schema Match]    [Schema Violation]
-        │                   │
-        │                   ▼
-        │        ┌──────────────────────────────────┐
-        │        │ Runtime handling:                │
-        │        │ - Reject malformed FC payload    │
-        │        │ - Retry only transport/API 429/5xx│
-        │        │ - Send event to retry/DLQ path   │
-        │        └──────────────────┬───────────────┘
-        │                           │
-        │                           ▼
-        │                  ┌──────────────────────────────┐
-        │                  │ Retry via AuditEventConsumer │
-        │                  │ DLQ after max attempts       │
-        │                  └──────────────────────────────┘
-        ▼                  ▼
-[DocumentPolicyEngine Evaluates Deterministic Rules]
+```mermaid
+flowchart TD
+    %% Start
+    GeminiOutput(["✨ Gemini Gateway Output"])
+
+    %% Validation Node
+    Validation["⚙️ PHP validation: JSON Schema<br/><i>(types, formats & constraints)</i>"]
+
+    GeminiOutput --> Validation
+
+    %% Decision
+    Decision{"Schema<br/>Valid?"}
+    Validation --> Decision
+
+    %% Final Target (Placed here for logical rendering)
+    Engine["⚖️ DocumentPolicyEngine<br/>Evaluates Deterministic Rules"]
+
+    %% Match Path
+    Decision -- "✅ Yes (Match)" --> Engine
+
+    %% Violation Path
+    Decision -- "❌ No (Violation)" --> ErrorHandling
+
+    %% Error Handling Group
+    subgraph ErrorHandling [⚠️ Runtime handling]
+        direction TB
+        Action1["Reject malformed FC payload"]
+        Action2["Retry only transport/API 429/5xx"]
+        Action3["Send event to retry/DLQ path"]
+        Action1 --- Action2 --- Action3
+    end
+
+    %% Retry Logic
+    RetryAction["🔄 Retry via AuditEventConsumer<br/><i>DLQ after max attempts</i>"]
+    
+    ErrorHandling --> RetryAction
+    RetryAction -.-> Engine
+
+    %% Styles
+    classDef start fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc
+    classDef process fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef decision fill:#312e81,stroke:#6366f1,stroke-width:2px,color:#f8fafc
+    classDef final fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef actions fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fef2f2,rx:4px,ry:4px
+
+    class GeminiOutput start
+    class Validation,RetryAction process
+    class Decision decision
+    class Engine final
+    class Action1,Action2,Action3 actions
+    style ErrorHandling fill:transparent,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 5 5,color:#ef4444,rx:10px
 ```
 
 1.  **Parseo y Validación Estricta**: Al recibir la llamada a la función estructurada, el gateway valida que el payload JSON cumpla con todos los tipos estructurales. Se verifica que las cadenas de fechas (`fecha_emision`) sean parseables a objetos `DateTime` válidos, que la identificación del paciente contenga caracteres lógicos y que los medicamentos requeridos no posean arreglos vacíos o propiedades corruptas.
@@ -645,30 +698,32 @@ En los estados `CLOSED` o `HALF-OPEN`, cuando una solicitud a Gemini falla por r
 
 Uno de los mayores diferenciadores arquitectónicos y legales de AudFact es la **separación estricta de responsabilidades entre el Motor de Reglas en PHP y la API de Inteligencia Artificial**.
 
-```
-   ┌─────────────────────────────────────────────────────────────┐
-   │                  SOPORTE DOCUMENTAL (PDF/IMG)                │
-   └──────────────────────────────┬──────────────────────────────┘
-                                  │ (Lazy Stream)
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────┐
-   │            IA (Google Gemini API: gemini-3.5-flash)         │
-   │               - Solo Extracción Multimodal                  │
-   │               - Homologación y Traducción Semántica          │
-   │               - Retorna JSON sin Reglas de Negocio          │
-   └──────────────────────────────┬──────────────────────────────┘
-                                  │ (JSON Estructurado)
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────┐
-   │                MOTOR DE REGLAS DETERMINISTA (PHP)            │
-   │               - Validación estricta de Normativas           │
-   │               - 100% Determinista (Sin Alucinaciones)       │
-   │               - Evaluaciones Matemáticas y de Fecha         │
-   └──────────────────────────────┬──────────────────────────────┘
-                                  ▼
-   ┌─────────────────────────────────────────────────────────────┐
-   │                AUDITORÍA PERSISTIDA / RESULTADO              │
-   └─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    %% Nodes
+    Doc["📄 SOPORTE DOCUMENTAL (PDF/IMG)"]
+    
+    IA["🧠 IA (Google Gemini API: gemini-3.5-flash)<br/><i>- Solo Extracción Multimodal<br/>- Homologación y Traducción Semántica<br/>- Retorna JSON sin Reglas de Negocio</i>"]
+    
+    RuleEngine["⚙️ MOTOR DE REGLAS DETERMINISTA (PHP)<br/><i>- Validación estricta de Normativas<br/>- 100% Determinista (Sin Alucinaciones)<br/>- Evaluaciones Matemáticas y de Fecha</i>"]
+    
+    Result["✅ AUDITORÍA PERSISTIDA / RESULTADO"]
+
+    %% Edges
+    Doc -- "(Lazy Stream)" --> IA
+    IA -- "(JSON Estructurado)" --> RuleEngine
+    RuleEngine --> Result
+
+    %% Styles
+    classDef doc fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef ia fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef rule fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef result fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+
+    class Doc doc
+    class IA ia
+    class RuleEngine rule
+    class Result result
 ```
 
 #### A. Por qué no confiar la auditoría normativa completa a la IA (Mitigación de Alucinaciones)

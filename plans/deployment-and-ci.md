@@ -6,8 +6,44 @@ El despliegue a producción está automatizado mediante **GitHub Actions**.
 
 ### Flujo
 
-```
-Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner: checkout → generate .env → pull GHCR images → SQL preflight → docker compose up → health check)
+```mermaid
+flowchart LR
+    %% Trigger
+    Push["🚀 Push a main"]
+
+    %% Continuous Integration
+    subgraph CI ["⚙️ Continuous Integration (GitHub)"]
+        direction LR
+        LintTest["✔️ Lint & Tests"]
+        Publish["📦 Publish Images (GHCR)"]
+        LintTest --> Publish
+    end
+
+    %% Continuous Deployment
+    subgraph CD ["🖥️ Continuous Deployment (Self-Hosted Runner)"]
+        direction LR
+        Checkout["📥 Checkout"]
+        GenEnv["🔐 Generate .env"]
+        Pull["⬇️ Pull GHCR images"]
+        SQL["🗄️ SQL preflight"]
+        Up["🐳 docker compose up"]
+        Health["💚 health check"]
+        
+        Checkout --> GenEnv --> Pull --> SQL --> Up --> Health
+    end
+
+    %% Flow
+    Push --> CI
+    CI --> CD
+
+    %% Styles
+    classDef trigger fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef step fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+
+    class Push trigger
+    class LintTest,Publish,Checkout,GenEnv,Pull,SQL,Up,Health step
+    style CI fill:transparent,stroke:#3b82f6,stroke-width:2px,stroke-dasharray: 5 5,color:#93c5fd,rx:10px
+    style CD fill:transparent,stroke:#10b981,stroke-width:2px,stroke-dasharray: 5 5,color:#6ee7b7,rx:10px
 ```
 
 ### Configuración

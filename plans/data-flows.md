@@ -155,7 +155,7 @@ sequenceDiagram
         DW->>DB: Lectura BLOB con PDO db2 fresco y validación bytes = DATALENGTH
         alt Descarga fallida
             DW->>R: Telemetría failed + XADD audit.dlq + XACK
-            Note over DW,R: Fallo técnico; no document_rejected ni hallazgo funcional
+            Note over DW,R: Fallo técnico - no document_rejected ni hallazgo funcional
         else Descarga exitosa
             DW->>R: Guarda BLOB temporal audit:blob:*
             DW->>R: XADD audit.documents {document_downloaded}

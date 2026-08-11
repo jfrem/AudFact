@@ -54,15 +54,38 @@ Cada dispensación genera un expediente documental (fórmula médica, autorizaci
 
 El flujo de negocio sigue esta secuencia obligatoria:
 
-```
-Médico prescribe          Paciente recibe         Discolmets cobra
-      │                         │                        │
-      ▼                         ▼                        ▼
-┌──────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────┐
-│ FÓRMULA  │──▶│ AUTORIZACIÓN │──▶│    ACTA DE    │──▶│ FACTURA  │
-│  MÉDICA  │   │   (si aplica)│   │   ENTREGA    │   │  A EPS   │
-└──────────┘   └──────────────┘   └──────────────┘   └──────────┘
-    ORD/OPF        AUT/PDE            ANE/CRC           FacNro
+```mermaid
+flowchart LR
+    F["📄 FÓRMULA MÉDICA<br/>(ORD/OPF)"]
+    A["📄 AUTORIZACIÓN<br/>(AUT/PDE)"]
+    AC["📄 ACTA DE ENTREGA<br/>(ANE/CRC)"]
+    FC["📄 FACTURA A EPS<br/>(FacNro)"]
+
+    subgraph Medico [🧑‍⚕️ Médico prescribe]
+        F
+    end
+    
+    subgraph Tramite [⚙️ Trámite EPS si aplica]
+        A
+    end
+    
+    subgraph Paciente [👤 Paciente recibe]
+        AC
+    end
+    
+    subgraph Discolmets [🏢 Discolmets cobra]
+        FC
+    end
+
+    F ==> A ==> AC ==> FC
+
+    classDef doc fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px;
+    class F,A,AC,FC doc
+
+    style Medico fill:transparent,stroke:#3b82f6,stroke-width:2px,stroke-dasharray: 5 5,color:#60a5fa,rx:10px
+    style Tramite fill:transparent,stroke:#8b5cf6,stroke-width:2px,stroke-dasharray: 5 5,color:#a78bfa,rx:10px
+    style Paciente fill:transparent,stroke:#10b981,stroke-width:2px,stroke-dasharray: 5 5,color:#34d399,rx:10px
+    style Discolmets fill:transparent,stroke:#f59e0b,stroke-width:2px,stroke-dasharray: 5 5,color:#fbbf24,rx:10px
 ```
 
 ### 4.1 Prescripción (Fórmula Médica)

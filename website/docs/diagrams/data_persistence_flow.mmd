@@ -1,0 +1,35 @@
+graph TD
+    classDef write fill:#fecaca,stroke:#ef4444,stroke-width:2px,color:#7f1d1d;
+    classDef read fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a;
+    classDef cache fill:#d1fae5,stroke:#10b981,stroke-width:2px,color:#064e3b;
+    classDef core fill:#e9d5ff,stroke:#a855f7,stroke-width:2px,color:#581c87;
+
+    subgraph Capa_Logica ["Capa Lógica de Negocio (PHP-FPM)"]
+        Controller[Controllers / Workers] -->|Consulta| ModelRead[Models: Invoices/Dispensation]
+        Controller -->|Escritura| ModelWrite[Models: AuditStatus/Attachments]
+    end
+    class Controller core;
+
+    subgraph Estrategia_Dual_SQL ["Estrategia Dual SQL Server"]
+        ModelRead -->|SELECT Queries| DB2["Conexión Named 'db2' - Base de Consulta"]
+        ModelWrite -->|INSERT / UPDATE / MERGE| DBDefault["Conexión Named 'default' - Base Transaccional"]
+        
+        DB2 -->|Vistas Legacy| VW[vw_discolnet_dispensas, NIT, Clientes]
+        DBDefault -->|Tablas Propias| AudDispEst[dbo.AudDispEst - Resultados]
+        DBDefault -->|Relaciones| Detalle[AdjuntosDispensacionDetalle]
+    end
+    class DB2,VW read;
+    class DBDefault,AudDispEst,Detalle write;
+
+    subgraph Capa_Cache_Alta_Eficiencia ["Capa de Caché y Concurrencia"]
+        Controller -->|"1. Hash del Binario SHA256"| ExCache{¿Existe en Cache?}
+        ExCache -->|Sí - Cache Hit| ReturnCached["Retornar Extracción Cacheada - Ahorro Gemini"]
+        ExCache -->|No - Cache Miss| CallGemini["Llamar Gemini API + Guardar en Redis"]
+        
+        Controller -->|"2. Estado del Job Asíncrono"| LuaScript["LUA Script Atómico en Redis"]
+        LuaScript -->|Previene Race Conditions| RedisState[Redis Job Store]
+        
+        Controller -->|"3. Peticiones HTTP"| APCuLimit["APCu Local Rate Limiting"]
+        APCuLimit -->|Fallback| FileLock[Bloqueo de Archivos Local]
+    end
+    class ExCache,ReturnCached,CallGemini,LuaScript,RedisState,APCuLimit,FileLock cache;

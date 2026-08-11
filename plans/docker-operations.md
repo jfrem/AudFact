@@ -2,32 +2,69 @@
 
 ## Arquitectura de contenedores
 
-```
-┌────────────────┐
-│ Next.js Front   │
-│ :3100→:3000    │
-└───────┬────────┘
-        │ SSR/API interna
-        ▼
-┌─────────────┐  HTTP   ┌───────────────┐  SQL   ┌──────────────┐
-│   Nginx       │───►│   PHP-FPM (x5) │───►│  SQL Server   │
-│  :8080→:80   │     │   :9000        │      │  (externo)    │
-└─────────────┘     └───────────────┘      └──────────────┘
-                              │                       ▲
-                          Redis Streams              │ SQL
-                              │                       │
-          ┌───────────────────┬───────────────────┤
-          ▼                   ▼                   ▼
-┌─────────────┐  ┌─────────────┐  ┌──────────────────┐
-│ orchestrator  │  │  downloader  │  │ extraction (x8)  │
-│    (x3)       │  │    (x8)     │  └────────┬─────────┘
-└─────────────┘  └─────────────┘           │
-                                         Gemini API
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ normalizer   │  │   policy     │  │ persistence  │  │   batch      │
-│   (x2)       │  │   (x2)      │  │   (x3)       │  │   (x2)      │
-└─────────────┘  └─────────────┘  └────────┬─────┘  └─────────────┘
-                                         │ SQL Server
+```mermaid
+flowchart TD
+    %% Main Services
+    NextJS["🌐 Next.js Front<br/><i>:3100→:3000</i>"]
+    Nginx["⚙️ Nginx<br/><i>:8080→:80</i>"]
+    PHP["🐘 PHP-FPM (x5)<br/><i>:9000</i>"]
+    SQL["🗄️ SQL Server<br/><i>(externo)</i>"]
+    
+    %% Event Bus
+    Redis(["🟥 Redis Streams"])
+
+    %% Async Workers
+    subgraph Workers ["👷 Workers (27 réplicas)"]
+        direction LR
+        Orchestrator["orchestrator (x3)"]
+        Downloader["downloader (x8)"]
+        Extraction["extraction (x8)"]
+        Normalizer["normalizer (x2)"]
+        Policy["policy (x2)"]
+        Persistence["persistence (x3)"]
+        Batch["batch (x2)"]
+    end
+    
+    %% External API
+    Gemini["✨ Gemini API"]
+
+    %% Connections - Frontend to Backend
+    NextJS -- "SSR/API interna" --> Nginx
+    Nginx -- "HTTP" --> PHP
+    PHP -- "SQL" --> SQL
+    
+    %% Connections - Async Pipeline
+    PHP --> Redis
+    Redis --> Orchestrator
+    Redis --> Downloader
+    Redis --> Extraction
+    Redis --> Normalizer
+    Redis --> Policy
+    Redis --> Persistence
+    Redis --> Batch
+    
+    %% Worker Dependencies
+    Downloader -. "SQL" .-> SQL
+    Extraction -. "Gemini API" .-> Gemini
+    Persistence -. "SQL Server" .-> SQL
+
+    %% Styles
+    classDef frontend fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef proxy fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef api fill:#312e81,stroke:#6366f1,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef db fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef cache fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc,rx:20px,ry:20px
+    classDef worker fill:#1e293b,stroke:#94a3b8,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+    classDef external fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+
+    class NextJS frontend
+    class Nginx proxy
+    class PHP api
+    class SQL db
+    class Redis cache
+    class Orchestrator,Downloader,Extraction,Normalizer,Policy,Persistence,Batch worker
+    class Gemini external
+    style Workers fill:transparent,stroke:#64748b,stroke-width:2px,stroke-dasharray: 5 5,color:#94a3b8,rx:10px
 ```
 
 Total workers en producción: **27 réplicas** (3+8+8+2+2+3+2). Ver tabla de escalado más abajo.
