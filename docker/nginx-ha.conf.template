@@ -57,6 +57,40 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # ── MCP webhook/capabilities ─────────────────────────────────────
+    location /app/wrap/ {
+        alias /var/www/html/app/wrap/;
+        index webhook.php capabilities.php;
+        try_files $uri =404;
+    }
+
+    location ~ ^/app/wrap/.+\.php$ {
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME /var/www/html$fastcgi_script_name;
+        set $php_fpm_upstream php:9000;
+        fastcgi_pass $php_fpm_upstream;
+        fastcgi_read_timeout ${AUDIT_NGINX_READ_TIMEOUT}s;
+    }
+
+    # ── SSE Telemetría — desactivar buffering para Server-Sent Events ──
+    location ~ ^/audit/[^/]+/flow-stream$ {
+        fastcgi_buffering off;
+        gzip off;
+        add_header X-Accel-Buffering no always;
+
+        limit_req zone=api_limit burst=20 nodelay;
+        limit_req_status 429;
+
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+        set $php_fpm_upstream php:9000;
+        fastcgi_pass $php_fpm_upstream;
+        fastcgi_read_timeout ${AUDIT_NGINX_READ_TIMEOUT}s;
+    }
+
     # ── Endpoint de auditoría IA — rate limit estricto (costoso) ────────
     location = /audit {
         limit_req zone=audit_limit burst=5 nodelay;

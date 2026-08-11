@@ -1,20 +1,26 @@
-# Metadatos del controlador de versiones
+# ══════════════════════════════════════════════════════════════════
+# .dockerignore — AudFact
+# Estrategia: excluir todo lo no-runtime, luego re-incluir
+# explícitamente lo que necesita docs.Dockerfile.
+# ══════════════════════════════════════════════════════════════════
+
+# ── Control de versiones ──
 .git
 .gitignore
 
-# Secretos locales (NO deben entrar al contexto de build)
+# ── Secretos locales ──
 .env
 .env.*
 !.env.example
 
-# Dependencias locales (dev)
+# ── Dependencias locales (se instalan dentro de la imagen) ──
 node_modules
 vendor
 frontend/node_modules
 frontend/.next
 frontend/.turbo
 
-# Logs y Temporales
+# ── Logs y temporales ──
 logs
 responseIA
 tmp
@@ -26,7 +32,7 @@ coverage
 dist
 build
 
-# Herramientas de Desarrollo y Testing
+# ── Herramientas de desarrollo y testing ──
 .github/
 .claude/
 tests/
@@ -35,25 +41,31 @@ phpunit.xml
 .env.dev
 .env.test
 
-# Documentación y Planes
-plans/
-*.md
+# ── Agentes de IA ──
 .agent/
 .agents/
 skills-lock.json
 
-# ── Excepciones para el build de Docusaurus (docs.Dockerfile) ──
-# El Dockerfile de docs necesita estas rutas en el contexto de build.
-!plans/
-!README.md
-!BUSINESS.md
-!DESIGN.md
-!website/
-
-# IDEs y Entornos
+# ── IDEs y entornos ──
 .vscode/
 .devcontainer/
 .roo/
 
-# Frontend no participa en build de imágenes backend actuales
+# ── Documentación: excluir por defecto ──
+*.md
+
+# ── Frontend: excluido del build backend ──
 frontend/
+
+# ══════════════════════════════════════════════════════════════════
+# EXCEPCIONES para docs.Dockerfile
+# Estos archivos se necesitan en el contexto de build porque
+# docs.Dockerfile los copia al portal Docusaurus.
+# ══════════════════════════════════════════════════════════════════
+!plans/
+!plans/**
+!README.md
+!BUSINESS.md
+!DESIGN.md
+!website/
+!website/**
