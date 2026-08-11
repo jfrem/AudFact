@@ -1,5 +1,13 @@
 # Changelog AudFact
 
+## [2026-08-11] - CI/CD Clean Rebuild (Node 22, Boilerplate Removal, Nginx Sync)
+
+### Infraestructura CI/CD
+- **Limpieza Radical (Clean Rebuild)**: Eliminados triggers fantasma en `.github/workflows/` y removidas ramas remotas abandonadas.
+- **Docusaurus**: Eliminados componentes boilerplate de Docusaurus (`blog/`, `intro.mdx`, `.svg`s sin uso, y scripts muertos en `package.json`).
+- **Actualización Node.js**: Migrado el build de frontend y docs a Node 22 (LTS) en Dockerfiles y workflows.
+- **Despliegue y Nginx**: Reestructurado `.dockerignore`, añadido health check específico para Docusaurus y agregado `AUDFACT_DOCS_IMAGE` a `.env` de despliegue.
+- **Sincronización Nginx**: Replicados los bloques de telemetría (SSE `flow-stream`) y enrutamiento MCP desde `nginx.conf` a `nginx-ha.conf.template` asegurando paridad producción-desarrollo.
 ## [2026-08-08] - Auditoría de Resiliencia del Pipeline y Corrección Documental
 
 ### Verificación contra Código Fuente

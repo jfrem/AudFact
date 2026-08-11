@@ -113,7 +113,7 @@ Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.
 6. Ejecuta preflight SQL con la imagen PHP publicada antes de recrear el stack.
 7. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
 8. `docker compose pull` → `docker compose up -d --remove-orphans --profile frontend`; Compose levanta el stack completo con los 7 tipos de workers.
-9. Health check con **retry loop** (5 intentos, 10s entre cada uno)
+9. Health check con **retry loop** (5 intentos, 10s entre cada uno), que incluye validación de Nginx, Frontend, Backend API, y Docusaurus `/docs/`.
 
 > [!IMPORTANT]
 > El primer despliegue que introduce `audit.persistence:{queue}` requiere una

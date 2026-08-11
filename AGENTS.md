@@ -214,6 +214,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.yml` — imagen PHP-FPM/workers publicada en GHCR          |
 | `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.yml` — imagen Nginx publicada en GHCR                    |
 | `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.yml` — imagen frontend Next.js publicada en GHCR         |
+| `AUDFACT_DOCS_IMAGE`         | `ghcr.io/jfrem/audfact-docs`     | ⚠️ Producción | `docker-compose.yml` — imagen Docusaurus publicada en GHCR               |
 | `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.yml` — tag inmutable por SHA o rollback manual           |
 | `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.yml` — puerto LAN dedicado para el frontend AudFact      |
 
