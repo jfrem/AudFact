@@ -15,6 +15,7 @@ env:
   PHP_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-php
   NGINX_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-nginx
   FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-frontend
+  DOCS_IMAGE: ghcr.io/${{ github.repository_owner }}/audfact-docs
   RELEASE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
@@ -73,3 +74,13 @@ jobs:
           tags: |
             ${{ env.FRONTEND_IMAGE }}:${{ env.RELEASE_SHA }}
             ${{ env.FRONTEND_IMAGE }}:latest
+
+      - name: Build and push Docs image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/docs.Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCS_IMAGE }}:${{ env.RELEASE_SHA }}
+            ${{ env.DOCS_IMAGE }}:latest

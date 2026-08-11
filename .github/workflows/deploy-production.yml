@@ -451,7 +451,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_PATH"
-          docker compose --profile frontend up -d --no-build --remove-orphans
+          docker compose --profile frontend --profile docs up -d --no-build --remove-orphans
 
       - name: Health check
         run: |
