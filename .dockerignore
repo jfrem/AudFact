@@ -42,6 +42,14 @@ plans/
 .agents/
 skills-lock.json
 
+# ── Excepciones para el build de Docusaurus (docs.Dockerfile) ──
+# El Dockerfile de docs necesita estas rutas en el contexto de build.
+!plans/
+!README.md
+!BUSINESS.md
+!DESIGN.md
+!website/
+
 # IDEs y Entornos
 .vscode/
 .devcontainer/
