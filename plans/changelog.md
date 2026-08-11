@@ -2,6 +2,9 @@
 
 ## [2026-08-11] - CI/CD Clean Rebuild (Node 22, Boilerplate Removal, Nginx Sync)
 
+### Bugfixes
+- **Pipeline CI/CD**: Añadido `AUDIT_BATCH_CRON_LIMIT` al workflow de despliegue para asegurar su inyección en el `.env` de producción.
+- **Sincronización Env**: Añadido `export MSYS_NO_PATHCONV=1` en `sync-github-production-env.sh` para prevenir la corrupción de rutas absolutas Unix (`/var/...`) al interactuar con binarios nativos de Windows (`gh.exe`) desde Git Bash.
 ### Infraestructura CI/CD
 - **Limpieza Radical (Clean Rebuild)**: Eliminados triggers fantasma en `.github/workflows/` y removidas ramas remotas abandonadas.
 - **Docusaurus**: Eliminados componentes boilerplate de Docusaurus (`blog/`, `intro.mdx`, `.svg`s sin uso, y scripts muertos en `package.json`).
