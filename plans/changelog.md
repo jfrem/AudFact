@@ -1,9 +1,17 @@
 # Changelog AudFact
 
-## [2026-08-11] - CI/CD Clean Rebuild (Node 22, Boilerplate Removal, Nginx Sync)
+## [2026-08-11] - Zero-Drift .env Automation y Clean Rebuild
+
+### Infraestructura CI/CD
+- **Sincronización de Entorno Producción (Zero-Drift)**:
+  - `deploy-production.yml`: Eliminados más de 200 líneas de mapeo manual de variables de entorno (bloques de validación y `write_env_var` repetitivos).
+  - El workflow de despliegue ahora itera dinámicamente sobre `.env.example` usando `jq` como fuente única de verdad, inyectando valores desde los contextos `secrets` y `vars` de GitHub Environment. Si no existe, aplica el default de `.env.example`.
+  - Agregadas comprobaciones de invariantes de producción post-generación (ej. validación obligatoria de credenciales y `APP_ENV=production`).
+  - Agregado soporte automatizado en la verificación de `ci.yml` para analizar estáticamente el código PHP, garantizando que todo llamado a variable de entorno esté declarado en `.env.example` previniendo drift de contratos.
+  - Creado `scripts/install-hooks.sh` para interceptar modificaciones en `.env.example` en etapa `pre-push` y obligar la actualización remota de variables.
 
 ### Bugfixes
-- **Pipeline CI/CD**: Añadido `AUDIT_BATCH_CRON_LIMIT` al workflow de despliegue para asegurar su inyección en el `.env` de producción.
+- **Pipeline CI/CD**: Añadido `AUDIT_BATCH_CRON_LIMIT` al workflow de despliegue para asegurar su inyección en el `.env` de producción (ahora manejado dinámicamente).
 - **Sincronización Env**: Añadido `export MSYS_NO_PATHCONV=1` en `sync-github-production-env.sh` para prevenir la corrupción de rutas absolutas Unix (`/var/...`) al interactuar con binarios nativos de Windows (`gh.exe`) desde Git Bash.
 ### Infraestructura CI/CD
 - **Limpieza Radical (Clean Rebuild)**: Eliminados triggers fantasma en `.github/workflows/` y removidas ramas remotas abandonadas.
