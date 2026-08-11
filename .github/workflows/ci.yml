@@ -103,3 +103,25 @@ jobs:
           echo "Running unit tests..."
           vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always
           echo "All tests passed"
+
+      - name: Validate env contract completeness
+        run: |
+          set -euo pipefail
+          echo "Scanning PHP code for env variable usage..."
+          # Extraer todas las llamadas a getenv(), $_ENV[], $_SERVER[] y Env::get()
+          USED_KEYS=$(grep -rhoP --include="*.php" "(?:getenv|Env::get)\(['\"]([A-Z_][A-Z0-9_]*)" . | grep -oP "[A-Z_][A-Z0-9_]*" | sort -u || true)
+          
+          EXAMPLE_KEYS=$(grep -oP "^[A-Z_][A-Z0-9_]*(?==)" .env.example | sort -u || true)
+          
+          MISSING=""
+          for key in $USED_KEYS; do
+            if ! echo "$EXAMPLE_KEYS" | grep -qw "$key"; then
+              MISSING="$MISSING $key"
+            fi
+          done
+          
+          if [ -n "$MISSING" ]; then
+            echo "::error::Variables usadas en PHP pero ausentes en .env.example:$MISSING"
+            exit 1
+          fi
+          echo "Env contract is complete"

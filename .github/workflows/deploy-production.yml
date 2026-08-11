@@ -43,38 +43,13 @@ jobs:
           clean: true
           submodules: false
 
-      - name: Validate required secrets
-        env:
-          DB_HOST: ${{ vars.DB_HOST }}
-          DB_PORT: ${{ vars.DB_PORT }}
-          DB_NAME: ${{ vars.DB_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
-          DB2_HOST: ${{ vars.DB2_HOST }}
-          DB2_PORT: ${{ vars.DB2_PORT }}
-          DB2_NAME: ${{ vars.DB2_NAME }}
-          DB2_USER: ${{ secrets.DB2_USER }}
-          DB2_PASS: ${{ secrets.DB2_PASS }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
+      - name: Ensure jq is available
         run: |
-          set -euo pipefail
-          required_secrets=(DB_USER DB_PASS DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET)
-          required_variables=(DB_HOST DB_PORT DB_NAME DB2_HOST DB2_PORT DB2_NAME)
-
-          for key in "${required_secrets[@]}"; do
-            if [ -z "${!key}" ]; then
-              echo "::error::Missing required GitHub secret: $key"
-              exit 1
-            fi
-          done
-
-          for key in "${required_variables[@]}"; do
-            if [ -z "${!key}" ]; then
-              echo "::error::Missing required GitHub environment variable: $key"
-              exit 1
-            fi
-          done
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          fi
+          jq --version
 
       - name: Prepare deployment directory
         run: |
@@ -86,123 +61,56 @@ jobs:
 
       - name: Create production environment file
         env:
-          APP_ENV: ${{ vars.APP_ENV }}
-          WRAP_API_BASE: ${{ vars.WRAP_API_BASE }}
-          WWWUSER_ID: ${{ vars.WWWUSER_ID }}
-          WWWGROUP_ID: ${{ vars.WWWGROUP_ID }}
-          AUDFACT_API_PUBLIC_URL: ${{ vars.AUDFACT_API_PUBLIC_URL }}
-          INTERNAL_API_URL: ${{ vars.INTERNAL_API_URL }}
-          AUDFACT_FRONTEND_PUBLIC_URL: ${{ vars.AUDFACT_FRONTEND_PUBLIC_URL }}
-          NEXT_PUBLIC_APP_NAME: ${{ vars.NEXT_PUBLIC_APP_NAME }}
-          NEXT_PUBLIC_DEFAULT_THEME: ${{ vars.NEXT_PUBLIC_DEFAULT_THEME }}
-          NEXT_PUBLIC_POLLING_JOBS_MS: ${{ vars.NEXT_PUBLIC_POLLING_JOBS_MS }}
-          NEXT_PUBLIC_POLLING_HEALTH_MS: ${{ vars.NEXT_PUBLIC_POLLING_HEALTH_MS }}
-          NEXT_PUBLIC_LOCALE: ${{ vars.NEXT_PUBLIC_LOCALE }}
-          NEXT_PUBLIC_TIMEZONE: ${{ vars.NEXT_PUBLIC_TIMEZONE }}
-          WEBHOOK_URL: ${{ vars.WEBHOOK_URL }}
-          CAPABILITIES_URL: ${{ vars.CAPABILITIES_URL }}
-          DB_TYPE: ${{ vars.DB_TYPE }}
-          DB_HOST: ${{ vars.DB_HOST }}
-          DB_PORT: ${{ vars.DB_PORT }}
-          DB_NAME: ${{ vars.DB_NAME }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
-          DB2_HOST: ${{ vars.DB2_HOST }}
-          DB2_PORT: ${{ vars.DB2_PORT }}
-          DB2_NAME: ${{ vars.DB2_NAME }}
-          DB2_USER: ${{ secrets.DB2_USER }}
-          DB2_PASS: ${{ secrets.DB2_PASS }}
-          DB_POOLING: ${{ vars.DB_POOLING }}
-          DB2_POOLING: ${{ vars.DB2_POOLING }}
-          DB_ENCRYPT: ${{ vars.DB_ENCRYPT }}
-          DB_TRUST_SERVER_CERT: ${{ vars.DB_TRUST_SERVER_CERT }}
-          DB2_ENCRYPT: ${{ vars.DB2_ENCRYPT }}
-          DB2_TRUST_SERVER_CERT: ${{ vars.DB2_TRUST_SERVER_CERT }}
-          GOOGLE_DRIVE_CLIENT_EMAIL: ${{ vars.GOOGLE_DRIVE_CLIENT_EMAIL }}
-          GOOGLE_DRIVE_PRIVATE_KEY: ${{ secrets.GOOGLE_DRIVE_PRIVATE_KEY }}
-          GOOGLE_DRIVE_TLS_VERIFY: ${{ vars.GOOGLE_DRIVE_TLS_VERIFY }}
-          REQUEST_TIMEOUT_MS: ${{ vars.REQUEST_TIMEOUT_MS }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
-          LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
-          LOG_MAX_SIZE_MB: ${{ vars.LOG_MAX_SIZE_MB }}
-          AUDIT_RESPONSE_IA_ENABLED: ${{ vars.AUDIT_RESPONSE_IA_ENABLED }}
-          AUDIT_RESPONSE_IA_DIR: ${{ vars.AUDIT_RESPONSE_IA_DIR }}
-          ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
-          MAX_JSON_SIZE: ${{ vars.MAX_JSON_SIZE }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          GEMINI_TEMPERATURE: ${{ vars.GEMINI_TEMPERATURE }}
-          GEMINI_TIMEOUT: ${{ vars.GEMINI_TIMEOUT }}
-          GEMINI_TOP_P: ${{ vars.GEMINI_TOP_P }}
-          GEMINI_TOP_K: ${{ vars.GEMINI_TOP_K }}
-          GEMINI_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_MAX_OUTPUT_TOKENS }}
-          GEMINI_MEDIA_RESOLUTION: ${{ vars.GEMINI_MEDIA_RESOLUTION }}
-          GEMINI_THINKING_BUDGET: ${{ vars.GEMINI_THINKING_BUDGET }}
-          GEMINI_THINKING_LEVEL: ${{ vars.GEMINI_THINKING_LEVEL }}
-          GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS }}
-          GEMINI_EXTRACTION_THINKING_BUDGET: ${{ vars.GEMINI_EXTRACTION_THINKING_BUDGET }}
-          GEMINI_EXTRACTION_THINKING_LEVEL: ${{ vars.GEMINI_EXTRACTION_THINKING_LEVEL }}
-          GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS: ${{ vars.GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS }}
-          GEMINI_SEMANTIC_THINKING_LEVEL: ${{ vars.GEMINI_SEMANTIC_THINKING_LEVEL }}
-          GEMINI_SEMANTIC_THINKING_BUDGET: ${{ vars.GEMINI_SEMANTIC_THINKING_BUDGET }}
-          GEMINI_SEED: ${{ vars.GEMINI_SEED }}
-          AUDIT_BATCH_MAX_LIMIT: ${{ vars.AUDIT_BATCH_MAX_LIMIT }}
-          AUDIT_BATCH_TIMEOUT: ${{ vars.AUDIT_BATCH_TIMEOUT }}
-          AUDIT_NGINX_READ_TIMEOUT: ${{ vars.AUDIT_NGINX_READ_TIMEOUT }}
-          AUDIT_FPM_TERMINATE_TIMEOUT: ${{ vars.AUDIT_FPM_TERMINATE_TIMEOUT }}
-          REDIS_HOST: ${{ vars.REDIS_HOST }}
-          REDIS_PORT: ${{ vars.REDIS_PORT }}
-          REDIS_PREFIX: ${{ vars.REDIS_PREFIX }}
-          REDIS_MAXMEMORY: ${{ vars.REDIS_MAXMEMORY }}
-          REDIS_MAXMEMORY_POLICY: ${{ vars.REDIS_MAXMEMORY_POLICY }}
-          REDIS_CONTAINER_MEMORY: ${{ vars.REDIS_CONTAINER_MEMORY }}
-          REDIS_MODE: ${{ vars.REDIS_MODE }}
-          REDIS_PERSISTENT: ${{ vars.REDIS_PERSISTENT }}
-          CB_GEMINI_THRESHOLD: ${{ vars.CB_GEMINI_THRESHOLD }}
-          CB_GEMINI_COOLDOWN: ${{ vars.CB_GEMINI_COOLDOWN }}
-          AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
-          AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
-          AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
-          AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
-          AUDIT_WORKER_NORMALIZER_REPLICAS: ${{ vars.AUDIT_WORKER_NORMALIZER_REPLICAS }}
-          AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
-          AUDIT_WORKER_PERSISTENCE_REPLICAS: ${{ vars.AUDIT_WORKER_PERSISTENCE_REPLICAS }}
-          AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
-          AUDIT_IDEMPOTENCY_KEY_TTL: ${{ vars.AUDIT_IDEMPOTENCY_KEY_TTL }}
-          AUDIT_JOB_TTL: ${{ vars.AUDIT_JOB_TTL }}
-          AUDIT_STATE_TTL: ${{ vars.AUDIT_STATE_TTL }}
-          AUDIT_PERSISTENCE_QUEUE_TTL: ${{ vars.AUDIT_PERSISTENCE_QUEUE_TTL }}
-          AUDIT_RESERVATION_TTL: ${{ vars.AUDIT_RESERVATION_TTL }}
-          AUDIT_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_PENDING_RECLAIM_IDLE_MS }}
-          AUDIT_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_PENDING_RECLAIM_INTERVAL_MS }}
-          AUDIT_EVENT_MAX_RETRIES: ${{ vars.AUDIT_EVENT_MAX_RETRIES }}
-          AUDIT_STREAM_BLOCK_MS: ${{ vars.AUDIT_STREAM_BLOCK_MS }}
-          AUDIT_DLQ_STREAM: ${{ vars.AUDIT_DLQ_STREAM }}
-          AUDIT_CACHE_TTL: ${{ vars.AUDIT_CACHE_TTL }}
-          AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
-          AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
-          AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
-          AUDIT_VERSION_RULES: ${{ vars.AUDIT_VERSION_RULES }}
-          MCP_WEBHOOK_SECRET: ${{ secrets.MCP_WEBHOOK_SECRET }}
-          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          ALL_SECRETS: ${{ toJson(secrets) }}
+          ALL_VARS: ${{ toJson(vars) }}
         run: |
           set -euo pipefail
           umask 077
 
-          APP_ENV="production"
-          EFFECTIVE_WRAP_API_BASE="${WRAP_API_BASE:-http://nginx}"
-          EFFECTIVE_INTERNAL_API_URL="${INTERNAL_API_URL:-http://nginx}"
+          # =========================================================
+          # ZERO-DRIFT ENV GENERATION
+          # Source of truth: .env.example
+          # Values: GitHub Environment secrets + vars → fallback to .env.example defaults
+          # =========================================================
 
-          if [ "${DB_ENCRYPT:-no}" != "no" ] || [ "${DB_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
-            echo "::error::Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
-            exit 1
+          escape_env_value() {
+            local value="${1-}"
+            value="${value//$'\r'/}"
+            value="${value//$'\n'/\\n}"
+            printf '%s' "$value"
+          }
+
+          write_env_var() {
+            local key="$1"
+            local value="${2-}"
+            printf '%s=%s\n' "$key" "$(escape_env_value "$value")"
+          }
+
+          # --- Resolve computed values ---
+          EFFECTIVE_WRAP_API_BASE="$(echo "$ALL_VARS" | jq -r '.WRAP_API_BASE // "http://nginx"')"
+          EFFECTIVE_INTERNAL_API_URL="$(echo "$ALL_VARS" | jq -r '.INTERNAL_API_URL // "http://nginx"')"
+          EFFECTIVE_AUDIT_INTERNAL_API_BASE="$(echo "$ALL_VARS" | jq -r '.AUDIT_INTERNAL_API_BASE // "http://nginx"')"
+
+          API_PUBLIC_URL="$(echo "$ALL_VARS" | jq -r '.AUDFACT_API_PUBLIC_URL // "http://172.16.0.3:8080"')"
+          FRONTEND_PUBLIC_URL="$(echo "$ALL_VARS" | jq -r '.AUDFACT_FRONTEND_PUBLIC_URL // "http://172.16.0.3:'"${FRONTEND_HOST_PORT}"'"')"
+
+          RAW_WEBHOOK="$(echo "$ALL_VARS" | jq -r '.WEBHOOK_URL // empty')"
+          RAW_CAPS="$(echo "$ALL_VARS" | jq -r '.CAPABILITIES_URL // empty')"
+          EFFECTIVE_WEBHOOK_URL="${RAW_WEBHOOK:-${API_PUBLIC_URL}/app/wrap/webhook.php}"
+          EFFECTIVE_CAPABILITIES_URL="${RAW_CAPS:-${API_PUBLIC_URL}/app/wrap/capabilities.php}"
+
+          # ALLOWED_ORIGINS: merge frontend URL if not already present
+          RAW_ORIGINS="$(echo "$ALL_VARS" | jq -r '.ALLOWED_ORIGINS // empty')"
+          if [ -n "$RAW_ORIGINS" ]; then
+            case ",$RAW_ORIGINS," in
+              *",$FRONTEND_PUBLIC_URL,"*) EFFECTIVE_ALLOWED_ORIGINS="$RAW_ORIGINS" ;;
+              *) EFFECTIVE_ALLOWED_ORIGINS="${RAW_ORIGINS},${FRONTEND_PUBLIC_URL}" ;;
+            esac
+          else
+            EFFECTIVE_ALLOWED_ORIGINS="$FRONTEND_PUBLIC_URL"
           fi
 
-          if [ "${DB2_ENCRYPT:-no}" != "no" ] || [ "${DB2_TRUST_SERVER_CERT:-yes}" != "yes" ]; then
-            echo "::error::Production deploy currently requires DB2_ENCRYPT=no and DB2_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
-            exit 1
-          fi
-
+          # Normalize SQL hosts (strip instance names, validate format)
           normalize_sql_host() {
             local name="$1"
             local value="$2"
@@ -212,8 +120,6 @@ jobs:
               exit 1
             fi
 
-            # DB_PORT/DB2_PORT are managed separately by the application DSN builder.
-            # If an instance name is supplied (host\instance), deploy with the base host.
             value="${value%%\\*}"
 
             if [[ "$value" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+[[:alpha:]_].* ]]; then
@@ -230,46 +136,52 @@ jobs:
             printf '%s' "$value"
           }
 
-          EFFECTIVE_DB_HOST="$(normalize_sql_host DB_HOST "$DB_HOST")"
-          EFFECTIVE_DB2_HOST="$(normalize_sql_host DB2_HOST "$DB2_HOST")"
+          RAW_DB_HOST="$(echo "$ALL_VARS" | jq -r '.DB_HOST // empty')"
+          RAW_DB2_HOST="$(echo "$ALL_VARS" | jq -r '.DB2_HOST // empty')"
+          EFFECTIVE_DB_HOST="$(normalize_sql_host DB_HOST "$RAW_DB_HOST")"
+          EFFECTIVE_DB2_HOST="$(normalize_sql_host DB2_HOST "$RAW_DB2_HOST")"
 
-          FRONTEND_HOST_PORT="${AUDFACT_FRONTEND_HOST_PORT:-3100}"
-          FRONTEND_PUBLIC_URL="${AUDFACT_FRONTEND_PUBLIC_URL:-http://172.16.0.3:${FRONTEND_HOST_PORT}}"
-          API_PUBLIC_URL="${AUDFACT_API_PUBLIC_URL:-http://172.16.0.3:8080}"
-          WEBHOOK_URL="${WEBHOOK_URL:-${API_PUBLIC_URL}/app/wrap/webhook.php}"
-          CAPABILITIES_URL="${CAPABILITIES_URL:-${API_PUBLIC_URL}/app/wrap/capabilities.php}"
+          # TLS enforcement (temporary production constraint)
+          DB_ENCRYPT_VAL="$(echo "$ALL_VARS" | jq -r '.DB_ENCRYPT // "no"')"
+          DB_TRUST_VAL="$(echo "$ALL_VARS" | jq -r '.DB_TRUST_SERVER_CERT // "yes"')"
+          DB2_ENCRYPT_VAL="$(echo "$ALL_VARS" | jq -r '.DB2_ENCRYPT // "no"')"
+          DB2_TRUST_VAL="$(echo "$ALL_VARS" | jq -r '.DB2_TRUST_SERVER_CERT // "yes"')"
 
-          if [ -n "${ALLOWED_ORIGINS}" ]; then
-            case ",${ALLOWED_ORIGINS}," in
-              *",${FRONTEND_PUBLIC_URL},"*) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" ;;
-              *) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS},${FRONTEND_PUBLIC_URL}" ;;
-            esac
-          else
-            EFFECTIVE_ALLOWED_ORIGINS="${FRONTEND_PUBLIC_URL}"
+          if [ "$DB_ENCRYPT_VAL" != "no" ] || [ "$DB_TRUST_VAL" != "yes" ]; then
+            echo "::error::Production deploy currently requires DB_ENCRYPT=no and DB_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
+            exit 1
+          fi
+          if [ "$DB2_ENCRYPT_VAL" != "no" ] || [ "$DB2_TRUST_VAL" != "yes" ]; then
+            echo "::error::Production deploy currently requires DB2_ENCRYPT=no and DB2_TRUST_SERVER_CERT=yes until SQL Server TLS is remediated"
+            exit 1
           fi
 
-          escape_env_value() {
-            local value="${1-}"
-            value="${value//$'\r'/}"
-            value="${value//$'\n'/\\n}"
-            printf '%s' "$value"
-          }
+          # --- Override map: variables with production-specific logic ---
+          declare -A OVERRIDES=(
+            [APP_ENV]="production"
+            [WRAP_API_BASE]="$EFFECTIVE_WRAP_API_BASE"
+            [INTERNAL_API_URL]="$EFFECTIVE_INTERNAL_API_URL"
+            [AUDIT_INTERNAL_API_BASE]="$EFFECTIVE_AUDIT_INTERNAL_API_BASE"
+            [AUDFACT_API_PUBLIC_URL]="$API_PUBLIC_URL"
+            [AUDFACT_FRONTEND_PUBLIC_URL]="$FRONTEND_PUBLIC_URL"
+            [DB_HOST]="$EFFECTIVE_DB_HOST"
+            [DB2_HOST]="$EFFECTIVE_DB2_HOST"
+            [ALLOWED_ORIGINS]="$EFFECTIVE_ALLOWED_ORIGINS"
+            [WEBHOOK_URL]="$EFFECTIVE_WEBHOOK_URL"
+            [CAPABILITIES_URL]="$EFFECTIVE_CAPABILITIES_URL"
+            [AUDIT_RESPONSE_IA_ENABLED]="$(echo "$ALL_VARS" | jq -r '.AUDIT_RESPONSE_IA_ENABLED // "0"')"
+            [LOG_LEVEL]="$(echo "$ALL_VARS" | jq -r '.LOG_LEVEL // "warning"')"
+          )
 
-          write_env_var() {
-            local key="$1"
-            local value="${2-}"
-            printf '%s=%s\n' "$key" "$(escape_env_value "$value")"
-          }
+          # --- Secret keys: extract from ALL_SECRETS instead of ALL_VARS ---
+          SECRET_KEYS="DB_USER DB_PASS DB2_USER DB2_PASS GEMINI_API_KEY GOOGLE_DRIVE_PRIVATE_KEY MCP_WEBHOOK_SECRET REDIS_PASSWORD"
 
+          # --- Infrastructure variables (resolved from workflow env, not .env.example) ---
+          INFRA_SKIP="AUDFACT_PHP_IMAGE AUDFACT_NGINX_IMAGE AUDFACT_FRONTEND_IMAGE AUDFACT_DOCS_IMAGE AUDFACT_IMAGE_TAG AUDFACT_FRONTEND_HOST_PORT"
+
+          # --- Generate .env ---
           {
-            write_env_var 'APP_ENV' "$APP_ENV"
-            write_env_var 'WRAP_API_BASE' "$EFFECTIVE_WRAP_API_BASE"
-            write_env_var 'WWWUSER_ID' "${WWWUSER_ID:-1000}"
-            write_env_var 'WWWGROUP_ID' "${WWWGROUP_ID:-1000}"
-            write_env_var 'AUDFACT_API_PUBLIC_URL' "$API_PUBLIC_URL"
-            write_env_var 'INTERNAL_API_URL' "$EFFECTIVE_INTERNAL_API_URL"
-            write_env_var 'AUDFACT_FRONTEND_PUBLIC_URL' "$FRONTEND_PUBLIC_URL"
-            printf '\n'
+            # Infrastructure block (from workflow global env)
             write_env_var 'AUDFACT_PHP_IMAGE' "$PHP_IMAGE"
             write_env_var 'AUDFACT_NGINX_IMAGE' "$NGINX_IMAGE"
             write_env_var 'AUDFACT_FRONTEND_IMAGE' "$FRONTEND_IMAGE"
@@ -277,115 +189,77 @@ jobs:
             write_env_var 'AUDFACT_IMAGE_TAG' "$IMAGE_TAG"
             write_env_var 'AUDFACT_FRONTEND_HOST_PORT' "$FRONTEND_HOST_PORT"
             printf '\n'
-            write_env_var 'NEXT_PUBLIC_APP_NAME' "${NEXT_PUBLIC_APP_NAME:-AudFact}"
-            write_env_var 'NEXT_PUBLIC_DEFAULT_THEME' "${NEXT_PUBLIC_DEFAULT_THEME:-dark}"
-            write_env_var 'NEXT_PUBLIC_POLLING_JOBS_MS' "${NEXT_PUBLIC_POLLING_JOBS_MS:-5000}"
-            write_env_var 'NEXT_PUBLIC_POLLING_HEALTH_MS' "${NEXT_PUBLIC_POLLING_HEALTH_MS:-30000}"
-            write_env_var 'NEXT_PUBLIC_LOCALE' "${NEXT_PUBLIC_LOCALE:-es-CO}"
-            write_env_var 'NEXT_PUBLIC_TIMEZONE' "${NEXT_PUBLIC_TIMEZONE:-America/Bogota}"
-            printf '\n'
-            write_env_var 'WEBHOOK_URL' "$WEBHOOK_URL"
-            write_env_var 'CAPABILITIES_URL' "$CAPABILITIES_URL"
-            write_env_var 'MCP_WEBHOOK_SECRET' "$MCP_WEBHOOK_SECRET"
-            printf '\n'
-            write_env_var 'DB_TYPE' "${DB_TYPE:-sqlsrv}"
-            write_env_var 'DB_HOST' "$EFFECTIVE_DB_HOST"
-            write_env_var 'DB_PORT' "$DB_PORT"
-            write_env_var 'DB_NAME' "$DB_NAME"
-            write_env_var 'DB_USER' "$DB_USER"
-            write_env_var 'DB_PASS' "$DB_PASS"
-            printf '\n'
-            write_env_var 'DB2_HOST' "$EFFECTIVE_DB2_HOST"
-            write_env_var 'DB2_PORT' "$DB2_PORT"
-            write_env_var 'DB2_NAME' "$DB2_NAME"
-            write_env_var 'DB2_USER' "$DB2_USER"
-            write_env_var 'DB2_PASS' "$DB2_PASS"
-            printf '\n'
-            write_env_var 'DB_POOLING' "${DB_POOLING:-1}"
-            write_env_var 'DB2_POOLING' "${DB2_POOLING:-1}"
-            write_env_var 'DB_ENCRYPT' "${DB_ENCRYPT:-no}"
-            write_env_var 'DB_TRUST_SERVER_CERT' "${DB_TRUST_SERVER_CERT:-yes}"
-            write_env_var 'DB2_ENCRYPT' "${DB2_ENCRYPT:-no}"
-            write_env_var 'DB2_TRUST_SERVER_CERT' "${DB2_TRUST_SERVER_CERT:-yes}"
-            printf '\n'
-            write_env_var 'GOOGLE_DRIVE_CLIENT_EMAIL' "$GOOGLE_DRIVE_CLIENT_EMAIL"
-            write_env_var 'GOOGLE_DRIVE_PRIVATE_KEY' "$GOOGLE_DRIVE_PRIVATE_KEY"
-            write_env_var 'GOOGLE_DRIVE_TLS_VERIFY' "${GOOGLE_DRIVE_TLS_VERIFY:-1}"
-            printf '\n'
-            write_env_var 'REQUEST_TIMEOUT_MS' "${REQUEST_TIMEOUT_MS:-60000}"
-            write_env_var 'LOG_LEVEL' "${LOG_LEVEL:-warning}"
-            write_env_var 'LOG_RETENTION_DAYS' "${LOG_RETENTION_DAYS:-7}"
-            write_env_var 'LOG_MAX_SIZE_MB' "${LOG_MAX_SIZE_MB:-10}"
-            write_env_var 'AUDIT_RESPONSE_IA_ENABLED' "${AUDIT_RESPONSE_IA_ENABLED:-0}"
-            write_env_var 'AUDIT_RESPONSE_IA_DIR' "${AUDIT_RESPONSE_IA_DIR:-/var/www/html/logs/responseIA}"
-            write_env_var 'ALLOWED_ORIGINS' "$EFFECTIVE_ALLOWED_ORIGINS"
-            write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
-            printf '\n'
-            write_env_var 'GEMINI_API_KEY' "$GEMINI_API_KEY"
-            write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3-flash-preview}"
-            write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
-            write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
-            write_env_var 'GEMINI_TOP_P' "${GEMINI_TOP_P:-1.0}"
-            write_env_var 'GEMINI_TOP_K' "${GEMINI_TOP_K:-1}"
-            write_env_var 'GEMINI_MAX_OUTPUT_TOKENS' "${GEMINI_MAX_OUTPUT_TOKENS:-8192}"
-            write_env_var 'GEMINI_MEDIA_RESOLUTION' "${GEMINI_MEDIA_RESOLUTION:-MEDIA_RESOLUTION_HIGH}"
-            write_env_var 'GEMINI_THINKING_BUDGET' "${GEMINI_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_THINKING_LEVEL' "${GEMINI_THINKING_LEVEL:-}"
-            write_env_var 'GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS' "${GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS:-4096}"
-            write_env_var 'GEMINI_EXTRACTION_THINKING_BUDGET' "${GEMINI_EXTRACTION_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-MINIMAL}"
-            write_env_var 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS' "${GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS:-2048}"
-            write_env_var 'GEMINI_SEMANTIC_THINKING_LEVEL' "${GEMINI_SEMANTIC_THINKING_LEVEL:-}"
-            write_env_var 'GEMINI_SEMANTIC_THINKING_BUDGET' "${GEMINI_SEMANTIC_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-42}"
-            printf '\n'
-            write_env_var 'AUDIT_BATCH_MAX_LIMIT' "${AUDIT_BATCH_MAX_LIMIT:-100}"
-            write_env_var 'AUDIT_BATCH_CRON_LIMIT' "${AUDIT_BATCH_CRON_LIMIT:-5000}"
-            write_env_var 'AUDIT_BATCH_TIMEOUT' "${AUDIT_BATCH_TIMEOUT:-3600}"
-            write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
-            write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
-            printf '\n'
-            write_env_var 'REDIS_HOST' "${REDIS_HOST:-redis}"
-            write_env_var 'REDIS_PORT' "${REDIS_PORT:-6379}"
-            write_env_var 'REDIS_PREFIX' "${REDIS_PREFIX:-audfact:}"
-            write_env_var 'REDIS_MAXMEMORY' "${REDIS_MAXMEMORY:-4gb}"
-            write_env_var 'REDIS_MAXMEMORY_POLICY' "${REDIS_MAXMEMORY_POLICY:-volatile-lru}"
-            write_env_var 'REDIS_CONTAINER_MEMORY' "${REDIS_CONTAINER_MEMORY:-5G}"
-            write_env_var 'REDIS_PASSWORD' "$REDIS_PASSWORD"
-            write_env_var 'REDIS_MODE' "${REDIS_MODE:-standalone}"
-            write_env_var 'REDIS_PERSISTENT' "${REDIS_PERSISTENT:-0}"
-            printf '\n'
-            write_env_var 'CB_GEMINI_THRESHOLD' "${CB_GEMINI_THRESHOLD:-3}"
-            write_env_var 'CB_GEMINI_COOLDOWN' "${CB_GEMINI_COOLDOWN:-60}"
-            printf '\n'
-            write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
-            write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-3}"
-            write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-8}"
-            write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
-            write_env_var 'AUDIT_WORKER_NORMALIZER_REPLICAS' "${AUDIT_WORKER_NORMALIZER_REPLICAS:-2}"
-            write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
-            write_env_var 'AUDIT_WORKER_PERSISTENCE_REPLICAS' "${AUDIT_WORKER_PERSISTENCE_REPLICAS:-3}"
-            write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"
-            write_env_var 'AUDIT_IDEMPOTENCY_KEY_TTL' "${AUDIT_IDEMPOTENCY_KEY_TTL:-300}"
-            write_env_var 'AUDIT_JOB_TTL' "${AUDIT_JOB_TTL:-604800}"
-            write_env_var 'AUDIT_STATE_TTL' "${AUDIT_STATE_TTL:-604800}"
-            write_env_var 'AUDIT_PERSISTENCE_QUEUE_TTL' "${AUDIT_PERSISTENCE_QUEUE_TTL:-604800}"
-            write_env_var 'AUDIT_RESERVATION_TTL' "${AUDIT_RESERVATION_TTL:-86400}"
-            write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
-            write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
-            write_env_var 'AUDIT_EVENT_MAX_RETRIES' "${AUDIT_EVENT_MAX_RETRIES:-3}"
-            write_env_var 'AUDIT_STREAM_BLOCK_MS' "${AUDIT_STREAM_BLOCK_MS:-5000}"
-            write_env_var 'AUDIT_DLQ_STREAM' "${AUDIT_DLQ_STREAM:-audit.dlq}"
-            printf '\n'
-            write_env_var 'AUDIT_CACHE_TTL' "${AUDIT_CACHE_TTL:-86400}"
-            write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-86400}"
-            printf '\n'
-            write_env_var 'AUDIT_VERSION_EXTRACTOR' "${AUDIT_VERSION_EXTRACTOR:-gemini-3.x-parallel-fc-v1}"
-            write_env_var 'AUDIT_VERSION_NORMALIZER' "${AUDIT_VERSION_NORMALIZER:-1.0.0}"
-            write_env_var 'AUDIT_VERSION_RULES' "${AUDIT_VERSION_RULES:-1.0.0}"
+
+            # Dynamic block: iterate .env.example as source of truth
+            while IFS= read -r line || [ -n "$line" ]; do
+              line="${line%$'\r'}"
+
+              # Preserve blank lines as visual separators
+              if [ -z "${line//[[:space:]]/}" ]; then
+                printf '\n'
+                continue
+              fi
+
+              # Skip comments
+              [[ "$line" =~ ^[[:space:]]*# ]] && continue
+
+              # Parse KEY=DEFAULT
+              if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=(.*)$ ]]; then
+                key="${BASH_REMATCH[1]}"
+                default="${BASH_REMATCH[2]}"
+
+                # Skip infrastructure variables (already written above)
+                if echo " $INFRA_SKIP " | grep -qw "$key"; then
+                  continue
+                fi
+
+                # Priority 1: Override map (production-specific logic)
+                if [ -n "${OVERRIDES[$key]+isset}" ]; then
+                  write_env_var "$key" "${OVERRIDES[$key]}"
+                # Priority 2: Secret (from ALL_SECRETS)
+                elif echo " $SECRET_KEYS " | grep -qw "$key"; then
+                  val="$(echo "$ALL_SECRETS" | jq -r --arg k "$key" '.[$k] // empty')"
+                  write_env_var "$key" "${val:-$default}"
+                # Priority 3: Variable (from ALL_VARS, fallback to .env.example default)
+                else
+                  val="$(echo "$ALL_VARS" | jq -r --arg k "$key" '.[$k] // empty')"
+                  write_env_var "$key" "${val:-$default}"
+                fi
+              fi
+            done < .env.example
+
           } > "$DEPLOY_PATH/.env"
 
           chmod 600 "$DEPLOY_PATH/.env"
+
+          # --- Post-generation validation: fail-fast on missing required values ---
+          REQUIRED_KEYS="DB_USER DB_PASS DB2_USER DB2_PASS GEMINI_API_KEY MCP_WEBHOOK_SECRET DB_HOST DB_PORT DB_NAME DB2_HOST DB2_PORT DB2_NAME"
+          MISSING=""
+          for rk in $REQUIRED_KEYS; do
+            val="$(grep "^${rk}=" "$DEPLOY_PATH/.env" | head -1 | cut -d= -f2-)"
+            if [ -z "$val" ]; then
+              MISSING="$MISSING $rk"
+            fi
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::Required production variables are empty in generated .env:$MISSING"
+            exit 1
+          fi
+
+          # --- Production invariant checks ---
+          GENERATED_APP_ENV="$(grep '^APP_ENV=' "$DEPLOY_PATH/.env" | head -1 | cut -d= -f2-)"
+          if [ "$GENERATED_APP_ENV" != "production" ]; then
+            echo "::error::APP_ENV must be 'production' in generated .env but got '$GENERATED_APP_ENV'"
+            exit 1
+          fi
+
+          GENERATED_INTERNAL="$(grep '^INTERNAL_API_URL=' "$DEPLOY_PATH/.env" | head -1 | cut -d= -f2-)"
+          if [ "$GENERATED_INTERNAL" != "http://nginx" ]; then
+            echo "::error::INTERNAL_API_URL must be 'http://nginx' for Docker runtime but got '$GENERATED_INTERNAL'"
+            exit 1
+          fi
+
+          echo "Production .env generated from .env.example ($(grep -c '=' "$DEPLOY_PATH/.env") variables)"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
