@@ -108,8 +108,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Scanning PHP code for env variable usage..."
-          # Extraer todas las llamadas a getenv(), $_ENV[], $_SERVER[] y Env::get()
-          USED_KEYS=$(grep -rhoP --include="*.php" --exclude-dir=vendor "(?:getenv|Env::get)\(['\"]([A-Z_][A-Z0-9_]*)" . | grep -oP "[A-Z_][A-Z0-9_]*" | sort -u || true)
+          # Extraer todas las llamadas a getenv() y Env::get() usando \K para capturar solo el nombre de la variable
+          USED_KEYS=$(grep -rhoP --include="*.php" --exclude-dir=vendor "(?:getenv|Env::get)\(['\"]\K[A-Z_][A-Z0-9_]*" . | sort -u || true)
           
           EXAMPLE_KEYS=$(grep -oP "^[A-Z_][A-Z0-9_]*(?==)" .env.example | sort -u || true)
           
