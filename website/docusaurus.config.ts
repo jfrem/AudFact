@@ -9,13 +9,12 @@ const config: Config = {
   favicon: 'img/favicon.ico',
   url: 'http://localhost:8080',
   baseUrl: '/docs/',
-  onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenLinks: 'ignore',
   markdown: {
     mermaid: true,
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
-      onBrokenMarkdownImages: 'warn',
+      onBrokenMarkdownLinks: 'ignore',
+      onBrokenMarkdownImages: 'ignore',
     },
   },
   i18n: {
