@@ -52,14 +52,7 @@ const sidebars: SidebarsConfig = {
       label: '🧪 Testing',
       items: ['testing-strategy'],
     },
-    {
-      type: 'category',
-      label: '💻 Especificaciones Técnicas',
-      items: [
-        'sdd-sql-incident-remediation',
-        'sdd-sql-persistence-resilience',
-      ],
-    },
+
     {
       type: 'category',
       label: '📋 Historial',
