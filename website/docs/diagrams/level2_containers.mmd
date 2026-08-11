@@ -1,0 +1,53 @@
+C4Container
+    title AudFact — C4 Nivel 2: Contenedores
+
+    Person(auditor, "Auditor", "Usuario del dashboard")
+    System_Ext(gemini, "Google Gemini API", "IA multimodal")
+    System_Ext(sqlserver, "SQL Server", "Discolnet legacy DB")
+    System_Ext(gdrive, "Google Drive", "Almacenamiento adjuntos URL")
+
+    System_Boundary(audfact, "AudFact") {
+
+        Container(frontend, "Frontend (Next.js 15)", "TypeScript / React 19 / TailwindCSS v4", "Dashboard forense. SPA con SSR.\nConsuye API REST via TanStack Query.\nPuerto :3000 / :3100 prod.")
+
+        Container(nginx, "Nginx 1.25", "Reverse Proxy / Static Server", "Recibe HTTP en :8080.\nProxy FastCGI a pool PHP.\nRate limit 2 req/s en /audit.*\nTemplates con envsubst.")
+
+        Container(php_api, "PHP API (PHP-FPM 8.2)", "Custom MVC Framework / PHP", "Bootstrap en public/index.php.\n12 Controladores REST.\n29 Endpoints definidos en web.php.\nRate limit APCu + fallback archivos.\n5 réplicas en producción.")
+
+        Container(redis, "Redis 7", "Message Broker / Cache / State", "Streams de batch, auditoría, documentos, persistencia, resultados y DLQ.\nState store para auditorías y jobs (TTL 7 días).\nScheduler Lua: un turno SQL activo por job.\nCircuit breaker y cache Gemini.")
+
+        Container(worker_orch, "Worker: Orchestrator", "PHP CLI long-running process", "Consume: audit.inbox (group: orchestrator).\nResuelve FDV + audit-config + adjuntos.\nConstruye extraction_contract.\nPublica N x document_registered.")
+
+        Container(worker_ext, "Worker: Extraction x5", "PHP CLI / GuzzleHTTP", "Consume: audit.documents (group: extractors).\nDescarga adjunto (Drive URL o BLOB).\nsha256(file) → cache Redis.\nLlama Gemini FC (parallel function calling).\nPublica document_extracted.")
+
+        Container(worker_norm, "Worker: Normalizer", "PHP CLI long-running process", "Consume: audit.documents (group: normalizers).\nFechas ISO, uppercase sin tildes,\nnúméricos canónicos, null para vacío.\nPublica document_normalized.")
+
+        Container(worker_policy, "Worker: Policy / Rules", "PHP CLI / DocumentPolicyEngine", "Consume: audit.documents (group: policy).\nEvalúa COINCIDE / VALOR_DISTINTO /\nNO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE.\nSemanticMatchJudge para homologación.\nEncola rules_evaluated con AuditPersistenceQueue.")
+
+        Container(worker_persistence, "Worker: Persistence x3", "PHP CLI / AuditPersistenceWorker", "Consume: audit.persistence:{queue} (group: persistence).\nUn turno activo por job; jobs distintos en paralelo.\nTransacción: AudDispEst + adjuntos + trazabilidad.\nPublica audit_completed | audit_failed.")
+
+        Container(mcp_wrap, "MCP Wrap", "PHP / webhook.php + capabilities.php", "Webhook autenticado por X-API-KEY.\n4 herramientas: GetClients, GetInvoices,\nGetDispensation, GetAttachments.\nUsa ApiClient interno.")
+    }
+
+    Rel(auditor, frontend, "Navega dashboard, dispara auditorías", "HTTPS :3100")
+    Rel(frontend, nginx, "Peticiones API REST", "HTTP :8080")
+    Rel(nginx, php_api, "FastCGI proxy", "TCP :9000")
+    Rel(php_api, redis, "Publica audit_created,\nlee job status, lee resultados", "TCP :6379")
+    Rel(php_api, sqlserver, "SELECT dispensas/adjuntos y resultados", "TCP :1433")
+
+    Rel(worker_orch, redis, "XREADGROUP audit.inbox\nXADD audit.documents", "TCP :6379")
+    Rel(worker_orch, sqlserver, "Lee FDV + AuditConfig + Attachments", "TCP :1433")
+    Rel(worker_ext, redis, "XREADGROUP audit.documents\nCache document_hash\nXADD audit.documents", "TCP :6379")
+    Rel(worker_ext, gdrive, "Descarga adjuntos URL via JWT", "HTTPS")
+    Rel(worker_ext, sqlserver, "Lee BLOB de AdjuntosDispensacion", "TCP :1433")
+    Rel(worker_ext, gemini, "sendWithFunctionCalling()\nparallel FC: extract_fields,\nextract_items, detect_visual_checks,\nassess_document_quality", "HTTPS")
+    Rel(worker_norm, redis, "XREADGROUP audit.documents\nXADD audit.documents", "TCP :6379")
+    Rel(worker_policy, redis, "XREADGROUP audit.documents\nLua scheduler + XADD audit.persistence:{queue}", "TCP :6379")
+    Rel(worker_policy, gemini, "SemanticMatchJudge\nhomologación artículos", "HTTPS")
+    Rel(worker_persistence, redis, "XREADGROUP audit.persistence:{queue}\nLibera turno + XADD audit.results", "TCP :6379")
+    Rel(worker_persistence, sqlserver, "UPSERT serializable AudDispEst\nUPDATE set-based adjuntos + trazabilidad", "TCP :1433")
+
+    Rel(auditor, mcp_wrap, "Invoca herramientas MCP", "HTTP + X-API-KEY")
+    Rel(mcp_wrap, php_api, "ApiClient → endpoints REST internos", "HTTP interno")
+
+    UpdateLayoutConfig($c4ShapeInRow="4", $c4BoundaryInRow="1")

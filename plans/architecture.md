@@ -18,12 +18,15 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `SqlServerConnectionExecutor.php` | Ejecuta cada operación con PDO fresco, clasifica fase/modo y aplica retry acotado solo cuando el replay es seguro |
 | `SqlServerOperationMode.php` | Modos `READ`, `IDEMPOTENT_WRITE` y `NON_REPLAYABLE_WRITE` |
 | `SqlServerOperationException.php` | Excepción técnica sanitizada con conexión, fase, modo, intentos y SQLSTATE |
+| `RedisClient.php` | Cliente Redis distribuido; implementa Sliding Window, streams, pub/sub y mutex Lua; usado por pipeline, rate limit y cache |
+| `RedisUnavailableException.php` | Excepción tipada para fallo de Redis; permite que workers y controladores degraden gracefully |
+| `Cache.php` | Abstracción de caché read-through sobre RedisClient con mutex distribuido anti-stampede e invalidación por hash |
 | `Middleware.php` | Pipeline de middleware |
 | `Validator.php` | Validación de datos de entrada |
 | `Response.php` | Respuestas JSON estandarizadas |
 | `Logger.php` | Logging estructurado con rotación diaria |
 | `Env.php` | Carga de `.env` por entorno |
-| `RateLimit.php` | Rate limiting por IP (APCu con fallback a archivos) |
+| `RateLimit.php` | Rate limiting por IP: **Redis como backend primario** (distribuido entre réplicas), APCu como primer fallback (per-proceso) y archivo como último fallback |
 
 **Dependencias**: Ninguna externa (framework standalone).
 **Interfaz**: Cada módulo es invocado desde `public/index.php` o los controladores.
@@ -45,6 +48,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `DispensationController.php` | Datos de dispensación | `DispensationModel` |
 | `AuditController.php` | Orquestador de auditoría IA + resultados persistidos | Todos los modelos |
 | `AuditDlqController.php` | Consulta y reproceso de eventos DLQ | Redis |
+| `AuditFlowController.php` | Stream SSE de telemetría live por auditoría o job (`GET /audit/{auditId}/flow-stream`); dual-routing Redis: detecta `audit:{id}:state` o `job:{id}:state` | Redis |
 
 **Dependencias**: `core/Validator`, `core/Response`, `core/Logger`, Modelos.
 **Interfaz**: REST JSON vía `app/Routes/web.php`.
@@ -55,13 +59,13 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 | Modelo | Tabla/Vista Principal | Operaciones |
 |---|---|---|
-| `Model.php` | Base de ejecución SQL | Callbacks `read()`, `idempotentWrite()` y `nonReplayableWrite()` sin retener PDO |
+| `Model.php` | Base de ejecución SQL | Callbacks `read()`, `idempotentWrite()`, `nonReplayableWrite()` sin retener PDO. `AuditStatusModel` añade `readWithFallback()` local: intenta `default` primero (consistencia post-escritura), degrada a `db2` si falla |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
 | `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `DisId` como llave canónica |
-| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` | Metadata, stream HTTP y materialización BLOB para pipeline con `bytes === DATALENGTH` en la misma consulta |
+| `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` + `vw_discolnet_dispensas` | Metadata pública, stream HTTP y materialización BLOB para pipeline con `bytes === DATALENGTH` en la misma consulta; `countAuditHistory()` y `getAuditHistory()` para el endpoint `GET /audit/documents-history` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
-| `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `NitDocumentos` | `getConfig()`, `saveConfig()` |
-| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` | `searchAuditSummaries()`, `getAuditDetailByFacNro()`, `getTimingsByFacNro()` |
+| `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `AudDispCampoCatalogo` + `NitDocumentos` | `getConfig()` (JOIN con catálogo), `saveConfig()`, `catalog()` |
+| `AuditStatusModel.php` | `Discolnet.dbo.AudDispEst` | `searchAuditSummaries()`, `countAudits()`, `getAuditDetailByFacNro()`, `getTimingsByFacNro()`, `getStateSummary()`. Usa `default` como `readConnectionName` (excepción a la regla `db2`) para garantizar consistencia de lectura tras escritura |
 | `AuditResultPersistenceModel.php` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | `persist()` transaccional y `updateFinalTimings()` sin read-before-write |
 
 **Dependencias**: `core/SqlServerConnectionExecutor` sobre `core/Database` (PDO sqlsrv). Los modelos no conservan conexiones entre eventos.
@@ -71,10 +75,40 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 
 ### Servicios de Auditoría IA (`app/Services/Audit/`)
 
-| `ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad (solo `development`) |
+Componentes de dominio compartidos que no pertenecen al ciclo de vida de un worker específico:
 
-**Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`.
-**Interfaz**: Invocados por los Workers del Pipeline o directamente desde Controladores.
+| Archivo | Responsabilidad |
+|---|---|
+| `GeminiGateway.php` | Cliente HTTP (Guzzle) hacia la API de Gemini; implementa Circuit Breaker, retry/backoff y manejo de cuota |
+| `GeminiConfig.php` | Configuración determinista de Gemini: `temperature=0`, `topP=1`, `topK=1`, `seed=42`, `thinkingLevel=MINIMAL` |
+| `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
+| `ArticleSemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver |
+| `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |
+| `AuditComparisonType.php` | Enum de tipos de comparación: `exact`, `semantic`, `business`, `visual` |
+| `AuditFieldValueType.php` | Tipos de valor de campo extraído; determina cómo normaliza `FieldValueResolver` |
+| `AuditFindingResult.php` | Value-object inmutable de resultado de hallazgo: `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `INCONCLUSO` |
+| `AuditFindingRules.php` | Reglas de evaluación de hallazgos por tipo de campo y severidad |
+| `AuditSeverity.php` | Enum de severidad: `alta`, `media`, `baja` |
+| `DeliveryValidityEvaluator.php` | Valida la vigencia de la entrega (fechas, cantidades) contra la FDV |
+| `DocumentDuplicationEvaluator.php` | Detecta documentos binariamente idénticos (SHA-256) cargados en distintas ranuras de la misma auditoría |
+| `DocumentQuality.php` | Enum de calidad documental: `legible`, `parcialmente_legible`, `ilegible` |
+| `IdentityDocNormalizer.php` | Normalización de nombres y documentos de identidad para comparación determinista |
+| `TextNormalization.php` | Utilidades de normalización de texto (mayúsculas, tildes, espacios) usadas en múltiples evaluadores |
+| `ResponseIADiskStore.php` | Persistencia en disco de payloads de la IA para trazabilidad (solo `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1`) |
+
+**Dependencias**: Guzzle HTTP, `core/Logger`, `core/RedisClient`, `core/Database`, `core/SqlServerConnectionExecutor`.
+**Interfaz**: Invocados por los Workers del Pipeline, `AuditFlowController` o directamente desde Controladores.
+
+---
+
+### Telemetría (`app/Services/Audit/Telemetry/`)
+
+| Archivo | Responsabilidad |
+|---|---|
+| `TelemetryPublisher.php` | Publica eventos de telemetría al stream `audit.telemetry` en Redis; consumidos por `AuditFlowController` para el SSE live de la vista de trazabilidad |
+
+**Dependencias**: `core/RedisClient`.
+**Interfaz**: Invocado por los workers del Pipeline para emitir eventos de fase en tiempo real.
 
 ---
 
@@ -87,6 +121,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, recuperación de `pending`, ack, reintentos, envío a DLQ, cierre terminal y telemetría; agotamiento SQL y fallos técnicos de descarga terminan con DLQ/ACK en la misma entrega |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
 | `BatchJobStore.php` | Claves Redis de jobs/reservas y transición atómica de métricas según el estado anterior del job, incluyendo terminal directo de lotes de una auditoría |
+| `bin/schedule-daily-batches.php` | Script CLI (cron): encola auditorías batch diarias para todos los clientes configurados (`BatchRequestedWorker` vía `audit.batch.inbox`) con rango dinámico anual. Límite configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) o `--limit` CLI |
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback; distingue fuente ausente/vacía, transferencia incompleta y fallo externo como errores técnicos |
 | `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox` |
 | `DocumentAuditOrchestrator.php` | Consume `audit_created`, ejecuta la reconciliación global 1:1 y publica `document_registered` solo para matches; registra y publica `document_rejected` para fallos de mapping sin invocar Gemini |
@@ -107,7 +142,13 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `AuditPersistenceWorker.php` | Worker: bloquea decisiones contaminadas (`DOWNLOAD_ERROR` o contrato de rechazo inválido), persiste SQL, libera el turno, recalcula timings y publica el terminal |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher `bin/audit-worker.php` levanta servicios independientes parametrizados por `.env`: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=1`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher levanta servicios independientes: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=2`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+
+> [!NOTE]
+> **Workers que requieren `GEMINI_API_KEY`**: `extraction` (extrae con Gemini multimodal) y `policy` (`RulesEvaluationWorker` invoca `ArticleSemanticMatchJudge` para homologación semántica de artículos/pacientes cuando el comparador determinísta no puede resolver). Un fallo de cuota o key expirada afecta ambos workers.
+
+> [!NOTE]
+> `bin/schedule-daily-batches.php` es un script CLI independiente ubicado en `bin/` (no en `app/Services/Audit/Pipeline/`). Se ejecuta como cron dentro del contenedor PHP: `docker compose exec php php bin/schedule-daily-batches.php`.
 
 
 ---
@@ -123,7 +164,7 @@ AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA mod
 | `core/tools/*.php` | 4 tools: GetClients, GetInvoices, GetDispensation, GetAttachments |
 
 **Dependencias**: API REST interna (vía `ApiClient`).
-**Interfaz**: JSON-RPC 2.0 vía `POST /wrap/webhook.php`.
+**Interfaz**: JSON-RPC 2.0 vía `POST /app/wrap/webhook.php` (prefijo `/app/` requerido por la regla `location /app/wrap/` de Nginx).
 
 ---
 

@@ -6,8 +6,44 @@ El despliegue a producción está automatizado mediante **GitHub Actions**.
 
 ### Flujo
 
-```
-Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner: checkout → generate .env → pull GHCR images → SQL preflight → docker compose up → health check)
+```mermaid
+flowchart LR
+    %% Trigger
+    Push["🚀 Push a main"]
+
+    %% Continuous Integration
+    subgraph CI ["⚙️ Continuous Integration (GitHub)"]
+        direction LR
+        LintTest["✔️ Lint & Tests"]
+        Publish["📦 Publish Images (GHCR)"]
+        LintTest --> Publish
+    end
+
+    %% Continuous Deployment
+    subgraph CD ["🖥️ Continuous Deployment (Self-Hosted Runner)"]
+        direction LR
+        Checkout["📥 Checkout"]
+        GenEnv["🔐 Generate .env"]
+        Pull["⬇️ Pull GHCR images"]
+        SQL["🗄️ SQL preflight"]
+        Up["🐳 docker compose up"]
+        Health["💚 health check"]
+        
+        Checkout --> GenEnv --> Pull --> SQL --> Up --> Health
+    end
+
+    %% Flow
+    Push --> CI
+    CI --> CD
+
+    %% Styles
+    classDef trigger fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef step fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+
+    class Push trigger
+    class LintTest,Publish,Checkout,GenEnv,Pull,SQL,Up,Health step
+    style CI fill:transparent,stroke:#3b82f6,stroke-width:2px,stroke-dasharray: 5 5,color:#93c5fd,rx:10px
+    style CD fill:transparent,stroke:#10b981,stroke-width:2px,stroke-dasharray: 5 5,color:#6ee7b7,rx:10px
 ```
 
 ### Configuración
@@ -15,7 +51,7 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 - **Host**: Runner instalado en servidor local (`172.16.0.3` usuario `admon`)
 - **Autenticación**: Token de registro de GitHub Actions
 - **Ruta Base**: `/home/admon/actions-runner`
-- **Runtime**: Docker Compose sobre runner self-hosted (`docker compose up --build -d`). La definición conserva intención HA, pero el workflow actual no debe presentarse como orquestación multi-réplica garantizada.
+- **Runtime**: Docker Compose en producción usa `docker compose pull` + `docker compose up -d --remove-orphans --profile frontend` sobre imágenes GHCR pre-buildadas. `--build` es solo para desarrollo local.
 
 ### GitHub Secrets requeridos
 
@@ -27,7 +63,7 @@ Push a main → CI (lint + tests) → Publish Images → CD (self-hosted runner:
 | `DB2_PASS` | ✅ | Contraseña BD lectura |
 | `GOOGLE_DRIVE_PRIVATE_KEY` | — | Clave privada PEM de la service account |
 | `GEMINI_API_KEY` | ✅ | API Key de Google Gemini |
-| `MCP_WEBHOOK_SECRET` | — | Secret del webhook MCP |
+| `MCP_WEBHOOK_SECRET` | ✅ | Secret del webhook MCP (validado en el paso `Validate required secrets`) |
 | `REDIS_PASSWORD` | — | Password Redis si se habilita autenticación |
 
 ### GitHub Variables requeridas
@@ -76,7 +112,7 @@ Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.
 5. Genera `.env` dinámicamente desde GitHub Secrets/Variables con hosts SQL normalizados a host/IP limpio.
 6. Ejecuta preflight SQL con la imagen PHP publicada antes de recrear el stack.
 7. En `APP_ENV=production`, el workflow exige temporalmente `DB_ENCRYPT=no`, `DB_TRUST_SERVER_CERT=yes`, `DB2_ENCRYPT=no` y `DB2_TRUST_SERVER_CERT=yes` porque la infraestructura actual falla incluso con `Encrypt=yes;TrustServerCertificate=yes`.
-8. `docker compose pull` → `docker compose up -d --remove-orphans`; Compose reemplaza `worker-aggregator` por tres réplicas de `worker-persistence`.
+8. `docker compose pull` → `docker compose up -d --remove-orphans --profile frontend`; Compose levanta el stack completo con los 7 tipos de workers.
 9. Health check con **retry loop** (5 intentos, 10s entre cada uno)
 
 > [!IMPORTANT]
@@ -194,8 +230,8 @@ mv /home/admon/AudFact.backup.YYYY-MM-DD /home/admon/AudFact
 | **Frontend Build** | Next.js | Verificar que el bundle de producción compila |
 
 ### Branches monitoreados
-- `main`, `develop`, `feature/*` (push)
-- `main`, `develop` (pull_request)
+- `main`, `develop`, `feature/*`, `Dev`, `staging` (push)
+- `main`, `develop`, `staging` (pull_request)
 
 ## Riesgo diferido
 

@@ -20,7 +20,7 @@
 - **Docker**: `docker/` (Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx.conf), `docker-compose.yml`
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
-- **Docs/Plans**: `plans/` — Documentación y planificación (No presente en runtime)
+- **Docs/Plans**: `plans/` — Documentación y planificación fuente de verdad para los agentes. La documentación para humanos se genera con Docusaurus y se sirve en `/docs/`.
 - **Zero-Source**: El Host de producción solo contiene orquestación y secretos. El código vive dentro de las imágenes.
 
 ### Skills disponibles
@@ -110,7 +110,7 @@ El sistema sigue un pipeline secuencial para cada petición HTTP:
 - **Env**: Carga variables `.env`.
 - **CORS**: Inyecta headers según `APP_ENV`.
 - **ErrorHandler**: Registra el manejador global de excepciones (`HttpResponseException`).
-- **Rate Limit**: Verifica IP en `Core\RateLimit` (APCu con fallback a archivos).
+- **Rate Limit**: Verifica IP en `Core\RateLimit` (Redis primario; APCu como primer fallback, archivo como último).
 - **Middleware**: Registra manejadores (ej: `auth`).
 
 ### 3. Enrutamiento (`Core\Router`)
@@ -161,6 +161,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - Queries contra vistas legacy: usar los nombres exactos de la BD (`vw_discolnet_dispensas`, etc.)
 - Para BLOBs: usar `PDO::SQLSRV_ENCODING_BINARY` y stream resources
 - Política de conexión en modelos: consultas (`SELECT`) por `db2` (`DB2_*`) y escrituras (`INSERT/UPDATE/DELETE/MERGE`) por `default` (`DB_*`)
+  - **Excepción**: `AuditStatusModel` sobreescribe `$readConnectionName = 'default'` para garantizar consistencia de lectura post-escritura (lee el mismo resultado que acaba de persistir). Si `default` no está disponible, degrada a `db2` vía `readWithFallback()` local.
 
 ### Seguridad y Configuración
 
@@ -175,7 +176,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 #### Guardrails de seguridad
 
-- **Rate limiting**: `Core\RateLimit` — APCu con fallback a archivos, 100 req/min general. Nginx restringe `/audit` a 2 req/seg.
+- **Rate limiting**: `Core\RateLimit` — Redis primario (distribuido), APCu como primer fallback (per-proceso), archivo como último fallback; límite general 100 req/min. Nginx **también** aplica rate limiting vía `docker/nginx-ha.conf.template` (10 req/s general, 2 req/s en `/audit`); `docker/nginx.conf` es solo para desarrollo local y no contiene rate limiting.
 - **CORS**: controlado en `public/index.php`, orígenes configurables vía `ALLOWED_ORIGINS`.
 - **Payload máximo**: `MAX_JSON_SIZE` (1 MB).
 - **Timeouts**: `AUDIT_NGINX_READ_TIMEOUT` (Nginx) y `AUDIT_FPM_TERMINATE_TIMEOUT` (PHP) sincronizados (default 3600s).

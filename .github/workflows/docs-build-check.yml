@@ -1,0 +1,38 @@
+name: Docs Build Check
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: website
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        cache-dependency-path: website/package-lock.json
+
+    - name: Prepare Markdown Documentation
+      run: |
+        # Simulate Docker build step of copying markdown files
+        mkdir -p docs
+        cp -r ../plans/* docs/ 2>/dev/null || true
+        cp ../README.md ../BUSINESS.md ../DESIGN.md docs/ 2>/dev/null || true
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build Docusaurus
+      run: npm run build

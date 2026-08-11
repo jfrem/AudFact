@@ -21,8 +21,8 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | **IA** | Google Gemini API (Guzzle HTTP, modelo configurable) |
 | **Almacenamiento** | Google Drive (JWT) + BLOB en BD |
 | **Web Server** | Nginx 1.25 → PHP-FPM (FastCGI `:9000`) |
-| **Contenedores** | `docker-compose.yml` unico (backend, workers, redis y frontend productivo por perfil `frontend`) |
-| **Frontend** | Next.js 15.5.15 (App Router) + React 19 |
+| **Contenedores** | `docker-compose.yml` único (backend, workers, redis y frontend productivo por perfil `frontend`) |
+| **Frontend** | Next.js ^15.2.0 (App Router) + React 19 + Tailwind CSS 4 + shadcn/ui |
 | **Dependencias** | Guzzle 7.x, firebase/php-jwt 7.x |
 
 ## Directorios Clave
@@ -30,16 +30,18 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 ```
 AudFact/
 ├── app/
-│   ├── Controllers/       # 12 controladores HTTP (incluye base)
+│   ├── Controllers/       # 12 controladores HTTP (incluye base y AuditFlowController)
 │   ├── Models/            # 8 modelos SQL Server (incluye base)
 │   ├── Services/          # Google Drive + pipeline event-driven de auditoría IA
-│   ├── Routes/            # web.php (29 rutas registradas)
+│   ├── Routes/            # web.php (28 rutas registradas; TODO #3: falta AuthMiddleware + JWT para rutas /audit/*)
 │   └── wrap/              # MCP (webhook + 4 tools)
-├── frontend/              # Frontend Next.js
-├── bin/                   # Worker CLI (audit-worker.php)
+├── frontend/              # Frontend Next.js (Tailwind CSS + shadcn/ui)
+├── bin/                   # Worker CLI: audit-worker.php, schedule-daily-batches.php
 ├── core/                  # Framework propio (Router, DB, Validator, Response, Logger, Redis...)
 ├── public/                # index.php (entry point API)
-├── docker/                # Dockerfile + nginx.conf
+├── docker/                # Dockerfile, nginx.Dockerfile, frontend.Dockerfile, nginx-ha.conf.template,
+│                          # nginx.conf, php-fpm-pool.conf.template, docker-entrypoint.sh,
+│                          # healthcheck.php, xdebug.ini
 ├── logs/                  # Logs rotados por fecha
 └── plans/                 # Documentación del proyecto
 ```

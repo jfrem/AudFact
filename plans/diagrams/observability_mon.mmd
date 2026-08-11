@@ -1,0 +1,37 @@
+graph TD
+    classDef logs fill:#fafaf9,stroke:#78716c,stroke-width:2px,color:#1c1917;
+    classDef metrics fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#78350f;
+    classDef security fill:#fee2e2,stroke:#ef4444,stroke-width:2px,color:#7f1d1d;
+    classDef flow fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#581c87;
+
+    subgraph Observabilidad_Activa [Monitoreo y Métricas]
+        Endpoint[GET /metrics/async] -->|Extrae Telemetría| Redis[Redis Streams Timing Metadata]
+        Redis -->|Calcula| Lag[Lag de la Cola - Event Latency]
+        Redis -->|Mide| Speed[Velocidad de Procesamiento por Worker]
+    end
+    class Endpoint,Redis,Lag,Speed metrics;
+
+    subgraph Logging_Seguro_Distribuido [Sistema de Logs Core\Logger]
+        App[Event/HTTP Execution] -->|Llamada Logger| Redactor[Logger Redact System]
+        Redactor -->|Filtro GDPR/Sensibles| Masking[Enmascaramiento de facNitSec ***123]
+        Masking -->|Rotación diaria por Hostname| LogFiles[Logs Montados: php_worker_01.log, API.log]
+    end
+    class App,Redactor,Masking,LogFiles logs;
+
+    subgraph Control_Excepciones [Manejo Global de Errores]
+        Error[Excepción / Error de Ejecución] --> GlobalHandler[ErrorHandler: public/index.php]
+        GlobalHandler --> ExceptionCheck{¿Es HttpResponseException?}
+        
+        ExceptionCheck -->|Sí| SafeResponse[Retornar Código HTTP Semántico + Mensaje Limpio]
+        ExceptionCheck -->|No / Error Fatal| MaskTrace[Ocultar Stack Trace en APP_ENV=production]
+        
+        MaskTrace --> SafeResponse
+        MaskTrace -->|Registro Detallado en Silencio| LogFiles
+    end
+    class Error,GlobalHandler,ExceptionCheck,SafeResponse,MaskTrace security;
+
+    subgraph Depuracion_Desarrollo [Auditoría Forense]
+        Worker[ExtractionWorker] -->|Guarda Respuesta Raw Gemini| ResponseIA[directorio local responseIA/]
+        ResponseIA -->|Solo en APP_ENV=development| LocalDebug[Inspección de Prompts y Schemas]
+    end
+    class Worker,ResponseIA,LocalDebug flow;

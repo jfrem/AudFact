@@ -1,0 +1,89 @@
+C4Component
+    title AudFact — C4 Nivel 3: Componentes de la API PHP
+
+    Container_Ext(nginx_ext, "Nginx", "Reverse Proxy")
+    Container_Ext(redis_ext, "Redis 7", "Message Broker / State")
+    Container_Ext(sqlserver_ext, "SQL Server", "Discolnet")
+    Container_Ext(frontend_ext, "Frontend Next.js", "Dashboard")
+
+    System_Boundary(php_api_boundary, "PHP API (PHP-FPM 8.2)") {
+
+        Component(index_php, "public/index.php", "PHP Bootstrap", "Punto de entrada único.\nCarga .env (Core\\Env).\nGlobal exception handler (HttpResponseException).\nCORS por APP_ENV (wildcard en dev, lista en prod).\nRate Limit (Core\\RateLimit): APCu + fallback archivos.\nMiddleware::register('auth', ...).\nRouter::dispatch().")
+
+        Component(router, "Core\\Router", "PHP class", "Matching regex compilado y cacheado.\nSoporte parámetros opcionales {param?}.\nSanitización: max 255 chars por parámetro.\nMiddleware::run() antes de controlador.\nNamespace App\\Controllers\\ para resolución.")
+
+        Component(rate_limit, "Core\\RateLimit", "PHP class / APCu", "100 req/min por IP.\nPrioridad: APCu → fallback archivos.\nIP real via X-Forwarded-For / X-Real-IP.\nThrottle configurable.")
+
+        Component(ctrl_audit, "AuditController", "PHP Controller (13.8KB)", "GET /audit/results — historial paginado\nGET /audit/stats — conteos agregados\nGET /audit/documents-history\nPOST /audit/single → publica audit_created en Redis\nPOST /audit/async → batch con BatchJobStore\nGET /audit/jobs/{jobId} → lee BatchJobStore\nGET /audit/{facNro}/timings")
+
+        Component(ctrl_dlq, "AuditDlqController", "PHP Controller", "GET /audit/dlq — lista eventos dead_letter\nPOST /audit/dlq/reprocess — reprocesa evento fallido")
+
+        Component(ctrl_invoices, "InvoicesController", "PHP Controller", "GET /invoices — top 100 facturas (InvoicesModel)\nPOST /invoices — búsqueda por fecha/nit")
+
+        Component(ctrl_clients, "ClientsController", "PHP Controller", "GET /clients — listado EPS\nGET /clients/{id} — detalle\nGET /clients/{id}/documents — catálogo documental\nPOST /clients — lookup por filtros")
+
+        Component(ctrl_audit_config, "AuditConfigController", "PHP Controller (6.8KB)", "GET /clients/{id}/audit-config — config por NitSec\nPOST /clients/{id}/audit-config — guarda config JSON\nAudit-config: documents, fields, visualChecks, systemPrompt")
+
+        Component(ctrl_attachments, "AttachmentsController", "PHP Controller (7.5KB)", "GET /dispensation/{id}/attachments/{nit}\nGET /dispensation/{id}/attachments/download/{aid}\nSoporte BLOB binario + Drive URL\nvía AttachmentsModel + GoogleDriveAuthService")
+
+        Component(ctrl_obs, "ObservabilityController", "PHP Controller", "GET /metrics/async\nMétricas del pipeline asíncrono")
+
+        Component(ctrl_health, "HealthController", "PHP Controller", "GET /health\nVerifica PHP + SQL Server + Redis")
+
+        Component(model_invoices, "InvoicesModel", "PHP Model / PDO db2", "SELECT vw_discolnet_dispensas\nFiltros fecha/nit")
+
+        Component(model_dispensation, "DispensationModel", "PHP Model / PDO db2", "SELECT vw_discolnet_dispensas\nPOR DisDetNro\nRetorna header + items")
+
+        Component(model_clients, "ClientsModel", "PHP Model / PDO db2", "SELECT NIT / Clientes\nCatálogo documental por NitSec")
+
+        Component(model_attachments, "AttachmentsModel", "PHP Model / PDO db2", "SELECT AdjuntosDispensacion\nLee BLOB binario con\nSQLSRV_ENCODING_BINARY\nStreamea descarga")
+
+        Component(model_audit_status, "AuditStatusModel", "PHP Model / PDO", "Solo lectura de dbo.AudDispEst:\nhistorial, detalle, stats,\ndocuments-history y timings")
+
+        Component(model_audit_persistence, "AuditResultPersistenceModel", "PHP Model / PDO default", "Escritura transaccional:\nUPSERT serializable dbo.AudDispEst\nUPDATE set-based AdjuntosDispensacion\nUPDATE trazabilidad")
+
+        Component(model_audit_config, "AuditConfigModel", "PHP Model / PDO default", "CRUD de configuración de auditoría por NitSec\nJSON serializado en BD")
+
+        Component(db_core, "Core\\Database", "PHP static class / Singleton", "Gestiona 2 conexiones PDO:\n'default' (DB_*) → escrituras\n'db2' (DB2_*) → lecturas legacy Discolnet\nFingerprint-based connection cache.\nTransacción atomic callback.\nConfigurable: pooling, TLS, timeout.")
+
+        Component(google_drive_svc, "GoogleDriveAuthService", "PHP Service / JWT", "Genera Bearer token OAuth2\nvía Service Account (client_email + private_key).\nTLS configurable (GOOGLE_DRIVE_TLS_VERIFY).\nUsado por AttachmentsController para adjuntos URL.")
+
+        Component(redis_client, "Core\\RedisClient", "PHP class / Singleton", "Wrapper predis/phpredis compatible.\nxAdd, xReadGroup, xAck, xAutoClaim, xGroupCreate.\nget, set, setnx, incr, del, ttl.\nIsAvailable() con graceful degradation.")
+
+        Component(logger, "Core\\Logger", "PHP class", "Niveles: error/warning/info.\nRotación por hostname (HA-safe).\nRedacción automática de campos sensibles.\nLOG_RETENTION_DAYS, LOG_MAX_SIZE_MB.")
+
+        Component(response, "Core\\Response", "PHP class / Facade", "Response::success() / error() / json().\nJSON serializado con JSON_UNESCAPED_UNICODE.\nNo exit() — flujo termina en index.php.")
+    }
+
+    Rel(nginx_ext, index_php, "FastCGI REQUEST", "TCP :9000")
+    Rel(index_php, router, "require web.php; dispatch()")
+    Rel(index_php, rate_limit, "check(clientIp)")
+    Rel(router, ctrl_audit, "POST /audit/single, /audit/async\nGET /audit/results, /audit/stats,\n/audit/jobs/{id}, /audit/{id}/timings")
+    Rel(router, ctrl_dlq, "GET/POST /audit/dlq")
+    Rel(router, ctrl_invoices, "GET/POST /invoices")
+    Rel(router, ctrl_clients, "GET/POST /clients")
+    Rel(router, ctrl_audit_config, "GET/POST /clients/{id}/audit-config")
+    Rel(router, ctrl_attachments, "GET /dispensation/{id}/attachments")
+    Rel(router, ctrl_obs, "GET /metrics/async")
+    Rel(router, ctrl_health, "GET /health")
+
+    Rel(ctrl_audit, redis_client, "xAdd audit.inbox (audit_created)\nxRead BatchJobStore")
+    Rel(ctrl_audit, model_audit_status, "results(), stats(), documentsHistory(), timings()")
+    Rel(ctrl_invoices, model_invoices, "index(), search()")
+    Rel(ctrl_clients, model_clients, "index(), show(), documents()")
+    Rel(ctrl_audit_config, model_audit_config, "show(), save()")
+    Rel(ctrl_attachments, model_attachments, "showByDispensation(), downloadByDispensation()")
+    Rel(ctrl_attachments, google_drive_svc, "getAccessToken() para adjuntos URL")
+    Rel(ctrl_dlq, redis_client, "Lee/republica audit.dlq")
+
+    Rel(model_invoices, db_core, "getConnection('db2')")
+    Rel(model_dispensation, db_core, "getConnection('db2')")
+    Rel(model_clients, db_core, "getConnection('db2')")
+    Rel(model_attachments, db_core, "getConnection('db2') + BLOB encoding")
+    Rel(model_audit_status, db_core, "Lectura consistente de resultados")
+    Rel(model_audit_persistence, db_core, "getConnection('default') para transacción")
+    Rel(model_audit_config, db_core, "getConnection('default')")
+
+    Rel(db_core, sqlserver_ext, "PDO sqlsrv — 2 conexiones\ndefault: escritura\ndb2: lectura legacy")
+    Rel(redis_client, redis_ext, "TCP :6379 / authenticated")
+    Rel(google_drive_svc, frontend_ext, "Redirige descarga URL pública")

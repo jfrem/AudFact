@@ -43,3 +43,10 @@ GEMINI.md
 .cursorrules
 .env.production
 *.bak
+
+# Docusaurus
+/website/node_modules/
+/website/build/
+/website/.docusaurus/
+/website/.swc/
+/website/docs/*.md

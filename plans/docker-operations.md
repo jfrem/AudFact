@@ -2,18 +2,72 @@
 
 ## Arquitectura de contenedores
 
+```mermaid
+flowchart TD
+    %% Main Services
+    NextJS["🌐 Next.js Front<br/><i>:3100→:3000</i>"]
+    Nginx["⚙️ Nginx<br/><i>:8080→:80</i>"]
+    PHP["🐘 PHP-FPM (x5)<br/><i>:9000</i>"]
+    SQL["🗄️ SQL Server<br/><i>(externo)</i>"]
+    
+    %% Event Bus
+    Redis(["🟥 Redis Streams"])
+
+    %% Async Workers
+    subgraph Workers ["👷 Workers (27 réplicas)"]
+        direction LR
+        Orchestrator["orchestrator (x3)"]
+        Downloader["downloader (x8)"]
+        Extraction["extraction (x8)"]
+        Normalizer["normalizer (x2)"]
+        Policy["policy (x2)"]
+        Persistence["persistence (x3)"]
+        Batch["batch (x2)"]
+    end
+    
+    %% External API
+    Gemini["✨ Gemini API"]
+
+    %% Connections - Frontend to Backend
+    NextJS -- "SSR/API interna" --> Nginx
+    Nginx -- "HTTP" --> PHP
+    PHP -- "SQL" --> SQL
+    
+    %% Connections - Async Pipeline
+    PHP --> Redis
+    Redis --> Orchestrator
+    Redis --> Downloader
+    Redis --> Extraction
+    Redis --> Normalizer
+    Redis --> Policy
+    Redis --> Persistence
+    Redis --> Batch
+    
+    %% Worker Dependencies
+    Downloader -. "SQL" .-> SQL
+    Extraction -. "Gemini API" .-> Gemini
+    Persistence -. "SQL Server" .-> SQL
+
+    %% Styles
+    classDef frontend fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef proxy fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef api fill:#312e81,stroke:#6366f1,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef db fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef cache fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#f8fafc,rx:20px,ry:20px
+    classDef worker fill:#1e293b,stroke:#94a3b8,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+    classDef external fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+
+    class NextJS frontend
+    class Nginx proxy
+    class PHP api
+    class SQL db
+    class Redis cache
+    class Orchestrator,Downloader,Extraction,Normalizer,Policy,Persistence,Batch worker
+    class Gemini external
+    style Workers fill:transparent,stroke:#64748b,stroke-width:2px,stroke-dasharray: 5 5,color:#94a3b8,rx:10px
 ```
-┌────────────────┐
-│ Next.js Front  │
-│ :3100→:3000    │
-└───────┬────────┘
-        │ SSR/API interna
-        ▼
-┌─────────────┐     ┌───────────────┐     ┌──────────────┐
-│   Nginx     │────▶│   PHP-FPM     │────▶│  SQL Server  │
-│  :8080→:80  │     │   :9000       │     │  (externo)   │
-└─────────────┘     └───────────────┘     └──────────────┘
-```
+
+Total workers en producción: **27 réplicas** (3+8+8+2+2+3+2). Ver tabla de escalado más abajo.
 
 ## Troubleshooting Docker
 
@@ -36,6 +90,18 @@ wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && dock
 wsl bash -c "docker rm -f audfact-nginx 2>/dev/null; cd /mnt/c/Users/USER/Desktop/AudFact && docker compose up -d"
 ```
 
+## Cron / Ejecuciones en lote
+
+Las tareas programadas (como la auditoría en lote) se deben ejecutar accediendo al contenedor PHP en ejecución, no levantando uno nuevo. Ejemplo:
+
+```bash
+# Ejecución estándar
+docker compose exec php php bin/schedule-daily-batches.php
+
+# Ejecución de prueba (dry-run)
+docker compose exec php php bin/schedule-daily-batches.php --dry-run
+```
+
 ## Escalado de workers async
 
 El pipeline usa Redis Streams con consumer groups y nombres de consumer únicos por host + PID. Esto evita que varias réplicas del mismo servicio colapsen en un único nombre lógico al inspeccionar Redis.
@@ -48,6 +114,7 @@ Variables de capacidad inicial:
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | `worker-downloader` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `2` | `worker-normalizer` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | `worker-persistence` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |

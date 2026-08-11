@@ -27,7 +27,7 @@ graph TB
         Orchestrator["worker-orchestrator<br/>3 replicas"]
         Downloader["worker-downloader<br/>8 replicas"]
         Extraction["worker-extraction<br/>8 replicas"]
-        Normalizer["worker-normalizer<br/>1 replica"]
+        Normalizer["worker-normalizer<br/>2 replicas"]
         Policy["worker-policy<br/>2 replicas"]
         Persistence["worker-persistence<br/>3 replicas"]
     end
@@ -94,7 +94,7 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
 | `worker-downloader` | `AttachmentDownloadWorker` | `AUDIT_WORKER_DOWNLOADER_REPLICAS=8` |
 | `worker-extraction` | `DocumentExtractionWorker` | `8` |
-| `worker-normalizer` | `DocumentNormalizer` | `1` |
+| `worker-normalizer` | `DocumentNormalizer` | `AUDIT_WORKER_NORMALIZER_REPLICAS=2` |
 | `worker-policy` | `RulesEvaluationWorker` | `2` |
 | `worker-persistence` | `AuditPersistenceWorker` | `AUDIT_WORKER_PERSISTENCE_REPLICAS=3` |
 
@@ -111,13 +111,16 @@ mantenga IPs obsoletas cuando se recrean replicas PHP-FPM.
 
 ```nginx
 resolver 127.0.0.11 valid=10s ipv6=off;
-set $php_upstream php:9000;
-fastcgi_pass $php_upstream;
+set $php_fpm_upstream php:9000;
+fastcgi_pass $php_fpm_upstream;
 fastcgi_read_timeout ${AUDIT_NGINX_READ_TIMEOUT}s;
 ```
 
 `AUDIT_NGINX_READ_TIMEOUT` se inyecta via `envsubst` con
 `NGINX_ENVSUBST_FILTER=AUDIT_`.
+
+> [!IMPORTANT]
+> El archivo que Nginx usa en **producción** es `docker/nginx-ha.conf.template` (copiado como `/etc/nginx/templates/default.conf.template` por `nginx.Dockerfile`). Esta plantilla sí contiene `${AUDIT_NGINX_READ_TIMEOUT}`, rate limiting real (`limit_req_zone`/`limit_req`) y `$php_fpm_upstream`. El archivo `docker/nginx.conf` es solo para desarrollo local `php -S` o pruebas sin build — **no lo usa el contenedor Nginx**.
 
 ---
 
@@ -191,7 +194,7 @@ retornada.
 
 | Control | Implementacion vigente |
 |---|---|
-| Rate limiting | `Core\RateLimit`: APCu con fallback a archivos; en produccion falla cerrado si no puede registrar consumo. |
+| Rate limiting | `Core\RateLimit`: Redis primario (distribuido); APCu primer fallback (per-proceso); archivo como último fallback. Nginx aplica `limit_req_zone` (10 req/s general, 2 req/s en `/audit`) vía `nginx-ha.conf.template`; en produccion falla con 429 si se supera el burst. |
 | Timeouts FPM | `AUDIT_FPM_TERMINATE_TIMEOUT` en `php-fpm-pool.conf.template`. |
 | Gemini retry/backoff | `GeminiGateway` con reintentos para 429/5xx y `GeminiCircuitBreaker`. |
 | Integridad documental | `DocumentIntegrityValidator` rechaza adjuntos vacios, corruptos o con MIME inconsistente antes de Gemini. |

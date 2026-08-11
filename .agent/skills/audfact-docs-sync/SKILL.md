@@ -57,15 +57,27 @@ Consulta el archivo **`CATALOG.md`** → sección "Mapeo Archivo → Skill" para
 4. ¿Los ejemplos de código siguen siendo válidos?
 5. ¿Los anti-patterns siguen siendo relevantes?
 
-## 4. Protocolo de Ejecución Obligatorio (3 pasos)
+## 4. Protocolo de Ejecución Obligatorio (4 pasos)
 
-Antes de hacer `notify_user` o dar la tarea por concluida:
+### Paso 1: Autoevaluación
+Pregúntate: "¿Hice algún cambio arquitectónico, agregué una variable, modifiqué el modelo de base de datos, agregué un endpoint o refactoricé una ruta crítica?"
 
-### Paso 1: Auto-Cuestionario (Chain of Thought)
+### Paso 2: Actualización Concurrente (Doble Audiencia)
+1. Modifica los archivos en `plans/`, `AGENTS.md` o el `README.md` según la matriz de impacto documental. **ATENCIÓN: Nunca muevas ni renombres estos archivos Markdown originales. Son la fuente de verdad fundamental para los agentes.**
+2. Modifica los archivos en `.agent/skills/` según la matriz de impacto en skills.
+
+### Paso 3: Validación del Portal Docusaurus
+Como usamos la estrategia de "Doble Audiencia", la documentación humana se genera estáticamente.
+**OBLIGATORIO**: Valida que tus cambios no rompan la compilación del portal de documentación.
+Ejecuta el build y soluciona cualquier error de sintaxis MDX o "broken links" en tus archivos `.md`:
+```bash
+cd website && npm run build
+```
+
+### Paso 4: Registro en CHANGELOG.md
 Escribe explícitamente en tu respuesta:
 > *"He modificado [lista de archivos]. Según la Matriz de Impacto Documental, los documentos afectados son: [...]. Según la Matriz de Impacto en Skills, las skills afectadas son: [...]."*
 
-### Paso 2: Generar la Matriz de Revisión Dual
 Presenta al usuario la siguiente tabla rellenada:
 
 ```markdown

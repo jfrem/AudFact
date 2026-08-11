@@ -24,6 +24,7 @@ env:
   PHP_IMAGE: ${{ vars.AUDFACT_PHP_IMAGE || format('ghcr.io/{0}/audfact-php', github.repository_owner) }}
   NGINX_IMAGE: ${{ vars.AUDFACT_NGINX_IMAGE || format('ghcr.io/{0}/audfact-nginx', github.repository_owner) }}
   FRONTEND_IMAGE: ${{ vars.AUDFACT_FRONTEND_IMAGE || format('ghcr.io/{0}/audfact-frontend', github.repository_owner) }}
+  DOCS_IMAGE: ${{ vars.AUDFACT_DOCS_IMAGE || format('ghcr.io/{0}/audfact-docs', github.repository_owner) }}
   FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT || '3100' }}
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.image_tag }}
 
@@ -163,6 +164,7 @@ jobs:
           AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
           AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
+          AUDIT_WORKER_NORMALIZER_REPLICAS: ${{ vars.AUDIT_WORKER_NORMALIZER_REPLICAS }}
           AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
           AUDIT_WORKER_PERSISTENCE_REPLICAS: ${{ vars.AUDIT_WORKER_PERSISTENCE_REPLICAS }}
           AUDIT_WORKER_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_BATCH_REPLICAS }}
@@ -358,6 +360,7 @@ jobs:
             write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-8}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
+            write_env_var 'AUDIT_WORKER_NORMALIZER_REPLICAS' "${AUDIT_WORKER_NORMALIZER_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_PERSISTENCE_REPLICAS' "${AUDIT_WORKER_PERSISTENCE_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-2}"
@@ -448,7 +451,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DEPLOY_PATH"
-          docker compose --profile frontend up -d --no-build --remove-orphans
+          docker compose --profile frontend --profile docs up -d --no-build --remove-orphans
 
       - name: Health check
         run: |

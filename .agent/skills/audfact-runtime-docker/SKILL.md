@@ -94,6 +94,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | Réplicas del worker que consume `document_registered` |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `2` | Réplicas del worker que consume `document_extracted` y publica `document_normalized` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | Réplicas SQL globales; la cola limita a una activa por job |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |

@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-08-08] - Auditoría de Resiliencia del Pipeline y Corrección Documental
+
+### Verificación contra Código Fuente
+- **Auditoría de afirmaciones**: Verificación exhaustiva de 7 claims sobre la resiliencia del pipeline de auditoría contra el código fuente real.
+- **BUG identificado**: El CLI `bin/schedule-daily-batches.php` tiene un tope hardcodeado de `--limit` en 100 (`min(100, N)` en línea 44) que impide procesar más de 100 facturas por cliente por ejecución.
+- **Hallazgo Redis**: Redis usa persistencia RDB (`--save 60 1000`), NO AOF como afirmaba la documentación previa. Existe una ventana teórica de pérdida de hasta 60 segundos.
+- **Confirmados**: Pending reclaim (`xAutoClaim`), Circuit Breaker Gemini, Dead Letter Queue, Extraction Cache (triple hash key), PDO fresco por operación (`SqlServerConnectionExecutor` con backoff 1/5/30s), separación SQL/decisiones documentales.
+
+### Corrección de BUG: Límite hardcodeado en CLI
+- **BUG corregido**: Eliminado el tope hardcodeado de `min(100, N)` en `bin/schedule-daily-batches.php` línea 44. El límite ahora es configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) sin restricción artificial.
+- **Nueva variable de entorno**: `AUDIT_BATCH_CRON_LIMIT` — controla el límite por cliente para el CLI cron. Agregada a `.env.example`.
+
 ## [2026-08-06] - Fix: Resolución de producto cartesiano en adjuntos (Clean Code / UI)
 
 ### Backend & Frontend / UI
@@ -1505,3 +1517,7 @@
 ## 2026-06-10
 
 - Agregado filtro "tb3.FacEst='A'" en InvoicesModel::invoiceCandidatesSql y getInvoicesForAuditBatch para evitar encolar múltiples auditorías de una misma dispensa por tener versiones anuladas activas, resolviendo registros duplicados en el pipeline y la base de datos AudDispEst. (Skill actualizada: audfact-sqlsrv-models/SKILL.md no requirió cambios, pero fue revisada).
+
+## 2026-08-08
+
+- **Pipeline Event-Driven**: Creado CLI `bin/schedule-daily-batches.php` como orquestador cron para la auditoría en lote (batches) de clientes. El script reemplaza la necesidad de orquestación externa HTTP iterando clientes configurados, filtrando activamente aquellos sin campos requeridos y emitiendo `batch_requested` de manera segura (idempotencia y dry-run integrados). (Actualizado `plans/architecture.md` y revisado skill `audfact-audit-gemini`).

@@ -264,6 +264,23 @@ El despliegue productivo está separado en cuatro workflows:
 
 El servidor no necesita IP pública ni SSH expuesto. El runner debe vivir dentro de la LAN y tener salida HTTPS a GitHub/GHCR.
 
+### Ejecución de auditorías en lote (Cron / Batch)
+
+El sistema soporta la orquestación en lote para todos los clientes activos mediante el script CLI `schedule-daily-batches.php`, el cual se debe ejecutar de forma automatizada (ej. crontab) apuntando al contenedor PHP productivo:
+
+```bash
+# Ejecución estándar (desde el host de Docker)
+docker compose exec php php bin/schedule-daily-batches.php
+
+# Dry-run para verificar antes de ejecutar (sin encolar en Redis)
+docker compose exec php php bin/schedule-daily-batches.php --dry-run
+
+# Con parámetros personalizados
+docker compose exec php php bin/schedule-daily-batches.php --date-from=2026-06-01 --limit=2000
+```
+
+> **Nota**: El límite por defecto es controlado por la variable de entorno `AUDIT_BATCH_CRON_LIMIT` (default: 5000). El parámetro `--limit` permite un override manual sin restricciones. El controlador HTTP (`POST /audit/async`) mantiene su propio tope independiente vía `AUDIT_BATCH_MAX_LIMIT` (default: 100).
+
 Para sincronizar la configuración local hacia el Environment `production` de
 GitHub, usar el script seguro:
 

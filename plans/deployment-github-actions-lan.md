@@ -13,7 +13,7 @@ El despliegue usa un runner self-hosted dentro de la LAN:
    - `ghcr.io/jfrem/audfact-php:<sha>`
    - `ghcr.io/jfrem/audfact-nginx:<sha>`
    - `ghcr.io/jfrem/audfact-frontend:<sha>`
-3. `Deploy Production - AudFact` corre en `audfact-prod-lan`, descarga esas imagenes y levanta `docker-compose.prod.yml`.
+3. `Deploy Production - AudFact` corre en `audfact-prod-lan`, descarga esas imagenes y levanta `docker-compose.yml` (archivo único, perfil `--profile frontend`).
 
 ## Runner LAN
 
@@ -102,20 +102,43 @@ workflow regenera `/home/admon/audfact-prod/.env` en cada despliegue.
 
 ## Flujo de Deploy
 
-```text
-push main
-  -> CI
-  -> publish GHCR images
-  -> deploy-production en runner LAN
-  -> generar .env con hosts SQL normalizados
-  -> docker compose pull
-  -> preflight SQL con la imagen PHP publicada
-  -> docker compose up -d
-  -> curl http://localhost:8080/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/api/backend/health
-  -> curl http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
-  -> verificar worker-batch activo para procesar audit.batch.inbox
+```mermaid
+flowchart TD
+    %% Github Phase
+    Push["🚀 push main"]
+    CI["✔️ CI"]
+    GHCR["📦 publish GHCR images"]
+    
+    %% Deploy Phase
+    Deploy["🖥️ deploy-production en runner LAN"]
+    Env["🔐 generar .env con hosts SQL normalizados"]
+    Pull["⬇️ docker compose pull"]
+    Preflight["🗄️ preflight SQL con la imagen PHP publicada"]
+    Up["🐳 docker compose up -d"]
+    
+    %% Validation Phase
+    subgraph HealthChecks ["💚 Health Checks Post-Deploy"]
+        direction TB
+        HC1["curl :8080/health"]
+        HC2["curl :3100/api/health"]
+        HC3["curl :3100/api/backend/health"]
+        HC4["curl :3100/clients"]
+        HC5["verificar worker-batch activo<br/>para procesar audit.batch.inbox"]
+        HC1 --> HC2 --> HC3 --> HC4 --> HC5
+    end
+
+    %% Flow
+    Push --> CI --> GHCR --> Deploy --> Env --> Pull --> Preflight --> Up --> HealthChecks
+
+    %% Styles
+    classDef action fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef runner fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc,rx:8px,ry:8px
+    classDef check fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc,rx:4px,ry:4px
+
+    class Push,CI,GHCR action
+    class Deploy,Env,Pull,Preflight,Up runner
+    class HC1,HC2,HC3,HC4,HC5 check
+    style HealthChecks fill:transparent,stroke:#10b981,stroke-width:2px,stroke-dasharray: 5 5,color:#6ee7b7,rx:10px
 ```
 
 ## Rollback
@@ -132,8 +155,8 @@ AUDFACT_FRONTEND_HOST_PORT=<puerto>
 Luego ejecuta:
 
 ```bash
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d --remove-orphans
+docker compose pull
+docker compose up -d --remove-orphans --profile frontend
 ```
 
 ## Guardrails
@@ -145,7 +168,7 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - No dejar `responseIA/` dentro del contexto de build Docker.
 - No configurar `DB_HOST`/`DB2_HOST` como `host\instancia` ni `host,puerto` en produccion; usar host/IP limpio y puerto separado.
 - El deploy debe fallar antes de recrear contenedores si `DB_HOST` o `DB2_HOST` no conectan por PDO/sqlsrv.
-- `docker-compose.prod.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
+- `docker-compose.yml` debe levantar `worker-batch`; sin ese servicio, `/audit/async` publica `batch_requested` pero el job queda `pending` sin auditorías.
 - Renovar `GEMINI_API_KEY` en el GitHub Environment `production` antes de validar extracciones; una key expirada provoca errores `400 API key expired` en `worker-extraction`.
 
 ## Incidente CI/CD 2026-05-13: hosts SQL malformados
@@ -155,7 +178,7 @@ docker compose -f docker-compose.prod.yml up -d --remove-orphans
 - `GET /health` en produccion respondia `status=unhealthy`.
 - `GET /dispensation/T38250701547` respondia `500` despues de aproximadamente 30 segundos.
 - Los contenedores `php` estaban `unhealthy`.
-- Workers `orchestrator`, `extraction` y `aggregator` reiniciaban por `SQLSTATE[HYT00] Login timeout expired`.
+- Workers `orchestrator`, `extraction` y **`persistence`** reiniciaban por `SQLSTATE[HYT00] Login timeout expired`.
 - Frontend, Nginx, Redis y runner self-hosted estaban activos.
 
 ### Causa raiz

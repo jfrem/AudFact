@@ -1,6 +1,6 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-worker.php, contratos de eventos (audit_created, document_registered, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-worker.php, contratos de eventos (audit_created, batch_created, batch_requested, document_registered, document_downloaded, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, audit_failed, batch_completed, batch_completed_with_errors, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
 ---
 
 # AudFact Audit Gemini (Event-Driven)
@@ -37,6 +37,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
 | `app/Services/Audit/Pipeline/BatchRequestedWorker.php` | Worker que consume `batch_requested` de `audit.batch.inbox`, realiza consultas pesadas en SQL Server y reserva idempotencia por `DisId` en Redis |
+| `bin/schedule-daily-batches.php` | CLI Cron: encola auditorías batch diarias emitiendo `batch_requested` para todos los clientes configurados, validando campos activos e idempotencia por cliente. Límite configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) o `--limit` CLI. |
 | `app/Services/Audit/Pipeline/DocumentNormalizer.php` | Worker autocontenido: consume `document_extracted`, normaliza `fields` / `items` / `visual_checks` (fechas ISO, identidad documental, numéricos canónicos y evidencia visual estructurada) y publica `document_normalized` |
 | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php` | Motor determinista por documento: delega reglas complejas y orquesta COINCIDE / VALOR_DISTINTO / NO_ENCONTRADO / OMITIDO / NO_CONCLUYENTE |
 | `app/Services/Audit/Pipeline/VisualCheckEvaluator.php` | Servicio delegado de `DocumentPolicyEngine` que evalúa evidencia visual y resuelve discrepancias de calidad documental. |
