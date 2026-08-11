@@ -39,7 +39,7 @@ final class BatchRequestedWorker extends AuditEventConsumer
 
         $this->stateStore   = $stateStore   ?? new AuditStateStore($this->redis);
         $this->jobStore     = $jobStore     ?? new BatchJobStore($this->redis);
-        $this->consumerName = $consumerName ?? self::defaultConsumerName('batch');
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_BATCH);
     }
 
     protected function stream(): string
@@ -49,7 +49,7 @@ final class BatchRequestedWorker extends AuditEventConsumer
 
     protected function group(): string
     {
-        return 'batch-workers';
+        return AuditEventPublisher::GROUP_BATCH;
     }
 
     protected function consumer(): string
