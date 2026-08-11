@@ -273,6 +273,7 @@ jobs:
             write_env_var 'AUDFACT_PHP_IMAGE' "$PHP_IMAGE"
             write_env_var 'AUDFACT_NGINX_IMAGE' "$NGINX_IMAGE"
             write_env_var 'AUDFACT_FRONTEND_IMAGE' "$FRONTEND_IMAGE"
+            write_env_var 'AUDFACT_DOCS_IMAGE' "$DOCS_IMAGE"
             write_env_var 'AUDFACT_IMAGE_TAG' "$IMAGE_TAG"
             write_env_var 'AUDFACT_FRONTEND_HOST_PORT' "$FRONTEND_HOST_PORT"
             printf '\n'
@@ -464,7 +465,7 @@ jobs:
           fi
 
           for i in 1 2 3 4 5; do
-            if curl -sf http://localhost:8080/health > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/backend/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/clients" > /dev/null 2>&1; then
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1 && curl -sf http://localhost:8080/docs/ > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/api/backend/health" > /dev/null 2>&1 && curl -sf "http://localhost:${FRONTEND_HOST_PORT:-3100}/clients" > /dev/null 2>&1; then
               echo "Deploy successful. API and frontend health checks passed."
               exit 0
             fi

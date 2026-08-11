@@ -2,9 +2,9 @@ name: CI - AudFact
 
 on:
   push:
-    branches: [main, develop, "feature/*", "Dev", "staging"]
+    branches: [main, Dev, staging]
   pull_request:
-    branches: [main, develop, "staging"]
+    branches: [main, staging]
 
 permissions:
   contents: read
