@@ -1,5 +1,12 @@
 # Changelog AudFact
 
+## [2026-08-12] - SDD: Métricas activas de jobs asíncronos sin drift
+
+### Especificación / Gobernanza técnica
+- **SDD Nivel A**: Creada `plans/async-job-metrics-sdd.md` con el diseño determinista para sustituir `jobs_queued` y `jobs_running` por índices ZSET autocurables, unificar el alta batch en Lua y preservar el contrato de `/metrics/async`.
+- **Clean rebuild**: La especificación elimina las APIs internas legacy y prohíbe el despliegue mixto, los contadores sombra, los reconciliadores periódicos y los adapters de compatibilidad.
+- **Migración verificable**: Documentados drenaje, corte no rolling, preservación de históricos, pruebas con Redis 7 real, validaciones productivas y rollback completo.
+
 ## [2026-08-11] - Fix: Corrección de Métricas Fantasma y Crecimiento de Streams (Clean Rebuild)
 
 ### Backend / Pipeline Asíncrono
