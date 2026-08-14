@@ -137,9 +137,14 @@ final class DocumentExtractionContractBuilder
         ];
 
         foreach ($fields as $field) {
+            $tipoCampo = (string) ($field['tipoCampo'] ?? 'E');
+            if ($tipoCampo === 'I') {
+                continue; // Excluir campos de uso interno (backend) del prompt de IA
+            }
+
             $name = $this->fieldName($field);
             $valueType = $this->fieldValueType($field);
-            $target = $this->isItemField($documentName, $name, (string) ($field['tipoCampo'] ?? 'E'), $valueType)
+            $target = $this->isItemField($documentName, $name, $tipoCampo, $valueType)
                 ? 'items'
                 : 'fields';
 
@@ -487,16 +492,20 @@ final class DocumentExtractionContractBuilder
             return 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.';
         }
 
+        if ($valueType === AuditFieldValueType::DATE) {
+            return 'Fecha visible; transcribe exactamente el año y fecha impresa.';
+        }
+
         return null;
     }
 
     private function identityDocumentNumberDescription(string $fieldName): string
     {
         if ($fieldName === 'DocumentoMedico') {
-            return 'Solo numero del prescriptor; sin nombre, registro ni tipo.';
+            return 'Solo numero del prescriptor; transcribe cada digito individualmente de izquierda a derecha sin nombre, registro ni tipo; verifica con cuidado la distincion entre 8, 6 y 5.';
         }
 
-        return 'Solo numero del paciente; sin tipo ni nombre.';
+        return 'Solo numero del paciente; transcribe cada digito individualmente de izquierda a derecha sin tipo ni nombre; verifica con cuidado la distincion entre 8, 6 y 5 sin omitir ni duplicar digitos.';
     }
 
     private function identityPersonNameDescription(string $fieldName): string

@@ -16,9 +16,10 @@ enum AuditComparisonType: string
     case SEMANTIC = 'semantic';
     case VISUAL   = 'visual';
     case BUSINESS = 'business';
+    case INTERNAL = 'internal';
 
     /**
-     * Mapea el código de BD (E/S/B/V) al tipo interno.
+     * Mapea el código de BD (E/S/B/V/I) al tipo interno.
      */
     public static function fromTipoCampo(string $tipoCampo): self
     {
@@ -26,6 +27,7 @@ enum AuditComparisonType: string
             'S'     => self::SEMANTIC,
             'B'     => self::BUSINESS,
             'V'     => self::VISUAL,
+            'I'     => self::INTERNAL,
             default => self::EXACT,
         };
     }

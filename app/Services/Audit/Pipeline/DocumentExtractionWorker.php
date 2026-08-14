@@ -501,9 +501,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
 
         $sourceTruthItems   = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
+        $fieldsConfig       = is_array($payload['fields_config'] ?? null) ? $payload['fields_config'] : [];
+        $aggregatedItems    = FdvItemAggregator::aggregate($sourceTruthItems, $fieldsConfig, $documentType);
         $items              = $extracted['items'] ?? [];
         $extractedItemsCount = is_array($items) ? count($items) : 0;
-        $expectedItemsCount  = count($sourceTruthItems);
+        $expectedItemsCount  = count($aggregatedItems);
 
         if ($extractedItemsCount < $expectedItemsCount) {
             $extracted['extraction_warnings']   = $extracted['extraction_warnings'] ?? [];

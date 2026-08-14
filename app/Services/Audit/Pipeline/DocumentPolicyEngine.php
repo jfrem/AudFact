@@ -55,6 +55,17 @@ class DocumentPolicyEngine
             VisualCheckEvaluator::evaluate($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
         );
 
+        $internalFields = array_filter(
+            $indexedFields,
+            static fn(array $cfg): bool => strtoupper(trim((string) ($cfg['tipoCampo'] ?? ''))) === 'I'
+        );
+        if ($internalFields !== []) {
+            $findings = array_merge(
+                $findings,
+                InternalIntegrityEvaluator::evaluate($sourceTruth, $documentType, $internalFields)
+            );
+        }
+
         $metrics = AuditFindingRules::summarizeMetrics($findings);
 
         return [
@@ -154,7 +165,8 @@ class DocumentPolicyEngine
         $itemSegmentationWarning = $this->findItemSegmentationWarning($extractionWarnings);
 
         foreach ($indexedFields as $canonicalField => $fieldConfig) {
-            if (strtoupper($fieldConfig['tipoCampo'] ?? '') === 'V') {
+            $tipoCampo = strtoupper(trim((string)($fieldConfig['tipoCampo'] ?? '')));
+            if ($tipoCampo === 'V' || $tipoCampo === 'I') {
                 continue;
             }
 

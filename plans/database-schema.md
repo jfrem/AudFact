@@ -159,6 +159,19 @@ el contrato público histórico de listado de adjuntos.
 | `NitMedDocCodAlt` | varchar | Código alternativo |
 | `NitSec` | int (FK → NIT) | Cliente al que pertenece |
 
+---
+
+### `DatosMipresDetalle`
+
+**Propósito**: Información de entrega y prescripción MIPRES vinculada a la dispensación.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `DatMipId` | int (FK) | Relacionado con `IdPrincipal` de `vw_discolnet_dispensas` |
+| `DatMipDirNoEnt` | int | Número de entrega MIPRES (mapeado como `MipresNoEntrega`) |
+
+**Usada por**: `DispensationModel::getDispensationDetails` para comparar la entrega real (`NEntrega`) contra `MipresNoEntrega`.
+
 **Usada por**: `AttachmentsModel` (JOIN con AdjuntosDispensacion)
 
 ---
