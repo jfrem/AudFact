@@ -84,4 +84,47 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertTrue(AuditFieldValueType::PERSON_NAME->isIdentityPromptValue());
         $this->assertFalse(AuditFieldValueType::INSTITUTION_NAME->isIdentityPromptValue());
     }
+
+    public function testIsItemScopedTrueForArticleNameAndTraceToken(): void
+    {
+        $this->assertTrue(AuditFieldValueType::ARTICLE_NAME->isItemScoped());
+        $this->assertTrue(AuditFieldValueType::TRACE_TOKEN->isItemScoped());
+    }
+
+    public function testIsItemScopedFalseForOtherTypes(): void
+    {
+        $nonItemTypes = [
+            AuditFieldValueType::TEXT,
+            AuditFieldValueType::DATE,
+            AuditFieldValueType::QUANTITY,
+            AuditFieldValueType::MONEY,
+            AuditFieldValueType::CODE,
+            AuditFieldValueType::IDENTITY_DOC_TYPE,
+            AuditFieldValueType::IDENTITY_DOC_NUMBER,
+            AuditFieldValueType::PERSON_NAME,
+            AuditFieldValueType::INSTITUTION_NAME,
+            AuditFieldValueType::NIT,
+            AuditFieldValueType::AUTH_NUMBER,
+        ];
+        foreach ($nonItemTypes as $type) {
+            $this->assertFalse($type->isItemScoped(), "Expected false for {$type->value}");
+        }
+    }
+
+    public function testFieldDescriptionFallbackReturnsStringForSpecializedTypes(): void
+    {
+        $this->assertNotNull(AuditFieldValueType::IDENTITY_DOC_NUMBER->fieldDescriptionFallback());
+        $this->assertNotNull(AuditFieldValueType::PERSON_NAME->fieldDescriptionFallback());
+        $this->assertNotNull(AuditFieldValueType::IDENTITY_DOC_TYPE->fieldDescriptionFallback());
+        $this->assertNotNull(AuditFieldValueType::DATE->fieldDescriptionFallback());
+    }
+
+    public function testFieldDescriptionFallbackReturnsNullForGenericTypes(): void
+    {
+        $this->assertNull(AuditFieldValueType::TEXT->fieldDescriptionFallback());
+        $this->assertNull(AuditFieldValueType::QUANTITY->fieldDescriptionFallback());
+        $this->assertNull(AuditFieldValueType::MONEY->fieldDescriptionFallback());
+        $this->assertNull(AuditFieldValueType::CODE->fieldDescriptionFallback());
+        $this->assertNull(AuditFieldValueType::NIT->fieldDescriptionFallback());
+    }
 }

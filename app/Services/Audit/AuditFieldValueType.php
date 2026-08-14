@@ -149,6 +149,41 @@ enum AuditFieldValueType: string
     }
 
     /**
+     * ¿El tipo de dato pertenece intrínsecamente al nivel de ítem/línea de detalle?
+     *
+     * Solo tipos que son SIEMPRE ítems independientemente del contexto.
+     * Nota: Campos como CODE, DATE, TEXT pueden ser header o ítem según
+     * el campo específico, por lo que NO están incluidos aquí.
+     */
+    public function isItemScoped(): bool
+    {
+        return match ($this) {
+            self::ARTICLE_NAME,
+            self::TRACE_TOKEN => true,
+            default           => false,
+        };
+    }
+
+    /**
+     * Descripción fallback genérica para el schema de Gemini.
+     *
+     * Se usa SOLO cuando la BD (AudDispCampoCatalogo.Descripcion) no tiene
+     * una descripción configurada para el campo. Las descripciones de BD
+     * siempre tienen precedencia y permiten especificidad por campo
+     * (ej: "prescriptor" vs "paciente").
+     */
+    public function fieldDescriptionFallback(): ?string
+    {
+        return match ($this) {
+            self::IDENTITY_DOC_NUMBER => 'Solo numero del documento; transcribe cada digito individualmente de izquierda a derecha sin tipo ni nombre; verifica con cuidado la distincion entre 8, 6, 5 y 0.',
+            self::PERSON_NAME         => 'Solo nombres y apellidos completos; sin tipo ni numero de documento.',
+            self::IDENTITY_DOC_TYPE   => 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.',
+            self::DATE                => 'Fecha visible; transcribe exactamente el año y fecha impresa.',
+            default                   => null,
+        };
+    }
+
+    /**
      * @return array<int,self>
      */
     private static function allowedTypesForTipoCampo(string $tipoCampo): array

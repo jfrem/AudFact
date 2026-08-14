@@ -148,7 +148,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('object', $docPacSchema['type']);
         $this->assertArrayHasKey('valor', $docPacSchema['properties']);
         $this->assertSame('string', $docPacSchema['properties']['valor']['type']);
-        $this->assertStringContainsString('Solo numero del paciente', $docPacSchema['properties']['valor']['description']);
+        $this->assertStringContainsString('Solo numero del documento', $docPacSchema['properties']['valor']['description']);
         $this->assertArrayHasKey('estadoExtraccion', $docPacSchema['properties']);
         $this->assertSame(
             ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
