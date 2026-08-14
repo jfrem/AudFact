@@ -45,14 +45,15 @@ export function AttachmentList({
             : "max-h-[65vh] space-y-1 overflow-y-auto",
         )}
       >
-        {items.map((attachment) => {
+        {items.map((attachment, index) => {
           const id = String(attachment.id_adjunto_fisico ?? attachment.id_documento ?? attachment.nombre_documento ?? "");
+          const keyId = `${id}-${index}`;
           const active = selectedId === id;
 
           return (
             <Item
               asChild
-              key={id}
+              key={keyId}
               variant={active ? "default" : "ghost"}
               size="sm"
               align="center"

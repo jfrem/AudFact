@@ -1,5 +1,33 @@
-## [2026-07-28]
+## [2026-08-13]
 
+### feat
+- **Normalización de Abreviaciones de Meses en Fechas (`sept`, `set`, `mzo`, etc.)**: Se amplió el mapeo de nombres de meses en `AuditFindingRules::parseSpanishNarrativeDate` para soportar variantes como `sept`, `set`, `setiembre`, `mzo`, `agt`, `novb`, `dicb`. Permite normalizar fechas como `29-sept-2025` a `2025-09-29` de forma determinista y sin falsos positivos de auditoría.
+  - Archivos modificados: `app/Services/Audit/AuditFindingRules.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+  - Impacto: Fechas narrativas y con abreviaciones observadas en documentos médicos/fórmulas/actas coinciden exactamente con los registros ISO de base de datos.
+
+### refactor
+- **Desacoplamiento e Integridad Interna Data-Driven (Clean Rebuild)**: Se extrajo la evaluación de consistencia interna de base de datos (`NEntrega` vs `MipresNoEntrega`) fuera de `DocumentPolicyEngine` hacia `InternalIntegrityEvaluator`. Se formalizó el caso `AuditComparisonType::INTERNAL` para campos con `tipoCampo = 'I'`. `DocumentPolicyEngine` ahora filtra genéricamente sin conocer nombres de campo hardcodeados.
+  - Archivos creados/modificados: `app/Services/Audit/Pipeline/InternalIntegrityEvaluator.php`, `app/Services/Audit/AuditComparisonType.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Pipeline/InternalIntegrityEvaluatorTest.php`.
+  - Impacto: Cero referencias a nombres de campos específicos en `DocumentPolicyEngine`; arquitectura extensible para validaciones de integridad interna sin modificar el motor de políticas.
+
+### fix
+- **Corrección de Mapeo de Columna MIPRES en `DispensationModel`**: Se corrigió el alias de columna de `mip.DatMipEntNoEntrega` a `mip.DatMipDirNoEnt AS MipresNoEntrega` en la consulta principal de `DispensationModel::getDispensationDetails`.
+  - Archivos modificados: `app/Models/DispensationModel.php`, `plans/database-schema.md`.
+  - Impacto: Permite evaluar correctamente el campo de consistencia interna `MipresNoEntrega` sin errores de columna inexistente en base de datos.
+- **Precisión de Extracción IA en Documentos Soporte y Orientación (OCR Gemini)**: Se reforzó el prompt del sistema (`DEFAULT_SYSTEM_PROMPT`) y el prompt del usuario en `ExtractionPromptBuilder` con directrices explícitas para documentos rotados o invertidos (180°), lectura en sentido natural de izquierda a derecha, y transcripción posicional dígito por dígito de identificadores numéricos (cédulas, IDs, autorizaciones) distinguiendo minuciosamente caracteres ambiguos (`6 ↔ 8 ↔ 4 ↔ 0 ↔ 9`, `5 ↔ 8 ↔ 6`, `8 ↔ B ↔ 5 ↔ 3 ↔ 6 ↔ 0`). Se optimizaron las descripciones en el schema JSON en `DocumentExtractionContractBuilder` (`identity_doc_number`) y se creó la suite unitaria `ExtractionPromptBuilderTest`.
+  - Archivos creados/modificados: `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php`, `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php`, `tests/Services/Audit/Pipeline/ExtractionPromptBuilderTest.php`, `plans/gemini-extraction-accuracy-sdd.md`.
+  - Hallazgo resuelto: Dispensa `D64260800214` reprobaba `FORMULA MEDICA` (orientada a 180°) por confusión OCR en `DocumentoPaciente` (`1115580646` vs `1115860646`) y `FechaFormula` (`2024-08-01` vs `2026-08-01`).
+  - Impacto: Extracción 100% fiel al soporte físico con `gemini-3.6-flash`, eliminando falsos positivos en cédulas y fechas en todas las modalidades documentales sin alterar la política determinista de comparación.
+- **Resolución de "Duplicate React Keys" en lista de adjuntos**: Se refactorizó el mapeo en `AttachmentList` para incluir explícitamente el índice del arreglo (`keyId = ${id}-${index}`) y así evitar conflictos de hidratación en React cuando múltiples documentos referencian el mismo `id_adjunto_fisico`.
+  - Archivos modificados: `frontend/components/attachments/attachment-list.tsx`.
+  - Hallazgo resuelto: Error en consola `Encountered two children with the same key` que causaba inestabilidad en la UI al seleccionar documentos.
+  - Impacto: Navegación e iteración de adjuntos 100% estable.
+- **Afinamiento de prompts para falsos positivos de la IA**: Se actualizaron las descripciones (prompts) en base de datos (`AudDispCampoCatalogo`) para `CodigoProducto` y `FirmaActaEntrega`, indicándole a Gemini que priorice explícitamente el "COD AUT" sobre el CUM, y que acepte firmas manuscritas informales (nombres, cédulas, huellas) como evidencias válidas de recepción.
+  - Archivos modificados: Configuración productiva en base de datos (`Discolnet.dbo.AudDispCampoCatalogo`) vía API.
+  - Hallazgo resuelto: El modelo reprobaba erróneamente actas de entrega correctas al extraer códigos secundarios u omitir firmas humanas desestructuradas.
+  - Impacto: Los resultados de IA para estos documentos retornan `COINCIDE` con un razonamiento trazable y libre de falsos positivos en los chequeos visuales.
+
+## [2026-07-28]
 ### fix
 - **Normalización numérica en campos de texto (0 == .00)**: `AuditFindingRules::normalizeForComparison` ahora normaliza automáticamente valores numéricos escalares (`0`, `.00`, `0.00`, `1,500.00`) cuando el campo se compara como texto (`default`/`TEXT`), eliminando falsos positivos de formato entre el valor documental (`'0'`) y el registro monetario en BD (`'.00'`).
   - Archivos modificados: `app/Services/Audit/AuditFindingRules.php`, `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.

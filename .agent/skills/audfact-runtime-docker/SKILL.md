@@ -16,7 +16,7 @@ Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fall
 | Archivo | Rol |
 |---|---|
 | `docker-compose.yml` | Fuente única universal: build local cuando se trabaja en desarrollo, imágenes GHCR en producción, perfil `frontend` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence` |
-| `docker/Dockerfile` | PHP 8.2-FPM + ODBC SQL Server + Xdebug condicional + healthcheck interno |
+| `docker/Dockerfile` | PHP 8.2.33-fpm-bookworm + ODBC SQL Server + APCu + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
 | `docker/nginx.Dockerfile` | Nginx 1.25 Alpine con assets estáticos baked-in |

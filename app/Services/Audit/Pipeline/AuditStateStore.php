@@ -282,7 +282,7 @@ class AuditStateStore
 
     private const REGISTER_DOCUMENT_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
-        if not raw then return 0 end
+        if not raw then return redis.error_reply('Auditoria no encontrada o expirada') end
 
         local audit = cjson.decode(raw)
         local status = tostring(audit['status'] or '')
@@ -311,7 +311,7 @@ class AuditStateStore
 
     private const MARK_AUDIT_STARTED_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
-        if not raw then return 0 end
+        if not raw then return redis.error_reply('Auditoria no encontrada o expirada') end
 
         local audit = cjson.decode(raw)
         local status = tostring(audit['status'] or '')
@@ -337,7 +337,7 @@ class AuditStateStore
 
     private const DOCUMENT_TRANSITION_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
-        if not raw then return 0 end
+        if not raw then return redis.error_reply('Auditoria no encontrada o expirada') end
 
         local audit = cjson.decode(raw)
         local auditStatus = tostring(audit['status'] or '')
@@ -355,8 +355,11 @@ class AuditStateStore
         local counterField = ARGV[5]
         local expectedStatus = ARGV[6]
 
-        if type(audit['documents']) ~= 'table' or type(audit['documents'][documentId]) ~= 'table' then
-            return 0
+        if type(audit['documents']) ~= 'table' then
+            return redis.error_reply('Estado corrupto: documents no es una tabla')
+        end
+        if type(audit['documents'][documentId]) ~= 'table' then
+            return redis.error_reply('Documento no registrado en la auditoria: ' .. tostring(documentId))
         end
 
         local document = audit['documents'][documentId]
@@ -386,7 +389,7 @@ class AuditStateStore
 
     private const DOCUMENT_REJECTION_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
-        if not raw then return 0 end
+        if not raw then return redis.error_reply('Auditoria no encontrada o expirada') end
 
         local audit = cjson.decode(raw)
         local auditStatus = tostring(audit['status'] or '')
@@ -402,9 +405,11 @@ class AuditStateStore
         local now = ARGV[3]
         local ttl = tonumber(ARGV[4])
 
-        if type(audit['documents']) ~= 'table'
-        or type(audit['documents'][documentId]) ~= 'table' then
-            return 0
+        if type(audit['documents']) ~= 'table' then
+            return redis.error_reply('Estado corrupto: documents no es una tabla')
+        end
+        if type(audit['documents'][documentId]) ~= 'table' then
+            return redis.error_reply('Documento no registrado en la auditoria: ' .. tostring(documentId))
         end
 
         local document = audit['documents'][documentId]

@@ -117,6 +117,34 @@ final class AuditFindingRules
     }
 
     /**
+     * Determina si un valor de la Fuente de Verdad (FdV) es semánticamente
+     * significativo para auditoría.
+     *
+     * Valores como "0", "00", ".00", "0.00" representan "sin dato" en el
+     * sistema legacy y no deben enviarse a Gemini ni generar hallazgos.
+     * Este filtro es exclusivo de la FdV — no se aplica a valores
+     * extraídos del documento.
+     */
+    public static function isMeaningfulFdvValue(mixed $value, ?AuditFieldValueType $valueType = null): bool
+    {
+        if (!self::isPresent($value)) {
+            return false;
+        }
+
+        // Si es un tipo explícitamente numérico (MONEY, QUANTITY), el cero es un valor de negocio válido.
+        if ($valueType !== null && $valueType->isNumericForSchema()) {
+            return true;
+        }
+
+        // Detectar variantes de cero numérico: "0", "00", ".00", "0.00", "0.0"
+        if (is_numeric($value) && (float) $value === 0.0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Normaliza un valor para comparación según el tipo de dato configurado.
      *
      * Para campos sin tipo numérico explícito (default/TEXT), intenta normalización
@@ -336,6 +364,7 @@ final class AuditFindingRules
             'julio' => 7,
             'agosto' => 8,
             'septiembre' => 9,
+            'setiembre' => 9,
             'octubre' => 10,
             'noviembre' => 11,
             'diciembre' => 12,
@@ -343,15 +372,21 @@ final class AuditFindingRules
             'ene' => 1,
             'feb' => 2,
             'mar' => 3,
+            'mzo' => 3,
             'abr' => 4,
             'may' => 5,
             'jun' => 6,
             'jul' => 7,
             'ago' => 8,
+            'agt' => 8,
             'sep' => 9,
+            'sept' => 9,
+            'set' => 9,
             'oct' => 10,
             'nov' => 11,
+            'novb' => 11,
             'dic' => 12,
+            'dicb' => 12,
         ];
 
         $parts = explode(' ', $normalized);

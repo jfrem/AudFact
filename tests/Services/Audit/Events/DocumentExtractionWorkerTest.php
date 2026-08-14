@@ -728,6 +728,9 @@ final class DocumentExtractionWorkerTest extends TestCase
                     ['NombreArticulo' => 'ITEM B'],
                 ],
             ],
+            'fields_config' => [
+                ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name']
+            ],
         ];
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, $payloadOverrides));

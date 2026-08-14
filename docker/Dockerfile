@@ -1,4 +1,4 @@
-FROM php:8.2-fpm
+FROM php:8.2.33-fpm-bookworm
 
 ARG WWWGROUP_ID=33
 ARG WWWUSER_ID=33
@@ -14,8 +14,8 @@ RUN apt-get update \
     && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
-    && pecl install sqlsrv-5.11.1 pdo_sqlsrv-5.11.1 \
-    && docker-php-ext-enable sqlsrv pdo_sqlsrv \
+    && pecl install sqlsrv-5.11.1 pdo_sqlsrv-5.11.1 apcu \
+    && docker-php-ext-enable sqlsrv pdo_sqlsrv apcu \
     && if [ "$ENABLE_XDEBUG" = "1" ]; then pecl install xdebug && docker-php-ext-enable xdebug; fi \
     && docker-php-ext-install zip \
     && rm -rf /var/lib/apt/lists/* /tmp/pear
@@ -35,14 +35,13 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-custom.sh \
 # CICD-002: Composer via multi-stage COPY (supply chain safe)
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY composer.json composer.lock* ./
-COPY .env.example ./
-RUN composer install --no-interaction --no-scripts --no-progress --prefer-dist
+RUN composer install --no-interaction --no-scripts --no-progress --prefer-dist --no-dev --optimize-autoloader
 
 COPY . .
 
 # Limpieza Profunda de Artefactos de Orquestación y Construcción
 # Eliminamos todo rastro de herramientas ajenas a la ejecución de PHP en producción.
-RUN rm -rf docker/ composer.* .env.example docker-compose*.yml docker.ps1 system.txt \
+RUN rm -rf docker/ composer.* .env.example docker-compose*.yml docker.ps1 \
     && mkdir -p /tmp/audfact-runtime/ratelimit \
     && chown -R www-data:www-data /var/www/html
 

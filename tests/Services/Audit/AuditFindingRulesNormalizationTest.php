@@ -204,6 +204,14 @@ final class AuditFindingRulesNormalizationTest extends TestCase
             '1 ene 2026'              => ['1 ene 2026', '2026-01-01'],
             'Septiembre 30, 2025'     => ['Septiembre 30, 2025', '2025-09-30'],
             '28 de febrero de 2026'   => ['28 de febrero de 2026', '2026-02-28'],
+            '29-sept-2025 (abrev sept con guiones)' => ['29-sept-2025', '2025-09-29'],
+            '29-SEPT-2025 (mayúsculas)'            => ['29-SEPT-2025', '2025-09-29'],
+            '29/sept/2025 (barras)'                => ['29/sept/2025', '2025-09-29'],
+            '29 sept. 2025 (con punto)'            => ['29 sept. 2025', '2025-09-29'],
+            '29 set 2025 (abrev set)'              => ['29 set 2025', '2025-09-29'],
+            '29 setiembre 2025 (setiembre)'        => ['29 setiembre 2025', '2025-09-29'],
+            '15 mzo 2026 (abrev mzo)'              => ['15 mzo 2026', '2026-03-15'],
+            '10 agt 2025 (abrev agt)'              => ['10 agt 2025', '2025-08-10'],
         ];
     }
 

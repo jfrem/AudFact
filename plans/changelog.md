@@ -1,5 +1,38 @@
 # Changelog AudFact
 
+## [2026-08-13] - Fix: Corrección de Mapeo de Columna MIPRES en DispensationModel
+
+### Backend / Modelos SQL Server
+- **Alias de Columna Corregido**: En `DispensationModel::getDispensationDetails`, se corrigió la consulta SQL reemplazando `mip.DatMipEntNoEntrega` por `mip.DatMipDirNoEnt AS MipresNoEntrega`.
+- **Impacto**: Resuelve la resolución de la columna MIPRES en SQL Server para la evaluación de consistencia interna (`tipoCampo = 'I'`) sin errores de ejecución de query.
+
+## [2026-08-13] - Fix: Precisión de Extracción IA en Documentos Soporte y Orientación (OCR Gemini)
+
+### Backend / Pipeline de Extracción IA
+- **Orientación y Sentido de Lectura**: Soporte explícito en `DEFAULT_SYSTEM_PROMPT` y `buildUserPrompt()` para documentos escaneados en orientaciones no canónicas (rotados a 180° o 90°), guiando la orientación mental y lectura de izquierda a derecha.
+- **Desambiguación Numérica y Temporal**: Directrices obligatorias en `ExtractionPromptBuilder` para:
+  - Transcripción posicional dígito a dígito de números de identificación (cédulas, IDs, autorizaciones) con conteo estricto de longitud (evita fusionar o duplicar dígitos como `5` vs `6` vs `8`).
+  - Verificación de concordancia temporal de año en fechas (ej. `2026` vs `2024`) contrastando con múltiples marcas temporales visibles (datos de atención, fechas de fórmula, pie de imprenta, firmas).
+  - Ampliación de la matriz de caracteres ambiguos con pares numéricos (`6 ↔ 8 ↔ 4 ↔ 0 ↔ 9`, `5 ↔ 8 ↔ 6`, `8 ↔ B ↔ 5 ↔ 3 ↔ 6 ↔ 0`).
+- **Refuerzo de Descripciones de Esquema JSON**: En `DocumentExtractionContractBuilder`, se ajustaron las descripciones para `identityDocumentNumberDescription` instruyendo la verificación cuidadosa de secuencias de dígitos `8, 6, 5` sin omisiones ni duplicaciones.
+- **Suite de Pruebas Unitarias**: Creado `tests/Services/Audit/Pipeline/ExtractionPromptBuilderTest.php` con cobertura para reglas de sistema, deduplicación de prompts personalizados y user prompts multimodales.
+- **Validación E2E**: El caso real `D64260800214` extrae de forma 100% determinista `DocumentoPaciente: 1115860646` y `FechaFormula: 01/08/2026` con `gemini-3.6-flash`, aprobando el documento de soporte sin falsos positivos.
+
+## [2026-08-13] - Feature: Normalización de Abreviaciones de Meses en Fechas (sept, set, mzo, etc.)
+
+### Backend / Normalización de Auditoría
+- **Abreviaciones de Meses en Español**: Se amplió el mapeo de nombres de meses en `AuditFindingRules::parseSpanishNarrativeDate` para soportar variantes como `sept`, `set`, `setiembre`, `mzo`, `agt`, `novb`, `dicb`.
+- **Compatibilidad con formatos observados**: Permite normalizar automáticamente fechas como `29-sept-2025` a su formato ISO `2025-09-29`, permitiendo un match exacto frente a valores fuente de verdad (`AuditFieldValueType::DATE`).
+- **Pruebas Unitarias**: Añadidos casos de prueba exhaustivos en `Tests\Services\Audit\AuditFindingRulesNormalizationTest`.
+
+## [2026-08-13] - Refactor: Desacoplamiento e Integridad Interna Data-Driven (Clean Rebuild)
+
+### Backend / Pipeline de Auditoría
+- **Desacoplamiento de Integridad Interna**: Se extrajo la evaluación de consistencia interna de base de datos (`NEntrega` vs `MipresNoEntrega`) fuera de `DocumentPolicyEngine` hacia la nueva clase `InternalIntegrityEvaluator`.
+- **Formalización de TipoCampo='I'**: Agregado `AuditComparisonType::INTERNAL` para campos con `tipoCampo = 'I'`. `DocumentPolicyEngine` ahora filtra genéricamente sin conocer nombres de campo hardcodeados.
+- **Suite de Pruebas**: Creado `tests/Services/Audit/Pipeline/InternalIntegrityEvaluatorTest.php` con cobertura 100% de casos límite, contratos de 10 claves y normalización entera.
+- **Impacto Arquitectónico**: Cero referencias a nombres de campos específicos en `DocumentPolicyEngine`; cumplimiento riguroso de Clean Rebuild y Single Responsibility Principle.
+
 ## [2026-08-12] - SDD: Métricas activas de jobs asíncronos sin drift
 
 ### Especificación / Gobernanza técnica

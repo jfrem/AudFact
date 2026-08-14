@@ -90,7 +90,7 @@ final class FieldValueResolver
         $header = is_array($sourceTruth['header'] ?? null) ? $sourceTruth['header'] : [];
         $items  = is_array($sourceTruth['items'] ?? null)  ? $sourceTruth['items']  : [];
 
-        $headerValue = self::extractRowValue($header, $field);
+        $headerValue = self::extractRowValue($header, $field, $valueType);
         if ($headerValue !== null) {
             return self::singleValue(ResolvedAuditValue::SOURCE_FDV, $valueType, $headerValue);
         }
@@ -99,7 +99,7 @@ final class FieldValueResolver
             return self::emptyValue(ResolvedAuditValue::SOURCE_FDV);
         }
 
-        $itemValues = self::extractItemValues($items, $field);
+        $itemValues = self::extractItemValues($items, $field, $valueType);
         if ($itemValues === []) {
             return self::emptyValue(ResolvedAuditValue::SOURCE_FDV);
         }
@@ -155,14 +155,14 @@ final class FieldValueResolver
         return null;
     }
 
-    private static function extractItemValues(array $items, string $field): array
+    private static function extractItemValues(array $items, string $field, AuditFieldValueType $valueType): array
     {
         $values = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
                 continue;
             }
-            $value = self::extractRowValue($item, $field);
+            $value = self::extractRowValue($item, $field, $valueType);
             if ($value !== null) {
                 $values[] = $value;
             }
@@ -173,10 +173,10 @@ final class FieldValueResolver
     /**
      * @param  array<string,mixed> $row
      */
-    private static function extractRowValue(array $row, string $field): ?string
+    private static function extractRowValue(array $row, string $field, AuditFieldValueType $valueType): ?string
     {
         $candidate = $row[$field] ?? null;
-        if (!AuditFindingRules::isPresent($candidate)) {
+        if (!AuditFindingRules::isMeaningfulFdvValue($candidate, $valueType)) {
             return null;
         }
 
