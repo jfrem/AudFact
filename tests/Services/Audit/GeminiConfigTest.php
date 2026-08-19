@@ -71,16 +71,16 @@ final class GeminiConfigTest extends TestCase
         $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
     }
 
-    public function testDoesNotIncludeMediaResolutionEvenWhenRequested(): void
+    public function testIncludesMediaResolutionWhenRequested(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.5-flash',
-            mediaResolution: 'medium'
+            model: 'gemini-3.7-flash',
+            mediaResolution: 'MEDIA_RESOLUTION_HIGH'
         );
 
         $generationConfig = $config->toGenerationConfig(includeMediaResolution: true);
 
-        $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
+        $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
     }
 
     public function testGatewayAppliesMediaResolutionOnlyForExtractionProfile(): void
@@ -89,8 +89,8 @@ final class GeminiConfigTest extends TestCase
             new Client(),
             'test-key',
             new GeminiConfig(
-                model: 'gemini-3.5-flash',
-                mediaResolution: 'medium'
+                model: 'gemini-3.7-flash',
+                mediaResolution: 'MEDIA_RESOLUTION_MEDIUM'
             )
         );
         $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
@@ -119,7 +119,19 @@ final class GeminiConfigTest extends TestCase
         );
 
         $this->assertArrayNotHasKey('mediaResolution', $semanticPayload['generationConfig']);
-        $this->assertArrayNotHasKey('mediaResolution', $extractionPayload['generationConfig']);
+        $this->assertSame('MEDIA_RESOLUTION_MEDIUM', $extractionPayload['generationConfig']['mediaResolution']);
+    }
+
+    public function testOmitsMediaResolutionWhenNull(): void
+    {
+        $config = new GeminiConfig(
+            model: 'gemini-3.7-flash',
+            mediaResolution: null
+        );
+
+        $generationConfig = $config->toGenerationConfig(includeMediaResolution: true);
+
+        $this->assertArrayNotHasKey('mediaResolution', $generationConfig);
     }
 
     public function testGatewayRejectsFilesForSemanticProfile(): void

@@ -1,5 +1,19 @@
 # Changelog AudFact
 
+## [2026-08-19] - Fix: Exclusión de Adjuntos Opcionales en Cálculo de Pendientes en InvoicesModel
+
+### Backend / Modelos SQL Server
+- **Cálculo de `EstSop` en `#Sopo`**: Se ajustó `InvoicesModel::buildOptimizedBatchSql` para evaluar únicamente adjuntos obligatorios (`AdjDisOpc = 'N'`) al calcular el estado mínimo de soporte (`Min(case when a.AdjDisOpc='N' then (case a.AdjDisEstSop when 'P' then 0 when 'C' then 10 else 5 end) else 10 end) EstSop`).
+- **Impacto**: Resuelve el bucle infinito de reauditoría en clientes como `2624` que cuentan con documentos opcionales configurados (ej. `TESTIGO A RUEGO` con `AdjDisOpc = 'S'`) que permanecían en `'P'`, permitiendo que los jobs asíncronos avancen hacia facturas no auditadas.
+
+## [2026-08-19] - Feat: Alineación SDD con Gemini 3.7 Flash y Resolución Multimodal
+
+### Backend / Pipeline Gemini y Configuración
+- **Modelo por Defecto**: Actualizado en `GeminiConfig::fromEnv()` a `gemini-3.7-flash`.
+- **Inyección de `mediaResolution`**: Habilitada en `GeminiConfig::toGenerationConfig()` con valores estándar Protobuf (`MEDIA_RESOLUTION_HIGH` / `MEDIA_RESOLUTION_MEDIUM`), aplicando selectivamente a perfiles de extracción multimodal (`includeMediaResolution = true`).
+- **Descripciones en Schema JSON**: Enriquecidas en `AuditFieldValueType` para `AUTH_NUMBER` y `NIT` con directivas de examen individual posicional dígito a dígito ($8 \leftrightarrow 6 \leftrightarrow 5 \leftrightarrow 0 \leftrightarrow 9$).
+- **Sincronización y Pruebas**: Actualizados `.env`, `.env.example`, `AGENTS.md`, `plans/gemini-alignment-sdd.md`, `AuditFieldValueTypeTest` y `GeminiConfigTest`.
+
 ## [2026-08-13] - Fix: Corrección de Mapeo de Columna MIPRES en DispensationModel
 
 ### Backend / Modelos SQL Server

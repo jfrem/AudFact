@@ -367,6 +367,7 @@ fi
 secret_keys_to_sync=()
 variable_keys_to_sync=()
 empty_optional_secrets=()
+empty_optional_variables=()
 missing_required=()
 
 for key in "${ENV_KEYS[@]}"; do
@@ -378,6 +379,10 @@ for key in "${ENV_KEYS[@]}"; do
     fi
     secret_keys_to_sync+=("$key")
   else
+    if [[ -z "$value" && -z "${IS_REQUIRED_VARIABLE[$key]:-}" ]]; then
+      empty_optional_variables+=("$key")
+      continue
+    fi
     variable_keys_to_sync+=("$key")
   fi
 done
@@ -485,6 +490,10 @@ fi
 
 if [[ "${#empty_optional_secrets[@]}" -gt 0 ]]; then
   print_list "Skipped empty optional secrets" "${empty_optional_secrets[@]}"
+fi
+
+if [[ "${#empty_optional_variables[@]}" -gt 0 ]]; then
+  print_list "Skipped empty optional variables" "${empty_optional_variables[@]}"
 fi
 
 if [[ "$MODE" != "apply" ]]; then

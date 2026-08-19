@@ -179,7 +179,7 @@ class InvoicesModel extends Model
                 from(
                     select a.DisId,a.DisDetId,f.FacNitSec,c.DisTip,
                     sum(case when a.AdjDisOpc='N' then 1 else 0 end)AdjTot,
-                    sum(case when AdjDisDocUrlConf=1 and a.AdjDisOpc='N' then 1 else 0 end)adj,Min(case a.AdjDisEstSop when 'P' then 0 when 'C'  then 10 else 5 end) EstSop
+                    sum(case when AdjDisDocUrlConf=1 and a.AdjDisOpc='N' then 1 else 0 end)adj,Min(case when a.AdjDisOpc='N' then (case a.AdjDisEstSop when 'P' then 0 when 'C' then 10 else 5 end) else 10 end) EstSop
                     from AdjuntosDispensacion a with(nolock)
                     INNER JOIN #CRUZE c on c.DisId=a.DisId and c.DisDetId=a.DisDetId
                     left join (select f.FacNitSec,f.DisId,f.DisDetId from factura f with(nolock) group by f.FacNitSec,f.DisId,f.DisDetId)f on f.DisId=a.DisId and f.DisDetId=a.DisDetId

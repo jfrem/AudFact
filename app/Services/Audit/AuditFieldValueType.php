@@ -179,6 +179,8 @@ enum AuditFieldValueType: string
             self::PERSON_NAME         => 'Solo nombres y apellidos completos; sin tipo ni numero de documento.',
             self::IDENTITY_DOC_TYPE   => 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.',
             self::DATE                => 'Fecha visible; transcribe exactamente el año y fecha impresa.',
+            self::AUTH_NUMBER         => 'Solo numero de autorizacion/radicado; transcribe cada digito individualmente en orden posicional estricto de izquierda a derecha sin tipo ni texto adicional; verifica con cuidado la distincion entre 8, 6, 5, 0 y 9.',
+            self::NIT                 => 'Solo numero de NIT sin digito de verificacion a menos que se solicite; transcribe cada digito con exactitud posicional; verifica con cuidado la distincion entre 8, 6, 5 y 0.',
             default                   => null,
         };
     }

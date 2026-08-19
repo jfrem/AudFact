@@ -1,3 +1,16 @@
+## [2026-08-19]
+
+### feat
+- **Alineación Oficial con Gemini 3.7 Flash y Resolución Multimodal**: Se actualizó el modelo por defecto en `GeminiConfig` a `gemini-3.7-flash` y se habilitó la inyección condicional de `mediaResolution` (`MEDIA_RESOLUTION_HIGH` / `MEDIA_RESOLUTION_MEDIUM`) exclusivamente en perfiles multimodales de extracción (`TASK_EXTRACTION`). Se reforzaron las descripciones JSON Schema en `AuditFieldValueType` para `AUTH_NUMBER` y `NIT` instruyendo lectura posicional estricta dígito a dígito y prevención de ambigüedad visual entre caracteres ($8 \leftrightarrow 6 \leftrightarrow 5 \leftrightarrow 0 \leftrightarrow 9$).
+  - Archivos creados/modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/GeminiConfig.php`, `.env`, `.env.example`, `AGENTS.md`, `plans/gemini-alignment-sdd.md`, `tests/Services/Audit/AuditFieldValueTypeTest.php`, `tests/Services/Audit/GeminiConfigTest.php`.
+  - Impacto: Máxima fidelidad en la transcripción de números de autorización y NITs en documentos de soporte, erradicando discrepancias OCR de un solo dígito sin generar sobrecargas ni errores 400 en llamadas semánticas.
+
+### fix
+- **Exclusión de Adjuntos Opcionales en Cálculo de Pendientes (`InvoicesModel`)**: Se corrigió el cálculo de `EstSop` en la tabla temporal `#Sopo` dentro de `InvoicesModel::buildOptimizedBatchSql` para evaluar exclusivamente los adjuntos con `AdjDisOpc = 'N'` (obligatorios).
+  - Archivos modificados: `app/Models/InvoicesModel.php`.
+  - Hallazgo resuelto: En clientes como `2624` con documentos opcionales configurados (ej. `TESTIGO A RUEGO` con `AdjDisOpc = 'S'`), los adjuntos no requeridos permanecían en estado `'P'` (Pendiente), provocando que `Min(case a.AdjDisEstSop ...)` siempre devolviera `0`. Esto causaba que el orquestador de lotes considerara falsamente que la dispensa seguía pendiente y reauditara repetidamente las mismas 100 facturas.
+  - Impacto: Los lotes asíncronos ahora avanzan progresivamente hacia nuevas facturas pendientes en todos los clientes, independientemente de si poseen adjuntos opcionales.
+
 ## [2026-08-13]
 
 ### feat

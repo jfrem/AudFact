@@ -117,6 +117,8 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertNotNull(AuditFieldValueType::PERSON_NAME->fieldDescriptionFallback());
         $this->assertNotNull(AuditFieldValueType::IDENTITY_DOC_TYPE->fieldDescriptionFallback());
         $this->assertNotNull(AuditFieldValueType::DATE->fieldDescriptionFallback());
+        $this->assertNotNull(AuditFieldValueType::AUTH_NUMBER->fieldDescriptionFallback());
+        $this->assertNotNull(AuditFieldValueType::NIT->fieldDescriptionFallback());
     }
 
     public function testFieldDescriptionFallbackReturnsNullForGenericTypes(): void
@@ -125,6 +127,5 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertNull(AuditFieldValueType::QUANTITY->fieldDescriptionFallback());
         $this->assertNull(AuditFieldValueType::MONEY->fieldDescriptionFallback());
         $this->assertNull(AuditFieldValueType::CODE->fieldDescriptionFallback());
-        $this->assertNull(AuditFieldValueType::NIT->fieldDescriptionFallback());
     }
 }

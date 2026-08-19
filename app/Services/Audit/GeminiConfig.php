@@ -35,7 +35,7 @@ final class GeminiConfig
         Env::load();
 
         return new self(
-            model: (string) Env::get('GEMINI_MODEL', 'gemini-3.5-flash'),
+            model: (string) Env::get('GEMINI_MODEL', 'gemini-3.7-flash'),
             temperature: self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
             topP: self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
             topK: self::nullableInt(Env::get('GEMINI_TOP_K', null)),
@@ -64,6 +64,9 @@ final class GeminiConfig
             'seed'        => $this->seed,
         ], fn($value) => $value !== null);
 
+        if ($includeMediaResolution && $this->mediaResolution !== null) {
+            $base['mediaResolution'] = $this->mediaResolution;
+        }
 
         // Gemini 3 usa thinkingLevel; Gemini 2.5 usa thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
