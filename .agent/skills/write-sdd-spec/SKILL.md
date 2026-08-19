@@ -11,15 +11,33 @@ Use this skill to act as a Software Architect specialized in Specification Drive
 
 Do not produce conceptual guidance, exploratory analysis, or high-level recommendations when the user asks for an SDD specification. The output must specify what changes, why it changes, where it changes, how it changes, what does not change, and how to validate the result.
 
+This skill applies a **universally** to any type of cambio: nueva funcionalidad, refactorización, bugfix, migración, optimización de infraestructura, cambio de contrato, modificación de esquema, o cualquier otra alteración del sistema. El protocolo no está ligado a ningún dominio técnico específico.
+
 ## Required Reference
 
 Before drafting or auditing an SDD specification, read `references/sdd-spec-template.md`. Use it as the mandatory output structure and validation checklist.
 
+## Clean Rebuild Policy
+
+Toda especificación SDD debe adherirse a los principios de construcción limpia:
+
+1. **Arquitectura Limpia y Desacoplada**: El cambio debe organizarse en módulos independientes con responsabilidades únicas.
+2. **Robustez sobre Atajos**: Las soluciones deben diseñarse para mantenimiento a largo plazo, no como parches temporales.
+3. **Cero Legacy**: No se permiten adaptadores, capas de compatibilidad retroactiva ni soluciones híbridas para mantener vivo código muerto.
+4. **Erradicación de Código Muerto**: Prohibición de código redundante, comentado, variables sin uso o módulos obsoletos.
+5. **Enfoque en MVP**: La implementación se limita al alcance mínimo viable. El overengineering para casos no validados es una infracción.
+
+Si el cambio propuesto viola alguno de estos principios, la especificación debe documentar la violación y proponer la alternativa limpia.
+
 ## Operating Rules
 
-- Classify every project-specific assertion as `[CONFIRMADO]`, `[INFERIDO]`, or `[DESCONOCIDO]`.
+- Classify every **project-specific** assertion as `[CONFIRMADO]`, `[INFERIDO]`, or `[DESCONOCIDO]`. Methodological rules of the template itself do not require classification; only assertions about the state, behavior, or structure of the system under specification.
 - Apply the label at sentence, bullet, or table-row level; a section-level label is insufficient when rows contain different evidence quality.
 - Never present inferred information as confirmed.
+- **A reasonable inference is not a plausible invented value.** `[INFERIDO]` requires indirect evidence. Filling a field with a typical, common, or expected value when no evidence exists is invention, not inference. Use `[DESCONOCIDO]` instead.
+- **An inference can never close a critical dependency.** An `[INFERIDO]` assertion may be used to design a hypothesis, but it cannot serve as sufficient evidence to close a dependency, approve a migration, declare compatibility, declare absence of consumers, or classify the specification as Nivel A.
+- **Every `[DESCONOCIDO]` that affects an implementation decision must be converted** to a supuesto S1–S4 or remain explicitly as missing information (0.7–0.9). An unknown cannot remain unclassified while the specification proceeds as if it were irrelevant.
+- **A negative assertion requires evidence of the search universe and method used.** Declaring absence of consumers, dependencies, or references requires documenting what was searched, with what patterns, and where.
 - Do repository or document discovery before writing the specification when local context is available.
 - Do not assume tables, columns, endpoints, events, queues, files, contracts, dependencies, services, or internal processes without evidence.
 - Document every relevant decision explicitly. If a decision is important and absent, mark it as unknown or as a declared assumption.
@@ -43,14 +61,206 @@ Do not use ambiguous placeholders such as:
 
 Replace each with explicit, testable behavior or mark the item as `[DESCONOCIDO]`.
 
-## Workflow
+## Workflow — Protocolo Secuencial Obligatorio
 
-1. Gather evidence from the user request, linked documents, repository files, schemas, tests, configuration, and available tooling.
-2. Build FASE 0 discovery tables: information inventory, missing information, declared assumptions, and completeness level.
-3. Draft FASE 1 using every required section from the template. Do not omit sections; mark sections as not impacted only with evidence.
-4. Run FASE 2 consistency audit. Any `FAIL` means the specification is incomplete.
-5. Run FASE 3 architectural audit. Any `Sí` means the specification is incomplete.
-6. Finish with FASE 4 final completeness level and the reason for that level.
+El workflow es una secuencia estricta de 10 pasos (Paso 0 a Paso 9). Cada paso tiene una puerta de salida (*gate*) que debe satisfacerse con evidencia verificable antes de avanzar al siguiente. No se permite avanzar de paso sin haber completado el anterior. No se permite combinar pasos ni ejecutarlos en paralelo.
+
+Este protocolo es agnóstico al dominio: aplica por igual a cambios en código de aplicación, infraestructura, esquemas de base de datos, contratos de API, configuración de runtime, pipelines de CI/CD, frontend, backend o cualquier otra capa del sistema.
+
+### Paso 0 — Clasificación del Cambio (Triage)
+
+Antes de iniciar el descubrimiento, clasificar el cambio propuesto para calibrar el nivel de rigor requerido. Completar la tabla sin celdas vacías:
+
+| Dimensión | Valores Posibles |
+| --- | --- |
+| Tipo | Bug / Feature / Refactor / Migración / Infraestructura / Contrato |
+| Riesgo | Bajo / Medio / Alto / Crítico |
+| Persistencia afectada | Sí / No / Desconocido |
+| Contrato externo afectado | Sí / No / Desconocido |
+| Cambio arquitectónico | Sí / No |
+| Producción afectada | Sí / No / Desconocido |
+| Requiere Paso 3.1 (cobertura de abstracciones) | Sí / No |
+
+Reglas de calibración según profundidad de descubrimiento:
+
+- **Riesgo Bajo** (Bug simple, refactor cosmético sin cambio de contrato): Descubrimiento mínimo demostrable. Las secciones de Observabilidad y Rollout del template pueden marcarse como N/A con justificación.
+- **Riesgo Medio** (Feature nueva sin migración ni contrato externo): Descubrimiento completo del código afectado. Todas las secciones de FASE 0 y FASE 1 son obligatorias.
+- **Riesgo Alto** (Migración, cambio de contrato, cambio de infraestructura): Descubrimiento completo + infraestructura + operación + rollback. Todas las secciones son obligatorias, incluyendo Observabilidad y Rollout.
+- **Riesgo Crítico** (Cambio en producción con persistencia y contratos externos): Descubrimiento completo + infraestructura + operación + rollback + señales medibles. Todas las secciones son obligatorias y los criterios de aceptación deben incluir señales de rollback medibles.
+
+El triage calibra la profundidad del descubrimiento y permite marcar secciones como N/A con evidencia, pero nunca permite omitir FASE 0, FASE 2 o FASE 3. Las reglas de evidencia no se reducen por nivel de riesgo.
+
+**Gate**: La tabla de clasificación está completa sin celdas vacías y el nivel de rigor está calibrado.
+
+### Paso 1 — Levantamiento del Perímetro de Impacto
+
+Identificar **todos** los archivos directamente afectados por el cambio propuesto. Para cada archivo afectado:
+
+- Abrir el archivo y leer su contenido completo (no inferirlo del nombre).
+- Registrar la ruta absoluta.
+- Registrar el propósito del archivo en el sistema.
+- Registrar las líneas específicas que serían modificadas o eliminadas.
+- Clasificar cada archivo como MODIFIED, IMPACTED o INSPECTED. La clasificación `INSPECTED` es una conclusión válida únicamente para este cambio específico: confirma que la evidencia recopilada demuestra que el archivo no cambia ni su comportamiento resulta afectado. No implica que el archivo sea universalmente irrelevante.
+
+**Criterio de cierre del perímetro**: El perímetro se considera cerrado únicamente cuando se han ejecutado búsquedas por símbolo, ruta, importación, invocación, referencia textual, configuración, scripts, workflows y consumidores externos aplicables al cambio. Documentar los patrones de búsqueda utilizados.
+
+**Regla de expansión del alcance**: Si durante cualquier paso posterior se descubre un componente necesario no contemplado en el perímetro inicial, el perímetro se amplía. El cambio debe re-registrarse en Triage, Alcance, Impact Analysis y Cambios por Archivo.
+
+**Gate**: Existe una lista cerrada de archivos con rutas, propósito y clasificación MODIFIED/IMPACTED/INSPECTED confirmados por lectura directa, con criterio de cierre documentado.
+
+### Paso 2 — Descubrimiento de Dependencias Acopladas
+
+Para cada archivo del Paso 1, identificar **todos** los artefactos que lo consumen, lo invocan, lo importan, lo incluyen, lo referencian o dependen de su existencia. Buscar activamente en todas las capas del sistema:
+
+- **Código fuente**: clases, funciones, módulos que importan, heredan, instancian o invocan el artefacto.
+- **Configuración**: archivos de configuración, variables de entorno, manifiestos que referencian el artefacto.
+- **Orquestación**: scripts de arranque, entrypoints, bootstraps, schedulers que ejecutan el artefacto.
+- **Pipelines**: workflows de CI/CD, hooks de pre/post-deploy que construyen, validan o despliegan el artefacto.
+- **Tests**: suites de pruebas que validan el comportamiento del artefacto.
+- **Documentación**: archivos de documentación, skills de agentes, planes que referencian el artefacto.
+- **Consumidores externos**: otros repositorios, servicios, clientes, integraciones o procesos manuales que consumen el artefacto fuera del repositorio local.
+
+Para cada dependencia encontrada:
+
+- Abrir el archivo dependiente y leer las líneas que establecen la dependencia.
+- Registrar la ruta, la línea exacta, la naturaleza y la relación (directa / transitiva) de la dependencia.
+- Para consumidores fuera del repositorio, registrar el tipo (otro repositorio / servicio externo / cliente externo / operación manual) y la evidencia de búsqueda o `[DESCONOCIDO]` si no existe acceso al inventario.
+
+**Gate**: Existe un grafo de dependencias cerrado para cada archivo afectado, con evidencia de lectura en cada arista del grafo.
+
+### Paso 3 — Análisis de Impacto Inverso (Regresiones)
+
+Para **cada cambio propuesto** (eliminación, adición, modificación), formular y responder explícitamente la pregunta inversa:
+
+> "Si aplico este cambio, ¿qué componente del Paso 2 deja de funcionar?"
+
+Para cada respuesta afirmativa:
+
+- Documentar el componente afectado con ruta y línea.
+- Clasificar la regresión según su naturaleza:
+  - `Build`: falla en compilación, transpilación, generación de artefactos o instalación de dependencias.
+  - `Runtime`: falla en ejecución del sistema (arranque, request handling, procesamiento).
+  - `Test`: falla en suite de pruebas existente (unitarias, integración, e2e).
+  - `Contract`: ruptura de contrato de API, evento, esquema o interfaz pública.
+  - `Data`: pérdida, corrupción o inconsistencia de datos persistidos.
+  - `Pipeline`: falla en workflow de CI/CD, deploy o validación automatizada.
+  - `DX`: degradación de experiencia de desarrollo sin falla funcional directa.
+- Proponer la corrección inmediata con evidencia de que la corrección no introduce regresiones adicionales.
+
+**Gate**: Toda regresión potencial está documentada con ruta:línea, clasificada, y tiene corrección propuesta.
+
+### Paso 3.1 — Verificación de Cobertura de Abstracciones
+
+Si el cambio propone **reemplazar un mapeo estático** (constante, lista fija, tabla de lookup, switch/case exhaustivo, diccionario hardcodeado) **por una abstracción dinámica** (método semántico, interfaz polimórfica, evaluación por metadatos, configuración en base de datos, resolución por convención), ejecutar obligatoriamente la siguiente verificación:
+
+1. **Enumerar exhaustivamente** cada elemento del mapeo estático actual.
+2. Para **cada elemento**, determinar empíricamente los atributos que la abstracción dinámica usaría para clasificarlo.
+3. Verificar que **ningún otro elemento del sistema** comparte esos mismos atributos pero pertenece a una categoría diferente (colisión).
+4. Documentar el resultado en una tabla de cobertura:
+
+| Elemento del Mapeo Estático | Atributos Dinámicos | ¿Otros elementos comparten esos atributos? | ¿Clasificación correcta? |
+| --- | --- | --- | --- |
+|  |  | Sí (listar) / No | Sí / No |
+
+Cuando los atributos dinámicos provienen de datos persistidos (base de datos, configuración externa, archivos de datos), la verificación **debe incluir una consulta empírica a los datos reales** del sistema. No se permite verificar la cobertura solo contra el código fuente.
+
+Regla: Si algún elemento del mapeo estático no es cubierto por la abstracción dinámica sin colisiones, el reemplazo no es viable y debe mantenerse el mapeo estático o proponer una alternativa que resuelva las colisiones.
+
+**Gate**: Existe una tabla de cobertura completa donde cada elemento tiene clasificación correcta confirmada por evidencia empírica.
+
+### Paso 4 — Verificación de Semántica de Herramientas
+
+Para cada herramienta, parser, evaluador o runtime cuyo comportamiento el cambio dependa, verificar:
+
+- Que el cambio propuesto respeta las reglas de evaluación de la herramienta (orden de precedencia, reglas de anulación, scoping, resolución de conflictos).
+- Que no se asume un comportamiento de la herramienta sin evidencia de su documentación oficial o comportamiento observable.
+
+Ejemplos de herramientas que frecuentemente requieren verificación (lista no exhaustiva, adaptar al dominio del cambio):
+
+- Gestores de paquetes (orden de resolución, lockfiles, scripts de lifecycle).
+- Sistemas de build (caché de capas, multi-stage, orden de evaluación de ignores).
+- Servidores web (orden de evaluación de directivas, variables de template).
+- Parsers de configuración (YAML anchors, JSON schema, INI sections).
+- ORMs y query builders (lazy loading, eager loading, transacciones implícitas).
+- Frameworks de routing (orden de matching, middlewares, precedencia de rutas).
+- Motores de templates (herencia, bloques, scoping de variables).
+
+Para cada regla de herramienta relevante:
+
+- Citar la regla concreta (con URL de documentación oficial o comportamiento empírico observado).
+- Demostrar que el cambio propuesto es compatible con esa regla.
+
+**Gate**: Toda asunción sobre comportamiento de herramientas está respaldada por evidencia documental o empírica.
+
+### Paso 5 — Matriz de Entornos de Ejecución
+
+Para cada cambio propuesto, verificar su impacto en **todos** los entornos donde el artefacto se ejecuta. Los entornos varían según el proyecto; identificar los que aplican y completar la tabla sin celdas vacías:
+
+| Entorno | Flujo típico | Invocación representativa |
+| --- | --- | --- |
+| Desarrollo local | Build/run local del desarrollador | (identificar del proyecto) |
+| CI automatizado | Pipeline de integración continua | (identificar del proyecto) |
+| Staging/Preproducción | Despliegue a entorno de validación | (identificar del proyecto) |
+| Producción | Despliegue a entorno productivo | (identificar del proyecto) |
+| Testing aislado | Ejecución de suites sin servicios externos | (identificar del proyecto) |
+
+Para cada entorno:
+
+- Verificar si el cambio es compatible con el flujo de ese entorno.
+- Si existe incompatibilidad, documentarla como regresión (volver al Paso 3).
+
+**Gate**: Existe una tabla explícita de compatibilidad por entorno sin celdas vacías ni supuestos.
+
+### Paso 6 — Construcción de FASE 0 (Descubrimiento)
+
+Con la evidencia de los pasos 1-5, construir las tablas de descubrimiento de FASE 0 del template:
+
+- Perímetro de impacto verificado por lectura.
+- Grafo de dependencias acopladas con evidencia por arista.
+- Análisis de impacto inverso con regresiones clasificadas y corregidas.
+- Tabla de cobertura de abstracciones (si aplica, del Paso 3.1).
+- Verificación de semántica de herramientas.
+- Matriz de entornos.
+- Inventario de información (con clasificación obligatoria y evidencia con ruta:línea).
+- Información faltante (crítica, importante, opcional).
+- Supuestos declarados.
+- Clasificación de completitud inicial.
+
+**Gate**: Todas las filas del inventario tienen clasificación y evidencia verificable.
+
+### Paso 7 — Redacción de FASE 1 (Especificación)
+
+Redactar la especificación usando todas las secciones del template. Ninguna sección puede omitirse silenciosamente. Una sección no aplicable debe aparecer explícitamente como `N/A`, acompañada de `[CONFIRMADO]` o `[INFERIDO]` y su justificación.
+
+Aplicar los principios de Clean Rebuild Policy:
+
+- Verificar que el cambio no introduce código muerto, imports sin uso, o dependencias obsoletas.
+- Verificar que el cambio no crea adaptadores legacy ni capas de compatibilidad retroactiva innecesarias.
+- Verificar que el alcance se limita al MVP requerido sin overengineering. El MVP debe estar definido por requisitos, ticket, solicitud del usuario o documento de producto. Si no existe definición verificable del MVP, documentar como `[DESCONOCIDO]`.
+
+**Gate**: Toda sección del template está presente o explícitamente marcada como no impactada con evidencia.
+
+### Paso 8 — Auto-Auditoría Adversarial (FASE 2 + FASE 3)
+
+Antes de presentar la especificación al usuario:
+
+1. Ejecutar la auditoría de consistencia (FASE 2). Cada `FAIL` bloquea la entrega.
+2. Ejecutar la auditoría arquitectónica (FASE 3). Cada `Sí` bloquea la entrega.
+3. Aplicar las **preguntas adversariales anti-regresión** del template a cada cambio. Estas preguntas son universales y aplican a cualquier dominio técnico.
+
+Si cualquier pregunta adversarial resulta `SÍ-NO-CORREGIDO` o `DESCONOCIDO`, la especificación **no puede clasificarse como Nivel A**.
+
+#### Regla de Flujo Bidireccional
+
+Si durante la ejecución de la auditoría adversarial (FASE 3), una pregunta requiere evidencia empírica que no fue recopilada durante FASE 0 (Pasos 1-5), la especificación **debe detenerse y regresar al paso de descubrimiento correspondiente**. No se permite responder preguntas adversariales con inferencias cuando la evidencia empírica es obtenible. La secuencia Paso 7 → Paso 8 no es unidireccional: el resultado de Paso 8 puede invalidar Paso 7 y forzar un regreso a Pasos 1-6.
+
+**Gate**: Todas las auditorías pasan, todas las preguntas adversariales resultan `NO` o `SÍ-CORREGIDO`, y ninguna respuesta `NO` fue emitida sin evidencia verificable.
+
+### Paso 9 — Clasificación Final (FASE 4)
+
+Asignar el nivel de completitud final con justificación basada en evidencia de los pasos anteriores.
+
+**Gate**: El nivel asignado es consistente con la cantidad de supuestos, regresiones corregidas e información faltante.
 
 ## Output Requirements
 
@@ -60,3 +270,6 @@ Replace each with explicit, testable behavior or mark the item as `[DESCONOCIDO]
 - Provide complete examples for contracts and complete SQL for DDL or rollback when persistence changes are confirmed.
 - If a required section has no confirmed impact, state the evidence that proves no impact. If no evidence exists, mark the section `[DESCONOCIDO]`.
 - Acceptance criteria must be measurable, observable, and independently verifiable.
+- Every file reference must include the absolute path, the symbol (class, function, method) and line number(s) where the evidence was found. Prefer symbol-based references (`Clase::metodo(), líneas observadas: 120-145`) over bare line numbers for resilience against subsequent edits.
+- Every proposed change must include a before/after comparison with exact line numbers from the current source.
+- Distinguish **technical completeness** (all dependencies, contracts, regressions, and migrations resolved) from **organizational completeness** (business decisions, regulatory requirements, SLA, budget). The specification must achieve technical completeness; organizational decisions pending external stakeholders must be documented as such, not as technical unknowns.

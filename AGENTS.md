@@ -283,13 +283,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable                              | Default                 | Requerida | Módulo / Uso                                                                                                   |
 | ------------------------------------- | ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
 | `GEMINI_API_KEY`                      | _(vacío)_               | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                            |
-| `GEMINI_MODEL`                        | `gemini-3.5-flash`      | ❌        | Modelo de Gemini a usar                                                                                        |
+| `GEMINI_MODEL`                        | `gemini-3.7-flash`      | ❌        | Modelo de Gemini a usar                                                                                        |
 | `GEMINI_TEMPERATURE`                  | `0.0`                   | ❌        | Temperatura (0 = determinístico)                                                                               |
 | `GEMINI_TIMEOUT`                      | `300`                   | ❌        | Timeout de la API en segundos                                                                                  |
 | `GEMINI_TOP_P`                        | `1.0`                   | ❌        | Nucleus sampling para determinismo                                                                             |
 | `GEMINI_TOP_K`                        | `1`                     | ❌        | Top-K sampling para determinismo                                                                               |
 | `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                  | ❌        | Límite de tokens en la respuesta                                                                               |
-| `GEMINI_MEDIA_RESOLUTION`             | `medium`                | ❌        | `GeminiConfig` — Resolución de imágenes (`low`, `medium`, `high`, `ultra_high`)                                |
+| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_MEDIUM` | ❌      | `GeminiConfig` — Resolución de imágenes. Enums Protobuf: `MEDIA_RESOLUTION_LOW`, `MEDIA_RESOLUTION_MEDIUM`, `MEDIA_RESOLUTION_HIGH`. |
 | `GEMINI_THINKING_BUDGET`              | _(vacío)_               | ❌        | Presupuesto de razonamiento (thinking mode)                                                                    |
 | `GEMINI_THINKING_LEVEL`               | _(vacío)_               | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                           |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                  | ❌        | Límite de salida para extracción documental                                                                    |

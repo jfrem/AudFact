@@ -69,3 +69,9 @@ frontend/
 !DESIGN.md
 !website/
 !website/**
+
+# ── Re-excluir artefactos pesados DESPUÉS de la re-inclusión ──
+# (en .dockerignore la última regla que coincide gana)
+website/node_modules
+website/.docusaurus
+website/build

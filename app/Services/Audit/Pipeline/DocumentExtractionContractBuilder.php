@@ -178,7 +178,7 @@ final class DocumentExtractionContractBuilder
             return true;
         }
 
-        if ($valueType === AuditFieldValueType::ARTICLE_NAME || $valueType === AuditFieldValueType::TRACE_TOKEN) {
+        if ($valueType !== null && $valueType->isItemScoped()) {
             return true;
         }
 
@@ -413,7 +413,6 @@ final class DocumentExtractionContractBuilder
      */
     private function buildEvidenceFieldSchema(array $field): array
     {
-        $fieldName = $this->fieldName($field);
         $tipoCampo = (string) ($field['tipoCampo'] ?? 'E');
         $valueType = $this->fieldValueType($field);
         $valorType = $this->schemaTypeForField($valueType, $tipoCampo);
@@ -422,7 +421,7 @@ final class DocumentExtractionContractBuilder
             'nullable' => true,
         ];
         $configuredDescription = isset($field['description']) ? trim((string) $field['description']) : '';
-        $fallbackDescription = $this->fieldValueDescription($fieldName, $valueType);
+        $fallbackDescription = $valueType->fieldDescriptionFallback();
         $valorDescription = $configuredDescription !== '' ? $configuredDescription : $fallbackDescription;
         if ($valorDescription !== null && $valorDescription !== '') {
             $valorProperty['description'] = $valorDescription;
@@ -476,45 +475,6 @@ final class DocumentExtractionContractBuilder
         }
 
         return $active;
-    }
-
-    private function fieldValueDescription(string $fieldName, AuditFieldValueType $valueType): ?string
-    {
-        if ($valueType === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
-            return $this->identityDocumentNumberDescription($fieldName);
-        }
-
-        if ($valueType === AuditFieldValueType::PERSON_NAME) {
-            return $this->identityPersonNameDescription($fieldName);
-        }
-
-        if ($valueType === AuditFieldValueType::IDENTITY_DOC_TYPE) {
-            return 'Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC.';
-        }
-
-        if ($valueType === AuditFieldValueType::DATE) {
-            return 'Fecha visible; transcribe exactamente el año y fecha impresa.';
-        }
-
-        return null;
-    }
-
-    private function identityDocumentNumberDescription(string $fieldName): string
-    {
-        if ($fieldName === 'DocumentoMedico') {
-            return 'Solo numero del prescriptor; transcribe cada digito individualmente de izquierda a derecha sin nombre, registro ni tipo; verifica con cuidado la distincion entre 8, 6 y 5.';
-        }
-
-        return 'Solo numero del paciente; transcribe cada digito individualmente de izquierda a derecha sin tipo ni nombre; verifica con cuidado la distincion entre 8, 6 y 5 sin omitir ni duplicar digitos.';
-    }
-
-    private function identityPersonNameDescription(string $fieldName): string
-    {
-        if ($fieldName === 'Medico') {
-            return 'Solo nombres y apellidos del prescriptor; sin documento ni registro.';
-        }
-
-        return 'Solo nombres y apellidos; sin tipo ni numero.';
     }
 
     /**
