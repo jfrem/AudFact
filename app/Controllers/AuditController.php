@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Models\AttachmentsModel;
 use App\Models\AuditStatusModel;
+use App\Models\ClientsModel;
 use App\Services\Audit\Pipeline\AuditDataService;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
@@ -409,6 +410,45 @@ class AuditController extends Controller
         );
     }
 
+    public function jobsList(): void
+    {
+        $validated = $this->validateQuery([
+            'limit' => 'nullable|integer|min_value:1|max_value:100',
+        ]);
+
+        $limit = isset($validated['limit']) && is_numeric($validated['limit'])
+            ? (int) $validated['limit']
+            : 50;
+
+        try {
+            $jobs = $this->buildBatchJobStore()->listJobs($limit);
+        } catch (\Throwable $e) {
+            Logger::error('AuditController::jobsList falló', ['error' => $e->getMessage()]);
+            Response::error('No se pudo obtener la lista de jobs', 503);
+            return;
+        }
+
+        try {
+            $clients = $this->buildClientsModel()->getAllClients();
+            $clientsMap = [];
+            foreach ($clients as $client) {
+                if (isset($client['NitSec'], $client['NitCom'])) {
+                    $clientsMap[(int) $client['NitSec']] = (string) $client['NitCom'];
+                }
+            }
+
+            foreach ($jobs as &$job) {
+                $nitSec = (int) ($job['fac_nit_sec'] ?? 0);
+                $job['client_name'] = $clientsMap[$nitSec] ?? ($nitSec > 0 ? "Cliente #{$nitSec}" : 'Sin cliente');
+            }
+            unset($job);
+        } catch (\Throwable $e) {
+            Logger::warning('AuditController::jobsList: no se pudieron cargar nombres de clientes', ['error' => $e->getMessage()]);
+        }
+
+        Response::success($jobs, 'Lista de jobs de auditoría');
+    }
+
     public function jobStatus(string $jobId): void
     {
         if (!AuditEvent::isUuidV4($jobId)) {
@@ -551,5 +591,10 @@ class AuditController extends Controller
     protected function buildDispensationModel(): \App\Models\DispensationModel
     {
         return new \App\Models\DispensationModel();
+    }
+
+    protected function buildClientsModel(): ClientsModel
+    {
+        return new ClientsModel();
     }
 }

@@ -293,6 +293,68 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(404, $response->getCode());
     }
 
+    public function testJobsListReturns200WithLightweightSummaryAndEnrichedClients(): void
+    {
+        $jobStore = new StubBatchJobStore();
+        $jobStore->listJobsReturns = [
+            [
+                'job_id' => '85fabb86-d563-4d1c-bb49-659b728d0126',
+                'fac_nit_sec' => 2624,
+                'status' => 'processing',
+                'total' => 3000,
+                'done' => 500,
+                'failed' => 2,
+                'pending' => 2498,
+                'progress_percent' => 16,
+                'created_at' => '2026-08-20T15:00:14Z',
+            ],
+            [
+                'job_id' => '7df545b9-f004-4f40-82b7-39406993df6f',
+                'fac_nit_sec' => 2426,
+                'status' => 'completed',
+                'total' => 14,
+                'done' => 14,
+                'failed' => 0,
+                'pending' => 0,
+                'progress_percent' => 100,
+                'created_at' => '2026-08-20T15:00:15Z',
+            ],
+        ];
+
+        $clientsModel = new StubClientsModel([
+            ['NitSec' => 2624, 'NitCom' => 'NUEVA EPS SA'],
+            ['NitSec' => 2426, 'NitCom' => 'POSITIVA COMPAÑIA DE SEGUROS SA'],
+        ]);
+
+        $controller = new TestableAuditController(
+            jobStore: $jobStore,
+            clientsModel: $clientsModel
+        );
+
+        $response = self::captureResponse(static fn() => $controller->jobsList());
+
+        $this->assertSame(200, $response->getCode());
+        $data = $response->getData()['data'];
+        $this->assertCount(2, $data);
+        $this->assertSame('NUEVA EPS SA', $data[0]['client_name']);
+        $this->assertSame('POSITIVA COMPAÑIA DE SEGUROS SA', $data[1]['client_name']);
+        $this->assertSame('processing', $data[0]['status']);
+    }
+
+    public function testJobsListHandlesStoreFailureWith503(): void
+    {
+        $jobStore = new StubBatchJobStore();
+        $jobStore->listJobsThrows = true;
+
+        $controller = new TestableAuditController(
+            jobStore: $jobStore
+        );
+
+        $response = self::captureResponse(static fn() => $controller->jobsList());
+
+        $this->assertSame(503, $response->getCode());
+    }
+
     // ── Helpers ────────────────────────────────────────────────
 
     private function newStoreStub(
@@ -337,6 +399,7 @@ final class TestableAuditController extends AuditController
         private ?AuditStatusModel $auditStatusModel = null,
         private ?AuditDataService $auditDataService = null,
         private ?\App\Models\DispensationModel $dispensationModel = null,
+        private ?\App\Models\ClientsModel $clientsModel = null,
     ) {
     }
 
@@ -378,6 +441,21 @@ final class TestableAuditController extends AuditController
     protected function buildDispensationModel(): \App\Models\DispensationModel
     {
         return $this->dispensationModel ?? new StubDispensationModel();
+    }
+
+    protected function buildClientsModel(): \App\Models\ClientsModel
+    {
+        return $this->clientsModel ?? new StubClientsModel([]);
+    }
+}
+
+final class StubClientsModel extends \App\Models\ClientsModel
+{
+    public function __construct(private array $clients = []) {}
+
+    public function getAllClients(): array
+    {
+        return $this->clients;
     }
 }
 
@@ -573,6 +651,18 @@ class StubBatchJobStore extends BatchJobStore
             throw new RuntimeException('Redis no disponible', 503);
         }
         return $this->getJobReturns;
+    }
+
+    /** @var array<int,array<string,mixed>> */
+    public array $listJobsReturns = [];
+    public bool $listJobsThrows = false;
+
+    public function listJobs(int $limit = 50): array
+    {
+        if ($this->listJobsThrows) {
+            throw new RuntimeException('Redis no disponible al listar jobs', 503);
+        }
+        return $this->listJobsReturns;
     }
 }
 

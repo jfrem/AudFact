@@ -5,6 +5,7 @@ import {
   AuditConfigSchema,
   AuditResultDetailSchema,
   AuditJobSchema,
+  AuditJobsListSchema,
   AuditSingleResponseSchema,
   ClientDocumentsSchema,
   ClientsSchema,
@@ -52,7 +53,10 @@ export function getClientById(clientId: string | number) {
 }
 
 export function getClientDocuments(clientId: string | number) {
-  return requestJson(endpoints.clientDocuments(clientId), ClientDocumentsSchema);
+  return requestJson(
+    endpoints.clientDocuments(clientId),
+    ClientDocumentsSchema,
+  );
 }
 
 export function getInvoices(query: {
@@ -65,12 +69,21 @@ export function getInvoices(query: {
   return requestJson(endpoints.invoices(query), PaginatedInvoicesSchema);
 }
 
-export function getDispensationDetail(disId: string | undefined | null, disDetNro: string) {
+export function getDispensationDetail(
+  disId: string | undefined | null,
+  disDetNro: string,
+) {
   if (!disId?.trim()) {
-    return postJson(endpoints.dispensationLookup(), { DisDetNro: disDetNro }, DispensationDetailSchema)
-      .then((envelope) => envelope.data);
+    return postJson(
+      endpoints.dispensationLookup(),
+      { DisDetNro: disDetNro },
+      DispensationDetailSchema,
+    ).then((envelope) => envelope.data);
   }
-  return requestJson(endpoints.dispensationById(disId, disDetNro), DispensationDetailSchema);
+  return requestJson(
+    endpoints.dispensationById(disId, disDetNro),
+    DispensationDetailSchema,
+  );
 }
 
 export function getAttachments(disDetNro: string, nitSec: string | number) {
@@ -80,7 +93,10 @@ export function getAttachments(disDetNro: string, nitSec: string | number) {
   );
 }
 
-export function getAttachmentPreview(disDetNro: string, attachmentId: string | number) {
+export function getAttachmentPreview(
+  disDetNro: string,
+  attachmentId: string | number,
+) {
   return requestAttachmentPreview(
     endpoints.attachmentDownload(disDetNro, attachmentId),
     AttachmentPreviewSchema,
@@ -91,10 +107,15 @@ export function getAttachmentDownloadUrl(
   disDetNro: string,
   attachmentId: string | number,
 ) {
-  return buildPublicApiUrl(endpoints.attachmentDownload(disDetNro, attachmentId));
+  return buildPublicApiUrl(
+    endpoints.attachmentDownload(disDetNro, attachmentId),
+  );
 }
 
-export function runAuditSingle(disId: string | undefined | null, disDetNro: string) {
+export function runAuditSingle(
+  disId: string | undefined | null,
+  disDetNro: string,
+) {
   return postJson(
     endpoints.auditSingle(),
     { disId: disId?.trim() || "", disDetNro },
@@ -116,6 +137,9 @@ export function enqueueAuditBatch(
   });
 }
 
+export function getAuditJobs(query?: { limit?: number }) {
+  return requestJson(endpoints.auditJobs(query), AuditJobsListSchema);
+}
 
 export function getAuditJob(jobId: string) {
   return requestJson(endpoints.auditJob(jobId), AuditJobSchema);
@@ -125,12 +149,22 @@ export function getAuditLiveStatus(auditId: string) {
   return requestJson(endpoints.auditStatus(auditId), AuditLiveStatusSchema);
 }
 
-export function getAuditResults(query?: Record<string, string | number | undefined>) {
-  return requestJson(endpoints.auditResults(query), PaginatedAuditResultsSchema);
+export function getAuditResults(
+  query?: Record<string, string | number | undefined>,
+) {
+  return requestJson(
+    endpoints.auditResults(query),
+    PaginatedAuditResultsSchema,
+  );
 }
 
-export function getAuditResultDetail(facNro: string | number): Promise<AuditResultDetail> {
-  return requestJson(endpoints.auditResultDetail(facNro), AuditResultDetailSchema) as Promise<AuditResultDetail>;
+export function getAuditResultDetail(
+  facNro: string | number,
+): Promise<AuditResultDetail> {
+  return requestJson(
+    endpoints.auditResultDetail(facNro),
+    AuditResultDetailSchema,
+  ) as Promise<AuditResultDetail>;
 }
 
 export function getAuditStats() {
@@ -166,7 +200,10 @@ export function getFieldCatalog() {
   return requestJson(endpoints.fieldCatalog(), FieldCatalogSchema);
 }
 
-export function saveAuditConfig(clientId: string | number, payload: AuditConfigPayload) {
+export function saveAuditConfig(
+  clientId: string | number,
+  payload: AuditConfigPayload,
+) {
   return postJson(
     endpoints.auditConfig(clientId),
     payload,

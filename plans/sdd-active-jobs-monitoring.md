@@ -29,7 +29,7 @@
 | `audfact.ts` | `c:\Users\USER\Desktop\AudFact\frontend\lib\api\audfact.ts` | MODIFIED | Función cliente `getAuditJobs()` | 120-125 | Sí |
 | `page.tsx` (Jobs) | `c:\Users\USER\Desktop\AudFact\frontend\app\(dashboard)\audit\jobs\page.tsx` | MODIFIED | Vista principal de Jobs con feed en vivo | 1-16 | Sí |
 | `jobs-list-live.tsx` | `c:\Users\USER\Desktop\AudFact\frontend\components\jobs\jobs-list-live.tsx` | NEW | Componente interactivo de listado y polling de jobs | 1-180 | Sí |
-| `job-tracker.tsx` | `c:\Users\USER\Desktop\AudFact\frontend\components\jobs\job-tracker.tsx` | INSPECTED | Buscador manual por UUID que se mantiene como subcomponente | 1-78 | Sí |
+| `job-tracker.tsx` | `c:\Users\USER\Desktop\AudFact\frontend\components\jobs\job-tracker.tsx` | DELETED | Erradicado bajo Clean Rebuild Policy por redundancia | 1-78 | Sí |
 | `AuditControllerTest.php` | `c:\Users\USER\Desktop\AudFact\tests\Controllers\AuditControllerTest.php` | MODIFIED | Pruebas unitarias para endpoint `GET /audit/jobs` | 550-608 | Sí |
 
 #### Criterio de Cierre del Perímetro

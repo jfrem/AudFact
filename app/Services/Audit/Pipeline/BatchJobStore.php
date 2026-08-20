@@ -93,12 +93,52 @@ class BatchJobStore
         if ($success) {
             try {
                 $this->redis->hIncrBy('telemetry:async_metrics', 'jobs_queued', 1);
+                $this->redis->eval(
+                    "redis.call('ZADD', KEYS[1], tonumber(ARGV[1]), ARGV[2])",
+                    ['jobs:index'],
+                    [(string) time(), $jobId]
+                );
             } catch (\Throwable $e) {
-                Logger::warning('BatchJobStore: No se pudo incrementar jobs_queued', ['error' => $e->getMessage()]);
+                Logger::warning('BatchJobStore: No se pudo incrementar jobs_queued o indexar job', ['error' => $e->getMessage()]);
             }
         }
 
         return $success;
+    }
+
+    /**
+     * Lista los jobs batch recientes/activos con un resumen ligero.
+     *
+     * @param int $limit Cantidad máxima de jobs a retornar (1..100)
+     * @return array<int, array<string, mixed>>
+     */
+    public function listJobs(int $limit = 50): array
+    {
+        $limit = max(1, min(100, $limit));
+
+        try {
+            $rawJson = $this->redis->eval(
+                self::LIST_JOBS_LUA,
+                ['jobs:index'],
+                [(string) $limit]
+            );
+
+            if (!is_string($rawJson) || $rawJson === '') {
+                return [];
+            }
+
+            $decoded = json_decode($rawJson, true);
+            if (!is_array($decoded)) {
+                return [];
+            }
+
+            usort($decoded, static fn (array $a, array $b) => strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? '')));
+
+            return $decoded;
+        } catch (\Throwable $e) {
+            Logger::error('BatchJobStore::listJobs falló', ['error' => $e->getMessage()]);
+            return [];
+        }
     }
 
     public function getJob(string $jobId): ?array
@@ -494,5 +534,73 @@ end
 
 redis.call('DEL', KEYS[1])
 return 1
+LUA;
+
+    private const LIST_JOBS_LUA = <<<'LUA'
+local indexKey = KEYS[1]
+local limit = tonumber(ARGV[1]) or 50
+local jobIds = redis.call('ZREVRANGE', indexKey, 0, limit - 1)
+local rawList = {}
+
+local prefix = string.match(indexKey, "^(.*:)jobs:index$") or "audfact:"
+
+if #jobIds > 0 then
+    for i = 1, #jobIds do
+        local raw = redis.call('GET', prefix .. 'job:' .. tostring(jobIds[i]) .. ':state')
+        if raw then
+            rawList[#rawList + 1] = raw
+        end
+    end
+else
+    local foundKeys = redis.call('KEYS', prefix .. 'job:*:state')
+    for i = 1, math.min(#foundKeys, limit) do
+        local raw = redis.call('GET', foundKeys[i])
+        if raw then
+            rawList[#rawList + 1] = raw
+        end
+    end
+end
+
+local results = {}
+for i = 1, #rawList do
+    local job = cjson.decode(rawList[i])
+    if job and type(job) == 'table' then
+        local total = tonumber(job['total']) or 0
+        local done = tonumber(job['done']) or 0
+        local failed = tonumber(job['failed']) or 0
+        local pending = math.max(0, total - done - failed)
+        local progress = 0
+        if total > 0 then
+            progress = math.floor(((done + failed) / total) * 100)
+        end
+        local accDur = tonumber(job['accumulated_duration_ms']) or 0
+        local avgDur = tonumber(job['avg_duration_ms']) or 0
+        local throughput = 0
+        local processed = done + failed
+        if processed > 0 and accDur > 0 then
+            throughput = math.floor((processed / (accDur / 1000)) * 100) / 100
+        end
+
+        results[#results + 1] = {
+            job_id = tostring(job['job_id'] or ''),
+            fac_nit_sec = tonumber(job['fac_nit_sec']) or 0,
+            status = tostring(job['status'] or 'pending'),
+            total = total,
+            done = done,
+            failed = failed,
+            pending = pending,
+            progress_percent = progress,
+            avg_duration_ms = avgDur,
+            accumulated_duration_ms = accDur,
+            throughput_per_sec = throughput,
+            created_at = tostring(job['created_at'] or ''),
+            updated_at = tostring(job['updated_at'] or ''),
+            date_from = tostring(job['date_from'] or ''),
+            date_to = tostring(job['date_to'] or '')
+        }
+    end
+end
+
+return cjson.encode(results)
 LUA;
 }

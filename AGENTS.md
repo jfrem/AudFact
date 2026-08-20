@@ -85,6 +85,7 @@ Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_s
 | `GET`  | `/audit/documents-history`                                      | `AuditController`         | `documentsHistory`       | Historial de documentos auditados por IA                                     |
 | `POST` | `/audit/single`                                                 | `AuditController`         | `single`                 | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async`                                                  | `AuditController`         | `async`                  | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202             |
+| `GET`  | `/audit/jobs`                                                   | `AuditController`         | `jobsList`               | Listado y resumen de jobs batch recientes con enriquecimiento de clientes    |
 | `GET`  | `/audit/jobs/{jobId}`                                           | `AuditController`         | `jobStatus`              | Estado y progreso de job asíncrono                                           |
 | `GET`  | `/audit/status/{auditId}`                                       | `AuditController`         | `status`                 | Estado Redis de auditoría individual                                         |
 | `GET`  | `/audit/dlq`                                                    | `AuditDlqController`      | `index`                  | Listado administrativo de eventos `dead_letter`                              |
