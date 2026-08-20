@@ -12,11 +12,15 @@ use RuntimeException;
 
 class AuditEventPublisher
 {
-    public const STREAM_INBOX       = 'audit.inbox';
-    public const STREAM_DOCUMENTS   = 'audit.documents';
-    public const STREAM_PERSISTENCE = 'audit.persistence:{queue}';
-    public const STREAM_RESULTS     = 'audit.results';
-    public const STREAM_BATCH_INBOX = 'audit.batch.inbox';
+    public const STREAM_INBOX_PRIORITY       = 'audit.inbox.priority';
+    public const STREAM_INBOX_BATCH          = 'audit.inbox.batch';
+    public const STREAM_DOCUMENTS_PRIORITY   = 'audit.documents.priority';
+    public const STREAM_DOCUMENTS_BATCH      = 'audit.documents.batch';
+    public const STREAM_PERSISTENCE_PRIORITY = 'audit.persistence.priority';
+    public const STREAM_PERSISTENCE_BATCH    = 'audit.persistence.batch';
+    public const STREAM_RESULTS_PRIORITY     = 'audit.results.priority';
+    public const STREAM_RESULTS_BATCH        = 'audit.results.batch';
+    public const STREAM_BATCH_INBOX          = 'audit.batch.inbox';
 
     public const GROUP_ORCHESTRATOR = 'orchestrator';
     public const GROUP_DOWNLOADERS  = 'downloaders';
@@ -25,21 +29,6 @@ class AuditEventPublisher
     public const GROUP_POLICY       = 'policy';
     public const GROUP_PERSISTENCE  = 'persistence';
     public const GROUP_BATCH        = 'batch-workers';
-
-    private const STREAM_BY_TYPE = [
-        AuditEvent::TYPE_AUDIT_CREATED       => self::STREAM_INBOX,
-        AuditEvent::TYPE_BATCH_CREATED       => self::STREAM_INBOX,
-        AuditEvent::TYPE_DOCUMENT_REGISTERED => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_DOCUMENT_DOWNLOADED => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_DOCUMENT_EXTRACTED  => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_DOCUMENT_REJECTED   => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_DOCUMENT_NORMALIZED => self::STREAM_DOCUMENTS,
-        AuditEvent::TYPE_AUDIT_COMPLETED     => self::STREAM_RESULTS,
-        AuditEvent::TYPE_AUDIT_FAILED        => self::STREAM_RESULTS,
-        AuditEvent::TYPE_BATCH_COMPLETED     => self::STREAM_RESULTS,
-        AuditEvent::TYPE_BATCH_COMPLETED_ERR => self::STREAM_RESULTS,
-        AuditEvent::TYPE_BATCH_REQUESTED     => self::STREAM_BATCH_INBOX,
-    ];
 
     private const DEFAULT_STREAM_MAXLEN = 100000;
 
@@ -56,7 +45,7 @@ class AuditEventPublisher
 
     public function publish(AuditEvent $event): string
     {
-        $stream = self::streamForEventType($event->eventType);
+        $stream = self::streamForEvent($event);
 
         return $this->publishTo($stream, $event);
     }
@@ -104,13 +93,43 @@ class AuditEventPublisher
         return $id;
     }
 
-    public static function streamForEventType(string $eventType): string
+    public static function isPriorityEvent(AuditEvent $event): bool
     {
-        if (!isset(self::STREAM_BY_TYPE[$eventType])) {
-            throw new \InvalidArgumentException("event_type sin stream asignado: {$eventType}");
+        if (($event->payload['source'] ?? '') === 'single') {
+            return true;
         }
 
-        return self::STREAM_BY_TYPE[$eventType];
+        if (($event->payload['is_priority'] ?? false) === true) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static function streamForEvent(AuditEvent $event, ?bool $isPriority = null): string
+    {
+        $priority = $isPriority ?? self::isPriorityEvent($event);
+
+        return self::streamForEventType($event->eventType, $priority);
+    }
+
+    public static function streamForEventType(string $eventType, bool $isPriority = false): string
+    {
+        return match ($eventType) {
+            AuditEvent::TYPE_AUDIT_CREATED,
+            AuditEvent::TYPE_BATCH_CREATED       => $isPriority ? self::STREAM_INBOX_PRIORITY : self::STREAM_INBOX_BATCH,
+            AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            AuditEvent::TYPE_DOCUMENT_DOWNLOADED,
+            AuditEvent::TYPE_DOCUMENT_EXTRACTED,
+            AuditEvent::TYPE_DOCUMENT_REJECTED,
+            AuditEvent::TYPE_DOCUMENT_NORMALIZED => $isPriority ? self::STREAM_DOCUMENTS_PRIORITY : self::STREAM_DOCUMENTS_BATCH,
+            AuditEvent::TYPE_AUDIT_COMPLETED,
+            AuditEvent::TYPE_AUDIT_FAILED,
+            AuditEvent::TYPE_BATCH_COMPLETED,
+            AuditEvent::TYPE_BATCH_COMPLETED_ERR => $isPriority ? self::STREAM_RESULTS_PRIORITY : self::STREAM_RESULTS_BATCH,
+            AuditEvent::TYPE_BATCH_REQUESTED     => self::STREAM_BATCH_INBOX,
+            default => throw new \InvalidArgumentException("event_type sin stream asignado: {$eventType}"),
+        };
     }
 
     public static function dlqStream(): string

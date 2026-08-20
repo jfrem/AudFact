@@ -18,12 +18,18 @@ final class ObservabilityControllerTest extends TestCase
 
         // xPending retorna pendientes reales por (stream, group)
         $redis->method('xPending')->willReturnMap([
-            [AuditEventPublisher::STREAM_INBOX, 'orchestrator', 1],
-            [AuditEventPublisher::STREAM_DOCUMENTS, 'downloaders', 2],
-            [AuditEventPublisher::STREAM_DOCUMENTS, 'extractors', 0],
-            [AuditEventPublisher::STREAM_DOCUMENTS, 'normalizers', 0],
-            [AuditEventPublisher::STREAM_DOCUMENTS, 'policy', 0],
-            [AuditEventPublisher::STREAM_PERSISTENCE, 'persistence', 5],
+            [AuditEventPublisher::STREAM_INBOX_PRIORITY, 'orchestrator', 1],
+            [AuditEventPublisher::STREAM_INBOX_BATCH, 'orchestrator', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY, 'downloaders', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY, 'extractors', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY, 'normalizers', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY, 'policy', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_BATCH, 'downloaders', 2],
+            [AuditEventPublisher::STREAM_DOCUMENTS_BATCH, 'extractors', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_BATCH, 'normalizers', 0],
+            [AuditEventPublisher::STREAM_DOCUMENTS_BATCH, 'policy', 0],
+            [AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY, 'persistence', 0],
+            [AuditEventPublisher::STREAM_PERSISTENCE_BATCH, 'persistence', 5],
             [AuditEventPublisher::STREAM_BATCH_INBOX, 'batch-workers', 4],
         ]);
         // DLQ sigue usando xLen (no tiene consumer group)

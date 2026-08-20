@@ -76,9 +76,12 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->responseParser = $responseParser ?? new GeminiResponseParser($this->gateway, $this->redis, $this->promptBuilder);
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return AuditEventPublisher::STREAM_DOCUMENTS;
+        return [
+            AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY,
+            AuditEventPublisher::STREAM_DOCUMENTS_BATCH,
+        ];
     }
 
     protected function group(): string

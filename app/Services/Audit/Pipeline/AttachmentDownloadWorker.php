@@ -35,9 +35,12 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         $this->blobTtl            = $resolvedBlobTtl > 0 ? $resolvedBlobTtl : self::DEFAULT_BLOB_TTL_SECONDS;
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return AuditEventPublisher::STREAM_DOCUMENTS;
+        return [
+            AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY,
+            AuditEventPublisher::STREAM_DOCUMENTS_BATCH,
+        ];
     }
 
     protected function group(): string

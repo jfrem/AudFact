@@ -39,9 +39,12 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         $this->consumerName    = $consumerName    ?? self::defaultConsumerName(AuditEventPublisher::GROUP_ORCHESTRATOR);
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return AuditEventPublisher::STREAM_INBOX;
+        return [
+            AuditEventPublisher::STREAM_INBOX_PRIORITY,
+            AuditEventPublisher::STREAM_INBOX_BATCH,
+        ];
     }
 
     protected function group(): string
@@ -293,6 +296,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         DocumentAttachmentMatchResult $matchResult
     ): void
     {
+        $source = (string) ($event->payload['source'] ?? ($event->jobId === null ? 'single' : 'batch'));
+        $isPriority = AuditEventPublisher::isPriorityEvent($event);
+
         foreach ($matchResult->matches as $match) {
             $configuredDocument = $match['logical_document'];
             $attachment = $match['physical_attachment'];
@@ -306,7 +312,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $attachment,
                 $context,
                 (string) $match['strategy'],
-                $match['candidate_attachment_ids']
+                $match['candidate_attachment_ids'],
+                $source,
+                $isPriority
             );
 
             if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
@@ -351,7 +359,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $attachment,
                 $context,
                 null,
-                $candidateAttachmentIds
+                $candidateAttachmentIds,
+                $source,
+                $isPriority
             );
 
             if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
@@ -383,6 +393,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                     'logical_doc_id' => (string) $rejection['logical_doc_id'],
                     'candidate_attachment_ids' => $candidateAttachmentIds,
                     'rejected_at' => $rejectedAt,
+                    'source' => $source,
+                    'is_priority' => $isPriority,
                 ],
                 parentEventId: $event->eventId,
             ));
@@ -411,7 +423,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         array $attachment,
         array $context,
         ?string $matchStrategy,
-        array $matchCandidates
+        array $matchCandidates,
+        ?string $source = null,
+        bool $isPriority = false
     ): array {
         $attachmentId = (string) ($attachment['attachment_id'] ?? '');
         $contractHash = (string) ($configuredDocument['extraction_contract']['contract_hash'] ?? '');
@@ -438,6 +452,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'numero_factura'     => $context['numeroFactura'],
             'dis_id'             => $context['disId'],
             'fac_nit_sec'        => $context['nitSec'],
+            'source'             => $source,
+            'is_priority'        => $isPriority,
             'extraction_contract' => $configuredDocument['extraction_contract'],
             'fields_config'      => $configuredDocument['fields'],
             'visual_checks'      => $configuredDocument['visual_checks'],

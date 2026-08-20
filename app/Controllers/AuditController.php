@@ -88,6 +88,7 @@ class AuditController extends Controller
                     'dis_id'       => $disId,
                     'fac_nit_sec'  => $facNitSec,
                     'source'       => 'single',
+                    'is_priority'  => true,
                 ],
             );
 

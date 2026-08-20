@@ -32,16 +32,25 @@ class ObservabilityController extends Controller
             $redis = $this->buildRedisClient();
 
             $streamGroups = [
-                'inbox'       => [AuditEventPublisher::STREAM_INBOX, [AuditEventPublisher::GROUP_ORCHESTRATOR]],
-                'documents'   => [AuditEventPublisher::STREAM_DOCUMENTS, [
+                'inbox_priority'       => [AuditEventPublisher::STREAM_INBOX_PRIORITY, [AuditEventPublisher::GROUP_ORCHESTRATOR]],
+                'inbox_batch'          => [AuditEventPublisher::STREAM_INBOX_BATCH, [AuditEventPublisher::GROUP_ORCHESTRATOR]],
+                'documents_priority'   => [AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY, [
                     AuditEventPublisher::GROUP_DOWNLOADERS,
                     AuditEventPublisher::GROUP_EXTRACTORS,
                     AuditEventPublisher::GROUP_NORMALIZERS,
                     AuditEventPublisher::GROUP_POLICY
                 ]],
-                'persistence' => [AuditEventPublisher::STREAM_PERSISTENCE, [AuditEventPublisher::GROUP_PERSISTENCE]],
-                'results'     => [AuditEventPublisher::STREAM_RESULTS, []],
-                'batchInbox'  => [AuditEventPublisher::STREAM_BATCH_INBOX, [AuditEventPublisher::GROUP_BATCH]],
+                'documents_batch'      => [AuditEventPublisher::STREAM_DOCUMENTS_BATCH, [
+                    AuditEventPublisher::GROUP_DOWNLOADERS,
+                    AuditEventPublisher::GROUP_EXTRACTORS,
+                    AuditEventPublisher::GROUP_NORMALIZERS,
+                    AuditEventPublisher::GROUP_POLICY
+                ]],
+                'persistence_priority' => [AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY, [AuditEventPublisher::GROUP_PERSISTENCE]],
+                'persistence_batch'    => [AuditEventPublisher::STREAM_PERSISTENCE_BATCH, [AuditEventPublisher::GROUP_PERSISTENCE]],
+                'results_priority'     => [AuditEventPublisher::STREAM_RESULTS_PRIORITY, []],
+                'results_batch'        => [AuditEventPublisher::STREAM_RESULTS_BATCH, []],
+                'batchInbox'           => [AuditEventPublisher::STREAM_BATCH_INBOX, [AuditEventPublisher::GROUP_BATCH]],
             ];
 
             $streamDepths = [];
@@ -54,6 +63,12 @@ class ObservabilityController extends Controller
                 $streamDepths[$name] = $depth;
                 $totalDepth += $depth;
             }
+
+            // Claves agregadas para compatibilidad con dashboards frontend existentes
+            $streamDepths['inbox'] = $streamDepths['inbox_priority'] + $streamDepths['inbox_batch'];
+            $streamDepths['documents'] = $streamDepths['documents_priority'] + $streamDepths['documents_batch'];
+            $streamDepths['persistence'] = $streamDepths['persistence_priority'] + $streamDepths['persistence_batch'];
+            $streamDepths['results'] = $streamDepths['results_priority'] + $streamDepths['results_batch'];
 
             $dlqStream       = AuditEventPublisher::dlqStream();
             $deadLetterDepth = (int) $redis->xLen($dlqStream);

@@ -42,9 +42,9 @@ final class BatchRequestedWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_BATCH);
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return AuditEventPublisher::STREAM_BATCH_INBOX;
+        return [AuditEventPublisher::STREAM_BATCH_INBOX];
     }
 
     protected function group(): string

@@ -57,6 +57,53 @@ final class RedisClientStreamParsingTest extends TestCase
                 'event' => '{"type":"document_registered"}',
                 'attempts' => '1',
             ],
+            'stream' => 'audit.documents',
+        ]], $messages);
+    }
+
+    public function testXReadGroupMultiOrdersPositionalStreams(): void
+    {
+        $raw = new \ArrayIterator([
+            new \ArrayIterator([
+                'audfact:audit.inbox.priority',
+                new \ArrayIterator([
+                    new \ArrayIterator([
+                        '1745500000000-1',
+                        new \ArrayIterator([
+                            'event',
+                            '{"type":"audit_created","source":"single"}',
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ]);
+
+        $this->client
+            ->expects($this->once())
+            ->method('executeRaw')
+            ->with([
+                'XREADGROUP',
+                'GROUP', 'orchestrator', 'worker-1',
+                'COUNT', '1',
+                'BLOCK', '5000',
+                'STREAMS', 'audfact:audit.inbox.priority', 'audfact:audit.inbox.batch', '>', '>',
+            ])
+            ->willReturn($raw);
+
+        $messages = $this->redis->xReadGroupMulti(
+            'orchestrator',
+            'worker-1',
+            ['audit.inbox.priority', 'audit.inbox.batch'],
+            1,
+            5000
+        );
+
+        $this->assertSame([[
+            'id' => '1745500000000-1',
+            'fields' => [
+                'event' => '{"type":"audit_created","source":"single"}',
+            ],
+            'stream' => 'audit.inbox.priority',
         ]], $messages);
     }
 

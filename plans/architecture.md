@@ -116,30 +116,30 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 
 | Worker / Componente | Responsabilidad |
 |---|---|
-| `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `AuditEventPublisher.php` | Publica a `audit.batch.inbox`, `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq`; rechaza `rules_evaluated` para impedir bypass del scheduler |
-| `AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, recuperación de `pending`, ack, reintentos, envío a DLQ, cierre terminal y telemetría; agotamiento SQL y fallos técnicos de descarga terminan con DLQ/ACK en la misma entrega |
+| `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601, banderas `source` e `is_priority`) |
+| `AuditEventPublisher.php` | Publica a los streams canónicos duales (`audit.inbox.priority`, `audit.inbox.batch`, `audit.documents.priority`, `audit.documents.batch`, `audit.results.priority`, `audit.results.batch`), `audit.batch.inbox` y `audit.dlq`; rechaza `rules_evaluated` para impedir bypass del scheduler |
+| `AuditEventConsumer.php` | Base abstracta: `xReadGroupMulti` sobre `streams() = [STREAM_PRIORITY, STREAM_BATCH]`, posicional de izquierda a derecha (prioridad $P_0$ de ventanilla), recuperación de `pending`, ack por stream exacto, reintentos, envío a DLQ, cierre terminal y telemetría |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
 | `BatchJobStore.php` | Claves Redis de jobs/reservas y transición atómica de métricas según el estado anterior del job, incluyendo terminal directo de lotes de una auditoría |
 | `bin/schedule-daily-batches.php` | Script CLI (cron): encola auditorías batch diarias para todos los clientes configurados (`BatchRequestedWorker` vía `audit.batch.inbox`) con rango dinámico anual. Límite configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) o `--limit` CLI |
 | `AuditDataService.php` + `AttachmentDownloadService.php` | Acceso directo a FDV, adjuntos y catálogo sin HTTP loopback; distingue fuente ausente/vacía, transferencia incompleta y fallo externo como errores técnicos |
-| `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox` |
-| `DocumentAuditOrchestrator.php` | Consume `audit_created`, ejecuta la reconciliación global 1:1 y publica `document_registered` solo para matches; registra y publica `document_rejected` para fallos de mapping sin invocar Gemini |
+| `BatchRequestedWorker.php` | Worker: consume `batch_requested` de `audit.batch.inbox`, realiza la consulta SQL pesada, efectúa reservas idempotentes en Redis por `DisId`, y publica eventos `audit_created` en `audit.inbox.batch` |
+| `DocumentAuditOrchestrator.php` | Consume `audit.inbox.priority` y `audit.inbox.batch`, ejecuta la reconciliación global 1:1 y publica `document_registered` en el stream correspondiente (`priority` o `batch`); registra y publica `document_rejected` para fallos de mapping sin invocar Gemini |
 | `DocumentAttachmentMatcher.php` | Matcher puro y determinista en tres pasadas: nombre exacto normalizado, ID corroborado y alias único |
 | `DocumentAttachmentMatchResult.php` | DTO readonly que impide `logical_doc_id` o `attachment_id` duplicados en matches |
 | `DocumentMappingRejectionReason.php` | Taxonomía cerrada de rechazos `DOCUMENT_MAPPING`: missing, ambiguous, no content y reused |
-| `AttachmentDownloadWorker.php` | Worker: consume `document_registered`, descarga y almacena el adjunto en Redis; publica `document_downloaded` y propaga cualquier fallo técnico sin crear decisiones documentales |
+| `AttachmentDownloadWorker.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, descarga y almacena el adjunto en Redis; publica `document_downloaded` en el stream de origen y propaga cualquier fallo técnico sin crear decisiones documentales |
 | `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
-| `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes, valida integridad y extrae con Gemini |
-| `DocumentNormalizer.php` | Worker: consume `document_extracted`, normalización determinística PHP, publica `document_normalized` |
-| `RulesEvaluationWorker.php` | Consume `document_normalized` y valida por separado rechazos de contenido y mapping; estos últimos generan hallazgo `MAP`, severidad alta y resultado `RECHAZADO` |
-| `AuditPersistenceQueue.php` | Único productor de `audit.persistence:{queue}`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job |
+| `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes de `audit.documents.priority` y `audit.documents.batch`, valida integridad y extrae con Gemini; publica `document_extracted` en el stream respectivo |
+| `DocumentNormalizer.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, normalización determinística PHP, publica `document_normalized` respetando prioridad |
+| `RulesEvaluationWorker.php` | Consume `audit.documents.priority` y `audit.documents.batch`, evalúa por documento; encola `rules_evaluated` hacia `audit.persistence.priority` o `audit.persistence.batch` vía `AuditPersistenceQueue` |
+| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job en lotes y bypass directo para peticiones 1:1 |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
-| `AuditTimingSummarizer.php` | Cálculo de latencias de pipeline, telemetría por stream y tiempos de agregación |
-| `AuditPersistenceWorker.php` | Worker: bloquea decisiones contaminadas (`DOWNLOAD_ERROR` o contrato de rechazo inválido), persiste SQL, libera el turno, recalcula timings y publica el terminal |
+| `AuditTimingSummarizer.php` | Cálculo de latencias de pipeline, telemetría por stream desagregado (`by_stream`) y tiempos de persistencia |
+| `AuditPersistenceWorker.php` | Worker: consume `audit.persistence.priority` y `audit.persistence.batch`, persiste SQL, libera el turno, recalcula timings y publica el terminal en `audit.results.priority` o `audit.results.batch` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
 **Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher levanta servicios independientes: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=2`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.

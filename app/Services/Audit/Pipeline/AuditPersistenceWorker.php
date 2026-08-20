@@ -40,9 +40,12 @@ final class AuditPersistenceWorker extends AuditEventConsumer
         $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_PERSISTENCE);
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return AuditEventPublisher::STREAM_PERSISTENCE;
+        return [
+            AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY,
+            AuditEventPublisher::STREAM_PERSISTENCE_BATCH,
+        ];
     }
 
     protected function group(): string

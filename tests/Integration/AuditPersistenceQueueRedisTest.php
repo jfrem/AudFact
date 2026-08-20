@@ -95,7 +95,7 @@ final class AuditPersistenceQueueRedisTest extends TestCase
     private function streamAuditIds(RedisClient $redis): array
     {
         $messages = $redis->xRange(
-            AuditEventPublisher::STREAM_PERSISTENCE,
+            AuditEventPublisher::STREAM_PERSISTENCE_BATCH,
             '-',
             '+',
             100
@@ -120,6 +120,6 @@ final class AuditPersistenceQueueRedisTest extends TestCase
             $redis->del($scope . 'seen');
         }
         $redis->del('audit.persistence:{queue}:sequence');
-        $redis->del(AuditEventPublisher::STREAM_PERSISTENCE);
+        $redis->del(AuditEventPublisher::STREAM_PERSISTENCE_BATCH);
     }
 }

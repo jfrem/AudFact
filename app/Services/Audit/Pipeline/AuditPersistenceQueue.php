@@ -43,6 +43,10 @@ class AuditPersistenceQueue
         $scope = self::scopeFor($event);
         $ttl = self::ttlSeconds();
 
+        $stream = AuditEventPublisher::isPriorityEvent($event)
+            ? AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY
+            : AuditEventPublisher::STREAM_PERSISTENCE_BATCH;
+
         $result = $this->redis->eval(
             self::ADVANCE_LUA,
             [
@@ -50,7 +54,7 @@ class AuditPersistenceQueue
                 self::pendingKey($scope),
                 self::commandsKey($scope),
                 self::seenKey($scope),
-                AuditEventPublisher::STREAM_PERSISTENCE,
+                $stream,
             ],
             [$auditId, $ttl]
         );
@@ -67,6 +71,9 @@ class AuditPersistenceQueue
         $auditId = self::requirePersistenceEvent($event);
         $scope = self::scopeFor($event);
         $ttl = self::ttlSeconds();
+        $stream = AuditEventPublisher::isPriorityEvent($event)
+            ? AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY
+            : AuditEventPublisher::STREAM_PERSISTENCE_BATCH;
 
         $result = $this->redis->eval(
             self::ENQUEUE_LUA,
@@ -76,7 +83,7 @@ class AuditPersistenceQueue
                 self::commandsKey($scope),
                 self::seenKey($scope),
                 self::sequenceKey(),
-                AuditEventPublisher::STREAM_PERSISTENCE,
+                $stream,
             ],
             [$auditId, $event->toJson(), $event->eventId, $ttl, $force ? 1 : 0]
         );

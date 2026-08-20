@@ -53,7 +53,7 @@ final class AuditEventConsumerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
-        $redis->method('xReadGroup')->willThrowException(
+        $redis->method('xReadGroupMulti')->willThrowException(
             new RuntimeException("NOGROUP No such consumer group 'test-group' for key name 'audfact:test.stream'")
         );
 
@@ -75,8 +75,9 @@ final class AuditEventConsumerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
-        $redis->method('xReadGroup')->willReturn([[
+        $redis->method('xReadGroupMulti')->willReturn([[
             'id'     => '1700000000000-0',
+            'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
         $redis->expects($this->once())
@@ -120,7 +121,7 @@ final class AuditEventConsumerTest extends TestCase
                     'fields' => ['event' => $event->toJson()],
                 ]],
             ]);
-        $redis->expects($this->never())->method('xReadGroup');
+        $redis->expects($this->never())->method('xReadGroupMulti');
         $redis->expects($this->once())
             ->method('xAck')
             ->with('test.stream', 'test-group', '1700000000001-0');
@@ -144,8 +145,9 @@ final class AuditEventConsumerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
-        $redis->method('xReadGroup')->willReturn([[
+        $redis->method('xReadGroupMulti')->willReturn([[
             'id'     => '1700000000000-0',
+            'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
         $redis->expects($this->never())->method('xAdd');
@@ -186,8 +188,9 @@ final class AuditEventConsumerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
-        $redis->method('xReadGroup')->willReturn([[
+        $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1700000000003-0',
+            'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
         $redis->method('xAdd')->willReturn('1700000000004-0');
@@ -211,8 +214,9 @@ final class AuditEventConsumerTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('incr')->willReturn(1);
-        $redis->method('xReadGroup')->willReturn([[
+        $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1700000000005-0',
+            'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
         $redis->expects($this->once())
@@ -260,9 +264,9 @@ final class MinimalConsumer extends AuditEventConsumer
     /** @var AuditEvent[] */
     public array $handled = [];
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return 'test.stream';
+        return ['test.stream'];
     }
 
     protected function group(): string
@@ -286,9 +290,9 @@ final class TerminalFailureConsumer extends AuditEventConsumer
     /** @var array<int,string> */
     public array $terminalFailureEventIds = [];
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return 'test.stream';
+        return ['test.stream'];
     }
 
     protected function group(): string
@@ -325,9 +329,9 @@ final class SqlTerminalFailureConsumer extends AuditEventConsumer
         parent::__construct($redis, $publisher);
     }
 
-    protected function stream(): string
+    protected function streams(): array
     {
-        return 'test.stream';
+        return ['test.stream'];
     }
 
     protected function group(): string
