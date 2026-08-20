@@ -377,6 +377,76 @@ final class AuditControllerTest extends TestCase
         );
     }
 
+    public function testMonthlyPerformanceReturns200WithSummaryAndItems(): void
+    {
+        $model = new StubAuditStatusModel();
+        $model->monthlyStats = [
+            [
+                'mes'          => 8,
+                'fac_nit_sec'  => 2624,
+                'tercero'      => 'NUEVA EPS SA',
+                'aud_conf'     => 2898,
+                'aud_rech'     => 3995,
+                'total'        => 6893,
+                'rate_conf'    => 42.0,
+                'aud_conf_doc' => 9263,
+                'aud_rech_doc' => 13784,
+                'total_doc'    => 23047,
+            ],
+            [
+                'mes'          => 8,
+                'fac_nit_sec'  => 2426,
+                'tercero'      => 'POSITIVA COMPAIA DE SEGUROS SA',
+                'aud_conf'     => 3715,
+                'aud_rech'     => 1864,
+                'total'        => 5579,
+                'rate_conf'    => 66.6,
+                'aud_conf_doc' => 11145,
+                'aud_rech_doc' => 5592,
+                'total_doc'    => 16737,
+            ],
+        ];
+
+        $_GET['year'] = '2026';
+        $controller = new TestableAuditController(auditStatusModel: $model);
+
+        $response = self::captureResponse(fn () => $controller->monthlyPerformance());
+
+        self::assertSame(200, $response->getCode());
+        self::assertTrue($response->getData()['success']);
+        $data = $response->getData()['data'];
+        self::assertSame(2026, $data['year']);
+        self::assertSame(12472, $data['summary']['total_facturas']);
+        self::assertSame(6613, $data['summary']['total_conformes']);
+        self::assertSame(5859, $data['summary']['total_rechazadas']);
+        self::assertSame(53.0, $data['summary']['global_rate_conf']);
+        self::assertSame(39784, $data['summary']['total_documentos']);
+        self::assertCount(2, $data['items']);
+    }
+
+    public function testMonthlyPerformanceHandlesInvalidYear422(): void
+    {
+        $_GET['year'] = 'invalid-year';
+        $controller = new TestableAuditController();
+
+        $response = self::captureResponse(fn () => $controller->monthlyPerformance());
+
+        self::assertSame(422, $response->getCode());
+    }
+
+    public function testMonthlyPerformanceHandlesModelException503(): void
+    {
+        $model = new StubAuditStatusModel();
+        $model->monthlyStatsThrows = true;
+
+        $_GET['year'] = '2026';
+        $controller = new TestableAuditController(auditStatusModel: $model);
+
+        $response = self::captureResponse(fn () => $controller->monthlyPerformance());
+
+        self::assertSame(503, $response->getCode());
+    }
+
     private static function captureResponse(callable $callback): HttpResponseException
     {
         try {
@@ -503,13 +573,25 @@ final class StubAuditStateStore extends AuditStateStore
 
 final class StubAuditStatusModel extends AuditStatusModel
 {
-    public function __construct(private ?array $detail)
+    /** @var array<int,array<string,mixed>> */
+    public array $monthlyStats = [];
+    public bool $monthlyStatsThrows = false;
+
+    public function __construct(private ?array $detail = null)
     {
     }
 
     public function getAuditDetailByFacNro(string $facNro): ?array
     {
         return $this->detail;
+    }
+
+    public function getMonthlyPerformanceStats(int $year): array
+    {
+        if ($this->monthlyStatsThrows) {
+            throw new RuntimeException('Error consultando base de datos');
+        }
+        return $this->monthlyStats;
     }
 }
 

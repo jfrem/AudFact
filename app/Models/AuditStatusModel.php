@@ -103,6 +103,64 @@ class AuditStatusModel extends Model
     }
 
     /**
+     * Retorna el rendimiento mensual agregado agrupado por mes y cliente/EPS.
+     *
+     * @param int $year Año a consultar (ej. 2026).
+     * @return array<int, array<string, mixed>>
+     */
+    public function getMonthlyPerformanceStats(int $year): array
+    {
+        $sql = "SELECT 
+                    MONTH(a.FechaCreacion) AS mes,
+                    a.FacNitSec AS fac_nit_sec,
+                    COALESCE(n.NitCom, CONCAT('Cliente #', a.FacNitSec)) AS tercero,
+                    COUNT(CASE WHEN a.EstAud = 1 THEN a.FacNro END) AS aud_conf,
+                    COUNT(CASE WHEN a.EstAud = 0 THEN a.FacNro END) AS aud_rech,
+                    COUNT(a.FacNro) AS total,
+                    SUM(CASE WHEN a.EstAud = 1 THEN a.DocumentosProcesados ELSE 0 END) AS aud_conf_doc,
+                    SUM(CASE WHEN a.EstAud = 0 THEN a.DocumentosProcesados ELSE 0 END) AS aud_rech_doc,
+                    SUM(a.DocumentosProcesados) AS total_doc
+                FROM Discolnet.dbo.AudDispEst a WITH (NOLOCK)
+                LEFT JOIN DiscolmetsGx2QA.dbo.nit n WITH (NOLOCK) ON n.NitSec = a.FacNitSec
+                WHERE YEAR(a.FechaCreacion) = :year
+                GROUP BY MONTH(a.FechaCreacion), a.FacNitSec, n.NitCom
+                ORDER BY mes ASC, total DESC";
+
+        return $this->readWithFallback(function (PDO $connection) use ($sql, $year): array {
+            $stmt = $connection->prepare($sql);
+            $stmt->bindValue(':year', $year, PDO::PARAM_INT);
+            $stmt->execute();
+            try {
+                $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } finally {
+                $stmt->closeCursor();
+            }
+
+            return array_map(function (array $row): array {
+                $total = (int) ($row['total'] ?? 0);
+                $conf = (int) ($row['aud_conf'] ?? 0);
+                $rech = (int) ($row['aud_rech'] ?? 0);
+                $confDoc = (int) ($row['aud_conf_doc'] ?? 0);
+                $rechDoc = (int) ($row['aud_rech_doc'] ?? 0);
+                $totalDoc = (int) ($row['total_doc'] ?? 0);
+
+                return [
+                    'mes'          => (int) ($row['mes'] ?? 0),
+                    'fac_nit_sec'  => (int) ($row['fac_nit_sec'] ?? 0),
+                    'tercero'      => trim((string) ($row['tercero'] ?? '')),
+                    'aud_conf'     => $conf,
+                    'aud_rech'     => $rech,
+                    'total'        => $total,
+                    'rate_conf'    => $total > 0 ? round(($conf / $total) * 100, 1) : 0.0,
+                    'aud_conf_doc' => $confDoc,
+                    'aud_rech_doc' => $rechDoc,
+                    'total_doc'    => $totalDoc,
+                ];
+            }, $rows);
+        });
+    }
+
+    /**
      * Devuelve los tiempos por fase de una auditoría completada, buscando por FacNro (DisDetNro).
      *
      * @return array{fac_nro:string,fac_nit_sec:string,estado:string,phase_timings:array<string,mixed>|null,total_duration_ms:int}|null

@@ -17,6 +17,7 @@ import {
   PublicConfigSchema,
   SaveAuditConfigResponseSchema,
   AuditStatsSchema,
+  AuditMonthlyPerformanceDataSchema,
   AuditLiveStatusSchema,
   FieldCatalogSchema,
 } from "@/lib/schemas/domain";
@@ -208,5 +209,12 @@ export function saveAuditConfig(
     endpoints.auditConfig(clientId),
     payload,
     SaveAuditConfigResponseSchema,
+  );
+}
+
+export function getAuditMonthlyPerformance(params: { year?: number } = {}) {
+  return requestJson(
+    endpoints.auditStatsMonthly(params),
+    AuditMonthlyPerformanceDataSchema,
   );
 }

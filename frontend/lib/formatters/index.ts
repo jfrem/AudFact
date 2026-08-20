@@ -1,4 +1,3 @@
-const locale = process.env.NEXT_PUBLIC_LOCALE ?? "es-CO";
 const timeZone = process.env.NEXT_PUBLIC_TIMEZONE ?? "America/Bogota";
 
 type DateParts = {
@@ -38,12 +37,19 @@ export function formatDateTime(value?: string | number | null) {
   return `${formatDateParts(parts)}, ${parts.hour}:${parts.minute}`;
 }
 
-export function formatNumber(value?: number | string | null) {
+export function formatNumber(value?: number | string | null): string {
   if (value === null || value === undefined || value === "") {
     return "0";
   }
 
-  return new Intl.NumberFormat(locale).format(Number(value));
+  const num = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(num)) {
+    return String(value);
+  }
+
+  const [intPart, decPart] = String(num).split(".");
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return decPart !== undefined ? `${formattedInt},${decPart}` : formattedInt;
 }
 
 export function formatDurationMs(value?: number | null) {

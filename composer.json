@@ -23,6 +23,7 @@
     "phpunit/phpunit": "^10.0"
   },
   "scripts": {
-    "test": "phpunit --configuration phpunit.xml"
+    "test": "phpunit --configuration phpunit.xml",
+    "lint": "php scripts/lint-php.php"
   }
 }
