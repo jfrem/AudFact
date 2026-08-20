@@ -511,6 +511,35 @@ export const PaginatedAuditDocumentHistorySchema = z.object({
   filters: PaginationFiltersSchema,
 });
 
+export const AuditMonthlyPerformanceItemSchema = z.object({
+  mes: z.number().int().min(1).max(12),
+  fac_nit_sec: z.number().int().nonnegative(),
+  tercero: z.string(),
+  aud_conf: z.number().int().nonnegative(),
+  aud_rech: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  rate_conf: z.number().min(0).max(100),
+  aud_conf_doc: z.number().int().nonnegative(),
+  aud_rech_doc: z.number().int().nonnegative(),
+  total_doc: z.number().int().nonnegative(),
+});
+
+export const AuditMonthlyPerformanceSummarySchema = z.object({
+  total_facturas: z.number().int().nonnegative(),
+  total_conformes: z.number().int().nonnegative(),
+  total_rechazadas: z.number().int().nonnegative(),
+  global_rate_conf: z.number().min(0).max(100),
+  total_documentos: z.number().int().nonnegative(),
+  total_doc_conformes: z.number().int().nonnegative().optional().default(0),
+  total_doc_rechazados: z.number().int().nonnegative().optional().default(0),
+});
+
+export const AuditMonthlyPerformanceDataSchema = z.object({
+  year: z.number().int(),
+  summary: AuditMonthlyPerformanceSummarySchema,
+  items: z.array(AuditMonthlyPerformanceItemSchema),
+});
+
 export type PublicConfig = z.infer<typeof PublicConfigSchema>;
 export type HealthStatus = z.infer<typeof HealthSchema>;
 export type AsyncMetrics = z.infer<typeof AsyncMetricsSchema>;
@@ -546,3 +575,12 @@ export type SaveAuditConfigResponse = z.infer<
 >;
 export type AuditLiveStatus = z.infer<typeof AuditLiveStatusSchema>;
 export type AuditStats = z.infer<typeof AuditStatsSchema>;
+export type AuditMonthlyPerformanceItem = z.infer<
+  typeof AuditMonthlyPerformanceItemSchema
+>;
+export type AuditMonthlyPerformanceSummary = z.infer<
+  typeof AuditMonthlyPerformanceSummarySchema
+>;
+export type AuditMonthlyPerformanceData = z.infer<
+  typeof AuditMonthlyPerformanceDataSchema
+>;

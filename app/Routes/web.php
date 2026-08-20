@@ -33,6 +33,7 @@ $router->post('/dispensation', 'DispensationController', 'lookup');
 $router->get('/audit/results', 'AuditController', 'results'); // Historial persistido
 $router->get('/audit/results/{facNro}', 'AuditController', 'resultDetail'); // Detalle persistido por FacNro
 $router->get('/audit/stats', 'AuditController', 'stats'); // Conteos agregados para dashboard
+$router->get('/audit/stats/monthly', 'AuditController', 'monthlyPerformance'); // Rendimiento mensual por cliente
 $router->get('/audit/documents-history', 'AuditController', 'documentsHistory');
 $router->post('/audit/single', 'AuditController', 'single');
 $router->post('/audit/async', 'AuditController', 'async');

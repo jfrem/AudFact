@@ -182,6 +182,67 @@ class AuditController extends Controller
         }
     }
 
+    public function monthlyPerformance(): void
+    {
+        try {
+            $validated = $this->validateQuery([
+                'year' => 'nullable|integer|min_value:2000|max_value:2100',
+            ]);
+
+            $currentYear = (int) date('Y');
+            $year = (isset($validated['year']) && is_numeric($validated['year']))
+                ? (int) $validated['year']
+                : $currentYear;
+
+            $cacheKey = 'audit:stats:monthly:' . $year . ':v' . Cache::getQueryResultsVersion('all');
+
+            $payload = Cache::remember($cacheKey, function () use ($year) {
+                $items = $this->buildAuditStatusModel()->getMonthlyPerformanceStats($year);
+
+                $totalFacturas = 0;
+                $totalConformes = 0;
+                $totalRechazadas = 0;
+                $totalDocumentos = 0;
+                $totalDocConformes = 0;
+                $totalDocRechazados = 0;
+
+                foreach ($items as $item) {
+                    $totalFacturas += (int) ($item['total'] ?? 0);
+                    $totalConformes += (int) ($item['aud_conf'] ?? 0);
+                    $totalRechazadas += (int) ($item['aud_rech'] ?? 0);
+                    $totalDocumentos += (int) ($item['total_doc'] ?? 0);
+                    $totalDocConformes += (int) ($item['aud_conf_doc'] ?? 0);
+                    $totalDocRechazados += (int) ($item['aud_rech_doc'] ?? 0);
+                }
+
+                $globalRate = $totalFacturas > 0 ? round(($totalConformes / $totalFacturas) * 100, 1) : 0.0;
+
+                return [
+                    'year' => $year,
+                    'summary' => [
+                        'total_facturas'       => $totalFacturas,
+                        'total_conformes'      => $totalConformes,
+                        'total_rechazadas'     => $totalRechazadas,
+                        'global_rate_conf'     => $globalRate,
+                        'total_documentos'     => $totalDocumentos,
+                        'total_doc_conformes'  => $totalDocConformes,
+                        'total_doc_rechazados' => $totalDocRechazados,
+                    ],
+                    'items' => $items,
+                ];
+            }, 60);
+
+            Response::success($payload, 'Rendimiento mensual de auditoría');
+        } catch (\Core\Exceptions\HttpResponseException $e) {
+            throw $e;
+        } catch (\RuntimeException $e) {
+            Logger::error('AuditController::monthlyPerformance falló', [
+                'error' => $e->getMessage(),
+            ]);
+            Response::error('Rendimiento mensual temporalmente no disponible', 503);
+        }
+    }
+
     public function results(): void
     {
         try {
@@ -301,7 +362,7 @@ class AuditController extends Controller
             $page = (isset($validated['page']) && $validated['page'] !== '') ? (int)$validated['page'] : 1;
             $pageSize = (isset($validated['pageSize']) && $validated['pageSize'] !== '') ? (int)$validated['pageSize'] : 20;
 
-            $model = new AttachmentsModel();
+            $model = $this->buildAttachmentsModel();
             $totalItems = $model->countAuditHistory($filters);
             $totalPages = (int) ceil($totalItems / $pageSize);
 
@@ -596,5 +657,10 @@ class AuditController extends Controller
     protected function buildClientsModel(): ClientsModel
     {
         return new ClientsModel();
+    }
+
+    protected function buildAttachmentsModel(): AttachmentsModel
+    {
+        return new AttachmentsModel();
     }
 }

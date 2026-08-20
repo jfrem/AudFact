@@ -33,6 +33,10 @@ export const endpoints = {
   },
   auditResultDetail: (facNro: string | number) => `/audit/results/${facNro}`,
   auditStats: () => "/audit/stats",
+  auditStatsMonthly: (query?: Record<string, string | number | null | undefined>) => {
+    const params = buildSearchParams(query ?? {});
+    return params.size ? `/audit/stats/monthly?${params.toString()}` : "/audit/stats/monthly";
+  },
   auditDocumentsHistory: (
     query?: Record<string, string | number | null | undefined>,
   ) => {
