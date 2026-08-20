@@ -503,26 +503,55 @@ class RedisClient
         int $count = 1,
         int $blockMs = 5000
     ): array {
-        if (!$this->isAvailable()) {
+        return $this->xReadGroupMulti($group, $consumer, [$stream], $count, $blockMs);
+    }
+
+    /**
+     * Lee mensajes de múltiples streams para un grupo de consumidores.
+     * Los streams se consultan en orden de prioridad especificado en el array.
+     *
+     * @param string $group Grupo de consumidores
+     * @param string $consumer Identificador del consumidor
+     * @param array<int, string>|array<string, string> $streams Lista de streams (e.g. ['stream.prio', 'stream.batch'])
+     * @param int $count Máximo de mensajes a retornar
+     * @param int $blockMs Milisegundos de bloqueo
+     * @return array<int, array{id: string, fields: array<string, string>, stream: string}>
+     */
+    public function xReadGroupMulti(
+        string $group,
+        string $consumer,
+        array $streams,
+        int $count = 1,
+        int $blockMs = 5000
+    ): array {
+        if (!$this->isAvailable() || empty($streams)) {
             return [];
         }
 
         try {
-            $raw = $this->client->executeRaw([
-                'XREADGROUP',
-                'GROUP', $group, $consumer,
-                'COUNT', (string) $count,
-                'BLOCK', (string) $blockMs,
-                'STREAMS', $this->prefix . $stream, '>',
-            ]);
+            $streamKeys = [];
+            $streamIds = [];
+            foreach ($streams as $streamKey => $streamVal) {
+                $actualStream = is_string($streamKey) && !is_numeric($streamKey) ? $streamKey : (string) $streamVal;
+                $streamKeys[] = $this->prefix . $actualStream;
+                $streamIds[] = '>';
+            }
+
+            $args = array_merge(
+                ['XREADGROUP', 'GROUP', $group, $consumer, 'COUNT', (string) $count, 'BLOCK', (string) $blockMs, 'STREAMS'],
+                $streamKeys,
+                $streamIds
+            );
+
+            $raw = $this->client->executeRaw($args);
 
             return $this->parseStreamsResponse($raw);
         } catch (\Exception $e) {
             if (stripos($e->getMessage(), 'NOGROUP') !== false) {
                 throw $e;
             }
-            Logger::warning('Redis XREADGROUP falló', [
-                'stream' => $stream,
+            Logger::warning('Redis XREADGROUP multi falló', [
+                'streams' => array_values($streams),
                 'group' => $group,
                 'error' => $e->getMessage(),
             ]);
@@ -690,6 +719,12 @@ class RedisClient
                 continue;
             }
 
+            $rawStreamName = isset($streamBlock[0]) ? (string) $streamBlock[0] : '';
+            $cleanStream = $rawStreamName;
+            if ($this->prefix !== '' && str_starts_with($cleanStream, $this->prefix)) {
+                $cleanStream = substr($cleanStream, strlen($this->prefix));
+            }
+
             foreach ($streamBlock[1] as $entry) {
                 if (!is_array($entry) || count($entry) < 2) {
                     continue;
@@ -704,7 +739,7 @@ class RedisClient
                     $fields[(string) $fieldsArray[$i]] = (string) $fieldsArray[$i + 1];
                 }
 
-                $messages[] = ['id' => $id, 'fields' => $fields];
+                $messages[] = ['id' => $id, 'fields' => $fields, 'stream' => $cleanStream];
             }
         }
 

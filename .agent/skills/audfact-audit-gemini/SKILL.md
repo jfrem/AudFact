@@ -15,8 +15,8 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | Archivo | Rol |
 |---|---|
 | `app/Services/Audit/Pipeline/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
-| `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a `audit.inbox`, `audit.documents`, `audit.results` y `audit.dlq`; `rules_evaluated` debe pasar exclusivamente por `AuditPersistenceQueue` |
-| `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta: `XREADGROUP`, ack, reintentos y DLQ; SQL agotado y descarga técnica son terminales en la misma entrega |
+| `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a streams duales `.priority` y `.batch` (`audit.inbox.*`, `audit.documents.*`, `audit.results.*`, `audit.dlq`); enrutamiento automático de prioridad para auditorías interactivas 1:1; `rules_evaluated` debe pasar exclusivamente por `AuditPersistenceQueue` |
+| `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta multi-stream: consume prioritariamente con `xReadGroupMulti` (`.priority` antes de `.batch`), ack, reintentos y DLQ; SQL agotado y descarga técnica son terminales en la misma entrega |
 | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
 | `app/Services/Audit/Pipeline/AuditDataService.php` | Facade concreta de acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
 | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | Descarga Drive/BLOB, valida bytes esperados y clasifica fallos técnicos |

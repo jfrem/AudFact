@@ -29,11 +29,11 @@ final class AuditPersistenceQueueTest extends TestCase
                 $this->callback(function (array $keys) use ($event): bool {
                     $this->assertCount(6, $keys);
                     $this->assertSame(
-                        AuditEventPublisher::STREAM_PERSISTENCE,
+                        AuditEventPublisher::STREAM_PERSISTENCE_BATCH,
                         $keys[5]
                     );
-                    foreach ($keys as $key) {
-                        $this->assertStringContainsString('{queue}', $key);
+                    for ($i = 0; $i < 5; $i++) {
+                        $this->assertStringContainsString('{queue}', $keys[$i]);
                     }
                     $this->assertStringContainsString((string) $event->jobId, $keys[0]);
                     return true;
@@ -95,7 +95,7 @@ final class AuditPersistenceQueueTest extends TestCase
                 $this->stringContains('HEXISTS'),
                 $this->callback(function (array $keys): bool {
                     $this->assertCount(5, $keys);
-                    $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE, $keys[4]);
+                    $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $keys[4]);
                     return true;
                 }),
                 $this->anything()

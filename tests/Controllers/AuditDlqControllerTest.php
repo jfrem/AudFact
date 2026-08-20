@@ -116,7 +116,7 @@ final class AuditDlqControllerTest extends TestCase
             payload: [
                 'failed_event_type' => $original->eventType,
                 'failed_stage' => 'Persistence',
-                'failed_stream' => AuditEventPublisher::STREAM_PERSISTENCE,
+                'failed_stream' => AuditEventPublisher::STREAM_PERSISTENCE_BATCH,
                 'attempts' => 3,
                 'original_event' => $original->toArray(),
             ]

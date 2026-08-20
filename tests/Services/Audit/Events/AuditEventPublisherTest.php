@@ -24,19 +24,19 @@ final class AuditEventPublisherTest extends TestCase
         $this->publisher = new AuditEventPublisher($this->redis);
     }
 
-    public function testAuditCreatedRoutesToInboxStream(): void
+    public function testAuditCreatedRoutesToPriorityStreamWhenSingle(): void
     {
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
             auditId: AuditEvent::uuidV4(),
-            payload: ['dis_det_nro' => 'T38250701547', 'fac_nit_sec' => null, 'source' => 'single'],
+            payload: ['dis_det_nro' => 'T38250701547', 'fac_nit_sec' => null, 'source' => 'single', 'is_priority' => true],
         );
 
         $this->redis
             ->expects($this->once())
             ->method('xAdd')
             ->with(
-                AuditEventPublisher::STREAM_INBOX,
+                AuditEventPublisher::STREAM_INBOX_PRIORITY,
                 $this->callback(function (array $fields) {
                     $this->assertArrayHasKey('event', $fields);
                     $decoded = json_decode($fields['event'], true);
@@ -48,6 +48,28 @@ final class AuditEventPublisherTest extends TestCase
 
         $id = $this->publisher->publish($event);
         $this->assertSame('1700000000000-0', $id);
+    }
+
+    public function testAuditCreatedRoutesToBatchStreamWhenBatch(): void
+    {
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            jobId: AuditEvent::uuidV4(),
+            payload: ['dis_det_nro' => 'T38250701547', 'source' => 'batch'],
+        );
+
+        $this->redis
+            ->expects($this->once())
+            ->method('xAdd')
+            ->with(
+                AuditEventPublisher::STREAM_INBOX_BATCH,
+                $this->anything()
+            )
+            ->willReturn('1700000000000-1');
+
+        $id = $this->publisher->publish($event);
+        $this->assertSame('1700000000000-1', $id);
     }
 
     public function testDocumentRegisteredRoutesToDocumentsStream(): void
@@ -62,7 +84,7 @@ final class AuditEventPublisherTest extends TestCase
         $this->redis
             ->expects($this->once())
             ->method('xAdd')
-            ->with(AuditEventPublisher::STREAM_DOCUMENTS, $this->anything())
+            ->with(AuditEventPublisher::STREAM_DOCUMENTS_BATCH, $this->anything())
             ->willReturn('1700000000001-0');
 
         $this->publisher->publish($event);
@@ -80,7 +102,7 @@ final class AuditEventPublisherTest extends TestCase
         $this->redis
             ->expects($this->once())
             ->method('xAdd')
-            ->with(AuditEventPublisher::STREAM_DOCUMENTS, $this->anything())
+            ->with(AuditEventPublisher::STREAM_DOCUMENTS_BATCH, $this->anything())
             ->willReturn('1700000000001-1');
 
         $this->publisher->publish($event);

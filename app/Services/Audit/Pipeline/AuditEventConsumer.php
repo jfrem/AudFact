@@ -55,7 +55,10 @@ abstract class AuditEventConsumer
         );
     }
 
-    abstract protected function stream(): string;
+    /**
+     * @return array<int, string>
+     */
+    abstract protected function streams(): array;
 
     abstract protected function group(): string;
 
@@ -113,17 +116,17 @@ abstract class AuditEventConsumer
             }
 
             try {
-                $messages = $this->redis->xReadGroup(
+                $messages = $this->redis->xReadGroupMulti(
                     $this->group(),
                     $this->consumer(),
-                    $this->stream(),
+                    $this->streams(),
                     1,
                     $this->blockMs
                 );
             } catch (\Exception $e) {
                 if (stripos($e->getMessage(), 'NOGROUP') !== false) {
                     throw new RuntimeException(
-                        "Consumer group '{$this->group()}' desapareció en runtime en stream '{$this->stream()}'. Requiere intervención manual.",
+                        "Consumer group '{$this->group()}' desapareció en runtime en streams '" . implode(', ', $this->streams()) . "'. Requiere intervención manual.",
                         0,
                         $e
                     );
@@ -163,32 +166,39 @@ abstract class AuditEventConsumer
             $maxMessages = 0;
         }
 
-        $cursor = '0-0';
         $processed = 0;
 
-        do {
-            $remaining = $maxMessages > 0 ? $maxMessages - $processed : 10;
-            if ($maxMessages > 0 && $remaining <= 0) {
-                break;
+        foreach ($this->streams() as $stream) {
+            if ($stream === '') {
+                continue;
             }
 
-            $result = $this->redis->xAutoClaim(
-                $this->stream(), $this->group(), $this->consumer(),
-                $this->pendingReclaimIdleMs, $cursor, min(10, $remaining)
-            );
-
-            $messages = is_array($result['messages'] ?? null) ? $result['messages'] : [];
-            foreach ($messages as $message) {
-                $this->dispatchMessage($message);
-                $processed++;
-                if ($maxMessages > 0 && $processed >= $maxMessages) {
+            $cursor = '0-0';
+            do {
+                $remaining = $maxMessages > 0 ? $maxMessages - $processed : 10;
+                if ($maxMessages > 0 && $remaining <= 0) {
                     break 2;
                 }
-            }
 
-            $nextCursor = $result['next'] ?? '0-0';
-            $cursor = (is_string($nextCursor) && $nextCursor !== '') ? $nextCursor : '0-0';
-        } while ($cursor !== '0-0' && !$this->stopRequested);
+                $result = $this->redis->xAutoClaim(
+                    $stream, $this->group(), $this->consumer(),
+                    $this->pendingReclaimIdleMs, $cursor, min(10, $remaining)
+                );
+
+                $messages = is_array($result['messages'] ?? null) ? $result['messages'] : [];
+                foreach ($messages as $message) {
+                    $message['stream'] = $stream;
+                    $this->dispatchMessage($message);
+                    $processed++;
+                    if ($maxMessages > 0 && $processed >= $maxMessages) {
+                        break 3;
+                    }
+                }
+
+                $nextCursor = $result['next'] ?? '0-0';
+                $cursor = (is_string($nextCursor) && $nextCursor !== '') ? $nextCursor : '0-0';
+            } while ($cursor !== '0-0' && !$this->stopRequested);
+        }
 
         $this->lastPendingReclaimNs = hrtime(true);
 
@@ -197,16 +207,21 @@ abstract class AuditEventConsumer
 
     private function ensureGroup(): void
     {
-        $this->redis->xGroupCreate($this->stream(), $this->group(), '0');
+        foreach ($this->streams() as $stream) {
+            if ($stream !== '') {
+                $this->redis->xGroupCreate($stream, $this->group(), '0');
+            }
+        }
     }
 
     /**
-     * @param array{id:string,fields:array<string,string>} $message
+     * @param array{id:string,fields:array<string,string>,stream?:string} $message
      */
     private function dispatchMessage(array $message): void
     {
         $streamId = $message['id'];
-        $event = $this->parseEventPayload($streamId, $message['fields']['event'] ?? null);
+        $streamName = (string) ($message['stream'] ?? ($this->streams()[0] ?? ''));
+        $event = $this->parseEventPayload($streamId, $message['fields']['event'] ?? null, $streamName);
         if ($event === null) {
             return;
         }
@@ -219,10 +234,11 @@ abstract class AuditEventConsumer
             $this->handle($event);
             $handleDurationMs = self::elapsedMs($handleStart);
             $ackStart = hrtime(true);
-            $this->ackMessage($streamId);
+            $this->ackMessage($streamName, $streamId);
             $ackDurationMs = self::elapsedMs($ackStart);
             $this->recordSuccessfulTelemetry(
                 $event,
+                $streamName,
                 $streamId,
                 $receivedAt,
                 self::nowUtc(),
@@ -234,6 +250,7 @@ abstract class AuditEventConsumer
         } catch (Throwable $e) {
             $this->recordFailedTelemetry(
                 $event,
+                $streamName,
                 $streamId,
                 $receivedAt,
                 self::nowUtc(),
@@ -241,28 +258,30 @@ abstract class AuditEventConsumer
                 self::elapsedMs($handleStart),
                 $e
             );
-            $this->handleFailure($event, $streamId, $e);
+            $this->handleFailure($event, $streamName, $streamId, $e);
         }
     }
 
-    private function parseEventPayload(string $streamId, mixed $rawEvent): ?AuditEvent
+    private function parseEventPayload(string $streamId, mixed $rawEvent, ?string $streamName = null): ?AuditEvent
     {
+        $stream = $streamName ?? ($this->streams()[0] ?? '');
         if (!is_string($rawEvent) || $rawEvent === '') {
             Logger::error('AuditEventConsumer: mensaje sin campo event', [
-                'stream' => $this->stream(),
+                'stream' => $stream,
                 'stream_id' => $streamId,
             ]);
-            $this->ackMessage($streamId);
+            $this->ackMessage($stream, $streamId);
             return null;
         }
 
         $decoded = json_decode($rawEvent, true);
         if (!is_array($decoded)) {
             Logger::error('AuditEventConsumer: event JSON inválido', [
+                'stream' => $stream,
                 'stream_id' => $streamId,
                 'raw' => substr($rawEvent, 0, 200),
             ]);
-            $this->ackMessage($streamId);
+            $this->ackMessage($stream, $streamId);
             return null;
         }
 
@@ -270,16 +289,18 @@ abstract class AuditEventConsumer
             return AuditEvent::fromArray($decoded);
         } catch (Throwable $e) {
             Logger::error('AuditEventConsumer: event estructura inválida', [
+                'stream' => $stream,
                 'stream_id' => $streamId,
                 'error' => $e->getMessage(),
             ]);
-            $this->ackMessage($streamId);
+            $this->ackMessage($stream, $streamId);
             return null;
         }
     }
 
     private function recordSuccessfulTelemetry(
         AuditEvent $event,
+        string $streamName,
         string $streamId,
         string $receivedAt,
         string $finishedAt,
@@ -287,7 +308,7 @@ abstract class AuditEventConsumer
         int $handleDurationMs,
         int $ackDurationMs
     ): void {
-        $this->recordEventTelemetry($event, $streamId, $receivedAt, $finishedAt, $publishedAt, [
+        $this->recordEventTelemetry($event, $streamName, $streamId, $receivedAt, $finishedAt, $publishedAt, [
             'status' => 'acked',
             'handle_duration_ms' => $handleDurationMs,
             'ack_duration_ms' => $ackDurationMs,
@@ -296,6 +317,7 @@ abstract class AuditEventConsumer
 
     private function recordFailedTelemetry(
         AuditEvent $event,
+        string $streamName,
         string $streamId,
         string $receivedAt,
         string $finishedAt,
@@ -303,7 +325,7 @@ abstract class AuditEventConsumer
         int $handleDurationMs,
         Throwable $error
     ): void {
-        $this->recordEventTelemetry($event, $streamId, $receivedAt, $finishedAt, $publishedAt, [
+        $this->recordEventTelemetry($event, $streamName, $streamId, $receivedAt, $finishedAt, $publishedAt, [
             'status' => 'failed',
             'handle_duration_ms' => $handleDurationMs,
             'ack_duration_ms' => 0,
@@ -316,6 +338,7 @@ abstract class AuditEventConsumer
      */
     private function recordEventTelemetry(
         AuditEvent $event,
+        string $streamName,
         string $streamId,
         string $receivedAt,
         string $finishedAt,
@@ -334,7 +357,7 @@ abstract class AuditEventConsumer
         $payload = array_merge([
             'event_id' => $event->eventId,
             'event_type' => $event->eventType,
-            'stream' => $this->stream(),
+            'stream' => $streamName,
             'stream_id' => $streamId,
             'group' => $this->group(),
             'consumer' => $this->consumer(),
@@ -353,6 +376,7 @@ abstract class AuditEventConsumer
             Logger::warning('AuditEventConsumer: no se pudo registrar telemetría del evento', [
                 'event_id' => $event->eventId,
                 'audit_id' => $event->auditId,
+                'stream' => $streamName,
                 'stream_id' => $streamId,
                 'error' => $telemetryError->getMessage(),
             ]);
@@ -420,12 +444,12 @@ abstract class AuditEventConsumer
         return max($minimum, $value);
     }
 
-    private function handleFailure(AuditEvent $event, string $streamId, Throwable $error): void
+    private function handleFailure(AuditEvent $event, string $streamName, string $streamId, Throwable $error): void
     {
         $attempts = $this->incrementAttempts($event->eventId);
 
         Logger::warning('AuditEventConsumer: fallo procesando evento', [
-            'stream' => $this->stream(),
+            'stream' => $streamName,
             'event_type' => $event->eventType,
             'event_id' => $event->eventId,
             'audit_id' => $event->auditId,
@@ -446,17 +470,17 @@ abstract class AuditEventConsumer
 
         if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
-            $this->sendToDeadLetter($event, $streamId, $attempts, $error);
+            $this->sendToDeadLetter($event, $streamName, $streamId, $attempts, $error);
             Logger::critical('Evento enviado a DLQ tras agotar reintentos', [
                 'alert_type'  => 'dlq_event',
                 'audit_id'    => $event->auditId,
                 'event_type'  => $event->eventType,
-                'stream'      => $this->stream(),
+                'stream'      => $streamName,
                 'attempts'    => $attempts,
                 'error'       => $error->getMessage(),
             ]);
             $this->afterTerminalFailure($event, $error);
-            $this->ackMessage($streamId);
+            $this->ackMessage($streamName, $streamId);
             $this->clearAttempts($event->eventId);
         }
     }
@@ -554,7 +578,7 @@ abstract class AuditEventConsumer
         ));
     }
 
-    private function sendToDeadLetter(AuditEvent $event, string $streamId, int $attempts, Throwable $error): void
+    private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error): void
     {
         $deadLetter = AuditEvent::create(
             eventType: AuditEvent::TYPE_DEAD_LETTER,
@@ -563,7 +587,7 @@ abstract class AuditEventConsumer
             documentId: $event->documentId,
             payload: [
                 'failed_event_type'  => $event->eventType,
-                'failed_stream'      => $this->stream(),
+                'failed_stream'      => $streamName,
                 'failed_stage'       => static::class,
                 'failed_stream_id'   => $streamId,
                 'attempts'           => $attempts,
@@ -614,9 +638,9 @@ abstract class AuditEventConsumer
         return "event:{$eventId}:attempts";
     }
 
-    private function ackMessage(string $streamId): void
+    private function ackMessage(string $stream, string $streamId): void
     {
-        $this->redis->xAck($this->stream(), $this->group(), $streamId);
+        $this->redis->xAck($stream, $this->group(), $streamId);
     }
 
     private static function errorCode(Throwable $error): string
