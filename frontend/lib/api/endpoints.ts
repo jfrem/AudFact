@@ -21,6 +21,10 @@ export const endpoints = {
     `/dispensation/${disDetNro}/attachments/download/${attachmentId}`,
   auditSingle: () => "/audit/single",
   auditAsync: () => "/audit/async",
+  auditJobs: (query?: Record<string, string | number | null | undefined>) => {
+    const params = buildSearchParams(query ?? {});
+    return params.size ? `/audit/jobs?${params.toString()}` : "/audit/jobs";
+  },
   auditJob: (jobId: string) => `/audit/jobs/${jobId}`,
   auditStatus: (auditId: string) => `/audit/status/${auditId}`,
   auditResults: (query?: Record<string, string | number | null | undefined>) => {

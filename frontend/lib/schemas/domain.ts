@@ -16,7 +16,9 @@ const PaginationFiltersSchema = z
     z.array(UnknownRecordSchema),
   ])
   .nullish()
-  .transform((filters) => (filters && !Array.isArray(filters) ? filters : null));
+  .transform((filters) =>
+    filters && !Array.isArray(filters) ? filters : null,
+  );
 
 export const PublicConfigSchema = z.object({
   auditBatchMaxLimit: z.number(),
@@ -62,13 +64,15 @@ export const HealthSchema = z.object({
 
 export const AsyncMetricsSchema = z.object({
   queueDepth: z.number().int().nonnegative(),
-  streamDepths: z.object({
-    inbox: z.number().int().nonnegative(),
-    documents: z.number().int().nonnegative(),
-    persistence: z.number().int().nonnegative(),
-    results: z.number().int().nonnegative(),
-    batchInbox: z.number().int().nonnegative(),
-  }).optional(),
+  streamDepths: z
+    .object({
+      inbox: z.number().int().nonnegative(),
+      documents: z.number().int().nonnegative(),
+      persistence: z.number().int().nonnegative(),
+      results: z.number().int().nonnegative(),
+      batchInbox: z.number().int().nonnegative(),
+    })
+    .optional(),
   deadLetterDepth: z.number().int().nonnegative(),
   jobs: z.object({
     queued: z.number().int().nonnegative(),
@@ -82,12 +86,14 @@ export const AsyncMetricsSchema = z.object({
 
 export const ClientSchema = UnknownRecordSchema;
 export const ClientsSchema = z.array(ClientSchema);
-export const ClientDocumentSchema = z.object({
-  NitSec: ScalarSchema,
-  NitMedDocId: ScalarSchema,
-  NitMedDocCodAlt: z.string().nullable().optional(),
-  NitMedDocNom: z.string(),
-}).passthrough();
+export const ClientDocumentSchema = z
+  .object({
+    NitSec: ScalarSchema,
+    NitMedDocId: ScalarSchema,
+    NitMedDocCodAlt: z.string().nullable().optional(),
+    NitMedDocNom: z.string(),
+  })
+  .passthrough();
 export const ClientDocumentsSchema = z.array(ClientDocumentSchema);
 
 export const AuditConfigFieldSchema = z.object({
@@ -137,9 +143,11 @@ export const AuditConfigSchema = z.object({
   documents: z.record(z.string(), AuditConfigDocumentSchema),
 });
 
-export const SaveAuditConfigResponseSchema = z.object({
-  success: z.boolean().optional(),
-}).passthrough();
+export const SaveAuditConfigResponseSchema = z
+  .object({
+    success: z.boolean().optional(),
+  })
+  .passthrough();
 
 export const InvoiceSchema = UnknownRecordSchema;
 export const PaginatedInvoicesSchema = z.object({
@@ -158,17 +166,19 @@ export const DispensationDetailSchema = z.object({
   items: z.array(DispensationItemSchema),
 });
 
-export const AttachmentSchema = z.object({
-  dispensacion_id: ScalarSchema.optional(),
-  dis_det_nro: z.string().optional(),
-  cliente: ScalarSchema.optional(),
-  id_adjunto_fisico: ScalarSchema.optional(),
-  id_documento: ScalarSchema.optional(),
-  nombre_documento: z.string().optional(),
-  nombre_alternativo: z.string().optional(),
-  almacenamiento_remoto: z.string().nullable().optional(),
-  TipoAlmacenamiento: z.string().optional(),
-}).passthrough();
+export const AttachmentSchema = z
+  .object({
+    dispensacion_id: ScalarSchema.optional(),
+    dis_det_nro: z.string().optional(),
+    cliente: ScalarSchema.optional(),
+    id_adjunto_fisico: ScalarSchema.optional(),
+    id_documento: ScalarSchema.optional(),
+    nombre_documento: z.string().optional(),
+    nombre_alternativo: z.string().optional(),
+    almacenamiento_remoto: z.string().nullable().optional(),
+    TipoAlmacenamiento: z.string().optional(),
+  })
+  .passthrough();
 
 export const AttachmentsSchema = z.array(AttachmentSchema);
 
@@ -193,18 +203,20 @@ const FindingValueSchema = z
   .nullish()
   .transform((value) => (value == null ? null : String(value)));
 
-export const AuditFindingSchema = z.object({
-  campo: z.string(),
-  resultado: AuditFindingResultSchema,
-  severidad: z.string(),
-  detalle: z.unknown().nullish(),
-  valorDocumento: FindingValueSchema,
-  valorFuenteVerdad: FindingValueSchema,
-  documento: z.string().nullish(),
-  tipo_auditoria: z.string().nullish(),
-  valueType: z.string().nullish(),
-  valoresDocumento: z.array(z.string()).nullish(),
-}).passthrough();
+export const AuditFindingSchema = z
+  .object({
+    campo: z.string(),
+    resultado: AuditFindingResultSchema,
+    severidad: z.string(),
+    detalle: z.unknown().nullish(),
+    valorDocumento: FindingValueSchema,
+    valorFuenteVerdad: FindingValueSchema,
+    documento: z.string().nullish(),
+    tipo_auditoria: z.string().nullish(),
+    valueType: z.string().nullish(),
+    valoresDocumento: z.array(z.string()).nullish(),
+  })
+  .passthrough();
 
 export const AuditTimingSummarySchema = z
   .object({
@@ -222,7 +234,10 @@ export const AuditGeminiTimingSummarySchema = AuditTimingSummarySchema.extend({
   output_tokens: z.number().int().nonnegative().nullish(),
   thoughts_tokens: z.number().int().nonnegative().nullish(),
   total_tokens: z.number().int().nonnegative().nullish(),
-  finish_reasons: z.record(z.string(), z.number().int().nonnegative()).optional().default({}),
+  finish_reasons: z
+    .record(z.string(), z.number().int().nonnegative())
+    .optional()
+    .default({}),
 }).passthrough();
 
 export const AuditPhaseTimingsSchema = z
@@ -245,138 +260,213 @@ export const AuditPhaseTimingsSchema = z
   })
   .passthrough();
 
-export const AuditSingleResponseSchema = z.object({
-  audit_id: z.string().nullish(),
-  status: z.union([AuditDocumentStatusSchema, z.literal("pending"), z.literal("completed")]),
-  dis_det_nro: z.string().nullish(),
-  dis_id: z.string().nullish(),
-  findings: z.array(AuditFindingSchema).default([]),
-  severity: AuditSeveritySchema.nullish(),
-  message: z.string().nullish(),
-  documents: z.array(UnknownRecordSchema).nullish(),
-  metrics: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
-  policy: z.object({ policyKey: z.string().nullish() }).passthrough().nullable().optional(),
-  _meta: z
-    .object({
-      totalTimeMs: z.number().nullish(),
-      attempts: z.number().nullish(),
-      acceptedAttempt: z.number().nullish(),
-      promptHash: z.string().nullish(),
-      acceptedPromptHash: z.string().nullish(),
-      phases: z.record(z.string(), z.number()).nullish(),
-    })
-    .passthrough()
-    .nullish(),
-}).passthrough();
+export const AuditSingleResponseSchema = z
+  .object({
+    audit_id: z.string().nullish(),
+    status: z.union([
+      AuditDocumentStatusSchema,
+      z.literal("pending"),
+      z.literal("completed"),
+    ]),
+    dis_det_nro: z.string().nullish(),
+    dis_id: z.string().nullish(),
+    findings: z.array(AuditFindingSchema).default([]),
+    severity: AuditSeveritySchema.nullish(),
+    message: z.string().nullish(),
+    documents: z.array(UnknownRecordSchema).nullish(),
+    metrics: z.record(z.string(), z.union([z.string(), z.number()])).nullish(),
+    policy: z
+      .object({ policyKey: z.string().nullish() })
+      .passthrough()
+      .nullable()
+      .optional(),
+    _meta: z
+      .object({
+        totalTimeMs: z.number().nullish(),
+        attempts: z.number().nullish(),
+        acceptedAttempt: z.number().nullish(),
+        promptHash: z.string().nullish(),
+        acceptedPromptHash: z.string().nullish(),
+        phases: z.record(z.string(), z.number()).nullish(),
+      })
+      .passthrough()
+      .nullish(),
+  })
+  .passthrough();
 
-export const AuditJobSchema = z.object({
-  job_id: z.string(),
-  status: z.string(),
-  total: z.number().int().nonnegative().optional().default(0),
-  done: z.number().int().nonnegative().optional().default(0),
-  failed: z.number().int().nonnegative().optional().default(0),
-  pending: z.number().int().nonnegative().optional().default(0),
-  avg_duration_ms: z.number().int().nonnegative().optional().default(0),
-  accumulated_duration_ms: z.number().int().nonnegative().optional().default(0),
-  throughput_per_sec: z.number().nonnegative().optional().default(0),
-  created_at: z.string().nullable().optional(),
-  updated_at: z.string().nullable().optional(),
-  audits: z
-    .array(
-      z
-        .object({
-          audit_id: z.string(),
-          status: z.string(),
-          dis_det_nro: z.string().nullable().optional(),
-          failed_stage: z.string().nullable().optional(),
-        })
-        .passthrough(),
-    )
-    .default([]),
-}).passthrough().transform((val) => {
-  const processed = (val.done || 0) + (val.failed || 0);
-  const total = val.total || 0;
-  const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
-  
-  let status: "queued" | "running" | "completed" | "completed_with_errors" | "failed" = "queued";
-  if (val.status === "processing") status = "running";
-  else if (val.status === "completed") status = "completed";
-  else if (val.status === "completed_with_errors") status = "completed_with_errors";
-  else if (val.status === "failed") status = "failed";
+export const AuditJobSchema = z
+  .object({
+    job_id: z.string(),
+    status: z.string(),
+    total: z.number().int().nonnegative().optional().default(0),
+    done: z.number().int().nonnegative().optional().default(0),
+    failed: z.number().int().nonnegative().optional().default(0),
+    pending: z.number().int().nonnegative().optional().default(0),
+    avg_duration_ms: z.number().int().nonnegative().optional().default(0),
+    accumulated_duration_ms: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .default(0),
+    throughput_per_sec: z.number().nonnegative().optional().default(0),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+    audits: z
+      .array(
+        z
+          .object({
+            audit_id: z.string(),
+            status: z.string(),
+            dis_det_nro: z.string().nullable().optional(),
+            failed_stage: z.string().nullable().optional(),
+          })
+          .passthrough(),
+      )
+      .default([]),
+  })
+  .passthrough()
+  .transform((val) => {
+    const processed = (val.done || 0) + (val.failed || 0);
+    const total = val.total || 0;
+    const progress = total > 0 ? Math.round((processed / total) * 100) : 0;
 
-  let succeeded = val.done || 0;
-  let skipped = 0;
-  if (val.audits.length > 0) {
-    succeeded = 0;
-    for (const a of val.audits) {
-      if (a.status === "completed") succeeded++;
-      else if (a.status === "manual_review") skipped++;
+    let status:
+      | "queued"
+      | "running"
+      | "completed"
+      | "completed_with_errors"
+      | "failed" = "queued";
+    if (val.status === "processing") status = "running";
+    else if (val.status === "completed") status = "completed";
+    else if (val.status === "completed_with_errors")
+      status = "completed_with_errors";
+    else if (val.status === "failed") status = "failed";
+
+    let succeeded = val.done || 0;
+    let skipped = 0;
+    if (val.audits.length > 0) {
+      succeeded = 0;
+      for (const a of val.audits) {
+        if (a.status === "completed") succeeded++;
+        else if (a.status === "manual_review") skipped++;
+      }
     }
-  }
 
-  return {
-    jobId: val.job_id,
-    status,
-    queueDepth: val.pending || 0,
-    progress,
-    processed,
-    total,
-    createdAt: val.created_at || null,
-    startedAt: val.created_at || null,
-    completedAt: (status === "completed" || status === "completed_with_errors" || status === "failed") ? (val.updated_at || null) : null,
-    result: {
-      succeeded,
-      failed: val.failed || 0,
-      skipped,
-    },
-    error: null,
-    statusUrl: `/audit/jobs/${val.job_id}`,
-    performance: {
-      avgDurationMs: val.avg_duration_ms || 0,
-      accumulatedDurationMs: val.accumulated_duration_ms || 0,
-      throughputPerSec: val.throughput_per_sec || 0,
-    },
-    audits: val.audits,
-  };
-});
+    return {
+      jobId: val.job_id,
+      status,
+      queueDepth: val.pending || 0,
+      progress,
+      processed,
+      total,
+      createdAt: val.created_at || null,
+      startedAt: val.created_at || null,
+      completedAt:
+        status === "completed" ||
+        status === "completed_with_errors" ||
+        status === "failed"
+          ? val.updated_at || null
+          : null,
+      result: {
+        succeeded,
+        failed: val.failed || 0,
+        skipped,
+      },
+      error: null,
+      statusUrl: `/audit/jobs/${val.job_id}`,
+      performance: {
+        avgDurationMs: val.avg_duration_ms || 0,
+        accumulatedDurationMs: val.accumulated_duration_ms || 0,
+        throughputPerSec: val.throughput_per_sec || 0,
+      },
+      audits: val.audits,
+    };
+  });
 
-export const AuditResultRecordSchema = z.object({
-  DisId: ScalarSchema,
-  FacNro: z.string().nullish(),
-  FacNitSec: ScalarSchema.nullish(),
-  EstAud: z.number().int().nullish(),
-  EstadoDetallado: z.string().nullish(),
-  RequiereRevisionHumana: z.number().int().nullish(),
-  Severidad: z.string().nullish(),
-  DetalleError: z.string().nullish(),
-  DocumentosProcesados: z.number().int().nonnegative().optional().default(0),
-  DocumentoFallido: z.string().nullish(),
-  DuracionProcesamientoMs: z.number().int().nonnegative().optional().default(0),
-  metrics: z.record(z.string(), z.number()).optional().default({}),
-  findingsCount: z.number().int().nonnegative().optional().default(0),
-  failedFindingsCount: z.number().int().nonnegative().optional().default(0),
-  inconclusiveFindingsCount: z.number().int().nonnegative().optional().default(0),
-  auditExecuted: z.boolean().optional().default(false),
-  FechaCreacion: z.string().nullish(),
-  FechaActualizacion: z.string().nullish(),
-}).passthrough();
+export const AuditJobSummarySchema = z
+  .object({
+    job_id: z.string(),
+    fac_nit_sec: z.number().int().nonnegative().optional().default(0),
+    client_name: z.string().optional().default("Sin cliente"),
+    status: z.string(),
+    total: z.number().int().nonnegative().optional().default(0),
+    done: z.number().int().nonnegative().optional().default(0),
+    failed: z.number().int().nonnegative().optional().default(0),
+    pending: z.number().int().nonnegative().optional().default(0),
+    progress_percent: z.number().int().nonnegative().optional().default(0),
+    avg_duration_ms: z.number().int().nonnegative().optional().default(0),
+    accumulated_duration_ms: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .default(0),
+    throughput_per_sec: z.number().nonnegative().optional().default(0),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
+    date_from: z.string().nullable().optional(),
+    date_to: z.string().nullable().optional(),
+  })
+  .passthrough();
 
-export const AuditDocumentDecisionSchema = z.object({
-  documentName: z.string(),
-  approved: z.boolean(),
-  observation: z.string().nullable().optional(),
-  doc_id: z.string().nullable().optional(),
-  attachment_id: z.string().nullable().optional(),
-  rejection_class: z.string().nullable().optional(),
-  rejection_category: z.string().nullable().optional(),
-  rejection_reason: z.string().nullable().optional(),
-  candidate_attachment_ids: z.array(z.string()).optional(),
-}).passthrough();
+export type AuditJobSummary = z.infer<typeof AuditJobSummarySchema>;
+export const AuditJobsListSchema = z.array(AuditJobSummarySchema);
+
+export const AuditResultRecordSchema = z
+  .object({
+    DisId: ScalarSchema,
+    FacNro: z.string().nullish(),
+    FacNitSec: ScalarSchema.nullish(),
+    EstAud: z.number().int().nullish(),
+    EstadoDetallado: z.string().nullish(),
+    RequiereRevisionHumana: z.number().int().nullish(),
+    Severidad: z.string().nullish(),
+    DetalleError: z.string().nullish(),
+    DocumentosProcesados: z.number().int().nonnegative().optional().default(0),
+    DocumentoFallido: z.string().nullish(),
+    DuracionProcesamientoMs: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .default(0),
+    metrics: z.record(z.string(), z.number()).optional().default({}),
+    findingsCount: z.number().int().nonnegative().optional().default(0),
+    failedFindingsCount: z.number().int().nonnegative().optional().default(0),
+    inconclusiveFindingsCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .default(0),
+    auditExecuted: z.boolean().optional().default(false),
+    FechaCreacion: z.string().nullish(),
+    FechaActualizacion: z.string().nullish(),
+  })
+  .passthrough();
+
+export const AuditDocumentDecisionSchema = z
+  .object({
+    documentName: z.string(),
+    approved: z.boolean(),
+    observation: z.string().nullable().optional(),
+    doc_id: z.string().nullable().optional(),
+    attachment_id: z.string().nullable().optional(),
+    rejection_class: z.string().nullable().optional(),
+    rejection_category: z.string().nullable().optional(),
+    rejection_reason: z.string().nullable().optional(),
+    candidate_attachment_ids: z.array(z.string()).optional(),
+  })
+  .passthrough();
 
 export const AuditResultDetailSchema = AuditResultRecordSchema.extend({
   findings: z.array(AuditFindingSchema).optional().default([]),
   fieldDecisions: z.array(AuditFindingSchema).optional().default([]),
-  documentDecisions: z.array(AuditDocumentDecisionSchema).optional().default([]),
+  documentDecisions: z
+    .array(AuditDocumentDecisionSchema)
+    .optional()
+    .default([]),
   timings: AuditPhaseTimingsSchema.nullish(),
 });
 
@@ -435,7 +525,9 @@ export type AttachmentRecord = z.infer<typeof AttachmentSchema>;
 export type AttachmentPreview = z.infer<typeof AttachmentPreviewSchema>;
 export type AuditFinding = z.infer<typeof AuditFindingSchema>;
 export type AuditTimingSummary = z.infer<typeof AuditTimingSummarySchema>;
-export type AuditGeminiTimingSummary = z.infer<typeof AuditGeminiTimingSummarySchema>;
+export type AuditGeminiTimingSummary = z.infer<
+  typeof AuditGeminiTimingSummarySchema
+>;
 export type AuditPhaseTimings = z.infer<typeof AuditPhaseTimingsSchema>;
 export type AuditSingleResponse = z.infer<typeof AuditSingleResponseSchema>;
 export type AuditJob = z.infer<typeof AuditJobSchema>;
@@ -449,6 +541,8 @@ export type PaginatedAuditDocumentHistory = z.infer<
 export type AuditConfigField = z.infer<typeof AuditConfigFieldSchema>;
 export type AuditConfigDocument = z.infer<typeof AuditConfigDocumentSchema>;
 export type AuditConfig = z.infer<typeof AuditConfigSchema>;
-export type SaveAuditConfigResponse = z.infer<typeof SaveAuditConfigResponseSchema>;
+export type SaveAuditConfigResponse = z.infer<
+  typeof SaveAuditConfigResponseSchema
+>;
 export type AuditLiveStatus = z.infer<typeof AuditLiveStatusSchema>;
 export type AuditStats = z.infer<typeof AuditStatsSchema>;

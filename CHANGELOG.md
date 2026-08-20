@@ -1,3 +1,15 @@
+## [2026-08-20]
+
+### feat
+- **Visualización y Monitoreo en Vivo de Jobs Batch Activos (`/audit/jobs`)**: Se implementó el endpoint `GET /audit/jobs` y su interfaz reactiva en tiempo real en Next.js con diseño Mission Control (/impeccable). Permite listar todos los lotes de auditoría en Redis, con indexación ordenada por timestamp, métricas de rendimiento por segundo, progreso porcentual bicolor (aprobadas vs DLQ), fecha y hora exacta de ejecución, cálculo de tiempo restante estimado (ETA) en vivo y duración acumulada, enriquecimiento con nombres de EPS/Cliente (`ClientsModel`), paginación compacta y auto-refresco configurable cada 5 segundos. Se erradicó el componente redundante `job-tracker.tsx` bajo Clean Rebuild Policy.
+  - Archivos creados/modificados: `app/Services/Audit/Pipeline/BatchJobStore.php`, `app/Controllers/AuditController.php`, `app/Routes/web.php`, `frontend/lib/schemas/domain.ts`, `frontend/lib/api/endpoints.ts`, `frontend/lib/api/audfact.ts`, `frontend/components/jobs/jobs-list-live.tsx`, `frontend/app/(dashboard)/audit/jobs/page.tsx`, `tests/Controllers/AuditControllerTest.php`, `plans/sdd-active-jobs-monitoring.md`, `plans/sdd-jobs-monitoring-ux-optimization.md`.
+  - Impacto: Visibilidad operativa total del procesamiento asíncrono y los crons automáticos sin necesidad de conocer de antemano el UUID de cada job, con telemetría clara en español y contraste de alta fidelidad.
+
+### ops
+- **Optimización de Memoria Redis (24 GB) y 4 Ventanas de Batching Diario**: Se ajustó la configuración de Redis a `REDIS_MAXMEMORY=24gb` y `REDIS_CONTAINER_MEMORY=28G` para prevenir desalojos de llaves (`evicted_keys`). Se creó e instaló el script de crontab productivo `scripts/setup-production-cron.sh` dividiendo el volumen diario en cuatro ventanas de 3.000 facturas (06:00, 10:00, 14:00, 18:00 hora Colombia).
+  - Archivos creados/modificados: `scripts/setup-production-cron.sh`, `.env`, `.env.example`.
+  - Impacto: Estabilidad del 100% en la cola de auditorías Redis sin riesgo de saturación de memoria en el servidor.
+
 ## [2026-08-19]
 
 ### feat
