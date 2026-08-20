@@ -79,7 +79,7 @@ Bajo el diseño de stream único (`audit.inbox`), cualquier encolamiento de 1.00
 | :--- | :--- | :--- | :---: |
 | **A. Ejecución Síncrona en PHP-FPM para 1:1** | No toca Redis. | FPM bloqueado 15-30s por llamada; colapsa el pool HTTP; no hay reintentos ni telemetría SSE. | ❌ Descartada |
 | **B. Workers y Contenedores Duplicados Dedicados** | Aislamiento físico total. | Duplica consumo de RAM (requiere 16+ contenedores adicionales); desperdicia CPU cuando no hay auditorías 1:1. | ❌ Descartada |
-| **C. Streams Duales con Consumo Preferencial en Workers Existentes** | Cero costo adicional de memoria; latencia instantánea (<4s); aprovecha el pool completo de 8 workers de extracción cuando entra una petición 1:1. | Requiere soporte multi-stream en `RedisClient` y `AuditEventConsumer`. | ✅ **Seleccionada** |
+| **C. Streams Duales con Consumo Preferencial en Workers Existentes** | Cero costo adicional de memoria; latencia instantánea (menor a 4s); aprovecha el pool completo de 8 workers de extracción cuando entra una petición 1:1. | Requiere soporte multi-stream en `RedisClient` y `AuditEventConsumer`. | ✅ **Seleccionada** |
 
 ### 1.3 Aplicación Estricta de Clean Rebuild Policy
 * **Cero Código Muerto / Cero Legacy**: No se mantendrán capas de compatibilidad para "simular" el stream viejo `audit.inbox`. Los nombres canónicos pasan a ser explícitamente `audit.inbox.priority` y `audit.inbox.batch`.
@@ -109,7 +109,7 @@ sequenceDiagram
     Worker->>Worker: Orquestación -> Descarga -> Gemini 3.7 Flash
     Worker->>SQL: Persistencia Transaccional (EstAud)
     Worker->>Redis: XADD audit.results.priority * audit_completed
-    Worker-->>User: Telemetría SSE / Estado Completed (< 4.0s)
+    Worker-->>User: Telemetría SSE / Estado Completed (~1-4s)
 ```
 
 ---
@@ -266,4 +266,4 @@ El endpoint de observabilidad reportará métricas desglosadas por carril:
 ### 3.3 Plan de Rollback
 1. Si ocurre una anomalía en producción, el rollback no requiere migración de base de datos SQL.
 2. Los eventos en vuelo en `.priority` y `.batch` son drenables independientemente.
-3. Se puede revertir la versión de imagen Docker en GHCR por SHA en $<2$ minutos mediante el workflow de GitHub Actions.
+3. Se puede revertir la versión de imagen Docker en GHCR por SHA en menos de 2 minutos mediante el workflow de GitHub Actions.
