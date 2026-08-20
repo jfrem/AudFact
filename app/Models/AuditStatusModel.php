@@ -209,28 +209,35 @@ class AuditStatusModel extends Model
     {
         [$where, $params] = $this->buildWhereClause($filters);
 
-        $offset = ($page - 1) * $pageSize;
+        $safePage = max(1, $page);
+        $safePageSize = max(1, min(100, $pageSize));
+        $offset = ($safePage - 1) * $safePageSize;
 
         $sql = "SELECT
-                    [FacSec] AS [DisId], [FacNro], [EstAud], [EstadoDetallado],
-                    [RequiereRevisionHumana], [Severidad], [Hallazgos],
-                    [DetalleError], [DocumentosProcesados], [DocumentoFallido],
-                    [DuracionProcesamientoMs], [FacNitSec],
-                    [FechaCreacion], [FechaActualizacion]
-                FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
-                {$where}
-                ORDER BY [FechaCreacion] DESC
-                OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY";
-
-        $params[':offset'] = $offset;
-        $params[':pageSize'] = $pageSize;
+                    a.[FacSec] AS [DisId], a.[FacNro], a.[EstAud], a.[EstadoDetallado],
+                    a.[RequiereRevisionHumana], a.[Severidad],
+                    a.[DetalleError], a.[DocumentosProcesados], a.[DocumentoFallido],
+                    a.[DuracionProcesamientoMs], a.[FacNitSec],
+                    a.[FechaCreacion], a.[FechaActualizacion],
+                    CAST(JSON_VALUE(a.[Hallazgos], '$.metrics.total_campos') AS INT) AS [TotalCampos],
+                    CAST(JSON_VALUE(a.[Hallazgos], '$.metrics.discrepancias') AS INT) AS [Discrepancias],
+                    CAST(JSON_VALUE(a.[Hallazgos], '$.metrics.no_concluyentes') AS INT) AS [NoConcluyentes]
+                FROM (
+                    SELECT [FacNro]
+                    FROM Discolnet.dbo.AudDispEst WITH (NOLOCK)
+                    {$where}
+                    ORDER BY [FechaCreacion] DESC
+                    OFFSET {$offset} ROWS FETCH NEXT {$safePageSize} ROWS ONLY
+                ) p
+                INNER LOOP JOIN Discolnet.dbo.AudDispEst a WITH (NOLOCK) ON a.FacNro = p.FacNro
+                ORDER BY a.[FechaCreacion] DESC";
 
         $rows = $this->readWithFallback(function (PDO $connection) use (
             $sql,
             $params,
             $filters,
-            $page,
-            $pageSize
+            $safePage,
+            $safePageSize
         ): array {
             $stmt = $connection->prepare($sql);
             foreach ($params as $key => $value) {
@@ -243,12 +250,12 @@ class AuditStatusModel extends Model
                 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 Logger::info("AuditStatus: searchAuditSummaries", [
                     'filters' => array_keys($filters),
-                    'page' => $page,
-                    'pageSize' => $pageSize,
+                    'page' => $safePage,
+                    'pageSize' => $safePageSize,
                     'results' => count($rows),
                 ]);
 
-                return $rows;
+                return $rows ?: [];
             } finally {
                 $stmt->closeCursor();
             }
@@ -278,13 +285,13 @@ class AuditStatusModel extends Model
         }
 
         if (!empty($filters['dateFrom'])) {
-            $conditions[] = 'ISNULL([FechaActualizacion], [FechaCreacion]) >= :dateFrom';
+            $conditions[] = '[FechaActualizacion] >= :dateFrom';
             $params[':dateFrom'] = $filters['dateFrom'];
         }
 
         if (!empty($filters['dateTo'])) {
-            $conditions[] = 'ISNULL([FechaActualizacion], [FechaCreacion]) < DATEADD(day, 1, CAST(:dateTo AS DATE))';
-            $params[':dateTo'] = $filters['dateTo'];
+            $conditions[] = '[FechaActualizacion] < :dateTo';
+            $params[':dateTo'] = date('Y-m-d', strtotime((string) $filters['dateTo'] . ' +1 day'));
         }
 
         $where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
@@ -330,22 +337,48 @@ class AuditStatusModel extends Model
     }
 
     /**
-     * Normaliza una fila de auditoría a summary público.
+     * Normaliza una fila de auditoría a summary público para listados (sin decodificar JSON).
      *
      * @param  array<string,mixed>  $row
      * @return array<string,mixed>
      */
     private function normalizeAuditSummary(array $row): array
     {
-        $payload = $this->decodeAuditPayload(
-            isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null
-        );
+        $findingsCount = (int) ($row['TotalCampos'] ?? 0);
+        $failedCount = (int) ($row['Discrepancias'] ?? 0);
+        $inconclusiveCount = (int) ($row['NoConcluyentes'] ?? 0);
 
-        return $this->buildAuditSummary($row, $payload);
+        return [
+            'DisId' => (string) ($row['DisId'] ?? ''),
+            'FacNro' => (string) ($row['FacNro'] ?? ''),
+            'EstAud' => (int) ($row['EstAud'] ?? 0),
+            'EstadoDetallado' => (string) ($row['EstadoDetallado'] ?? ''),
+            'RequiereRevisionHumana' => (int) ($row['RequiereRevisionHumana'] ?? 0),
+            'Severidad' => (string) ($row['Severidad'] ?? ''),
+            'DetalleError' => $this->nullableString($row['DetalleError'] ?? null),
+            'DocumentosProcesados' => (int) ($row['DocumentosProcesados'] ?? 0),
+            'DocumentoFallido' => $this->nullableString($row['DocumentoFallido'] ?? null),
+            'DuracionProcesamientoMs' => (int) ($row['DuracionProcesamientoMs'] ?? 0),
+            'FacNitSec' => (string) ($row['FacNitSec'] ?? ''),
+            'FechaCreacion' => $this->stringifyDate($row['FechaCreacion'] ?? null),
+            'FechaActualizacion' => $this->stringifyDate($row['FechaActualizacion'] ?? null),
+            'metrics' => [
+                'total_campos' => $findingsCount,
+                'discrepancias' => $failedCount,
+                'no_concluyentes' => $inconclusiveCount,
+                'coincidencias' => 0,
+                'omitidos' => 0,
+                'risk_score' => 0,
+            ],
+            'findingsCount' => $findingsCount,
+            'failedFindingsCount' => $failedCount,
+            'inconclusiveFindingsCount' => $inconclusiveCount,
+            'auditExecuted' => $this->isSummaryAuditExecuted($row),
+        ];
     }
 
     /**
-     * Normaliza una fila de auditoría a detalle público.
+     * Normaliza una fila de auditoría a detalle público para modal (decodifica JSON completo).
      *
      * @param  array<string,mixed>  $row
      * @return array<string,mixed>
@@ -355,22 +388,6 @@ class AuditStatusModel extends Model
         $payload = $this->decodeAuditPayload(
             isset($row['Hallazgos']) && is_string($row['Hallazgos']) ? $row['Hallazgos'] : null
         );
-
-        return array_merge($this->buildAuditSummary($row, $payload), [
-            'findings' => $payload['findings'],
-            'fieldDecisions' => $payload['field_decisions'],
-            'documentDecisions' => $payload['document_decisions'],
-            'timings' => $payload['timings'],
-        ]);
-    }
-
-    /**
-     * @param  array<string,mixed>  $row
-     * @param  array<string,mixed>  $payload
-     * @return array<string,mixed>
-     */
-    private function buildAuditSummary(array $row, array $payload): array
-    {
         $findings = $payload['findings'];
 
         return [
@@ -391,15 +408,30 @@ class AuditStatusModel extends Model
             'findingsCount' => count($findings),
             'failedFindingsCount' => $this->countFindingsByOutcome($findings, ['VALOR_DISTINTO', 'NO_ENCONTRADO']),
             'inconclusiveFindingsCount' => $this->countFindingsByOutcome($findings, ['NO_CONCLUYENTE']),
-            'auditExecuted' => $this->isAuditExecuted($row, $payload),
+            'auditExecuted' => $this->isDetailAuditExecuted($row, $payload),
+            'findings' => $findings,
+            'fieldDecisions' => $payload['field_decisions'],
+            'documentDecisions' => $payload['document_decisions'],
+            'timings' => $payload['timings'],
         ];
     }
 
-    /**
-     * @param  array<string,mixed>  $row
-     * @param  array<string,mixed>  $payload
-     */
-    private function isAuditExecuted(array $row, array $payload): bool
+    private function isSummaryAuditExecuted(array $row): bool
+    {
+        if (((int) ($row['EstAud'] ?? 0)) === 1) {
+            return true;
+        }
+
+        $status = strtolower(trim((string) ($row['EstadoDetallado'] ?? '')));
+        if (!in_array($status, ['completed', 'manual_review', 'failed', 'error'], true)) {
+            return false;
+        }
+
+        return ((int) ($row['DocumentosProcesados'] ?? 0)) > 0
+            || ((int) ($row['TotalCampos'] ?? 0)) > 0;
+    }
+
+    private function isDetailAuditExecuted(array $row, array $payload): bool
     {
         if (((int) ($row['EstAud'] ?? 0)) === 1) {
             return true;

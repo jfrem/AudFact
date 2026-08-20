@@ -5,6 +5,11 @@
   - Archivos creados/modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/GeminiConfig.php`, `.env`, `.env.example`, `AGENTS.md`, `plans/gemini-alignment-sdd.md`, `tests/Services/Audit/AuditFieldValueTypeTest.php`, `tests/Services/Audit/GeminiConfigTest.php`.
   - Impacto: Máxima fidelidad en la transcripción de números de autorización y NITs en documentos de soporte, erradicando discrepancias OCR de un solo dígito sin generar sobrecargas ni errores 400 en llamadas semánticas.
 
+### perf
+- **Optimización de Consulta y Normalización en Listado de Auditorías (`/audit/results`)**: Se optimizó `AuditStatusModel::searchAuditSummaries` reemplazando la extracción completa y decodificación en memoria del JSON `[Hallazgos]` por proyecciones nativas `JSON_VALUE` de métricas escalares (`total_campos`, `discrepancias`, `no_concluyentes`) y paginación mediante `INNER LOOP JOIN` con predicados de fecha sargables. Se desacopló la normalización del listado (`normalizeAuditSummary`) del detalle de modal (`normalizeAuditDetail`), erradicando sobrecargas de CPU y memoria en el servidor.
+  - Archivos modificados: `app/Models/AuditStatusModel.php`, `plans/optimization-audit-results-sdd.md`, `tests/Models/AuditStatusModelTest.php`.
+  - Impacto: Transferencia de datos hacia la UI reducida de megabytes a ~15 KB con separación limpia del detalle bajo demanda.
+
 ### fix
 - **Exclusión de Adjuntos Opcionales en Cálculo de Pendientes (`InvoicesModel`)**: Se corrigió el cálculo de `EstSop` en la tabla temporal `#Sopo` dentro de `InvoicesModel::buildOptimizedBatchSql` para evaluar exclusivamente los adjuntos con `AdjDisOpc = 'N'` (obligatorios).
   - Archivos modificados: `app/Models/InvoicesModel.php`.
