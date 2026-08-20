@@ -99,7 +99,7 @@ fwrite(STDOUT, "Clientes activos encontrados: " . count($clients) . "\n\n");
 $jobStore  = new BatchJobStore();
 $publisher = new AuditEventPublisher();
 
-$idempotencyTtl = 86400; // 24h — una ejecución por día por cliente
+$idempotencyTtl = 14400; // 4h — una ejecución por ventana horaria por cliente
 
 // ─── Process each client ─────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ foreach ($clients as $client) {
 
     // ── Idempotency check ────────────────────────────────────────────────
     $jobId = AuditEvent::uuidV4();
-    $idempotencyKey = 'cron-batch-' . date('Ymd') . '-' . $facNitSec;
+    $idempotencyKey = 'cron-batch-' . date('Ymd-H') . '-' . $facNitSec;
 
     try {
         $existingJobId = $jobStore->claimIdempotencyKey($idempotencyKey, $jobId, $idempotencyTtl);
