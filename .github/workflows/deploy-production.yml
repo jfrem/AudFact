@@ -147,6 +147,7 @@ jobs:
           GEMINI_SEMANTIC_THINKING_BUDGET: ${{ vars.GEMINI_SEMANTIC_THINKING_BUDGET }}
           GEMINI_SEED: ${{ vars.GEMINI_SEED }}
           AUDIT_BATCH_MAX_LIMIT: ${{ vars.AUDIT_BATCH_MAX_LIMIT }}
+          AUDIT_BATCH_CRON_LIMIT: ${{ vars.AUDIT_BATCH_CRON_LIMIT }}
           AUDIT_BATCH_TIMEOUT: ${{ vars.AUDIT_BATCH_TIMEOUT }}
           AUDIT_NGINX_READ_TIMEOUT: ${{ vars.AUDIT_NGINX_READ_TIMEOUT }}
           AUDIT_FPM_TERMINATE_TIMEOUT: ${{ vars.AUDIT_FPM_TERMINATE_TIMEOUT }}
@@ -158,6 +159,9 @@ jobs:
           REDIS_CONTAINER_MEMORY: ${{ vars.REDIS_CONTAINER_MEMORY }}
           REDIS_MODE: ${{ vars.REDIS_MODE }}
           REDIS_PERSISTENT: ${{ vars.REDIS_PERSISTENT }}
+          REDIS_SENTINELS: ${{ vars.REDIS_SENTINELS }}
+          REDIS_SENTINEL_SERVICE: ${{ vars.REDIS_SENTINEL_SERVICE }}
+          REDIS_CLUSTER_NODES: ${{ vars.REDIS_CLUSTER_NODES }}
           CB_GEMINI_THRESHOLD: ${{ vars.CB_GEMINI_THRESHOLD }}
           CB_GEMINI_COOLDOWN: ${{ vars.CB_GEMINI_COOLDOWN }}
           AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
@@ -175,11 +179,14 @@ jobs:
           AUDIT_RESERVATION_TTL: ${{ vars.AUDIT_RESERVATION_TTL }}
           AUDIT_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_PENDING_RECLAIM_IDLE_MS }}
           AUDIT_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_PENDING_RECLAIM_INTERVAL_MS }}
+          AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS: ${{ vars.AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS }}
+          AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS: ${{ vars.AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS }}
           AUDIT_EVENT_MAX_RETRIES: ${{ vars.AUDIT_EVENT_MAX_RETRIES }}
           AUDIT_STREAM_BLOCK_MS: ${{ vars.AUDIT_STREAM_BLOCK_MS }}
           AUDIT_DLQ_STREAM: ${{ vars.AUDIT_DLQ_STREAM }}
           AUDIT_CACHE_TTL: ${{ vars.AUDIT_CACHE_TTL }}
           AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
+          RUN_REDIS_INTEGRATION: ${{ vars.RUN_REDIS_INTEGRATION }}
           AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
           AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
           AUDIT_VERSION_RULES: ${{ vars.AUDIT_VERSION_RULES }}
@@ -340,6 +347,7 @@ jobs:
             write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-42}"
             printf '\n'
             write_env_var 'AUDIT_BATCH_MAX_LIMIT' "${AUDIT_BATCH_MAX_LIMIT:-100}"
+            write_env_var 'AUDIT_BATCH_CRON_LIMIT' "${AUDIT_BATCH_CRON_LIMIT:-3000}"
             write_env_var 'AUDIT_BATCH_TIMEOUT' "${AUDIT_BATCH_TIMEOUT:-3600}"
             write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
             write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
@@ -353,6 +361,9 @@ jobs:
             write_env_var 'REDIS_PASSWORD' "$REDIS_PASSWORD"
             write_env_var 'REDIS_MODE' "${REDIS_MODE:-standalone}"
             write_env_var 'REDIS_PERSISTENT' "${REDIS_PERSISTENT:-0}"
+            write_env_var 'REDIS_SENTINELS' "${REDIS_SENTINELS:-}"
+            write_env_var 'REDIS_SENTINEL_SERVICE' "${REDIS_SENTINEL_SERVICE:-mymaster}"
+            write_env_var 'REDIS_CLUSTER_NODES' "${REDIS_CLUSTER_NODES:-}"
             printf '\n'
             write_env_var 'CB_GEMINI_THRESHOLD' "${CB_GEMINI_THRESHOLD:-3}"
             write_env_var 'CB_GEMINI_COOLDOWN' "${CB_GEMINI_COOLDOWN:-60}"
@@ -372,12 +383,16 @@ jobs:
             write_env_var 'AUDIT_RESERVATION_TTL' "${AUDIT_RESERVATION_TTL:-86400}"
             write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
             write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
+            write_env_var 'AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS' "${AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS:-1800000}"
+            write_env_var 'AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS:-60000}"
             write_env_var 'AUDIT_EVENT_MAX_RETRIES' "${AUDIT_EVENT_MAX_RETRIES:-3}"
             write_env_var 'AUDIT_STREAM_BLOCK_MS' "${AUDIT_STREAM_BLOCK_MS:-5000}"
             write_env_var 'AUDIT_DLQ_STREAM' "${AUDIT_DLQ_STREAM:-audit.dlq}"
             printf '\n'
             write_env_var 'AUDIT_CACHE_TTL' "${AUDIT_CACHE_TTL:-86400}"
             write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-86400}"
+            printf '\n'
+            write_env_var 'RUN_REDIS_INTEGRATION' "${RUN_REDIS_INTEGRATION:-0}"
             printf '\n'
             write_env_var 'AUDIT_VERSION_EXTRACTOR' "${AUDIT_VERSION_EXTRACTOR:-gemini-3.x-parallel-fc-v1}"
             write_env_var 'AUDIT_VERSION_NORMALIZER' "${AUDIT_VERSION_NORMALIZER:-1.0.0}"
