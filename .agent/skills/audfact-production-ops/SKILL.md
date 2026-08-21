@@ -31,6 +31,7 @@ Usar esta skill para operaciones remotas sobre el servidor de produccion LAN `ad
 5. Preferir GitHub Actions para despliegue normal. Usar deploy manual por SSH solo para diagnostico, recuperacion o cuando el usuario lo pida explicitamente.
 6. No exponer SSH a Internet para resolver la falta de IP publica. El modelo correcto es runner self-hosted dentro de la LAN.
 7. En Codex, si SSH falla por sandbox o red restringida, reintentar el mismo comando con `sandbox_permissions=require_escalated` y una justificacion concreta.
+8. **Sincronización obligatoria de variables y secretos en GitHub**: Cualquier cambio o adición de variable en `.env.example` o código DEBE sincronizarse inmediatamente en el entorno remoto de GitHub (`gh variable set` / `gh secret set` con `--env production`) antes de fusionar o desplegar a producción.
 
 ## Flujo Rapido
 

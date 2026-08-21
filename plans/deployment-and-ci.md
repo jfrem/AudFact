@@ -53,6 +53,13 @@ flowchart LR
 - **Ruta Base**: `/home/admon/actions-runner`
 - **Runtime**: Docker Compose en producción usa `docker compose pull` + `docker compose up -d --remove-orphans --profile frontend` sobre imágenes GHCR pre-buildadas. `--build` es solo para desarrollo local.
 
+> [!CAUTION]
+> ### Regla Obligatoria e Infalible para Agentes IA: Sincronización de Variables y Secretos en GitHub
+> Cada vez que se agregue o modifique una variable o secreto en el código (`Env::get()`, `process.env`) o `.env.example`, es **estrictamente obligatorio** crearla o actualizarla inmediatamente en el entorno remoto de GitHub (`environment: production`):
+> - **Variables no sensibles**: `gh variable set <NOMBRE> --body "<VALOR>" --env production`
+> - **Secretos / Credenciales**: `gh secret set <NOMBRE> --body "<SECRETO>" --env production`
+> **Prohibido realizar merge o push a `main` si las variables remotas no están sincronizadas en GitHub.**
+
 ### GitHub Secrets requeridos
 
 | Secret | Requerido | Descripción |

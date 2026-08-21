@@ -66,6 +66,17 @@ Pregúntate: "¿Hice algún cambio arquitectónico, agregué una variable, modif
 1. Modifica los archivos en `plans/`, `AGENTS.md` o el `README.md` según la matriz de impacto documental. **ATENCIÓN: Nunca muevas ni renombres estos archivos Markdown originales. Son la fuente de verdad fundamental para los agentes.**
 2. Modifica los archivos en `.agent/skills/` según la matriz de impacto en skills.
 
+### Paso 2.1: Sincronización Remota de Variables y Secretos en GitHub (OBLIGATORIO)
+Si modificaste o creaste variables en `.env.example`, código PHP (`Env::get()`) o Next.js (`process.env`):
+- **OBLIGATORIO**: Sincroniza inmediatamente con GitHub Environment `production` usando `gh cli`:
+  ```bash
+  gh variable set <VARIABLE_NAME> --body "<VALOR>" --env production
+  # o para secretos/credenciales:
+  gh secret set <SECRET_NAME> --body "<VALOR>" --env production
+  ```
+- Verifica la sincronización con: `gh variable list --env production` / `gh secret list --env production`.
+- **Prohibido hacer push o merge a `main` si las variables remotas no están sincronizadas.**
+
 ### Paso 3: Validación del Portal Docusaurus
 Como usamos la estrategia de "Doble Audiencia", la documentación humana se genera estáticamente.
 **OBLIGATORIO**: Valida que tus cambios no rompan la compilación del portal de documentación.
