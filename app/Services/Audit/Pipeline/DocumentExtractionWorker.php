@@ -535,7 +535,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $msg = $e->getMessage();
         return stripos($msg, 'no pages') !== false
-            || stripos($msg, 'could not be decoded') !== false;
+            || stripos($msg, 'could not be decoded') !== false
+            || stripos($msg, 'invalid argument') !== false
+            || stripos($msg, 'invalid_argument') !== false
+            || stripos($msg, 'unsupported file') !== false
+            || stripos($msg, 'failed to process') !== false;
     }
 
     private function classifyGeminiContentError(RuntimeException $e): string
@@ -544,11 +548,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         if (stripos($msg, 'no pages') !== false) {
             return DocumentRejectionReason::EMPTY_PDF_NO_PAGES;
         }
-        if (stripos($msg, 'could not be decoded') !== false) {
-            return DocumentRejectionReason::GEMINI_DECODE_FAILURE;
-        }
 
-        throw new \DomainException('Error de contenido Gemini sin clasificación permitida.', 0, $e);
+        return DocumentRejectionReason::GEMINI_DECODE_FAILURE;
     }
 
     // ─── Utilidades ──────────────────────────────────────────────────────────

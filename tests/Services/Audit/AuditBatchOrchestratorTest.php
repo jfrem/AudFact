@@ -111,6 +111,76 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertSame([], $jobStore->deletedJobs);
         $this->assertSame([], $jobStore->releasedReservations);
     }
+
+    public function testEnqueueBatchRejectsDuplicateExecutionWhenLocked(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $jobStore->generationLockGranted = false;
+        $publisher = new BatchOrchestratorPublisher();
+        $invoicesModel = new BatchOrchestratorInvoicesModel([
+            [
+                'NitSec' => 2426,
+                'DisId' => '87723098',
+                'Dispensa' => 'T38250701547',
+                'DisFecSol' => '2026-06-12T00:00:00',
+            ],
+        ]);
+
+        $orchestrator = new AuditBatchOrchestrator(
+            $stateStore,
+            $jobStore,
+            $publisher,
+            $invoicesModel,
+        );
+
+        $result = $orchestrator->enqueueBatch(2426, '2026-06-12', '2026-06-12', 1, 'job-locked', 'worker-b');
+
+        $this->assertSame(BatchJobStore::JOB_STATUS_PENDING, $result['status']);
+        $this->assertSame(0, $result['total']);
+        $this->assertCount(0, $publisher->published);
+        $this->assertSame(0, $invoicesModel->getCalls());
+    }
+
+    public function testEnqueueBatchReturnsExistingStateIfJobAlreadySealed(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $jobStore->jobData = [
+            'job_id' => 'job-sealed',
+            'sealed' => true,
+            'status' => BatchJobStore::JOB_STATUS_COMPLETED,
+            'total' => 10,
+            'skipped_locked' => 2,
+            'skipped_existing' => 1,
+            'audits' => ['a1' => ['status' => 'completed']],
+        ];
+        $publisher = new BatchOrchestratorPublisher();
+        $invoicesModel = new BatchOrchestratorInvoicesModel([
+            [
+                'NitSec' => 2426,
+                'DisId' => '87723098',
+                'Dispensa' => 'T38250701547',
+                'DisFecSol' => '2026-06-12T00:00:00',
+            ],
+        ]);
+
+        $orchestrator = new AuditBatchOrchestrator(
+            $stateStore,
+            $jobStore,
+            $publisher,
+            $invoicesModel,
+        );
+
+        $result = $orchestrator->enqueueBatch(2426, '2026-06-12', '2026-06-12', 1, 'job-sealed', 'worker-c');
+
+        $this->assertSame(BatchJobStore::JOB_STATUS_COMPLETED, $result['status']);
+        $this->assertSame(10, $result['total']);
+        $this->assertSame(2, $result['skipped_locked']);
+        $this->assertSame(1, $result['skipped_existing']);
+        $this->assertCount(0, $publisher->published);
+        $this->assertSame(0, $invoicesModel->getCalls());
+    }
 }
 
 final class BatchOrchestratorInvoicesModel extends InvoicesModel
@@ -122,6 +192,11 @@ final class BatchOrchestratorInvoicesModel extends InvoicesModel
      */
     public function __construct(private readonly array $firstPage)
     {
+    }
+
+    public function getCalls(): int
+    {
+        return $this->calls;
     }
 
     public function getInvoicesForAuditBatch(
@@ -141,15 +216,33 @@ final class BatchOrchestratorJobStore extends BatchJobStore
 {
     public int $claimAuditReservationCalls = 0;
     public int $patchJobCalls = 0;
+    public bool $generationLockGranted = true;
+    public ?array $jobData = null;
     /** @var array<int,array<string,string|null>> */
     public array $registeredAudits = [];
     /** @var array<int,string> */
     public array $deletedJobs = [];
     /** @var array<int,array{dis_id:string,token:string}> */
     public array $releasedReservations = [];
+    /** @var array<int,array{job_id:string,worker_id:string}> */
+    public array $claimedLocks = [];
+    /** @var array<int,array{job_id:string,worker_id:string}> */
+    public array $releasedLocks = [];
 
     public function __construct()
     {
+    }
+
+    public function claimJobGenerationLock(string $jobId, string $workerId, int $ttlSeconds = 1800): bool
+    {
+        $this->claimedLocks[] = ['job_id' => $jobId, 'worker_id' => $workerId];
+        return $this->generationLockGranted;
+    }
+
+    public function releaseJobGenerationLock(string $jobId, string $workerId): bool
+    {
+        $this->releasedLocks[] = ['job_id' => $jobId, 'worker_id' => $workerId];
+        return true;
     }
 
     public function registerAuditInJob(
@@ -196,7 +289,7 @@ final class BatchOrchestratorJobStore extends BatchJobStore
 
     public function getJob(string $jobId): ?array
     {
-        return ['job_id' => $jobId];
+        return $this->jobData ?? ['job_id' => $jobId];
     }
 
     public function deleteJob(string $jobId): bool

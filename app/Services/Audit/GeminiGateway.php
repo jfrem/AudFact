@@ -317,7 +317,7 @@ class GeminiGateway
             ]];
         }
 
-        return [
+        $payload = [
             'systemInstruction' => [
                 'parts' => [['text' => $systemInstruction]],
             ],
@@ -325,11 +325,19 @@ class GeminiGateway
                 'role' => 'user',
                 'parts' => $parts,
             ]],
-            'tools' => self::normalizeSchemaProperties($tools),
-            'toolConfig' => $toolConfig,
             'generationConfig' => $generationConfig,
             'safetySettings' => $this->getSafetySettings(),
         ];
+
+        if (!empty($tools)) {
+            $payload['tools'] = self::normalizeSchemaProperties($tools);
+        }
+
+        if (!empty($toolConfig)) {
+            $payload['toolConfig'] = $toolConfig;
+        }
+
+        return $payload;
     }
 
     /**

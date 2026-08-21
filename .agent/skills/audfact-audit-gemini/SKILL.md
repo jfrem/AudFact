@@ -132,6 +132,29 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 8. `AuditPersistenceWorker` aplica una barrera independiente contra `DOWNLOAD_ERROR` y contratos de rechazo inválidos, ejecuta la transacción dual idempotente sobre `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`, libera el turno y publica `audit_completed`.
 9. SQL usa PDO fresco por operación y replay interno solo para lectura/escritura idempotente, con pausas de 1/5/30 segundos. Al agotar SQL o ante un fallo técnico tipado de descarga, `AuditEventConsumer` genera `dead_letter`, hace ACK y ejecuta el cierre terminal en la misma entrega; no espera `XAUTOCLAIM`.
 
+### Resiliencia y Manejo de Errores Documentales (Pre-IA y Post-IA)
+
+```mermaid
+flowchart TD
+    A[Descarga de Documento / BLOB] --> B[Nivel 1: DocumentIntegrityValidator]
+    B -->|PDF sin %%EOF o Truncado| C[Rechazo Preventivo: CORRUPTED_DOCUMENT]
+    B -->|PDF sin Páginas| D[Rechazo Preventivo: EMPTY_PDF_NO_PAGES]
+    B -->|PDF con Password| E[Rechazo Preventivo: ENCRYPTED_DOCUMENT]
+    B -->|Estructura Válida| F[Llamada a Google Gemini API]
+    
+    F -->|200 OK| G[document_extracted]
+    F -->|400 INVALID_ARGUMENT / Decode Error| H[Nivel 2: DocumentExtractionWorker]
+    H -->|Clasificación Determinista| I[Rechazo: GEMINI_DECODE_FAILURE]
+    
+    C --> J[Emitir document_rejected]
+    D --> J
+    E --> J
+    I --> J
+    J --> K[Incrementar docs_done 3/3]
+    G --> K
+    K --> L[RulesEvaluationWorker: Sellar Auditoría y Batch al 100%]
+```
+
 ## Reglas de implementación (estrictas)
 
 1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`.

@@ -390,6 +390,69 @@ class BatchJobStore
         return "audit:reservation:disid:{$disId}";
     }
 
+    /**
+     * Construye la key Redis de lock distribuido de generación por Job ID.
+     */
+    public static function jobGenerationLockKey(string $jobId): string
+    {
+        return "batch:claim:{$jobId}";
+    }
+
+    /**
+     * Intenta adquirir el lock atómico para la generación de un lote batch.
+     *
+     * @param  string  $jobId     UUID del job batch.
+     * @param  string  $workerId  Identificador/token del worker solicitante.
+     * @param  int     $ttlSeconds Tiempo de vida del lock (default 1800s = 30 min).
+     * @return bool    true si adquirió el lock; false si otro worker ya lo tiene.
+     */
+    public function claimJobGenerationLock(string $jobId, string $workerId, int $ttlSeconds = 1800): bool
+    {
+        if ($jobId === '' || $workerId === '') {
+            return false;
+        }
+
+        try {
+            return $this->redis->setnx(
+                self::jobGenerationLockKey($jobId),
+                $workerId,
+                max(60, $ttlSeconds)
+            );
+        } catch (RedisUnavailableException $e) {
+            throw new RuntimeException('Redis no disponible al adquirir lock de generación batch', 0, $e);
+        }
+    }
+
+    /**
+     * Libera el lock de generación de lote batch si el token coincide.
+     */
+    public function releaseJobGenerationLock(string $jobId, string $workerId): bool
+    {
+        if ($jobId === '' || $workerId === '') {
+            return false;
+        }
+
+        return $this->runScript(
+            self::RELEASE_JOB_GENERATION_LOCK_LUA,
+            [self::jobGenerationLockKey($jobId)],
+            [$workerId],
+            'No se pudo liberar el lock de generación batch',
+            ['job_id' => $jobId]
+        );
+    }
+
+    private const RELEASE_JOB_GENERATION_LOCK_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+
+if tostring(raw) ~= tostring(ARGV[1] or '') then
+    return 0
+end
+
+redis.call('DEL', KEYS[1])
+return 1
+LUA;
+
     private const REGISTER_AUDIT_IN_JOB_LUA = <<<'LUA'
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 0 end

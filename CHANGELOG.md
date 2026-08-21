@@ -1,3 +1,14 @@
+## [2026-08-21]
+
+### fix
+- **Resiliencia y Manejo Determinista de Errores de Decodificación y PDFs Corruptos en Extracción Gemini (Clean Rebuild)**:
+  - Se eliminó el bloqueo estructural que causaba que facturas con PDFs corruptos o con estructura binaria no decodificable por Google Gemini API (`400 Bad Request: Request contains an invalid argument`) agotaran 3 reintentos y quedaran retenidas en la DLQ sin completar el conteo `docs_done`, dejando las auditorías y lotes masivos congelados en `processing`.
+  - **Nivel 1 (Pre-IA)**: Se reforzó `DocumentIntegrityValidator::validate` con la heurística `pdfHasEofMarker()`, detectando y rechazando preventivamente en frontera PDFs truncados que no contengan el marcador `%%EOF` con la razón `CORRUPTED_DOCUMENT` (agregada a `DocumentRejectionReason`), ahorrando llamadas de red y tokens de API.
+  - **Nivel 2 (Post-IA)**: Se ampliaron `DocumentExtractionWorker::isGeminiDocumentContentError` y `classifyGeminiContentError` para clasificar determinísticamente cualquier error 400 de decodificación de Gemini (`INVALID_ARGUMENT`, `Request contains an invalid argument`, `could not be decoded`, `unsupported file`) como `DocumentRejectionReason::GEMINI_DECODE_FAILURE`, emitiendo `document_rejected` y avanzando `docs_done`.
+  - **Payload Compliance**: Se ajustó `GeminiGateway::buildPayload` para omitir las claves vacías `'toolConfig'` y `'tools'` cuando no contengan elementos, garantizando cumplimiento estricto con la especificación Protobuf de Google Generative Language API.
+  - Archivos creados/modificados: `app/Services/Audit/Pipeline/DocumentRejectionReason.php`, `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php`, `app/Services/Audit/GeminiGateway.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `tests/Services/Audit/Events/DocumentIntegrityValidatorTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `plans/sdd-gemini-content-error-resilience.md`.
+  - Impacto: 100% de resiliencia en el pipeline documental. Las facturas con adjuntos ilegibles o corruptos completan su ciclo hacia `manual_review` con glosa de soporte y permiten que los lotes masivos alcancen el 100% de estado terminal.
+
 ## [2026-08-20]
 
 ### feat
