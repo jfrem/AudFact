@@ -166,14 +166,25 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Seguridad y Configuración
 
-#### Variables de entorno
+#### Variables de entorno y Secretos
 
 - Las variables de entorno se cargan desde `.env` vía `Core\Env::load()`
 - **Nunca commitear** `.env` con credenciales reales. El CI/CD lo genera dinámicamente desde Github Secrets.
 - **Archivo de referencia**: `.env.example` — mantenerlo actualizado.
 - **Inmutabilidad**: El código en producción NO puede modificarse desde el host (Zero-Source).
-- Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`
+- Variables críticas: `GEMINI_API_KEY`, `DB_PASS`, `GOOGLE_DRIVE_PRIVATE_KEY`, `MCP_WEBHOOK_SECRET`
 - **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben configurarse como GitHub Variables con host/IP limpio, sin instancia ni puerto embebido. `DB_PORT=1433`, `DB2_PORT=1433`.
+
+> 🚨 **REGLA OBLIGATORIA E INFALIBLE: SINCRONIZACIÓN EN GITHUB REMOTO** 🚨
+> 
+> **Cada vez que un agente cree, modifique o renombre una variable de entorno o secreto en el código PHP/Next.js o en `.env.example`:**
+> 1. **`.env.example`**: Agregar la clave inmediatamente. El pipeline CI (`Validate env contract completeness`) bloqueará el commit si alguna variable usada en código falta en `.env.example`.
+> 2. **GitHub Remoto (`gh cli`)**: Es **estrictamente obligatorio** crear o actualizar la variable/secreto en el repositorio remoto de GitHub antes de hacer push a `main`:
+>    - **Variables no sensibles**: `gh variable set <KEY> --body "<VAL>" --env production`
+>    - **Secretos / Credenciales**: `gh secret set <KEY> --body "<SECRET>" --env production`
+> 3. **`AGENTS.md`**: Documentar la variable en el *Catálogo de Variables de Entorno*.
+> 
+> **Queda prohibido dar por finalizada una tarea con variables nuevas sin haber ejecutado `gh variable set` / `gh secret set` en GitHub.**
 
 #### Guardrails de seguridad
 
