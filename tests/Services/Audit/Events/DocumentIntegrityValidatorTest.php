@@ -13,7 +13,7 @@ final class DocumentIntegrityValidatorTest extends TestCase
     {
         $result = DocumentIntegrityValidator::validate([
             'mime' => 'application/pdf',
-            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n"),
+            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n%%EOF\n"),
             'duration_ms' => 10,
         ]);
 
@@ -77,12 +77,25 @@ final class DocumentIntegrityValidatorTest extends TestCase
     {
         $result = DocumentIntegrityValidator::validate([
             'mime' => 'application/pdf',
-            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<< /Encrypt 2 0 R >>\nendobj\n"),
+            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<< /Encrypt 2 0 R >>\nendobj\n%%EOF\n"),
             'duration_ms' => 10,
         ]);
 
         $this->assertFalse($result['valid']);
         $this->assertSame('ENCRYPTED_DOCUMENT', $result['reason']);
+        $this->assertSame('application/pdf', $result['detected_mime']);
+    }
+
+    public function testRejectsTruncatedPdfWithoutEofMarker(): void
+    {
+        $result = DocumentIntegrityValidator::validate([
+            'mime' => 'application/pdf',
+            'data' => base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n[truncated byte stream without eof]"),
+            'duration_ms' => 10,
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('CORRUPTED_DOCUMENT', $result['reason']);
         $this->assertSame('application/pdf', $result['detected_mime']);
     }
 }

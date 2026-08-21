@@ -1,126 +1,119 @@
-# Diagramas de Arquitectura - AudFact
+# Diagramas de Arquitectura — AudFact
 
 > Estado actual: backend PHP 8.2-FPM + Nginx, frontend Next.js 15.5.15,
-> Redis Streams para auditoria asíncrona y SQL Server externo. Fuente
-> operativa: `app/Routes/web.php`, `docker-compose.yml`
-> y `app/Services/Audit/Pipeline/*`.
+> Redis Streams para auditoría asíncrona y SQL Server externo.
+> Fuente operativa: `app/Routes/web.php`, `docker-compose.yml` y `app/Services/Audit/Pipeline/*`.
 
 ---
 
-## Level 1 - System Context
+## Level 1 — System Context (Contexto del Sistema)
 
 ```mermaid
-C4Context
-    title AudFact - Contexto del Sistema
-
-    Person(auditor, "Auditor / Usuario", "Opera el frontend AudFact")
-    Person(aiAssistant, "Asistente IA", "Consulta datos via MCP")
-
-    System(audfact, "AudFact", "Auditoria documental automatizada para dispensacion farmaceutica")
-
-    System_Ext(sqlserver, "SQL Server", "Datos legacy de dispensacion, facturacion, adjuntos y resultados")
-    System_Ext(gemini, "Google Gemini API", "Extraccion multimodal por function calling")
-    System_Ext(gdrive, "Google Drive", "Documentos escaneados por URL")
-
-    Rel(auditor, audfact, "Gestiona clientes, facturas y auditorias", "HTTP/JSON")
-    Rel(aiAssistant, audfact, "Invoca tools MCP", "JSON-RPC")
-    Rel(audfact, sqlserver, "Lee FDV/config y persiste resultados", "PDO sqlsrv")
-    Rel(audfact, gemini, "Extrae evidencia documental", "HTTPS")
-    Rel(audfact, gdrive, "Descarga adjuntos por URL", "HTTPS/JWT")
+flowchart TD
+    User["Auditor / Usuario<br/>(Frontend Web)"]
+    AI["Asistente IA<br/>(MCP Agent)"]
+    
+    subgraph AudFact["Plataforma AudFact"]
+        CoreApp["AudFact Core<br/>(API REST + Workers Event-Driven + Next.js)"]
+    end
+    
+    SQL[("SQL Server<br/>(Discolnet / AudDispEst)")]
+    Gemini["Google Gemini API<br/>(gemini-3.7-flash)"]
+    Drive["Google Drive API<br/>(Adjuntos PDF / Imágenes)"]
+    
+    User -->|HTTP / JSON| CoreApp
+    AI -->|JSON-RPC / MCP| CoreApp
+    CoreApp -->|PDO sqlsrv| SQL
+    CoreApp -->|HTTPS / Vision API| Gemini
+    CoreApp -->|HTTPS / OAuth2 JWT| Drive
 ```
 
 ---
 
-## Level 2 - Container Diagram
+## Level 2 — Container Diagram (Contenedores)
 
 ```mermaid
-C4Container
-    title AudFact - Contenedores
-
-    Person(user, "Usuario")
-    Person(mcp, "Asistente IA")
-
-    Container(frontend, "Frontend", "Next.js 15.5.15", "UI y proxy /api/backend/* hacia la API")
-    Container(nginx, "Nginx 1.25", "Reverse proxy", "Sirve la API en :8080 y enruta FastCGI")
-    Container(php, "PHP-FPM", "PHP 8.2", "API REST MVC")
-    Container(redis, "Redis 7", "Streams/Cache", "Estado de auditorias, jobs, idempotencia y DLQ")
-
-    Container_Boundary(workers, "Workers CLI PHP") {
-        Container(batch, "worker-batch", "BatchRequestedWorker", "Consume batch_requested")
-        Container(orchestrator, "worker-orchestrator", "DocumentAuditOrchestrator", "Consume audit_created")
-        Container(downloader, "worker-downloader", "AttachmentDownloadWorker", "Consume document_registered")
-        Container(extraction, "worker-extraction", "DocumentExtractionWorker", "Consume document_downloaded")
-        Container(normalizer, "worker-normalizer", "DocumentNormalizer", "Consume document_extracted")
-        Container(policy, "worker-policy", "RulesEvaluationWorker", "Consume document_normalized/document_rejected")
-        Container(persistence, "worker-persistence", "AuditPersistenceWorker", "Consume reglas en cola justa por job")
-    }
-
-    ContainerDb(sqlsrv, "SQL Server", "External DB", "Discolnet legacy + auditoria")
-    Container_Ext(gemini, "Gemini API", "External AI", "Function calling multimodal")
-    Container_Ext(gdrive, "Google Drive", "External storage", "Adjuntos por URL")
-
-    Rel(user, frontend, "HTTP")
-    Rel(frontend, nginx, "Proxy server-side", "INTERNAL_API_URL")
-    Rel(mcp, nginx, "JSON-RPC / wrap")
-    Rel(nginx, php, "FastCGI", "php:9000")
-    Rel(php, sqlsrv, "PDO sqlsrv")
-    Rel(php, redis, "Redis")
-    Rel(php, batch, "Publica batch_requested", "Redis Stream")
-    Rel(php, orchestrator, "Publica audit_created", "Redis Stream")
-    Rel(batch, redis, "XREADGROUP/XADD")
-    Rel(orchestrator, redis, "XREADGROUP/XADD")
-    Rel(downloader, redis, "XREADGROUP/XADD + blob temporal")
-    Rel(extraction, redis, "XREADGROUP/XADD + cache")
-    Rel(normalizer, redis, "XREADGROUP/XADD")
-    Rel(policy, redis, "XREADGROUP/XADD")
-    Rel(persistence, redis, "Scheduler Lua + XREADGROUP/XADD + cierre")
-    Rel(batch, sqlsrv, "Consulta candidatas batch")
-    Rel(orchestrator, sqlsrv, "FDV/config/adjuntos")
-    Rel(downloader, gdrive, "Descarga documentos")
-    Rel(extraction, gemini, "Extraccion IA")
-    Rel(persistence, sqlsrv, "Persistencia dual transaccional")
+flowchart TD
+    Client["Usuario / Navegador Web"]
+    
+    subgraph FrontendApp["Frontend (Next.js 15.5)"]
+        UI["React Server / Client Components"]
+        Proxy["Proxy API Server-Side (/api/backend/*)"]
+    end
+    
+    subgraph BackendApp["Backend (Nginx + PHP 8.2-FPM)"]
+        Nginx["Nginx Reverse Proxy (:8080)"]
+        PHPFPM["PHP-FPM REST API"]
+    end
+    
+    subgraph Broker["Redis 7 (Distributed Broker)"]
+        Streams["Redis Streams<br/>(*.priority / *.batch)"]
+        StateStore["Redis State Store<br/>(audit:{id}:* / job:{id}:*)"]
+        CacheStore["Redis Cache / DLQ"]
+    end
+    
+    subgraph WorkerPool["Pool de Workers CLI PHP"]
+        WBatch["BatchRequestedWorker"]
+        WOrch["DocumentAuditOrchestrator"]
+        WDown["AttachmentDownloadWorker"]
+        WExt["DocumentExtractionWorker"]
+        WNorm["DocumentNormalizer"]
+        WPol["RulesEvaluationWorker"]
+        WPers["AuditPersistenceWorker"]
+    end
+    
+    subgraph ExternalServices["Servicios Externos"]
+        SQLServer[("SQL Server")]
+        GeminiAPI["Google Gemini API"]
+        GDriveAPI["Google Drive API"]
+    end
+    
+    Client --> UI
+    UI --> Proxy
+    Proxy --> Nginx
+    Nginx --> PHPFPM
+    
+    PHPFPM --> Streams
+    PHPFPM --> StateStore
+    PHPFPM --> SQLServer
+    
+    Streams --> WorkerPool
+    WorkerPool --> StateStore
+    WorkerPool --> CacheStore
+    
+    WBatch --> SQLServer
+    WOrch --> SQLServer
+    WDown --> GDriveAPI
+    WExt --> GeminiAPI
+    WPers --> SQLServer
 ```
 
 ---
 
-## Level 3 - Component Diagram (API PHP)
+## Level 3 — Component Diagram (Componentes del Backend PHP)
 
 ```mermaid
-C4Component
-    title AudFact - Componentes del backend PHP
-
-    Container_Boundary(api, "PHP-FPM API") {
-        Component(router, "Router + Middleware", "core/", "Despacho HTTP, CORS, rate limit y validacion")
-        Component(controllers, "Controllers", "app/Controllers/", "11 controladores HTTP")
-        Component(models, "Models", "app/Models/", "7 modelos PDO sqlsrv")
-        Component(auditController, "AuditController", "app/Controllers/", "Auditorias, jobs, resultados, status y timings")
-        Component(auditBatch, "AuditBatchOrchestrator", "app/Services/Audit/", "Reserva jobs batch y publica eventos")
-        Component(publisher, "AuditEventPublisher", "app/Services/Audit/Pipeline/", "Publica eventos Redis Streams")
-        Component(mcpServer, "MCP Wrap", "app/wrap/", "Tools GetClients, GetInvoices, GetDispensation, GetAttachments")
-        Component(response, "Response + Logger", "core/", "Salida JSON y logging")
-        Component(redisClient, "RedisClient", "core/", "Cache, streams, locks e idempotencia")
-        Component(database, "Database", "core/", "Conexiones PDO default/db2")
-    }
-
-    Container(redis, "Redis", "")
-    ContainerDb(sqlsrv, "SQL Server", "")
-
-    Rel(router, controllers, "Despacha")
-    Rel(controllers, models, "Consulta/persiste")
-    Rel(auditController, auditBatch, "POST /audit/async")
-    Rel(auditController, publisher, "POST /audit/single")
-    Rel(auditBatch, publisher, "batch_requested")
-    Rel(publisher, redisClient, "XADD")
-    Rel(mcpServer, controllers, "via ApiClient HTTP")
-    Rel(models, database, "PDO")
-    Rel(database, sqlsrv, "sqlsrv")
-    Rel(redisClient, redis, "RESP")
-    Rel(controllers, response, "JSON")
+flowchart LR
+    Router["Router + Middleware<br/>(CORS / RateLimit)"]
+    Controllers["Controllers<br/>(Audit, Invoices, Clients)"]
+    DataServices["Domain & Pipeline Services<br/>(AuditDataService, Orchestrator)"]
+    Models["Models PDO sqlsrv<br/>(AuditStatus, Invoices, Clients)"]
+    Publisher["AuditEventPublisher<br/>(Priority & Batch Streams)"]
+    
+    Redis[("Redis 7")]
+    SQL[("SQL Server")]
+    
+    Router --> Controllers
+    Controllers --> DataServices
+    Controllers --> Models
+    DataServices --> Publisher
+    Publisher --> Redis
+    Models --> SQL
 ```
 
 ---
 
-## Level 4 - Pipeline de Auditoria IA
+## Level 4 — Pipeline de Auditoría IA (Secuencia Event-Driven)
 
 ```mermaid
 sequenceDiagram
@@ -148,37 +141,37 @@ sequenceDiagram
     else Descarga exitosa
         Downloader->>Redis: document_downloaded
         Extractor->>Redis: lee BLOB + DocumentIntegrityValidator
-        alt Documento no procesable
-            Extractor->>Redis: document_rejected
-        else Documento valido
-            Extractor->>Gemini: function calling paralelo
+        Extractor->>Gemini: POST generateContent (multimodal)
+        alt Gemini Function Calling exitoso
+            Gemini-->>Extractor: function calls estructurados
             Extractor->>Redis: document_extracted
             Normalizer->>Redis: document_normalized
+            Policy->>Policy: DocumentPolicyEngine evalua reglas
+            Policy->>Redis: rules_evaluated
+            Persistence->>Persistence: AuditPersistenceQueue turno por job
+            Persistence->>SQL: transaccion dual idempotente
+            Persistence->>Redis: audit_completed
+        else Error de decodificacion / PDF corrupto
+            Gemini-->>Extractor: HTTP 400 INVALID_ARGUMENT
+            Extractor->>Redis: document_rejected (GEMINI_DECODE_FAILURE)
+            Policy->>Policy: consolidacion glosa soporte
+            Persistence->>SQL: persiste resultado manual_review
+            Persistence->>Redis: audit_completed
         end
     end
-    Policy->>Redis: policy_result por documento
-    Policy->>Redis: encola rules_evaluated cuando docs_done + docs_rejected == docs_total
-    Redis->>Persistence: un turno activo por job
-    Persistence->>SQL: persist() en una transaccion
-    Persistence->>Redis: libera turno + audit_completed o audit_failed
 ```
 
 ---
 
-## Level 4 - Componentes del Pipeline
+## Level 5 — Diagrama de Clases del Pipeline
 
 ```mermaid
 classDiagram
-    class AuditEventPublisher {
-        +publish(AuditEvent) string
-        +publishDeadLetter(AuditEvent) string
-    }
-
     class AuditEventConsumer {
-        +run() void
-        #handle(AuditEvent) void
-        #ackAfterSuccess()
-        #sendToDlqAfterRetries()
+        <<abstract>>
+        #streams() array
+        #handle(event) void
+        #processEvent(event) void
     }
 
     class BatchRequestedWorker {
@@ -187,14 +180,6 @@ classDiagram
 
     class DocumentAuditOrchestrator {
         +handle(audit_created) void
-    }
-
-    class DocumentExtractionContractBuilder {
-        +build(config) array
-    }
-
-    class DocumentIntegrityValidator {
-        +validate(bytes, mime) ValidationResult
     }
 
     class AttachmentDownloadWorker {
@@ -246,4 +231,29 @@ classDiagram
     AuditPersistenceQueue --> AuditEventPublisher
     AuditPersistenceWorker --> AuditPersistenceQueue
     AuditPersistenceWorker --> AuditEventPublisher
+```
+
+---
+
+## Level 6 — Resiliencia en Extracción Documental (Pre-IA y Post-IA)
+
+```mermaid
+flowchart TD
+    A[Descarga de Documento / BLOB] --> B[Nivel 1: DocumentIntegrityValidator]
+    B -->|PDF sin %%EOF o Truncado| C[Rechazo Preventivo: CORRUPTED_DOCUMENT]
+    B -->|PDF sin Páginas| D[Rechazo Preventivo: EMPTY_PDF_NO_PAGES]
+    B -->|PDF con Password| E[Rechazo Preventivo: ENCRYPTED_DOCUMENT]
+    B -->|Estructura Válida| F[Llamada a Google Gemini API]
+    
+    F -->|200 OK| G[document_extracted]
+    F -->|400 INVALID_ARGUMENT / Decode Error| H[Nivel 2: DocumentExtractionWorker]
+    H -->|Clasificación Determinista| I[Rechazo: GEMINI_DECODE_FAILURE]
+    
+    C --> J[Emitir document_rejected]
+    D --> J
+    E --> J
+    I --> J
+    J --> K[Incrementar docs_done 3/3]
+    G --> K
+    K --> L[RulesEvaluationWorker: Sellar Auditoría y Batch al 100%]
 ```

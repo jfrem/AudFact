@@ -15,6 +15,7 @@ final class DocumentRejectionReason
     public const ENCRYPTED_DOCUMENT = 'ENCRYPTED_DOCUMENT';
     public const EMPTY_PDF_NO_PAGES = 'EMPTY_PDF_NO_PAGES';
     public const GEMINI_DECODE_FAILURE = 'GEMINI_DECODE_FAILURE';
+    public const CORRUPTED_DOCUMENT = 'CORRUPTED_DOCUMENT';
 
     private const ALLOWED = [
         self::EMPTY_DOCUMENT,
@@ -25,6 +26,7 @@ final class DocumentRejectionReason
         self::ENCRYPTED_DOCUMENT,
         self::EMPTY_PDF_NO_PAGES,
         self::GEMINI_DECODE_FAILURE,
+        self::CORRUPTED_DOCUMENT,
     ];
 
     private function __construct()

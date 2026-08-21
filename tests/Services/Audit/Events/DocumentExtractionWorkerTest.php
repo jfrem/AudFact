@@ -789,7 +789,7 @@ final class DocumentExtractionWorkerTest extends TestCase
 
     private function validPdfBase64(): string
     {
-        return base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n");
+        return base64_encode("%PDF-1.4\n1 0 obj\n<</Type /Page>>\nendobj\n%%EOF\n");
     }
 
     /**
@@ -1041,6 +1041,44 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('EMPTY_PDF_NO_PAGES', $publisher->published[0]->payload['rejection_reason']);
         $this->assertSame('document_content', $publisher->published[0]->payload['rejection_class']);
         $this->assertSame('EMPTY_PDF_NO_PAGES', $store->lastRejectedPatch['rejection_reason']);
+    }
+
+    public function testGemini400InvalidArgumentRejectsDocumentWithGeminiDecodeFailure(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+
+        // Simula la excepción lanzada por GeminiGateway al recibir 400 con INVALID_ARGUMENT
+        $gateway = new StubThrowingGeminiGateway(
+            new RuntimeException('Error HTTP Gemini FC: Request contains an invalid argument. (INVALID_ARGUMENT)', 400)
+        );
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test'
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('GEMINI_DECODE_FAILURE', $publisher->published[0]->payload['rejection_reason']);
+        $this->assertSame('document_content', $publisher->published[0]->payload['rejection_class']);
+        $this->assertSame('GEMINI_DECODE_FAILURE', $store->lastRejectedPatch['rejection_reason']);
     }
 
     public function testGemini500ErrorThrowsRuntimeException(): void

@@ -40,6 +40,10 @@ final class BatchRequestedWorker extends AuditEventConsumer
         $this->stateStore   = $stateStore   ?? new AuditStateStore($this->redis);
         $this->jobStore     = $jobStore     ?? new BatchJobStore($this->redis);
         $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_BATCH);
+
+        // Timeout de inactividad de 30 minutos (1.800.000 ms) exclusivo para consultas batch masivas en SQL Server
+        $this->pendingReclaimIdleMs = (int) \Core\Env::get('AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS', 1800000);
+        $this->pendingReclaimIntervalMs = (int) \Core\Env::get('AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS', 60000);
     }
 
     protected function streams(): array
@@ -113,7 +117,7 @@ final class BatchRequestedWorker extends AuditEventConsumer
             new AuditStatusModel()
         );
 
-        $result = $orchestrator->enqueueBatch($facNitSec, $dateFrom, $dateTo, $limit, $jobId);
+        $result = $orchestrator->enqueueBatch($facNitSec, $dateFrom, $dateTo, $limit, $jobId, $this->consumerName);
 
         Logger::info('BatchRequestedWorker: batch procesado', [
             'job_id'          => $jobId,

@@ -86,6 +86,10 @@ final class DocumentIntegrityValidator
             return self::rejected(DocumentRejectionReason::EMPTY_PDF_NO_PAGES, $declaredMime, $detectedMime, $sizeBytes);
         }
 
+        if ($declaredMime === 'application/pdf' && !self::pdfHasEofMarker($raw)) {
+            return self::rejected(DocumentRejectionReason::CORRUPTED_DOCUMENT, $declaredMime, $detectedMime, $sizeBytes);
+        }
+
         return [
             'valid' => true,
             'reason' => null,
@@ -143,5 +147,16 @@ final class DocumentIntegrityValidator
         }
 
         return (bool) preg_match('/\/Type\s*\/Page(?!s)\b/', $raw);
+    }
+
+    /**
+     * Heurística preventiva: verifica que un PDF contenga el marcador de cierre '%%EOF'
+     * en la cola del archivo (últimos 1024 bytes). Un PDF truncado sin %%EOF falla en el
+     * parser de Gemini y se rechaza preventivamente como CORRUPTED_DOCUMENT.
+     */
+    private static function pdfHasEofMarker(string $raw): bool
+    {
+        $tail = substr($raw, -1024);
+        return str_contains($tail, '%%EOF');
     }
 }

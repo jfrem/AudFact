@@ -18,8 +18,8 @@ abstract class AuditEventConsumer
     private AuditStateStore $telemetryStateStore;
     protected int $maxRetries;
     protected int $blockMs;
-    private int $pendingReclaimIdleMs;
-    private int $pendingReclaimIntervalMs;
+    protected int $pendingReclaimIdleMs;
+    protected int $pendingReclaimIntervalMs;
     private int $lastPendingReclaimNs = 0;
 
     private bool $stopRequested = false;

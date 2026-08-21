@@ -41,10 +41,17 @@ final class AuditBatchOrchestrator
      * @return array{job_id:string, status:string, total:int, accepted:int, skipped_locked:int, skipped_existing:int}
      * @throws RuntimeException Si hay falla persistiendo estado o publicando eventos
      */
-    public function enqueueBatch(int $facNitSec, string $dateFrom, string $dateTo, int $limit, ?string $jobId = null): array
-    {
+    public function enqueueBatch(
+        int $facNitSec,
+        string $dateFrom,
+        string $dateTo,
+        int $limit,
+        ?string $jobId = null,
+        string $workerToken = ''
+    ): array {
         $externalJobId = $jobId !== null;
         $jobId = $jobId ?? AuditEvent::uuidV4();
+        $workerToken = $workerToken !== '' ? $workerToken : AuditEvent::uuidV4();
         $jobInitialized = false;
         $createdAuditIds = [];
         $createdReservations = [];
@@ -54,20 +61,55 @@ final class AuditBatchOrchestrator
         $skippedExisting = 0;
         $responseStatus = BatchJobStore::JOB_STATUS_PENDING;
         $publishedAnyEvent = false;
+        $hasLock = false;
+
+        // 1. Si el job ya existe en Redis (lanzado vía controller o cron)
+        if ($externalJobId) {
+            $existing = $this->jobStore->getJob($jobId);
+            if ($existing === null) {
+                throw new RuntimeException("Job externo {$jobId} no encontrado en Redis", 503);
+            }
+            $jobInitialized = true;
+
+            // Guarda de idempotencia: Si el job ya fue sellado o ya tiene auditorías generadas,
+            // se descarta la re-generación duplicada retornando el estado actual.
+            if (($existing['sealed'] ?? false) === true || count($existing['audits'] ?? []) > 0) {
+                Logger::warning('AuditBatchOrchestrator: Job ya inicializado o sellado previamente; se omite re-generación', [
+                    'job_id' => $jobId,
+                    'sealed' => $existing['sealed'] ?? false,
+                    'audits_count' => count($existing['audits'] ?? []),
+                ]);
+                return $this->buildBatchResponse(
+                    $jobId,
+                    (string) ($existing['status'] ?? BatchJobStore::JOB_STATUS_PROCESSING),
+                    (int) ($existing['total'] ?? count($existing['audits'] ?? [])),
+                    (int) ($existing['skipped_locked'] ?? 0),
+                    (int) ($existing['skipped_existing'] ?? 0)
+                );
+            }
+        } else {
+            $this->initJobOrFail($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+            $jobInitialized = true;
+        }
+
+        // 2. Lock atómico de generación distribuida para prevenir concurrencia entre réplicas
+        $hasLock = $this->jobStore->claimJobGenerationLock($jobId, $workerToken, 1800);
+        if (!$hasLock) {
+            Logger::warning('AuditBatchOrchestrator: Generación de batch en curso por otro worker; se omite concurrencia', [
+                'job_id' => $jobId,
+                'worker_token' => $workerToken,
+            ]);
+            $currentJob = $this->jobStore->getJob($jobId);
+            return $this->buildBatchResponse(
+                $jobId,
+                (string) ($currentJob['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
+                (int) ($currentJob['total'] ?? 0),
+                0,
+                0
+            );
+        }
 
         try {
-            if ($externalJobId) {
-                // Job ya inicializado por el controller — verificar que existe
-                $existing = $this->jobStore->getJob($jobId);
-                if ($existing === null) {
-                    throw new RuntimeException("Job externo {$jobId} no encontrado en Redis", 503);
-                }
-                $jobInitialized = true;
-            } else {
-                $this->initJobOrFail($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
-                $jobInitialized = true;
-            }
-
             $cursor = null;
             $pageLimit = self::resolvePageLimit($limit);
 
@@ -182,6 +224,10 @@ final class AuditBatchOrchestrator
             ]);
             
             throw $e;
+        } finally {
+            if ($hasLock) {
+                $this->jobStore->releaseJobGenerationLock($jobId, $workerToken);
+            }
         }
     }
 
