@@ -9,6 +9,14 @@
 - **Eficiencia y Cero Falsos Rechazos**: Previene llamadas innecesarias a herramientas como `detect_visual_checks` (ej. `FirmaPrescriptor` exclusivo de POS en entregas MIPRES), ahorrando tokens y eliminando alucinaciones o rechazos erróneos.
 - **Testing & Skills**: Creadas suites unitarias `DocumentAuditOrchestratorServiceTypeFilterTest`, `AuditConfigControllerTest` y `AuditConfigModelTest` (503 tests 100% OK). Sincronizadas las skills `audfact-api-rest`, `audfact-audit-gemini`, `audfact-sqlsrv-models` y documentación en `plans/`.
 
+### Frontend / UI y Esquemas de Dominio
+- **Esquemas Zod & API**: Actualizados `AuditConfigFieldSchema` y `AuditVisualCheckSchema` en `frontend/lib/schemas/domain.ts` con `aplicaServicio` (default: `'TODOS'`), y extendido `AuditConfigPayload['fields']` en `frontend/lib/api/audfact.ts`.
+- **Editor de Configuración (`AuditConfigEditor`)**:
+  - Implementado selector interactivo de modalidad `Servicio` (`Todos`, `POS`, `MIPRES`) mediante `ServiceSelect` en las tarjetas de campos de datos (`FieldRow`) y de verificaciones visuales (`VisualCheckRow`).
+  - Agregado `ServiceBadge` en cabeceras de tarjeta para visibilidad instantánea de campos con modalidad exclusiva.
+  - Normalización e inicialización con `'TODOS'` en `addFieldsFromDispensa()`, `toggleVisualCheckOption()` y serialización en `buildPayload()`.
+- **Arquitectura Limpia & Craft**: Aplicados principios de `clean-rebuild-policy` e `impeccable` para micro-diseño, contrastes accesibles y erradicación de código muerto. Validado con `tsc --noEmit` (0 errores).
+
 ## [2026-08-19] - Fix: Exclusión de Adjuntos Opcionales en Cálculo de Pendientes en InvoicesModel
 
 ### Backend / Modelos SQL Server
