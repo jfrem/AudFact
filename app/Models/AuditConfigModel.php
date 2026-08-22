@@ -37,7 +37,8 @@ class AuditConfigModel extends Model
                cat.CodigoCampo, cat.EsVisual,
                cat.Descripcion AS DescripcionDefault,
                cat.Severidad   AS SeveridadDefault,
-               ac.Orden, ac.DescripcionOverride, ac.SeveridadOverride
+               ac.Orden, ac.DescripcionOverride, ac.SeveridadOverride,
+               ac.AplicaServicio
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN Discolnet.dbo.AudDispCampoCatalogo cat WITH (NOLOCK)
                 ON cat.CampoNombre = ac.CampoNombre
@@ -75,24 +76,31 @@ class AuditConfigModel extends Model
                 ];
             }
 
+            $aplicaServicio = self::normalizeAplicaServicio($row['AplicaServicio'] ?? null);
+            $description    = $row['DescripcionOverride'] ?? $row['DescripcionDefault'] ?? '';
+            $orden          = (int) $row['Orden'];
+            $codigoCampo    = $row['CodigoCampo'];
+
             if (!$row['EsVisual']) {
                 $documents[$docNombre]['fields'][] = [
-                    'campoNombre' => $row['CampoNombre'],
-                    'tipoCampo'   => $row['TipoCampo'],
-                    'tipoDato'    => strtolower(trim((string) $row['TipoDato'])),
-                    'orden'       => (int) $row['Orden'],
-                    'severity'    => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'media',
-                    'codigoCampo' => $row['CodigoCampo'],
-                    'description' => $row['DescripcionOverride'] ?? $row['DescripcionDefault'] ?? '',
+                    'campoNombre'    => $row['CampoNombre'],
+                    'tipoCampo'      => $row['TipoCampo'],
+                    'tipoDato'       => strtolower(trim((string) $row['TipoDato'])),
+                    'orden'          => $orden,
+                    'severity'       => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'media',
+                    'codigoCampo'    => $codigoCampo,
+                    'description'    => $description,
+                    'aplicaServicio' => $aplicaServicio,
                 ];
             } else {
                 // Visual checks retornados como objetos completos
                 $documents[$docNombre]['visualChecks'][] = [
-                    'check'       => $row['CampoNombre'],
-                    'description' => $row['DescripcionOverride'] ?? $row['DescripcionDefault'] ?? '',
-                    'severity'    => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'alta',
-                    'orden'       => (int) $row['Orden'],
-                    'codigoCampo' => $row['CodigoCampo'],
+                    'check'          => $row['CampoNombre'],
+                    'description'    => $description,
+                    'severity'       => $row['SeveridadOverride'] ?? $row['SeveridadDefault'] ?? 'alta',
+                    'orden'          => $orden,
+                    'codigoCampo'    => $codigoCampo,
+                    'aplicaServicio' => $aplicaServicio,
                 ];
             }
         }
@@ -264,24 +272,26 @@ class AuditConfigModel extends Model
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
                 (FacNitSec, NitMedDocId, CampoNombre, Activo, Orden,
-                 DescripcionOverride, SeveridadOverride)
+                 DescripcionOverride, SeveridadOverride, AplicaServicio)
             VALUES
                 (:nitSec, :docId, :campoNombre, 1, :orden,
-                 :description, :severity)";
+                 :description, :severity, :aplicaServicio)";
         $insStmt = $db->prepare($insSql);
 
         try {
             foreach ($fields as $field) {
-                $docId       = (int)    $field['docId'];
-                $campo       = (string) $field['campoNombre'];
-                $orden       = (int)    ($field['orden']     ?? 0);
-                $description = $field['description'] ?? null;
-                $severity    = $field['severity']    ?? null;
+                $docId          = (int)    $field['docId'];
+                $campo          = (string) $field['campoNombre'];
+                $orden          = (int)    ($field['orden']     ?? 0);
+                $description    = $field['description'] ?? null;
+                $severity       = $field['severity']    ?? null;
+                $aplicaServicio = self::normalizeAplicaServicio($field['aplicaServicio'] ?? null);
 
-                $insStmt->bindValue(':nitSec',      $nitSec, PDO::PARAM_STR);
-                $insStmt->bindValue(':docId',       $docId, PDO::PARAM_INT);
-                $insStmt->bindValue(':campoNombre', $campo, PDO::PARAM_STR);
-                $insStmt->bindValue(':orden',       $orden, PDO::PARAM_INT);
+                $insStmt->bindValue(':nitSec',         $nitSec, PDO::PARAM_STR);
+                $insStmt->bindValue(':docId',          $docId, PDO::PARAM_INT);
+                $insStmt->bindValue(':campoNombre',    $campo, PDO::PARAM_STR);
+                $insStmt->bindValue(':orden',          $orden, PDO::PARAM_INT);
+                $insStmt->bindValue(':aplicaServicio', $aplicaServicio, PDO::PARAM_STR);
                 if ($description === null) {
                     $insStmt->bindValue(':description', null, PDO::PARAM_NULL);
                 } else {
@@ -338,5 +348,11 @@ class AuditConfigModel extends Model
                 $stmt->closeCursor();
             }
         });
+    }
+
+    private static function normalizeAplicaServicio(mixed $value): string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+        return $normalized !== '' ? $normalized : 'TODOS';
     }
 }

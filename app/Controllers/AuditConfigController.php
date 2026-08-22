@@ -154,8 +154,9 @@ class AuditConfigController extends Controller
             }
 
             try {
-                $docId       = $this->sanitizeDocId($field);
-                $campoNombre = $this->sanitizeCampoNombre($field);
+                $docId          = $this->sanitizeDocId($field);
+                $campoNombre    = $this->sanitizeCampoNombre($field);
+                $aplicaServicio = $this->sanitizeAplicaServicio($field);
             } catch (\InvalidArgumentException $exception) {
                 $errors[] = "Campo #{$pos}: {$exception->getMessage()}";
                 continue;
@@ -169,11 +170,12 @@ class AuditConfigController extends Controller
             }
 
             $sanitized[] = [
-                'docId'       => $docId,
-                'campoNombre' => $campoNombre,
-                'orden'       => (int) ($field['orden'] ?? 0),
-                'description' => $description,
-                'severity'    => $this->sanitizeSeverity($field),
+                'docId'          => $docId,
+                'campoNombre'    => $campoNombre,
+                'orden'          => (int) ($field['orden'] ?? 0),
+                'description'    => $description,
+                'severity'       => $this->sanitizeSeverity($field),
+                'aplicaServicio' => $aplicaServicio,
             ];
         }
 
@@ -227,5 +229,22 @@ class AuditConfigController extends Controller
         }
 
         return strtolower($severity);
+    }
+
+    private function sanitizeAplicaServicio(array $field): string
+    {
+        $aplica = isset($field['aplicaServicio']) && is_string($field['aplicaServicio'])
+            ? strtoupper(trim($field['aplicaServicio']))
+            : 'TODOS';
+
+        if ($aplica === '') {
+            $aplica = 'TODOS';
+        }
+
+        if (!preg_match('/^[A-Za-z0-9_\-]{1,20}$/', $aplica)) {
+            throw new \InvalidArgumentException("'aplicaServicio' contiene caracteres inválidos.");
+        }
+
+        return $aplica;
     }
 }

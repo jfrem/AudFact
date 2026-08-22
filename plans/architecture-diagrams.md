@@ -163,6 +163,81 @@ sequenceDiagram
 
 ---
 
+## Level 4.1 — Topología y Flujo en 6 Etapas del Pipeline de Auditoría
+
+```mermaid
+flowchart TD
+    subgraph Trigger ["0. Disparo HTTP o API"]
+        Req["HTTP POST /audit/single o /audit/async"] -->|"Publica audit_created"| S_Inbox[("Stream: audit.inbox")]
+    end
+
+    subgraph E1 ["Etapa 1: Orquestación"]
+        S_Inbox --> W1["DocumentAuditOrchestrator"]
+        W1 -->|"1. Consulta FDV"| DB_Fdv[("SQL Server: vw_discolnet_dispensas")]
+        W1 -->|"2. Resuelve audit-config"| DB_Cfg[("SQL Server: AudDispCampo")]
+        W1 -->|"3. Reconcilia Lógico vs Físico"| Matcher["DocumentAttachmentMatcher"]
+        W1 -->|"4. Construye Schemas Gemini"| CBuilder["DocumentExtractionContractBuilder"]
+        W1 -->|"Publica N x document_registered"| S_Docs[("Stream: audit.documents")]
+    end
+
+    subgraph E2 ["Etapa 2: Descarga"]
+        S_Docs --> W2["AttachmentDownloadWorker (8 replicas)"]
+        W2 -->|"Descarga BLOB o Drive"| Storage["Google Drive API / SQL Server BLOB"]
+        W2 -->|"Guarda temporal en Redis"| R_Blob[("Redis: audit:blob:id")]
+        W2 -->|"Publica document_downloaded"| S_Down[("Stream: audit.downloads")]
+    end
+
+    subgraph E3 ["Etapa 3: Extracción IA"]
+        S_Down --> W3["DocumentExtractionWorker (8 replicas)"]
+        W3 -->|"Verifica cache y estructura"| CacheMgr["ExtractionCacheManager"]
+        W3 -->|"Parallel Function Calling"| Gemini["Google Gemini API Gateway"]
+        W3 -->|"Parser 3 fases y sanitización"| Parser["GeminiResponseParser"]
+        W3 -->|"Publica document_extracted"| S_Extr[("Stream: audit.extractions")]
+    end
+
+    subgraph E4 ["Etapa 4: Normalización"]
+        S_Extr --> W4["DocumentNormalizer"]
+        W4 -->|"Fechas ISO, upper, sin tildes, numeros"| TextNorm["TextNormalization e IdentityDocNormalizer"]
+        W4 -->|"Publica document_normalized"| S_Norm[("Stream: audit.normalizations")]
+    end
+
+    subgraph E5 ["Etapa 5: Evaluación de Reglas"]
+        S_Norm --> W5["RulesEvaluationWorker (2 replicas)"]
+        W5 --> Engine["DocumentPolicyEngine"]
+        Engine -.->|"Fallback semantico farmacos"| Judge["ArticleSemanticMatchJudge"]
+        W5 --> Cross1["DocumentDuplicationEvaluator"]
+        W5 --> Cross2["DeliveryValidityEvaluator"]
+        W5 -->|"Lua: docs_done = docs_total"| S_Eval[("Cola: AuditPersistenceQueue")]
+    end
+
+    subgraph E6 ["Etapa 6: Agregación y Persistencia"]
+        S_Eval --> W6["AuditPersistenceWorker (3 replicas)"]
+        W6 -->|"Transaccion atomica dual con retry"| DB_Persist[("SQL Server: dbo.AudDispEst")]
+        W6 -->|"audit_completed / audit_failed"| S_Out[("Telemetria SSE / UI")]
+    end
+
+    subgraph ErrorHandling ["Gestión de Fallos y Resiliencia"]
+        W1 -.->|"Fallo tras max retries"| DLQ[("Stream: audit.dlq")]
+        W2 -.->|"Fallo tecnico o descarga"| DLQ
+        W3 -.->|"Fallo de extraccion"| DLQ
+        W5 -.->|"Fallo de evaluacion"| DLQ
+        W6 -.->|"Fallo transaccional"| DLQ
+    end
+
+    classDef stage fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc,rx:6px,ry:6px;
+    classDef stream fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#c7d2fe,rx:8px,ry:8px;
+    classDef storage fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#d1fae5,rx:6px,ry:6px;
+    classDef dlq fill:#450a0a,stroke:#f87171,stroke-width:2px,color:#fecaca,rx:6px,ry:6px;
+
+    class W1,W2,W3,W4,W5,W6,Engine,Matcher,CBuilder,Parser,TextNorm stage;
+    class S_Inbox,S_Docs,S_Down,S_Extr,S_Norm,S_Eval,S_Out stream;
+    class DB_Fdv,DB_Cfg,DB_Persist,Storage,R_Blob storage;
+    class DLQ dlq;
+```
+
+---
+
+
 ## Level 5 — Diagrama de Clases del Pipeline
 
 ```mermaid
