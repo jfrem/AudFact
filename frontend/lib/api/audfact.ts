@@ -194,6 +194,7 @@ export type AuditConfigPayload = {
     description?: string | null;
     severity?: string | null;
     orden: number;
+    aplicaServicio?: string | null;
   }>;
 };
 

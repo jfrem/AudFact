@@ -36,7 +36,6 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -62,6 +61,7 @@ type FieldToggle = {
   descripcionOverride?: string;
   severityOverride?: string;
   codigoCampo?: string;
+  aplicaServicio?: string;
 };
 
 type DocState = {
@@ -92,6 +92,29 @@ const TIPO_DATO_LABELS: Record<string, string> = {
   article_name: "Artículo",
 };
 
+export const APLICA_SERVICIO_OPTIONS = [
+  {
+    value: "TODOS",
+    label: "Todos",
+    description: "Auditar en todas las modalidades de entrega",
+  },
+  {
+    value: "POS",
+    label: "POS",
+    description: "Auditar únicamente en entregas de tipo POS",
+  },
+  {
+    value: "MIPRES",
+    label: "MIPRES",
+    description: "Auditar únicamente en entregas de tipo MIPRES",
+  },
+] as const;
+
+function normalizeAplicaServicio(value?: string | null): string {
+  const normalized = value?.trim().toUpperCase();
+  return normalized === "POS" || normalized === "MIPRES" ? normalized : "TODOS";
+}
+
 function sameFieldName(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
@@ -107,8 +130,6 @@ function normalizeSeverity(
     ? normalized
     : fallback;
 }
-
-
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
@@ -154,6 +175,7 @@ export function AuditConfigEditor({
               f.severityOverride ?? f.severity,
             ),
             codigoCampo: f.codigoCampo ?? undefined,
+            aplicaServicio: normalizeAplicaServicio(f.aplicaServicio),
           };
         });
 
@@ -165,6 +187,7 @@ export function AuditConfigEditor({
           descripcionOverride: v.description ?? undefined,
           severityOverride: normalizeSeverity(v.severity),
           codigoCampo: v.codigoCampo ?? undefined,
+          aplicaServicio: normalizeAplicaServicio(v.aplicaServicio),
         }));
 
         // Deduplicate: If it exists as Visual, we don't need the Data version (usually for signatures)
@@ -232,12 +255,15 @@ export function AuditConfigEditor({
     setDocs((prev) =>
       prev.map((d) => {
         if (d.docName !== docName) return d;
-        
+
         const existingNames = new Set(
           d.fields.map((f) => f.campoNombre.toLowerCase()),
         );
-        const currentMaxOrden = d.fields.reduce((max, f) => Math.max(max, f.orden), 0);
-        
+        const currentMaxOrden = d.fields.reduce(
+          (max, f) => Math.max(max, f.orden),
+          0,
+        );
+
         const newFields: FieldToggle[] = [];
         let nextOrden = currentMaxOrden + 1;
 
@@ -254,8 +280,9 @@ export function AuditConfigEditor({
             tipoDato: item.tipoDato ?? "",
             orden: nextOrden++,
             codigoCampo: item.codigoCampo,
+            aplicaServicio: "TODOS",
           });
-          
+
           existingNames.add(lowerName);
         }
 
@@ -297,6 +324,7 @@ export function AuditConfigEditor({
           descripcionOverride: option.descripcion ?? undefined,
           severityOverride: option.severidad,
           codigoCampo: option.codigoCampo,
+          aplicaServicio: "TODOS",
         };
 
         return { ...d, fields: [...d.fields, visualField] };
@@ -317,6 +345,7 @@ export function AuditConfigEditor({
           description: f.descripcionOverride ?? null,
           severity: f.severityOverride ?? null,
           orden: f.orden,
+          aplicaServicio: normalizeAplicaServicio(f.aplicaServicio),
         });
       }
     }
@@ -356,9 +385,8 @@ export function AuditConfigEditor({
   const visualFields =
     activeDoc?.fields.filter((f) => f.tipoCampo === "V") ?? [];
   const selectedVisualCount = visualCheckOptions.filter((option) =>
-    visualFields.some(
-      (field) =>
-        sameFieldName(field.campoNombre, option.campoNombre)
+    visualFields.some((field) =>
+      sameFieldName(field.campoNombre, option.campoNombre),
     ),
   ).length;
   const totalCount = activeDoc?.fields.length ?? 0;
@@ -448,13 +476,13 @@ export function AuditConfigEditor({
                   {doc.docName}
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600">
-                  <span>
-                    {docTotal} campos activos
-                  </span>
+                  <span>{docTotal} campos activos</span>
                   {hasVisuals && (
                     <>
                       <span className="text-slate-700">·</span>
-                      <span className="text-violet-400">Verificaciones visuales</span>
+                      <span className="text-violet-400">
+                        Verificaciones visuales
+                      </span>
                     </>
                   )}
                 </div>
@@ -465,7 +493,9 @@ export function AuditConfigEditor({
                   className={cn(
                     "h-full rounded-full transition-all duration-500",
                     docTotal > 0
-                      ? isActive ? "bg-sky-500" : "bg-emerald-500"
+                      ? isActive
+                        ? "bg-sky-500"
+                        : "bg-emerald-500"
                       : "bg-slate-600",
                   )}
                   style={{ width: docTotal > 0 ? "100%" : "0%" }}
@@ -751,9 +781,8 @@ function VisualCheckPicker({
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {options.map((option) => {
         const checkboxId = `visual-check-${option.campoNombre}`;
-        const checked = selectedFields.some(
-          (field) =>
-            sameFieldName(field.campoNombre, option.campoNombre)
+        const checked = selectedFields.some((field) =>
+          sameFieldName(field.campoNombre, option.campoNombre),
         );
 
         return (
@@ -806,6 +835,56 @@ function VisualCheckPicker({
   );
 }
 
+function ServiceBadge({ service }: { service?: string }) {
+  const normalized = normalizeAplicaServicio(service);
+  if (normalized === "TODOS") return null;
+
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider transition-colors",
+        normalized === "POS"
+          ? "border-amber-500/30 bg-amber-500/10 text-amber-300/90 shadow-[0_0_10px_rgba(245,158,11,0.05)]"
+          : "border-sky-500/30 bg-sky-500/10 text-sky-300/90 shadow-[0_0_10px_rgba(56,189,248,0.05)]",
+      )}
+    >
+      {normalized === "POS" ? "POS" : "MIPRES"}
+    </span>
+  );
+}
+
+function ServiceSelect({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (val: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+        Servicio
+      </span>
+      <Select value={normalizeAplicaServicio(value)} onValueChange={onChange}>
+        <SelectTrigger className="h-8 rounded-lg border-white/[0.08] bg-background/50 text-[11px] text-slate-200 transition-colors hover:border-white/[0.16] hover:bg-background/80">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="border-white/[0.08] bg-[#0c1424]">
+          {APLICA_SERVICIO_OPTIONS.map((opt) => (
+            <SelectItem
+              key={opt.value}
+              value={opt.value}
+              className="text-[11px] text-slate-300 focus:bg-white/[0.06] focus:text-white"
+            >
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function FieldRow({
   field,
   onRemove,
@@ -815,12 +894,10 @@ function FieldRow({
   onRemove: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
-  const switchId = React.useId();
-
   return (
     <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
       <div className="flex items-center justify-between px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2.5">
+        <div className="flex min-w-0 items-center gap-2">
           <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
             {field.campoNombre}
           </Label>
@@ -838,6 +915,7 @@ function FieldRow({
               {TIPO_DATO_LABELS[field.tipoDato] ?? field.tipoDato}
             </span>
           )}
+          <ServiceBadge service={field.aplicaServicio} />
         </div>
         <div className="flex items-center gap-1">
           <Dialog>
@@ -906,7 +984,7 @@ function FieldRow({
       </div>
 
       <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
               Tipo
@@ -945,6 +1023,10 @@ function FieldRow({
               </SelectContent>
             </Select>
           </div>
+          <ServiceSelect
+            value={field.aplicaServicio}
+            onChange={(val) => onUpdate({ aplicaServicio: val })}
+          />
         </div>
       </div>
     </div>
@@ -960,8 +1042,6 @@ function VisualCheckRow({
   onRemove: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
-  const switchId = React.useId();
-
   return (
     <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
       {/* Row header */}
@@ -973,6 +1053,7 @@ function VisualCheckRow({
           <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-400">
             Visual
           </span>
+          <ServiceBadge service={field.aplicaServicio} />
         </div>
         <div className="flex items-center gap-1">
           <Dialog>
@@ -1042,7 +1123,7 @@ function VisualCheckRow({
 
       {/* Expanded options */}
       <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
               Severidad
@@ -1061,6 +1142,10 @@ function VisualCheckRow({
               </SelectContent>
             </Select>
           </div>
+          <ServiceSelect
+            value={field.aplicaServicio}
+            onChange={(val) => onUpdate({ aplicaServicio: val })}
+          />
         </div>
       </div>
     </div>

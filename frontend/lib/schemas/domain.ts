@@ -107,6 +107,7 @@ export const AuditConfigFieldSchema = z.object({
   severityOverride: z.string().nullable().optional(),
   orden: z.number().default(0),
   codigoCampo: z.string().nullable().optional(),
+  aplicaServicio: z.string().optional().default("TODOS"),
 });
 
 export const AuditVisualCheckSchema = z.object({
@@ -116,6 +117,7 @@ export const AuditVisualCheckSchema = z.object({
   enabled: z.boolean().default(true),
   orden: z.number().default(0),
   codigoCampo: z.string().nullable().optional(),
+  aplicaServicio: z.string().optional().default("TODOS"),
 });
 
 export const FieldCatalogItemSchema = z.object({
