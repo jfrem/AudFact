@@ -470,7 +470,7 @@ Respuesta:
 
 ### `GET /clients/{clientId}/audit-config`
 
-Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema, campos de datos por documento y visual checks separados.
+Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema, campos de datos por documento y visual checks separados con su respectivo `aplicaServicio` (`TODOS`, `POS`, `MIPRES`, etc.).
 
 Respuesta:
 ```json
@@ -491,7 +491,9 @@ Respuesta:
             "tipoDato": "text",
             "orden": 1,
             "severity": "alta",
-            "codigoCampo": "FACN"
+            "codigoCampo": "FACN",
+            "description": "",
+            "aplicaServicio": "TODOS"
           },
           {
             "campoNombre": "NombreArticulo",
@@ -499,7 +501,9 @@ Respuesta:
             "tipoDato": "article_name",
             "orden": 8,
             "severity": "alta",
-            "codigoCampo": "NAM"
+            "codigoCampo": "NAM",
+            "description": "",
+            "aplicaServicio": "TODOS"
           }
         ],
         "visualChecks": [
@@ -508,7 +512,8 @@ Respuesta:
             "description": "Firma o sello de recibido",
             "severity": "alta",
             "orden": 37,
-            "codigoCampo": "FIR"
+            "codigoCampo": "FIR",
+            "aplicaServicio": "TODOS"
           }
         ]
       }
@@ -519,7 +524,7 @@ Respuesta:
 
 ### `POST /clients/{clientId}/audit-config`
 
-Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime.
+Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime. Se puede especificar opcionalmente `aplicaServicio` (`TODOS` por defecto, o modalidades específicas como `POS` o `MIPRES`).
 **NOTA:** El campo `systemPrompt` es de envío **obligatorio** (`string` o `null`); omitirlo resulta en un error HTTP 422 para prevenir borrados accidentales del prompt.
 
 Body:
@@ -531,20 +536,17 @@ Body:
     {
       "docId": 1,
       "campoNombre": "NumeroFactura",
-      "tipoCampo": "E",
-      "tipoDato": "text",
       "orden": 1,
       "severity": "alta",
-      "codigoCampo": "FACN"
+      "aplicaServicio": "TODOS"
     },
     {
       "docId": 1,
       "campoNombre": "FirmaActaEntrega",
-      
       "orden": 37,
       "description": "Firma o sello de recibido",
       "severity": "alta",
-      "codigoCampo": "FIR"
+      "aplicaServicio": "POS"
     }
   ]
 }

@@ -81,7 +81,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 5. **No retornar arrays crudos** con `echo`; usar `Response`.
 6. Router sanitiza params con `FILTER_SANITIZE_SPECIAL_CHARS` y limita a **255 caracteres**.
 7. **Patrón Uniforme**: Todo endpoint que retorne listas debe incluir metadatos de paginación y reflejar los filtros aplicados.
-8. `POST /clients/{clientId}/audit-config` debe preservar `codigoCampo` cuando venga en los campos activos; ese código se usa luego como prefijo textual `-CODIGO- detalle` en hallazgos fallidos.
+8. `POST /clients/{clientId}/audit-config` debe preservar `codigoCampo` y `aplicaServicio` (`TODOS`, `POS`, `MIPRES`, etc., default `TODOS`) cuando vengan en los campos activos; `codigoCampo` se usa como prefijo textual `-CODIGO- detalle` y `aplicaServicio` condiciona la evaluación según la modalidad del servicio.
 
 ## Patrón de Endpoint Estándar (Uniforme) 💎
 

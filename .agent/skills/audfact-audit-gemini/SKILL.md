@@ -189,14 +189,19 @@ flowchart TD
 24. **Productores segregados y defensa en profundidad**: `DocumentAuditOrchestrator` solo publica rechazos `DOCUMENT_MAPPING`; `DocumentExtractionWorker` solo publica rechazos `document_content`. `RulesEvaluationWorker` valida categoría/clase, origen y allowlist, y `AuditPersistenceWorker` repite la barrera antes de SQL.
 25. **Reconciliación cerrada 1:1**: no seleccionar el primer candidato ni reutilizar un `attachment_id`. La única API del matcher es `matchAll()` y las únicas estrategias válidas son `exact_name`, `validated_id` y `unique_alias`.
 
-## Omisiones de campos (runtime actual)
+## Aplicabilidad condicional por servicio (`AplicaServicio`)
 
-El runtime actual no lee ni persiste `omitirSi`. `AuditConfigModel::getConfig()` retorna `campoNombre`, `tipoCampo`, `tipoDato`, `orden`, `severity`, `codigoCampo` y, para visuales, `description`. `AuditConfigController::sanitizeFields()` exige `tipoDato` para campos no visuales, acepta `tipoDato = null` solo para `TipoCampo = V` y preserva `codigoCampo` cuando llega en el payload.
+El sistema soporta aplicabilidad condicional declarativa por modalidad de servicio (`AplicaServicio`: `TODOS`, `POS`, `MIPRES`, etc.):
+- `DocumentAuditOrchestrator::resolveServiceType()` extrae dinámicamente la clave canónica `'Tipo'` de los ítems de la Fuente de Verdad (`$fuenteVerdad['items']`).
+- Al armar `configuredDocuments`, `DocumentAuditOrchestrator` filtra en memoria los `fields` y `visualChecks` según el servicio resuelto (`$aplica === 'TODOS' || $serviceType === 'TODOS' || $aplica === $serviceType`).
+- Los campos o checks visuales no aplicables (por ejemplo `FirmaPrescriptor` con `AplicaServicio = 'POS'` en una entrega con `Tipo = 'MIPRES'`) se eliminan en PHP antes de compilar el contrato de Gemini (`DocumentExtractionContractBuilder`), ahorrando tokens y previniendo falsos rechazos en prescripciones electrónicas.
+- `AuditConfigModel::getConfig()` retorna `aplicaServicio` en cada campo y check visual; `AuditConfigController::sanitizeFields()` lo valida y `AuditConfigModel::replaceFields()` lo persiste en `Discolnet.dbo.AudDispCampo`.
 
 Implicación operativa:
-- si un campo aparece activo en `fields`, `DocumentPolicyEngine` lo evalúa;
-- si debe excluirse de auditoría, debe removerse del `audit-config`;
-- `OMITIDO` puede aparecer solo por condiciones internas actuales del engine, por ejemplo ausencia simultánea de valor FDV y valor documental auditable, no por reglas condicionales configurables.
+- Si un campo tiene `AplicaServicio = 'TODOS'`, se audita siempre en cualquier tipo de entrega.
+- Si un campo tiene `AplicaServicio = 'POS'`, solo se audita cuando `items[].Tipo === 'POS'`.
+- Si un campo tiene `AplicaServicio = 'MIPRES'`, solo se audita cuando `items[].Tipo === 'MIPRES'`.
+- `OMITIDO` puede aparecer adicionalmente por condiciones internas del engine cuando hay ausencia simultánea de valor FDV y valor documental auditable.
 
 ## Agregación de items en reglas `B`
 

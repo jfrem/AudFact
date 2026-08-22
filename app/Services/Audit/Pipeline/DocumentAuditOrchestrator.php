@@ -281,7 +281,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'numeroFactura' => $numeroFactura,
             'fuenteVerdad' => $fuenteVerdad,
             'auditConfig' => $auditConfig,
-            'configuredDocuments' => $this->buildConfiguredDocuments($auditConfig),
+            'configuredDocuments' => $this->buildConfiguredDocuments($auditConfig, $fuenteVerdad),
             'catalogById' => $this->indexClientDocumentsById($clientDocuments),
             'attachments' => $attachments,
         ];
@@ -592,12 +592,43 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
 
 
-    private function buildConfiguredDocuments(array $auditConfig): array
+    private static function normalizeAplicaServicio(mixed $value): string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+        return $normalized !== '' ? $normalized : 'TODOS';
+    }
+
+    private static function isServiceApplicable(string $aplicaServicio, string $serviceType): bool
+    {
+        $aplica = self::normalizeAplicaServicio($aplicaServicio);
+        return $aplica === 'TODOS' || $serviceType === 'TODOS' || $aplica === $serviceType;
+    }
+
+    private function resolveServiceType(array $fuenteVerdad): string
+    {
+        $items = $fuenteVerdad['items'] ?? [];
+        if (is_array($items)) {
+            foreach ($items as $item) {
+                if (is_array($item)) {
+                    $tipo = strtoupper(trim((string) ($item['Tipo'] ?? '')));
+                    if ($tipo !== '') {
+                        return $tipo;
+                    }
+                }
+            }
+        }
+
+        return 'TODOS';
+    }
+
+    private function buildConfiguredDocuments(array $auditConfig, array $fuenteVerdad = []): array
     {
         $documents = $auditConfig['documents'] ?? null;
         if (!is_array($documents) || $documents === []) {
             throw new InvalidArgumentException('audit-config.documents es requerido');
         }
+
+        $serviceType = $this->resolveServiceType($fuenteVerdad);
 
         $normalized = [];
         $seenDocIds = [];
@@ -616,8 +647,24 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             }
             $seenDocIds[$docId] = true;
 
-            $fields = $this->normalizeSchemaFields($documentConfig['fields'] ?? []);
-            $visualChecks = $this->normalizeSchemaVisualChecks($documentConfig['visualChecks'] ?? []);
+            $allFields = $this->normalizeSchemaFields($documentConfig['fields'] ?? []);
+            $allVisualChecks = $this->normalizeSchemaVisualChecks($documentConfig['visualChecks'] ?? []);
+
+            $fields = array_values(array_filter(
+                $allFields,
+                static fn(array $field): bool => self::isServiceApplicable(
+                    (string) ($field['aplicaServicio'] ?? 'TODOS'),
+                    $serviceType
+                )
+            ));
+
+            $visualChecks = array_values(array_filter(
+                $allVisualChecks,
+                static fn(array $check): bool => self::isServiceApplicable(
+                    (string) ($check['aplicaServicio'] ?? 'TODOS'),
+                    $serviceType
+                )
+            ));
 
             $normalized[] = [
                 'doc_id' => $docId,
@@ -645,14 +692,16 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         $normalized = [];
         foreach ($fields as $field) {
-            if (is_array($field) && isset($field['campoNombre'])) {
-                if (trim((string) ($field['tipoDato'] ?? '')) === '') {
-                    throw new InvalidArgumentException('Campo sin tipoDato en fields');
-                }
-                $normalized[] = $field;
-            } else {
+            if (!is_array($field) || !isset($field['campoNombre'])) {
                 throw new InvalidArgumentException('Campo inválido en fields');
             }
+
+            if (trim((string) ($field['tipoDato'] ?? '')) === '') {
+                throw new InvalidArgumentException('Campo sin tipoDato en fields');
+            }
+
+            $field['aplicaServicio'] = self::normalizeAplicaServicio($field['aplicaServicio'] ?? null);
+            $normalized[] = $field;
         }
 
         return $normalized;
@@ -679,6 +728,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                     ? strtoupper(trim($check['severity']))
                     : 'ALTA',
                 'codigoCampo' => $check['codigoCampo'] ?? null,
+                'aplicaServicio' => self::normalizeAplicaServicio($check['aplicaServicio'] ?? null),
             ];
         }
 

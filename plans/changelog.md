@@ -1,5 +1,14 @@
 # Changelog AudFact
 
+## [2026-08-22] - Feat: Auditoría Dinámica por Tipo de Servicio (`AplicaServicio`)
+
+### Backend / Modelos, Controladores y Pipeline IA
+- **Soporte `AplicaServicio` en BD y Modelos**: Agregada la columna `AplicaServicio` en la consulta `getConfig()` y persistencia `replaceFields()` de `AuditConfigModel` contra `Discolnet.dbo.AudDispCampo` (default: `'TODOS'`).
+- **Validación REST en Controlador**: Actualizado `AuditConfigController::sanitizeFields()` para sanitizar y validar `aplicaServicio` contra formato alfanumérico seguro.
+- **Filtrado Determinista en Pipeline PHP**: `DocumentAuditOrchestrator::resolveServiceType()` resuelve dinámicamente el tipo de entrega desde la clave `'Tipo'` de `$fuenteVerdad['items']` (ej. `'MIPRES'`, `'POS'`) y filtra en memoria los `fields` y `visualChecks` según aplicabilidad antes de construir el contrato de Gemini (`DocumentExtractionContractBuilder`).
+- **Eficiencia y Cero Falsos Rechazos**: Previene llamadas innecesarias a herramientas como `detect_visual_checks` (ej. `FirmaPrescriptor` exclusivo de POS en entregas MIPRES), ahorrando tokens y eliminando alucinaciones o rechazos erróneos.
+- **Testing & Skills**: Creadas suites unitarias `DocumentAuditOrchestratorServiceTypeFilterTest`, `AuditConfigControllerTest` y `AuditConfigModelTest` (503 tests 100% OK). Sincronizadas las skills `audfact-api-rest`, `audfact-audit-gemini`, `audfact-sqlsrv-models` y documentación en `plans/`.
+
 ## [2026-08-19] - Fix: Exclusión de Adjuntos Opcionales en Cálculo de Pendientes en InvoicesModel
 
 ### Backend / Modelos SQL Server

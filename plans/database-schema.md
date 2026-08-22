@@ -244,6 +244,7 @@ requiere DDL ni migración de esquema.
 | `Orden` | int | Orden estable de procesamiento/presentación |
 | `DescripcionOverride` | varchar/null | Descripción custom que sobreescribe la de catálogo para visual checks |
 | `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) que sobreescribe la de catálogo |
+| `AplicaServicio` | varchar | Modalidad de servicio donde aplica el campo (`TODOS`, `POS`, `MIPRES`, etc., default: `TODOS`) |
 
 **Usada por**: `AuditConfigModel` (`getConfig()`, `saveConfig()` con reemplazo `DELETE + INSERT`).
 
