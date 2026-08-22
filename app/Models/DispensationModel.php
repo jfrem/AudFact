@@ -225,14 +225,14 @@ class DispensationModel extends Model
                 Fecha_autorizacion AS FechaAutorizacion,
 
                 -- Autorización
-                iif(Autorizacion=v.Dispensa,'',Autorizacion) AS NumeroAutorizacion,
+                iif(ISNULL(Autorizacion,'')=v.Dispensa,'',ISNULL(Autorizacion,'')) AS NumeroAutorizacion,
                 CASE
-                    WHEN (Autorizacion = v.Dispensa OR LEN(Autorizacion) = 0)
-                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'N'
-                    WHEN (Autorizacion = v.Dispensa OR LEN(Autorizacion) = 0)
-                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'N' THEN 'R'
-                    WHEN (Autorizacion <> v.Dispensa AND LEN(Autorizacion) > 0)
-                         AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'R'
+                    WHEN (ISNULL(Autorizacion,'') = v.Dispensa OR LEN(ISNULL(Autorizacion,'')) = 0)
+                            AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'N'
+                    WHEN (ISNULL(Autorizacion,'') = v.Dispensa OR LEN(ISNULL(Autorizacion,'')) = 0)
+                            AND ISNULL(cr.ConDisRefSinAut, 'N') = 'N' THEN 'R'
+                    WHEN (ISNULL(Autorizacion,'') <> v.Dispensa AND LEN(ISNULL(Autorizacion,'')) > 0)
+                            AND ISNULL(cr.ConDisRefSinAut, 'N') = 'S' THEN 'R'
                     ELSE 'S'
                 END AS Autorizacion,
                 Tipo_servicio AS Tipo,
