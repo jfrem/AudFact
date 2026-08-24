@@ -725,14 +725,22 @@ class DocumentPolicyEngine
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
+        $usaFactorConv = (bool) ($context['usa_factor_conv'] ?? false);
+
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf(
-                'La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).',
-                $docNumber,
-                $factorConv,
-                $fdvNumber
-            ),
+            'detalle'   => $usaFactorConv
+                ? sprintf(
+                    'La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).',
+                    $docNumber,
+                    $factorConv,
+                    $fdvNumber
+                )
+                : sprintf(
+                    'La cantidad en el documento soporte (%.2f) es menor a la cantidad dispensada (%.2f).',
+                    $docNumber,
+                    $fdvNumber
+                ),
         ];
     }
 

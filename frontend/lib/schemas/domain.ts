@@ -142,6 +142,7 @@ export const AuditConfigSchema = z.object({
   nitSec: z.string(),
   activo: z.boolean(),
   systemPrompt: z.string().nullable(),
+  factorConv: z.boolean().optional().default(false),
   documents: z.record(z.string(), AuditConfigDocumentSchema),
 });
 

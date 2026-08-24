@@ -14,6 +14,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Settings2,
+  Scale,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ import { saveAuditConfig, type AuditConfigPayload } from "@/lib/api/audfact";
 import type { AuditConfig, FieldCatalogItem } from "@/lib/schemas/domain";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -152,6 +154,9 @@ export function AuditConfigEditor({
   const [systemPrompt, setSystemPrompt] = React.useState(
     config.systemPrompt ?? "",
   );
+  const [factorConv, setFactorConv] = React.useState(
+    config.factorConv ?? false,
+  );
   const [saving, setSaving] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [addFieldDialogOpen, setAddFieldDialogOpen] = React.useState(false);
@@ -209,6 +214,7 @@ export function AuditConfigEditor({
     );
     setDocs(docEntries);
     setSystemPrompt(config.systemPrompt ?? "");
+    setFactorConv(config.factorConv ?? false);
     setActiveTab((current) => {
       if (docEntries.length === 0) return "";
       return docEntries.some((doc) => doc.docName === current)
@@ -216,6 +222,11 @@ export function AuditConfigEditor({
         : docEntries[0].docName;
     });
   }, [config]);
+
+  const handleToggleFactorConv = (checked: boolean) => {
+    setFactorConv(checked);
+    setDirty(true);
+  };
 
   const updateField = (
     docName: string,
@@ -352,6 +363,7 @@ export function AuditConfigEditor({
 
     return {
       systemPrompt: systemPrompt.trim() || null,
+      factorConv,
       fields,
     };
   };
@@ -603,6 +615,40 @@ export function AuditConfigEditor({
           </div>
         </div>
       )}
+
+      {/* ── Factor de Conversión (Empaque) ─────────────────────────── */}
+      <div className="rounded-3xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Scale className={cn("h-4 w-4", factorConv ? "text-emerald-400" : "text-slate-400")} />
+              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                Tolerancia por Factor de Conversión (Empaque Comercial)
+              </span>
+              <span
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                  factorConv
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                    : "border-slate-700/40 bg-slate-800/60 text-slate-400",
+                )}
+              >
+                {factorConv ? "Tolerancia Activa" : "Entrega Exacta"}
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed text-slate-500 max-w-3xl">
+              Permite auditar entregas de medicamentos en presentación comercial cerrada no fraccionable con diferencias justificadas por empaque (ej. Positiva 2426). Desactívelo para clientes con liquidación posológica exacta estricta (ej. Nueva EPS 2624).
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <Switch
+              checked={factorConv}
+              onCheckedChange={handleToggleFactorConv}
+              aria-label="Tolerancia por Factor de Conversión"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* ── System Prompt ────────────────────────────────────────────── */}
       <div className="rounded-3xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
