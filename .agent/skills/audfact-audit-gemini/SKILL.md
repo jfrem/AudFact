@@ -30,6 +30,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, reconcilia todos los adjuntos físicos 1:1, publica matches y emite rechazos `DOCUMENT_MAPPING` controlados |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
 | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Orquestador delgado que consume `document_downloaded`, delega estado a Redis, genera prompts y parsea respuestas. Produce rechazos `document_content`. |
+| `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php` | Pre-rasterizador determinista de PDFs a imágenes JPEG de alta resolución (200 DPI) usando `pdftoppm` (`poppler-utils`). Sin fallbacks silenciosos. |
 | `app/Services/Audit/Pipeline/ExtractionCacheManager.php` | Administra estado transitorio y cache de extracción Gemini en Redis mediante `HSET`/`HGET`. |
 | `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php` | Construye payloads modulares JSON Schema y prompts de contexto para inyección a Gemini. |
 | `app/Services/Audit/Pipeline/GeminiResponseParser.php` | Implementa política de recuperación en 3 fases (Primary, Retry JSON-repair, Fallback Regex) para respuestas LLM truncadas. |
@@ -53,7 +54,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/AuditFindingRules.php` | Utilidad compartida para normalizar valores, sumar métricas y resolver severidad |
 | `app/Services/Audit/Pipeline/BatchJobStore.php` | Estado batch, reservas y métricas atómicas; las transiciones usan `job.status` y cubren `pending -> completed` directo |
 | `app/Services/Audit/AuditComparisonType.php` | Enum `EXACT/SEMANTIC/BUSINESS/VISUAL` + `fromTipoCampo()` (mapea `E/S/B/V` desde BD) — métodos `isDateField/isQuantityField/isNumberField` son puentes `@deprecated` que delegan a `AuditFieldValueType` |
-| `app/Services/Audit/AuditFieldValueType.php` | Enum strategy-based de `TipoDato` explícito en `audit-config`: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/IDENTITY_DOC_NUMBER/CODE/TRACE_TOKEN/PERSON_NAME/INSTITUTION_NAME/ARTICLE_NAME/NIT`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTraceSetComparison()` (TRACE_TOKEN), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE, TRACE_TOKEN), `allowsSemanticGeminiFallback()` (ARTICLE_NAME y PERSON_NAME). `NIT` normaliza el número tributario colombiano eliminando el dígito de verificación (`-X`) y separadores de miles. Prohibido inferir tipos por nombre del campo. |
+| `app/Services/Audit/AuditFieldValueType.php` | Enum strategy-based de `TipoDato` explícito en `audit-config`: `TEXT/DATE/QUANTITY/MONEY/IDENTITY_DOC_TYPE/IDENTITY_DOC_NUMBER/CODE/TRACE_TOKEN/PERSON_NAME/INSTITUTION_NAME/ARTICLE_NAME/NIT`. Métodos de comportamiento: `requiresSubsetComparison()` (CODE), `requiresTraceSetComparison()` (TRACE_TOKEN), `requiresArticleSetComparison()` (ARTICLE_NAME), `requiresTokenSortComparison()` (PERSON_NAME), `allowsMultiValueDocument()` (CODE, TRACE_TOKEN, ARTICLE_NAME), `allowsSemanticGeminiFallback()` (ARTICLE_NAME y PERSON_NAME). `NIT` normaliza el número tributario colombiano eliminando el dígito de verificación (`-X`) y separadores de miles. Prohibido inferir tipos por nombre del campo. |
 | `app/Services/Audit/GeminiConfig.php` | Value Object de configuración Gemini, incluyendo overrides por tarea (`GEMINI_EXTRACTION_*`, `GEMINI_SEMANTIC_*`) y opt-in explícito de `mediaResolution` |
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/ArticleSemanticMatchJudge.php` | Fallback semántico conservador para homologación de artículos y nombres de persona; usa evidencia estructurada, cache versionada y no cachea fallos transitorios |
@@ -141,11 +142,11 @@ flowchart TD
     B -->|PDF sin Páginas| D[Rechazo Preventivo: EMPTY_PDF_NO_PAGES]
     B -->|PDF con Password| E[Rechazo Preventivo: ENCRYPTED_DOCUMENT]
     B -->|Estructura Válida| F[Llamada a Google Gemini API]
-    
+
     F -->|200 OK| G[document_extracted]
     F -->|400 INVALID_ARGUMENT / Decode Error| H[Nivel 2: DocumentExtractionWorker]
     H -->|Clasificación Determinista| I[Rechazo: GEMINI_DECODE_FAILURE]
-    
+
     C --> J[Emitir document_rejected]
     D --> J
     E --> J

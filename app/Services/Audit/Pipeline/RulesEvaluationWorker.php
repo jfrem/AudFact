@@ -430,6 +430,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             'document_decision' => [
                 'documentName' => $documentName,
                 'approved'     => false,
+                'doc_id'       => $documentState['doc_id'] ?? $payload['doc_id'] ?? null,
+                'attachment_id'=> $documentState['attachment_id'] ?? $payload['attachment_id'] ?? null,
                 'rejection_class' => $rejectionClass,
                 'rejection_reason' => $reason,
                 'payload'      => AuditFindingRules::buildRejectionPayload($facNro, [

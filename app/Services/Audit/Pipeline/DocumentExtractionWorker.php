@@ -42,6 +42,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private ExtractionCacheManager $cacheManager;
     private ExtractionPromptBuilder $promptBuilder;
     private GeminiResponseParser $responseParser;
+    private DocumentPdfRasterizer $pdfRasterizer;
 
     public function __construct(
         ?AuditStateStore       $stateStore          = null,
@@ -53,7 +54,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ?TelemetryPublisher    $telemetryPublisher  = null,
         ?ExtractionCacheManager  $cacheManager      = null,
         ?ExtractionPromptBuilder $promptBuilder      = null,
-        ?GeminiResponseParser    $responseParser     = null
+        ?GeminiResponseParser    $responseParser     = null,
+        ?DocumentPdfRasterizer   $pdfRasterizer      = null
     ) {
         parent::__construct($redis, $publisher, $stateStore);
 
@@ -74,6 +76,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->promptBuilder  = $promptBuilder  ?? new ExtractionPromptBuilder();
         $this->cacheManager   = $cacheManager   ?? new ExtractionCacheManager($this->redis, $resolvedTtl, $extractorVersion);
         $this->responseParser = $responseParser ?? new GeminiResponseParser($this->gateway, $this->redis, $this->promptBuilder);
+        $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer();
     }
 
     protected function streams(): array
@@ -310,13 +313,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             ];
         }
 
+        $files = $this->buildMultimodalParts($document, $documentType);
+
         $response = $this->gateway->sendWithFunctionCalling(
             $userPrompt,
-            [[
-                'mime'  => $document['mime'],
-                'data'  => $document['data'],
-                'label' => $documentType,
-            ]],
+            $files,
             $systemPrompt,
             [['functionDeclarations' => $this->promptBuilder->contractFunctionDeclarations($contract)]],
             $this->promptBuilder->buildToolConfig($contract),
@@ -337,7 +338,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $extracted = $this->responseParser->parse(
             $response,
             $contract,
-            $document,
+            $files,
             $documentType,
             $payload,
             [
@@ -357,6 +358,33 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'gemini_duration_ms' => $geminiDurationMs,
             'gemini_metrics'     => $geminiMetrics,
         ];
+    }
+
+    /**
+     * Prepara las partes de archivo multimodal para Gemini.
+     * Si el archivo es un PDF, lo rasteriza previamente a imágenes JPEG de alta resolución (200 DPI).
+     *
+     * @param array<string,mixed> $document
+     * @return array<int, array{mime: string, data: string, label: string}>
+     */
+    private function buildMultimodalParts(array $document, string $documentType): array
+    {
+        $mime = strtolower(trim((string) ($document['mime'] ?? '')));
+        $data = (string) ($document['data'] ?? '');
+
+        if ($mime === 'application/pdf') {
+            $rawBytes = base64_decode($data, true);
+            if ($rawBytes === false || $rawBytes === '') {
+                throw new \RuntimeException('DocumentExtractionWorker: Base64 de PDF inválido o vacío');
+            }
+            return $this->pdfRasterizer->rasterize($rawBytes, $documentType);
+        }
+
+        return [[
+            'mime'  => $mime !== '' ? $mime : 'application/octet-stream',
+            'data'  => $data,
+            'label' => $documentType,
+        ]];
     }
 
     // ─── Estado del documento ────────────────────────────────────────────────
@@ -418,7 +446,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     {
         $downloadDurationMs  = (int) ($documentState['download_duration_ms'] ?? 0);
         $geminiDurationMs    = (int) ($documentState['gemini_duration_ms'] ?? 0);
-        $localCpuDurationMs  = $totalDurationMs - $downloadDurationMs - $geminiDurationMs;
+        $localCpuDurationMs  = max(0.0, $totalDurationMs - $geminiDurationMs);
 
         Logger::info('Document extraction event processed', [
             'auditId'               => $event->auditId,

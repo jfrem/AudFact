@@ -82,6 +82,7 @@ Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_s
 | `GET`  | `/audit/results`                                                | `AuditController`         | `results`                | Resumen paginado de auditorías persistidas                                   |
 | `GET`  | `/audit/results/{facNro}`                                       | `AuditController`         | `resultDetail`           | Detalle persistido de una auditoría por FacNro                               |
 | `GET`  | `/audit/stats`                                                  | `AuditController`         | `stats`                  | Conteos agregados para dashboard                                             |
+| `GET`  | `/audit/stats/monthly`                                          | `AuditController`         | `monthlyPerformance`     | Estadísticas agregadas de rendimiento mensual por cliente (`year` opcional)  |
 | `GET`  | `/audit/documents-history`                                      | `AuditController`         | `documentsHistory`       | Historial de documentos auditados por IA                                     |
 | `POST` | `/audit/single`                                                 | `AuditController`         | `single`                 | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async`                                                  | `AuditController`         | `async`                  | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202             |
@@ -176,14 +177,14 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 - **CI/CD SQL Server**: en GitHub Environment `production`, `DB_HOST` y `DB2_HOST` deben configurarse como GitHub Variables con host/IP limpio, sin instancia ni puerto embebido. `DB_PORT=1433`, `DB2_PORT=1433`.
 
 > 🚨 **REGLA OBLIGATORIA E INFALIBLE: SINCRONIZACIÓN EN GITHUB REMOTO** 🚨
-> 
+>
 > **Cada vez que un agente cree, modifique o renombre una variable de entorno o secreto en el código PHP/Next.js o en `.env.example`:**
 > 1. **`.env.example`**: Agregar la clave inmediatamente. El pipeline CI (`Validate env contract completeness`) bloqueará el commit si alguna variable usada en código falta en `.env.example`.
 > 2. **GitHub Remoto (`gh cli`)**: Es **estrictamente obligatorio** crear o actualizar la variable/secreto en el repositorio remoto de GitHub antes de hacer push a `main`:
 >    - **Variables no sensibles**: `gh variable set <KEY> --body "<VAL>" --env production`
 >    - **Secretos / Credenciales**: `gh secret set <KEY> --body "<SECRET>" --env production`
 > 3. **`AGENTS.md`**: Documentar la variable en el *Catálogo de Variables de Entorno*.
-> 
+>
 > **Queda prohibido dar por finalizada una tarea con variables nuevas sin haber ejecutado `gh variable set` / `gh secret set` en GitHub.**
 
 #### Guardrails de seguridad
@@ -305,11 +306,11 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `GEMINI_THINKING_LEVEL`               | _(vacío)_               | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                           |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                  | ❌        | Límite de salida para extracción documental                                                                    |
 | `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_               | ❌        | Presupuesto de razonamiento para extracción documental                                                         |
-| `GEMINI_EXTRACTION_THINKING_LEVEL`    | `MINIMAL`               | ❌        | Nivel de razonamiento Gemini 3 para extracción documental                                                      |
+| `GEMINI_EXTRACTION_THINKING_LEVEL`    | _(vacío)_               | ❌        | Nivel de razonamiento Gemini 3 para extracción documental — dejar vacío para Parallel Function Calling determinista |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`   | `2048`                  | ❌        | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3)      |
 | `GEMINI_SEMANTIC_THINKING_LEVEL`      | _(vacío)_               | ❌        | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
 | `GEMINI_SEMANTIC_THINKING_BUDGET`     | _(vacío)_               | ❌        | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica                                  |
-| `GEMINI_SEED`                         | `42`                    | ❌        | Semilla para reproducibilidad (opcional, recomendada en prod)                                                  |
+| `GEMINI_SEED`                         | _(vacío)_               | ❌        | Semilla para reproducibilidad (opcional; dejar vacío para inferencia nativa)                                   |
 
 ### Redis
 

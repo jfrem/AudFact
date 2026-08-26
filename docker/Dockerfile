@@ -20,7 +20,7 @@ ARG ENABLE_XDEBUG=0
 # git: requerido por Composer para resolución de paquetes VCS
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-    git curl unzip gnupg2 ca-certificates libzip-dev unixodbc-dev gettext-base \
+    git curl unzip gnupg2 ca-certificates libzip-dev unixodbc-dev gettext-base poppler-utils \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \

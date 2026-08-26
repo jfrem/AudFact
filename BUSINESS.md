@@ -64,15 +64,15 @@ flowchart LR
     subgraph Medico [🧑‍⚕️ Médico prescribe]
         F
     end
-    
+
     subgraph Tramite [⚙️ Trámite EPS si aplica]
         A
     end
-    
+
     subgraph Paciente [👤 Paciente recibe]
         AC
     end
-    
+
     subgraph Discolmets [🏢 Discolmets cobra]
         FC
     end
@@ -438,18 +438,18 @@ Estas reglas **siempre aplican** y no pueden ser modificadas sin aprobación exp
 
 Tabla puente entre conceptos de negocio y su implementación técnica:
 
-| Concepto de Negocio            | Implementación Técnica                                                    | Archivo(s) Clave                                                   |
-| ------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Dispensación                   | Vista `vw_discolnet_dispensas`: `Dispensa` = `DisDetNro`                  | `app/Models/DispensationModel.php`                                 |
-| Factura                        | `Factura.FacSec` = `vw_discolnet_dispensas.facsecF` = `AudDispEst.FacSec` | `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php` |
-| Documentos del expediente      | Tabla `AdjuntosDispensacion`                                              | `app/Models/AttachmentsModel.php`                                  |
-| Catálogo de documentos por EPS | Tabla `NitDocumentos`                                                     | `app/Models/AttachmentsModel.php`                                  |
-| Configuración de auditoría     | Tablas `NitDocumentos` + `NitMedDoc*`                                     | Endpoint `/clients/{id}/audit-config`                              |
-| Extracción IA de documentos    | Google Gemini API (multimodal)                                            | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`         |
-| Comparación exacta / semántica | Motor de reglas PHP                                                       | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`             |
-| Verificaciones visuales        | Gemini detecta + PHP decide                                               | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php`           |
+| Concepto de Negocio            | Implementación Técnica                                                    | Archivo(s) Clave                                                                |
+| ------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Dispensación                   | Vista `vw_discolnet_dispensas`: `Dispensa` = `DisDetNro`                  | `app/Models/DispensationModel.php`                                              |
+| Factura                        | `Factura.FacSec` = `vw_discolnet_dispensas.facsecF` = `AudDispEst.FacSec` | `app/Models/InvoicesModel.php`, `app/Models/DispensationModel.php`              |
+| Documentos del expediente      | Tabla `AdjuntosDispensacion`                                              | `app/Models/AttachmentsModel.php`                                               |
+| Catálogo de documentos por EPS | Tabla `NitDocumentos`                                                     | `app/Models/AttachmentsModel.php`                                               |
+| Configuración de auditoría     | Tablas `NitDocumentos` + `NitMedDoc*`                                     | Endpoint `/clients/{id}/audit-config`                                           |
+| Extracción IA de documentos    | Google Gemini API (multimodal)                                            | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`                      |
+| Comparación exacta / semántica | Motor de reglas PHP                                                       | `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`                          |
+| Verificaciones visuales        | Gemini detecta + PHP decide                                               | `DocumentPolicyEngine.php` + `RulesEvaluationWorker.php`                        |
 | Resultado de auditoría         | Tabla `AudDispEst`: `FacSec` conserva `DisId`, `FacNro` = `DisDetNro`     | `app/Models/AuditResultPersistenceModel.php`, `app/Models/AuditStatusModel.php` |
-| Decisión por documento         | `document_decisions` en resultado                                         | `RulesEvaluationWorker.php`                                        |
-| Vigencia de entrega            | Cálculo PHP: `FechaAutorizacion + N días`                                 | `RulesEvaluationWorker.php`                                        |
-| Glosa (prevención)             | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO`                                | Dashboard frontend                                                 |
-| Clientes (EPS)                 | Tablas `NIT` + `Clientes`                                                 | `app/Models/ClientsModel.php`                                      |
+| Decisión por documento         | `document_decisions` en resultado                                         | `RulesEvaluationWorker.php`                                                     |
+| Vigencia de entrega            | Cálculo PHP: `FechaAutorizacion + N días`                                 | `RulesEvaluationWorker.php`                                                     |
+| Glosa (prevención)             | Hallazgos `DISCREPANCIA` / `NO_ENCONTRADO`                                | Dashboard frontend                                                              |
+| Clientes (EPS)                 | Tablas `NIT` + `Clientes`                                                 | `app/Models/ClientsModel.php`                                                   |

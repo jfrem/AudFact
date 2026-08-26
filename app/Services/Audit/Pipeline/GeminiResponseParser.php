@@ -70,18 +70,18 @@ final class GeminiResponseParser
      * Fase 2: Retry selectivo para funciones recuperables faltantes.
      * Fase 3: Fallback de último recurso para funciones no recuperadas.
      *
-     * @param  array<string,mixed> $response      Respuesta de GeminiGateway (sin X-Audit-Metrics)
-     * @param  array<string,mixed> $contract      Contrato de extracción
-     * @param  array<string,mixed> $document      BLOB del documento (mime + data)
-     * @param  string              $documentType  Tipo documental
-     * @param  array<string,mixed> $payload       Payload del evento
-     * @param  array<string,mixed> $debugContext  Contexto para logs
+     * @param  array<string,mixed> $response         Respuesta de GeminiGateway (sin X-Audit-Metrics)
+     * @param  array<string,mixed> $contract         Contrato de extracción
+     * @param  array<int,array{mime:string,data:string,label?:string}> $multimodalParts Partes multimodales (imágenes JPEG/PNG o datos procesados)
+     * @param  string              $documentType     Tipo documental
+     * @param  array<string,mixed> $payload          Payload del evento
+     * @param  array<string,mixed> $debugContext     Contexto para logs
      * @return array<string,mixed>
      */
     public function parse(
         array $response,
         array $contract,
-        array $document,
+        array $multimodalParts,
         string $documentType,
         array $payload,
         array $debugContext
@@ -118,7 +118,7 @@ final class GeminiResponseParser
             // ── Fase 2: Retry selectivo ──
             try {
                 $retryCalls = $this->retryMissingFunctions(
-                    $document, $documentType, $contract, $payload,
+                    $multimodalParts, $documentType, $contract, $payload,
                     $missingRecoverable, $debugContext
                 );
                 foreach ($retryCalls as $name => $args) {
@@ -230,7 +230,8 @@ final class GeminiResponseParser
      * Validado empíricamente: 100% recuperación en 3/3 pruebas con Acta de Entrega
      * de 17 items (X62260101059). ~190 tokens salida, ~3.4s duración.
      *
-     * @param  array<string,mixed> $document
+     * @param  array<int,array{mime:string,data:string,label?:string}> $multimodalParts
+     * @param  string              $documentType
      * @param  array<string,mixed> $contract
      * @param  array<string,mixed> $payload
      * @param  array<int,string>   $missingNames
@@ -238,7 +239,7 @@ final class GeminiResponseParser
      * @return array<string,array<string,mixed>>
      */
     private function retryMissingFunctions(
-        array $document,
+        array $multimodalParts,
         string $documentType,
         array $contract,
         array $payload,
@@ -264,11 +265,7 @@ final class GeminiResponseParser
 
         $retryResponse = $this->gateway->sendWithFunctionCalling(
             $retryPrompt,
-            [[
-                'mime'  => $document['mime'],
-                'data'  => $document['data'],
-                'label' => $documentType,
-            ]],
+            $multimodalParts,
             $systemPrompt,
             [['functionDeclarations' => $retryDeclarations]],
             [
