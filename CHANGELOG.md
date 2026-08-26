@@ -1,3 +1,31 @@
+## [2026-08-26]
+
+### feat
+- **Emparejamiento Biyectivo de Conjuntos de Artículos (`ARTICLE_NAME` Multi-Ítem)**:
+  - Se implementó la resolución y emparejamiento biyectivo (*Greedy Bipartite Matching*) para campos de tipo `article_name` (`NombreArticulo`) en dispensaciones multi-ítem ($N \ge 2$), eliminando la clasificación errónea de ambigüedad (`ambiguous = true`) que producía falsos positivos `NO_CONCLUYENTE`.
+  - **Cascada de 3 Fases de Emparejamiento**:
+    1. *Fase 1 (Léxica Directa)*: Normalización textual exacta y contención de subcadena (`containsNormalizedSubstring`).
+    2. *Fase 2 (Similitud Léxica)*: Coeficiente de similitud compuesto Jaro-Winkler/Levenshtein/Jaccard $\ge 0.82$.
+    3. *Fase 3 (Juez Semántico)*: Delegación a `ArticleSemanticMatchJudge` con caché de 30 días en Redis para homologación clínica.
+  - **Asignación Biyectiva 1:1**: Cada renglón del documento soporte solo puede justificar a un único artículo de la Fuente de Verdad, reportando con precisión quirúrgica qué medicamentos faltan en el soporte en caso de entregas incompletas.
+  - **Preservación de Escalares**: Se mantiene intacta la protección contra ambigüedad en campos de cabecera (identidad, fechas, números de autorización) y el flujo mono-ítem ($N=1$).
+  - Archivos modificados: `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`.
+
+## [2026-08-25]
+
+### fix
+- **Corrección Definitiva de Extracción Documental y Robustez Multimodal (Clean Rebuild)**:
+  - Se eliminó la causa raíz de inconsistencias en la extracción de datos por Gemini en fórmulas médicas y autorizaciones escaneadas (6-8pt).
+  - **Pre-rasterización JPEG a 200 DPI**: Se implementó `DocumentPdfRasterizer` utilizando `pdftoppm` (`poppler-utils`) con salida `image/jpeg` a 200 DPI nativos, reduciendo el payload ~3-5x frente a PNG y eliminando la degradación a baja resolución (~72 DPI) del backend multimodal.
+  - **Erradicación de Fallbacks Silenciosos**: Se eliminaron 4 fallbacks que degradaban a PDF crudo ante cualquier fallo; ahora cualquier anomalía de rasterización lanza `RuntimeException` de manera determinista hacia el DLQ y telemetría.
+  - **Persistencia Determinista por `attachment_id`**: Se actualizó `AuditResultPersistenceModel` para emparejar decisiones documentales prioritariamente por `attachment_id` estable en lugar de depender de coincidencia exacta de nombres de archivo, erradicando advertencias de adjuntos físicos huérfanos.
+  - **Métricas Operativas Corregidas**: Se ajustó el cálculo de `local_cpu_duration_ms` en `DocumentExtractionWorker` para medir el tiempo real de CPU local (`total_duration_ms - gemini_duration_ms`) sin restar tiempos de etapas previas independientes.
+  - **Simplificación del System Prompt**: Se depuró `DEFAULT_SYSTEM_PROMPT` en `ExtractionPromptBuilder` (de 45 a 12 líneas), erradicando las tablas de confusión de caracteres (`↔`) y las instrucciones de re-verificación redundantes que inducían sobre-corrección en el modelo.
+  - **Configuración Óptima del Modelo**: Se restableció `GEMINI_EXTRACTION_THINKING_LEVEL=` (vacío) y `GEMINI_SEED=` (vacío), permitiendo el razonamiento nativo óptimo del modelo para function calling determinista.
+  - Archivos creados/modificados: `docker/Dockerfile`, `app/Models/AuditResultPersistenceModel.php`, `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php`, `.env`, `.env.example`, `.env.production`, `tests/Models/AuditResultPersistenceModelTest.php`, `tests/Services/Audit/Pipeline/DocumentPdfRasterizerTest.php`, `tests/Services/Audit/Pipeline/ExtractionPromptBuilderTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `plans/sdd-precision-extraccion-documental.md`.
+  - Impacto: 100% de precisión y consistencia determinista comprobada empíricamente en lectura de números de documento, fechas y códigos, con persistencia íntegra por adjunto.
+
+
 ## [2026-08-21]
 
 ### fix

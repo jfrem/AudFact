@@ -9,6 +9,7 @@ use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
+use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
 use App\Services\Audit\GeminiGateway;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -50,7 +51,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
@@ -96,7 +98,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
@@ -147,7 +150,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -197,7 +201,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
@@ -252,7 +257,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
@@ -360,7 +366,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
@@ -398,7 +405,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $contract = $this->extractionContract();
@@ -449,7 +457,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: new StubGeminiGateway([]),
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -475,13 +484,14 @@ final class DocumentExtractionWorkerTest extends TestCase
                 }
                 return null;
             });
-        
+
         $worker = new DocumentExtractionWorker(
             stateStore: new ExtractionRecordingStateStore(),
             gateway: new StubGeminiGateway(['candidates' => []]),
             redis: $redisMock,
             publisher: new ExtractionPublisher(),
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -511,7 +521,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: new StubGeminiGateway($this->geminiFunctionCallResponse('MAX_TOKENS')),
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -546,7 +557,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             )),
             redis: $redisMock,
             publisher: new ExtractionPublisher(),
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -577,7 +589,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             )),
             redis: $redisMock,
             publisher: new ExtractionPublisher(),
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
@@ -611,7 +624,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
@@ -676,7 +690,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
@@ -717,7 +732,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $payloadOverrides = [
@@ -768,7 +784,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $payloadOverrides = [
@@ -1031,7 +1048,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
@@ -1069,7 +1087,8 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
@@ -1107,13 +1126,72 @@ final class DocumentExtractionWorkerTest extends TestCase
             gateway: $gateway,
             redis: $redisMock,
             publisher: $publisher,
-            consumerName: 'extractor-test'
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
         );
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Internal Server Error');
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+    }
+
+    public function testExtractionRetryReusesSameMultimodalParts(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+
+        $store = new ExtractionRecordingStateStore();
+        $publisher = new ExtractionPublisher();
+        $base64 = $this->validPdfBase64();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                return null;
+            });
+        $redisMock->method('set')->willReturn(true);
+
+        $initialResponse = $this->geminiFunctionCallResponse(omittedFunction: DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS);
+        $retryResponse = [
+            'candidates' => [[
+                'finishReason' => 'STOP',
+                'content' => [
+                    'parts' => [[
+                        'functionCall' => [
+                            'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+                            'args' => [
+                                'visual_checks' => [
+                                    ['check' => 'FirmaActaEntrega', 'presente' => true],
+                                ],
+                            ],
+                        ],
+                    ]],
+                ],
+            ]],
+        ];
+
+        $gateway = new StubGeminiGateway($initialResponse, [$retryResponse]);
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertSame(2, $gateway->calls);
+        $this->assertCount(2, $gateway->receivedFiles);
+        $this->assertSame($gateway->receivedFiles[0], $gateway->receivedFiles[1]);
+        $this->assertSame('image/jpeg', $gateway->receivedFiles[0][0]['mime'] ?? null);
     }
 }
 
@@ -1140,6 +1218,7 @@ final class StubThrowingGeminiGateway extends GeminiGateway
 final class StubGeminiGateway extends GeminiGateway
 {
     public int $calls = 0;
+    public array $receivedFiles = [];
     public array $lastTools = [];
     public array $lastToolConfig = [];
     public string $lastPrompt = '';
@@ -1147,9 +1226,11 @@ final class StubGeminiGateway extends GeminiGateway
     public string $lastTaskType = '';
     public array $lastGenerationOverrides = [];
     public array $lastDebugContext = [];
+    private array $responses = [];
 
-    public function __construct(private array $response)
+    public function __construct(array $response, array $subsequentResponses = [])
     {
+        $this->responses = array_merge([$response], $subsequentResponses);
     }
 
     public function sendWithFunctionCalling(
@@ -1163,6 +1244,7 @@ final class StubGeminiGateway extends GeminiGateway
         ?array $debugContext = null
     ): array {
         $this->calls++;
+        $this->receivedFiles[] = $files;
         $this->lastPrompt = $prompt;
         $this->lastSystemInstruction = $systemInstruction;
         $this->lastTools = $tools;
@@ -1170,7 +1252,9 @@ final class StubGeminiGateway extends GeminiGateway
         $this->lastTaskType = $taskType;
         $this->lastGenerationOverrides = $generationOverrides;
         $this->lastDebugContext = array_merge($debugContext ?? [], ['task_type' => $taskType]);
-        return $this->response;
+
+        $idx = min($this->calls - 1, count($this->responses) - 1);
+        return $this->responses[$idx] ?? [];
     }
 }
 
@@ -1217,5 +1301,30 @@ final class ExtractionPublisher extends AuditEventPublisher
     {
         $this->deadLetters[] = $event;
         return 'dlq-' . count($this->deadLetters);
+    }
+}
+
+final class PassthroughPdfRasterizer extends DocumentPdfRasterizer
+{
+    public function __construct()
+    {
+        parent::__construct('passthrough-stub');
+    }
+
+    public function isAvailable(): bool
+    {
+        return true;
+    }
+
+    public function rasterize(string $pdfDataRaw, string $label, ?int $customDpi = null): array
+    {
+        if ($pdfDataRaw === '') {
+            return [];
+        }
+        return [[
+            'mime'  => 'image/jpeg',
+            'data'  => base64_encode($pdfDataRaw),
+            'label' => $label,
+        ]];
     }
 }

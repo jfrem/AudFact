@@ -16,15 +16,18 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 | Método | Ruta | Controlador | Descripción |
 |---|---|---|---|
-| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `DisId` |
+| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async` | `AuditController::async` | Encola un batch por cliente/rango y responde `202` |
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` | Estado Redis de una auditoría individual |
-| `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` | Estado y progreso de un job batch |
-| `GET` | `/audit/results` | `AuditController::results` | Resumen paginado de auditorías persistidas |
-| `GET` | `/audit/results/{facNro}` | `AuditController::resultDetail` | Detalle persistido por `FacNro` |
-| `GET` | `/audit/stats` | `AuditController::stats` | Conteos agregados para dashboard |
-| `GET` | `/audit/documents-history` | `AuditController::documentsHistory` | Historial paginado de documentos auditados |
-| `GET` | `/audit/{facNro}/timings` | `AuditController::timings` | Timings persistidos por factura/dispensa |
+| `GET`  | `/audit/jobs` | `AuditController::jobsList` | Listado de jobs batch recientes |
+| `GET`  | `/audit/jobs/{jobId}` | `AuditController::jobStatus` | Estado y progreso de un job batch |
+| `GET`  | `/audit/results` | `AuditController::results` | Resumen paginado de auditorías persistidas |
+| `GET`  | `/audit/results/{facNro}` | `AuditController::resultDetail` | Detalle persistido por `FacNro` |
+| `GET`  | `/audit/stats` | `AuditController::stats` | Conteos agregados para dashboard |
+| `GET`  | `/audit/stats/monthly` | `AuditController::monthlyPerformance` | Rendimiento mensual agregado por cliente |
+| `GET`  | `/audit/documents-history` | `AuditController::documentsHistory` | Historial paginado de documentos auditados |
+| `GET`  | `/audit/{facNro}/timings` | `AuditController::timings` | Timings persistidos por factura/dispensa |
+| `GET`  | `/audit/{auditId}/flow-stream` | `AuditFlowController::stream` | Telemetría SSE en vivo por auditoría o job |
 | `GET` | `/audit/dlq` | `AuditDlqController::index` | Eventos fallidos definitivos |
 | `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` | Reproceso administrativo de un evento DLQ |
 
@@ -40,6 +43,8 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, guarda el BLOB temporal en Redis y propaga fallos técnicos sin publicar rechazos funcionales |
 | `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
+| `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI nativos) con `pdftoppm` (`poppler-utils`) para ingesta multimodal de alta resolución |
+| `ExtractionPromptBuilder` | Construye prompts estructurados y deterministas para Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
 | `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
@@ -48,7 +53,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `AuditPersistenceWorker` | Consume `audit.persistence:{queue}`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
 | `BatchJobStore` | Estado Redis por job, idempotencia/reservas y contadores atómicos `queued/running/completed/failed` basados en transiciones del job |
-| `AuditResultPersistenceModel` | Escritura transaccional en `Discolnet.dbo.AudDispEst`, `AdjuntosDispensacion` y `DispensacionDetalleServicio` |
+| `AuditResultPersistenceModel` | Escritura transaccional en `Discolnet.dbo.AudDispEst`, `AdjuntosDispensacion` y `DispensacionDetalleServicio` con emparejamiento determinista por `attachment_id` |
 | `AuditStatusModel` | Lectura de resultados y timings persistidos |
 
 ## Flujo de Eventos
@@ -96,7 +101,8 @@ La policy no compara un item aislado contra toda la factura. Antes de evaluar, `
 
 - `TipoCampo=B` + `TipoDato=quantity`: suma cantidades de todos los items de FDV y del documento.
 - `TipoDato=trace_token`: compara sets completos de trazabilidad (`Lote`, seriales) y persiste `valoresFuenteVerdad` / `valoresDocumento`.
-- Campos no sumables ni set-based con multiples valores distintos quedan `NO_CONCLUYENTE` por ambiguedad.
+- `TipoDato=article_name`: aplica emparejamiento biyectivo (*Greedy Bipartite Matching*) en 3 fases (normalización léxica directa / substring, similitud léxica $\ge 0.82$, y desempate semántico con `ArticleSemanticMatchJudge` y caché de 30d en Redis) garantizando asignación 1:1 sin reutilización de ítems y reportando artículos faltantes en entregas multi-ítem ($N \ge 2$).
+- Campos escalares de cabecera no sumables ni set-based con múltiples valores distintos quedan `NO_CONCLUYENTE` por ambigüedad.
 
 Caso de regresion cubierto: `D13260500540` con dos items debe producir `Lote={5D03364,5G00989}`, `CantidadEntregada=7` y `CantidadPrescrita=30` como `COINCIDE`.
 
@@ -141,7 +147,7 @@ Auditoría individual:
 ```powershell
 curl.exe -X POST http://localhost:8080/audit/single `
   -H "Content-Type: application/json" `
-  -d "{\"disId\":\"87723098\"}"
+  -d "{\"disDetNro\":\"D03260400856\"}"
 ```
 
 Batch async:

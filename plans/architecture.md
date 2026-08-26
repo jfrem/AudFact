@@ -131,6 +131,8 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `AttachmentDownloadWorker.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, descarga y almacena el adjunto en Redis; publica `document_downloaded` en el stream de origen y propaga cualquier fallo técnico sin crear decisiones documentales |
 | `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
+| `DocumentPdfRasterizer.php` | Renderizador determinista PDF a JPEG (200 DPI nativos) usando `pdftoppm` (`poppler-utils`) con limpieza estricta en `finally` |
+| `ExtractionPromptBuilder.php` | Constructor de prompts deterministas de extracción para Gemini con schema estructurado |
 | `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes de `audit.documents.priority` y `audit.documents.batch`, valida integridad y extrae con Gemini; publica `document_extracted` en el stream respectivo |
 | `DocumentNormalizer.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, normalización determinística PHP, publica `document_normalized` respetando prioridad |
 | `RulesEvaluationWorker.php` | Consume `audit.documents.priority` y `audit.documents.batch`, evalúa por documento; encola `rules_evaluated` hacia `audit.persistence.priority` o `audit.persistence.batch` vía `AuditPersistenceQueue` |

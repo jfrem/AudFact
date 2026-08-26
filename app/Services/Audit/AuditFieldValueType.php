@@ -66,7 +66,9 @@ enum AuditFieldValueType: string
      */
     public function allowsMultiValueDocument(): bool
     {
-        return $this === self::CODE || $this === self::TRACE_TOKEN;
+        return $this === self::CODE
+            || $this === self::TRACE_TOKEN
+            || $this === self::ARTICLE_NAME;
     }
 
     /**
@@ -146,6 +148,20 @@ enum AuditFieldValueType: string
     public function requiresTraceSetComparison(): bool
     {
         return $this === self::TRACE_TOKEN;
+    }
+
+    /**
+     * ¿La comparación debe evaluar sets completos de artículos con matching biyectivo?
+     *
+     * ARTICLE_NAME: FDV = {Med A, Med B}, Doc = {Med A, Med B} → COINCIDE
+     *               FDV = {Med A, Med B}, Doc = {Med A}       → NO_CONCLUYENTE (falta Med B)
+     *
+     * Usa cascada léxica (normalización, substring, similitud) y semántica
+     * (ArticleSemanticMatchJudge) para emparejar artículos 1:1 sin repetición.
+     */
+    public function requiresArticleSetComparison(): bool
+    {
+        return $this === self::ARTICLE_NAME;
     }
 
     /**

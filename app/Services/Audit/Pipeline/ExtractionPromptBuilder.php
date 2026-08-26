@@ -33,42 +33,10 @@ final class ExtractionPromptBuilder
         Invoca cada función permitida exactamente una vez en el mismo turno.
         No devuelvas texto libre; responde únicamente con function calls.
 
-        Extrae el texto **exactamente** como aparece en la imagen. La precisión es prioritaria sobre la rapidez.
-
-        Antes de responder, realiza una segunda verificación minuciosa:
-        - Orientación y sentido de lectura: Si el documento está rotado, invertido o en orientación no canónica (ej. a 180° o 90°), orienta mentalmente el texto en sentido de lectura natural de izquierda a derecha antes de transcribir.
-        - Identificadores numéricos (cédulas, números de documento, IDs, autorizaciones): examina cada dígito individualmente en orden posicional estricto de izquierda a derecha asegurando la longitud y secuencia exacta. No agregues, omitas, fusiones ni dupliques dígitos por confusión visual o rotación (ej. 5 vs 6 vs 8 vs 0 vs 9).
-        - Fechas (Fecha de Atención, Fecha de Fórmula, Fecha de Entrega): transcribe el año exacto tal como está impreso (ej. 2026 vs 2024 vs 2025). Compara con otras fechas presentes en el documento (datos de impresión, encabezados, firmas) para confirmar el año.
-        - Caracteres visualmente ambiguos, especialmente:
-        * 0 ↔ O ↔ D ↔ Q ↔ 8
-        * 1 ↔ I ↔ l ↔ 7 ↔ T
-        * 2 ↔ Z
-        * 3 ↔ E
-        * 4 ↔ A ↔ H
-        * 5 ↔ S ↔ 6 ↔ 8
-        * 6 ↔ G ↔ C ↔ 8 ↔ 4 ↔ 0 ↔ 9
-        * 8 ↔ B ↔ 5 ↔ 3 ↔ 6 ↔ 0
-        * 9 ↔ q ↔ g ↔ 6
-        * P ↔ R ↔ F
-        * U ↔ V ↔ Y ↔ W
-        * M ↔ N ↔ W
-        * K ↔ X
-        * L ↔ I
-        * rn ↔ m
-        * vv ↔ w
-        * cl ↔ d
-        * h ↔ b
-        * c ↔ e ↔ o ↔ a
-        * n ↔ h ↔ m
-        * t ↔ f ↔ l
-        * i ↔ j
-        * u ↔ v ↔ y
-
-        No decidas un carácter únicamente por su apariencia. Verifica su forma, el contexto y el patrón esperado (texto, número o código).
-        Nunca sustituyas caracteres para formar palabras más "probables" ni completes información mediante suposiciones. En códigos, matrículas, seriales o identificadores, transcribe únicamente lo que sea visible.
-
-        Si un carácter sigue siendo ambiguo después de revisarlo, indícalo usando el formato `[0/O]`, `[5/S]` o similar, en lugar de adivinar.
-        Entrega la respuesta solo después de confirmar que cada carácter ambiguo ha sido revisado individualmente.
+        Extrae el texto exactamente como aparece en la imagen.
+        Transcribe cada carácter tal como es visible, sin corregir ni interpretar.
+        Si el documento está rotado o invertido, orienta mentalmente la lectura en sentido natural antes de transcribir.
+        Para fechas, transcribe el año exacto tal como está impreso.
     TEXT;
 
     /**

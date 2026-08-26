@@ -18,18 +18,16 @@ final class ExtractionPromptBuilderTest extends TestCase
         $this->builder = new ExtractionPromptBuilder();
     }
 
-    public function testDefaultSystemPromptContainsNumericAndDateDisambiguationRules(): void
+    public function testDefaultSystemPromptContainsEssentialExtractionRules(): void
     {
         $systemPrompt = $this->builder->buildSystemPrompt([], []);
 
         $this->assertStringContainsString('Eres un extractor documental determinístico.', $systemPrompt);
-        $this->assertStringContainsString('Orientación y sentido de lectura', $systemPrompt);
-        $this->assertStringContainsString('Identificadores numéricos (cédulas, números de documento, IDs, autorizaciones)', $systemPrompt);
-        $this->assertStringContainsString('examina cada dígito individualmente en orden posicional estricto de izquierda a derecha', $systemPrompt);
-        $this->assertStringContainsString('Fechas (Fecha de Atención, Fecha de Fórmula, Fecha de Entrega)', $systemPrompt);
-        $this->assertStringContainsString('transcribe el año exacto tal como está impreso', $systemPrompt);
-        $this->assertStringContainsString('6 ↔ G ↔ C ↔ 8 ↔ 4 ↔ 0 ↔ 9', $systemPrompt);
-        $this->assertStringContainsString('8 ↔ B ↔ 5 ↔ 3 ↔ 6 ↔ 0', $systemPrompt);
+        $this->assertStringContainsString('Extrae el texto exactamente como aparece en la imagen.', $systemPrompt);
+        $this->assertStringContainsString('Transcribe cada carácter tal como es visible, sin corregir ni interpretar.', $systemPrompt);
+        $this->assertStringContainsString('Si el documento está rotado o invertido, orienta mentalmente la lectura en sentido natural antes de transcribir.', $systemPrompt);
+        $this->assertStringContainsString('Para fechas, transcribe el año exacto tal como está impreso.', $systemPrompt);
+        $this->assertStringNotContainsString('↔', $systemPrompt, 'El prompt NO debe contener tablas de confusión de caracteres');
     }
 
     public function testBuildSystemPromptPreservesCustomPromptWithDeduplication(): void
@@ -67,7 +65,7 @@ final class ExtractionPromptBuilderTest extends TestCase
         $systemPrompt = $this->builder->buildSystemPrompt($payload, $contract);
 
         $this->assertStringContainsString('Instruccion adicional personalizada para la EPS.', $systemPrompt);
-        $this->assertStringContainsString('Identificadores numéricos', $systemPrompt);
+        $this->assertStringContainsString('Eres un extractor documental determinístico.', $systemPrompt);
     }
 
     public function testBuildUserPromptIncludesAllFieldGroupsAndVisualChecks(): void

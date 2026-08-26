@@ -35,11 +35,11 @@ Evolucionar consultas SQL sin degradar seguridad ni comportamiento funcional.
 |---|---|---|
 | `ClientsModel` | Clientes | Búsqueda por ID o criterios |
 | `InvoicesModel` | `Factura` + dispensación/kardex | Facturas de dispensación por NIT/fecha con paginación estándar; selecciona `vw_discolnet_dispensas.DisId` como llave canónica de auditoría |
-| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; pipeline selecciona por `DisId` |
+| `DispensationModel` | `vw_discolnet_dispensas` | FDV; expone `DisId` y `Dispensa AS NumeroFactura`; filtra facturas activas (`f.FacEst = 'A'`); pipeline selecciona por `DisId` |
 | `AttachmentsModel` | `AdjuntosDispensacion` | Expone `AdjDisId` como `id_adjunto_fisico` para aislar los archivos. Cruza con el catálogo mediante la llave compuesta `NitMedDocCod` + `AdjDisNom` para evitar productos cartesianos (NO se puede cruzar `NitMedDocId = AdjDisId`). |
 | `AuditConfigModel` | `Discolnet.dbo.AudDisp` + `Discolnet.dbo.AudDispCampo` | Configuración dinámica por cliente; lee y reemplaza campos activos, severidad, descripción visual, `TipoDato`, `CodigoCampo` y aplicabilidad por servicio `AplicaServicio` |
 | `AuditStatusModel` | `Discolnet.dbo.AudDispEst` | Lectura de resumen, detalle, estadísticas, historial y timings persistidos. |
-| `AuditResultPersistenceModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Upsert serializable por `FacNro`, resultados documentales set-based y trazabilidad en una transacción. Conserva el fallback de hallazgos sintéticos o huérfanos hacia la `DISPENSA`. |
+| `AuditResultPersistenceModel` | `Discolnet.dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Upsert serializable por `FacNro`, resultados documentales set-based y trazabilidad en una transacción con emparejamiento determinista prioritario por `attachment_id` (o fallback secundario por nombre). Conserva el fallback de hallazgos sintéticos o huérfanos hacia la `DISPENSA`. |
 | `Model` (base) | — | Ejecuta callbacks SQL por nombre y modo; nunca conserva una conexión PDO |
 
 `AuditStatusModel` expone `auditExecuted` como campo derivado para resultados públicos: una auditoría terminal con payload persistido (`findings`, `timings` o documentos procesados) cuenta como ejecutada aunque `EstAud=0` por requerir revisión humana.
