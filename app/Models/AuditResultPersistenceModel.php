@@ -234,45 +234,71 @@ class AuditResultPersistenceModel extends Model
             throw new RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
         }
 
+        $decisionsByAttachmentId = [];
         $decisionsByName = [];
         foreach ($documentDecisions as $decision) {
             $normalized = $this->normalizeDocumentDecision($decision, $facNro);
+            if ($normalized['attachmentId'] !== null) {
+                $decisionsByAttachmentId[$normalized['attachmentId']] = $normalized;
+            }
             $decisionsByName[strtoupper($normalized['documentName'])] = $normalized;
         }
 
         $updatesByAttachmentId = [];
+        $matchedAttachmentIds = [];
         $matchedNames = [];
+
         foreach ($attachments as $attachment) {
             $attachmentId = (int) $attachment['AdjDisId'];
             $documentName = strtoupper(trim((string) ($attachment['AdjDisNom'] ?? '')));
-            $decision = $decisionsByName[$documentName] ?? null;
 
-            if ($decision === null) {
-                Logger::warning('Persistencia: adjunto físico sin decisión lógica', [
-                    'adjDisId' => $attachmentId,
-                    'adjDisNom' => $documentName,
-                    'facNro' => $facNro,
-                ]);
+            // 1. Prioridad: Emparejamiento por attachment_id estable
+            if (isset($decisionsByAttachmentId[$attachmentId])) {
+                $decision = $decisionsByAttachmentId[$attachmentId];
+                $matchedAttachmentIds[$attachmentId] = true;
+                $matchedNames[strtoupper($decision['documentName'])] = true;
+                $updatesByAttachmentId[$attachmentId] = $decision;
                 continue;
             }
 
-            $matchedNames[$documentName] = true;
-            $updatesByAttachmentId[$attachmentId] = $decision;
+            // 2. Fallback: Emparejamiento por nombre de documento
+            $decision = $decisionsByName[$documentName] ?? null;
+            if ($decision !== null) {
+                $matchedNames[$documentName] = true;
+                $matchedAttachmentIds[$attachmentId] = true;
+                $updatesByAttachmentId[$attachmentId] = $decision;
+                continue;
+            }
+
+            Logger::warning('Persistencia: adjunto físico sin decisión lógica', [
+                'adjDisId' => $attachmentId,
+                'adjDisNom' => $documentName,
+                'facNro' => $facNro,
+            ]);
         }
 
         $fallback = $this->resolveFallbackAttachment($attachments);
-        foreach (array_diff_key($decisionsByName, $matchedNames) as $orphan) {
-            if ($orphan['approved']) {
-                continue;
-            }
+        foreach ($documentDecisions as $decision) {
+            $normalized = $this->normalizeDocumentDecision($decision, $facNro);
+            $docName = strtoupper($normalized['documentName']);
+            $attId = $normalized['attachmentId'];
 
-            $fallbackId = (int) $fallback['AdjDisId'];
-            $updatesByAttachmentId[$fallbackId] = $orphan;
-            Logger::info('Persistencia: decisión huérfana asignada al adjunto fallback', [
-                'documentName' => $orphan['documentName'],
-                'fallbackAdjDisId' => $fallbackId,
-                'facNro' => $facNro,
-            ]);
+            $isMatched = ($attId !== null && isset($matchedAttachmentIds[$attId]))
+                || isset($matchedNames[$docName]);
+
+            if (!$isMatched) {
+                if ($normalized['approved']) {
+                    continue;
+                }
+
+                $fallbackId = (int) $fallback['AdjDisId'];
+                $updatesByAttachmentId[$fallbackId] = $normalized;
+                Logger::info('Persistencia: decisión huérfana asignada al adjunto fallback', [
+                    'documentName' => $normalized['documentName'],
+                    'fallbackAdjDisId' => $fallbackId,
+                    'facNro' => $facNro,
+                ]);
+            }
         }
 
         $this->executeAttachmentUpdates(
@@ -415,7 +441,7 @@ class AuditResultPersistenceModel extends Model
 
     /**
      * @param array<string,mixed> $decision
-     * @return array{documentName:string,approved:bool,observation:?string}
+     * @return array{documentName:string,approved:bool,observation:?string,attachmentId:?int}
      */
     private function normalizeDocumentDecision(array $decision, string $facNro): array
     {
@@ -444,10 +470,22 @@ class AuditResultPersistenceModel extends Model
             );
         }
 
+        $attachmentId = null;
+        if (isset($decision['attachment_id']) && is_numeric($decision['attachment_id'])) {
+            $attachmentId = (int) $decision['attachment_id'];
+        } elseif (isset($decision['attachmentId']) && is_numeric($decision['attachmentId'])) {
+            $attachmentId = (int) $decision['attachmentId'];
+        } elseif (isset($decision['adj_dis_id']) && is_numeric($decision['adj_dis_id'])) {
+            $attachmentId = (int) $decision['adj_dis_id'];
+        } elseif (isset($decision['AdjDisId']) && is_numeric($decision['AdjDisId'])) {
+            $attachmentId = (int) $decision['AdjDisId'];
+        }
+
         return [
             'documentName' => $documentName,
             'approved' => $approved,
             'observation' => $observation,
+            'attachmentId' => $attachmentId,
         ];
     }
 

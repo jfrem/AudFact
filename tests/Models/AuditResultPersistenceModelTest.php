@@ -223,6 +223,36 @@ final class AuditResultPersistenceModelTest extends TestCase
 
         return $error;
     }
+
+    public function testMatchesDecisionsByAttachmentIdEvenWhenPhysicalNameDiffers(): void
+    {
+        $pdo = new PersistenceFakePdo();
+        $pdo->attachmentRows = [
+            ['AdjDisId' => 101, 'AdjDisNom' => 'SCAN_RAW_001.PDF', 'DisId' => '87723098', 'DisDetId' => 7],
+            ['AdjDisId' => 102, 'AdjDisNom' => 'SCAN_RAW_002.PDF', 'DisId' => '87723098', 'DisDetId' => 7],
+        ];
+        $model = $this->makeModel($pdo);
+
+        $model->persist(self::auditResultData(), [
+            [
+                'documentName' => 'FORMULA MEDICA',
+                'approved' => true,
+                'attachment_id' => 101,
+            ],
+            [
+                'documentName' => 'AUTORIZACION',
+                'approved' => false,
+                'attachment_id' => 102,
+                'payload' => ['hallazgos' => [['Codigo' => 'AUT01']]],
+            ],
+        ]);
+
+        $update = $pdo->statements[2];
+        $this->assertSame(101, $update->boundValues[':attachmentId0']);
+        $this->assertSame(1, $update->boundValues[':approved0']);
+        $this->assertSame(102, $update->boundValues[':attachmentId1']);
+        $this->assertSame(0, $update->boundValues[':approved1']);
+    }
 }
 
 final class TestableAuditResultPersistenceModel extends AuditResultPersistenceModel

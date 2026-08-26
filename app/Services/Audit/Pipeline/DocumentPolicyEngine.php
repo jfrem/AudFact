@@ -309,6 +309,16 @@ class DocumentPolicyEngine
             );
         }
 
+        if ($this->canEvaluateArticleSet($valueType, $fdvResolution, $docResolution)) {
+            return $this->evaluateArticleSetField(
+                $canonicalField,
+                $fdvResolution->values,
+                $docResolution->values,
+                $context,
+                $tipoCampo
+            );
+        }
+
         if ($fdvResolution->ambiguous || $docResolution->ambiguous) {
             return $this->evaluateAmbiguousField($canonicalField, $fdvResolution, $docResolution);
         }
@@ -335,6 +345,19 @@ class DocumentPolicyEngine
             && $docResolution->hasValue()
             && !$fdvResolution->ambiguous
             && !$docResolution->ambiguous;
+    }
+
+    private function canEvaluateArticleSet(
+        AuditFieldValueType $valueType,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution
+    ): bool {
+        return $valueType->requiresArticleSetComparison()
+            && $fdvResolution->hasValue()
+            && $docResolution->hasValue()
+            && !$fdvResolution->ambiguous
+            && !$docResolution->ambiguous
+            && (count($fdvResolution->values) >= 2 || count($docResolution->values) >= 2);
     }
 
     private function buildDataFinding(
@@ -594,6 +617,132 @@ class DocumentPolicyEngine
     }
 
     /**
+     * Emparejamiento biyectivo greedy de artículos FDV vs documento.
+     *
+     * Cascada de 3 niveles por par (f_i, d_j):
+     *   1. Normalización léxica directa o contención de substring.
+     *   2. Similitud léxica ≥ umbral semántico.
+     *   3. ArticleSemanticMatchJudge (Gemini con caché Redis 30d).
+     *
+     * Cada d_j solo puede emparejarse con un único f_i (consumo).
+     *
+     * @param  array<int,string> $fdvArticles  Artículos de la FDV
+     * @param  array<int,string> $docArticles  Artículos extraídos del documento
+     * @param  array<string,mixed> $context
+     * @return array{resultado:string,tipo_auditoria?:string,detalle?:string}
+     */
+    private function evaluateArticleSetField(
+        string $field,
+        array $fdvArticles,
+        array $docArticles,
+        array $context,
+        string $tipoCampo
+    ): array {
+        $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
+
+        // Normalizar ambos sets
+        $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $fdvArticles);
+        $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $docArticles);
+
+        /** @var array<int,true> */
+        $usedDoc = [];
+        /** @var array<int,int> Mapa fdvIdx => docIdx emparejado */
+        $matchedFdv = [];
+
+        // Fase 1: Match léxico directo (normalización exacta o contención de substring)
+        foreach ($fdvNorm as $fi => $fNorm) {
+            if (isset($matchedFdv[$fi])) {
+                continue;
+            }
+            foreach ($docNorm as $di => $dNorm) {
+                if (isset($usedDoc[$di])) {
+                    continue;
+                }
+                if ($fNorm === $dNorm || TextNormalization::containsNormalizedSubstring($fNorm, $dNorm)) {
+                    $matchedFdv[$fi] = $di;
+                    $usedDoc[$di] = true;
+                    break;
+                }
+            }
+        }
+
+        // Fase 2: Similitud léxica para los no emparejados
+        foreach ($fdvNorm as $fi => $fNorm) {
+            if (isset($matchedFdv[$fi])) {
+                continue;
+            }
+            foreach ($docNorm as $di => $dNorm) {
+                if (isset($usedDoc[$di])) {
+                    continue;
+                }
+                if (TextNormalization::similarity($fNorm, $dNorm) >= $threshold) {
+                    $matchedFdv[$fi] = $di;
+                    $usedDoc[$di] = true;
+                    break;
+                }
+            }
+        }
+
+        // Fase 3: ArticleSemanticMatchJudge para los no emparejados
+        if ($this->semanticJudge !== null) {
+            foreach ($fdvArticles as $fi => $fdvOriginal) {
+                if (isset($matchedFdv[$fi])) {
+                    continue;
+                }
+                foreach ($docArticles as $di => $docOriginal) {
+                    if (isset($usedDoc[$di])) {
+                        continue;
+                    }
+                    $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docOriginal, array_merge($context, [
+                        'field' => $field,
+                        'tipoCampo' => $tipoCampo,
+                        'tipoDato' => AuditFieldValueType::ARTICLE_NAME->value,
+                        'call_purpose' => 'article_homologation',
+                    ]));
+                    if (is_array($judgeResult['gemini_metrics'] ?? null)) {
+                        $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
+                    }
+                    if (($judgeResult['cache_hit'] ?? false) === true) {
+                        $this->semanticCacheHits++;
+                    }
+                    if ($judgeResult['is_match']) {
+                        $matchedFdv[$fi] = $di;
+                        $usedDoc[$di] = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Resultado: evaluar cobertura de la FDV
+        if (count($matchedFdv) === count($fdvArticles)) {
+            return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'semantic'];
+        }
+
+        // Artículos FDV no emparejados
+        $unmatchedNames = [];
+        foreach ($fdvArticles as $fi => $name) {
+            if (!isset($matchedFdv[$fi])) {
+                $unmatchedNames[] = $name;
+            }
+        }
+
+        $humanField = TextNormalization::humanizeFieldName($field);
+
+        return [
+            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+            'tipo_auditoria' => 'semantic',
+            'detalle' => sprintf(
+                "En '%s', el documento soporte no contiene evidencia para %d de %d artículos de la dispensación: '%s'.",
+                $humanField,
+                count($unmatchedNames),
+                count($fdvArticles),
+                implode(', ', $unmatchedNames)
+            ),
+        ];
+    }
+
+    /**
      * @return array{resultado:string,detalle?:string}
      */
     private function evaluateExactField(
@@ -725,14 +874,22 @@ class DocumentPolicyEngine
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
+        $usaFactorConv = (bool) ($context['usa_factor_conv'] ?? false);
+
         return [
             'resultado' => AuditFindingResult::MISMATCH->value,
-            'detalle'   => sprintf(
-                'La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).',
-                $docNumber,
-                $factorConv,
-                $fdvNumber
-            ),
+            'detalle'   => $usaFactorConv
+                ? sprintf(
+                    'La cantidad en el documento soporte (%.2f) con Factor de Conversion (%.2f) no justifica la cantidad dispensada (%.2f).',
+                    $docNumber,
+                    $factorConv,
+                    $fdvNumber
+                )
+                : sprintf(
+                    'La cantidad en el documento soporte (%.2f) es menor a la cantidad dispensada (%.2f).',
+                    $docNumber,
+                    $fdvNumber
+                ),
         ];
     }
 

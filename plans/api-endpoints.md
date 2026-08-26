@@ -257,6 +257,33 @@ Se retorna si hay errores de validación de campos.
 
 ---
 
+### `GET /audit/jobs`
+
+Lista los jobs de auditoría batch recientes con enriquecimiento de nombres de clientes.
+
+#### Query Parameters
+- `limit`: entero opcional `1..100` (default: `50`)
+
+Respuesta:
+```json
+{
+  "success": true,
+  "message": "Lista de jobs de auditoría",
+  "data": [
+    {
+      "job_id": "e8d6411d-872f-4886-905c-e58f0ee2b453",
+      "status": "completed",
+      "total": 10,
+      "done": 10,
+      "failed": 0,
+      "fac_nit_sec": 1165,
+      "client_name": "NUEVA EPS",
+      "created_at": "2026-06-01T13:00:00Z"
+    }
+  ]
+}
+```
+
 ### `GET /audit/jobs/{job_id}`
 
 Consulta el estado de un job async.
@@ -387,6 +414,34 @@ Respuesta:
 ### `GET /audit/stats`
 
 Consulta resumen agregado de estados de auditoría para dashboard.
+
+### `GET /audit/stats/monthly`
+
+Consulta estadísticas agregadas de rendimiento mensual por cliente/EPS para análisis de conformidad histórica.
+
+#### Query Parameters
+- `year`: entero opcional `2000..2100` (default: año actual)
+
+Respuesta:
+```json
+{
+  "success": true,
+  "message": "Rendimiento mensual de auditoría",
+  "data": {
+    "year": 2026,
+    "summary": {
+      "total_facturas": 120,
+      "total_conformes": 110,
+      "total_rechazadas": 10,
+      "global_rate_conf": 91.7,
+      "total_documentos": 360,
+      "total_doc_conformes": 348,
+      "total_doc_rechazados": 12
+    },
+    "items": []
+  }
+}
+```
 
 ### `GET /audit/documents-history`
 

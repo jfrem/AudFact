@@ -1127,4 +1127,205 @@ final class DocumentPolicyEngineTest extends TestCase
         $cant = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'CantidadEntregada'))[0];
         $this->assertSame('NO_CONCLUYENTE', $cant['resultado']);
     }
+
+    // ─── Article Set Matching ───────────────────────────────────────────────
+
+    public function testEvaluateArticleSetMatchesTwoDistinctArticlesWhenBothMatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'ACIDO FENOFIBRICO + ROSUVASTATINA 135MG/20MG'],
+                    ['NombreArticulo' => 'SALMETEROL + FLUTICASONA 25MCG/125MCG'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'ACIDO FENOFIBRICO + ROSUVASTATINA 135MG/20MG'],
+                    ['NombreArticulo' => 'SALMETEROL + FLUTICASONA 25MCG/125MCG'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $this->assertContains('NombreArticulo', $campos);
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateArticleSetMatchesWhenDocContainsExtraArticles(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateArticleSetReportsInconclusiveWhenFdvArticleMissing(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG'],
+                    ['NombreArticulo' => 'OMEPRAZOL 20MG'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+        $this->assertStringContainsString('OMEPRAZOL', (string) $result['hallazgos']['items'][$nomIdx]['detalle']);
+        $this->assertStringContainsString('1 de 3', (string) $result['hallazgos']['items'][$nomIdx]['detalle']);
+    }
+
+    public function testEvaluateArticleSetMatchesBySubstringContainment(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'DISPENSA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5'],
+                    ['NombreArticulo' => 'ESPARADRAPO MICROPORE 2 PULGADAS'],
+                ]]
+            ),
+            self::payload(
+                'DISPENSA',
+                [],
+                [
+                    ['NombreArticulo' => '20012566-23 - GASA ESTERIL PRECORTADA NO TEJIDA 3X3 PQTE*5 -- INV:2018DM-0018580'],
+                    ['NombreArticulo' => 'ESPARADRAPO MICROPORE 2 PULGADAS REF ABC-123'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateArticleSetRespectsConsumptionNoDuplicateMatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        // FDV tiene 2 artículos distintos, Doc tiene 1 artículo que matchea solo con el primero
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                    ['NombreArticulo' => 'OMEPRAZOL 20MG'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+        $this->assertStringContainsString('OMEPRAZOL', (string) $result['hallazgos']['items'][$nomIdx]['detalle']);
+    }
+
+    public function testEvaluateArticleSetMatchesArticlesInReversedOrder(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'MEDICAMENTO ALFA'],
+                    ['NombreArticulo' => 'MEDICAMENTO BETA'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'MEDICAMENTO BETA'],
+                    ['NombreArticulo' => 'MEDICAMENTO ALFA'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateArticleSetFallsBackToScalarForSingleItem(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        // N=1 debe seguir usando evaluateSemanticField(), no evaluateArticleSetField()
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG C*100 TABLETA'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG C*100 TABLETA'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
 }

@@ -1,5 +1,27 @@
 # Changelog AudFact
 
+## [2026-08-26] - Feat: Emparejamiento Biyectivo de Conjuntos de Artículos (`ARTICLE_NAME` Multi-Ítem)
+
+### Backend / Pipeline IA y Motor de Políticas
+- **Resolución Multi-Ítem para `ARTICLE_NAME`**: Se habilitó `allowsMultiValueDocument()` para `ARTICLE_NAME` y se incorporó el método `requiresArticleSetComparison()` en `AuditFieldValueType`.
+- **Motor de Políticas (`DocumentPolicyEngine`)**: Se implementó `evaluateArticleSetField()` con asignación biyectiva greedy en 3 fases:
+  1. Coincidencia léxica directa / contención de subcadena normalizada.
+  2. Coeficiente de similitud léxica compuesta $\ge 0.82$.
+  3. Desempate semántico mediante `ArticleSemanticMatchJudge` con caché de 30 días en Redis.
+- **Resolución de Falsos Positivos**: Resuelve el bloqueo que clasificaba como `NO_CONCLUYENTE` inmediato dispensas válidas con $N \ge 2$ medicamentos (ej. D02260405642).
+- **Testing & Skills**: Creados 7 tests unitarios en `DocumentPolicyEngineTest.php` cubriendo coincidencia 2:2, soporte con extras, detección de faltantes, texto extendido/INV, no-reuso de ítems y preservación del flujo mono-ítem. Sincronizada la skill `audfact-audit-gemini`.
+
+## [2026-08-25] - Fix: Extracción Multimodal JPEG 200 DPI y Persistencia Determinista por Attachment ID
+
+### Backend / Pipeline IA y Modelos
+- **Pre-rasterización JPEG a 200 DPI**: Implementado `DocumentPdfRasterizer` utilizando `pdftoppm` (`poppler-utils`) con salida `image/jpeg` a 200 DPI nativos, reduciendo el payload ~3-5x frente a PNG y eliminando la degradación a baja resolución (~72 DPI) del backend multimodal.
+- **Erradicación de Fallbacks Silenciosos**: Eliminados 4 fallbacks que degradaban a PDF crudo ante fallos de renderizado; anomalías lanzan `RuntimeException` hacia DLQ de forma determinista.
+- **Persistencia Determinista por `attachment_id`**: Actualizado `AuditResultPersistenceModel` para asociar decisiones documentales prioritariamente por `attachment_id` estable en lugar de coincidencia exacta de nombres de archivo, eliminando falsas advertencias de adjuntos huérfanos.
+- **Filtro de Facturas Activas**: Actualizado `DispensationModel` con `LEFT JOIN Factura f WITH (NOLOCK) ... AND f.FacEst = 'A'` para considerar exclusivamente facturas activas.
+- **Métricas Operativas Corregidas**: Corregido el cálculo de `local_cpu_duration_ms` en `DocumentExtractionWorker` (`total_duration_ms - gemini_duration_ms`) sin restar tiempos de etapas previas independientes.
+- **Simplificación del System Prompt**: Depurado `DEFAULT_SYSTEM_PROMPT` en `ExtractionPromptBuilder`, eliminando tablas de confusión de caracteres (`↔`) y sobre-verificaciones que inducían sobre-corrección.
+- **Testing & Docker**: Agregado `poppler-utils` a `docker/Dockerfile`, creadas suites `DocumentPdfRasterizerTest` y pruebas de retry multimodal en `DocumentExtractionWorkerTest`.
+
 ## [2026-08-22] - Feat: Auditoría Dinámica por Tipo de Servicio (`AplicaServicio`)
 
 ### Backend / Modelos, Controladores y Pipeline IA
