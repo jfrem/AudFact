@@ -266,7 +266,7 @@ class DispensationModel extends Model
             LEFT JOIN Factura f WITH (NOLOCK) ON f.DisId = v.facsec AND f.DisDetId = v.DisDetId AND f.FacEst = 'A'
             LEFT JOIN FacturaKardex k WITH (NOLOCK) ON k.FacSec = f.FacSec
             LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK)
-                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = k.KarConDisRefCod
+                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = v.Codigo
             LEFT JOIN DatosMipresDetalle mip WITH (NOLOCK) ON mip.DatMipId = v.IdPrincipal
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";

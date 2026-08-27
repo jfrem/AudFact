@@ -1,5 +1,10 @@
 # Changelog AudFact
 
+## [2026-08-26] - Fix: Desambiguación de Contratos de Dispensación y Eliminación de Duplicados en FDV
+
+### Acceso a Datos / Modelos SQL Server
+- **Desambiguación en `DispensationModel`**: Se corrigió el `LEFT JOIN` a `ContratosDispensacionReferenci` utilizando `cr.ConDisRefCod = v.Codigo` en vez de `k.KarConDisRefCod`. Esto resuelve el cruce difuso y producto cartesiano que generaba filas duplicadas con flags conflictivos de `Autorizacion` (`'S'` y `'R'`) para dispensaciones multi-ítem (ej. `U19260400245`).
+
 ## [2026-08-26] - Feat: Emparejamiento Biyectivo de Conjuntos de Artículos (`ARTICLE_NAME` Multi-Ítem)
 
 ### Backend / Pipeline IA y Motor de Políticas
