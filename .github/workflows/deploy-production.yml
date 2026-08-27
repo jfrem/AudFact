@@ -329,7 +329,7 @@ jobs:
             write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
             printf '\n'
             write_env_var 'GEMINI_API_KEY' "$GEMINI_API_KEY"
-            write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3-flash-preview}"
+            write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3.7-flash}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
             write_env_var 'GEMINI_TOP_P' "${GEMINI_TOP_P:-1.0}"
@@ -340,11 +340,11 @@ jobs:
             write_env_var 'GEMINI_THINKING_LEVEL' "${GEMINI_THINKING_LEVEL:-}"
             write_env_var 'GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS' "${GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS:-4096}"
             write_env_var 'GEMINI_EXTRACTION_THINKING_BUDGET' "${GEMINI_EXTRACTION_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-MINIMAL}"
+            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-}"
             write_env_var 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS' "${GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS:-2048}"
             write_env_var 'GEMINI_SEMANTIC_THINKING_LEVEL' "${GEMINI_SEMANTIC_THINKING_LEVEL:-}"
             write_env_var 'GEMINI_SEMANTIC_THINKING_BUDGET' "${GEMINI_SEMANTIC_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-42}"
+            write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-}"
             printf '\n'
             write_env_var 'AUDIT_BATCH_MAX_LIMIT' "${AUDIT_BATCH_MAX_LIMIT:-100}"
             write_env_var 'AUDIT_BATCH_CRON_LIMIT' "${AUDIT_BATCH_CRON_LIMIT:-3000}"
