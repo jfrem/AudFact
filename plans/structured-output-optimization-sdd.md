@@ -157,7 +157,7 @@
 - **Problema actual**: El pipeline de extracción documental usa Function Calling (`tools` + `toolConfig`) para obligar a Gemini a retornar JSON estructurado. Cada campo repite un objeto `{valor, presente, estadoExtraccion}` con 4 enum values + metadata, generando ~120 tokens por campo. Para 8 campos + 2 items de un documento AUTORIZACION, el TEXT input consume **2300 tokens** — el doble del costo de la imagen (1092 tokens).
 - **Causa raíz**: Function Calling impone overhead algorítmico (declaración de funciones, envoltura de herramientas, parsing de `functionCall` parts) y el schema anidado con `{presente, estadoExtraccion}` multiplica tokens innecesariamente. El modelo puede inferir `presente` y `estadoExtraccion` de un simple `null` vs no-null.
 - **Impacto actual**: Cada extracción consume ~2300 tokens de TEXT input por schema. En un batch de 100 documentos × 5 tipos documentales = 500 llamadas × 2300 tokens innecesarios ≈ 1.15M tokens de overhead por batch.
-- **Resultado esperado**: Reducción del TEXT input a <1000 tokens por schema (>55% reducción) usando `responseSchema` nativo con tipos planos.
+- **Resultado esperado**: Reducción del TEXT input a menos de 1000 tokens por schema (>55% reducción) usando `responseSchema` nativo con tipos planos.
 - **Razón de existencia**: Google Gemini recomienda `responseSchema` sobre Function Calling cuando el objetivo es obtener JSON estructurado sin ejecutar acciones externas. El pipeline AudFact es extracción pura — Gemini no necesita "decidir qué herramienta usar"; siempre extrae todos los campos.
 
 ### 2. Alcance
