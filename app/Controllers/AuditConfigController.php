@@ -176,6 +176,7 @@ class AuditConfigController extends Controller
                 'description'    => $description,
                 'severity'       => $this->sanitizeSeverity($field),
                 'aplicaServicio' => $aplicaServicio,
+                'esMultiItem'    => (bool) ($field['esMultiItem'] ?? false),
             ];
         }
 

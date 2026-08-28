@@ -59,7 +59,7 @@ final class FdvItemAggregator
             }
 
             $valueType = AuditFieldValueType::tryFrom($tipoDato);
-            if (!$contractBuilder->isItemField($documentType, $name, $tipoCampo, $valueType)) {
+            if (!$contractBuilder->isItemField($tipoCampo, $valueType, $field)) {
                 continue;
             }
 

@@ -425,7 +425,7 @@ final class FieldValueResolver
         }
 
         $normalized = array_values(array_unique($normalized));
-        sort($normalized);
+        sort($normalized, SORT_STRING);
 
         return $normalized;
     }
@@ -437,7 +437,7 @@ final class FieldValueResolver
     private static function uniqueSortedValues(array $values): array
     {
         $unique = array_values(array_unique($values));
-        sort($unique);
+        sort($unique, SORT_STRING);
 
         return $unique;
     }

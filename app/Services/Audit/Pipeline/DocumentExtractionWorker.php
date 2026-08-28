@@ -75,7 +75,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $this->promptBuilder  = $promptBuilder  ?? new ExtractionPromptBuilder();
         $this->cacheManager   = $cacheManager   ?? new ExtractionCacheManager($this->redis, $resolvedTtl, $extractorVersion);
-        $this->responseParser = $responseParser ?? new GeminiResponseParser($this->gateway, $this->redis, $this->promptBuilder);
+        $this->responseParser = $responseParser ?? new GeminiResponseParser($this->redis);
         $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer();
     }
 
@@ -315,12 +315,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
         $files = $this->buildMultimodalParts($document, $documentType);
 
-        $response = $this->gateway->sendWithFunctionCalling(
+        $responseSchema = $this->requiredArray($contract, 'response_schema');
+
+        $response = $this->gateway->sendWithStructuredOutput(
             $userPrompt,
             $files,
             $systemPrompt,
-            [['functionDeclarations' => $this->promptBuilder->contractFunctionDeclarations($contract)]],
-            $this->promptBuilder->buildToolConfig($contract),
+            $responseSchema,
             GeminiGateway::TASK_EXTRACTION,
             GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', ['maxOutputTokens' => 4096]),
             [
@@ -335,20 +336,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $geminiMetrics    = is_array($response['X-Audit-Metrics'] ?? null) ? $response['X-Audit-Metrics'] : null;
         unset($response['X-Audit-Metrics']);
 
-        $extracted = $this->responseParser->parse(
-            $response,
-            $contract,
-            $files,
-            $documentType,
-            $payload,
-            [
-                'dis_det_nro'   => $disDetNro,
-                'audit_id'      => $event->auditId,
-                'document_id'   => $event->documentId,
-                'document_type' => $documentType,
-            ]
-        );
-
+        $extracted = $this->responseParser->parse($response, $contract);
         $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);
         $this->cacheManager->put($cacheKey, $extracted);
 
@@ -527,7 +515,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         array $contract,
         array $extracted
     ): array {
-        if (!$this->promptBuilder->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS)) {
+        if (!$this->promptBuilder->contractRequiresItems($contract)) {
             return $extracted;
         }
 
@@ -564,10 +552,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $msg = $e->getMessage();
         return stripos($msg, 'no pages') !== false
             || stripos($msg, 'could not be decoded') !== false
-            || stripos($msg, 'invalid argument') !== false
-            || stripos($msg, 'invalid_argument') !== false
+            || stripos($msg, 'failed to decode') !== false
             || stripos($msg, 'unsupported file') !== false
-            || stripos($msg, 'failed to process') !== false;
+            || stripos($msg, 'unsupported media') !== false
+            || stripos($msg, 'unsupported format') !== false
+            || stripos($msg, 'corrupted') !== false
+            || stripos($msg, 'corrupt file') !== false
+            || stripos($msg, 'corrupt image') !== false;
     }
 
     private function classifyGeminiContentError(RuntimeException $e): string

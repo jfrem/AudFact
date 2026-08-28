@@ -108,6 +108,7 @@ export const AuditConfigFieldSchema = z.object({
   orden: z.number().default(0),
   codigoCampo: z.string().nullable().optional(),
   aplicaServicio: z.string().optional().default("TODOS"),
+  esMultiItem: z.boolean().optional().default(false),
 });
 
 export const AuditVisualCheckSchema = z.object({

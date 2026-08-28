@@ -10,25 +10,8 @@ use InvalidArgumentException;
 
 final class DocumentExtractionContractBuilder
 {
-    public const FN_EXTRACT_FIELDS = 'extract_fields';
-    public const FN_EXTRACT_ITEMS = 'extract_items';
-    public const FN_DETECT_VISUAL_CHECKS = 'detect_visual_checks';
-    public const FN_ASSESS_DOCUMENT_QUALITY = 'assess_document_quality';
-
-    private const ITEM_FIELD_NAMES = [
-        'CantidadEntregada',
-        'CantidadPrescrita',
-        'CodigoArticulo',
-        'CodigoProducto',
-        'CUM',
-        'FechaVencimiento',
-        'Laboratorio',
-        'Lote',
-        'NombreArticulo',
-    ];
-
     /**
-     * Construye el contrato Gemini de extracción paralela para un documento.
+     * Construye el contrato Gemini de Structured Output para un documento.
      *
      * @param  string                    $documentName  Tipo documental configurado.
      * @param  array<int,array<string,mixed>> $fields   Campos activos del audit-config.
@@ -38,22 +21,19 @@ final class DocumentExtractionContractBuilder
     public function build(string $documentName, array $fields, array $visualChecks): array
     {
         $fieldGroups = $this->groupFields($documentName, $fields);
-        $declarations = $this->buildFunctionDeclarations(
+        $responseSchema = $this->buildResponseSchema(
             $fieldGroups,
             $this->activeVisualChecks($visualChecks)
         );
-        $requiredFunctionNames = self::functionNames($declarations);
 
         return [
-            'function_declarations' => $declarations,
-            'required_function_names' => $requiredFunctionNames,
+            'response_schema' => $responseSchema,
             'field_groups' => [
                 'fields' => array_column($fieldGroups['fields'], 'campoNombre'),
                 'items' => array_column($fieldGroups['items'], 'campoNombre'),
             ],
             'contract_hash' => self::hashPayload([
-                'function_declarations' => $declarations,
-                'required_function_names' => $requiredFunctionNames,
+                'response_schema' => $responseSchema,
             ]),
         ];
     }
@@ -61,36 +41,75 @@ final class DocumentExtractionContractBuilder
     /**
      * @param  array{fields:array<int,array<string,mixed>>,items:array<int,array<string,mixed>>} $fieldGroups
      * @param  array<int,array<string,mixed>> $visualChecks
-     * @return array<int,array<string,mixed>>
+     * @return array<string,mixed>
      */
-    private function buildFunctionDeclarations(array $fieldGroups, array $visualChecks): array
+    private function buildResponseSchema(array $fieldGroups, array $visualChecks): array
     {
-        $declarations = [];
+        $properties = [
+            'document_conformity' => [
+                'type' => 'object',
+                'properties' => [
+                    'matches_expected_type' => [
+                        'type' => 'boolean',
+                        'description' => 'True si el formato y estructura del documento corresponden genuinamente al tipo documental objetivo. False si el archivo corresponde a otra tipología documental distinta.',
+                    ],
+                    'detected_type' => [
+                        'type' => 'string',
+                        'nullable' => true,
+                        'description' => 'El tipo o categoría de documento identificado en la imagen (ej: Cédula, Recibo de caja, Historia clínica, Fórmula médica, etc.).',
+                    ],
+                    'justification' => [
+                        'type' => 'string',
+                        'nullable' => true,
+                        'description' => 'Breve explicación objetiva de por qué coincide o no con la tipología requerida.',
+                    ],
+                ],
+                'required' => ['matches_expected_type', 'detected_type', 'justification'],
+                'propertyOrdering' => ['matches_expected_type', 'detected_type', 'justification'],
+            ],
+        ];
+        $required = ['document_conformity'];
 
         if ($fieldGroups['fields'] !== []) {
-            $declarations[] = $this->buildExtractFieldsDeclaration($fieldGroups['fields']);
+            $properties['fields'] = $this->buildFlatObjectSchema($fieldGroups['fields']);
+            $required[] = 'fields';
         }
 
         if ($fieldGroups['items'] !== []) {
-            $declarations[] = $this->buildExtractItemsDeclaration($fieldGroups['items']);
+            $properties['items'] = [
+                'type' => 'array',
+                'items' => $this->buildFlatObjectSchema($fieldGroups['items']),
+            ];
+            $required[] = 'items';
         }
 
         if ($visualChecks !== []) {
-            $declarations[] = $this->buildDetectVisualChecksDeclaration($visualChecks);
+            $properties['visual_checks'] = $this->buildVisualChecksSchema($visualChecks);
+            $required[] = 'visual_checks';
         }
 
-        $declarations[] = $this->buildAssessDocumentQualityDeclaration();
+        $properties['document_quality'] = [
+            'type' => 'string',
+            'enum' => ['legible', 'parcialmente_legible', 'ilegible'],
+        ];
+        $properties['quality_notes'] = [
+            'type' => 'array',
+            'items' => ['type' => 'string'],
+        ];
+        $required[] = 'document_quality';
+        $required[] = 'quality_notes';
 
-        return $declarations;
-    }
+        $schema = [
+            'type' => 'object',
+            'properties' => $properties,
+            'required' => $required,
+        ];
 
-    /**
-     * @param  array<int,array<string,mixed>> $declarations
-     * @return array<int,string>
-     */
-    private static function functionNames(array $declarations): array
-    {
-        return array_values(array_column($declarations, 'name'));
+        if ($properties !== []) {
+            $schema['propertyOrdering'] = array_keys($properties);
+        }
+
+        return $schema;
     }
 
     /**
@@ -144,7 +163,7 @@ final class DocumentExtractionContractBuilder
 
             $name = $this->fieldName($field);
             $valueType = $this->fieldValueType($field);
-            $target = $this->isItemField($documentName, $name, $tipoCampo, $valueType)
+            $target = $this->isItemField($tipoCampo, $valueType, $field)
                 ? 'items'
                 : 'fields';
 
@@ -167,36 +186,24 @@ final class DocumentExtractionContractBuilder
         return $name;
     }
 
+    /**
+     * @param array<string,mixed> $fieldConfig
+     */
     public function isItemField(
-        string $documentName,
-        string $fieldName,
         string $tipoCampo,
-        ?AuditFieldValueType $valueType = null
-    ): bool
-    {
+        ?AuditFieldValueType $valueType = null,
+        array $fieldConfig = []
+    ): bool {
+        if ((bool) ($fieldConfig['esMultiItem'] ?? false)) {
+            return true;
+        }
+
         if (AuditComparisonType::fromTipoCampo($tipoCampo) === AuditComparisonType::BUSINESS) {
             return true;
         }
 
         if ($valueType !== null && $valueType->isItemScoped()) {
             return true;
-        }
-
-        if (in_array($fieldName, self::ITEM_FIELD_NAMES, true)) {
-            return true;
-        }
-
-        return self::isPrescriptionDocument($documentName) && $fieldName === 'NumeroAutorizacion';
-    }
-
-    public static function isPrescriptionDocument(string $documentName): bool
-    {
-        $normalized = self::normalizeDocumentName($documentName);
-
-        foreach (['FORMULA', 'PRESCRIPCION', 'RECETA', 'ORDEN MEDICA'] as $token) {
-            if (str_contains($normalized, $token)) {
-                return true;
-            }
         }
 
         return false;
@@ -222,53 +229,10 @@ final class DocumentExtractionContractBuilder
     }
 
     /**
-     * @param  array<int,array<string,mixed>> $fields
-     * @return array<string,mixed>
-     */
-    private function buildExtractFieldsDeclaration(array $fields): array
-    {
-        return [
-            'name' => self::FN_EXTRACT_FIELDS,
-            'description' => 'Extrae campos visibles.',
-            'parameters' => [
-                'type' => 'object',
-                'properties' => [
-                    'fields' => $this->buildObjectSchema($fields),
-                ],
-                'required' => ['fields'],
-                'propertyOrdering' => ['fields'],
-            ],
-        ];
-    }
-
-    /**
-     * @param  array<int,array<string,mixed>> $fields
-     * @return array<string,mixed>
-     */
-    private function buildExtractItemsDeclaration(array $fields): array
-    {
-        return [
-            'name' => self::FN_EXTRACT_ITEMS,
-            'description' => 'Extrae filas visibles, una por linea.',
-            'parameters' => [
-                'type' => 'object',
-                'properties' => [
-                    'items' => [
-                        'type' => 'array',
-                        'items' => $this->buildObjectSchema($fields),
-                    ],
-                ],
-                'required' => ['items'],
-                'propertyOrdering' => ['items'],
-            ],
-        ];
-    }
-
-    /**
      * @param  array<int,array<string,mixed>> $visualChecks
      * @return array<string,mixed>
      */
-    private function buildDetectVisualChecksDeclaration(array $visualChecks): array
+    private function buildVisualChecksSchema(array $visualChecks): array
     {
         $checkNames = [];
         $descriptions = [];
@@ -318,64 +282,29 @@ final class DocumentExtractionContractBuilder
         $visualOrdering[] = 'severidad';
 
         return [
-            'name' => self::FN_DETECT_VISUAL_CHECKS,
-            'description' => 'Detecta checks visuales visibles.',
-            'parameters' => [
+            'type' => 'array',
+            'items' => [
                 'type' => 'object',
-                'properties' => [
-                    'visual_checks' => [
-                        'type' => 'array',
-                        'items' => [
-                            'type' => 'object',
-                            'properties' => $visualProperties,
-                            'required' => ['check', 'presente', 'detalle'],
-                            'propertyOrdering' => $visualOrdering,
-                        ],
-                    ],
-                ],
-                'required' => ['visual_checks'],
-                'propertyOrdering' => ['visual_checks'],
+                'properties' => $visualProperties,
+                'required' => ['check', 'presente', 'detalle'],
+                'propertyOrdering' => $visualOrdering,
             ],
         ];
     }
 
     /**
+     * Construye un schema de objeto plano {type: 'object', properties: {...}}.
+     *
+     * @param  array<int,array<string,mixed>> $fields
      * @return array<string,mixed>
      */
-    private function buildAssessDocumentQualityDeclaration(): array
+    private function buildFlatObjectSchema(array $fields): array
     {
-        return [
-            'name' => self::FN_ASSESS_DOCUMENT_QUALITY,
-            'description' => 'Evalua legibilidad general.',
-            'parameters' => [
-                'type' => 'object',
-                'properties' => [
-                    'document_quality' => [
-                        'type' => 'string',
-                        'enum' => ['legible', 'parcialmente_legible', 'ilegible'],
-                    ],
-                    'quality_notes' => [
-                        'type' => 'array',
-                        'items' => ['type' => 'string'],
-                    ],
-                ],
-                'required' => ['document_quality', 'quality_notes'],
-                'propertyOrdering' => ['document_quality', 'quality_notes'],
-            ],
-        ];
-    }
-
-    /**
-     * Construye un nodo JSON Schema `{type: 'object', properties: {...}}` seguro.
-     * Centraliza la garantía de que `properties` se serialice siempre como
-     * un objeto JSON (`{}`) y nunca como un array (`[]`), independientemente
-     * de si hay campos configurados. Gemini rechaza con 400 si recibe un array.
-     * @param  array<int,array<string,mixed>> $fields  Campos del audit-config.
-     * @return array<string,mixed>  Nodo schema listo para embebir en la declaración.
-     */
-    private function buildObjectSchema(array $fields): array
-    {
-        $properties = $this->buildFieldProperties($fields);
+        $properties = [];
+        foreach ($fields as $field) {
+            $name = $this->fieldName($field);
+            $properties[$name] = $this->buildFlatFieldSchema($field);
+        }
 
         $schema = [
             'type' => 'object',
@@ -383,6 +312,7 @@ final class DocumentExtractionContractBuilder
         ];
 
         if ($properties !== []) {
+            $schema['required'] = array_keys($properties);
             $schema['propertyOrdering'] = array_keys($properties);
         }
 
@@ -390,74 +320,43 @@ final class DocumentExtractionContractBuilder
     }
 
     /**
-     * @param  array<int,array<string,mixed>> $fields
-     * @return array<string,array<string,mixed>>
-     */
-    private function buildFieldProperties(array $fields): array
-    {
-        $properties = [];
-        foreach ($fields as $field) {
-            $name = $this->fieldName($field);
-            $properties[$name] = $this->buildEvidenceFieldSchema($field);
-        }
-
-        return $properties;
-    }
-
-    /**
-     * Construye el JSON Schema de un campo con estructura de evidencia.
+     * Construye el schema plano para un campo individual (primitivo nullable).
      *
-     * Shape: {valor, presente, estadoExtraccion}; `valores` solo para CODE/TRACE_TOKEN.
-     * - `valores`: array de tokens individuales (útil para FOUND_IN_LIST)
-     * - `estadoExtraccion`: clasificación del resultado de búsqueda
+     * @param  array<string,mixed> $field
+     * @return array<string,mixed>
      */
-    private function buildEvidenceFieldSchema(array $field): array
+    private function buildFlatFieldSchema(array $field): array
     {
         $tipoCampo = (string) ($field['tipoCampo'] ?? 'E');
         $valueType = $this->fieldValueType($field);
-        $valorType = $this->schemaTypeForField($valueType, $tipoCampo);
-        $valorProperty = [
-            'type' => $valorType,
-            'nullable' => true,
-        ];
+
+        if ($valueType === AuditFieldValueType::TRACE_TOKEN) {
+            $schema = [
+                'type' => 'array',
+                'items' => ['type' => 'string'],
+                'nullable' => true,
+            ];
+        } else {
+            $valorType = $this->schemaTypeForField($valueType);
+            $schema = [
+                'type' => $valorType,
+                'nullable' => true,
+            ];
+        }
+
         $configuredDescription = isset($field['description']) ? trim((string) $field['description']) : '';
         $fallbackDescription = $valueType->fieldDescriptionFallback();
         $valorDescription = $configuredDescription !== '' ? $configuredDescription : $fallbackDescription;
+
         if ($valorDescription !== null && $valorDescription !== '') {
-            $valorProperty['description'] = $valorDescription;
+            $schema['description'] = $valorDescription;
         }
 
-        $properties = [
-            'valor' => $valorProperty,
-            'presente' => ['type' => 'boolean'],
-            'estadoExtraccion' => [
-                'type' => 'string',
-                'enum' => ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
-            ],
-        ];
-        $propertyOrdering = ['valor', 'presente', 'estadoExtraccion'];
-        if ($valueType->allowsMultiValueDocument()) {
-            $properties['valores'] = [
-                'type' => 'array',
-                'items' => ['type' => $valorType],
-            ];
-            $propertyOrdering = ['valor', 'valores', 'presente', 'estadoExtraccion'];
-        }
-
-        return [
-            'type' => 'object',
-            'properties' => $properties,
-            'required' => ['valor', 'presente', 'estadoExtraccion'],
-            'propertyOrdering' => $propertyOrdering,
-        ];
+        return $schema;
     }
 
-    private function schemaTypeForField(AuditFieldValueType $valueType, string $tipoCampo): string
+    private function schemaTypeForField(AuditFieldValueType $valueType): string
     {
-        if (AuditComparisonType::fromTipoCampo($tipoCampo) === AuditComparisonType::BUSINESS) {
-            return 'number';
-        }
-
         return $valueType->isNumericForSchema() ? 'number' : 'string';
     }
 

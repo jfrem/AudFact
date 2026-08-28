@@ -5,20 +5,16 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\DocumentQuality;
-use App\Services\Audit\GeminiConfig;
-use App\Services\Audit\GeminiGateway;
-use Core\Logger;
-use Core\RedisClient;
 use RuntimeException;
 
 /**
- * Parsea y valida la respuesta de Gemini para una extracción documental.
+ * Parsea y valida la respuesta de Gemini Structured Output para una extracción documental.
  *
  * Responsabilidades:
- * - Orquestar las 3 fases de recuperación: parse primario, retry selectivo, fallback.
- * - Validar la estructura del payload de extracción paralela.
- * - Validar ítems y visual checks.
- * - Incrementar métricas de telemetría (best-effort).
+ * - Extraer el JSON generado desde candidate text part.
+ * - Validar la completitud estricta del contrato (campos y visual checks requeridos).
+ * - Rehidratar los campos planos a la shape canónica {valor, presente, estadoExtraccion}.
+ * - Validar calidad documental, items y visual checks.
  *
  * @see DocumentExtractionWorker — delegante principal
  */
@@ -26,135 +22,41 @@ final class GeminiResponseParser
 {
     private const ACCEPTED_FINISH_REASON = 'STOP';
 
-    private const ERROR_MISSING_CANDIDATE       = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
-    private const ERROR_UNSAFE_FINISH_REASON    = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
-    private const ERROR_MISSING_FUNCTION_CALL   = 'GEMINI_EXTRACTION_MISSING_FUNCTION_CALL';
-    private const ERROR_INVALID_ARGS            = 'GEMINI_EXTRACTION_INVALID_ARGS';
-    private const ERROR_UNEXPECTED_FUNCTION_CALL = 'GEMINI_EXTRACTION_UNEXPECTED_FUNCTION_CALL';
-    private const ERROR_DUPLICATE_FUNCTION_CALL = 'GEMINI_EXTRACTION_DUPLICATE_FUNCTION_CALL';
+    private const ERROR_MISSING_CANDIDATE     = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
+    private const ERROR_UNSAFE_FINISH_REASON  = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
+    private const ERROR_MISSING_TEXT_RESPONSE = 'GEMINI_EXTRACTION_MISSING_TEXT_RESPONSE';
+    private const ERROR_INVALID_JSON          = 'GEMINI_EXTRACTION_INVALID_JSON';
+
+    public function __construct() {}
 
     /**
-     * Política de recuperación por función. Las funciones NO listadas aquí
-     * son críticas: su ausencia lanza excepción sin intentar recovery.
+     * Parsea la respuesta Structured Output de Gemini.
      *
-     * - retryable: admite segunda llamada selectiva a Gemini (Fase 2)
-     * - fallback:  valor por defecto si la Fase 2 también falla (Fase 3)
-     *
-     * @see retryMissingFunctions() — Fase 2
-     * @see parse()                 — Orquestación de las 3 fases
-     */
-    private const FUNCTION_RECOVERY_POLICY = [
-        'detect_visual_checks' => [
-            'retryable' => true,
-            'fallback'  => ['visual_checks' => []],
-        ],
-        'assess_document_quality' => [
-            'retryable' => true,
-            'fallback'  => [
-                'document_quality' => 'legible',
-                'quality_notes'    => ['Fallback automático: Gemini omitió tras retry selectivo'],
-            ],
-        ],
-    ];
-
-    public function __construct(
-        private readonly GeminiGateway $gateway,
-        private readonly RedisClient $redis,
-        private readonly ExtractionPromptBuilder $promptBuilder
-    ) {}
-
-    /**
-     * Orquesta las 3 fases de parsing de la respuesta Gemini.
-     *
-     * Fase 1: Parse primario del candidato principal.
-     * Fase 2: Retry selectivo para funciones recuperables faltantes.
-     * Fase 3: Fallback de último recurso para funciones no recuperadas.
-     *
-     * @param  array<string,mixed> $response         Respuesta de GeminiGateway (sin X-Audit-Metrics)
-     * @param  array<string,mixed> $contract         Contrato de extracción
-     * @param  array<int,array{mime:string,data:string,label?:string}> $multimodalParts Partes multimodales (imágenes JPEG/PNG o datos procesados)
-     * @param  string              $documentType     Tipo documental
-     * @param  array<string,mixed> $payload          Payload del evento
-     * @param  array<string,mixed> $debugContext     Contexto para logs
+     * @param  array<string,mixed> $response Respuesta de GeminiGateway (sin X-Audit-Metrics)
+     * @param  array<string,mixed> $contract Contrato de extracción
      * @return array<string,mixed>
      */
     public function parse(
         array $response,
-        array $contract,
-        array $multimodalParts,
-        string $documentType,
-        array $payload,
-        array $debugContext
+        array $contract = []
     ): array {
-        $requiredNames = $this->promptBuilder->requiredFunctionNames($contract);
-        $candidate     = $this->extractPrimaryCandidate($response);
+        $candidate = $this->extractPrimaryCandidate($response);
         $this->assertSuccessfulFinishReason($candidate);
 
-        $parts = $this->extractCandidateParts($candidate);
-        $calls = $this->extractFunctionCalls($parts, $requiredNames);
-
-        // ── Detectar funciones faltantes ──
-        $missingRecoverable = [];
-        foreach ($requiredNames as $name) {
-            if (!array_key_exists($name, $calls)) {
-                if (!array_key_exists($name, self::FUNCTION_RECOVERY_POLICY)) {
-                    throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$name}");
-                }
-                $missingRecoverable[] = $name;
-            }
+        $textPart = $candidate['content']['parts'][0]['text'] ?? null;
+        if (!is_string($textPart) || trim($textPart) === '') {
+            throw new RuntimeException(self::ERROR_MISSING_TEXT_RESPONSE);
         }
 
-        if ($missingRecoverable !== []) {
-            $auditId = $debugContext['audit_id'] ?? null;
-
-            Logger::info('Parallel FC incompleto: intentando retry selectivo', [
-                'missing_functions'  => $missingRecoverable,
-                'received_functions' => array_keys($calls),
-                'audit_id'           => $auditId,
-                'document_type'      => $documentType,
-            ]);
-            $this->incrementMetric('parallel_fc_retry_attempted');
-
-            // ── Fase 2: Retry selectivo ──
-            try {
-                $retryCalls = $this->retryMissingFunctions(
-                    $multimodalParts, $documentType, $contract, $payload,
-                    $missingRecoverable, $debugContext
-                );
-                foreach ($retryCalls as $name => $args) {
-                    if (!array_key_exists($name, $calls)) {
-                        $calls[$name] = $args;
-                    }
-                }
-                $recovered = array_intersect($missingRecoverable, array_keys($retryCalls));
-                if ($recovered !== []) {
-                    $this->incrementMetric('parallel_fc_retry_recovered');
-                }
-            } catch (\Throwable $retryError) {
-                Logger::warning('Retry selectivo falló', [
-                    'missing_functions' => $missingRecoverable,
-                    'retry_error'       => $retryError->getMessage(),
-                    'audit_id'          => $auditId,
-                ]);
-            }
-
-            // ── Fase 3: Fallback último recurso ──
-            foreach ($missingRecoverable as $name) {
-                if (!array_key_exists($name, $calls)) {
-                    $calls[$name] = self::FUNCTION_RECOVERY_POLICY[$name]['fallback'];
-                    $this->incrementMetric('parallel_fc_fallback_applied');
-                    Logger::warning('Fallback de último recurso activado', [
-                        'function_name' => $name,
-                        'audit_id'      => $auditId,
-                    ]);
-                }
-            }
+        $decoded = json_decode($textPart, true);
+        if (!is_array($decoded)) {
+            throw new RuntimeException(self::ERROR_INVALID_JSON . ': ' . json_last_error_msg());
         }
 
-        return $this->validateParallelExtractionPayload($calls);
+        return $this->validateAndRehydrate($decoded, $contract);
     }
 
-    // ─── Helpers de parsing ──────────────────────────────────────────────────
+    // ─── Helpers de parsing y rehidratación ──────────────────────────────────
 
     /** @return array<string,mixed> */
     private function extractPrimaryCandidate(array $response): array
@@ -176,167 +78,194 @@ final class GeminiResponseParser
         }
     }
 
-    /** @return array<int,array<string,mixed>> */
-    private function extractCandidateParts(array $candidate): array
-    {
-        $parts = $candidate['content']['parts'] ?? null;
-        if (!is_array($parts)) {
-            throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL);
-        }
-
-        return $parts;
-    }
-
     /**
-     * @param  array<int,array<string,mixed>> $parts
-     * @param  array<int,string> $requiredNames
-     * @return array<string,array<string,mixed>>
-     */
-    private function extractFunctionCalls(array $parts, array $requiredNames): array
-    {
-        $calls = [];
-        foreach ($parts as $part) {
-            $functionCall = $part['functionCall'] ?? null;
-            if (!is_array($functionCall)) {
-                continue;
-            }
-
-            $name = trim((string) ($functionCall['name'] ?? ''));
-            if ($name === '' || !in_array($name, $requiredNames, true)) {
-                $reportedName = $name !== '' ? $name : 'UNKNOWN';
-                throw new RuntimeException(self::ERROR_UNEXPECTED_FUNCTION_CALL . ": {$reportedName}");
-            }
-
-            if (array_key_exists($name, $calls)) {
-                throw new RuntimeException(self::ERROR_DUPLICATE_FUNCTION_CALL . ": {$name}");
-            }
-
-            $args = $functionCall['args'] ?? null;
-            if (!is_array($args)) {
-                throw new RuntimeException(self::ERROR_INVALID_ARGS . ": {$name}");
-            }
-
-            $calls[$name] = $args;
-        }
-
-        return $calls;
-    }
-
-    // ─── Retry selectivo (Fase 2) ────────────────────────────────────────────
-
-    /**
-     * Fase 2: Retry selectivo — segunda llamada a Gemini solo con funciones faltantes.
+     * Valida la estructura del JSON decodificado, asegura completitud del contrato
+     * y rehidrata los campos planos a la shape canónica.
      *
-     * Validado empíricamente: 100% recuperación en 3/3 pruebas con Acta de Entrega
-     * de 17 items (X62260101059). ~190 tokens salida, ~3.4s duración.
-     *
-     * @param  array<int,array{mime:string,data:string,label?:string}> $multimodalParts
-     * @param  string              $documentType
+     * @param  array<string,mixed> $decoded
      * @param  array<string,mixed> $contract
-     * @param  array<string,mixed> $payload
-     * @param  array<int,string>   $missingNames
-     * @param  array<string,mixed> $debugContext
-     * @return array<string,array<string,mixed>>
+     * @return array<string,mixed>
      */
-    private function retryMissingFunctions(
-        array $multimodalParts,
-        string $documentType,
-        array $contract,
-        array $payload,
-        array $missingNames,
-        array $debugContext
-    ): array {
-        $allDeclarations   = $this->promptBuilder->contractFunctionDeclarations($contract);
-        $retryDeclarations = array_values(array_filter(
-            $allDeclarations,
-            fn(array $decl) => in_array($decl['name'] ?? '', $missingNames, true)
-        ));
+    private function validateAndRehydrate(array $decoded, array $contract): array
+    {
+        $this->assertContractCompleteness($decoded, $contract);
 
-        if ($retryDeclarations === []) {
-            return [];
+        $rawConformity = is_array($decoded['document_conformity'] ?? null)
+            ? $decoded['document_conformity']
+            : [
+                'matches_expected_type' => false,
+                'detected_type'         => null,
+                'justification'         => null,
+            ];
+
+        $documentConformity = [
+            'matches_expected_type' => (bool) ($rawConformity['matches_expected_type'] ?? false),
+            'detected_type'         => isset($rawConformity['detected_type']) && $rawConformity['detected_type'] !== '' ? (string) $rawConformity['detected_type'] : null,
+            'justification'         => isset($rawConformity['justification']) && $rawConformity['justification'] !== '' ? (string) $rawConformity['justification'] : null,
+        ];
+
+        $rawFields    = is_array($decoded['fields'] ?? null) ? $decoded['fields'] : [];
+        $rawItems     = is_array($decoded['items'] ?? null) ? $decoded['items'] : [];
+        $visualChecks = is_array($decoded['visual_checks'] ?? null) ? $decoded['visual_checks'] : [];
+
+        $this->validateItems($rawItems);
+
+        $fields = $this->rehydrateEvidenceFields($rawFields);
+
+        $items = [];
+        foreach ($rawItems as $item) {
+            $items[] = $this->rehydrateEvidenceFields($item);
         }
 
-        $systemPrompt = $this->promptBuilder->buildSystemPrompt($payload, $contract);
-
-        $retryPrompt = "Documento objetivo: {$documentType}.\n"
-            . "Analiza el documento y ejecuta las siguientes funciones: "
-            . implode(', ', $missingNames) . ".\n"
-            . "Invoca cada función exactamente una vez en el mismo turno.";
-
-        $retryResponse = $this->gateway->sendWithFunctionCalling(
-            $retryPrompt,
-            $multimodalParts,
-            $systemPrompt,
-            [['functionDeclarations' => $retryDeclarations]],
-            [
-                'functionCallingConfig' => [
-                    'mode'                 => 'ANY',
-                    'allowedFunctionNames' => $missingNames,
-                ],
-            ],
-            GeminiGateway::TASK_EXTRACTION,
-            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
-                'maxOutputTokens' => 2048,
-            ]),
-            array_merge($debugContext, ['call_purpose' => 'retry_missing_functions'])
-        );
-
-        unset($retryResponse['X-Audit-Metrics']);
-
-        $retryCandidate = $this->extractPrimaryCandidate($retryResponse);
-        $this->assertSuccessfulFinishReason($retryCandidate);
-        $retryParts = $this->extractCandidateParts($retryCandidate);
-        $retryCalls = $this->extractFunctionCalls($retryParts, $missingNames);
-
-        Logger::info('Retry selectivo completado', [
-            'requested' => $missingNames,
-            'recovered' => array_keys($retryCalls),
-            'audit_id'  => $debugContext['audit_id'] ?? null,
-        ]);
-
-        return $retryCalls;
-    }
-
-    // ─── Validación del payload ──────────────────────────────────────────────
-
-    /** @return array<string,mixed> */
-    private function validateParallelExtractionPayload(array $calls): array
-    {
-        $fields = $this->optionalFunctionArray(
-            $calls,
-            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-            'fields',
-            'Gemini retornó extract_fields sin fields'
-        );
-        $items = $this->optionalFunctionArray(
-            $calls,
-            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-            'items',
-            'Gemini retornó extract_items sin items'
-        );
-        $visualChecks = $this->optionalFunctionArray(
-            $calls,
-            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-            'visual_checks',
-            'Gemini retornó detect_visual_checks sin visual_checks'
-        );
-
-        $qualityArgs     = $this->requiredFunctionArgs($calls, DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY);
-        $documentQuality = $this->validateDocumentQuality($qualityArgs['document_quality'] ?? null);
-        $qualityNotes    = is_array($qualityArgs['quality_notes'] ?? null)
-            ? $qualityArgs['quality_notes']
+        $documentQuality = $this->validateDocumentQuality($decoded['document_quality'] ?? null);
+        $qualityNotes    = is_array($decoded['quality_notes'] ?? null)
+            ? $decoded['quality_notes']
             : ['Evaluación de calidad por defecto (propiedad no suministrada por la IA)'];
 
-        $this->validateItems($items);
         $this->validateVisualChecks($visualChecks);
 
         return [
-            'fields'           => $fields,
-            'items'            => $items,
-            'visual_checks'    => $visualChecks,
-            'document_quality' => $documentQuality,
-            'quality_notes'    => array_values($qualityNotes),
+            'document_conformity' => $documentConformity,
+            'fields'              => $fields,
+            'items'               => array_values($items),
+            'visual_checks'       => $visualChecks,
+            'document_quality'    => $documentQuality,
+            'quality_notes'       => array_values($qualityNotes),
         ];
+    }
+
+    /**
+     * Valida que Gemini haya retornado las claves explícitas para todos los campos de cabecera,
+     * ítems de línea y checks visuales requeridos por el contrato.
+     *
+     * @param array<string,mixed> $decoded
+     * @param array<string,mixed> $contract
+     */
+    private function assertContractCompleteness(array $decoded, array $contract): void
+    {
+        if ($contract === []) {
+            return;
+        }
+
+        $requiresConformity = in_array('document_conformity', $contract['response_schema']['required'] ?? [], true)
+            || isset($contract['response_schema']['properties']['document_conformity']);
+
+        if ($requiresConformity) {
+            if (!isset($decoded['document_conformity']) || !is_array($decoded['document_conformity'])) {
+                throw new RuntimeException('Gemini extraction payload omitió la sección requerida document_conformity');
+            }
+
+            if (!array_key_exists('matches_expected_type', $decoded['document_conformity'])) {
+                throw new RuntimeException('Gemini extraction payload omitió el campo requerido matches_expected_type en document_conformity');
+            }
+        }
+
+        $expectedFields = $contract['field_groups']['fields'] ?? [];
+        if (is_array($expectedFields) && $expectedFields !== []) {
+            if (!isset($decoded['fields']) || !is_array($decoded['fields'])) {
+                throw new RuntimeException('Gemini extraction payload omitió la sección requerida fields');
+            }
+
+            foreach ($expectedFields as $expectedField) {
+                if (is_string($expectedField) && !array_key_exists($expectedField, $decoded['fields'])) {
+                    throw new RuntimeException("Gemini extraction payload omitió el campo requerido: {$expectedField}");
+                }
+            }
+        }
+
+        $expectedItemFields = $contract['field_groups']['items'] ?? [];
+        if (is_array($expectedItemFields) && $expectedItemFields !== []) {
+            if (!isset($decoded['items']) || !is_array($decoded['items'])) {
+                throw new RuntimeException('Gemini extraction payload omitió la sección requerida items');
+            }
+
+            foreach ($decoded['items'] as $index => $item) {
+                if (!is_array($item)) {
+                    throw new RuntimeException("Gemini retornó item inválido en posición {$index}");
+                }
+
+                foreach ($expectedItemFields as $expectedField) {
+                    if (is_string($expectedField) && !array_key_exists($expectedField, $item)) {
+                        throw new RuntimeException("Gemini extraction payload omitió el campo de ítem requerido: {$expectedField} en posición {$index}");
+                    }
+                }
+            }
+        }
+
+        $expectedChecks = $contract['response_schema']['properties']['visual_checks']['items']['properties']['check']['enum'] ?? [];
+        if (is_array($expectedChecks) && $expectedChecks !== []) {
+            if (!isset($decoded['visual_checks']) || !is_array($decoded['visual_checks'])) {
+                throw new RuntimeException('Gemini extraction payload omitió la sección requerida visual_checks');
+            }
+
+            $returnedChecks = [];
+            foreach ($decoded['visual_checks'] as $vc) {
+                if (is_array($vc) && isset($vc['check']) && is_string($vc['check'])) {
+                    $returnedChecks[] = $vc['check'];
+                }
+            }
+
+            foreach ($expectedChecks as $expectedCheck) {
+                if (is_string($expectedCheck) && !in_array($expectedCheck, $returnedChecks, true)) {
+                    throw new RuntimeException("Gemini extraction payload omitió el check visual requerido: {$expectedCheck}");
+                }
+            }
+        }
+    }
+
+    /**
+     * Rehidrata campos planos a shape canónica {valor, valores, presente, estadoExtraccion}.
+     *
+     * Manejo determinista de cardinalidad:
+     * - Si valor es array (ej. TRACE_TOKEN multivalor ["A1", "B2"]):
+     *   -> valor="A1, B2", valores=["A1", "B2"], presente=true, estadoExtraccion=FOUND_IN_LIST
+     * - Si valor es string con múltiples tokens (ej. "A1, B2"):
+     *   -> valor="A1, B2", valores=["A1", "B2"], presente=true, estadoExtraccion=FOUND_IN_LIST
+     * - Si valor escalar no nulo:
+     *   -> valor=X, valores=[X], presente=true, estadoExtraccion=FOUND
+     * - Si valor es nulo o vacío:
+     *   -> valor=null, valores=[], presente=false, estadoExtraccion=NOT_FOUND
+     *
+     * @param  array<string, mixed> $flatFields
+     * @return array<string, array{valor: mixed, valores?: array<int, mixed>, presente: bool, estadoExtraccion: string}>
+     */
+    public function rehydrateEvidenceFields(array $flatFields): array
+    {
+        $rehydrated = [];
+        foreach ($flatFields as $name => $value) {
+            if (!is_string($name)) {
+                continue;
+            }
+
+            if (is_array($value)) {
+                $tokens = array_values(array_filter(array_map('trim', $value), fn($v) => is_string($v) && $v !== ''));
+                if ($tokens !== []) {
+                    $rehydrated[$name] = [
+                        'valor'            => implode(', ', $tokens),
+                        'valores'          => $tokens,
+                        'presente'         => true,
+                        'estadoExtraccion' => count($tokens) > 1 ? 'FOUND_IN_LIST' : 'FOUND',
+                    ];
+                } else {
+                    $rehydrated[$name] = [
+                        'valor'            => null,
+                        'valores'          => [],
+                        'presente'         => false,
+                        'estadoExtraccion' => 'NOT_FOUND',
+                    ];
+                }
+            } else {
+                $isPresent = $value !== null && $value !== '';
+                $rehydrated[$name] = [
+                    'valor'            => $value,
+                    'valores'          => $isPresent ? [$value] : [],
+                    'presente'         => $isPresent,
+                    'estadoExtraccion' => $isPresent ? 'FOUND' : 'NOT_FOUND',
+                ];
+            }
+        }
+
+        return $rehydrated;
     }
 
     private function validateDocumentQuality(mixed $documentQuality): string
@@ -394,46 +323,6 @@ final class GeminiResponseParser
                     throw new RuntimeException("Gemini retornó visual_check.{$optionalStringKey} inválido en posición {$index}");
                 }
             }
-        }
-    }
-
-    // ─── Helpers de calls ────────────────────────────────────────────────────
-
-    /** @return array<string|int,mixed> */
-    private function optionalFunctionArray(array $calls, string $functionName, string $key, string $errorMessage): array
-    {
-        if (!array_key_exists($functionName, $calls)) {
-            return [];
-        }
-
-        $value = $calls[$functionName][$key] ?? null;
-        if (!is_array($value)) {
-            throw new RuntimeException($errorMessage);
-        }
-
-        return $value;
-    }
-
-    /** @return array<string,mixed> */
-    private function requiredFunctionArgs(array $calls, string $functionName): array
-    {
-        $args = $calls[$functionName] ?? null;
-        if (!is_array($args)) {
-            throw new RuntimeException(self::ERROR_MISSING_FUNCTION_CALL . ": {$functionName}");
-        }
-
-        return $args;
-    }
-
-    // ─── Telemetría ──────────────────────────────────────────────────────────
-
-    /** Incrementa un contador de telemetría en Redis (best-effort). */
-    private function incrementMetric(string $metric): void
-    {
-        try {
-            $this->redis->hIncrBy('telemetry:async_metrics', $metric, 1);
-        } catch (\Throwable) {
-            // Best-effort — nunca interrumpir el flujo por telemetría
         }
     }
 }

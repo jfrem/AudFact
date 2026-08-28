@@ -5,16 +5,13 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\AuditFieldValueType;
-use Core\Logger;
-use RuntimeException;
 
 /**
- * Construye los prompts del sistema y usuario para la llamada a Gemini.
+ * Construye los prompts del sistema y usuario para la llamada a Gemini con Structured Outputs.
  *
  * Responsabilidades:
  * - buildSystemPrompt(): prompt del sistema (default + deduplicación de contexto del contrato)
  * - buildUserPrompt(): prompt del usuario con campos, ítems, visual checks y contexto de artículos
- * - buildToolConfig(): configuración de herramientas de Gemini
  * - promptContextHash(): hash del contexto de prompt para la clave de caché
  * - Helpers internos de deduplicación de oraciones
  *
@@ -30,8 +27,7 @@ final class ExtractionPromptBuilder
         No inventes valores.
         Si un dato no es visible o no es legible, omítelo o usa el valor nativo null de JSON (sin comillas).
         Para verificaciones visuales usa presente=false cuando el elemento no sea visible.
-        Invoca cada función permitida exactamente una vez en el mismo turno.
-        No devuelvas texto libre; responde únicamente con function calls.
+        Responde únicamente con JSON estructurado válido según el schema indicado.
 
         Extrae el texto exactamente como aparece en la imagen.
         Transcribe cada carácter tal como es visible, sin corregir ni interpretar.
@@ -70,36 +66,34 @@ final class ExtractionPromptBuilder
     {
         $parts = [
             "Documento objetivo: {$documentType}.",
+            '### Regla de tipología y conformidad documental',
+            "1. Verifica primero si el formato y estructura del archivo corresponden genuinamente a un(a) \"{$documentType}\".",
+            '2. Si el archivo adjunto corresponde a otra tipología documental distinta (ej: documento de identidad, recibo, factura u otro tipo que no es el solicitado):',
+            '   - Asigna `document_conformity.matches_expected_type = false`.',
+            '   - Describe en `document_conformity.detected_type` y `document_conformity.justification` lo que contiene el archivo.',
+            '   - NO extraigas datos: asigna `null` a todas las propiedades de `fields` y devuelve `items = []`.',
+            '3. Si el archivo sí corresponde al tipo documental objetivo, asigna `document_conformity.matches_expected_type = true` y procede con la extracción de los datos visibles.',
             'Extrae solo la información visible en este documento.',
             'No completes campos con inferencias desde otros documentos.',
             'Si el documento está girado o invertido (ej. 180°), orienta la lectura en el sentido correcto de izquierda a derecha sin transponer dígitos.',
         ];
 
         $fieldGroups = $this->contractFieldGroups($contract);
-        if ($this->hasIdentitySeparationFields($payload['fields_config'] ?? [])) {
-            $parts[] = implode("\n", [
-                '### Regla de identidad',
-                '',
-                'Si una linea combina tipo de documento, numero y nombre, separalos en sus campos correspondientes.',
-                '',
-                '**Ejemplos**',
-                '- `CC 94229637 NORENA AGUDELO` => TipoDocumentoPaciente, DocumentoPaciente, NombrePaciente.',
-                '- `Medico: 12345678-PEREZ ANA MARIA` => DocumentoMedico, Medico.',
-                '',
-                'Solo extrae datos visibles y requeridos; no infieras ni completes identidades faltantes.',
-            ]);
+        $identityDirective = $this->buildIdentityDirective($payload['fields_config'] ?? []);
+        if ($identityDirective !== null) {
+            $parts[] = $identityDirective;
         }
 
         if ($fieldGroups['fields'] !== []) {
-            $parts[] = 'Campos para `extract_fields`: ' . implode(', ', $fieldGroups['fields']) . '.';
+            $parts[] = 'Campos para `fields`: ' . implode(', ', $fieldGroups['fields']) . '.';
         }
 
         if ($fieldGroups['items'] !== []) {
-            $parts[] = 'Campos para `extract_items`: ' . implode(', ', $fieldGroups['items']) . '.';
+            $parts[] = 'Campos para `items`: ' . implode(', ', $fieldGroups['items']) . '.';
         }
 
         $visualChecks = $payload['visual_checks'] ?? [];
-        if ($this->contractRequiresFunction($contract, DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS)) {
+        if ($this->contractRequiresVisualChecks($contract)) {
             $parts[] = 'Checks visuales esperados:';
             foreach (is_array($visualChecks) ? $visualChecks : [] as $check) {
                 if (!is_array($check)) {
@@ -112,45 +106,30 @@ final class ExtractionPromptBuilder
                 $description = trim((string) ($check['description'] ?? ''));
                 $parts[] = $description !== '' ? "- {$name}: {$description}" : "- {$name}";
             }
-            if ($this->hasVisualCheck($visualChecks, 'VigenciaEntrega')) {
-                $parts[] = 'Para VigenciaEntrega, si el valor es visible retorna valor numerico, unidad="dias" y fecha_base con el nombre del campo fecha desde el cual se cuenta.';
-            }
         }
 
-        if ($fieldGroups['items'] !== [] && $this->requiresSegmentedDispensaItems($documentType, $payload)) {
-            $parts[] = 'Este documento contiene multiples lineas de producto.';
+        if ($this->requiresSegmentedItems($payload, $fieldGroups)) {
+            $parts[] = 'Este documento contiene multiples lineas de detalle.';
             $parts[] = 'Debes usar `items` con una entrada por cada fila visible.';
             $parts[] = 'No colapses cantidades, lotes, fechas de vencimiento ni codigos de articulo en `fields`.';
         }
 
-        $dispensedNames = $this->buildDispensedItemsContext($documentType, $payload, $fieldGroups);
-        if ($dispensedNames !== []) {
-            $parts[] = 'Candidatos de articulo para busqueda en prescripcion:';
-            foreach ($dispensedNames as $name) {
+        $itemCandidates = $this->buildItemCandidatesContext($payload, $fieldGroups);
+        if ($itemCandidates !== []) {
+            $parts[] = 'Candidatos de articulo para busqueda en documento:';
+            foreach ($itemCandidates as $name) {
                 $parts[] = "- {$name}";
             }
             $parts[] = 'En `items`, extrae solo articulos visibles que coincidan de forma exacta u homologa con esos candidatos.';
             $parts[] = 'Devuelve el nombre tal como aparece en el documento.';
         }
 
-        $parts[] = 'Invoca exactamente una vez cada función en el mismo turno: '
-            . implode(', ', $this->requiredFunctionNames($contract)) . '.';
+        $sections = $this->expectedSchemaSections($contract);
+        if ($sections !== []) {
+            $parts[] = 'Devuelve un JSON con las siguientes secciones: ' . implode(', ', $sections) . '.';
+        }
 
         return implode("\n", $parts);
-    }
-
-    /**
-     * @param array<string,mixed> $contract
-     * @return array<string,mixed>
-     */
-    public function buildToolConfig(array $contract): array
-    {
-        return [
-            'functionCallingConfig' => [
-                'mode' => 'ANY',
-                'allowedFunctionNames' => $this->requiredFunctionNames($contract),
-            ],
-        ];
     }
 
     public function promptContextHash(string $userPrompt, string $systemPrompt): string
@@ -165,54 +144,39 @@ final class ExtractionPromptBuilder
 
     /**
      * @param array<string,mixed> $contract
-     * @return array<int,array<string,mixed>>
-     */
-    public function contractFunctionDeclarations(array $contract): array
-    {
-        $declarations = $this->requiredArray(
-            $contract,
-            'function_declarations',
-            'extraction_contract sin function_declarations'
-        );
-
-        foreach ($declarations as $index => $declaration) {
-            if (!is_array($declaration) || trim((string) ($declaration['name'] ?? '')) === '') {
-                throw new RuntimeException("extraction_contract function_declaration inválida en posición {$index}");
-            }
-        }
-
-        return array_values($declarations);
-    }
-
-    /**
-     * @param array<string,mixed> $contract
      * @return array<int,string>
      */
-    public function requiredFunctionNames(array $contract): array
+    public function expectedSchemaSections(array $contract): array
     {
-        $names = $this->requiredArray(
-            $contract,
-            'required_function_names',
-            'extraction_contract sin required_function_names'
-        );
-
-        $normalized = [];
-        foreach ($names as $index => $name) {
-            if (!is_string($name) || trim($name) === '') {
-                throw new RuntimeException("extraction_contract required_function_name inválido en posición {$index}");
-            }
-            $normalized[] = trim($name);
+        $schema = $contract['response_schema'] ?? null;
+        if (is_array($schema) && is_array($schema['properties'] ?? null)) {
+            return array_keys($schema['properties']);
         }
 
-        return array_values(array_unique($normalized));
+        return [];
     }
 
     /**
      * @param array<string,mixed> $contract
      */
-    public function contractRequiresFunction(array $contract, string $functionName): bool
+    public function contractRequiresVisualChecks(array $contract): bool
     {
-        return in_array($functionName, $this->requiredFunctionNames($contract), true);
+        $schema = $contract['response_schema'] ?? null;
+        return is_array($schema) && isset($schema['properties']['visual_checks']);
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     */
+    public function contractRequiresItems(array $contract): bool
+    {
+        $fieldGroups = $contract['field_groups'] ?? [];
+        if (!empty($fieldGroups['items'])) {
+            return true;
+        }
+
+        $schema = $contract['response_schema'] ?? null;
+        return is_array($schema) && isset($schema['properties']['items']);
     }
 
     // ─── Helpers internos ────────────────────────────────────────────────────
@@ -304,16 +268,25 @@ final class ExtractionPromptBuilder
     {
         $descriptions = [];
 
-        $declarations = $contract['function_declarations'] ?? [];
-        foreach (is_array($declarations) ? $declarations : [] as $declaration) {
-            if (!is_array($declaration)) {
-                continue;
+        $responseSchema = $contract['response_schema'] ?? null;
+        if (is_array($responseSchema)) {
+            $fieldsProps = $responseSchema['properties']['fields']['properties'] ?? [];
+            if (is_array($fieldsProps)) {
+                foreach ($fieldsProps as $fieldSchema) {
+                    $desc = $fieldSchema['description'] ?? null;
+                    if (is_string($desc) && trim($desc) !== '') {
+                        $descriptions[] = trim($desc);
+                    }
+                }
             }
 
-            foreach ($this->contractFieldSchemas($declaration) as $schema) {
-                $description = $this->evidenceValueDescription($schema);
-                if ($description !== null) {
-                    $descriptions[] = $description;
+            $itemsProps = $responseSchema['properties']['items']['items']['properties'] ?? [];
+            if (is_array($itemsProps)) {
+                foreach ($itemsProps as $fieldSchema) {
+                    $desc = $fieldSchema['description'] ?? null;
+                    if (is_string($desc) && trim($desc) !== '') {
+                        $descriptions[] = trim($desc);
+                    }
                 }
             }
         }
@@ -327,30 +300,6 @@ final class ExtractionPromptBuilder
         }
 
         return array_values(array_unique(array_filter(array_map('trim', $descriptions))));
-    }
-
-    /** @return array<int|string,array<string,mixed>> */
-    private function contractFieldSchemas(array $declaration): array
-    {
-        $name = $declaration['name'] ?? '';
-        $schemas = match ($name) {
-            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS => $declaration['parameters']['properties']['fields']['properties'] ?? [],
-            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS  => $declaration['parameters']['properties']['items']['items']['properties'] ?? [],
-            default => [],
-        };
-
-        return is_array($schemas) ? $schemas : [];
-    }
-
-    private function evidenceValueDescription(array $schema): ?string
-    {
-        $description = $schema['properties']['valor']['description'] ?? $schema['description'] ?? null;
-        if (!is_string($description)) {
-            return null;
-        }
-
-        $description = trim($description);
-        return $description !== '' ? $description : null;
     }
 
     /**
@@ -367,68 +316,93 @@ final class ExtractionPromptBuilder
         ];
     }
 
-    private function hasIdentitySeparationFields(mixed $fieldsConfig): bool
+    private function buildIdentityDirective(mixed $fieldsConfig): ?string
     {
         if (!is_array($fieldsConfig)) {
-            return false;
+            return null;
         }
 
+        $identityFields = [];
         foreach ($fieldsConfig as $fieldConfig) {
             if (!is_array($fieldConfig)) {
                 continue;
             }
 
             $tipoDato = trim((string) ($fieldConfig['tipoDato'] ?? ''));
-            if ($tipoDato === '') {
+            $fieldName = trim((string) ($fieldConfig['campoNombre'] ?? ''));
+            if ($tipoDato === '' || $fieldName === '') {
                 continue;
             }
 
             try {
                 $valueType = AuditFieldValueType::fromInput($tipoDato);
                 if ($valueType->isIdentityPromptValue()) {
-                    return true;
+                    $identityFields[] = $fieldName;
                 }
             } catch (\InvalidArgumentException) {
-                // tipo desconocido — ignorar
+                // ignorar tipo desconocido
             }
         }
 
-        return false;
-    }
-
-    private function hasVisualCheck(mixed $visualChecks, string $expectedName): bool
-    {
-        if (!is_array($visualChecks)) {
-            return false;
+        $uniqueFields = array_values(array_unique($identityFields));
+        if ($uniqueFields === []) {
+            return null;
         }
 
-        foreach ($visualChecks as $check) {
-            if (is_array($check) && trim((string) ($check['check'] ?? '')) === $expectedName) {
-                return true;
-            }
-        }
+        $fieldsList = implode(', ', $uniqueFields);
 
-        return false;
-    }
-
-    private function requiresSegmentedDispensaItems(string $documentType, array $payload): bool
-    {
-        $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
-
-        return strtoupper(trim($documentType)) === 'DISPENSA' && count($sourceTruthItems) > 1;
+        return implode("\n", [
+            '### Regla de identidad',
+            '',
+            "Si una linea combina tipo de documento, numero de identificacion y/o nombre, separalos estrictamente en sus campos correspondientes ({$fieldsList}).",
+            '',
+            'Solo extrae datos visibles y requeridos; no infieras ni completes identidades faltantes.',
+        ]);
     }
 
     /**
+     * @param array<string,mixed> $payload
+     * @param array{fields:array<int,string>,items:array<int,string>} $fieldGroups
+     */
+    private function requiresSegmentedItems(array $payload, array $fieldGroups): bool
+    {
+        $sourceTruthItems = is_array($payload['fuente_verdad']['items'] ?? null) ? $payload['fuente_verdad']['items'] : [];
+
+        return $fieldGroups['items'] !== [] && count($sourceTruthItems) > 1;
+    }
+
+    /**
+     * @param array<string,mixed> $payload
      * @param array{fields:array<int,string>,items:array<int,string>} $fieldGroups
      * @return array<string>
      */
-    private function buildDispensedItemsContext(string $documentType, array $payload, array $fieldGroups): array
+    private function buildItemCandidatesContext(array $payload, array $fieldGroups): array
     {
-        if (!DocumentExtractionContractBuilder::isPrescriptionDocument($documentType)) {
+        if ($fieldGroups['items'] === []) {
             return [];
         }
 
-        if (!in_array('NombreArticulo', $fieldGroups['items'] ?? [], true)) {
+        $hasArticleField = false;
+        $fieldsConfig = is_array($payload['fields_config'] ?? null) ? $payload['fields_config'] : [];
+        foreach ($fieldsConfig as $fieldConfig) {
+            if (!is_array($fieldConfig)) {
+                continue;
+            }
+            $tipoDato = trim((string) ($fieldConfig['tipoDato'] ?? ''));
+            $campoNombre = trim((string) ($fieldConfig['campoNombre'] ?? ''));
+            if (in_array($campoNombre, $fieldGroups['items'], true)) {
+                try {
+                    if ($tipoDato !== '' && AuditFieldValueType::fromInput($tipoDato) === AuditFieldValueType::ARTICLE_NAME) {
+                        $hasArticleField = true;
+                        break;
+                    }
+                } catch (\InvalidArgumentException) {
+                    // ignorar
+                }
+            }
+        }
+
+        if (!$hasArticleField) {
             return [];
         }
 
@@ -445,16 +419,7 @@ final class ExtractionPromptBuilder
             }
         }
 
-        $unique = array_values(array_unique($names));
-
-        if ($unique !== []) {
-            Logger::info('Prescription selective extraction enabled', [
-                'document_type'         => $documentType,
-                'dispensed_items_count' => count($unique),
-            ]);
-        }
-
-        return $unique;
+        return array_values(array_unique($names));
     }
 
     /** @return array<int,string> */
@@ -472,15 +437,5 @@ final class ExtractionPromptBuilder
         }
 
         return array_values($strings);
-    }
-
-    private function requiredArray(array $payload, string $key, ?string $errorMessage = null): array
-    {
-        $value = $payload[$key] ?? null;
-        if (!is_array($value)) {
-            throw new RuntimeException($errorMessage ?? "extraction_contract sin {$key}");
-        }
-
-        return $value;
     }
 }

@@ -38,7 +38,7 @@ class AuditConfigModel extends Model
                cat.Descripcion AS DescripcionDefault,
                cat.Severidad   AS SeveridadDefault,
                ac.Orden, ac.DescripcionOverride, ac.SeveridadOverride,
-               ac.AplicaServicio
+               ac.AplicaServicio, ac.EsMultiItem
             FROM Discolnet.dbo.AudDispCampo ac WITH (NOLOCK)
             INNER JOIN Discolnet.dbo.AudDispCampoCatalogo cat WITH (NOLOCK)
                 ON cat.CampoNombre = ac.CampoNombre
@@ -91,6 +91,7 @@ class AuditConfigModel extends Model
                     'codigoCampo'    => $codigoCampo,
                     'description'    => $description,
                     'aplicaServicio' => $aplicaServicio,
+                    'esMultiItem'    => (bool) ($row['EsMultiItem'] ?? false),
                 ];
             } else {
                 // Visual checks retornados como objetos completos
@@ -272,10 +273,10 @@ class AuditConfigModel extends Model
         $insSql = "
             INSERT INTO Discolnet.dbo.AudDispCampo
                 (FacNitSec, NitMedDocId, CampoNombre, Activo, Orden,
-                 DescripcionOverride, SeveridadOverride, AplicaServicio)
+                 DescripcionOverride, SeveridadOverride, AplicaServicio, EsMultiItem)
             VALUES
                 (:nitSec, :docId, :campoNombre, 1, :orden,
-                 :description, :severity, :aplicaServicio)";
+                 :description, :severity, :aplicaServicio, :esMultiItem)";
         $insStmt = $db->prepare($insSql);
 
         try {
@@ -286,6 +287,7 @@ class AuditConfigModel extends Model
                 $description    = $field['description'] ?? null;
                 $severity       = $field['severity']    ?? null;
                 $aplicaServicio = self::normalizeAplicaServicio($field['aplicaServicio'] ?? null);
+                $esMultiItem    = (int) (bool) ($field['esMultiItem'] ?? false);
 
                 $insStmt->bindValue(':nitSec',         $nitSec, PDO::PARAM_STR);
                 $insStmt->bindValue(':docId',          $docId, PDO::PARAM_INT);
@@ -302,6 +304,7 @@ class AuditConfigModel extends Model
                 } else {
                     $insStmt->bindValue(':severity', (string) $severity, PDO::PARAM_STR);
                 }
+                $insStmt->bindValue(':esMultiItem', $esMultiItem, PDO::PARAM_INT);
                 $insStmt->execute();
             }
         } finally {

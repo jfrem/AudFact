@@ -66,8 +66,8 @@ final class DocumentPolicyEngineTest extends TestCase
     {
         $v1Fields = [];
         foreach ($fields as $key => $value) {
-            $raw = is_array($value) && array_key_exists('valor', $value) 
-                ? $value 
+            $raw = is_array($value) && array_key_exists('valor', $value)
+                ? $value
                 : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
             $v1Fields[$key] = ExtractedEvidence::fromArray($raw);
         }
@@ -76,8 +76,8 @@ final class DocumentPolicyEngineTest extends TestCase
         foreach ($items as $item) {
             $v1Item = [];
             foreach ($item as $key => $value) {
-                $raw = is_array($value) && array_key_exists('valor', $value) 
-                    ? $value 
+                $raw = is_array($value) && array_key_exists('valor', $value)
+                    ? $value
                     : ['valor' => $value, 'presente' => true, 'estadoExtraccion' => 'FOUND'];
                 $v1Item[$key] = ExtractedEvidence::fromArray($raw);
             }
@@ -1120,10 +1120,10 @@ final class DocumentPolicyEngineTest extends TestCase
         );
 
         $this->assertCount(2, $result['hallazgos']['items']);
-        
+
         $auth = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'NumeroAutorizacion'))[0];
         $this->assertSame('COINCIDE', $auth['resultado']);
-        
+
         $cant = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'CantidadEntregada'))[0];
         $this->assertSame('NO_CONCLUYENTE', $cant['resultado']);
     }
@@ -1327,5 +1327,41 @@ final class DocumentPolicyEngineTest extends TestCase
         $campos = array_column($result['hallazgos']['items'], 'campo');
         $nomIdx = array_search('NombreArticulo', $campos, true);
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+    }
+
+    public function testEvaluateShortCircuitsOnDocumentConformityMismatch(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $payload = self::payload('FORMULA MEDICA', ['NombrePaciente' => 'JUAN PEREZ']);
+        $payload['document_conformity'] = [
+            'matches_expected_type' => false,
+            'detected_type' => 'Cédula de ciudadanía',
+            'justification' => 'El archivo adjunto corresponde a un documento de identidad',
+        ];
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombrePaciente', 'S'), self::field('DocumentoPaciente', 'E')],
+            ['header' => ['NombrePaciente' => 'JUAN PEREZ', 'DocumentoPaciente' => '123456'], 'items' => []]
+        );
+        $state['doc_id'] = '3';
+        $state['attachment_id'] = '10';
+
+        $result = $engine->evaluate($state, $payload, 'FAC-001');
+
+        $this->assertSame('FORMULA MEDICA', $result['document_name']);
+        $this->assertCount(1, $result['hallazgos']['items']);
+        $finding = $result['hallazgos']['items'][0];
+        $this->assertSame('TipoDocumento', $finding['campo']);
+        $this->assertSame('TIP', $finding['codigoCampo']);
+        $this->assertSame('NO_CONCLUYENTE', $finding['resultado']);
+        $this->assertSame('alta', $finding['severidad']);
+        $this->assertStringContainsString('Cédula de ciudadanía', $finding['detalle']);
+        $this->assertStringContainsString('Requiere revisión manual', $finding['detalle']);
+
+        $this->assertFalse($result['document_decision']['approved']);
+        $this->assertCount(1, $result['document_decision']['payload']['hallazgos']);
+        $this->assertSame('TIP', $result['document_decision']['payload']['hallazgos'][0]['Codigo']);
     }
 }

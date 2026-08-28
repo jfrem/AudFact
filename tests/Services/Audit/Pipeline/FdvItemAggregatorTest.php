@@ -66,7 +66,7 @@ final class FdvItemAggregatorTest extends TestCase
             ['CodigoProducto' => 'P1', 'NombreArticulo' => 'ASPIRINA', 'CantidadEntregada' => '20'],
         ];
         $config = [
-            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text', 'esMultiItem' => true],
             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
         ];
         
@@ -84,7 +84,7 @@ final class FdvItemAggregatorTest extends TestCase
             ['CodigoProducto' => 'P1', 'Lote' => 'L2', 'CantidadEntregada' => '20'],
         ];
         $config = [
-            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text', 'esMultiItem' => true],
             ['campoNombre' => 'Lote', 'tipoCampo' => 'E', 'tipoDato' => 'trace_token'],
             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
         ];
@@ -101,7 +101,7 @@ final class FdvItemAggregatorTest extends TestCase
             ['CodigoProducto' => 'P1', 'Lote' => 'L1', 'CantidadEntregada' => '20'],
         ];
         $config = [
-            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text', 'esMultiItem' => true],
             ['campoNombre' => 'Lote', 'tipoCampo' => 'E', 'tipoDato' => 'trace_token'],
             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
         ];
@@ -120,7 +120,7 @@ final class FdvItemAggregatorTest extends TestCase
             ['CodigoProducto' => 'P1', 'CantidadEntregada' => '50'],
         ];
         $config = [
-            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text', 'esMultiItem' => true],
             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
         ];
         
@@ -137,7 +137,7 @@ final class FdvItemAggregatorTest extends TestCase
             ['CodigoProducto' => 'P1', 'NumeroAutorizacion' => 'A2', 'CantidadEntregada' => '20'],
         ];
         $config = [
-            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'text', 'esMultiItem' => true],
             ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'auth_number'],
             ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
         ];

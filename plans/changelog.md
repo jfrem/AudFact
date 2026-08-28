@@ -1,5 +1,35 @@
 # Changelog AudFact
 
+## [2026-08-27] - Fix: Persistencia E2E de `EsMultiItem`, Blindaje de Conformidad Documental y Refinamiento Semántico (QUAL-004 / QUAL-005 / QUAL-007)
+
+### Frontend / UI y Esquemas de Dominio
+- **Integración E2E de `esMultiItem` en Editor de Configuración (QUAL-004)**:
+  - Actualizado `AuditConfigFieldSchema` en `frontend/lib/schemas/domain.ts` con `esMultiItem` booleano opcional (default: `false`).
+  - Añadido `esMultiItem` al tipo `FieldToggle`, a la hidratación del estado `dataFields` y a la serialización del payload en `buildPayload()` dentro de `frontend/components/audit/audit-config-editor.tsx`.
+  - Tipado `esMultiItem?: boolean` en `AuditConfigPayload.fields` en `frontend/lib/api/audfact.ts`. Previene la degradación silenciosa de campos multi-ítem a false en el ciclo de edición y guardado del frontend.
+
+### Backend / Modelos, Controladores y Pipeline IA
+- **Persistencia e Integración de `EsMultiItem` (QUAL-004)**:
+  - Agregada la columna `EsMultiItem` en la selección `getConfig()` de `AuditConfigModel` y propagada como booleano en la forma de configuración por campo.
+  - Actualizado `AuditConfigController::sanitizeFields()` para admitir y propagar `esMultiItem` en las peticiones REST.
+  - Corregido `replaceFields()` en `AuditConfigModel` para incluir `EsMultiItem` en la sentencia `INSERT INTO Discolnet.dbo.AudDispCampo`, evitando la pérdida del flag de ítem durante el ciclo de actualización de configuración.
+  - Refactorizado `DocumentExtractionContractBuilder::isItemField()` para tomar `esMultiItem` como override canónico y simplificar la firma eliminando parámetros redundantes y branches obsoletas (`esItem`, `ubicacion`).
+- **Blindaje ante Señales de Disconformidad Tipológica IA (QUAL-007)**:
+  - Modificado el short-circuit de `DocumentPolicyEngine` cuando `document_conformity.matches_expected_type === false`: emite hallazgo `TIP` con resultado `NO_CONCLUYENTE` (en vez de `VALOR_DISTINTO`) y detalle explícito de derivación a revisión humana.
+  - Garantiza el principio de gobernanza "IA sólo extrae": ningún booleano del modelo provoca rechazo automático sin corroboración determinista ni revisión manual.
+  - Actualizada la suite `DocumentPolicyEngineTest` para verificar el contrato `NO_CONCLUYENTE`.
+- **Homologación Semántica Farmacéutica Conservadora (QUAL-005)**:
+  - Refinado el system prompt de `ArticleSemanticMatchJudge` para distinguir claramente entre omisión de marca comercial (compatible) y omisión de dosis/concentración (diferencia sin resolver / no homologable).
+  - Creada suite de regresión en `ArticleSemanticMatchJudgeTest` que comprueba rechazo conservador cuando `same_dimensions_or_dose = false` o `unresolved_differences = true`, y valida la inyección de directivas en el prompt.
+- **Endurecimiento Estricto de Contrato en `GeminiResponseParser` (QUAL-007 / SDD)**:
+  - Implementada validación obligatoria en `assertContractCompleteness`: cuando el esquema Structured Outputs exige `document_conformity`, la ausencia de la sección o del campo `matches_expected_type` lanza `RuntimeException` de forma determinista para reintento o escalamiento a DLQ.
+  - Erradicado el fallback silencioso/permisivo legacy en `validateAndRehydrate` (`matches_expected_type => true` eliminado; postura conservadora `false` ante contratos sin Structured Outputs).
+  - Actualizada la suite `GeminiResponseParserTest` (`testMissingDocumentConformityThrowsExceptionWhenRequired`, `testMissingMatchesExpectedTypeThrowsExceptionWhenRequired`) y alineados los fixtures de integración en `DocumentExtractionWorkerTest`.
+- **Sincronización Documental y Limpieza (QUAL-003 / QUAL-006)**:
+  - Creada y optimizada especificación SDD (`plans/document-conformity-strict-contract-sdd.md`) bajo la política `clean-rebuild-policy`.
+  - Actualizados los documentos de diseño SDD (`plans/domain-agnostic-extraction-engine-sdd.md`) y la skill `audfact-audit-gemini` para utilizar la convención canónica `esMultiItem` y clarificar `TRACE_TOKEN` vs `CODE`.
+  - Normalización de terminaciones de línea (EOL) y suite PHPUnit al 100% verde (548 tests, 1837 assertions).
+
 ## [2026-08-26] - Fix: Desambiguación de Contratos de Dispensación y Eliminación de Duplicados en FDV
 
 ### Acceso a Datos / Modelos SQL Server

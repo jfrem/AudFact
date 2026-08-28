@@ -128,13 +128,15 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame(['1'], $payload['attachment_match_candidates']);
         $this->assertArrayNotHasKey('extraction_schema', $payload);
         $this->assertIsArray($payload['extraction_contract']);
-        $this->assertContractFunctionNames($payload['extraction_contract'], [
-            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        $this->assertArrayHasKey('response_schema', $payload['extraction_contract']);
+        $this->assertContractSchemaSections($payload['extraction_contract'], [
+            'document_conformity',
+            'fields',
+            'items',
+            'visual_checks',
+            'document_quality',
+            'quality_notes',
         ]);
-        $this->assertCount(4, $payload['extraction_contract']['function_declarations']);
         $this->assertSame(
             ['DocumentoPaciente'],
             $payload['extraction_contract']['field_groups']['fields']
@@ -143,39 +145,31 @@ final class DocumentAuditOrchestratorTest extends TestCase
             ['NombreArticulo', 'CantidadEntregada'],
             $payload['extraction_contract']['field_groups']['items']
         );
-        // Schema v1: DocumentoPaciente es un objeto de evidencia, no un escalar
-        $docPacSchema = $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']['properties']['DocumentoPaciente'];
-        $this->assertSame('object', $docPacSchema['type']);
-        $this->assertArrayHasKey('valor', $docPacSchema['properties']);
-        $this->assertSame('string', $docPacSchema['properties']['valor']['type']);
-        $this->assertStringContainsString('Solo numero del documento', $docPacSchema['properties']['valor']['description']);
-        $this->assertArrayHasKey('estadoExtraccion', $docPacSchema['properties']);
-        $this->assertSame(
-            ['FOUND', 'FOUND_IN_LIST', 'NOT_FOUND', 'ILLEGIBLE'],
-            $docPacSchema['properties']['estadoExtraccion']['enum']
-        );
-        // Schema v1: CantidadEntregada es un objeto de evidencia con valor type=number
-        $cantSchema = $payload['extraction_contract']['function_declarations'][1]['parameters']['properties']['items']['items']['properties']['CantidadEntregada'];
-        $this->assertSame('object', $cantSchema['type']);
-        $this->assertSame('number', $cantSchema['properties']['valor']['type']);
-        $this->assertArrayNotHasKey('description', $cantSchema['properties']['valor']);
-        $this->assertArrayNotHasKey('description', $cantSchema['properties']['presente']);
-        $this->assertArrayNotHasKey('description', $cantSchema['properties']['estadoExtraccion']);
+        // Schema plano: DocumentoPaciente es tipo string nullable
+        $docPacSchema = $payload['extraction_contract']['response_schema']['properties']['fields']['properties']['DocumentoPaciente'];
+        $this->assertSame('string', $docPacSchema['type']);
+        $this->assertTrue($docPacSchema['nullable']);
+        $this->assertStringContainsString('Solo numero del documento', $docPacSchema['description']);
+        // Schema plano: CantidadEntregada es tipo number nullable
+        $cantSchema = $payload['extraction_contract']['response_schema']['properties']['items']['items']['properties']['CantidadEntregada'];
+        $this->assertSame('number', $cantSchema['type']);
+        $this->assertTrue($cantSchema['nullable']);
+        $this->assertArrayNotHasKey('description', $cantSchema);
         $this->assertSame(
             ['legible', 'parcialmente_legible', 'ilegible'],
-            $payload['extraction_contract']['function_declarations'][3]['parameters']['properties']['document_quality']['enum']
+            $payload['extraction_contract']['response_schema']['properties']['document_quality']['enum']
         );
         $this->assertSame(
             ['check', 'presente', 'detalle'],
-            $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['required']
+            $payload['extraction_contract']['response_schema']['properties']['visual_checks']['items']['required']
         );
-        $visualProperties = $payload['extraction_contract']['function_declarations'][2]['parameters']['properties']['visual_checks']['items']['properties'];
+        $visualProperties = $payload['extraction_contract']['response_schema']['properties']['visual_checks']['items']['properties'];
         $this->assertArrayNotHasKey('valor', $visualProperties);
         $this->assertArrayNotHasKey('unidad', $visualProperties);
         $this->assertArrayNotHasKey('fecha_base', $visualProperties);
         $this->assertArrayNotHasKey(
             'additionalProperties',
-            $payload['extraction_contract']['function_declarations'][0]['parameters']['properties']['fields']
+            $payload['extraction_contract']['response_schema']['properties']['fields']
         );
         $this->assertIsArray($payload['visual_checks']);
         $this->assertSame('FIR', $payload['visual_checks'][0]['codigoCampo']);
@@ -188,6 +182,10 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('87723098', $store->patches[0]['dis_id'] ?? null);
         $this->assertSame('T38250701547', $store->patches[0]['numero_factura'] ?? null);
         $this->assertArrayNotHasKey('dis_det_nro', $store->patches[0] ?? []);
+        $this->assertSame(
+            ['FirmaActaEntrega'],
+            array_column($payload['extraction_contract']['response_schema']['properties']['visual_checks']['items']['properties']['check']['enum'], null)
+        );
 
         // T07: contract_hash propagado; FDV no se convierte en contexto de Gemini
         $this->assertArrayHasKey('contract_hash', $payload);
@@ -198,17 +196,21 @@ final class DocumentAuditOrchestratorTest extends TestCase
 
         $authorizationPayload = $publisher->published[1]->payload;
         $this->assertSame('AUTORIZACION', $authorizationPayload['tipo_documento']);
-        $this->assertContractFunctionNames($authorizationPayload['extraction_contract'], [
-            DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        $this->assertContractSchemaSections($authorizationPayload['extraction_contract'], [
+            'document_conformity',
+            'fields',
+            'document_quality',
+            'quality_notes',
         ]);
 
         $formulaPayload = $publisher->published[2]->payload;
         $this->assertSame('FORMULA MEDICA', $formulaPayload['tipo_documento']);
-        $this->assertContractFunctionNames($formulaPayload['extraction_contract'], [
-            DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-            DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-            DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
+        $this->assertContractSchemaSections($formulaPayload['extraction_contract'], [
+            'document_conformity',
+            'items',
+            'visual_checks',
+            'document_quality',
+            'quality_notes',
         ]);
         $this->assertSame([], $formulaPayload['extraction_contract']['field_groups']['fields']);
         $this->assertSame(['NombreArticulo'], $formulaPayload['extraction_contract']['field_groups']['items']);
@@ -633,10 +635,11 @@ final class DocumentAuditOrchestratorTest extends TestCase
      * @param array<string,mixed> $contract
      * @param array<int,string> $expected
      */
-    private function assertContractFunctionNames(array $contract, array $expected): void
+    private function assertContractSchemaSections(array $contract, array $expected): void
     {
-        $this->assertSame($expected, $contract['required_function_names']);
-        $this->assertSame($expected, array_column($contract['function_declarations'], 'name'));
+        $this->assertArrayHasKey('response_schema', $contract);
+        $properties = array_keys($contract['response_schema']['properties'] ?? []);
+        $this->assertSame($expected, $properties);
     }
 }
 

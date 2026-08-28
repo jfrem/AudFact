@@ -106,12 +106,12 @@ final class ArticleSemanticMatchJudgeTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->expects($this->once())
             ->method('get')
-            ->with($this->stringContains('audfact:semantic:match:v3:article:'))
+            ->with($this->stringContains('audfact:semantic:match:v4:article:'))
             ->willReturn(null);
         $redis->expects($this->once())
             ->method('set')
             ->with(
-                $this->stringContains('audfact:semantic:match:v3:article:'),
+                $this->stringContains('audfact:semantic:match:v4:article:'),
                 $this->isType('string'),
                 $this->equalTo(2592000)
             )
@@ -161,6 +161,95 @@ final class ArticleSemanticMatchJudgeTest extends TestCase
         $this->assertSame('DISPENSA', $result['gemini_metrics']['document_type'] ?? null);
         $this->assertTrue($result['gemini_metrics']['cache_hit'] ?? false);
         $this->assertSame('', $gateway->lastTaskType);
+    }
+
+    /**
+     * QUAL-005 regresión: cuando Gemini responde is_match=true pero
+     * same_dimensions_or_dose=false (omisión de dosis), PHP debe rechazar.
+     */
+    public function testDoseOmissionCausesConservativeRejection(): void
+    {
+        $gateway = new RecordingSemanticGeminiGateway([
+            'is_match' => true,
+            'same_clinical_use' => true,
+            'same_dimensions_or_dose' => false,
+            'same_material_or_technology' => true,
+            'presentation_compatible' => true,
+            'unresolved_differences' => true,
+            'reasoning' => 'El documento omite la dosis de 500mg presente en el producto esperado.',
+        ]);
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(false);
+
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
+        $result = $judge->evaluate(
+            'ACETAMINOFEN 500MG TABLETA',
+            'ACETAMINOFEN TABLETA',
+            ['document_type' => 'FORMULA MEDICA']
+        );
+
+        $this->assertFalse($result['is_match']);
+        $this->assertStringStartsWith('Evidencia semántica insuficiente:', $result['reasoning']);
+    }
+
+    /**
+     * QUAL-005 regresión: unresolved_differences=true con is_match=true
+     * también debe causar rechazo conservador.
+     */
+    public function testUnresolvedDifferencesOverridesGeminiMatch(): void
+    {
+        $gateway = new RecordingSemanticGeminiGateway([
+            'is_match' => true,
+            'same_clinical_use' => true,
+            'same_dimensions_or_dose' => true,
+            'same_material_or_technology' => true,
+            'presentation_compatible' => true,
+            'unresolved_differences' => true,
+            'reasoning' => 'Posible diferencia en concentración.',
+        ]);
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(false);
+
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
+        $result = $judge->evaluate(
+            'IBUPROFENO 400MG',
+            'IBUPROFENO CAPSULA',
+            ['document_type' => 'FORMULA MEDICA']
+        );
+
+        $this->assertFalse($result['is_match']);
+        $this->assertStringStartsWith('Evidencia semántica insuficiente:', $result['reasoning']);
+    }
+
+    /**
+     * QUAL-005 regresión: el prompt del contrato de artículos debe incluir
+     * la regla de omisión de dosis/concentración como diferencia sin resolver.
+     */
+    public function testArticleContractPromptIncludesDoseOmissionRule(): void
+    {
+        $gateway = new RecordingSemanticGeminiGateway([
+            'is_match' => true,
+            'same_clinical_use' => true,
+            'same_dimensions_or_dose' => true,
+            'same_material_or_technology' => true,
+            'presentation_compatible' => true,
+            'unresolved_differences' => false,
+            'reasoning' => 'Mismos productos.',
+        ]);
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(false);
+
+        $judge = new ArticleSemanticMatchJudge($gateway, $redis);
+        $judge->evaluate('Producto A', 'Producto B', ['document_type' => 'FORMULA MEDICA']);
+
+        $this->assertStringContainsString(
+            'OMISIÓN DE DOSIS O CONCENTRACIÓN = DIFERENCIA SIN RESOLVER',
+            $gateway->lastSystemInstruction
+        );
+        $this->assertStringContainsString(
+            'OMISIÓN COMERCIAL',
+            $gateway->lastSystemInstruction
+        );
     }
 }
 
@@ -246,6 +335,7 @@ final class MalformedSemanticGeminiGateway extends GeminiGateway
 final class RecordingSemanticGeminiGateway extends GeminiGateway
 {
     public string $lastTaskType = '';
+    public string $lastSystemInstruction = '';
     /** @var array<int,array<string,mixed>> */
     public array $lastFiles = [];
 
@@ -276,6 +366,7 @@ final class RecordingSemanticGeminiGateway extends GeminiGateway
     ): array {
         $this->lastTaskType = $taskType;
         $this->lastFiles = $files;
+        $this->lastSystemInstruction = $systemInstruction;
 
         return [
             'candidates' => [[

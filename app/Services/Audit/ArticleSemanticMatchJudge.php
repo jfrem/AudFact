@@ -11,7 +11,7 @@ use Core\RedisClient;
 final class ArticleSemanticMatchJudge
 {
     private const CACHE_TTL = 2592000; // 30 dias
-    private const CACHE_NAMESPACE = 'audfact:semantic:match:v3:article';
+    private const CACHE_NAMESPACE = 'audfact:semantic:match:v4:article';
     private const CACHE_NAMESPACE_PERSON = 'audfact:semantic:match:v1:person';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
@@ -66,7 +66,7 @@ final class ArticleSemanticMatchJudge
             ? self::CACHE_NAMESPACE_PERSON
             : self::CACHE_NAMESPACE;
         $elements = [trim(strtolower($expected)), trim(strtolower($actual))];
-        sort($elements);
+        sort($elements, SORT_STRING);
         $payload = implode('|', $elements);
         $hash = hash('sha256', $payload);
         return "{$namespace}:{$hash}";
@@ -262,9 +262,20 @@ final class ArticleSemanticMatchJudge
      */
     private function buildArticleContract(string $expected, string $actual): array
     {
-        $prompt = "Producto Esperado (Registro de Dispensación): \"{$expected}\"\nProducto Entregado (Documento): \"{$actual}\"";
+        $prompt = "Producto Esperado (Registro de Dispensación): \"{$expected}\"\nProducto del Documento (extraído de fórmula médica, acta u otro soporte): \"{$actual}\"";
 
-        $systemInstruction = "Eres un auditor experto de salud en Colombia. Determina si el Producto Esperado y el Producto Entregado son comercial o clínicamente intercambiables. Responde is_match=true SOLO si no hay diferencias materiales, de presentación, dimensión/dosis o uso clínico que impidan homologación determinística. Ante duda, diferencias no resueltas o evidencia insuficiente, is_match=false.";
+        $systemInstruction = implode("\n", [
+            'Eres un auditor experto de salud en Colombia.',
+            '',
+            'CONTEXTO CRÍTICO: En el sistema de salud colombiano los médicos prescriben usando denominaciones genéricas o comunes (ej: "tirillas", "agujas desechables", "lancetas"). Las farmacias dispensan y facturan con la referencia comercial completa (marca, modelo, calibre, presentación). Tu tarea es determinar si ambas descripciones corresponden al MISMO TIPO de producto.',
+            '',
+            'REGLAS DE EVALUACIÓN:',
+            '- OMISIÓN COMERCIAL ≠ CONTRADICCIÓN: Si el documento usa un nombre genérico que no especifica marca, modelo o presentación comercial, eso NO es una diferencia material. Los médicos no prescriben marcas de insumos ni dispositivos.',
+            '- OMISIÓN DE DOSIS O CONCENTRACIÓN = DIFERENCIA SIN RESOLVER: Si uno de los dos nombres especifica dosis, concentración o principio activo y el otro lo omite, marca unresolved_differences=true y same_dimensions_or_dose=false. La dosis es clínicamente relevante y su ausencia requiere verificación.',
+            '- Evalúa is_match=true cuando el nombre genérico del documento corresponde a la CATEGORÍA del producto esperado (ej: "tirillas" ↔ tiras de glucómetro, "agujas desechables" ↔ agujas para pen/insulina, "lancetas" ↔ lancetas desechables) Y no hay contradicción en dosis/concentración.',
+            '- Evalúa is_match=false SOLO cuando hay una CONTRADICCIÓN EXPLÍCITA entre los productos (ej: el documento dice "insulina" pero el producto esperado es "metformina", o dice "jarabe" pero el esperado es "tableta").',
+            '- Para same_material_or_technology y presentation_compatible: responde true si el documento NO CONTRADICE al producto esperado. La ausencia de marca o presentación comercial es compatible.',
+        ]);
 
         $schema = [
             'name' => 'report_semantic_match',
@@ -274,27 +285,27 @@ final class ArticleSemanticMatchJudge
                 'properties' => [
                     'is_match' => [
                         'type' => 'boolean',
-                        'description' => 'True solo si todos los criterios críticos soportan equivalencia determinística.'
+                        'description' => 'True si ambas descripciones corresponden al mismo tipo de producto sin contradicción en dosis/concentración. La ausencia de marca comercial NO impide el match, pero la ausencia de dosis cuando el otro la especifica sí lo impide.'
                     ],
                     'same_clinical_use' => [
                         'type' => 'boolean',
-                        'description' => 'True si el uso clínico/comercial auditable es equivalente.'
+                        'description' => 'True si ambos productos tienen el mismo uso clínico (ej: monitoreo de glucosa, inyección subcutánea).'
                     ],
                     'same_dimensions_or_dose' => [
                         'type' => 'boolean',
-                        'description' => 'True si medida, dosis o concentración relevantes son equivalentes.'
+                        'description' => 'True si las dimensiones/dosis coinciden o ninguno las especifica. False si uno especifica dosis/concentración y el otro la omite, o si se contradicen.'
                     ],
                     'same_material_or_technology' => [
                         'type' => 'boolean',
-                        'description' => 'True si material, tecnología o característica crítica son equivalentes.'
+                        'description' => 'True si material o tecnología no se CONTRADICEN. Si el documento usa un nombre genérico sin especificar tecnología, responder true.'
                     ],
                     'presentation_compatible' => [
                         'type' => 'boolean',
-                        'description' => 'True si presentación, empaque o cantidad comercial no contradicen la equivalencia.'
+                        'description' => 'True si la presentación no se CONTRADICE. Si el documento omite marca o cantidad comercial, responder true.'
                     ],
                     'unresolved_differences' => [
                         'type' => 'boolean',
-                        'description' => 'True si existe alguna diferencia relevante sin resolver.'
+                        'description' => 'True si existe una contradicción explícita O si uno especifica dosis/concentración y el otro la omite. False solo cuando no hay contradicciones y la información de dosis es consistente o ninguno la especifica.'
                     ],
                     'reasoning' => [
                         'type' => 'string',

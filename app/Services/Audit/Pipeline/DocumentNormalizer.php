@@ -102,14 +102,15 @@ final class DocumentNormalizer extends AuditEventConsumer
                 jobId: $event->jobId,
                 documentId: $event->documentId,
                 payload: [
-                    'tipo_documento' => (string) ($normalized['tipo_documento'] ?? ''),
-                    'fields_normalized' => $normalized['fields_normalized'] ?? [],
-                    'items_normalized' => $normalized['items_normalized'] ?? [],
+                    'tipo_documento'          => (string) ($normalized['tipo_documento'] ?? ''),
+                    'document_conformity'     => $normalized['document_conformity'] ?? [],
+                    'fields_normalized'       => $normalized['fields_normalized'] ?? [],
+                    'items_normalized'        => $normalized['items_normalized'] ?? [],
                     'visual_checks_resultado' => $normalized['visual_checks_resultado'] ?? [],
-                    'document_quality' => $normalized['document_quality'] ?? null,
-                    'quality_notes' => $normalized['quality_notes'] ?? [],
-                    'normalization_log' => $normalized['normalization_log'] ?? [],
-                    'extraction_warnings' => $normalized['extraction_warnings'] ?? [],
+                    'document_quality'        => $normalized['document_quality'] ?? null,
+                    'quality_notes'           => $normalized['quality_notes'] ?? [],
+                    'normalization_log'       => $normalized['normalization_log'] ?? [],
+                    'extraction_warnings'     => $normalized['extraction_warnings'] ?? [],
                 ],
                 parentEventId: $event->eventId,
             ));
@@ -146,6 +147,14 @@ final class DocumentNormalizer extends AuditEventConsumer
         $extraction = $this->resolveExtractionResult($payload);
         $fieldValueTypes = $this->buildFieldValueTypes($payload['fields_config'] ?? null);
 
+        $documentConformity = is_array($extraction['document_conformity'] ?? null)
+            ? $extraction['document_conformity']
+            : [
+                'matches_expected_type' => true,
+                'detected_type'         => $rawType,
+                'justification'         => null,
+            ];
+
         $normalizationLog = [];
         $fieldsNormalized = $this->normalizeFields($extraction['fields'] ?? [], $normalizationLog, $fieldValueTypes);
         $itemsNormalized = $this->normalizeItems($extraction['items'] ?? [], $normalizationLog, $fieldValueTypes);
@@ -159,14 +168,15 @@ final class DocumentNormalizer extends AuditEventConsumer
         $extractionWarnings = is_array($extraction['extraction_warnings'] ?? null) ? $extraction['extraction_warnings'] : [];
 
         return [
-            'tipo_documento' => $rawType,
-            'fields_normalized' => $fieldsNormalized,
-            'items_normalized' => $itemsNormalized,
+            'tipo_documento'          => $rawType,
+            'document_conformity'     => $documentConformity,
+            'fields_normalized'       => $fieldsNormalized,
+            'items_normalized'        => $itemsNormalized,
             'visual_checks_resultado' => $visualChecksResultado,
-            'document_quality' => $documentQuality,
-            'quality_notes' => $qualityNotes,
-            'normalization_log' => $normalizationLog,
-            'extraction_warnings' => $extractionWarnings,
+            'document_quality'        => $documentQuality,
+            'quality_notes'           => $qualityNotes,
+            'normalization_log'       => $normalizationLog,
+            'extraction_warnings'     => $extractionWarnings,
         ];
     }
 
@@ -416,8 +426,6 @@ final class DocumentNormalizer extends AuditEventConsumer
             ]));
         }
     }
-
-
 
     /**
      * @param array<int,array<string,mixed>> $normalizationLog
@@ -678,7 +686,6 @@ final class DocumentNormalizer extends AuditEventConsumer
         $this->appendLog($normalizationLog, 'visual_date_base_invalid', ['check' => $check]);
         return null;
     }
-
 
     /**
      * @return array{0:mixed,1:array<int,string>}
