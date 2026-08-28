@@ -102,8 +102,8 @@ final class TextNormalization
 
         $leftTokens  = self::tokenize($left);
         $rightTokens = self::tokenize($right);
-        sort($leftTokens);
-        sort($rightTokens);
+        sort($leftTokens, SORT_STRING);
+        sort($rightTokens, SORT_STRING);
 
         return $leftTokens === $rightTokens;
     }
@@ -277,7 +277,7 @@ final class TextNormalization
 
         // Inserta un espacio antes de cada mayúscula que no esté al inicio de la cadena
         $humanized = (string) preg_replace('/(?<!^)(?=[A-Z])/', ' ', $fieldName);
-        
+
         // Asegura que la primera letra siempre sea mayúscula (para casos de camelCase inicial)
         return ucfirst(trim($humanized));
     }

@@ -64,6 +64,7 @@ type FieldToggle = {
   severityOverride?: string;
   codigoCampo?: string;
   aplicaServicio?: string;
+  esMultiItem?: boolean;
 };
 
 type DocState = {
@@ -181,6 +182,7 @@ export function AuditConfigEditor({
             ),
             codigoCampo: f.codigoCampo ?? undefined,
             aplicaServicio: normalizeAplicaServicio(f.aplicaServicio),
+            esMultiItem: f.esMultiItem ?? false,
           };
         });
 
@@ -357,6 +359,7 @@ export function AuditConfigEditor({
           severity: f.severityOverride ?? null,
           orden: f.orden,
           aplicaServicio: normalizeAplicaServicio(f.aplicaServicio),
+          esMultiItem: f.esMultiItem ?? false,
         });
       }
     }

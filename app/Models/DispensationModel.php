@@ -68,8 +68,6 @@ class DispensationModel extends Model
         'MipresNoEntrega',
     ];
 
-
-
     /**
      * Transforma filas planas de la BD en el contrato canónico {header, items}.
      * Método estático puro — reutilizable por el Controlador HTTP y por AuditDataService.
@@ -175,7 +173,6 @@ class DispensationModel extends Model
         );
     }
 
-
     /**
      * Ejecuta la consulta FDV con un predicado de identidad fijo.
      *
@@ -266,7 +263,7 @@ class DispensationModel extends Model
             LEFT JOIN Factura f WITH (NOLOCK) ON f.DisId = v.facsec AND f.DisDetId = v.DisDetId AND f.FacEst = 'A'
             LEFT JOIN FacturaKardex k WITH (NOLOCK) ON k.FacSec = f.FacSec
             LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK)
-                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = v.Codigo
+                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = v.codigo
             LEFT JOIN DatosMipresDetalle mip WITH (NOLOCK) ON mip.DatMipId = v.IdPrincipal
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";

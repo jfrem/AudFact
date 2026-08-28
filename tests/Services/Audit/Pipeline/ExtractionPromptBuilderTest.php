@@ -27,34 +27,30 @@ final class ExtractionPromptBuilderTest extends TestCase
         $this->assertStringContainsString('Transcribe cada carácter tal como es visible, sin corregir ni interpretar.', $systemPrompt);
         $this->assertStringContainsString('Si el documento está rotado o invertido, orienta mentalmente la lectura en sentido natural antes de transcribir.', $systemPrompt);
         $this->assertStringContainsString('Para fechas, transcribe el año exacto tal como está impreso.', $systemPrompt);
+        $this->assertStringContainsString('Responde únicamente con JSON estructurado válido según el schema indicado.', $systemPrompt);
         $this->assertStringNotContainsString('↔', $systemPrompt, 'El prompt NO debe contener tablas de confusión de caracteres');
     }
 
     public function testBuildSystemPromptPreservesCustomPromptWithDeduplication(): void
     {
         $contract = [
-            'function_declarations' => [
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                    'parameters' => [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'fields' => [
+                        'type' => 'object',
                         'properties' => [
-                            'fields' => [
-                                'properties' => [
-                                    'DocumentoPaciente' => [
-                                        'properties' => [
-                                            'valor' => [
-                                                'description' => 'Solo numero del paciente; transcribe cada digito individualmente sin tipo ni nombre.',
-                                            ],
-                                        ],
-                                    ],
-                                ],
+                            'DocumentoPaciente' => [
+                                'type' => 'string',
+                                'description' => 'Solo numero del paciente; transcribe cada digito individualmente sin tipo ni nombre.',
                             ],
                         ],
                     ],
                 ],
             ],
-            'required_function_names' => [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
+            'field_groups' => [
+                'fields' => ['DocumentoPaciente'],
+                'items' => [],
             ],
         ];
 
@@ -71,47 +67,36 @@ final class ExtractionPromptBuilderTest extends TestCase
     public function testBuildUserPromptIncludesAllFieldGroupsAndVisualChecks(): void
     {
         $contract = [
-            'function_declarations' => [
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                    'parameters' => [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'fields' => [
+                        'type' => 'object',
                         'properties' => [
-                            'fields' => [
-                                'properties' => [
-                                    'DocumentoPaciente' => [],
-                                    'FechaFormula' => [],
-                                ],
+                            'DocumentoPaciente' => ['type' => 'string'],
+                            'FechaFormula' => ['type' => 'string'],
+                        ],
+                    ],
+                    'items' => [
+                        'type' => 'array',
+                        'items' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'Articulo' => ['type' => 'string'],
+                                'Cantidad' => ['type' => 'number'],
                             ],
                         ],
                     ],
-                ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                    'parameters' => [
-                        'properties' => [
-                            'items' => [
-                                'items' => [
-                                    'properties' => [
-                                        'Articulo' => [],
-                                        'Cantidad' => [],
-                                    ],
-                                ],
-                            ],
-                        ],
+                    'visual_checks' => [
+                        'type' => 'array',
+                    ],
+                    'document_quality' => [
+                        'type' => 'string',
+                    ],
+                    'quality_notes' => [
+                        'type' => 'array',
                     ],
                 ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                ],
-                [
-                    'name' => DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
-                ],
-            ],
-            'required_function_names' => [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_EXTRACT_ITEMS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
-                DocumentExtractionContractBuilder::FN_ASSESS_DOCUMENT_QUALITY,
             ],
             'field_groups' => [
                 'fields' => ['DocumentoPaciente', 'FechaFormula'],
@@ -121,53 +106,120 @@ final class ExtractionPromptBuilderTest extends TestCase
 
         $payload = [
             'fields_config' => [
-                ['campo' => 'TipoDocumentoPaciente', 'tipoDato' => 'identity_doc_type'],
-                ['campo' => 'DocumentoPaciente', 'tipoDato' => 'identity_doc_number'],
-                ['campo' => 'NombrePaciente', 'tipoDato' => 'person_name'],
+                ['campoNombre' => 'TipoDocumentoPaciente', 'tipoDato' => 'identity_doc_type'],
+                ['campoNombre' => 'DocumentoPaciente', 'tipoDato' => 'identity_doc_number'],
+                ['campoNombre' => 'NombrePaciente', 'tipoDato' => 'person_name'],
             ],
             'visual_checks' => [
                 ['check' => 'FirmaPrescriptor', 'description' => 'Firma del medico visible'],
-                ['check' => 'VigenciaEntrega', 'description' => 'Dias de vigencia'],
+                ['check' => 'VigenciaEntrega', 'description' => 'Dias de vigencia autorizada desde la fecha base'],
             ],
         ];
 
         $userPrompt = $this->builder->buildUserPrompt('FORMULA MEDICA', $payload, $contract);
 
         $this->assertStringContainsString('Documento objetivo: FORMULA MEDICA.', $userPrompt);
+        $this->assertStringContainsString('### Regla de tipología y conformidad documental', $userPrompt);
+        $this->assertStringContainsString('matches_expected_type', $userPrompt);
         $this->assertStringContainsString('### Regla de identidad', $userPrompt);
-        $this->assertStringContainsString('Campos para `extract_fields`: DocumentoPaciente, FechaFormula.', $userPrompt);
-        $this->assertStringContainsString('Campos para `extract_items`: Articulo, Cantidad.', $userPrompt);
+        $this->assertStringContainsString('TipoDocumentoPaciente, DocumentoPaciente, NombrePaciente', $userPrompt);
+        $this->assertStringNotContainsString('NORENA AGUDELO', $userPrompt, 'No debe contener ejemplos de personas hardcodeados');
+        $this->assertStringContainsString('Campos para `fields`: DocumentoPaciente, FechaFormula.', $userPrompt);
+        $this->assertStringContainsString('Campos para `items`: Articulo, Cantidad.', $userPrompt);
         $this->assertStringContainsString('Checks visuales esperados:', $userPrompt);
         $this->assertStringContainsString('- FirmaPrescriptor: Firma del medico visible', $userPrompt);
-        $this->assertStringContainsString('Para VigenciaEntrega', $userPrompt);
-        $this->assertStringContainsString('Invoca exactamente una vez cada función en el mismo turno: extract_fields, extract_items, detect_visual_checks, assess_document_quality.', $userPrompt);
+        $this->assertStringContainsString('- VigenciaEntrega: Dias de vigencia autorizada desde la fecha base', $userPrompt);
+        $this->assertStringContainsString('Devuelve un JSON con las siguientes secciones: fields, items, visual_checks, document_quality, quality_notes.', $userPrompt);
     }
 
-    public function testBuildToolConfigAndPromptContextHash(): void
+    public function testBuildUserPromptSegmentedItemsActivatedByCardinality(): void
     {
         $contract = [
-            'function_declarations' => [
-                ['name' => DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS],
-                ['name' => DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS],
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'fields' => ['type' => 'object'],
+                    'items' => ['type' => 'array'],
+                ],
             ],
-            'required_function_names' => [
-                DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+            'field_groups' => [
+                'fields' => ['NumeroFactura'],
+                'items' => ['NombreArticulo', 'CantidadEntregada'],
             ],
         ];
 
-        $toolConfig = $this->builder->buildToolConfig($contract);
-
-        $this->assertSame([
-            'functionCallingConfig' => [
-                'mode' => 'ANY',
-                'allowedFunctionNames' => [
-                    DocumentExtractionContractBuilder::FN_EXTRACT_FIELDS,
-                    DocumentExtractionContractBuilder::FN_DETECT_VISUAL_CHECKS,
+        $payload = [
+            'fuente_verdad' => [
+                'items' => [
+                    ['NombreArticulo' => 'Medicamento A'],
+                    ['NombreArticulo' => 'Medicamento B'],
                 ],
             ],
-        ], $toolConfig);
+        ];
 
+        // Se usa cualquier tipo documental (ej. "FACTURA_PROVEEDOR", no necesariamente "DISPENSA")
+        $userPrompt = $this->builder->buildUserPrompt('FACTURA_PROVEEDOR', $payload, $contract);
+
+        $this->assertStringContainsString('Este documento contiene multiples lineas de detalle.', $userPrompt);
+        $this->assertStringContainsString('Debes usar `items` con una entrada por cada fila visible.', $userPrompt);
+    }
+
+    public function testBuildUserPromptItemCandidatesActivatedByArticleValueType(): void
+    {
+        $contract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'items' => ['type' => 'array'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => [],
+                'items' => ['NombreArticulo', 'Cantidad'],
+            ],
+        ];
+
+        $payload = [
+            'fields_config' => [
+                ['campoNombre' => 'NombreArticulo', 'tipoDato' => 'article_name'],
+                ['campoNombre' => 'Cantidad', 'tipoDato' => 'quantity'],
+            ],
+            'fuente_verdad' => [
+                'items' => [
+                    ['NombreArticulo' => 'ACETAMINOFEN 500MG'],
+                    ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                ],
+            ],
+        ];
+
+        // Se activa para cualquier tipo de documento que tenga article_name en items
+        $userPrompt = $this->builder->buildUserPrompt('DOCUMENTO_GENERICO', $payload, $contract);
+
+        $this->assertStringContainsString('Candidatos de articulo para busqueda en documento:', $userPrompt);
+        $this->assertStringContainsString('- ACETAMINOFEN 500MG', $userPrompt);
+        $this->assertStringContainsString('- IBUPROFENO 400MG', $userPrompt);
+    }
+
+    public function testBuildUserPromptOmitsIdentityRuleWhenNoIdentityFieldsConfigured(): void
+    {
+        $contract = [
+            'response_schema' => ['type' => 'object'],
+            'field_groups' => ['fields' => ['NumeroFactura'], 'items' => []],
+        ];
+
+        $payload = [
+            'fields_config' => [
+                ['campoNombre' => 'NumeroFactura', 'tipoDato' => 'text'],
+            ],
+        ];
+
+        $userPrompt = $this->builder->buildUserPrompt('RECIBO_PAGO', $payload, $contract);
+
+        $this->assertStringNotContainsString('### Regla de identidad', $userPrompt);
+    }
+
+    public function testPromptContextHash(): void
+    {
         $hash1 = $this->builder->promptContextHash('user prompt', 'system prompt');
         $hash2 = $this->builder->promptContextHash('user prompt', 'system prompt');
         $hash3 = $this->builder->promptContextHash('different user prompt', 'system prompt');
@@ -175,5 +227,42 @@ final class ExtractionPromptBuilderTest extends TestCase
         $this->assertSame($hash1, $hash2);
         $this->assertNotSame($hash1, $hash3);
         $this->assertSame(64, strlen($hash1));
+    }
+
+    public function testContractRequirementsDetection(): void
+    {
+        $contract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'fields' => ['type' => 'object'],
+                    'items' => ['type' => 'array'],
+                    'visual_checks' => ['type' => 'array'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => ['NombrePaciente'],
+                'items' => ['NombreArticulo'],
+            ],
+        ];
+
+        $this->assertTrue($this->builder->contractRequiresItems($contract));
+        $this->assertTrue($this->builder->contractRequiresVisualChecks($contract));
+
+        $emptyContract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'document_quality' => ['type' => 'string'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => [],
+                'items' => [],
+            ],
+        ];
+
+        $this->assertFalse($this->builder->contractRequiresItems($emptyContract));
+        $this->assertFalse($this->builder->contractRequiresVisualChecks($emptyContract));
     }
 }

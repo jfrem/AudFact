@@ -122,11 +122,10 @@ final class DocumentAuditOrchestratorServiceTypeFilterTest extends TestCase
         $this->assertCount(1, $formulaDoc['fields']);
         $this->assertSame('NombrePaciente', $formulaDoc['fields'][0]['campoNombre']);
 
-        // Gemini extraction contract declarations must NOT include detect_visual_checks
+        // Gemini extraction contract schema must NOT include visual_checks
         $contract = $formulaDoc['extraction_contract'];
-        $this->assertArrayHasKey('function_declarations', $contract);
-        $fnNames = array_column($contract['function_declarations'], 'name');
-        $this->assertNotContains('detect_visual_checks', $fnNames);
+        $this->assertArrayHasKey('response_schema', $contract);
+        $this->assertArrayNotHasKey('visual_checks', $contract['response_schema']['properties'] ?? []);
     }
 
     public function testBuildConfiguredDocumentsPreservesPosOnlyCheckOnPosDelivery(): void
@@ -175,21 +174,12 @@ final class DocumentAuditOrchestratorServiceTypeFilterTest extends TestCase
         $this->assertSame('FirmaPrescriptor', $formulaDoc['visual_checks'][0]['check']);
         $this->assertSame('POS', $formulaDoc['visual_checks'][0]['aplicaServicio']);
 
-        // Gemini extraction contract declarations MUST include detect_visual_checks with visual_check_FirmaPrescriptor
+        // Gemini extraction contract schema MUST include visual_checks with FirmaPrescriptor
         $contract = $formulaDoc['extraction_contract'];
-        $this->assertArrayHasKey('function_declarations', $contract);
-        $fnNames = array_column($contract['function_declarations'], 'name');
-        $this->assertContains('detect_visual_checks', $fnNames);
+        $this->assertArrayHasKey('response_schema', $contract);
+        $this->assertArrayHasKey('visual_checks', $contract['response_schema']['properties'] ?? []);
 
-        $visualFn = null;
-        foreach ($contract['function_declarations'] as $fn) {
-            if (($fn['name'] ?? '') === 'detect_visual_checks') {
-                $visualFn = $fn;
-                break;
-            }
-        }
-        $this->assertNotNull($visualFn);
-        $checkEnum = $visualFn['parameters']['properties']['visual_checks']['items']['properties']['check']['enum'] ?? [];
+        $checkEnum = $contract['response_schema']['properties']['visual_checks']['items']['properties']['check']['enum'] ?? [];
         $this->assertContains('FirmaPrescriptor', $checkEnum);
     }
 }

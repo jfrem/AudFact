@@ -94,13 +94,64 @@ class GeminiGateway
         array $generationOverrides = [],
         ?array $debugContext = null
     ): array {
-        $ctx = array_merge($debugContext ?? [], ['task_type' => $taskType]);
+        $ctx = array_merge($debugContext ?? [], [
+            'task_type' => $taskType,
+            'source'    => 'GeminiGateway::sendWithFunctionCalling',
+            'mode'      => 'function_calling',
+        ]);
 
         $this->cbCheck();
 
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
         $payload = $this->buildPayload($prompt, $files, $systemInstruction, $tools, $toolConfig, $taskType, $generationOverrides);
 
+        return $this->executePost($url, $payload, $ctx, 'FC');
+    }
+
+    /**
+     * Envía un request de Structured Output a la API de Gemini (generationConfig.responseSchema).
+     *
+     * @param  string $prompt  Texto del prompt del usuario.
+     * @param  array<int, array<string, mixed>> $files  Archivos inline (PDFs rasterizados, etc).
+     * @param  string $systemInstruction  Instrucción de sistema.
+     * @param  array<string, mixed> $responseSchema  Schema JSON para Structured Output.
+     * @param  string $taskType Perfil explícito de tarea Gemini.
+     * @param  array<string, mixed> $generationOverrides  Sobrecargas de generación.
+     * @param  array<string, mixed>|null $debugContext  Metadata de trazabilidad.
+     * @return array<string, mixed>
+     */
+    public function sendWithStructuredOutput(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $responseSchema,
+        string $taskType,
+        array $generationOverrides = [],
+        ?array $debugContext = null
+    ): array {
+        $ctx = array_merge($debugContext ?? [], [
+            'task_type' => $taskType,
+            'source'    => 'GeminiGateway::sendWithStructuredOutput',
+            'mode'      => 'structured_output',
+        ]);
+
+        $this->cbCheck();
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
+        $payload = $this->buildStructuredOutputPayload($prompt, $files, $systemInstruction, $responseSchema, $taskType, $generationOverrides);
+
+        return $this->executePost($url, $payload, $ctx, 'Structured Output');
+    }
+
+    /**
+     * Ejecuta una petición POST a la API de Gemini con manejo de reintentos y Circuit Breaker.
+     *
+     * @param  array<string, mixed> $payload
+     * @param  array<string, mixed> $ctx
+     * @return array<string, mixed>
+     */
+    private function executePost(string $url, array $payload, array $ctx, string $modeLabel): array
+    {
         $lastException = null;
 
         for ($attempt = 0; $attempt < self::MAX_API_RETRIES; $attempt++) {
@@ -122,7 +173,7 @@ class GeminiGateway
 
                 if (json_last_error() !== JSON_ERROR_NONE) {
                     throw new \RuntimeException(
-                        'Respuesta no JSON de Gemini FC: ' . json_last_error_msg(),
+                        "Respuesta no JSON de Gemini {$modeLabel}: " . json_last_error_msg(),
                         0
                     );
                 }
@@ -137,7 +188,7 @@ class GeminiGateway
                 $httpCode = (int) $e->getCode();
 
                 if ($this->shouldRetry($httpCode, $attempt)) {
-                    Logger::warning('FC API error retryable', [
+                    Logger::warning("{$modeLabel} API error retryable", [
                         'httpCode' => $httpCode,
                         'attempt' => $attempt + 1,
                         'delayMs' => $this->retryDelayMs($attempt),
@@ -162,13 +213,13 @@ class GeminiGateway
                 if ($httpCode !== 400) {
                     $this->cbRecordFailure($httpCode);
                 }
-                throw new \RuntimeException('Error HTTP Gemini FC: ' . $errorMessage, $httpCode, $e);
+                throw new \RuntimeException("Error HTTP Gemini {$modeLabel}: " . $errorMessage, $httpCode, $e);
             }
         }
 
-        $this->saveDebugLog($payload, ['error' => 'Error desconocido en Gemini FC'], $ctx, 'unknown_error');
+        $this->saveDebugLog($payload, ['error' => "Error desconocido en Gemini {$modeLabel}"], $ctx, 'unknown_error');
         $this->cbRecordFailure(0);
-        throw $lastException ?? new \RuntimeException('Error desconocido en Gemini FC');
+        throw $lastException ?? new \RuntimeException("Error desconocido en Gemini {$modeLabel}");
     }
 
     // ─── Circuit Breaker (inlined) ──────────────────────────────
@@ -338,6 +389,55 @@ class GeminiGateway
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>> $files
+     * @param  array<string, mixed> $responseSchema
+     * @param  string $taskType
+     * @param  array<string, mixed> $generationOverrides
+     * @return array<string, mixed>
+     */
+    private function buildStructuredOutputPayload(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $responseSchema,
+        string $taskType,
+        array $generationOverrides = []
+    ): array {
+        $this->assertTaskProfile($taskType, $files);
+        $generationConfig = $this->config->toGenerationConfig(
+            $generationOverrides,
+            $taskType === self::TASK_EXTRACTION
+        );
+        $generationConfig['responseMimeType'] = 'application/json';
+        $generationConfig['responseSchema'] = self::normalizeSchemaProperties($responseSchema);
+
+        $parts = [['text' => $prompt]];
+
+        foreach ($files as $index => $file) {
+            $label = (string) ($file['label'] ?? '');
+            if ($label !== '') {
+                $parts[] = ['text' => 'DOCUMENTO ' . ($index + 1) . ': ' . $label];
+            }
+            $parts[] = ['inlineData' => [
+                'mimeType' => $file['mime'],
+                'data' => $file['data'],
+            ]];
+        }
+
+        return [
+            'systemInstruction' => [
+                'parts' => [['text' => $systemInstruction]],
+            ],
+            'contents' => [[
+                'role' => 'user',
+                'parts' => $parts,
+            ]],
+            'generationConfig' => $generationConfig,
+            'safetySettings' => $this->getSafetySettings(),
+        ];
     }
 
     /**

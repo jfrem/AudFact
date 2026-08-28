@@ -1,12 +1,12 @@
 ---
 name: audfact-audit-gemini
-description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-worker.php, contratos de eventos (audit_created, batch_created, batch_requested, document_registered, document_downloaded, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, audit_failed, batch_completed, batch_completed_with_errors, dead_letter), el contrato Gemini `extraction_contract` con parallel function calling o el manejo de DLQ.
+description: Trabajar en el pipeline de auditoría IA event-driven de AudFact sobre Redis Streams. Usar cuando se modifique app/Services/Audit/Pipeline/*, bin/audit-worker.php, contratos de eventos (audit_created, batch_created, batch_requested, document_registered, document_downloaded, document_extracted, document_rejected, document_normalized, rules_evaluated, audit_completed, audit_failed, batch_completed, batch_completed_with_errors, dead_letter), el contrato Gemini `extraction_contract` con Structured Outputs (responseSchema) o el manejo de DLQ.
 ---
 
 # AudFact Audit Gemini (Event-Driven)
 
 ## Objetivo
-Mantener confiable el pipeline event-driven de auditoría documental con Redis Streams, extracción Gemini por function calling, normalización y policy en PHP puro, y persistencia final en SQL Server.
+Mantener confiable el pipeline event-driven de auditoría documental con Redis Streams, extracción Gemini por Structured Outputs nativos (`responseSchema`), normalización y policy en PHP puro, y persistencia final en SQL Server.
 
 ## Archivos clave
 
@@ -28,12 +28,12 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatchResult.php` | DTO readonly que impide IDs lógicos o físicos duplicados en matches |
 | `app/Services/Audit/Pipeline/DocumentIntegrityValidator.php` | Validación preventiva de integridad documental de adjuntos vacíos, corruptos o con MIME inconsistente antes de Gemini |
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, reconcilia todos los adjuntos físicos 1:1, publica matches y emite rechazos `DOCUMENT_MAPPING` controlados |
-| `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye function declarations Gemini dinámicas: `extract_fields`, `extract_items` y `detect_visual_checks` solo cuando aplican; `assess_document_quality` siempre |
+| `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye `response_schema` Gemini plano y unificado: `document_conformity` (tipología con short-circuit), `fields`, `items` y `visual_checks` solo cuando aplican; `document_quality` y `quality_notes` siempre |
 | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Orquestador delgado que consume `document_downloaded`, delega estado a Redis, genera prompts y parsea respuestas. Produce rechazos `document_content`. |
 | `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php` | Pre-rasterizador determinista de PDFs a imágenes JPEG de alta resolución (200 DPI) usando `pdftoppm` (`poppler-utils`). Sin fallbacks silenciosos. |
 | `app/Services/Audit/Pipeline/ExtractionCacheManager.php` | Administra estado transitorio y cache de extracción Gemini en Redis mediante `HSET`/`HGET`. |
-| `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php` | Construye payloads modulares JSON Schema y prompts de contexto para inyección a Gemini. |
-| `app/Services/Audit/Pipeline/GeminiResponseParser.php` | Implementa política de recuperación en 3 fases (Primary, Retry JSON-repair, Fallback Regex) para respuestas LLM truncadas. |
+| `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php` | Construye prompts del sistema y usuario para Structured Outputs de Gemini. |
+| `app/Services/Audit/Pipeline/GeminiResponseParser.php` | Parsea JSON text generado por Gemini Structured Output y rehidrata campos planos a la shape canónica `{valor, presente, estadoExtraccion}`. |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
 | `app/Services/Audit/Pipeline/ExtractedEvidence.php` | DTO tipado para representar de forma determinista la evidencia extraída y normalizada |
 | `app/Services/Audit/AuditBatchOrchestrator.php` | Servicio que encapsula la orquestación asíncrona de lotes (reserva de slots Redis y rollback transaccional) |
@@ -126,7 +126,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV, `audit-config`, catálogo y todos los adjuntos físicos. Ejecuta una sola reconciliación global mediante `DocumentAttachmentMatcher`: nombre exacto normalizado, ID corroborado y alias único. Cada `attachment_id` se usa como máximo una vez. Los matches publican `document_registered` con trazabilidad lógica/física; missing, ambiguous, no content y reused se registran como rechazados y publican `document_rejected` con `rejection_category=DOCUMENT_MAPPING`, sin descarga ni Gemini. La regla `Autorizacion=R` reutiliza ese mismo resultado y solo transforma ausencia real en el hallazgo sintético `AUT` existente.
 3. `AttachmentDownloadWorker` consume `document_registered`, descarga el adjunto y lo almacena temporalmente en Redis con key lógica `audit:blob:*` (`RedisClient` aplica `REDIS_PREFIX`). Para BLOB exige `bytes === DATALENGTH`. Publica `document_downloaded`; fuente ausente/vacía, transferencia parcial, SQL o Drive son fallos técnicos y se propagan, nunca publican `document_rejected`.
-4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Es el único productor autorizado de rechazos de contenido: todo rechazo incluye `rejection_class=document_content`, origen exacto y razón de `DocumentRejectionReason`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con function calling dinámico. Si Gemini lanza HTTP 400 por error de contenido confirmado, emite el rechazo tipado. Si es exitoso, publica `document_extracted`.
+4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Es el único productor autorizado de rechazos de contenido: todo rechazo incluye `rejection_class=document_content`, origen exacto y razón de `DocumentRejectionReason`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con Structured Outputs nativos (`responseSchema` y `responseMimeType: application/json`). Si Gemini lanza HTTP 400 por error de decodificación o archivo corrupto confirmado, emite el rechazo tipado. Si es exitoso, parsea, rehidrata los campos planos a la forma canónica y publica `document_extracted`.
 5. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
 6. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue`. Valida dos contratos cerrados sin fallback: contenido solo desde `DocumentExtractionWorker` y mapping solo desde `DocumentAuditOrchestrator`. Mapping genera hallazgo `MAP`, severidad alta, `RECHAZADO` e `integrity`, preservando `logical_doc_id` y candidatos. Cualquier evento legacy o `DOWNLOAD_ERROR` falla técnicamente. Espera `docs_done + docs_rejected >= docs_total`, guarda el outcome y lo encola en `AuditPersistenceQueue`.
 7. `AuditPersistenceQueue` publica un único turno activo por job en `audit.persistence:{queue}`; jobs diferentes pueden usar las tres réplicas en paralelo.
@@ -141,10 +141,10 @@ flowchart TD
     B -->|PDF sin %%EOF o Truncado| C[Rechazo Preventivo: CORRUPTED_DOCUMENT]
     B -->|PDF sin Páginas| D[Rechazo Preventivo: EMPTY_PDF_NO_PAGES]
     B -->|PDF con Password| E[Rechazo Preventivo: ENCRYPTED_DOCUMENT]
-    B -->|Estructura Válida| F[Llamada a Google Gemini API]
+    B -->|Estructura Válida| F[Llamada a Google Gemini API - Structured Output]
 
     F -->|200 OK| G[document_extracted]
-    F -->|400 INVALID_ARGUMENT / Decode Error| H[Nivel 2: DocumentExtractionWorker]
+    F -->|400 Decode Error / Corrupt File| H[Nivel 2: DocumentExtractionWorker]
     H -->|Clasificación Determinista| I[Rechazo: GEMINI_DECODE_FAILURE]
 
     C --> J[Emitir document_rejected]
@@ -158,7 +158,7 @@ flowchart TD
 
 ## Reglas de implementación (estrictas)
 
-1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`.
+1. **IA sólo extrae**: Gemini nunca toma decisiones de negocio finales; la comparación y aplicación de **severidades dinámicas** (CRITICO, ALTA, MEDIA, BAJA, INFO) viven en `DocumentPolicyEngine` según el `audit-config`. Las señales de disconformidad tipológica (`document_conformity.matches_expected_type === false`) emiten hallazgo `TIP` con resultado `NO_CONCLUYENTE` y derivación a revisión humana, evitando rechazos definitivos automáticos basados en un único booleano de la IA.
 2. **TipoCampo gobierna la comparación y TipoDato gobierna el valor** — fuente de verdad: columnas `TipoCampo` y `TipoDato` en `Discolnet.dbo.AudDispCampo`.
    - `TipoCampo=E` → `EXACT` (igualdad normalizada)
    - `TipoCampo=S` → `SEMANTIC` (umbral 0.82; Gemini solo si `TipoDato=article_name`)
@@ -172,7 +172,7 @@ flowchart TD
 6. **[AUDIT-016] No data-loss en multi-item/lista divergente (CAT-1)**: Si `resolveDocumentValue()` encuentra múltiples items con valores distintos en un campo no sumable, o una evidencia escalar con varios candidatos `valores`, emite `NO_CONCLUYENTE` con `detalle: {ambiguous: true, valores: [...]}`. Un único candidato en `valores` se usa como escalar. Ya no se descarta silenciosamente el campo ni se convierte en `NO_ENCONTRADO` cuando existe evidencia.
 7. **[AUDIT-016] Hallazgo canónico v1**: `buildDataFinding()` inyecta `valueType`; para `CODE` y `TRACE_TOKEN` agrega `valoresFuenteVerdad` y/o `valoresDocumento` cuando existen tokens/set evaluables. Las cantidades `TipoCampo=B` reportan `valorFuenteVerdad` y `valorDocumento` como sumatoria agregada de items. Si un hallazgo configurable falla y existe `codigoCampo`, el `detalle` se enriquece con el prefijo textual `-CODIGO- detalle`.
 8. **Items solo cuando existen filas segmentadas**: no derivar `items` desde `fields` y viceversa. Si el extractor detecta segmentación parcial o incompleta, no debe fallar con excepción; en su lugar, emite el warning `ITEM_SEGMENTATION_INCOMPLETE` en el payload. Luego, `DocumentPolicyEngine` intercepta este warning y fuerza `NO_CONCLUYENTE` para todas las evaluaciones a nivel línea (`TipoCampo=B`) a fin de evitar validaciones sobre sumatorias parciales peligrosas.
-9. **Prompt compacto de extracción**: Gemini no recibe valores esperados de FDV (`Campos de cabecera esperados`, `Campos de línea esperados`, diagnósticos, fechas, identidad, etc.). Solo recibe contexto estructural: documento objetivo, campos solicitados, separación identidad, ubicación `fields`/`items`, checks visuales y segmentación de filas cuando aplican. El schema puede usar descripciones configuradas del `audit-config` como `valor.description` y conserva las descripciones PHP solo como fallback; el system prompt personalizado se deduplica contra esas descripciones antes de calcular `prompt_context_hash`. En el schema Gemini, `valores` se declara solo para `CODE` y `TRACE_TOKEN`; `DocumentNormalizer` reconstruye `valores` desde `valor` para escalares. Las pistas de artículo para documentos prescriptivos se permiten solo cuando `NombreArticulo` está en `items`.
+9. **Prompt compacto de extracción**: Gemini no recibe valores esperados de FDV (`Campos de cabecera esperados`, `Campos de línea esperados`, diagnósticos, fechas, identidad, etc.). Solo recibe contexto estructural: documento objetivo, campos solicitados, separación identidad, ubicación `fields`/`items`, checks visuales y segmentación de filas cuando aplican. El schema puede usar descripciones configuradas del `audit-config` como `valor.description` y conserva las descripciones PHP solo como fallback; el system prompt personalizado se deduplica contra esas descripciones antes de calcular `prompt_context_hash`. En el schema Gemini, `valores` se declara como array de strings solo para `TRACE_TOKEN`; los campos `CODE` son escalares y se tokenizan en PHP; `DocumentNormalizer` reconstruye `valores` desde `valor` para escalares. Las pistas de artículo para documentos prescriptivos se permiten solo cuando `NombreArticulo` está en `items`.
 10. **Comparación determinista**: umbrales `persona 0.85`, `artículo 0.82`, `texto 0.90`; numéricos/IDs/fechas con igualdad normalizada.
 11. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.
 12. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
@@ -181,7 +181,7 @@ flowchart TD
 15. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
 16. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
 17. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
-18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada y decisión PHP conservadora ante evidencia incompleta.
+18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada. Política de homologación matizada: omisión de marca/modelo/presentación comercial es compatible (los médicos no prescriben marcas), pero omisión de dosis/concentración cuando el otro producto la especifica es `unresolved_differences=true` y decisión PHP conservadora (`INCONCLUSIVE`).
 19. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
 20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` se persiste como `AudDispEst.FacNro`, que es la PK operativa de resultados; `AuditResultPersistenceModel` hace el upsert serializable y `AuditStatusModel` consulta detalle y timings por `FacNro`. Ver `plans/audit-identity-contract.md`.
 21. **Persistencia justa y atómica**: máximo un evento SQL activo por job; nunca separar el resumen, los hallazgos del adjunto y la trazabilidad en transacciones distintas.

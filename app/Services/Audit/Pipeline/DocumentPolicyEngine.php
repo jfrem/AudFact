@@ -38,6 +38,52 @@ class DocumentPolicyEngine
         $this->resetSemanticMetrics();
 
         $documentType = $this->resolveDocumentType($documentState, $normalizedPayload);
+
+        // Short-circuit: Si el documento no corresponde a la tipología esperada, cortar inmediatamente la auditoría.
+        $conformity = $normalizedPayload['document_conformity'] ?? null;
+        if (is_array($conformity) && ($conformity['matches_expected_type'] ?? true) === false) {
+            $detected = !empty($conformity['detected_type']) ? (string) $conformity['detected_type'] : 'Desconocido';
+            $justification = !empty($conformity['justification']) ? (string) $conformity['justification'] : 'El documento físico no corresponde a la tipología requerida.';
+
+            $finding = [
+                'campo'             => 'TipoDocumento',
+                'valorFuenteVerdad' => $documentType,
+                'valorDocumento'    => $detected,
+                'resultado'         => AuditFindingResult::INCONCLUSIVE->value,
+                'severidad'         => AuditSeverity::HIGH->value,
+                'documento'         => $documentType,
+                'detalle'           => sprintf(
+                    "El documento soporte no corresponde a un(a) '%s'. Se identificó: '%s'. Justificación: %s (Requiere revisión manual: la IA no pudo confirmar la tipología documental).",
+                    $documentType,
+                    $detected,
+                    $justification
+                ),
+                'tipo_auditoria'    => 'exact',
+                'valueType'         => AuditFieldValueType::TEXT->value,
+                'codigoCampo'       => 'TIP',
+            ];
+
+            $findings = [$finding];
+            $metrics = AuditFindingRules::summarizeMetrics($findings);
+
+            return [
+                'document_name'     => $documentType,
+                'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
+                'document_decision' => $this->buildDocumentDecision(
+                    $documentType,
+                    $findings,
+                    $facNro,
+                    $documentState['doc_id'] ?? null,
+                    $documentState['attachment_id'] ?? null
+                ),
+                'gemini_semantic_metrics' => [
+                    'semantic'            => [],
+                    'semantic_calls'      => 0,
+                    'semantic_cache_hits' => 0,
+                ],
+            ];
+        }
+
         $context = $this->buildEvaluationContext($documentState, $documentType);
         $sourceTruth = $this->resolveSourceTruth($documentState);
 
@@ -72,8 +118,8 @@ class DocumentPolicyEngine
             'document_name'     => $documentType,
             'hallazgos'         => ['items' => $findings, 'metrics' => $metrics],
             'document_decision' => $this->buildDocumentDecision(
-                $documentType, 
-                $findings, 
+                $documentType,
+                $findings,
                 $facNro,
                 $documentState['doc_id'] ?? null,
                 $documentState['attachment_id'] ?? null
@@ -139,8 +185,6 @@ class DocumentPolicyEngine
     {
         return DocumentQuality::fromString((string) ($normalizedPayload['document_quality'] ?? ''))->value;
     }
-
-
 
     private function indexFieldsByCanonicalName(array $fieldsConfig): array
     {
@@ -592,7 +636,7 @@ class DocumentPolicyEngine
             fn(string $token): string => TextNormalization::normalizeText($token),
             $tokens
         )));
-        sort($normalized);
+        sort($normalized, SORT_STRING);
 
         return $normalized;
     }
@@ -913,8 +957,8 @@ class DocumentPolicyEngine
      * @return array{documentName:string,approved:bool,payload?:array<string,mixed>}
      */
     private function buildDocumentDecision(
-        string $documentType, 
-        array $findings, 
+        string $documentType,
+        array $findings,
         string $facNro,
         mixed $docId = null,
         mixed $attachmentId = null

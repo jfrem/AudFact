@@ -245,6 +245,7 @@ requiere DDL ni migración de esquema.
 | `DescripcionOverride` | varchar/null | Descripción custom que sobreescribe la de catálogo para visual checks |
 | `SeveridadOverride` | varchar/null | Severidad custom (`alta`, `media`, `baja`) que sobreescribe la de catálogo |
 | `AplicaServicio` | varchar | Modalidad de servicio donde aplica el campo (`TODOS`, `POS`, `MIPRES`, etc., default: `TODOS`) |
+| `EsMultiItem` | bit/int | Indica si el campo tiene alcance multi-ítem y debe agruparse en `items[]` en lugar de `fields` (default: 0) |
 
 **Usada por**: `AuditConfigModel` (`getConfig()`, `saveConfig()` con reemplazo `DELETE + INSERT`).
 
