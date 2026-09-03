@@ -228,6 +228,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.yml` — imagen PHP-FPM/workers publicada en GHCR          |
 | `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.yml` — imagen Nginx publicada en GHCR                    |
 | `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.yml` — imagen frontend Next.js publicada en GHCR         |
+| `AUDFACT_DOCS_IMAGE`         | `ghcr.io/jfrem/audfact-docs`     | ⚠️ Producción | `docker-compose.yml` — imagen Docusaurus publicada en GHCR               |
 | `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.yml` — tag inmutable por SHA o rollback manual           |
 | `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.yml` — puerto LAN dedicado para el frontend AudFact      |
 
@@ -342,6 +343,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | ------------------------------------ | --------------------------- | ---------- | ----------------------------------------------------------------------------------- |
 | `AUDIT_BATCH_TIMEOUT`                | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers   |
 | `AUDIT_BATCH_MAX_LIMIT`              | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                             |
+| `AUDIT_BATCH_CRON_LIMIT`             | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
 | `AUDIT_INTERNAL_API_BASE`            | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                     |
 | `AUDIT_CACHE_TTL`                    | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría           |
 | `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |

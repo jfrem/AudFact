@@ -164,6 +164,26 @@
 - **Límite OOM en Redis**: Implementado `MAXLEN ~ 100000` en todos los flujos de publicación (`AuditEventPublisher`) para evitar que los streams crezcan indefinidamente. Variable configurable vía `AUDIT_STREAM_MAXLEN`.
 - **Desacoplamiento Estricto (Clean Architecture)**: Refactorización total de la definición de *Consumer Groups*. Los nombres (ej. `orchestrator`, `downloaders`, etc.) fueron extraídos de 7 *workers* distintos (magic strings) y del Controlador, y centralizados como constantes `GROUP_*` en `AuditEventPublisher`, protegiendo al sistema ante futuros cambios y cumpliendo rigurosamente la directriz de arquitectura limpia de la política `/clean-rebuild-policy`.
 - **Limpieza de Drifts (Jobs Running)**: Se eliminó código temporal y de un solo uso. La corrección del drift de métricas acumulativas en `telemetry:async_metrics` se documentó como un comando SSH de ejecución única en el entorno de producción (`HSET jobs_queued 0 jobs_running 0`).
+
+## [2026-08-11] - Zero-Drift .env Automation y Clean Rebuild
+
+### Infraestructura CI/CD
+- **Sincronización de Entorno Producción (Zero-Drift)**:
+  - `deploy-production.yml`: Eliminados más de 200 líneas de mapeo manual de variables de entorno (bloques de validación y `write_env_var` repetitivos).
+  - El workflow de despliegue ahora itera dinámicamente sobre `.env.example` usando `jq` como fuente única de verdad, inyectando valores desde los contextos `secrets` y `vars` de GitHub Environment. Si no existe, aplica el default de `.env.example`.
+  - Agregadas comprobaciones de invariantes de producción post-generación (ej. validación obligatoria de credenciales y `APP_ENV=production`).
+  - Agregado soporte automatizado en la verificación de `ci.yml` para analizar estáticamente el código PHP, garantizando que todo llamado a variable de entorno esté declarado en `.env.example` previniendo drift de contratos.
+  - Creado `scripts/install-hooks.sh` para interceptar modificaciones en `.env.example` en etapa `pre-push` y obligar la actualización remota de variables.
+
+### Bugfixes
+- **Pipeline CI/CD**: Añadido `AUDIT_BATCH_CRON_LIMIT` al workflow de despliegue para asegurar su inyección en el `.env` de producción (ahora manejado dinámicamente).
+- **Sincronización Env**: Añadido `export MSYS_NO_PATHCONV=1` en `sync-github-production-env.sh` para prevenir la corrupción de rutas absolutas Unix (`/var/...`) al interactuar con binarios nativos de Windows (`gh.exe`) desde Git Bash.
+### Infraestructura CI/CD
+- **Limpieza Radical (Clean Rebuild)**: Eliminados triggers fantasma en `.github/workflows/` y removidas ramas remotas abandonadas.
+- **Docusaurus**: Eliminados componentes boilerplate de Docusaurus (`blog/`, `intro.mdx`, `.svg`s sin uso, y scripts muertos en `package.json`).
+- **Actualización Node.js**: Migrado el build de frontend y docs a Node 22 (LTS) en Dockerfiles y workflows.
+- **Despliegue y Nginx**: Reestructurado `.dockerignore`, añadido health check específico para Docusaurus y agregado `AUDFACT_DOCS_IMAGE` a `.env` de despliegue.
+- **Sincronización Nginx**: Replicados los bloques de telemetría (SSE `flow-stream`) y enrutamiento MCP desde `nginx.conf` a `nginx-ha.conf.template` asegurando paridad producción-desarrollo.
 ## [2026-08-08] - Auditoría de Resiliencia del Pipeline y Corrección Documental
 
 ### Verificación contra Código Fuente
