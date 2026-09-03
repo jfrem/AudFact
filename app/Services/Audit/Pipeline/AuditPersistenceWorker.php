@@ -83,6 +83,8 @@ final class AuditPersistenceWorker extends AuditEventConsumer
         );
 
         try {
+            $this->ensureActiveLease('persistir resultados en base de datos');
+
             $persistStart = hrtime(true);
             $this->persistenceModel->persist(
                 $aggregate['audit_result_data'],
@@ -93,6 +95,8 @@ final class AuditPersistenceWorker extends AuditEventConsumer
                 'aggregate_build_ms' => 0,
                 'sql_persist_ms' => $persistenceDurationMs,
             ];
+
+            $this->ensureActiveLease('completar auditoría en Redis y publicar finalización');
 
             $redisCompleteStart = hrtime(true);
             $completedNow = $this->stateStore->completeAudit(

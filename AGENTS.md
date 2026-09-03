@@ -362,6 +362,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`  | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`         |
 | `AUDIT_EVENT_MAX_RETRIES`            | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                      |
 | `AUDIT_STREAM_BLOCK_MS`              | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                     |
+| `AUDIT_CONSUMER_LEASE_TTL_SECONDS`   | `900`                       | ❌         | `AuditEventConsumer` — TTL en segundos del lease atómico de procesamiento/fencing   |
 | `AUDIT_DLQ_STREAM`                   | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                               |
 | `AUDIT_VERSION_EXTRACTOR`            | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                               |
 | `AUDIT_VERSION_NORMALIZER`           | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                            |

@@ -67,6 +67,9 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         $attachmentId = $this->requiredString($payload, 'attachment_id');
         $disDetNro    = $this->requiredString($payload, 'dis_det_nro');
 
+        // QUAL-009: Fencing preventivo antes de abrir sockets de red e iniciar I/O pesada
+        $this->ensureActiveLease('iniciar descarga de adjunto');
+
         $telemetryMeta = [
             'worker' => $this->consumer(),
         ];
@@ -100,6 +103,11 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             );
             throw $error;
         }
+
+        if ($this->hasActiveLease()) {
+            $this->renewActiveLease();
+        }
+        $this->ensureActiveLease('persistir BLOB documental');
 
         try {
             $documentHash = $this->documentHash($document);

@@ -114,6 +114,40 @@ final class AttachmentDownloadWorkerTest extends TestCase
         }
     }
 
+    public function testFailsEarlyIfLeaseLostBeforeDownload(): void
+    {
+        $publisher = new DownloadPublisher();
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $event = $this->documentRegisteredEvent($auditId, $documentId);
+
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('get')->willReturn('processing:other-token');
+
+        $downloader = $this->createMock(AttachmentDownloadService::class);
+        $downloader->expects($this->never())->method('download');
+
+        $worker = new AttachmentDownloadWorker(
+            stateStore: new DownloadRecordingStateStore(),
+            downloader: $downloader,
+            redis: $redis,
+            publisher: $publisher,
+            consumerName: 'downloader-test',
+            blobTtl: 60
+        );
+
+        $ref = new \ReflectionClass($worker);
+        $eventIdProp = $ref->getProperty('currentProcessingEventId');
+        $eventIdProp->setValue($worker, $event->eventId);
+        $tokenProp = $ref->getProperty('currentLeaseToken');
+        $tokenProp->setValue($worker, 'my-token');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('titularidad de lease perdida');
+
+        $worker->processEvent($event);
+    }
+
     /**
      * @return array{mime:string,data:string,duration_ms:int}
      */

@@ -87,29 +87,32 @@ class ObservabilityController extends Controller
 
             $retries = max(0, (int) ($metrics['retries'] ?? 0));
             $terminalFailures = max(0, (int) ($metrics['terminal_failures'] ?? 0));
+            $reconciliationAnomalies = max(0, (int) ($metrics['reconciliation_anomalies'] ?? 0));
 
             $payload = [
-                'queueDepth'       => $totalDepth,
-                'streamDepths'     => $streamDepths,
-                'deadLetterDepth'  => $deadLetterDepth,
-                'jobs'             => $jobCounts,
-                'retries'          => $retries,
-                'terminalFailures' => $terminalFailures,
+                'queueDepth'              => $totalDepth,
+                'streamDepths'            => $streamDepths,
+                'deadLetterDepth'         => $deadLetterDepth,
+                'reconciliationAnomalies' => $reconciliationAnomalies,
+                'jobs'                    => $jobCounts,
+                'retries'                 => $retries,
+                'terminalFailures'        => $terminalFailures,
             ];
         } catch (\Throwable $e) {
             $payload = [
-                'queueDepth'       => 0,
-                'streamDepths'     => [
+                'queueDepth'              => 0,
+                'streamDepths'            => [
                     'inbox' => 0,
                     'documents' => 0,
                     'persistence' => 0,
                     'results' => 0,
                     'batchInbox' => 0,
                 ],
-                'deadLetterDepth'  => 0,
-                'jobs'             => ['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0],
-                'retries'          => 0,
-                'terminalFailures' => 0,
+                'deadLetterDepth'         => 0,
+                'reconciliationAnomalies' => 0,
+                'jobs'                    => ['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0],
+                'retries'                 => 0,
+                'terminalFailures'        => 0,
             ];
         }
 

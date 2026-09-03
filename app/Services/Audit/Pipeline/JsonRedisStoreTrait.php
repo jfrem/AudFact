@@ -43,9 +43,16 @@ trait JsonRedisStoreTrait
      * @param  array<int,string> $keys
      * @param  array<int,mixed> $args
      * @param  array<string,mixed> $logContext
+     * @param  array<int,int> $acceptValues Valores enteros del retorno Lua que se consideran éxito (default [1]).
      */
-    protected function runScript(string $lua, array $keys, array $args, string $errorMessage, array $logContext): bool
-    {
+    protected function runScript(
+        string $lua,
+        array $keys,
+        array $args,
+        string $errorMessage,
+        array $logContext,
+        array $acceptValues = [1]
+    ): bool {
         try {
             $result = $this->redis->eval($lua, $keys, $args);
         } catch (\Exception $e) {
@@ -53,7 +60,7 @@ trait JsonRedisStoreTrait
             throw new RuntimeException($errorMessage, 0, $e);
         }
 
-        return (int) $result === 1;
+        return in_array((int) $result, $acceptValues, true);
     }
 
     /**

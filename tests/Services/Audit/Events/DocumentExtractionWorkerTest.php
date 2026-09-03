@@ -1096,6 +1096,279 @@ final class DocumentExtractionWorkerTest extends TestCase
 
         $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
     }
+
+    public function testActivelyDeletesBlobFromRedisOnSuccessfulExtraction(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $deletedKeys = [];
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+        $redisMock->method('del')->willReturnCallback(function (string $key) use (&$deletedKeys) {
+            $deletedKeys[] = $key;
+            return 1;
+        });
+        $redisMock->method('set')->willReturn(true);
+
+        $gateway = new StubGeminiGateway($this->geminiStructuredOutputResponse());
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_EXTRACTED, $publisher->published[0]->eventType);
+        $this->assertNotEmpty($deletedKeys, 'Debe invocar del() sobre la llave del BLOB tras extracción exitosa');
+        $this->assertStringStartsWith('audit:blob:', $deletedKeys[0]);
+    }
+
+    public function testActivelyDeletesBlobFromRedisOnIntegrityRejection(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        // PDF sin páginas para forzar rechazo de integridad EMPTY_PDF_NO_PAGES
+        $corruptBase64 = base64_encode("%PDF-1.4\n%EOF");
+        $hash = hash('sha256', $corruptBase64);
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $deletedKeys = [];
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($corruptBase64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $corruptBase64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+        $redisMock->method('del')->willReturnCallback(function (string $key) use (&$deletedKeys) {
+            $deletedKeys[] = $key;
+            return 1;
+        });
+
+        $gateway = new StubGeminiGateway([]);
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
+            'document_hash' => $hash,
+        ]));
+
+        $this->assertSame(0, $gateway->calls, 'No debe llamar a Gemini si el documento fue rechazado por integridad');
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertNotEmpty($deletedKeys, 'Debe invocar del() sobre la llave del BLOB tras rechazo de integridad');
+        $this->assertStringStartsWith('audit:blob:', $deletedKeys[0]);
+    }
+
+    public function testActivelyDeletesBlobFromRedisOnGeminiRejection(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $deletedKeys = [];
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+            }
+            return null;
+        });
+        $redisMock->method('del')->willReturnCallback(function (string $key) use (&$deletedKeys) {
+            $deletedKeys[] = $key;
+            return 1;
+        });
+
+        $gateway = new StubThrowingGeminiGateway(
+            new RuntimeException('Error HTTP Gemini Structured Output: Image could not be decoded. (INVALID_ARGUMENT)', 400)
+        );
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertNotEmpty($deletedKeys, 'Debe invocar del() sobre la llave del BLOB tras rechazo de Gemini');
+        $this->assertStringStartsWith('audit:blob:', $deletedKeys[0]);
+    }
+
+    public function testWorkerRenewsActiveLeaseDuringExtraction(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
+        $evalCallCount = 0;
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')
+            ->willReturnCallback(function (string $key) use ($blobJson) {
+                if (str_starts_with($key, 'audit:blob:')) {
+                    return $blobJson;
+                }
+                if (str_starts_with($key, 'dedup:')) {
+                    return 'processing:token-lease-active';
+                }
+                return null;
+            });
+        $redisMock->method('del')->willReturn(true);
+        $redisMock->method('set')->willReturn(true);
+        $redisMock->method('eval')->willReturnCallback(function () use (&$evalCallCount) {
+            $evalCallCount++;
+            return 1;
+        });
+
+        $gateway = new StubGeminiGateway($this->geminiStructuredOutputResponse(
+            fields: ['NumeroFactura' => 'T38250701547'],
+            items: [],
+            visualChecks: []
+        ));
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $refPropEvent = new \ReflectionProperty($worker, 'currentProcessingEventId');
+        $refPropEvent->setValue($worker, 'evt-extraction-1');
+
+        $refPropToken = new \ReflectionProperty($worker, 'currentLeaseToken');
+        $refPropToken->setValue($worker, 'token-lease-active');
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_EXTRACTED, $publisher->published[0]->eventType);
+        $this->assertGreaterThanOrEqual(1, $evalCallCount, 'El worker debe renovar el lease mediante renewActiveLease() durante la extracción');
+    }
+
+    public function testIntegrityRejectionThrowsAndPreventsMutationWhenLeaseStolen(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $corruptData = base64_encode('NOT_A_VALID_PDF_HEADER');
+        $corruptHash = hash('sha256', $corruptData);
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($corruptData) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return json_encode(['mime' => 'application/pdf', 'data' => $corruptData, 'duration_ms' => 0]);
+            }
+            if (str_starts_with($key, 'dedup:')) {
+                return 'processing:stolen-by-other-replica';
+            }
+            return null;
+        });
+
+        $gateway = new StubGeminiGateway([]);
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $refPropEvent = new \ReflectionProperty($worker, 'currentProcessingEventId');
+        $refPropEvent->setValue($worker, 'evt-integrity-stolen');
+
+        $refPropToken = new \ReflectionProperty($worker, 'currentLeaseToken');
+        $refPropToken->setValue($worker, 'my-token');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('titularidad de lease perdida');
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId, [
+            'document_hash' => $corruptHash,
+        ]));
+    }
+
+    public function testGeminiRejectionThrowsAndPreventsMutationWhenLeaseStolen(): void
+    {
+        $documentId = AuditEvent::uuidV4();
+        $auditId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+
+        $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('get')->willReturnCallback(function (string $key) use ($blobJson) {
+            if (str_starts_with($key, 'audit:blob:')) {
+                return $blobJson;
+            }
+            if (str_starts_with($key, 'dedup:')) {
+                return 'processing:stolen-during-gemini';
+            }
+            return null;
+        });
+
+        $gateway = new StubThrowingGeminiGateway(
+            new RuntimeException('Error HTTP Gemini Structured Output: Image could not be decoded. (INVALID_ARGUMENT)', 400)
+        );
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redisMock,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: new PassthroughPdfRasterizer()
+        );
+
+        $refPropEvent = new \ReflectionProperty($worker, 'currentProcessingEventId');
+        $refPropEvent->setValue($worker, 'evt-gemini-stolen');
+
+        $refPropToken = new \ReflectionProperty($worker, 'currentLeaseToken');
+        $refPropToken->setValue($worker, 'my-token');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('titularidad de lease perdida');
+
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+    }
 }
 
 final class StubThrowingGeminiGateway extends GeminiGateway

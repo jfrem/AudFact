@@ -100,6 +100,8 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 : $this->policyEngine->evaluate($documentState, $event->payload, $facNro);
             $durationMs = (int) ((microtime(true) - $start) * 1000);
 
+            $this->ensureActiveLease('persistir evaluación documental en Redis');
+
             $documentPatch = $this->buildDocumentPatch($policyResult, $durationMs);
             if (!$this->stateStore->markDocumentEvaluated($event->auditId, $event->documentId, $documentPatch)) {
                 throw new RuntimeException('No se pudo persistir la evaluación documental en Redis');

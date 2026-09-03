@@ -76,6 +76,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         );
 
         try {
+            $this->ensureActiveLease('iniciar orquestación documental');
+
             if (!$this->stateStore->markAuditStarted($event->auditId)) {
                 throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
             }
