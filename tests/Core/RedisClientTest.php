@@ -27,7 +27,7 @@ class RedisClientTest extends TestCase
         $this->redis = RedisClient::getInstance();
         $this->client = $this->getMockBuilder(PredisClient::class)
             ->disableOriginalConstructor()
-            ->addMethods(['get', 'setex', 'set', 'eval', 'ttl', 'del'])
+            ->addMethods(['get', 'setex', 'set', 'eval', 'ttl', 'del', 'expire', 'setnx'])
             ->getMock();
         $this->setRedisClientState($this->redis, $this->client, $this->prefix);
     }
@@ -257,5 +257,21 @@ class RedisClientTest extends TestCase
         $a = RedisClient::getInstance();
         $b = RedisClient::getInstance();
         $this->assertSame($a, $b, 'getInstance debe retornar la misma instancia (singleton)');
+    }
+
+
+    public function testSetnxSetsKeyWithTtl(): void
+    {
+        $key = 'test:setnx:ttl:' . uniqid();
+        $prefixedKey = $this->prefix . $key;
+
+        $this->client
+            ->expects($this->once())
+            ->method('set')
+            ->with($prefixedKey, 'val-1', 'EX', 60, 'NX')
+            ->willReturn('OK');
+
+        $result = $this->redis->setnx($key, 'val-1', 60);
+        $this->assertTrue($result);
     }
 }

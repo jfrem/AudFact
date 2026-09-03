@@ -25,9 +25,9 @@ final class AuditPersistenceWorkerTest extends TestCase
         $store = new AggregationRecordingStateStore($auditId, $jobId);
         $model = new RecordingAuditResultPersistenceModel();
         $queue = new RecordingAuditPersistenceQueue();
-        
+
         $jobStore = new RecordingBatchJobStore($store);
-        
+
         $worker = new AuditPersistenceWorker(
             stateStore: $store,
             jobStore: $jobStore,
@@ -79,9 +79,9 @@ final class AuditPersistenceWorkerTest extends TestCase
         $publisher = new PersistencePublisher();
         $store = new AggregationRecordingStateStore($auditId, $jobId);
         $queue = new RecordingAuditPersistenceQueue();
-        
+
         $jobStore = clone new RecordingBatchJobStore($store);
-        
+
         $worker = new AuditPersistenceWorker(
             stateStore: $store,
             jobStore: $jobStore,
@@ -439,13 +439,24 @@ class RecordingBatchJobStore extends \App\Services\Audit\Pipeline\BatchJobStore
         ];
     }
 
-    public function claimBatchTerminalEvent(string $jobId, string $eventType): bool
+    public function claimBatchTerminalEvent(string $jobId, string $eventType, string $claimToken = '', int $claimTtlSeconds = 120): bool
     {
         if ($this->batchTerminalClaimed) {
             return false;
         }
 
         $this->batchTerminalClaimed = true;
+        return true;
+    }
+
+    public function confirmBatchTerminalEvent(string $jobId, string $eventType, string $claimToken = ''): bool
+    {
+        return true;
+    }
+
+    public function releaseBatchTerminalEvent(string $jobId, string $claimToken = ''): bool
+    {
+        $this->batchTerminalClaimed = false;
         return true;
     }
 }

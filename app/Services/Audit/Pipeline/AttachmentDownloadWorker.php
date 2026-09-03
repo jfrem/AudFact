@@ -101,6 +101,11 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             throw $error;
         }
 
+        if ($this->hasActiveLease()) {
+            $this->renewActiveLease();
+        }
+        $this->ensureActiveLease('persistir BLOB documental');
+
         try {
             $documentHash = $this->documentHash($document);
             $blobKey = $this->blobKey((string) $event->auditId, (string) $event->documentId, $documentHash);

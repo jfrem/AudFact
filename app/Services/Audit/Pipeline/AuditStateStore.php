@@ -109,6 +109,66 @@ class AuditStateStore
         return $this->redis->del(self::auditKey($auditId));
     }
 
+    /**
+     * Reabre atómicamente una auditoría terminal para reproceso desde DLQ (QUAL-018).
+     *
+     * Transiciona status de 'failed'/'error' a 'processing', limpia campos de error,
+     * y registra trazabilidad del reproceso.
+     *
+     * @param  string  $auditId           UUID de la auditoría a reabrir
+     * @param  string  $reprocessEventId  UUID del nuevo evento que disparó el reproceso
+     * @return bool    true si se reabrió exitosamente, false si no existe o no está en estado terminal compatible
+     */
+    public function reopenAuditForReprocess(string $auditId, string $reprocessEventId): bool
+    {
+        return $this->runScript(
+            self::REOPEN_AUDIT_LUA,
+            [self::auditKey($auditId)],
+            [$reprocessEventId, self::nowUtc(), self::auditTtlSeconds()],
+            'No se pudo reabrir la auditoría para reproceso',
+            ['audit_id' => $auditId, 'reprocess_event_id' => $reprocessEventId]
+        );
+    }
+
+    /**
+     * Revierte un reproceso que no pudo completar su publicación (QUAL-001).
+     *
+     * Restaura el status previo (o 'failed' si no existe), limpia campos de reproceso
+     * y registra el error que provocó la compensación.
+     *
+     * @param  string  $auditId      UUID de la auditoría a revertir
+     * @param  string  $errorMessage Mensaje del error que provocó la compensación
+     * @return bool    true si se revirtió exitosamente, false si no existe o no está en processing
+     */
+    public function revertReprocess(string $auditId, string $errorMessage): bool
+    {
+        return $this->runScript(
+            self::REVERT_REPROCESS_LUA,
+            [self::auditKey($auditId)],
+            [$errorMessage, self::nowUtc(), self::auditTtlSeconds()],
+            'No se pudo revertir el reproceso de la auditoría',
+            ['audit_id' => $auditId]
+        );
+    }
+
+    /**
+     * Registra un fallo de reconciliación en una clave durable para auditoría operativa (QUAL-001).
+     *
+     * @param  string  $auditId UUID de la auditoría.
+     * @param  array   $data    Metadatos de la desincronización detectada.
+     * @param  int     $ttl     TTL de retención en segundos (default: 7 días).
+     * @return bool True si se persistió exitosamente.
+     */
+    public function recordFailedReconciliation(string $auditId, array $data, int $ttl = 604800): bool
+    {
+        try {
+            $key = "audit:reconcile:dlq:{$auditId}";
+            return $this->redis->set($key, json_encode($data, JSON_UNESCAPED_UNICODE), $ttl);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     public function patchAudit(string $auditId, array $patch): bool
     {
         $patch['updated_at'] = self::nowUtc();
@@ -251,7 +311,8 @@ class AuditStateStore
             [self::auditKey($auditId)],
             [$completionState, self::nowUtc(), self::auditTtlSeconds()],
             'No se pudo completar la auditoría en Redis',
-            ['audit_id' => $auditId]
+            ['audit_id' => $auditId],
+            acceptValues: [1, 2]
         );
     }
 
@@ -479,10 +540,88 @@ class AuditStateStore
             audit[k] = v
         end
 
+        -- QUAL-002: Limpiar snapshot de reproceso al completar exitosamente
+        audit['_pre_reprocess_snapshot'] = nil
+
         audit['completed_at'] = now
         audit['updated_at'] = now
 
         redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
+
+    private const REOPEN_AUDIT_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+
+        local audit = cjson.decode(raw)
+        local status = tostring(audit['status'] or '')
+
+        if status ~= 'failed' and status ~= 'error' then
+            return 0
+        end
+
+        local reprocessEventId = ARGV[1]
+        local now = ARGV[2]
+        local ttl = tonumber(ARGV[3])
+
+        -- QUAL-002: Guardar snapshot de campos terminales antes de limpiarlos
+        audit['_pre_reprocess_snapshot'] = cjson.encode({
+            detail_error = audit['detail_error'],
+            requires_manual_review = audit['requires_manual_review'],
+            failed_stage = audit['failed_stage'],
+            failed_event_type = audit['failed_event_type'],
+            completed_at = audit['completed_at'],
+        })
+
+        audit['previous_status'] = status
+        audit['status'] = 'processing'
+        audit['reprocessed_at'] = now
+        audit['reprocessed_by_event_id'] = reprocessEventId
+        audit['reprocess_count'] = (tonumber(audit['reprocess_count']) or 0) + 1
+        audit['updated_at'] = now
+
+        -- Limpiar campos de error de la ejecución previa
+        audit['detail_error'] = nil
+        audit['requires_manual_review'] = nil
+        audit['failed_stage'] = nil
+        audit['failed_event_type'] = nil
+        audit['completed_at'] = nil
+
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        return 1
+    LUA;
+
+    private const REVERT_REPROCESS_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+
+        local audit = cjson.decode(raw)
+        local status = tostring(audit['status'] or '')
+        if status ~= 'processing' then return 0 end
+
+        local prevStatus = tostring(audit['previous_status'] or 'failed')
+        audit['status'] = prevStatus
+
+        -- QUAL-002: Restaurar campos terminales desde snapshot
+        local snapshotRaw = audit['_pre_reprocess_snapshot']
+        if snapshotRaw then
+            local ok, snapshot = pcall(cjson.decode, snapshotRaw)
+            if ok and type(snapshot) == 'table' then
+                for k, v in pairs(snapshot) do
+                    audit[k] = v
+                end
+            end
+            audit['_pre_reprocess_snapshot'] = nil
+        end
+
+        -- Sobreescribir detail_error con el error actual de compensación
+        audit['detail_error'] = ARGV[1]
+        audit['reprocessed_at'] = nil
+        audit['reprocessed_by_event_id'] = nil
+        audit['updated_at'] = ARGV[2]
+
+        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', tonumber(ARGV[3]))
         return 1
     LUA;
 

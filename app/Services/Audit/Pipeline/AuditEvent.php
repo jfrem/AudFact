@@ -94,10 +94,11 @@ final class AuditEvent
         ?string $jobId = null,
         ?string $documentId = null,
         array $payload = [],
-        ?string $parentEventId = null
+        ?string $parentEventId = null,
+        ?string $eventId = null
     ): self {
         return new self(
-            eventId: self::uuidV4(),
+            eventId: $eventId ?? self::uuidV4(),
             parentEventId: $parentEventId,
             eventType: $eventType,
             auditId: $auditId,
@@ -178,6 +179,18 @@ final class AuditEvent
     public static function uuidV4(): string
     {
         $data = random_bytes(16);
+        $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
+        $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
+        return vsprintf(
+            '%s%s-%s-%s-%s-%s%s%s',
+            str_split(bin2hex($data), 4)
+        );
+    }
+
+    public static function deterministicUuidV4(string $seed): string
+    {
+        $hash = hash('sha256', $seed, true);
+        $data = substr($hash, 0, 16);
         $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
         $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
         return vsprintf(

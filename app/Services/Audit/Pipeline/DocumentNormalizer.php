@@ -79,6 +79,8 @@ final class DocumentNormalizer extends AuditEventConsumer
             $normalized = $this->normalize($event->payload);
             $durationMs = (int) ((microtime(true) - $start) * 1000);
 
+            $this->ensureActiveLease('persistir normalización del documento en Redis');
+
             $documentState = [
                 'status'                    => 'normalized',
                 'normalized_result'         => $normalized,

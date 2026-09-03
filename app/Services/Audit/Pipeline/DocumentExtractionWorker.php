@@ -136,7 +136,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $integrity = DocumentIntegrityValidator::validate($document);
 
             if (!$integrity['valid']) {
-                $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                $this->handleRejectedDocument($event, $payload, $document, $integrity, $blobKey);
                 $this->telemetryPublisher->rejected(
                     $event->auditId,
                     'extraction',
@@ -154,6 +154,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $promptContextHash = $this->promptBuilder->promptContextHash($userPrompt, $systemPrompt);
             $cacheKey          = $this->cacheManager->computeCacheKey($documentHash, $contractHash, $promptContextHash);
 
+            if ($this->hasActiveLease()) {
+                $this->renewActiveLease();
+                $this->ensureActiveLease('llamar a Gemini AI');
+            }
+
             try {
                 $extraction = $this->resolveExtraction(
                     $cacheKey,
@@ -166,6 +171,9 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     $disDetNro,
                     $event
                 );
+                if ($this->hasActiveLease()) {
+                    $this->renewActiveLease();
+                }
             } catch (RuntimeException $geminiError) {
                 if ($this->isGeminiDocumentContentError($geminiError)) {
                     $reason    = $this->classifyGeminiContentError($geminiError);
@@ -176,7 +184,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                         'detected_mime' => null,
                         'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
                     ];
-                    $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                    $this->handleRejectedDocument($event, $payload, $document, $integrity, $blobKey);
                     $this->telemetryPublisher->rejected(
                         $event->auditId,
                         'extraction',
@@ -190,6 +198,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 }
                 throw $geminiError;
             }
+
+            $this->ensureActiveLease('persistir extracción del documento en Redis');
 
             $extractionDurationMs = (int) ((microtime(true) - $totalStartTime) * 1000);
             $documentState        = $this->buildDocumentState(
@@ -206,6 +216,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             }
 
             $this->publishDocumentExtracted($event, $payload, $documentState);
+
+            // Liberar activamente el BLOB base64 de Redis tras extracción exitosa (QUAL-010)
+            try {
+                $this->redis->del($blobKey);
+            } catch (\Throwable) {
+                // Dejar que expire pasivamente por TTL si Redis no responde
+            }
 
             $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
             $this->logDocumentExtracted($event, $documentState, $totalDurationMs);
@@ -456,7 +473,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         AuditEvent $event,
         array $payload,
         array $document,
-        array $integrity
+        array $integrity,
+        string $blobKey = ''
     ): void {
         $documentType = $this->resolveDocumentType($payload);
         $reason       = (string) ($integrity['reason'] ?? '');
@@ -476,6 +494,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             'rejected_at'          => gmdate('Y-m-d\TH:i:s\Z'),
         ];
 
+        if ($this->hasActiveLease()) {
+            $this->renewActiveLease();
+            $this->ensureActiveLease('rechazar documento y persistir estado');
+        }
+
         if (!$this->stateStore->markDocumentRejected(
             (string) $event->auditId,
             (string) $event->documentId,
@@ -492,6 +515,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             payload: array_merge($payload, $patch),
             parentEventId: $event->eventId,
         ));
+
+        // Liberar activamente el BLOB base64 de Redis tras rechazo (QUAL-010)
+        if ($blobKey !== '') {
+            try {
+                $this->redis->del($blobKey);
+            } catch (\Throwable) {
+                // Dejar que expire pasivamente por TTL si Redis no responde
+            }
+        }
 
         Logger::info('Document rejected by integrity validation', [
             'auditId'    => $event->auditId,

@@ -70,11 +70,15 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertCount(1, $jobStore->registeredAudits);
         $this->assertSame('87723098', $jobStore->registeredAudits[0]['dis_id']);
         $this->assertSame('T38250701547', $jobStore->registeredAudits[0]['dis_det_nro']);
+        $this->assertNotNull($jobStore->registeredAudits[0]['event_id']);
         $this->assertCount(2, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_BATCH_CREATED, $publisher->published[0]->eventType);
         $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[1]->eventType);
+        $this->assertSame($jobStore->registeredAudits[0]['event_id'], $publisher->published[1]->eventId);
         $this->assertSame('87723098', $publisher->published[1]->payload['dis_id']);
         $this->assertSame('T38250701547', $publisher->published[1]->payload['dis_det_nro']);
+        $this->assertCount(1, $jobStore->publishedAudits);
+        $this->assertSame($jobStore->registeredAudits[0]['audit_id'], $jobStore->publishedAudits[0]['audit_id']);
     }
 
     public function testEnqueueBatchDoesNotCleanupStateAfterPublishingAnEvent(): void
@@ -140,6 +144,36 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertSame(0, $result['total']);
         $this->assertCount(0, $publisher->published);
         $this->assertSame(0, $invoicesModel->getCalls());
+    }
+
+    public function testEnqueueBatchHandlesMarkAuditPublishedInJobReturningFalseWithoutHaltingPublishing(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $jobStore->markAuditPublishedReturn = false;
+        $publisher = new BatchOrchestratorPublisher();
+        $invoicesModel = new BatchOrchestratorInvoicesModel([
+            [
+                'NitSec' => 2426,
+                'DisId' => '87723098',
+                'Dispensa' => 'T38250701547',
+                'DisFecSol' => '2026-06-12T00:00:00',
+            ],
+        ]);
+
+        $orchestrator = new AuditBatchOrchestrator(
+            $stateStore,
+            $jobStore,
+            $publisher,
+            $invoicesModel,
+        );
+
+        $result = $orchestrator->enqueueBatch(2426, '2026-06-12', '2026-06-12', 1);
+
+        $this->assertSame(BatchJobStore::JOB_STATUS_PENDING, $result['status']);
+        $this->assertSame(1, $result['total']);
+        $this->assertCount(2, $publisher->published);
+        $this->assertCount(1, $jobStore->publishedAudits);
     }
 
     public function testEnqueueBatchReturnsExistingStateIfJobAlreadySealed(): void
@@ -228,6 +262,8 @@ final class BatchOrchestratorJobStore extends BatchJobStore
     public array $claimedLocks = [];
     /** @var array<int,array{job_id:string,worker_id:string}> */
     public array $releasedLocks = [];
+    /** @var array<int,array{job_id:string,audit_id:string,stream_id:string}> */
+    public array $publishedAudits = [];
 
     public function __construct()
     {
@@ -245,12 +281,25 @@ final class BatchOrchestratorJobStore extends BatchJobStore
         return true;
     }
 
+    public bool $markAuditPublishedReturn = true;
+
+    public function markAuditPublishedInJob(string $jobId, string $auditId, string $streamId = ''): bool
+    {
+        $this->publishedAudits[] = [
+            'job_id' => $jobId,
+            'audit_id' => $auditId,
+            'stream_id' => $streamId,
+        ];
+        return $this->markAuditPublishedReturn;
+    }
+
     public function registerAuditInJob(
         string $jobId,
         string $auditId,
         string $disDetNro,
         ?string $disId = null,
-        ?string $reservationToken = null
+        ?string $reservationToken = null,
+        ?string $eventId = null
     ): bool {
         $this->registeredAudits[] = [
             'job_id' => $jobId,
@@ -258,6 +307,7 @@ final class BatchOrchestratorJobStore extends BatchJobStore
             'dis_det_nro' => $disDetNro,
             'dis_id' => $disId,
             'reservation_token' => $reservationToken,
+            'event_id' => $eventId,
         ];
 
         return true;

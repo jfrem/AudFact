@@ -7,6 +7,10 @@ namespace App\Controllers;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditPersistenceQueue;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\BatchJobStore;
+use Core\Exceptions\HttpResponseException;
+use Core\Logger;
 use Core\RedisClient;
 use Core\Response;
 
@@ -103,20 +107,137 @@ class AuditDlqController extends Controller
             Response::error('El evento DLQ no contiene original_event', 422);
         }
 
+        $stateStore = null;
+        $jobStore = null;
+        $event = null;
+
         try {
-            $event = AuditEvent::fromArray($original);
+            $originalEventId = (string) ($original['event_id'] ?? '');
+            $event = AuditEvent::create(
+                eventType: (string) ($original['event_type'] ?? ''),
+                auditId: isset($original['audit_id']) && is_string($original['audit_id']) ? $original['audit_id'] : null,
+                jobId: isset($original['job_id']) && is_string($original['job_id']) ? $original['job_id'] : null,
+                documentId: isset($original['document_id']) && is_string($original['document_id']) ? $original['document_id'] : null,
+                payload: is_array($original['payload'] ?? null) ? $original['payload'] : [],
+                parentEventId: AuditEvent::isUuidV4($originalEventId) ? $originalEventId : null,
+            );
+
+            // QUAL-018: Reabrir auditoría en Redis de forma coordinada y fail-closed antes de republicar
+            if ($event->auditId !== null) {
+                $stateStore = $this->buildStateStore();
+                $reopened = $stateStore->reopenAuditForReprocess($event->auditId, $event->eventId);
+
+                if (!$reopened) {
+                    $currentAudit = $stateStore->getAudit($event->auditId);
+                    $currentStatus = is_array($currentAudit) ? (string) ($currentAudit['status'] ?? 'desconocido') : 'inexistente';
+                    Response::error("Auditoría no elegible para reproceso (estado: '{$currentStatus}')", 409);
+                }
+
+                if ($event->jobId !== null) {
+                    $jobStore = $this->buildJobStore();
+                    $jobReopened = $jobStore->reopenAuditInJob($event->jobId, $event->auditId, $event->eventId);
+                    if (!$jobReopened) {
+                        // QUAL-001: Compensación atómica con reintentos al fallar coordinación con job
+                        $stateReverted = false;
+                        for ($attempt = 1; $attempt <= 3; $attempt++) {
+                            try {
+                                if ($stateStore->revertReprocess($event->auditId, 'Reapertura revertida: fallo de coordinación con job batch')) {
+                                    $stateReverted = true;
+                                    break;
+                                }
+                            } catch (\Throwable) {
+                                usleep(10000);
+                            }
+                        }
+                        if (!$stateReverted) {
+                            Logger::critical('AuditDlqController: compensación de reapertura falló — auditoría puede quedar en processing', [
+                                'audit_id' => $event->auditId,
+                                'job_id' => $event->jobId,
+                            ]);
+                        }
+                        Response::error('No se pudo reabrir la auditoría en el job batch para reproceso', 409);
+                    }
+                }
+            }
+
             if ($event->eventType === AuditEvent::TYPE_RULES_EVALUATED) {
                 $this->buildPersistenceQueue()->reprocess($event);
             } else {
                 $this->buildEventPublisher()->publish($event);
             }
+        } catch (HttpResponseException $e) {
+            throw $e;
         } catch (\Throwable $e) {
+            // QUAL-001: Compensación transaccional robusta con verificación de retornos y reintentos
+            $reconciliationFailed = false;
+            if ($event !== null && $event->auditId !== null && $stateStore !== null) {
+                $stateReverted = false;
+                for ($attempt = 1; $attempt <= 3; $attempt++) {
+                    try {
+                        if ($stateStore->revertReprocess($event->auditId, $e->getMessage())) {
+                            $stateReverted = true;
+                            break;
+                        }
+                    } catch (\Throwable) {
+                        usleep(10000);
+                    }
+                }
+
+                $jobReverted = true;
+                if ($event->jobId !== null && $jobStore !== null) {
+                    $jobReverted = false;
+                    for ($attempt = 1; $attempt <= 3; $attempt++) {
+                        try {
+                            if ($jobStore->revertAuditReprocessInJob($event->jobId, $event->auditId)) {
+                                $jobReverted = true;
+                                break;
+                            }
+                        } catch (\Throwable) {
+                            usleep(10000);
+                        }
+                    }
+                }
+
+                if (!$stateReverted || !$jobReverted) {
+                    $reconciliationFailed = true;
+                    $recorded = false;
+                    try {
+                        $recorded = $stateStore->recordFailedReconciliation($event->auditId, [
+                            'event_id' => $event->eventId,
+                            'job_id' => $event->jobId,
+                            'error' => $e->getMessage(),
+                            'state_reverted' => $stateReverted,
+                            'job_reverted' => $jobReverted,
+                            'failed_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                        ]);
+                    } catch (\Throwable) {
+                        // Best-effort — Redis ya está degradado
+                    }
+                    if (!$recorded) {
+                        Logger::critical('AuditDlqController: reconciliación fallida NO registrada — requiere inspección manual', [
+                            'audit_id' => $event->auditId,
+                            'job_id' => $event->jobId,
+                            'state_reverted' => $stateReverted,
+                            'job_reverted' => $jobReverted,
+                        ]);
+                    }
+                }
+            }
+
+            Logger::error('AuditDlqController: reproceso falló post-reapertura, compensación ejecutada', [
+                'event_id' => $event?->eventId,
+                'audit_id' => $event?->auditId,
+                'job_id' => $event?->jobId,
+                'error' => $e->getMessage(),
+                'reconciliation_failed' => $reconciliationFailed,
+            ]);
             Response::error('No se pudo reprocesar el evento DLQ', 503);
         }
 
         Response::success([
             'stream_id' => $streamId,
             'reprocessed_event_id' => $event->eventId,
+            'original_event_id' => $originalEventId,
             'event_type' => $event->eventType,
             'audit_id' => $event->auditId,
         ], 'Evento DLQ reprocesado');
@@ -135,5 +256,15 @@ class AuditDlqController extends Controller
     protected function buildPersistenceQueue(): AuditPersistenceQueue
     {
         return new AuditPersistenceQueue($this->buildRedisClient());
+    }
+
+    protected function buildStateStore(): AuditStateStore
+    {
+        return new AuditStateStore($this->buildRedisClient());
+    }
+
+    protected function buildJobStore(): BatchJobStore
+    {
+        return new BatchJobStore($this->buildRedisClient());
     }
 }

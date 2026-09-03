@@ -227,6 +227,7 @@ class RedisClient
         }
     }
 
+
     /**
      * INCR atómico con TTL (para contadores de CB y rate limiting).
      *
