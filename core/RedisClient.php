@@ -227,7 +227,6 @@ class RedisClient
         }
     }
 
-
     /**
      * INCR atómico con TTL (para contadores de CB y rate limiting).
      *
@@ -271,27 +270,6 @@ class RedisClient
             return (int) $this->client->hincrby($prefixedKey, $field, $increment);
         } catch (\Exception $e) {
             Logger::warning('Redis HINCRBY falló', ['key' => $key, 'field' => $field, 'error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    /**
-     * HGET para obtener el valor de un campo específico de un hash.
-     *
-     * @return string|null Valor del campo o null si no existe o Redis no está disponible
-     */
-    public function hGet(string $key, string $field): ?string
-    {
-        if (!$this->isAvailable()) {
-            return null;
-        }
-
-        try {
-            $prefixedKey = $this->prefix . $key;
-            $result = $this->client->hget($prefixedKey, $field);
-            return is_string($result) ? $result : null;
-        } catch (\Exception $e) {
-            Logger::warning('Redis HGET falló', ['key' => $key, 'field' => $field, 'error' => $e->getMessage()]);
             return null;
         }
     }
@@ -503,12 +481,7 @@ class RedisClient
 
         try {
             $this->client->executeRaw([
-                'XGROUP',
-                'CREATE',
-                $this->prefix . $stream,
-                $group,
-                $id,
-                'MKSTREAM',
+                'XGROUP', 'CREATE', $this->prefix . $stream, $group, $id, 'MKSTREAM',
             ]);
             return true;
         } catch (\Exception $e) {
@@ -594,10 +567,7 @@ class RedisClient
 
         try {
             $result = $this->client->executeRaw([
-                'XACK',
-                $this->prefix . $stream,
-                $group,
-                $id,
+                'XACK', $this->prefix . $stream, $group, $id,
             ]);
             return (int) $result;
         } catch (\Exception $e) {
@@ -632,12 +602,10 @@ class RedisClient
             $raw = $this->client->executeRaw([
                 'XAUTOCLAIM',
                 $this->prefix . $stream,
-                $group,
-                $consumer,
+                $group, $consumer,
                 (string) $minIdleMs,
                 $start,
-                'COUNT',
-                (string) $count,
+                'COUNT', (string) $count,
             ]);
 
             $normalized = $this->normalizeRedisTree($raw);
@@ -868,9 +836,7 @@ class RedisClient
 
         try {
             $raw = $this->client->executeRaw([
-                'XPENDING',
-                $this->prefix . $stream,
-                $group,
+                'XPENDING', $this->prefix . $stream, $group,
             ]);
 
             $normalized = $this->normalizeRedisTree($raw);

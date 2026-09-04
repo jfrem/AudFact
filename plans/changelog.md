@@ -1,50 +1,5 @@
 # Changelog AudFact
 
-## [2026-09-03] - Refactor: Endurecimiento Operativo y Resiliencia Transaccional Post-Merge (QUAL-001 / QUAL-005 / QUAL-009 / QUAL-018)
-
-### Backend / Pipeline Event-Driven, Workers y Observabilidad
-- **Compensación Transaccional Unificada con Backoff Exponencial (QUAL-001 / QUAL-018)**:
-  - `AuditDlqController`: Refactorizada la compensación transaccional extrayendo `executeCompensation()` y `retryWithBackoff()`, erradicando 3 bucles de reintento duplicados. Implementado backoff exponencial con jitter (`$baseDelayUs * 2^(attempt-1) + jitter`) en sustitución de `usleep(10000)` plano.
-  - Asegurado el registro invariante en `recordFailedReconciliation()` ante fallos en la compensación de reapertura de jobs batch (`!$jobReopened`), eliminando el vacío operacional donde la auditoría quedaba en `processing` sin persistencia en Redis.
-- **Telemetría y Observabilidad de Anomalías de Reconciliación (QUAL-005)**:
-  - `AuditStateStore::recordFailedReconciliation()`: Incrementa atómicamente en O(1) la métrica `reconciliation_anomalies` en el hash `telemetry:async_metrics`.
-  - `ObservabilityController::asyncMetrics()`: Expone el campo retrocompatible `reconciliationAnomalies` en `/metrics/async`.
-  - `AuditDlqController::index()`: Expone `reconciliation_anomalies` en el resumen de eventos DLQ.
-  - `Core\RedisClient`: Implementado método `hGet()` para lecturas atómicas de campos en hashes.
-- **Fencing Preventivo Pre-I/O en Descargas (QUAL-009)**:
-  - `AttachmentDownloadWorker::handle()`: Incorporado `$this->ensureActiveLease('iniciar descarga de adjunto')` previo a abrir sockets de red o invocar el servicio de descarga, abortando de inmediato si el lease fue transferido o caducó.
-- **Testing & Clean Rebuild**:
-  - Pruebas unitarias completas para los nuevos flujos en `AuditDlqControllerTest`, `AttachmentDownloadWorkerTest`, `ObservabilityControllerTest` y `AuditStateStoreTest`.
-
-## [2026-09-03] - Fix: Desbloqueo No-Go — Compensación Transaccional DLQ, Invariantes de Error en Jobs, Publicación Terminal Segura y CAS (QUAL-001 / QUAL-002 / QUAL-010 / QUAL-003 / QUAL-009)
-
-### Backend / Pipeline Event-Driven y Stores Redis
-- **Compensación Transaccional y Reconciliación Durable en Reproceso DLQ (QUAL-001)**:
-  - `AuditDlqController::reprocess()`: Implementada compensación transaccional con verificación explícita de retornos de `revertReprocess()` y `revertAuditReprocessInJob()`, con bucle de reintentos acotados (hasta 3 intentos) ante fallos transitorios de conexión a Redis.
-  - Implementado `AuditStateStore::recordFailedReconciliation()` para persistir una clave durable (`audit:reconcile:dlq:{auditId}`) con metadatos del evento y estado de reversión en caso de falla catastrófica de compensación, garantizando trazabilidad y auditoría operacional.
-- **Invariantes Estrictas de Contadores y Estados en Reapertura de Jobs (QUAL-002)**:
-  - Actualizado `REOPEN_AUDIT_IN_JOB_LUA`:
-    - Si el estado previo era `'failed'`, decrementa `job['failed']`.
-    - Si el estado previo era `'error'`, decrementa `job['done']` (corrigiendo el bug donde `error` no se restaba de `done` y un reproceso posterior causaba `done + failed > total`).
-    - Almacena fielmente `auditState['previous_status'] = prevStatus`.
-  - Actualizado `REVERT_AUDIT_REPROCESS_IN_JOB_LUA`:
-    - Restaura `auditState['status'] = prevStatus` (en vez de forzar incondicionalmente `'failed'`).
-    - Si `prevStatus == 'failed'`, re-incrementa `job['failed']`. Si `prevStatus == 'error'`, re-incrementa `job['done']`.
-    - Recalcula el estado del job preservando la suma total procesada `done + failed == total`.
-- **Publicación Terminal Batch Segura con Token, CAS y Rollback (QUAL-010)**:
-  - Implementado ciclo de vida en `BatchJobStore` mediante scripts Lua atómicos:
-    - `CLAIM_BATCH_TERMINAL_EVENT_LUA`: Adquiere el claim estableciendo `job['batch_event_published'] = 'publishing:' .. claimToken`.
-    - `CONFIRM_BATCH_TERMINAL_EVENT_LUA`: Confirma con CAS reemplazando el token por el tipo definitivo de evento (`batch_completed` o `batch_completed_with_errors`).
-    - `RELEASE_BATCH_TERMINAL_EVENT_LUA`: Libera el claim (`nil`) mediante CAS ante excepciones de publicación.
-  - Actualizados `AuditEventConsumer::publishBatchTerminalEventIfNeeded()` y `MultiClientBatchDispatcher::checkAndPublishBatchTerminalEvent()` con bloque `try / catch`: ante fallo de `publish()`, el claim se libera de inmediato, impidiendo que el evento terminal del lote se pierda permanentemente.
-- **Terminal Action Ownership y Extensión de TTL (QUAL-003)**:
-  - Aumentado el TTL del lease de acción terminal a 120s en `AuditEventConsumer::executeTerminalActionWithOwnership()`, protegiendo la ejecución de efectos externos contra falsas expiraciones por latencia de red.
-- **Erradicación de Código Muerto (QUAL-009)**:
-  - Eliminado el método `expire()` en `RedisClient` y su prueba asociada en `RedisClientTest`, cumpliendo la política de *Clean Rebuild*.
-- **Testing & Validación**:
-  - Incorporadas pruebas unitarias completas para la matriz `error`/`failed`, rollback de publicación terminal batch y reconciliación durable en `BatchJobStoreMetricsTest`, `AuditEventConsumerTest` y `AuditDlqControllerTest`.
-  - Suite PHPUnit completa verde: **641 tests, 2195 assertions, 0 failures, 0 errors**.
-
 ## [2026-08-27] - Fix: Persistencia E2E de `EsMultiItem`, Blindaje de Conformidad Documental y Refinamiento Semántico (QUAL-004 / QUAL-005 / QUAL-007)
 
 ### Frontend / UI y Esquemas de Dominio

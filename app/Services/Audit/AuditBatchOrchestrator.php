@@ -14,7 +14,7 @@ use RuntimeException;
 
 /**
  * Servicio de orquestación de lotes de auditoría.
- *
+ * 
  * Centraliza la lógica de encolamiento, reservas idempotentes por DisId,
  * inicialización del state store (AuditStateStore), publicación de eventos
  * y manejo transaccional de fallos (rollback de estado).
@@ -30,7 +30,7 @@ final class AuditBatchOrchestrator
 
     /**
      * Encola un lote de dispensas para ser auditado de forma asíncrona.
-     *
+     * 
      * @param  int          $facNitSec  NIT del cliente/EPS
      * @param  string       $dateFrom   Fecha inicio (Y-m-d)
      * @param  string       $dateTo     Fecha fin (Y-m-d)
@@ -141,7 +141,6 @@ final class AuditBatchOrchestrator
                     $disId = $invoiceIdentity['dis_id'];
 
                     $auditId = AuditEvent::uuidV4();
-                    $eventId = AuditEvent::uuidV4();
                     $reservationToken = AuditEvent::uuidV4();
                     if (!$this->jobStore->claimAuditReservation(
                         $disId,
@@ -162,7 +161,6 @@ final class AuditBatchOrchestrator
                         $facNitSec,
                         $disId,
                         $reservationToken,
-                        $eventId,
                         $reservation,
                         $createdReservations,
                         $createdAuditIds
@@ -174,8 +172,7 @@ final class AuditBatchOrchestrator
                         $disDetNro,
                         $facNitSec,
                         $disId,
-                        $reservationToken,
-                        $eventId
+                        $reservationToken
                     );
 
                     $total++;
@@ -220,12 +217,12 @@ final class AuditBatchOrchestrator
                     $createdReservations
                 );
             }
-
+            
             Logger::error('AuditBatchOrchestrator::enqueueBatch falló', [
                 'job_id' => $jobId,
                 'error' => $e->getMessage(),
             ]);
-
+            
             throw $e;
         } finally {
             if ($hasLock) {
@@ -290,7 +287,6 @@ final class AuditBatchOrchestrator
         int $facNitSec,
         string $disId,
         string $reservationToken,
-        string $eventId,
         array $reservation,
         array &$createdReservations,
         array &$createdAuditIds
@@ -311,7 +307,7 @@ final class AuditBatchOrchestrator
             throw new RuntimeException('No se pudo asociar la reserva a la auditoría', 503);
         }
 
-        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $disId, $reservationToken, $eventId)) {
+        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $disId, $reservationToken)) {
             throw new RuntimeException('No se pudo registrar la auditoría en el job', 503);
         }
 
@@ -323,8 +319,7 @@ final class AuditBatchOrchestrator
         string $disDetNro,
         int $facNitSec,
         string $disId,
-        string $reservationToken,
-        string $eventId
+        string $reservationToken
     ): AuditEvent {
         return AuditEvent::create(
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
@@ -338,7 +333,6 @@ final class AuditBatchOrchestrator
                 'reservation_token' => $reservationToken,
                 'source' => 'batch',
             ],
-            eventId: $eventId,
         );
     }
 
@@ -413,27 +407,7 @@ final class AuditBatchOrchestrator
         $publishedAnyEvent = true;
 
         foreach ($eventsToPublish as $event) {
-            $streamId = $this->publisher->publish($event);
-            if ($streamId !== '') {
-                $marked = false;
-                try {
-                    $marked = $this->jobStore->markAuditPublishedInJob($jobId, (string) $event->auditId, $streamId);
-                } catch (\Throwable $t) {
-                    Logger::warning('AuditBatchOrchestrator: no se pudo actualizar publication_status en jobStore', [
-                        'job_id' => $jobId,
-                        'audit_id' => $event->auditId,
-                        'error' => $t->getMessage(),
-                    ]);
-                }
-
-                if (!$marked) {
-                    Logger::error('AuditBatchOrchestrator: publicación en stream no confirmada en jobStore', [
-                        'job_id' => $jobId,
-                        'audit_id' => $event->auditId,
-                        'stream_id' => $streamId,
-                    ]);
-                }
-            }
+            $this->publisher->publish($event);
             $publishedAnyEvent = true;
         }
     }

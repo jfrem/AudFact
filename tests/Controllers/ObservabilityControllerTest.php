@@ -47,30 +47,6 @@ final class ObservabilityControllerTest extends TestCase
         $this->assertSame(2, $data['streamDepths']['documents']);
         $this->assertSame(12, $data['queueDepth']); // 1+2+5+0+4
         $this->assertSame(6, $data['deadLetterDepth']);
-        $this->assertSame(0, $data['reconciliationAnomalies']);
-    }
-
-    public function testAsyncMetricsIncludesReconciliationAnomalies(): void
-    {
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('xPending')->willReturn(0);
-        $redis->method('xLen')->willReturn(0);
-        $redis->method('hGetAll')->willReturn([
-            'reconciliation_anomalies' => '5',
-            'retries' => '2',
-            'terminal_failures' => '1',
-        ]);
-        $controller = new TestableObservabilityController($redis);
-
-        $response = self::captureResponse(
-            static fn() => $controller->asyncMetrics()
-        );
-        $data = $response->getData()['data'];
-
-        $this->assertSame(200, $response->getCode());
-        $this->assertSame(5, $data['reconciliationAnomalies']);
-        $this->assertSame(2, $data['retries']);
-        $this->assertSame(1, $data['terminalFailures']);
     }
 
     private static function captureResponse(callable $callback): HttpResponseException

@@ -10,9 +10,7 @@ composer.lock
 
 # Logs, Caché y Archivos Temporales
 *.log
-*.log.*
-/logs/*
-!/logs/.gitkeep
+/logs/*.log
 /logs/ratelimit.json
 /logs/ratelimit.lock
 /logs/responseIA/

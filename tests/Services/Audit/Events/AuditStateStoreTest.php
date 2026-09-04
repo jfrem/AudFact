@@ -374,27 +374,4 @@ final class AuditStateStoreTest extends TestCase
             'queue_wait_ms' => 123,
         ]));
     }
-
-    public function testRecordFailedReconciliationIncrementsMetric(): void
-    {
-        $auditId = AuditEvent::uuidV4();
-        $payload = [
-            'error' => 'Reconciliation failed',
-            'state_reverted' => false,
-        ];
-
-        $this->redis
-            ->expects($this->once())
-            ->method('set')
-            ->with("audit:reconcile:dlq:{$auditId}", json_encode($payload, JSON_UNESCAPED_UNICODE), 604800)
-            ->willReturn(true);
-
-        $this->redis
-            ->expects($this->once())
-            ->method('hIncrBy')
-            ->with('telemetry:async_metrics', 'reconciliation_anomalies', 1)
-            ->willReturn(1);
-
-        $this->assertTrue($this->store->recordFailedReconciliation($auditId, $payload));
-    }
 }

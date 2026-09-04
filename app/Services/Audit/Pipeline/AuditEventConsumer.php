@@ -53,17 +53,7 @@ abstract class AuditEventConsumer
             max($this->blockMs * 2, 30_000),
             5_000
         );
-        $this->leaseTtlSeconds = self::positiveEnvInt(
-            'AUDIT_CONSUMER_LEASE_TTL_SECONDS',
-            self::DEFAULT_LEASE_TTL_SECONDS,
-            60
-        );
     }
-
-    public const DEFAULT_LEASE_TTL_SECONDS = 900;
-    protected int $leaseTtlSeconds;
-    protected ?string $currentProcessingEventId = null;
-    protected ?string $currentLeaseToken = null;
 
     /**
      * @return array<int, string>
@@ -240,40 +230,8 @@ abstract class AuditEventConsumer
         $publishedAt = self::resolvePublishedAt($streamId, $event->timestamp);
         $handleStart = hrtime(true);
 
-        // Idempotencia y exclusión atómica de consumo con token propietario único (QUAL-009):
-        $leaseToken = AuditEvent::uuidV4();
-        $leaseStatus = $this->claimEventProcessingLease($event->eventId, $leaseToken);
-        if ($leaseStatus === 'completed') {
-            Logger::info('AuditEventConsumer: Evento duplicado omitido por deduplicación atómica', [
-                'event_id' => $event->eventId,
-                'event_type' => $event->eventType,
-                'group' => $this->group(),
-                'stream' => $streamName,
-                'stream_id' => $streamId,
-            ]);
-            $this->ackMessage($streamName, $streamId);
-            return;
-        }
-
-        if ($leaseStatus === 'processing') {
-            Logger::warning('AuditEventConsumer: Evento en procesamiento concurrente por otra réplica; omitiendo ejecución duplicada', [
-                'event_id' => $event->eventId,
-                'event_type' => $event->eventType,
-                'group' => $this->group(),
-                'stream' => $streamName,
-                'stream_id' => $streamId,
-            ]);
-            return;
-        }
-
-        $this->currentProcessingEventId = $event->eventId;
-        $this->currentLeaseToken = $leaseToken;
-
         try {
             $this->handle($event);
-            if (!$this->markEventCompleted($event->eventId, $leaseToken)) {
-                throw new RuntimeException("AuditEventConsumer: lease ownership lost for event {$event->eventId}; unable to mark completed");
-            }
             $handleDurationMs = self::elapsedMs($handleStart);
             $ackStart = hrtime(true);
             $this->ackMessage($streamName, $streamId);
@@ -300,10 +258,7 @@ abstract class AuditEventConsumer
                 self::elapsedMs($handleStart),
                 $e
             );
-            $this->handleFailure($event, $streamName, $streamId, $e, $leaseToken);
-        } finally {
-            $this->currentProcessingEventId = null;
-            $this->currentLeaseToken = null;
+            $this->handleFailure($event, $streamName, $streamId, $e);
         }
     }
 
@@ -489,13 +444,8 @@ abstract class AuditEventConsumer
         return max($minimum, $value);
     }
 
-    protected function handleFailure(
-        AuditEvent $event,
-        string $streamName,
-        string $streamId,
-        Throwable $error,
-        string $leaseToken = ''
-    ): void {
+    private function handleFailure(AuditEvent $event, string $streamName, string $streamId, Throwable $error): void
+    {
         $attempts = $this->incrementAttempts($event->eventId);
 
         Logger::warning('AuditEventConsumer: fallo procesando evento', [
@@ -519,82 +469,8 @@ abstract class AuditEventConsumer
             || $error instanceof AttachmentDownloadException;
 
         if ($attempts >= $this->maxRetries || $nonRetryable) {
-            // 1. DLQ confirmado primero (QUAL-011)
-            $dlqPublished = $this->sendToDeadLetter($event, $streamName, $streamId, $attempts, $error, $leaseToken);
-            if (!$dlqPublished) {
-                Logger::critical('AuditEventConsumer: DLQ falló al publicar; mensaje retenido en PEL sin ACK', [
-                    'event_id' => $event->eventId,
-                    'stream' => $streamName,
-                    'stream_id' => $streamId,
-                    'attempts' => $attempts,
-                    'error' => $error->getMessage(),
-                ]);
-                $this->releaseEventLease($event->eventId, $leaseToken);
-                return;
-            }
-
-            // 2. Efectos terminales validados: auditoría, job y reserva (QUAL-011)
-            $finalized = $this->finalizeDeadLetterAudit($event, $error, $leaseToken);
-            if (!$finalized) {
-                Logger::critical('AuditEventConsumer: finalización terminal de auditoría falló post-DLQ; mensaje retenido en PEL sin ACK', [
-                    'event_id' => $event->eventId,
-                    'audit_id' => $event->auditId,
-                    'error' => $error->getMessage(),
-                ]);
-                $this->releaseEventLease($event->eventId, $leaseToken);
-                return;
-            }
-
-            // 3. Hook terminal ANTES de deduplicación (QUAL-018), con idempotencia y ownership (QUAL-011)
-            $hookKey = "terminal:hook:{$this->group()}:{$event->eventId}";
-            try {
-                $hookExecuted = $this->executeTerminalActionWithOwnership(
-                    $hookKey,
-                    $leaseToken,
-                    function () use ($event, $error): bool {
-                        $this->afterTerminalFailure($event, $error);
-                        return true;
-                    }
-                );
-                if (!$hookExecuted) {
-                    Logger::warning('AuditEventConsumer: hook terminal en ejecución concurrente por otra réplica; reteniendo en PEL', [
-                        'event_id' => $event->eventId,
-                    ]);
-                    $this->releaseEventLease($event->eventId, $leaseToken);
-                    return;
-                }
-            } catch (Throwable $hookEx) {
-                Logger::critical('AuditEventConsumer: afterTerminalFailure falló; reteniendo en PEL para reintento', [
-                    'event_id' => $event->eventId,
-                    'audit_id' => $event->auditId,
-                    'hook_error' => $hookEx->getMessage(),
-                    'original_error' => $error->getMessage(),
-                ]);
-                $this->releaseEventLease($event->eventId, $leaseToken);
-                return;
-            }
-
-            // 4. Verificación de titularidad de lease / deduplicación ANTES de ACK (QUAL-009)
-            $markedCompleted = false;
-            try {
-                $markedCompleted = $this->markEventCompleted($event->eventId, $leaseToken);
-            } catch (Throwable $luaEx) {
-                Logger::error('AuditEventConsumer: excepción en markEventCompleted en camino terminal', [
-                    'event_id' => $event->eventId,
-                    'error' => $luaEx->getMessage(),
-                ]);
-                $markedCompleted = false;
-            }
-
-            if (!$markedCompleted) {
-                Logger::critical('AuditEventConsumer: lease ownership perdido en camino terminal; no se confirma ACK para preservar PEL', [
-                    'event_id' => $event->eventId,
-                    'lease_token' => $leaseToken,
-                ]);
-                // Conservar el PEL: NO ackMessage, NO clearAttempts
-                return;
-            }
-
+            $this->finalizeDeadLetterAudit($event, $error);
+            $this->sendToDeadLetter($event, $streamName, $streamId, $attempts, $error);
             Logger::critical('Evento enviado a DLQ tras agotar reintentos', [
                 'alert_type'  => 'dlq_event',
                 'audit_id'    => $event->auditId,
@@ -603,329 +479,64 @@ abstract class AuditEventConsumer
                 'attempts'    => $attempts,
                 'error'       => $error->getMessage(),
             ]);
+            $this->afterTerminalFailure($event, $error);
             $this->ackMessage($streamName, $streamId);
             $this->clearAttempts($event->eventId);
-        } else {
-            // Reintento transitorio: liberar el lease para permitir que la siguiente entrega lo reclame
-            $this->releaseEventLease($event->eventId, $leaseToken);
         }
     }
 
-    /**
-     * Reclama el lease de procesamiento atómico para un evento (QUAL-009).
-     * Retorna 'acquired', 'processing' o 'completed'.
-     */
-    protected function claimEventProcessingLease(string $eventId, string $leaseToken): string
-    {
-        if ($eventId === '') {
-            return 'acquired';
-        }
-
-        $key = "dedup:{$this->group()}:{$eventId}";
-        $ttl = $this->leaseTtlSeconds;
-
-        $lua = <<<'LUA'
-local key = KEYS[1]
-local leaseToken = ARGV[1]
-local ttl = tonumber(ARGV[2])
-
-local current = redis.call('GET', key)
-if current == 'completed' then
-    return 'completed'
-end
-
-if current and string.sub(current, 1, 11) == 'processing:' then
-    return 'processing'
-end
-
-redis.call('SET', key, 'processing:' .. leaseToken, 'EX', ttl)
-return 'acquired'
-LUA;
-
-        try {
-            $result = $this->redis->eval($lua, [$key], [$leaseToken, (string) $ttl]);
-            if (is_string($result) && $result !== '') {
-                return $result;
-            }
-        } catch (Throwable) {
-        }
-
-        try {
-            $current = $this->redis->get($key);
-            if ($current === 'completed') {
-                return 'completed';
-            }
-            if (is_string($current) && str_starts_with($current, 'processing:')) {
-                return 'processing';
-            }
-            $acquired = $this->redis->setnx($key, "processing:{$leaseToken}", $ttl);
-            return $acquired === true ? 'acquired' : 'processing';
-        } catch (Throwable) {
-            return 'processing';
-        }
-    }
-
-    /**
-     * Marca un evento como completado atómicamente si el token coincide (QUAL-009).
-     */
-    protected function markEventCompleted(string $eventId, string $leaseToken): bool
-    {
-        if ($eventId === '') {
-            return true;
-        }
-
-        $key = "dedup:{$this->group()}:{$eventId}";
-        $ttl = 86400; // Retención de 24h para deduplicación
-
-        $lua = <<<'LUA'
-local key = KEYS[1]
-local leaseToken = ARGV[1]
-local ttl = tonumber(ARGV[2])
-
-local current = redis.call('GET', key)
-if current == ('processing:' .. leaseToken) then
-    redis.call('SET', key, 'completed', 'EX', ttl)
-    return 1
-end
-return 0
-LUA;
-
-        try {
-            $result = $this->redis->eval($lua, [$key], [$leaseToken, (string) $ttl]);
-            if ($result !== false && $result !== null) {
-                return (int) $result === 1;
-            }
-        } catch (Throwable $e) {
-            Logger::error('AuditEventConsumer: fallo eval Lua en markEventCompleted', [
-                'event_id' => $eventId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return false;
-    }
-
-    /**
-     * Renueva el TTL del lease atómicamente si y sólo si el token propietario coincide (QUAL-009).
-     */
-    public function renewEventLease(
-        string $eventId,
-        string $leaseToken,
-        ?int $extensionSeconds = null
-    ): bool {
-        if ($eventId === '' || $leaseToken === '') {
-            return false;
-        }
-
-        $ttl = $extensionSeconds ?? $this->leaseTtlSeconds;
-        $key = "dedup:{$this->group()}:{$eventId}";
-
-        $lua = <<<'LUA'
-local key = KEYS[1]
-local leaseToken = ARGV[1]
-local newTtl = tonumber(ARGV[2])
-
-local current = redis.call('GET', key)
-if current == ('processing:' .. leaseToken) then
-    redis.call('EXPIRE', key, newTtl)
-    return 1
-end
-return 0
-LUA;
-
-        try {
-            $result = $this->redis->eval($lua, [$key], [$leaseToken, (string) $ttl]);
-            if ($result !== false && $result !== null) {
-                return (int) $result === 1;
-            }
-        } catch (Throwable $e) {
-            Logger::error('AuditEventConsumer: fallo eval Lua en renewEventLease', [
-                'event_id' => $eventId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return false;
-    }
-
-    /**
-     * Indica si hay un lease activo registrado en el contexto de ejecución de este consumidor.
-     */
-    public function hasActiveLease(): bool
-    {
-        return $this->currentProcessingEventId !== null && $this->currentLeaseToken !== null;
-    }
-
-    /**
-     * Renueva activamente el lease del evento actualmente en procesamiento por este consumidor (QUAL-009).
-     *
-     * @param int|null $extensionSeconds Segundos de extensión (null usa el TTL por defecto)
-     * @return bool True si la renovación atómica tuvo éxito y el token sigue siendo propietario
-     */
-    public function renewActiveLease(?int $extensionSeconds = null): bool
-    {
-        if (!$this->hasActiveLease()) {
-            return false;
-        }
-
-        return $this->renewEventLease(
-            (string) $this->currentProcessingEventId,
-            (string) $this->currentLeaseToken,
-            $extensionSeconds
-        );
-    }
-
-    /**
-     * Valida si el lease actual sigue siendo válido y vigente en Redis (Fencing check).
-     * Si no hay lease activo en el contexto actual (ej: invocación directa/unitaria), retorna true.
-     *
-     * @return bool True si la clave en Redis coincide exactamente con "processing:{$this->currentLeaseToken}" o no hay contexto
-     */
-    public function isCurrentLeaseValid(): bool
-    {
-        if ($this->currentProcessingEventId === null || $this->currentLeaseToken === null) {
-            return true;
-        }
-
-        try {
-            $key = "dedup:{$this->group()}:{$this->currentProcessingEventId}";
-            $current = $this->redis->get($key);
-            return is_string($current) && $current === "processing:{$this->currentLeaseToken}";
-        } catch (Throwable) {
-            return false;
-        }
-    }
-
-    /**
-     * Guarda de fencing: verifica que el lease siga perteneciendo a esta réplica antes de realizar
-     * operaciones con efectos colaterales. Lanza RuntimeException si se perdió la propiedad (QUAL-009).
-     *
-     * @throws RuntimeException
-     */
-    public function ensureActiveLease(string $operationContext = ''): void
-    {
-        if (!$this->isCurrentLeaseValid()) {
-            $opSuffix = $operationContext !== '' ? " antes de {$operationContext}" : '';
-            throw new RuntimeException("AuditEventConsumer [{$this->group()}]: titularidad de lease perdida para evento {$this->currentProcessingEventId}{$opSuffix}");
-        }
-    }
-
-    /**
-     * Libera el lease de procesamiento con compare-and-delete atómico (QUAL-009).
-     * Exige token no vacío para garantizar que nunca se elimine incondicionalmente el lease de otra réplica.
-     */
-    protected function releaseEventLease(string $eventId, string $leaseToken): bool
-    {
-        if ($eventId === '' || $leaseToken === '') {
-            return false;
-        }
-
-        $key = "dedup:{$this->group()}:{$eventId}";
-
-        $lua = <<<'LUA'
-local key = KEYS[1]
-local leaseToken = ARGV[1]
-
-local current = redis.call('GET', key)
-if current == ('processing:' .. leaseToken) then
-    redis.call('DEL', key)
-    return 1
-end
-return 0
-LUA;
-
-        try {
-            $result = $this->redis->eval($lua, [$key], [$leaseToken]);
-            if ($result !== false && $result !== null) {
-                return (int) $result === 1;
-            }
-        } catch (Throwable $e) {
-            Logger::error('AuditEventConsumer: fallo eval Lua en releaseEventLease', [
-                'event_id' => $eventId,
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        return false;
-    }
-
-    private function finalizeDeadLetterAudit(AuditEvent $event, Throwable $error, string $leaseToken = ''): bool
+    private function finalizeDeadLetterAudit(AuditEvent $event, Throwable $error): void
     {
         if ($event->auditId === null) {
-            return true;
+            return;
         }
 
-        // QUAL-011: Acción idempotente con ownership y cleanup fail-closed
-        $finalizeKey = "terminal:finalized:{$event->auditId}:{$event->eventId}";
-
-        return $this->executeTerminalActionWithOwnership(
-            $finalizeKey,
-            $leaseToken,
-            function () use ($event, $error): bool {
-                $stateStore = new AuditStateStore($this->redis);
-                $jobStore = new BatchJobStore($this->redis);
-                $audit = $stateStore->getAudit($event->auditId);
-                if ($audit === null) {
-                    return true;
-                }
-
-                $failedPayload = [
-                    'status' => AuditStateStore::AUDIT_STATUS_FAILED,
-                    'requires_manual_review' => true,
-                    'detail_error' => $error->getMessage(),
-                    'failed_stage' => static::class,
-                    'failed_event_type' => $event->eventType,
-                ];
-
-                $completed = $stateStore->completeAudit($event->auditId, $failedPayload);
-                if (!$completed) {
-                    Logger::error('AuditEventConsumer: completeAudit retornó false durante finalización DLQ', [
-                        'event_id' => $event->eventId,
-                        'audit_id' => $event->auditId,
-                    ]);
-                    return false;
-                }
-
-                if ($event->jobId !== null) {
-                    $jobMarked = $jobStore->markAuditCompletedInJob(
-                        $event->jobId,
-                        $event->auditId,
-                        AuditStateStore::AUDIT_STATUS_FAILED,
-                        0,
-                        $failedPayload['failed_stage']
-                    );
-                    if (!$jobMarked) {
-                        Logger::error('AuditEventConsumer: markAuditCompletedInJob retornó false durante finalización DLQ', [
-                            'event_id' => $event->eventId,
-                            'job_id' => $event->jobId,
-                            'audit_id' => $event->auditId,
-                        ]);
-                        return false;
-                    }
-                    $this->publishBatchTerminalEventIfNeeded($jobStore, $event->jobId, $event->auditId, $event->eventId);
-                }
-
-                $released = $jobStore->releaseAuditReservationFromAudit($audit);
-                if (!$released) {
-                    Logger::error('AuditEventConsumer: releaseAuditReservationFromAudit retornó false durante finalización DLQ', [
-                        'event_id' => $event->eventId,
-                        'audit_id' => $event->auditId,
-                    ]);
-                    return false;
-                }
-
-                $this->publisher->publish(AuditEvent::create(
-                    eventType: AuditEvent::TYPE_AUDIT_FAILED,
-                    auditId: $event->auditId,
-                    jobId: $event->jobId,
-                    documentId: $event->documentId,
-                    payload: array_merge($failedPayload, ['failed_at' => gmdate('Y-m-d\TH:i:s\Z')]),
-                    parentEventId: $event->eventId,
-                ));
-
-                return true;
+        try {
+            $stateStore = new AuditStateStore($this->redis);
+            $jobStore = new BatchJobStore($this->redis);
+            $audit = $stateStore->getAudit($event->auditId);
+            if ($audit === null) {
+                return;
             }
-        );
+
+            $failedPayload = [
+                'status' => AuditStateStore::AUDIT_STATUS_FAILED,
+                'requires_manual_review' => true,
+                'detail_error' => $error->getMessage(),
+                'failed_stage' => static::class,
+                'failed_event_type' => $event->eventType,
+            ];
+
+            $stateStore->completeAudit($event->auditId, $failedPayload);
+
+            if ($event->jobId !== null) {
+                $jobStore->markAuditCompletedInJob(
+                    $event->jobId,
+                    $event->auditId,
+                    AuditStateStore::AUDIT_STATUS_FAILED,
+                    0,
+                    $failedPayload['failed_stage']
+                );
+                $this->publishBatchTerminalEventIfNeeded($jobStore, $event->jobId, $event->auditId, $event->eventId);
+            }
+
+            $jobStore->releaseAuditReservationFromAudit($audit);
+
+            $this->publisher->publish(AuditEvent::create(
+                eventType: AuditEvent::TYPE_AUDIT_FAILED,
+                auditId: $event->auditId,
+                jobId: $event->jobId,
+                documentId: $event->documentId,
+                payload: array_merge($failedPayload, ['failed_at' => gmdate('Y-m-d\TH:i:s\Z')]),
+                parentEventId: $event->eventId,
+            ));
+        } catch (Throwable $finalizeError) {
+            Logger::error('AuditEventConsumer: no se pudo cerrar auditoría antes de DLQ', [
+                'event_id' => $event->eventId,
+                'audit_id' => $event->auditId,
+                'error' => $finalizeError->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -949,184 +560,57 @@ LUA;
             default => null,
         };
 
-        if ($eventType === null) {
+        if ($eventType === null || !$jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
             return;
         }
 
-        $claimToken = bin2hex(random_bytes(8));
-        if (!$jobStore->claimBatchTerminalEvent($jobId, $eventType, $claimToken)) {
-            return;
-        }
+        $this->publisher->publish(AuditEvent::create(
+            eventType: $eventType,
+            auditId: $auditId,
+            jobId: $jobId,
+            payload: [
+                'status' => $jobStatus,
+                'total' => (int) ($job['total'] ?? 0),
+                'done' => (int) ($job['done'] ?? 0),
+                'failed' => (int) ($job['failed'] ?? 0),
+            ],
+            parentEventId: $parentEventId,
+        ));
+    }
+
+    private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error): void
+    {
+        $deadLetter = AuditEvent::create(
+            eventType: AuditEvent::TYPE_DEAD_LETTER,
+            auditId: $event->auditId,
+            jobId: $event->jobId,
+            documentId: $event->documentId,
+            payload: [
+                'failed_event_type'  => $event->eventType,
+                'failed_stream'      => $streamName,
+                'failed_stage'       => static::class,
+                'failed_stream_id'   => $streamId,
+                'attempts'           => $attempts,
+                'last_error_code'    => self::errorCode($error),
+                'last_error_message' => $error->getMessage(),
+                'original_event'     => $event->toArray(),
+            ],
+            parentEventId: $event->eventId,
+        );
 
         try {
-            $this->publisher->publish(AuditEvent::create(
-                eventType: $eventType,
-                auditId: $auditId,
-                jobId: $jobId,
-                payload: [
-                    'status' => $jobStatus,
-                    'total' => (int) ($job['total'] ?? 0),
-                    'done' => (int) ($job['done'] ?? 0),
-                    'failed' => (int) ($job['failed'] ?? 0),
-                ],
-                parentEventId: $parentEventId,
-            ));
-            if (!$jobStore->confirmBatchTerminalEvent($jobId, $eventType, $claimToken)) {
-                Logger::warning('AuditEventConsumer: confirm terminal falló (CAS perdido), evento ya publicado por otro proceso', [
-                    'job_id' => $jobId,
-                    'event_type' => $eventType,
-                ]);
+            $this->publisher->publishDeadLetter($deadLetter);
+            
+            try {
+                $this->redis->hIncrBy('telemetry:async_metrics', 'terminal_failures', 1);
+            } catch (\Throwable $e) {
+                // Ignore telemetry errors
             }
-        } catch (\Throwable $e) {
-            $jobStore->releaseBatchTerminalEvent($jobId, $claimToken);
-            Logger::error('AuditEventConsumer: falló publicación de evento terminal batch, claim liberado para reintento', [
-                'job_id' => $jobId,
-                'event_type' => $eventType,
+        } catch (RuntimeException $e) {
+            Logger::error('AuditEventConsumer: no se pudo publicar dead_letter', [
+                'event_id' => $event->eventId,
                 'error' => $e->getMessage(),
             ]);
-            throw $e;
-        }
-    }
-
-    private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error, string $leaseToken = ''): bool
-    {
-        // QUAL-011: Acción idempotente con ownership y cleanup fail-closed
-        $idempotencyKey = "dlq:sent:{$this->group()}:{$event->eventId}";
-
-        return $this->executeTerminalActionWithOwnership(
-            $idempotencyKey,
-            $leaseToken,
-            function () use ($event, $streamName, $streamId, $attempts, $error): bool {
-                $deadLetterEventId = AuditEvent::deterministicUuidV4('dlq:' . $event->eventId);
-                $deadLetter = AuditEvent::create(
-                    eventType: AuditEvent::TYPE_DEAD_LETTER,
-                    auditId: $event->auditId,
-                    jobId: $event->jobId,
-                    documentId: $event->documentId,
-                    payload: [
-                        'failed_event_type'  => $event->eventType,
-                        'failed_stream'      => $streamName,
-                        'failed_stage'       => static::class,
-                        'failed_stream_id'   => $streamId,
-                        'attempts'           => $attempts,
-                        'last_error_code'    => self::errorCode($error),
-                        'last_error_message' => $error->getMessage(),
-                        'original_event'     => $event->toArray(),
-                    ],
-                    parentEventId: $event->eventId,
-                    eventId: $deadLetterEventId,
-                );
-
-                try {
-                    $dlqStreamId = $this->publisher->publishDeadLetter($deadLetter);
-                    if (!is_string($dlqStreamId) || $dlqStreamId === '') {
-                        Logger::error('AuditEventConsumer: publishDeadLetter retornó stream_id vacío', [
-                            'event_id' => $event->eventId,
-                        ]);
-                        return false;
-                    }
-
-                    try {
-                        $this->redis->hIncrBy('telemetry:async_metrics', 'terminal_failures', 1);
-                    } catch (\Throwable $e) {
-                        // Ignore telemetry errors
-                    }
-
-                    return true;
-                } catch (\Throwable $e) {
-                    Logger::error('AuditEventConsumer: no se pudo publicar dead_letter', [
-                        'event_id' => $event->eventId,
-                        'error' => $e->getMessage(),
-                    ]);
-                    return false;
-                }
-            }
-        );
-    }
-
-    private const CLAIM_TERMINAL_ACTION_LUA = <<<'LUA'
-        local current = redis.call('GET', KEYS[1])
-        if current == 'completed' then return 2 end
-        if current == false then
-            redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
-            return 1
-        end
-        if current == ARGV[1] then return 1 end
-        return 0
-    LUA;
-
-    private const COMPLETE_TERMINAL_ACTION_LUA = <<<'LUA'
-        local current = redis.call('GET', KEYS[1])
-        if current ~= ARGV[1] then return 0 end
-        redis.call('SET', KEYS[1], 'completed', 'EX', tonumber(ARGV[2]))
-        return 1
-    LUA;
-
-    private const RELEASE_TERMINAL_ACTION_LUA = <<<'LUA'
-        local current = redis.call('GET', KEYS[1])
-        if current ~= ARGV[1] then return 0 end
-        redis.call('DEL', KEYS[1])
-        return 1
-    LUA;
-
-    /**
-     * Ejecuta una acción terminal idempotente con ownership atómico via Lua (QUAL-003).
-     *
-     * @param string $key Clave de tracking en Redis
-     * @param string $leaseToken Token propietario del worker
-     * @param callable():bool $action Acción a ejecutar
-     * @return bool True si ya estaba completada o si se completó exitosamente; false si falló o está ocupada por otra réplica.
-     */
-    private function executeTerminalActionWithOwnership(string $key, string $leaseToken, callable $action): bool
-    {
-        $claimToken = "processing:{$leaseToken}";
-
-        // Reclamo atómico: 2=completado, 1=adquirido, 0=ocupado por otra réplica
-        $claimResult = (int) $this->redis->eval(
-            self::CLAIM_TERMINAL_ACTION_LUA,
-            [$key],
-            [$claimToken, 120]
-        );
-
-        if ($claimResult === 2) {
-            return true; // Ya completada previamente (idempotente)
-        }
-
-        if ($claimResult === 0) {
-            return false; // Ocupada por otra réplica — fail-closed, retener en PEL
-        }
-
-        try {
-            $success = $action();
-            if ($success) {
-                // CAS: solo completar si sigo siendo el propietario
-                $completed = (int) $this->redis->eval(
-                    self::COMPLETE_TERMINAL_ACTION_LUA,
-                    [$key],
-                    [$claimToken, 86400]
-                );
-                return $completed === 1;
-            }
-
-            // Fail-closed: liberar claim solo si soy propietario
-            $this->releaseTerminalActionClaim($key, $claimToken);
-            return false;
-        } catch (Throwable $e) {
-            $this->releaseTerminalActionClaim($key, $claimToken);
-            throw $e;
-        }
-    }
-
-    private function releaseTerminalActionClaim(string $key, string $claimToken): void
-    {
-        try {
-            $this->redis->eval(
-                self::RELEASE_TERMINAL_ACTION_LUA,
-                [$key],
-                [$claimToken]
-            );
-        } catch (Throwable) {
-            // Compensación de mejor esfuerzo — el TTL de 120s actúa como fallback
         }
     }
 

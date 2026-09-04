@@ -109,8 +109,6 @@ final class BatchRequestedWorker extends AuditEventConsumer
             'limit'       => $limit,
         ]);
 
-        $this->ensureActiveLease('orquestar lote batch');
-
         $orchestrator = new AuditBatchOrchestrator(
             $this->stateStore,
             $this->jobStore,

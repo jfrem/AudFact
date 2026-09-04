@@ -121,7 +121,7 @@ final class AuditControllerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_BATCH_REQUESTED, $publisher->published[0]->eventType);
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
-
+        
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
 
@@ -129,7 +129,7 @@ final class AuditControllerTest extends TestCase
     {
         $jobStore = $this->newJobStoreStub();
         $jobStore->claimIdempotencyKeyReturns = 'existing-job-id-456';
-
+        
         $controller = new TestableAuditController(
             body: [
                 'facNitSec' => 2426,
@@ -144,7 +144,7 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(409, $response->getCode());
         $this->assertSame('existing-job-id-456', $response->getData()['data']['job_id']);
-
+        
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
 
@@ -684,9 +684,8 @@ class StubBatchJobStore extends BatchJobStore
         string $jobId,
         string $auditId,
         string $disDetNro,
-        ?string $disId = null,
-        ?string $reservationToken = null,
-        ?string $eventId = null
+        ?string $facSec = null,
+        ?string $reservationToken = null
     ): bool
     {
         return true;

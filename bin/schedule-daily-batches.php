@@ -2,21 +2,19 @@
 <?php
 
 /**
- * schedule-daily-batches.php — Encola auditorías batch para todos los clientes configurados
- * utilizando el despachador equitativo Round-Robin Multi-Job y Multi-Cliente (Fair Queuing).
+ * schedule-daily-batches.php — Encola auditorías batch para todos los clientes configurados.
  *
  * Uso:
- *   php bin/schedule-daily-batches.php [--date-from=YYYY-MM-DD] [--date-to=YYYY-MM-DD] [--limit=N] [--chunk-size=K] [--dry-run]
+ *   php bin/schedule-daily-batches.php [--date-from=YYYY-MM-DD] [--date-to=YYYY-MM-DD] [--limit=N] [--dry-run]
  *
  * Defaults:
- *   --date-from   Primer día del año en curso
- *   --date-to     Fecha actual
- *   --limit       AUDIT_BATCH_CRON_LIMIT (default: 3000)
- *   --chunk-size  MultiClientBatchDispatcher::DEFAULT_CHUNK_SIZE (default: 20)
- *   --dry-run     Solo muestra qué haría, sin publicar eventos
+ *   --date-from  Primer día del año en curso
+ *   --date-to    Fecha actual
+ *   --limit      AUDIT_BATCH_CRON_LIMIT (default: 5000)
+ *   --dry-run    Solo muestra qué haría, sin publicar eventos
  *
  * Variables de entorno:
- *   AUDIT_BATCH_CRON_LIMIT  Límite por cliente cuando --limit no se especifica (default: 3000)
+ *   AUDIT_BATCH_CRON_LIMIT  Límite por cliente cuando --limit no se especifica (default: 5000)
  */
 
 declare(strict_types=1);
@@ -25,10 +23,8 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Models\ClientsModel;
 use App\Models\AuditConfigModel;
-use App\Models\InvoicesModel;
-use App\Services\Audit\MultiClientBatchDispatcher;
+use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
-use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\Env;
 use Core\Logger;
@@ -37,7 +33,7 @@ Env::load();
 
 // ─── Parse CLI arguments ─────────────────────────────────────────────────────
 
-$options = getopt('', ['date-from:', 'date-to:', 'limit:', 'chunk-size:', 'dry-run']);
+$options = getopt('', ['date-from:', 'date-to:', 'limit:', 'dry-run']);
 
 $dateFrom = isset($options['date-from']) && is_string($options['date-from']) && $options['date-from'] !== ''
     ? $options['date-from']
@@ -47,14 +43,10 @@ $dateTo = isset($options['date-to']) && is_string($options['date-to']) && $optio
     ? $options['date-to']
     : date('Y-m-d');
 
-$envLimit = max(1, (int) Env::get('AUDIT_BATCH_CRON_LIMIT', 3000));
+$envLimit = max(1, (int) \Core\Env::get('AUDIT_BATCH_CRON_LIMIT', 5000));
 $limit = isset($options['limit']) && is_numeric($options['limit'])
     ? max(1, (int) $options['limit'])
     : $envLimit;
-
-$chunkSize = isset($options['chunk-size']) && is_numeric($options['chunk-size'])
-    ? max(1, (int) $options['chunk-size'])
-    : MultiClientBatchDispatcher::DEFAULT_CHUNK_SIZE;
 
 $dryRun = array_key_exists('dry-run', $options);
 
@@ -77,63 +69,143 @@ if ($dtFrom > $dtTo) {
 
 $mode = $dryRun ? '[DRY-RUN] ' : '';
 
-fwrite(STDOUT, "\n{$mode}AudFact — Despachador Equitativo Multi-Cliente (Fair Queuing)\n");
-fwrite(STDOUT, "Rango: {$dateFrom} → {$dateTo} | Límite por cliente: {$limit} | Tamaño ventana Round-Robin: {$chunkSize}\n\n");
+fwrite(STDOUT, "\n{$mode}AudFact — Schedule Daily Batches\n");
+fwrite(STDOUT, "Rango: {$dateFrom} → {$dateTo} | Límite por cliente: {$limit}\n\n");
 
-Logger::info('schedule-daily-batches: iniciando despacho equitativo', [
-    'date_from'  => $dateFrom,
-    'date_to'    => $dateTo,
-    'limit'      => $limit,
-    'chunk_size' => $chunkSize,
-    'dry_run'    => $dryRun,
+Logger::info('schedule-daily-batches: iniciando', [
+    'date_from' => $dateFrom,
+    'date_to'   => $dateTo,
+    'limit'     => $limit,
+    'dry_run'   => $dryRun,
 ]);
 
-// ─── Build dependencies & Dispatcher ─────────────────────────────────────────
+// ─── Load clients ────────────────────────────────────────────────────────────
 
-$dispatcher = new MultiClientBatchDispatcher(
-    new ClientsModel(),
-    new AuditConfigModel(),
-    new InvoicesModel(),
-    new BatchJobStore(),
-    new AuditStateStore(),
-    new AuditEventPublisher()
-);
+$clientsModel = new ClientsModel();
+$configModel  = new AuditConfigModel();
 
-$progressCallback = static function (string $phase, array $data): void {
-    match ($phase) {
-        'recovery_started'    => fwrite(STDOUT, "  [0/3] Verificando jobs sellados previos con auditorías pendientes de publicación...\n"),
-        'recovery_found'      => fwrite(STDOUT, sprintf("  ↳ Job recuperado %s (NitSec=%s, pendientes=%d)\n", $data['job_id'] ?? '', $data['fac_nit_sec'] ?? '', $data['pending_count'] ?? 0)),
-        'discovery_started'   => fwrite(STDOUT, "  [1/3] Descubriendo clientes activos y validando configuración...\n"),
-        'client_discovered'   => fwrite(STDOUT, sprintf("  ↳ Cliente NitSec=%s (%s): %s%s\n", $data['fac_nit_sec'] ?? '', $data['client_name'] ?? '', $data['status'] ?? '', isset($data['job_id']) ? " (job_id={$data['job_id']})" : '')),
-        'preparation_started' => fwrite(STDOUT, "  [2/3] Pre-cargando facturas y sellando lotes por cliente...\n"),
-        'client_prepared'     => fwrite(STDOUT, sprintf("  ↳ Lote sellado NitSec=%s: %d facturas encoladas (bloqueadas: %d, existentes: %d)\n", $data['fac_nit_sec'] ?? '', $data['enqueued'] ?? 0, $data['skipped_locked'] ?? 0, $data['skipped_existing'] ?? 0)),
-        'publishing_started'  => fwrite(STDOUT, "  [3/3] Despachando eventos Round-Robin en ventanas equitativas (Fair Queuing)...\n"),
-        'chunk_published'     => fwrite(STDOUT, sprintf("  ↳ Ventana despachada: Job %s (NitSec=%s) -> %d eventos (restantes: %d)\n", $data['job_id'] ?? '', $data['fac_nit_sec'] ?? '', $data['chunk_size'] ?? 0, $data['remaining'] ?? 0)),
-        default => null,
-    };
-};
+$clients = $clientsModel->getAllClients();
 
-// ─── Execute Dispatch ────────────────────────────────────────────────────────
+if (empty($clients)) {
+    fwrite(STDOUT, "No se encontraron clientes activos.\n");
+    Logger::warning('schedule-daily-batches: no se encontraron clientes activos');
+    exit(0);
+}
 
-$summary = $dispatcher->dispatch(
-    $dateFrom,
-    $dateTo,
-    $limit,
-    $chunkSize,
-    $dryRun,
-    $progressCallback
-);
+fwrite(STDOUT, "Clientes activos encontrados: " . count($clients) . "\n\n");
+
+// ─── Build dependencies ──────────────────────────────────────────────────────
+
+$jobStore  = new BatchJobStore();
+$publisher = new AuditEventPublisher();
+
+$idempotencyTtl = 14400; // 4h — una ejecución por ventana horaria por cliente
+
+// ─── Process each client ─────────────────────────────────────────────────────
+
+$summary = [
+    'queued'      => 0,
+    'skipped_no_config' => 0,
+    'skipped_duplicate' => 0,
+    'errors'      => 0,
+];
+
+foreach ($clients as $client) {
+    $facNitSec = (int) $client['NitSec'];
+    $clientName = trim((string) ($client['NitCom'] ?? ''));
+    $label = "NitSec={$facNitSec}";
+
+    // ── Check audit configuration ────────────────────────────────────────
+    $config = $configModel->getConfig((string) $facNitSec);
+
+    if ($config === null || !$config['activo'] || empty((array) $config['documents'])) {
+        fwrite(STDOUT, "  ⏭  {$label} ({$clientName}) — Sin configuración completa, omitido\n");
+        Logger::info('schedule-daily-batches: cliente sin configuración completa', [
+            'fac_nit_sec' => $facNitSec,
+        ]);
+        $summary['skipped_no_config']++;
+        continue;
+    }
+
+    // ── Dry-run shortcut ─────────────────────────────────────────────────
+    if ($dryRun) {
+        fwrite(STDOUT, "  ✓  {$label} ({$clientName}) — Se encolaría\n");
+        $summary['queued']++;
+        continue;
+    }
+
+    // ── Idempotency check ────────────────────────────────────────────────
+    $jobId = AuditEvent::uuidV4();
+    $idempotencyKey = 'cron-batch-' . date('Ymd-H') . '-' . $facNitSec;
+
+    try {
+        $existingJobId = $jobStore->claimIdempotencyKey($idempotencyKey, $jobId, $idempotencyTtl);
+    } catch (\RuntimeException $e) {
+        fwrite(STDERR, "  ✗  {$label} ({$clientName}) — Error de idempotencia: {$e->getMessage()}\n");
+        Logger::error('schedule-daily-batches: error idempotencia', [
+            'fac_nit_sec' => $facNitSec,
+            'error'       => $e->getMessage(),
+        ]);
+        $summary['errors']++;
+        continue;
+    }
+
+    if ($existingJobId !== null) {
+        fwrite(STDOUT, "  ⏭  {$label} ({$clientName}) — Ya encolado hoy (job_id={$existingJobId})\n");
+        Logger::info('schedule-daily-batches: cliente ya encolado', [
+            'fac_nit_sec'     => $facNitSec,
+            'existing_job_id' => $existingJobId,
+        ]);
+        $summary['skipped_duplicate']++;
+        continue;
+    }
+
+    // ── Init job and publish event ───────────────────────────────────────
+    try {
+        $jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_BATCH_REQUESTED,
+            auditId: null,
+            jobId: $jobId,
+            documentId: null,
+            payload: [
+                'fac_nit_sec' => (string) $facNitSec,
+                'date_from'   => $dateFrom,
+                'date_to'     => $dateTo,
+                'limit'       => $limit,
+                'source'      => 'cron',
+            ],
+        );
+
+        $publisher->publish($event);
+
+        fwrite(STDOUT, "  ✓  {$label} ({$clientName}) — Encolado (job_id={$jobId})\n");
+        Logger::info('schedule-daily-batches: batch encolado', [
+            'fac_nit_sec' => $facNitSec,
+            'job_id'      => $jobId,
+        ]);
+        $summary['queued']++;
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "  ✗  {$label} ({$clientName}) — Error: {$e->getMessage()}\n");
+        Logger::error('schedule-daily-batches: error encolando', [
+            'fac_nit_sec' => $facNitSec,
+            'job_id'      => $jobId,
+            'error'       => $e->getMessage(),
+        ]);
+        $summary['errors']++;
+    }
+}
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 
-fwrite(STDOUT, "\n{$mode}Resumen de Despacho Equitativo:\n");
-fwrite(STDOUT, sprintf("  • Clientes encolados:      %d\n", $summary['queued_clients']));
-fwrite(STDOUT, sprintf("  • Facturas totales:        %d\n", $summary['total_invoices_queued']));
-fwrite(STDOUT, sprintf("  • Clientes sin config:     %d\n", $summary['skipped_no_config']));
-fwrite(STDOUT, sprintf("  • Clientes duplicados/hoy: %d\n", $summary['skipped_duplicate']));
-fwrite(STDOUT, sprintf("  • Errores:                 %d\n\n", $summary['errors']));
+fwrite(STDOUT, "\n{$mode}Resumen: ");
+fwrite(STDOUT, "encolados={$summary['queued']} ");
+fwrite(STDOUT, "sin_config={$summary['skipped_no_config']} ");
+fwrite(STDOUT, "duplicados={$summary['skipped_duplicate']} ");
+fwrite(STDOUT, "errores={$summary['errors']}\n\n");
 
-Logger::info('schedule-daily-batches: despacho equitativo finalizado', $summary);
+Logger::info('schedule-daily-batches: finalizado', $summary);
 
 $exitCode = $summary['errors'] > 0 ? 1 : 0;
 exit($exitCode);
