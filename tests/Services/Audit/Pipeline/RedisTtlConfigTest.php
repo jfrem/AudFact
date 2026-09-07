@@ -10,7 +10,6 @@ use Core\Env;
 use Core\RedisClient;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
-use ReflectionProperty;
 
 final class RedisTtlConfigTest extends TestCase
 {
@@ -31,7 +30,7 @@ final class RedisTtlConfigTest extends TestCase
             putenv($key);
         }
 
-        $this->clearEnvCache();
+        Env::clearCache();
     }
 
     protected function tearDown(): void
@@ -45,7 +44,7 @@ final class RedisTtlConfigTest extends TestCase
             putenv("{$key}={$value}");
         }
 
-        $this->clearEnvCache();
+        Env::clearCache();
     }
 
     public function testBatchJobTtlDefaultIsSevenDays(): void
@@ -153,14 +152,6 @@ final class RedisTtlConfigTest extends TestCase
 
     private function setEnv(string $key, string $value): void
     {
-        putenv("{$key}={$value}");
-        $this->clearEnvCache();
-    }
-
-    private function clearEnvCache(): void
-    {
-        $property = new ReflectionProperty(Env::class, 'cache');
-        $property->setAccessible(true);
-        $property->setValue(null, []);
+        Env::set($key, $value);
     }
 }

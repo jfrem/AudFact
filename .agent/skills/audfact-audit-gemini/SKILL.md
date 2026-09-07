@@ -88,7 +88,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 | Stream | Productor | Eventos |
 |---|---|---|
-| `audit.batch.inbox` | `AuditController` | `batch_requested` |
+| `audit.batch.inbox` | `AuditController` / `BatchRequestedWorker` (re-encolado) | `batch_requested` (con cursor keyset y chunk_index para ingesta fair-queuing) |
 | `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
 | `audit.documents` | Orchestrator (`registered`/mapping `rejected`), Downloader (`downloaded`), Extractor (`extracted`/content `rejected`), Normalizer (`normalized`) | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
 | `audit.persistence:{queue}` | `AuditPersistenceQueue` | `rules_evaluated` |
@@ -100,15 +100,22 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 | Variable | Uso |
 |---|---|
-| `GEMINI_API_KEY` | Credencial obligatoria para el extractor |
+| `GEMINI_API_KEY` | Credencial obligatoria para el extractor (fallback general) |
+| `GEMINI_API_KEY_PRIORITY` | Credencial opcional dedicada para el carril VIP / prioritario (`--priority-only`) |
+| `GEMINI_API_KEY_BATCH` | Credencial opcional dedicada para el carril Batch / masivo (`--batch-only`) |
 | `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.5-flash`) |
 | `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica; en Gemini 3.1 dejar `THINKING_LEVEL` vacío si se desea omitir `thinkingConfig` |
+| `AUDIT_WORKER_LANE` | Filtro de carril en `AuditEventConsumer` (`all`, `priority`, `batch`) |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | Réplicas dedicadas para el worker VIP (`worker-extraction-vip`, default 2) |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | Réplicas dedicadas para el worker Batch (`worker-extraction-batch`, default 6) |
 | `AUDIT_STREAM_BLOCK_MS` | Bloqueo `XREADGROUP` |
 | `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
 | `AUDIT_DLQ_STREAM` | Stream DLQ (default `audit.dlq`) |
 | `AUDIT_CACHE_TTL`, `AUDIT_EXTRACTION_CACHE_TTL` | TTL cache extracción Gemini |
+| `AUDIT_BATCH_CHUNK_SIZE` | Tamaño de chunk para ingesta fair-queuing de lotes masivos (default 50) |
+| `AUDIT_BATCH_LOCK_TTL_SECONDS` | TTL del lock atómico de generación distribuida por chunk (default 300) |
 | `AUDIT_JOB_TTL` | TTL de estado de jobs batch async en Redis (default 604800) |
 | `AUDIT_STATE_TTL` | TTL de estado transitorio de auditorias en Redis (default 604800) |
 | `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |

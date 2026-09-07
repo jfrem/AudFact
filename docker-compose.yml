@@ -158,7 +158,7 @@ services:
           memory: 512M
           cpus: '0.5'
 
-  worker-extraction:
+  worker-extraction-vip:
     image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
     build:
       context: .
@@ -169,15 +169,44 @@ services:
         WWWGROUP_ID: ${WWWGROUP_ID:-33}
     env_file:
       - .env
+    environment:
+      - AUDIT_WORKER_LANE=priority
     volumes:
       - ./logs:/var/www/html/logs
     depends_on:
       - redis
       - nginx
-    command: php bin/audit-worker.php extraction
+    command: php bin/audit-worker.php extraction --priority-only
     restart: on-failure
     deploy:
-      replicas: ${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}
+      replicas: ${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-2}
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.8'
+
+  worker-extraction-batch:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ENABLE_XDEBUG: "0"
+        WWWUSER_ID: ${WWWUSER_ID:-33}
+        WWWGROUP_ID: ${WWWGROUP_ID:-33}
+    env_file:
+      - .env
+    environment:
+      - AUDIT_WORKER_LANE=batch
+    volumes:
+      - ./logs:/var/www/html/logs
+    depends_on:
+      - redis
+      - nginx
+    command: php bin/audit-worker.php extraction --batch-only
+    restart: on-failure
+    deploy:
+      replicas: ${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-6}
       resources:
         limits:
           memory: 1G

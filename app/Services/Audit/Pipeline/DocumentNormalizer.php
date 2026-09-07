@@ -24,13 +24,14 @@ final class DocumentNormalizer extends AuditEventConsumer
         ?\Core\RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null,
-        ?TelemetryPublisher $telemetryPublisher = null
+        ?TelemetryPublisher $telemetryPublisher = null,
+        string|AuditLane|null $lane = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_NORMALIZERS);
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_NORMALIZERS, $this->laneEnum);
     }
 
     protected function streams(): array

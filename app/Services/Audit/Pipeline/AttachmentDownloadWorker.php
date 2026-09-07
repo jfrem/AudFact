@@ -24,13 +24,14 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         ?AuditEventPublisher       $publisher          = null,
         ?string                    $consumerName       = null,
         ?TelemetryPublisher        $telemetryPublisher = null,
-        ?int                       $blobTtl            = null
+        ?int                       $blobTtl            = null,
+        string|AuditLane|null      $lane               = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->downloader         = $downloader         ?? new AttachmentDownloadService();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName       = $consumerName       ?? self::defaultConsumerName('downloader');
+        $this->consumerName       = $consumerName       ?? self::defaultConsumerName('downloader', $this->laneEnum);
         $resolvedBlobTtl          = $blobTtl ?? self::DEFAULT_BLOB_TTL_SECONDS;
         $this->blobTtl            = $resolvedBlobTtl > 0 ? $resolvedBlobTtl : self::DEFAULT_BLOB_TTL_SECONDS;
     }

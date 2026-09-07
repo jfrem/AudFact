@@ -222,6 +222,8 @@ final class AuditControllerTest extends TestCase
         $jobStore = $this->newJobStoreStub(getJobReturns: [
             'job_id'     => $jobId,
             'status'     => 'processing',
+            'sealed'     => true,
+            'limit'      => 10,
             'total'      => 5,
             'done'       => 2,
             'failed'     => 1,
@@ -241,6 +243,8 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(200, $response->getCode());
         $data = $response->getData()['data'];
         $this->assertSame($jobId, $data['job_id']);
+        $this->assertTrue($data['sealed']);
+        $this->assertSame(10, $data['limit']);
         $this->assertSame(5, $data['total']);
         $this->assertSame(2, $data['done']);
         $this->assertSame(1, $data['failed']);

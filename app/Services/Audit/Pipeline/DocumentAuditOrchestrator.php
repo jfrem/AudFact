@@ -27,16 +27,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         ?\Core\RedisClient                $redis           = null,
         ?AuditEventPublisher              $publisher       = null,
         ?string                           $consumerName    = null,
-        ?TelemetryPublisher               $telemetryPublisher = null
+        ?TelemetryPublisher               $telemetryPublisher = null,
+        string|AuditLane|null             $lane            = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore      = $stateStore      ?? new AuditStateStore($this->redis);
         $this->dataService     = $dataService     ?? new AuditDataService();
         $this->contractBuilder = $contractBuilder ?? new DocumentExtractionContractBuilder();
         $this->attachmentMatcher = $attachmentMatcher ?? new DocumentAttachmentMatcher();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName    = $consumerName    ?? self::defaultConsumerName(AuditEventPublisher::GROUP_ORCHESTRATOR);
+        $this->consumerName    = $consumerName    ?? self::defaultConsumerName(AuditEventPublisher::GROUP_ORCHESTRATOR, $this->laneEnum);
     }
 
     protected function streams(): array

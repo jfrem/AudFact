@@ -73,7 +73,7 @@ class DispensationModel extends Model
      * Método estático puro — reutilizable por el Controlador HTTP y por AuditDataService.
      *
      * @param  array<int,array<string,mixed>> $rows  Filas crudas de getDispensationData()
-     * @return array{header:array<string,mixed>,items:array<int,array<string,mixed>>}
+     * @return array{header:array<string,mixed>|\stdClass,items:array<int,array<string,mixed>>}
      */
     public static function formatDispensation(array $rows): array
     {
@@ -262,8 +262,7 @@ class DispensationModel extends Model
             FROM vw_discolnet_dispensas v
             LEFT JOIN Factura f WITH (NOLOCK) ON f.DisId = v.facsec AND f.DisDetId = v.DisDetId AND f.FacEst = 'A'
             LEFT JOIN FacturaKardex k WITH (NOLOCK) ON k.FacSec = f.FacSec
-            LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK)
-                ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = v.codigo
+            LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK) ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = k.KarConDisRefCod
             LEFT JOIN DatosMipresDetalle mip WITH (NOLOCK) ON mip.DatMipId = v.IdPrincipal
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";
@@ -282,9 +281,10 @@ class DispensationModel extends Model
             }
         });
 
-        Logger::info("Executed SQL: ", [
-            $logKey     => $bindings,
-            'result'    => count($result ?? []),
+        Logger::info('DispensationModel: consulta ejecutada', [
+            'filter_key' => $logKey,
+            'bindings'   => $bindings,
+            'result'     => count($result ?? []),
         ]);
 
         return $result ?? [];

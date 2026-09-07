@@ -23,7 +23,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `next-best-practices` | Frontend Next.js | `frontend/*` | Prácticas y convenciones recomendadas para directorios, dependencias y Server Components. |
 | `next-cache-components` | Frontend Next.js | `frontend/*` | Guías de caché/PPR para migraciones Next.js 16+; no aplicar al runtime actual 15.5.15 salvo upgrade. |
 | `next-upgrade` | Frontend Next.js | `frontend/*` | Herramientas y protocolos para actualizar a versiones nuevas de Next.js de manera segura. |
-| `clean-rebuild-policy` | Gobernanza Técnica | Repositorio completo | Política para proyectos en fase temprana: reconstrucción limpia, sin legacy, enfocada en MVP. |
+| `clean-rebuild-policy` | Gobernanza Técnica | Módulos nuevos y refactorizaciones profundas | Política táctica para decidir entre rebuild, refactorización o parche, proteger contratos activos y validar calidad MVP. |
 | `impeccable` | UI/UX Design | `frontend/*` | The vocabulary you didn't know you needed. 23 commands y anti-patrones para un diseño frontend impecable. |
 | `write-sdd-spec` | Especificación SDD | `plans/*` | Especificaciones de implementación deterministas, auditables y trazables antes de codificar. |
 | `phpunit-test-architect` | Testing / TDD | `tests/**/*.php` | Suites PHPUnit 10+ como contrato ejecutable, alineadas con estructura, namespaces, dependencias y límites arquitectónicos de AudFact. |
@@ -48,7 +48,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `code-quality-assessment` | deuda técnica, mantenibilidad, complejidad, testabilidad, code quality |
 | `security-assessment` | vulnerabilidades, auth/authz, OWASP, exposición de secretos |
 | `technical-governance-assessment` | ownership, gobernanza, estándares, code review process, roadmap técnico |
-| `clean-rebuild-policy` | reconstrucción, clean rebuild, MVP, arquitectura desacoplada, eliminar legacy, desde cero |
+| `clean-rebuild-policy` | reconstrucción, clean rebuild, MVP, refactor vs parche, arquitectura desacoplada, retirar legacy, evolución limpia |
 | `impeccable` | impeccable, audit UI, diseño frontend, anti-patrones, polish UI, diseño |
 | `write-sdd-spec` | SDD, especificación de implementación, diseño técnico, trazabilidad, migración, rollback |
 | `phpunit-test-architect` | PHPUnit, pruebas unitarias, TDD, test suite, contrato ejecutable, data provider, mocks, stubs, namespace de tests, dependencias, HttpResponseException |
@@ -93,7 +93,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `core/Logger.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
-| Todo código nuevo o modificado | `clean-rebuild-policy` |
+| Módulos nuevos, reconstrucciones o refactorizaciones profundas explícitas | `clean-rebuild-policy` |
 | Especificaciones de implementación en `plans/*` | `write-sdd-spec` |
 | `frontend/**/*.tsx`, `frontend/**/*.css` | `next-best-practices`, `impeccable` |
 | `tests/**/*.php` | `phpunit-test-architect` + skill del dominio funcional probado |

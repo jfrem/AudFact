@@ -28,16 +28,17 @@ final class AuditPersistenceWorker extends AuditEventConsumer
         ?RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null,
-        ?TelemetryPublisher $telemetryPublisher = null
+        ?TelemetryPublisher $telemetryPublisher = null,
+        string|AuditLane|null $lane = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
         $this->jobStore = $jobStore ?? new BatchJobStore($this->redis);
         $this->persistenceModel = $persistenceModel ?? new AuditResultPersistenceModel();
         $this->persistenceQueue = $persistenceQueue ?? new AuditPersistenceQueue($this->redis);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_PERSISTENCE);
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_PERSISTENCE, $this->laneEnum);
     }
 
     protected function streams(): array

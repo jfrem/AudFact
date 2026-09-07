@@ -59,7 +59,7 @@ jobs:
           fi
 
           REGISTERED=$(grep -oP "^    '\K[a-z_]+(?='\s*=>\s*\[)" bin/audit-worker.php)
-          COMPOSE_SERVICES=$(grep -oP '^\s+worker-\K\w+(?=:)' docker-compose.yml | sort -u)
+          COMPOSE_SERVICES=$(grep -oP '^\s+worker-\K[a-z_]+(?=(-(?:vip|batch))?:)' docker-compose.yml | sort -u)
 
           MISSING=""
           for worker in $REGISTERED; do

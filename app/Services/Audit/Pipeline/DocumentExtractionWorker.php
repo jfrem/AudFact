@@ -55,14 +55,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ?ExtractionCacheManager  $cacheManager      = null,
         ?ExtractionPromptBuilder $promptBuilder      = null,
         ?GeminiResponseParser    $responseParser     = null,
-        ?DocumentPdfRasterizer   $pdfRasterizer      = null
+        ?DocumentPdfRasterizer   $pdfRasterizer      = null,
+        string|AuditLane|null    $lane               = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore          = $stateStore ?? new AuditStateStore($this->redis);
-        $this->gateway             = $gateway    ?? GeminiGateway::create();
+        $this->gateway             = $gateway    ?? GeminiGateway::create(lane: $this->laneEnum);
         $this->telemetryPublisher  = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
-        $this->consumerName        = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_EXTRACTORS);
+        $this->consumerName        = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_EXTRACTORS, $this->laneEnum);
 
         $resolvedTtl = $cacheTtl ?? (int) Env::get('AUDIT_EXTRACTION_CACHE_TTL', self::DEFAULT_CACHE_TTL);
         $resolvedTtl = $resolvedTtl > 0 ? $resolvedTtl : self::DEFAULT_CACHE_TTL;

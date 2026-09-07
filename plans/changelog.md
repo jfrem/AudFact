@@ -1,5 +1,16 @@
 # Changelog AudFact
 
+## [2026-09-07] - Refactor: Política Táctica de Clean Rebuild y Calidad MVP
+
+### Gobernanza / Skills
+- Rediseñada `clean-rebuild-policy` para separar alcance funcional MVP de calidad estructural production-ready, sin exigir diseños definitivos ni abstracciones especulativas.
+- Incorporada una compuerta explícita para decidir entre clean rebuild, refactorización incremental y parche excepcional según contratos activos, datos, consumidores, reversibilidad y riesgo operativo.
+- Clasificados los contratos legacy activos, el código obsoleto, los adaptadores temporales y la compatibilidad especulativa para evitar eliminaciones destructivas por criterio estético.
+- Añadidas compuertas tácticas y condicionales para modelado de dominio, contratos y jerarquías, pruebas y encapsulación, observabilidad de procesos persistentes e higiene del cambio.
+- Definido un formato de salida auditable con decisión, alcance MVP, contratos activos, evidencia, excepciones, validación, migración y rollback.
+- Sincronizados `AGENTS.md`, `CATALOG.md`, `catalog.json` y los metadatos de invocación de la skill; retirada su aplicación automática a todo cambio ordinario.
+- Validación completada con el validador integral de skills de AudFact y el build de producción de Docusaurus.
+
 ## [2026-08-27] - Fix: Persistencia E2E de `EsMultiItem`, Blindaje de Conformidad Documental y Refinamiento Semántico (QUAL-004 / QUAL-005 / QUAL-007)
 
 ### Frontend / UI y Esquemas de Dominio

@@ -559,6 +559,8 @@ class AuditController extends Controller
         return [
             'job_id'     => (string) ($state['job_id'] ?? ''),
             'status'     => (string) ($state['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
+            'sealed'     => (bool) ($state['sealed'] ?? false),
+            'limit'      => (int) ($state['limit'] ?? 0),
             'total'      => $total,
             'done'       => $done,
             'failed'     => $failed,

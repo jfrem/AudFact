@@ -41,4 +41,28 @@ class Env
         self::$cache[$key] = $value;
         return $value;
     }
+
+    public static function set(string $key, ?string $value): void
+    {
+        if ($value === null) {
+            putenv($key);
+            unset(self::$cache[$key], $_ENV[$key], $_SERVER[$key]);
+            return;
+        }
+
+        putenv("{$key}={$value}");
+        $_ENV[$key] = $value;
+        $_SERVER[$key] = $value;
+        self::$cache[$key] = $value;
+    }
+
+    public static function clearCache(?string $key = null): void
+    {
+        if ($key !== null) {
+            unset(self::$cache[$key]);
+            return;
+        }
+
+        self::$cache = [];
+    }
 }

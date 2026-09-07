@@ -6,6 +6,7 @@ namespace Tests\Services\Audit;
 
 use App\Models\InvoicesModel;
 use App\Services\Audit\AuditBatchOrchestrator;
+use App\Services\Audit\BatchChunkState;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditStateStore;
@@ -181,17 +182,183 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertCount(0, $publisher->published);
         $this->assertSame(0, $invoicesModel->getCalls());
     }
+
+    public function testEnqueueBatchChunksRespectsLimitAndReturnsContinuationCursor(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $publisher = new BatchOrchestratorPublisher();
+        $invoices = [
+            ['NitSec' => 2426, 'DisId' => '101', 'Dispensa' => 'D101', 'DisFecSol' => '2026-06-12T00:00:00'],
+            ['NitSec' => 2426, 'DisId' => '102', 'Dispensa' => 'D102', 'DisFecSol' => '2026-06-12T00:01:00'],
+            ['NitSec' => 2426, 'DisId' => '103', 'Dispensa' => 'D103', 'DisFecSol' => '2026-06-12T00:02:00'],
+        ];
+        $invoicesModel = new BatchOrchestratorInvoicesModel($invoices);
+
+        $orchestrator = new AuditBatchOrchestrator($stateStore, $jobStore, $publisher, $invoicesModel);
+        $jobId = AuditEvent::uuidV4();
+
+        $result = $orchestrator->enqueueBatch(
+            facNitSec: 2426,
+            dateFrom: '2026-06-12',
+            dateTo: '2026-06-12',
+            limit: 3,
+            jobId: $jobId,
+            workerToken: 'worker-1',
+            chunkState: new BatchChunkState(chunkSizeOverride: 2)
+        );
+
+        $this->assertTrue($result['has_more']);
+        $this->assertSame(2, $result['total']);
+        $this->assertSame(2, $result['accepted']);
+        $this->assertSame(1, $result['chunk_index']);
+        $this->assertSame(2, $result['accumulated_total']);
+        $this->assertNotNull($result['next_cursor']);
+        $this->assertSame('102', $result['next_cursor']['disId']);
+        $this->assertSame('D102', $result['next_cursor']['dispensa']);
+
+        // Verifica orden causal: batch_created antes de audit_created en chunk 1
+        $this->assertCount(3, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_BATCH_CREATED, $publisher->published[0]->eventType);
+        $this->assertSame(2, $publisher->published[0]->payload['initial_chunk_size']);
+        $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[1]->eventType);
+        $this->assertSame('101', $publisher->published[1]->payload['dis_id']);
+        $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[2]->eventType);
+        $this->assertSame('102', $publisher->published[2]->payload['dis_id']);
+
+        // El job fue parcheado con total provisional y NO sellado
+        $this->assertGreaterThanOrEqual(1, count($jobStore->patches));
+        $lastPatch = end($jobStore->patches);
+        $this->assertSame(2, $lastPatch['total']);
+        $this->assertArrayNotHasKey('sealed', $lastPatch);
+    }
+
+    public function testEnqueueBatchSecondChunkAccumulatesAndSeals(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $publisher = new BatchOrchestratorPublisher();
+        $invoices = [
+            ['NitSec' => 2426, 'DisId' => '101', 'Dispensa' => 'D101', 'DisFecSol' => '2026-06-12T00:00:00'],
+            ['NitSec' => 2426, 'DisId' => '102', 'Dispensa' => 'D102', 'DisFecSol' => '2026-06-12T00:01:00'],
+            ['NitSec' => 2426, 'DisId' => '103', 'Dispensa' => 'D103', 'DisFecSol' => '2026-06-12T00:02:00'],
+        ];
+        $invoicesModel = new BatchOrchestratorInvoicesModel($invoices);
+
+        $orchestrator = new AuditBatchOrchestrator($stateStore, $jobStore, $publisher, $invoicesModel);
+        $jobId = AuditEvent::uuidV4();
+
+        $cursor = ['date' => '2026-06-12T00:01:00', 'disId' => '102', 'dispensa' => 'D102'];
+        $result = $orchestrator->enqueueBatch(
+            facNitSec: 2426,
+            dateFrom: '2026-06-12',
+            dateTo: '2026-06-12',
+            limit: 3,
+            jobId: $jobId,
+            workerToken: 'worker-1',
+            chunkState: new BatchChunkState(
+                cursor: $cursor,
+                chunkIndex: 2,
+                accumulatedTotal: 2,
+                chunkSizeOverride: 2
+            )
+        );
+
+        $this->assertFalse($result['has_more']);
+        $this->assertNull($result['next_cursor']);
+        $this->assertSame(3, $result['total']);
+        $this->assertSame(3, $result['accepted']);
+        $this->assertSame(2, $result['chunk_index']);
+        $this->assertSame(3, $result['accumulated_total']);
+
+        // En chunk 2 NO se emite batch_created, solo el nuevo audit_created
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $publisher->published[0]->eventType);
+        $this->assertSame('103', $publisher->published[0]->payload['dis_id']);
+
+        // El job fue sellado en el chunk final
+        $lastPatch = end($jobStore->patches);
+        $this->assertSame(3, $lastPatch['total']);
+        $this->assertTrue($lastPatch['sealed']);
+    }
+
+    public function testEnqueueBatchFailureOnSecondChunkDoesNotDeleteJob(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $stateStore->failOnInit = true;
+        $jobStore = new BatchOrchestratorJobStore();
+        $publisher = new BatchOrchestratorPublisher();
+        $invoices = [
+            ['NitSec' => 2426, 'DisId' => '103', 'Dispensa' => 'D103', 'DisFecSol' => '2026-06-12T00:02:00'],
+        ];
+        $invoicesModel = new BatchOrchestratorInvoicesModel($invoices);
+
+        $orchestrator = new AuditBatchOrchestrator($stateStore, $jobStore, $publisher, $invoicesModel);
+        $jobId = AuditEvent::uuidV4();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('No se pudo inicializar la auditoría en Redis');
+
+        try {
+            $orchestrator->enqueueBatch(
+                facNitSec: 2426,
+                dateFrom: '2026-06-12',
+                dateTo: '2026-06-12',
+                limit: 3,
+                jobId: $jobId,
+                workerToken: 'worker-1',
+                chunkState: new BatchChunkState(
+                    cursor: ['date' => '2026-06-12T00:01:00', 'disId' => '102', 'dispensa' => 'D102'],
+                    chunkIndex: 2,
+                    accumulatedTotal: 2,
+                    chunkSizeOverride: 2
+                )
+            );
+        } finally {
+            // El job NO debe ser borrado en chunk 2
+            $this->assertSame([], $jobStore->deletedJobs);
+        }
+    }
+
+    public function testEnqueueBatchStopsWhenCursorDoesNotAdvance(): void
+    {
+        $stateStore = new BatchOrchestratorStateStore();
+        $jobStore = new BatchOrchestratorJobStore();
+        $publisher = new BatchOrchestratorPublisher();
+        $invoices = [
+            ['NitSec' => 2426, 'DisId' => '', 'Dispensa' => '', 'DisFecSol' => ''],
+        ];
+        $invoicesModel = new BatchOrchestratorInvoicesModel($invoices);
+
+        $orchestrator = new AuditBatchOrchestrator($stateStore, $jobStore, $publisher, $invoicesModel);
+        $jobId = AuditEvent::uuidV4();
+
+        $result = $orchestrator->enqueueBatch(
+            facNitSec: 2426,
+            dateFrom: '2026-06-12',
+            dateTo: '2026-06-12',
+            limit: 3,
+            jobId: $jobId,
+            workerToken: 'worker-1'
+        );
+
+        $this->assertFalse($result['has_more']);
+        $this->assertSame(0, $result['total']);
+    }
 }
 
 final class BatchOrchestratorInvoicesModel extends InvoicesModel
 {
     private int $calls = 0;
+    /** @var array<int,array<string,mixed>> */
+    private array $invoices;
 
     /**
-     * @param array<int,array<string,mixed>> $firstPage
+     * @param array<int,array<string,mixed>> $invoices
      */
-    public function __construct(private readonly array $firstPage)
+    public function __construct(array $invoices = [])
     {
+        $this->invoices = $invoices;
     }
 
     public function getCalls(): int
@@ -208,7 +375,21 @@ final class BatchOrchestratorInvoicesModel extends InvoicesModel
     ): array {
         $this->calls++;
 
-        return $this->calls === 1 ? $this->firstPage : [];
+        if ($this->invoices === []) {
+            return [];
+        }
+
+        $startIndex = 0;
+        if ($cursor !== null) {
+            foreach ($this->invoices as $idx => $inv) {
+                if (($inv['DisId'] ?? '') === $cursor['disId']) {
+                    $startIndex = $idx + 1;
+                    break;
+                }
+            }
+        }
+
+        return array_slice($this->invoices, $startIndex, $limit);
     }
 }
 
@@ -216,6 +397,8 @@ final class BatchOrchestratorJobStore extends BatchJobStore
 {
     public int $claimAuditReservationCalls = 0;
     public int $patchJobCalls = 0;
+    /** @var array<int,array<string,mixed>> */
+    public array $patches = [];
     public bool $generationLockGranted = true;
     public ?array $jobData = null;
     /** @var array<int,array<string,string|null>> */
@@ -283,6 +466,7 @@ final class BatchOrchestratorJobStore extends BatchJobStore
     public function patchJob(string $jobId, array $patch): bool
     {
         $this->patchJobCalls++;
+        $this->patches[] = $patch;
 
         return true;
     }
@@ -309,6 +493,7 @@ final class BatchOrchestratorStateStore extends AuditStateStore
 {
     /** @var array<int,string> */
     public array $deletedAudits = [];
+    public bool $failOnInit = false;
 
     public function __construct()
     {
@@ -321,7 +506,7 @@ final class BatchOrchestratorStateStore extends AuditStateStore
         ?string $facNitSec = null,
         ?string $disId = null
     ): bool {
-        return true;
+        return !$this->failOnInit;
     }
 
     public function patchAudit(string $auditId, array $patch): bool

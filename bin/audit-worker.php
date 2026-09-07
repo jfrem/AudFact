@@ -49,16 +49,49 @@ $workerName = $argv[1] ?? null;
 
 if ($workerName === null || !isset($registry[$workerName])) {
     $available = implode(', ', array_keys($registry));
-    fwrite(STDERR, "Uso: php bin/audit-worker.php <worker>\nWorkers disponibles: {$available}\n");
+    fwrite(STDERR, "Uso: php bin/audit-worker.php <worker> [--priority-only|--batch-only|--lane=priority|batch|all]\nWorkers disponibles: {$available}\n");
     exit(1);
 }
 
+use App\Services\Audit\Pipeline\AuditLane;
+
+// ─── Resolve Lane ────────────────────────────────────────────────────────────
+
+$laneEnum = AuditLane::ALL;
+foreach ($argv as $arg) {
+    if ($arg === '--priority-only') {
+        $laneEnum = AuditLane::PRIORITY;
+    } elseif ($arg === '--batch-only') {
+        $laneEnum = AuditLane::BATCH;
+    } elseif (str_starts_with($arg, '--lane=')) {
+        $laneEnum = AuditLane::fromString(substr($arg, 7));
+    }
+}
+if ($laneEnum->isAll()) {
+    $laneEnum = AuditLane::fromString(Env::get('AUDIT_WORKER_LANE'));
+}
+
+$lane = $laneEnum->value;
 $config = $registry[$workerName];
-$label = "audit-{$workerName}-worker";
+$label = "audit-{$workerName}-worker" . (!$laneEnum->isAll() ? "-{$lane}" : '');
 
 // ─── Validate required env vars ──────────────────────────────────────────────
 
 foreach ($config['requiredEnv'] as $envVar) {
+    if ($envVar === 'GEMINI_API_KEY') {
+        $laneSpecificKey = match ($laneEnum) {
+            AuditLane::PRIORITY => Env::get('GEMINI_API_KEY_PRIORITY', ''),
+            AuditLane::BATCH => Env::get('GEMINI_API_KEY_BATCH', ''),
+            AuditLane::ALL => '',
+        };
+
+        if ($laneSpecificKey === '' && Env::get('GEMINI_API_KEY', '') === '') {
+            fwrite(STDERR, "{$label}: GEMINI_API_KEY (o específica de carril) no configurada\n");
+            exit(1);
+        }
+        continue;
+    }
+
     if (Env::get($envVar, '') === '') {
         fwrite(STDERR, "{$label}: {$envVar} no configurada\n");
         exit(1);
@@ -71,7 +104,7 @@ if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
 }
 
-$consumer = new $config['class']();
+$consumer = new $config['class'](lane: $laneEnum);
 
 $stop = static function (int $signal) use ($consumer, $label): void {
     Logger::info("{$label}: señal recibida, deteniendo", ['signal' => $signal]);

@@ -1,3 +1,38 @@
+## [2026-09-07]
+
+### feat
+- **Fase 2 — Aislamiento de Carril VIP / Prioritario y Partición de Extractores**:
+  - **Partición del Pool de Extractores en Docker Compose**: Se reemplazó el servicio monolítico `worker-extraction` por dos servicios dedicados bajo el mismo presupuesto global de recursos (8 réplicas, 8 GB RAM, 6.4 CPUs):
+    - `worker-extraction-vip`: 2 réplicas dedicadas (`--priority-only`, `AUDIT_WORKER_LANE=priority`) que consumen exclusivamente del stream de alta prioridad `audit.documents.priority`.
+    - `worker-extraction-batch`: 6 réplicas dedicadas (`--batch-only`, `AUDIT_WORKER_LANE=batch`) que procesan el stream de lotes masivos `audit.documents.batch`.
+  - **Desacoplamiento Estricto del Circuit Breaker de Gemini (AD-02)**: Se segregaron las llaves de estado del Circuit Breaker en Redis según el carril operativo: `cb:gemini:priority:state` / `cb:gemini:priority:fails` vs `cb:gemini:batch:state` / `cb:gemini:batch:fails`. Un bloqueo o rate limit provocado por un lote masivo no degrada ni bloquea las peticiones prioritarias de ventanilla.
+  - **Soporte de API Keys Dedicadas por Carril**: `GeminiGateway` resuelve opcionalmente `GEMINI_API_KEY_PRIORITY` y `GEMINI_API_KEY_BATCH` con degradación transparente a la clave genérica `GEMINI_API_KEY`.
+  - **Filtrado Dinámico de Streams en `AuditEventConsumer` y CLI Launcher**:
+    - Se incorporaron las constantes `LANE_ALL`, `LANE_PRIORITY`, `LANE_BATCH` y el método `activeStreams()`, que filtra las corrientes activas tanto en sintaxis de punto (`.priority`, `.batch`) como de dos puntos (`:priority`, `:batch`), manteniendo streams neutros como fallback.
+    - Se actualizó el launcher CLI `bin/audit-worker.php` para parsear argumentos `--priority-only`, `--batch-only`, `--lane=...` o variable de entorno `AUDIT_WORKER_LANE`.
+    - `defaultConsumerName()` genera identificadores de consumidor con sufijo de carril (`audit-extraction-worker-priority-...`, `audit-extraction-worker-batch-...`).
+  - **CI/CD y Despliegue de Producción**: Se actualizó el workflow `.github/workflows/deploy-production.yml` para auditar los logs de salud de `worker-extraction-vip` y `worker-extraction-batch`.
+  - **Variables y Contratos de Entorno**: Se documentaron `AUDIT_WORKER_LANE`, `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=2`, `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS=6`, `GEMINI_API_KEY_PRIORITY` y `GEMINI_API_KEY_BATCH` en `.env.example` y `AGENTS.md`.
+  - **Suites de Pruebas Unitarias**: Se creó `AuditEventConsumerLaneTest.php` y se amplió `GeminiGatewayTest.php` validando la segregación completa del Circuit Breaker y la resolución de carriles. La suite global de 563 tests pasa con 100% de éxito.
+  - Archivos modificados: `app/Services/Audit/Pipeline/AuditEventConsumer.php`, `bin/audit-worker.php`, `app/Services/Audit/Pipeline/DocumentExtractionWorker.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/GeminiGateway.php`, `docker-compose.yml`, `.github/workflows/deploy-production.yml`, `.env.example`, `AGENTS.md`, `tests/Services/Audit/Events/AuditEventConsumerLaneTest.php`, `tests/Services/Audit/GeminiGatewayTest.php`.
+
+## [2026-09-05]
+
+### feat
+- **Ingesta Batch por Chunks y Planificación Fair-Queuing sobre Redis Streams**:
+  - Se implementó la ingesta fragmentada de lotes masivos en chunks configurables (`AUDIT_BATCH_CHUNK_SIZE`, default 50) sobre el stream `audit.batch.inbox`, eliminando el bloqueo Head-of-Line entre clientes concurrentes y mitigando la saturación de los extractores compartidos.
+  - **Planificación Round-Robin Nativa**: `BatchRequestedWorker` consume hasta 50 facturas por pasada y, si existen candidatos remanentes (`has_more = true`), publica un evento de continuación `batch_requested` al final de la cola del stream con cursor keyset (`DisFecSol`, `DisId`, `Dispensa`).
+  - **Causalidad Temporal de Eventos (AD-03)**: En el Chunk 1, `batch_created` se emite antes de las auditorías hijas (`audit_created`), garantizando coherencia temporal y cumplimiento estricto de pruebas unitarias.
+  - **Detección de Cursor sin Off-by-One (AD-04)**: La cuota `$chunkTotal >= $maxThisChunk` se evalúa al inicio de cada iteración del `foreach` antes de registrar el cursor de la siguiente factura, garantizando que el cursor transferido apunte exactamente a la última factura auditada.
+  - **Rollback Transaccional Seguro no Destructivo (AD-05)**: `cleanupAsyncEnqueueState` nunca borra el job en Redis si el fallo ocurre en chunks posteriores ($2..N$) o si fue originado externamente.
+  - **Guarda de Idempotencia Multi-Chunk (AD-06)**: La validación contra auditorías preexistentes se restringe al Chunk 1, permitiendo el avance continuo y seguro de lotes grandes.
+  - **Refactorización Clean Rebuild & Resiliencia (Clean Code para el Futuro)**:
+    - Se redujo el TTL del lock distribuido de 1.800s a 300s configurables vía `AUDIT_BATCH_LOCK_TTL_SECONDS` (ARCH-002 mitigado), reduciendo el MTTR ante caídas de workers en chunks ágiles de 50 facturas.
+    - Se eliminó el trampolín redundante `invoiceIdentity` unificando la extracción y validación estática en `resolveInvoiceIdentity`.
+    - **Encapsulación en DTO `BatchChunkState`**: Se erradicó el code smell de "Long Parameter List" (12 parámetros sueltos) en `AuditBatchOrchestrator::enqueueBatch`, sustituyéndolos por el objeto inmutable `BatchChunkState` con constructores estáticos semánticos (`initial()`, `fromPayload()`).
+    - **Normalización de Line Endings (.gitattributes)**: Se incorporó `.gitattributes` en la raíz del repositorio forzando `eol=lf` para código fuente y documentación, previniendo advertencias de Git y discrepancias CRLF en entornos Windows/Linux.
+  - Archivos modificados: `app/Services/Audit/BatchChunkState.php`, `app/Services/Audit/AuditBatchOrchestrator.php`, `app/Services/Audit/Pipeline/BatchRequestedWorker.php`, `app/Controllers/AuditController.php`, `.gitattributes`, `.env.example`, `AGENTS.md`, `tests/Services/Audit/AuditBatchOrchestratorTest.php`, `tests/Services/Audit/Events/BatchRequestedWorkerTest.php`, `tests/Controllers/AuditControllerTest.php`.
+
 ## [2026-08-26]
 
 ### feat

@@ -89,7 +89,7 @@
     },
     {
       "path": ".agent/skills/clean-rebuild-policy",
-      "description": "Política para reconstrucción desde cero (clean rebuild) orientada a arquitectura limpia, eliminación de legacy y un MVP estricto.",
+      "description": "Política táctica para decidir entre rebuild, refactorización o parche, proteger contratos activos y validar calidad estructural dentro del MVP.",
       "name": "clean-rebuild-policy"
     },
     {

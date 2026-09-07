@@ -130,6 +130,8 @@ jobs:
           ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
           MAX_JSON_SIZE: ${{ vars.MAX_JSON_SIZE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_PRIORITY: ${{ secrets.GEMINI_API_KEY_PRIORITY }}
+          GEMINI_API_KEY_BATCH: ${{ secrets.GEMINI_API_KEY_BATCH }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GEMINI_TEMPERATURE: ${{ vars.GEMINI_TEMPERATURE }}
           GEMINI_TIMEOUT: ${{ vars.GEMINI_TIMEOUT }}
@@ -167,7 +169,8 @@ jobs:
           AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
           AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
           AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
-          AUDIT_WORKER_EXTRACTION_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_REPLICAS }}
+          AUDIT_WORKER_EXTRACTION_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_VIP_REPLICAS }}
+          AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS }}
           AUDIT_WORKER_NORMALIZER_REPLICAS: ${{ vars.AUDIT_WORKER_NORMALIZER_REPLICAS }}
           AUDIT_WORKER_POLICY_REPLICAS: ${{ vars.AUDIT_WORKER_POLICY_REPLICAS }}
           AUDIT_WORKER_PERSISTENCE_REPLICAS: ${{ vars.AUDIT_WORKER_PERSISTENCE_REPLICAS }}
@@ -329,6 +332,8 @@ jobs:
             write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
             printf '\n'
             write_env_var 'GEMINI_API_KEY' "$GEMINI_API_KEY"
+            write_env_var 'GEMINI_API_KEY_PRIORITY' "${GEMINI_API_KEY_PRIORITY:-}"
+            write_env_var 'GEMINI_API_KEY_BATCH' "${GEMINI_API_KEY_BATCH:-}"
             write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3.7-flash}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
@@ -371,7 +376,8 @@ jobs:
             write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
             write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-8}"
-            write_env_var 'AUDIT_WORKER_EXTRACTION_REPLICAS' "${AUDIT_WORKER_EXTRACTION_REPLICAS:-8}"
+            write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS' "${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-6}"
             write_env_var 'AUDIT_WORKER_NORMALIZER_REPLICAS' "${AUDIT_WORKER_NORMALIZER_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_PERSISTENCE_REPLICAS' "${AUDIT_WORKER_PERSISTENCE_REPLICAS:-3}"
@@ -491,5 +497,5 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction worker-downloader worker-normalizer worker-policy worker-persistence
+          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader worker-normalizer worker-policy worker-persistence
           exit 1

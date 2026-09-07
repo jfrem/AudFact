@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
+use App\Services\Audit\Pipeline\AuditLane;
 use App\Services\Audit\ResponseIADiskStore;
 use App\Services\Audit\GeminiCallMetrics;
 use Core\Env;
@@ -34,31 +35,48 @@ class GeminiGateway
     private GeminiConfig $config;
     private RedisClient $cbRedis;
     private ResponseIADiskStore $diskStore;
+    private AuditLane $lane;
 
     public function __construct(
         Client $http,
         string $apiKey,
         GeminiConfig $config,
         ?RedisClient $cbRedis = null,
-        ?ResponseIADiskStore $diskStore = null
+        ?ResponseIADiskStore $diskStore = null,
+        string|AuditLane $lane = AuditLane::ALL
     ) {
         $this->http = $http;
         $this->apiKey = $apiKey;
         $this->config = $config;
         $this->cbRedis = $cbRedis ?? RedisClient::getInstance();
         $this->diskStore = $diskStore ?? new ResponseIADiskStore();
+        $this->lane = $lane instanceof AuditLane ? $lane : AuditLane::fromString($lane);
     }
 
     /**
      * Factory estático: construye un GeminiGateway con configuración de .env.
      */
-    public static function create(): self
+    public static function create(string|AuditLane|null $lane = null): self
     {
         Env::load();
 
-        $apiKey = (string) Env::get('GEMINI_API_KEY', '');
+        $laneEnum = $lane instanceof AuditLane
+            ? $lane
+            : AuditLane::fromString((string) ($lane ?? Env::get('AUDIT_WORKER_LANE', AuditLane::ALL->value)));
+
+        // Selección de API Key según carril con fallback a la clave común
+        $apiKey = match ($laneEnum) {
+            AuditLane::PRIORITY => (string) Env::get('GEMINI_API_KEY_PRIORITY', ''),
+            AuditLane::BATCH => (string) Env::get('GEMINI_API_KEY_BATCH', ''),
+            AuditLane::ALL => '',
+        };
         if ($apiKey === '') {
-            throw new RuntimeException('GEMINI_API_KEY no configurada');
+            $apiKey = (string) Env::get('GEMINI_API_KEY', '');
+        }
+
+        if ($apiKey === '') {
+            $laneSuffix = !$laneEnum->isAll() ? " (carril: {$laneEnum->value})" : '';
+            throw new RuntimeException("GEMINI_API_KEY no configurada{$laneSuffix}");
         }
 
         $config = GeminiConfig::fromEnv();
@@ -68,6 +86,7 @@ class GeminiGateway
             http: new Client(['timeout' => $timeout, 'connect_timeout' => 10]),
             apiKey: $apiKey,
             config: $config,
+            lane: $laneEnum
         );
     }
 
@@ -224,6 +243,30 @@ class GeminiGateway
 
     // ─── Circuit Breaker (inlined) ──────────────────────────────
 
+    public function getLane(): string
+    {
+        return $this->lane->value;
+    }
+
+    public function getLaneEnum(): AuditLane
+    {
+        return $this->lane;
+    }
+
+    private function cbStateKey(): string
+    {
+        return !$this->lane->isAll()
+            ? "cb:gemini:{$this->lane->value}:state"
+            : self::CB_KEY_STATE;
+    }
+
+    private function cbFailsKey(): string
+    {
+        return !$this->lane->isAll()
+            ? "cb:gemini:{$this->lane->value}:fails"
+            : self::CB_KEY_FAILS;
+    }
+
     /**
      * Verifica el estado del circuito antes de realizar una llamada.
      *
@@ -236,18 +279,19 @@ class GeminiGateway
         }
 
         try {
-            $state = $this->cbRedis->get(self::CB_KEY_STATE) ?? self::CB_STATE_CLOSED;
+            $state = $this->cbRedis->get($this->cbStateKey()) ?? self::CB_STATE_CLOSED;
         } catch (\Core\RedisUnavailableException $e) {
             return;
         }
 
         if ($state === self::CB_STATE_OPEN) {
-            $ttl = $this->cbRedis->ttl(self::CB_KEY_STATE);
-            Logger::warning('Circuit Breaker ABIERTO — request rechazado sin llamar API', [
+            $ttl = $this->cbRedis->ttl($this->cbStateKey());
+            Logger::warning("Circuit Breaker ABIERTO [carril: {$this->lane->value}] — request rechazado sin llamar API", [
                 'cooldownRestante' => $ttl,
+                'lane'             => $this->lane->value,
             ]);
             throw new \RuntimeException(
-                'Circuit Breaker abierto: API Gemini temporalmente no disponible. Reintentar en ' . max($ttl, 0) . 's',
+                "Circuit Breaker abierto [carril: {$this->lane->value}]: API Gemini temporalmente no disponible. Reintentar en " . max($ttl, 0) . 's',
                 503
             );
         }
@@ -259,8 +303,8 @@ class GeminiGateway
             return;
         }
 
-        $this->cbRedis->del(self::CB_KEY_STATE);
-        $this->cbRedis->del(self::CB_KEY_FAILS);
+        $this->cbRedis->del($this->cbStateKey());
+        $this->cbRedis->del($this->cbFailsKey());
     }
 
     private function cbRecordFailure(int $httpCode): void
@@ -272,20 +316,22 @@ class GeminiGateway
         $threshold = (int) Env::get('CB_GEMINI_THRESHOLD', 3);
         $cooldown  = (int) Env::get('CB_GEMINI_COOLDOWN', 60);
 
-        $fails = $this->cbRedis->incr(self::CB_KEY_FAILS, $cooldown * 2);
+        $fails = $this->cbRedis->incr($this->cbFailsKey(), $cooldown * 2);
 
         if ($fails !== null && $fails >= $threshold) {
-            $this->cbRedis->set(self::CB_KEY_STATE, self::CB_STATE_OPEN, $cooldown);
+            $this->cbRedis->set($this->cbStateKey(), self::CB_STATE_OPEN, $cooldown);
 
-            Logger::critical('Circuit Breaker Gemini ABIERTO', [
+            Logger::critical("Circuit Breaker Gemini ABIERTO [carril: {$this->lane->value}]", [
                 'alert_type'         => 'circuit_breaker_open',
+                'lane'               => $this->lane->value,
                 'fallosConsecutivos' => $fails,
                 'threshold'          => $threshold,
                 'cooldownSeconds'    => $cooldown,
                 'httpCode'           => $httpCode,
             ]);
         } else {
-            Logger::info('Circuit Breaker: fallo registrado', [
+            Logger::info("Circuit Breaker [carril: {$this->lane->value}]: fallo registrado", [
+                'lane'           => $this->lane->value,
                 'fallosActuales' => $fails,
                 'threshold'      => $threshold,
                 'httpCode'       => $httpCode,
@@ -355,30 +401,12 @@ class GeminiGateway
             $taskType === self::TASK_EXTRACTION
         );
 
-        $parts = [['text' => $prompt]];
-
-        foreach ($files as $index => $file) {
-            $label = (string) ($file['label'] ?? '');
-            if ($label !== '') {
-                $parts[] = ['text' => 'DOCUMENTO ' . ($index + 1) . ': ' . $label];
-            }
-            $parts[] = ['inlineData' => [
-                'mimeType' => $file['mime'],
-                'data' => $file['data'],
-            ]];
-        }
-
-        $payload = [
-            'systemInstruction' => [
-                'parts' => [['text' => $systemInstruction]],
-            ],
-            'contents' => [[
-                'role' => 'user',
-                'parts' => $parts,
-            ]],
-            'generationConfig' => $generationConfig,
-            'safetySettings' => $this->getSafetySettings(),
-        ];
+        $payload = $this->buildBaseEnvelope(
+            prompt: $prompt,
+            files: $files,
+            systemInstruction: $systemInstruction,
+            generationConfig: $generationConfig
+        );
 
         if (!empty($tools)) {
             $payload['tools'] = self::normalizeSchemaProperties($tools);
@@ -414,6 +442,23 @@ class GeminiGateway
         $generationConfig['responseMimeType'] = 'application/json';
         $generationConfig['responseSchema'] = self::normalizeSchemaProperties($responseSchema);
 
+        return $this->buildBaseEnvelope(
+            prompt: $prompt,
+            files: $files,
+            systemInstruction: $systemInstruction,
+            generationConfig: $generationConfig
+        );
+    }
+
+    /**
+     * Construye las partes de contenido (texto de prompt + archivos adjuntos inline) para la API de Gemini.
+     *
+     * @param  string $prompt
+     * @param  array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildContentParts(string $prompt, array $files): array
+    {
         $parts = [['text' => $prompt]];
 
         foreach ($files as $index => $file) {
@@ -427,13 +472,31 @@ class GeminiGateway
             ]];
         }
 
+        return $parts;
+    }
+
+    /**
+     * Construye la estructura envoltorio base compartida del payload de Gemini.
+     *
+     * @param  string $prompt
+     * @param  array<int, array<string, mixed>> $files
+     * @param  string $systemInstruction
+     * @param  array<string, mixed> $generationConfig
+     * @return array<string, mixed>
+     */
+    private function buildBaseEnvelope(
+        string $prompt,
+        array $files,
+        string $systemInstruction,
+        array $generationConfig
+    ): array {
         return [
             'systemInstruction' => [
                 'parts' => [['text' => $systemInstruction]],
             ],
             'contents' => [[
                 'role' => 'user',
-                'parts' => $parts,
+                'parts' => $this->buildContentParts($prompt, $files),
             ]],
             'generationConfig' => $generationConfig,
             'safetySettings' => $this->getSafetySettings(),
@@ -515,11 +578,15 @@ class GeminiGateway
     private function saveDebugLog(array $requestPayload, array $responseBody, array $context, string $status): void
     {
         try {
-            $this->diskStore->persist($requestPayload, $responseBody, array_merge($context, ['status' => $status]));
+            $this->diskStore->persist($requestPayload, $responseBody, array_merge($context, [
+                'status' => $status,
+                'lane'   => $this->lane->value,
+            ]));
         } catch (\Throwable $e) {
             Logger::warning('Fallo inesperado al persistir responseIA', [
-                'error' => $e->getMessage(),
+                'error'     => $e->getMessage(),
                 'disDetNro' => (string) ($context['dis_det_nro'] ?? ''),
+                'lane'      => $this->lane->value,
             ]);
         }
     }
@@ -542,14 +609,16 @@ class GeminiGateway
         $threshold = max(1, (int) ($limit * 0.2));
 
         if ($remaining > 0 && $remaining <= $threshold) {
-            Logger::warning('Gemini API: cuota baja', [
-                'remaining'  => $remaining,
-                'limit'      => $limit,
-                'reset'      => $headers['reset'],
+            Logger::warning("Gemini API [carril: {$this->lane->value}]: cuota baja", [
+                'lane'        => $this->lane->value,
+                'remaining'   => $remaining,
+                'limit'       => $limit,
+                'reset'       => $headers['reset'],
                 'umbral20pct' => $threshold,
             ]);
         } else {
-            Logger::info('Gemini API: cuota', [
+            Logger::info("Gemini API [carril: {$this->lane->value}]: cuota", [
+                'lane'      => $this->lane->value,
                 'remaining' => $headers['remaining'],
                 'limit'     => $headers['limit'],
             ]);

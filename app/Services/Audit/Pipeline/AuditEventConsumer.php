@@ -13,9 +13,15 @@ use Throwable;
 
 abstract class AuditEventConsumer
 {
+    public const LANE_ALL = AuditLane::ALL->value;
+    public const LANE_PRIORITY = AuditLane::PRIORITY->value;
+    public const LANE_BATCH = AuditLane::BATCH->value;
+
     protected RedisClient $redis;
     protected AuditEventPublisher $publisher;
     private AuditStateStore $telemetryStateStore;
+    protected string $lane;
+    protected AuditLane $laneEnum;
     protected int $maxRetries;
     protected int $blockMs;
     protected int $pendingReclaimIdleMs;
@@ -27,11 +33,19 @@ abstract class AuditEventConsumer
     public function __construct(
         ?RedisClient $redis = null,
         ?AuditEventPublisher $publisher = null,
-        ?AuditStateStore $stateStore = null
+        ?AuditStateStore $stateStore = null,
+        string|AuditLane|null $lane = null
     ) {
         $this->redis = $redis ?? RedisClient::getInstance();
         $this->publisher = $publisher ?? new AuditEventPublisher($this->redis);
         $this->telemetryStateStore = $stateStore ?? new AuditStateStore($this->redis);
+
+        $resolved = $lane instanceof AuditLane
+            ? $lane
+            : AuditLane::fromString((string) ($lane ?? Env::get('AUDIT_WORKER_LANE', AuditLane::ALL->value)));
+
+        $this->laneEnum = $resolved;
+        $this->lane = $resolved->value;
 
         $this->maxRetries = (int) Env::get('AUDIT_EVENT_MAX_RETRIES', 3);
         $this->blockMs = (int) Env::get('AUDIT_STREAM_BLOCK_MS', 5000);
@@ -55,10 +69,43 @@ abstract class AuditEventConsumer
         );
     }
 
+    public function getLane(): string
+    {
+        return $this->lane;
+    }
+
+    public function getLaneEnum(): AuditLane
+    {
+        return $this->laneEnum;
+    }
+
     /**
      * @return array<int, string>
      */
     abstract protected function streams(): array;
+
+    /**
+     * Retorna los streams activos a consumir según el carril configurado.
+     * Si el carril es 'all', retorna todos los streams declarados.
+     * Si es 'priority', consume streams prioritarios ('.priority' o ':priority') y corrientes neutras.
+     * Si es 'batch', consume streams de lotes ('.batch' o ':batch') y corrientes neutras.
+     *
+     * @return array<int, string>
+     */
+    final public function activeStreams(): array
+    {
+        $allStreams = $this->streams();
+        if ($this->laneEnum->isAll()) {
+            return $allStreams;
+        }
+
+        $filtered = array_values(array_filter(
+            $allStreams,
+            fn(string $stream): bool => $this->laneEnum->matchesStream($stream)
+        ));
+
+        return $filtered !== [] ? $filtered : $allStreams;
+    }
 
     abstract protected function group(): string;
 
@@ -75,12 +122,14 @@ abstract class AuditEventConsumer
         $this->handle($event);
     }
 
-    protected static function defaultConsumerName(string $role): string
+    protected static function defaultConsumerName(string $role, string|AuditLane $lane = AuditLane::ALL): string
     {
+        $laneEnum = $lane instanceof AuditLane ? $lane : AuditLane::fromString($lane);
         $host = gethostname() ?: php_uname('n') ?: 'unknown-host';
         $host = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $host) ?: 'unknown-host';
+        $suffix = !$laneEnum->isAll() ? "-{$laneEnum->value}" : '';
 
-        return sprintf('%s-%s-%d', $role, $host, getmypid());
+        return sprintf('%s%s-%s-%d', $role, $suffix, $host, getmypid());
     }
 
     public function requestStop(): void
@@ -93,6 +142,13 @@ abstract class AuditEventConsumer
         if (!$this->redis->isAvailable()) {
             throw new RuntimeException('Redis no disponible al iniciar consumer');
         }
+
+        Logger::info('AuditEventConsumer: iniciando consumidor', [
+            'group'    => $this->group(),
+            'consumer' => $this->consumer(),
+            'lane'     => $this->lane,
+            'streams'  => $this->activeStreams(),
+        ]);
 
         $this->ensureGroup();
         $processed = $this->reclaimPending($maxEvents);
@@ -119,14 +175,14 @@ abstract class AuditEventConsumer
                 $messages = $this->redis->xReadGroupMulti(
                     $this->group(),
                     $this->consumer(),
-                    $this->streams(),
+                    $this->activeStreams(),
                     1,
                     $this->blockMs
                 );
             } catch (\Exception $e) {
                 if (stripos($e->getMessage(), 'NOGROUP') !== false) {
                     throw new RuntimeException(
-                        "Consumer group '{$this->group()}' desapareció en runtime en streams '" . implode(', ', $this->streams()) . "'. Requiere intervención manual.",
+                        "Consumer group '{$this->group()}' desapareció en runtime en streams '" . implode(', ', $this->activeStreams()) . "'. Requiere intervención manual.",
                         0,
                         $e
                     );
@@ -168,7 +224,7 @@ abstract class AuditEventConsumer
 
         $processed = 0;
 
-        foreach ($this->streams() as $stream) {
+        foreach ($this->activeStreams() as $stream) {
             if ($stream === '') {
                 continue;
             }
@@ -207,7 +263,7 @@ abstract class AuditEventConsumer
 
     private function ensureGroup(): void
     {
-        foreach ($this->streams() as $stream) {
+        foreach ($this->activeStreams() as $stream) {
             if ($stream !== '') {
                 $this->redis->xGroupCreate($stream, $this->group(), '0');
             }
@@ -220,7 +276,7 @@ abstract class AuditEventConsumer
     private function dispatchMessage(array $message): void
     {
         $streamId = $message['id'];
-        $streamName = (string) ($message['stream'] ?? ($this->streams()[0] ?? ''));
+        $streamName = (string) ($message['stream'] ?? ($this->activeStreams()[0] ?? ($this->streams()[0] ?? '')));
         $event = $this->parseEventPayload($streamId, $message['fields']['event'] ?? null, $streamName);
         if ($event === null) {
             return;
@@ -264,7 +320,7 @@ abstract class AuditEventConsumer
 
     private function parseEventPayload(string $streamId, mixed $rawEvent, ?string $streamName = null): ?AuditEvent
     {
-        $stream = $streamName ?? ($this->streams()[0] ?? '');
+        $stream = $streamName ?? ($this->activeStreams()[0] ?? ($this->streams()[0] ?? ''));
         if (!is_string($rawEvent) || $rawEvent === '') {
             Logger::error('AuditEventConsumer: mensaje sin campo event', [
                 'stream' => $stream,

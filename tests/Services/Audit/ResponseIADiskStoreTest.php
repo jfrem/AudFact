@@ -7,7 +7,6 @@ namespace Tests\Services\Audit;
 use App\Services\Audit\ResponseIADiskStore;
 use Core\Env;
 use PHPUnit\Framework\TestCase;
-use ReflectionProperty;
 
 final class ResponseIADiskStoreTest extends TestCase
 {
@@ -25,24 +24,16 @@ final class ResponseIADiskStoreTest extends TestCase
             'AUDIT_RESPONSE_IA_DIR' => getenv('AUDIT_RESPONSE_IA_DIR'),
         ];
         $this->baseDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'audfact-responseia-' . bin2hex(random_bytes(4));
-        $this->resetEnvCache();
+        Env::clearCache();
     }
 
     protected function tearDown(): void
     {
         foreach ($this->envBackup as $key => $value) {
-            if ($value === false) {
-                putenv($key);
-                unset($_ENV[$key], $_SERVER[$key]);
-                continue;
-            }
-
-            putenv("{$key}={$value}");
-            $_ENV[$key] = $value;
-            $_SERVER[$key] = $value;
+            Env::set($key, $value === false ? null : (string) $value);
         }
 
-        $this->resetEnvCache();
+        Env::clearCache();
         $this->deleteTree($this->baseDir);
 
         parent::tearDown();
@@ -117,17 +108,7 @@ final class ResponseIADiskStoreTest extends TestCase
 
     private function setEnv(string $key, string $value): void
     {
-        putenv("{$key}={$value}");
-        $_ENV[$key] = $value;
-        $_SERVER[$key] = $value;
-        $this->resetEnvCache();
-    }
-
-    private function resetEnvCache(): void
-    {
-        $cache = new ReflectionProperty(Env::class, 'cache');
-        $cache->setAccessible(true);
-        $cache->setValue(null, []);
+        Env::set($key, $value);
     }
 
     private function deleteTree(string $path): void

@@ -31,21 +31,22 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         ?AuditEventPublisher $publisher = null,
         ?string $consumerName = null,
         ?TelemetryPublisher $telemetryPublisher = null,
-        ?AuditPersistenceQueue $persistenceQueue = null
+        ?AuditPersistenceQueue $persistenceQueue = null,
+        string|AuditLane|null $lane = null
     ) {
-        parent::__construct($redis, $publisher, $stateStore);
+        parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
 
         if ($policyEngine === null) {
-            $gateway = GeminiGateway::create();
+            $gateway = GeminiGateway::create(lane: $this->laneEnum);
             $semanticJudge = new ArticleSemanticMatchJudge($gateway, $this->redis);
             $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
         } else {
             $this->policyEngine = $policyEngine;
         }
 
-        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_POLICY);
+        $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_POLICY, $this->laneEnum);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->persistenceQueue = $persistenceQueue ?? new AuditPersistenceQueue($this->redis);
     }

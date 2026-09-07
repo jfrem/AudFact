@@ -47,7 +47,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `next-cache-components`           | Frontend Next.js  | Caché y PPR únicamente durante una migración confirmada a Next.js 16+                                  |
 | `next-upgrade`                    | Frontend Next.js  | Actualización incremental de Next.js con guías oficiales y codemods                                    |
 | `impeccable`                      | UI/UX             | Diseño, auditoría y refinamiento de interfaces frontend                                                |
-| `clean-rebuild-policy`            | Gobernanza técnica | Clean rebuild, eliminación de legacy y límites estrictos de MVP                                       |
+| `clean-rebuild-policy`            | Gobernanza técnica | Decisión rebuild/refactor/parche, contratos activos y calidad estructural dentro del MVP               |
 | `write-sdd-spec`                  | Especificación    | Diseño técnico determinista, trazabilidad, migración y rollback antes de implementar                   |
 | `phpunit-test-architect`          | Testing / TDD     | Contratos ejecutables y suites unitarias completas para PHP 8.2+ con PHPUnit 10+                       |
 
@@ -296,6 +296,8 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | Variable                              | Default                 | Requerida | Módulo / Uso                                                                                                   |
 | ------------------------------------- | ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
 | `GEMINI_API_KEY`                      | _(vacío)_               | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                            |
+| `GEMINI_API_KEY_PRIORITY`             | _(vacío)_               | ❌        | `GeminiGateway` — API key dedicada opcional para carril prioritario/VIP (fallback a `GEMINI_API_KEY`)          |
+| `GEMINI_API_KEY_BATCH`                | _(vacío)_               | ❌        | `GeminiGateway` — API key dedicada opcional para carril batch/masivo (fallback a `GEMINI_API_KEY`)             |
 | `GEMINI_MODEL`                        | `gemini-3.7-flash`      | ❌        | Modelo de Gemini a usar                                                                                        |
 | `GEMINI_TEMPERATURE`                  | `0.0`                   | ❌        | Temperatura (0 = determinístico)                                                                               |
 | `GEMINI_TIMEOUT`                      | `300`                   | ❌        | Timeout de la API en segundos                                                                                  |
@@ -343,14 +345,19 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | ------------------------------------ | --------------------------- | ---------- | ----------------------------------------------------------------------------------- |
 | `AUDIT_BATCH_TIMEOUT`                | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers   |
 | `AUDIT_BATCH_MAX_LIMIT`              | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                             |
+| `AUDIT_BATCH_CHUNK_SIZE`             | `50`                        | ❌         | `AuditBatchOrchestrator` — tamaño de chunk para ingesta fair-queuing de lotes masivos |
+| `AUDIT_BATCH_LOCK_TTL_SECONDS`        | `300`                       | ❌         | `AuditBatchOrchestrator` — TTL del lock atómico de generación distribuida por chunk |
 | `AUDIT_BATCH_CRON_LIMIT`             | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
 | `AUDIT_INTERNAL_API_BASE`            | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                     |
+| `AUDIT_WORKER_LANE`                  | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                |
 | `AUDIT_CACHE_TTL`                    | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría           |
 | `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                    |
 | `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                        |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de extractores Gemini                               |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2`                       | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`) |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `6`                     | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)   |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas legacy de extractores Gemini                        |
 | `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS`  | `3`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                        |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
