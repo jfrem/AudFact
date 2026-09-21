@@ -90,7 +90,7 @@ enum AuditFieldValueType: string
      * PERSON_NAME: "GARCIA ABSALON" y "ABSALON GARCIA" tienen los mismos tokens
      * → COINCIDE sin necesidad de llamar a Gemini.
      *
-     * Resuelve CAT-4: reducir llamadas innecesarias a ArticleSemanticMatchJudge.
+     * Resuelve CAT-4: reducir llamadas innecesarias a SemanticMatchJudge.
      */
     public function requiresTokenSortComparison(): bool
     {
@@ -151,17 +151,32 @@ enum AuditFieldValueType: string
     }
 
     /**
-     * ¿La comparación debe evaluar sets completos de artículos con matching biyectivo?
+     * ¿La comparación debe evaluar sets completos de artículos con cobertura suryectiva (N:1)?
      *
-     * ARTICLE_NAME: FDV = {Med A, Med B}, Doc = {Med A, Med B} → COINCIDE
-     *               FDV = {Med A, Med B}, Doc = {Med A}       → NO_CONCLUYENTE (falta Med B)
+     * ARTICLE_NAME: FDV = {Med A, Med B}, Doc = {Med A, Med B}           → COINCIDE
+     *               FDV = {Med A (caja 10), Med A (caja 28)}, Doc = {Med A} → COINCIDE (cobertura N:1 multi-presentación)
+     *               FDV = {Med A, Med B}, Doc = {Med A}                  → NO_CONCLUYENTE (falta Med B en soporte)
      *
-     * Usa cascada léxica (normalización, substring, similitud) y semántica
-     * (ArticleSemanticMatchJudge) para emparejar artículos 1:1 sin repetición.
+     * Usa cascada léxica (normalización, substring, similitud) y arbitraje semántico
+     * (SemanticMatchJudge) asegurando que cada ítem entregado en FDV cuente con respaldo documental.
      */
     public function requiresArticleSetComparison(): bool
     {
         return $this === self::ARTICLE_NAME;
+    }
+
+    /**
+     * ¿El tipo de dato sirve como llave de agrupación en consolidación FDV?
+     *
+     * Tipos aditivos (QUANTITY) se suman; tipos evaluados por teoría de conjuntos
+     * (TRACE_TOKEN, ARTICLE_NAME) no deben fragmentar ni inflar el conteo de ítems
+     * porque sus comparadores especializados manejan la multiplicidad N:1 o sets.
+     */
+    public function isAggregationGroupingKey(): bool
+    {
+        return !$this->isQuantitySummable()
+            && !$this->requiresTraceSetComparison()
+            && !$this->requiresArticleSetComparison();
     }
 
     /**
@@ -198,6 +213,7 @@ enum AuditFieldValueType: string
             self::AUTH_NUMBER         => 'Solo numero de autorizacion/radicado; transcribe cada digito individualmente en orden posicional estricto de izquierda a derecha sin tipo ni texto adicional; verifica con cuidado la distincion entre 8, 6, 5, 0 y 9.',
             self::NIT                 => 'Solo numero de NIT sin digito de verificacion a menos que se solicite; transcribe cada digito con exactitud posicional; verifica con cuidado la distincion entre 8, 6, 5 y 0.',
             self::TRACE_TOKEN         => 'Lista de lotes o seriales de trazabilidad visibles (ej: ["LOTE1", "LOTE2"] o ["LOTE1"]).',
+            self::ARTICLE_NAME        => 'Nombre o denominacion del producto o medicamento; incluye concentracion, dosis y forma farmaceutica si estan visibles en la prescripcion o renglon.',
             default                   => null,
         };
     }

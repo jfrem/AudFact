@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { getClients, getAuditDocumentsHistory } from "@/lib/api/audfact";
-import { formatDateTime, formatNumber } from "@/lib/formatters";
+import { formatDateTime } from "@/lib/formatters";
 import { PageHeader } from "@/components/layout/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Pagination } from "@/components/shared/pagination";
@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { DocumentsHistoryFilterForm } from "@/components/audit/documents-history-filter-form";
 import { TableSkeleton } from "@/components/shared/loading-skeleton";
+import { SectionCard } from "@/components/shared/section-card";
 
 /** Translate raw EstadoSoporte to readable label + variant */
 function docStateBadge(raw?: string | null): { label: string; variant: "success" | "danger" | "neutral" } {
@@ -36,13 +37,13 @@ export default async function AuditDocumentsHistoryPage({
     <div className="space-y-5">
       <PageHeader eyebrow="Historial documental" title="Documentos auditados" />
 
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
+      <SectionCard title="Filtros" description="Acota el historial por cliente o número de factura.">
         <DocumentsHistoryFilterForm
           allClients={allClients}
           initialFacNitSec={facNitSec}
           initialFacNro={facNro}
         />
-      </div>
+      </SectionCard>
 
       <Suspense
         key={searchParamsKey}
@@ -117,7 +118,7 @@ async function DocumentsHistoryFetcher({
               const state = docStateBadge(item.EstadoSoporte as string | undefined);
               return (
                 <TableRow key={`${item.AdjuntoID ?? "adj"}-${index}`}>
-                  <TableCell className="font-medium text-white">
+                  <TableCell className="font-medium text-foreground">
                     {String(item.NroFactura ?? "N/D")}
                   </TableCell>
                   <TableCell>{String(item.NombreDocumento ?? "N/D")}</TableCell>

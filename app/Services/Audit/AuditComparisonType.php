@@ -39,7 +39,7 @@ enum AuditComparisonType: string
      * Umbral de similitud textual derivado del TipoCampo de BD.
      *
      * Campos semánticos (S) usan un umbral más tolerante porque
-     * ArticleSemanticMatchJudge puede actuar como fallback para artículos.
+     * SemanticMatchJudge puede actuar como fallback para artículos.
      */
     public static function getSemanticThreshold(string $tipoCampo): float
     {

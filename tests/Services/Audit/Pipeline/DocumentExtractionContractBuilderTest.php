@@ -103,4 +103,59 @@ final class DocumentExtractionContractBuilderTest extends TestCase
         $this->assertSame($hash1, $hash2);
         $this->assertSame(64, strlen($hash1));
     }
+
+    public function testBuildEnrichesMatchesExpectedTypeDescriptionWithCustomDirective(): void
+    {
+        $fieldsWithoutDirective = [
+            ['campoNombre' => 'NombrePaciente', 'tipoCampo' => 'E', 'tipoDato' => 'person_name'],
+        ];
+
+        $fieldsWithDirective = [
+            ['campoNombre' => 'NombrePaciente', 'tipoCampo' => 'E', 'tipoDato' => 'person_name'],
+            [
+                'campoNombre'         => 'TipoDocumento',
+                'tipoCampo'           => 'I',
+                'tipoDato'            => 'text',
+                'descripcionOverride' => 'Formato oficial con membrete de IPS y posología clara. Rechazar órdenes de laboratorio.',
+            ],
+        ];
+
+        $contractDefault = $this->builder->build('FORMULA MEDICA', $fieldsWithoutDirective, []);
+        $contractCustom  = $this->builder->build('FORMULA MEDICA', $fieldsWithDirective, []);
+
+        $descDefault = $contractDefault['response_schema']['properties']['document_conformity']['properties']['matches_expected_type']['description'];
+        $descCustom  = $contractCustom['response_schema']['properties']['document_conformity']['properties']['matches_expected_type']['description'];
+
+        $this->assertStringContainsString("True si el formato y estructura del documento corresponden genuinamente al tipo documental 'FORMULA MEDICA'", $descDefault);
+        $this->assertStringNotContainsString('Criterios específicos de identificación para', $descDefault);
+
+        $this->assertStringContainsString("True si el formato y estructura del documento corresponden genuinamente al tipo documental 'FORMULA MEDICA'", $descCustom);
+        $this->assertStringContainsString("Criterios específicos de identificación para 'FORMULA MEDICA': Formato oficial con membrete de IPS y posología clara. Rechazar órdenes de laboratorio.", $descCustom);
+
+        // El hash de contrato debe diferir deterministamente al cambiar la directiva
+        $this->assertNotSame($contractDefault['contract_hash'], $contractCustom['contract_hash']);
+    }
+
+    public function testFindTipoDocumentoDirectiveMatchesByCodeOrName(): void
+    {
+        $byName = [
+            ['campoNombre' => 'TipoDocumento', 'descripcionOverride' => 'Criterio por nombre'],
+        ];
+        $this->assertSame('Criterio por nombre', DocumentExtractionContractBuilder::findTipoDocumentoDirective($byName));
+
+        $byCode = [
+            ['campoNombre' => 'OtroNombre', 'codigoCampo' => 'TIP', 'description' => 'Criterio por código'],
+        ];
+        $this->assertSame('Criterio por código', DocumentExtractionContractBuilder::findTipoDocumentoDirective($byCode));
+
+        $emptyFields = [
+            ['campoNombre' => 'TipoDocumento', 'descripcionOverride' => '   '],
+        ];
+        $this->assertNull(DocumentExtractionContractBuilder::findTipoDocumentoDirective($emptyFields));
+
+        $noDirective = [
+            ['campoNombre' => 'NombrePaciente', 'codigoCampo' => 'PAC'],
+        ];
+        $this->assertNull(DocumentExtractionContractBuilder::findTipoDocumentoDirective($noDirective));
+    }
 }

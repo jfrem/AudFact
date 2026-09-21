@@ -290,16 +290,16 @@ export function AddFieldFromDispensaDialog({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent
         showCloseButton={false}
-        className="flex h-[94vh] w-[calc(100vw-1.5rem)] max-w-[1380px] flex-col gap-0 overflow-hidden rounded-[1.75rem] border-white/[0.08] bg-[#090e17] p-0 shadow-black/40 sm:w-[calc(100vw-2.5rem)]"
+        className="flex h-[94vh] w-[calc(100vw-1.5rem)] max-w-[1380px] flex-col gap-0 overflow-hidden rounded-lg border-border bg-popover p-0 sm:w-[calc(100vw-2.5rem)]"
       >
         {/* Header - Minimal & Elegant */}
-        <div className="flex shrink-0 items-center justify-between border-b border-white/[0.05] bg-slate-900/60 px-5 py-3.5 sm:px-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-5 py-3.5 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03]">
+            <div className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/25 bg-primary/10">
               <Search className="h-4.5 w-4.5 text-cyan-400" />
             </div>
             <div>
-              <DialogTitle className="text-base font-bold tracking-wide text-white sm:text-lg">
+              <DialogTitle className="text-base font-bold tracking-wide text-foreground sm:text-lg">
                 Descubrir campos
               </DialogTitle>
               <DialogDescription className="mt-0.5 text-[11px] font-medium leading-5 text-slate-400 sm:text-xs">
@@ -308,7 +308,7 @@ export function AddFieldFromDispensaDialog({
             </div>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
-            <div className="hidden shrink-0 items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 sm:flex">
+            <div className="hidden shrink-0 items-center gap-2 rounded-md border border-border bg-muted px-3 py-1.5 sm:flex">
               <span className="text-[10px] font-bold uppercase tracking-widest text-cyan-500/70">
                 NIT CLIENTE
               </span>
@@ -323,7 +323,7 @@ export function AddFieldFromDispensaDialog({
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="h-10 w-10 rounded-full text-slate-500 hover:bg-slate-800 hover:text-white"
+                  className="h-10 w-10 rounded-md text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground"
                   aria-label="Cerrar"
                 >
                   <X className="h-4.5 w-4.5" />
@@ -335,7 +335,7 @@ export function AddFieldFromDispensaDialog({
         </div>
 
         {/* Search bar area */}
-        <div className="shrink-0 border-b border-white/[0.04] bg-slate-900/30 px-5 py-3 sm:px-6">
+        <div className="shrink-0 border-b border-border bg-muted/30 px-5 py-3 sm:px-6">
           <div className="mx-auto flex max-w-4xl gap-2.5">
             <div className="relative flex-1 group">
               <FileText className="absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-cyan-400" />
@@ -359,7 +359,7 @@ export function AddFieldFromDispensaDialog({
               loading={loading}
               loadingLabel="Buscando"
               className={cn(
-                "h-11 rounded-lg px-5 font-bold transition-transform duration-200 active:scale-[0.98] sm:px-7",
+                "h-11 rounded-md px-5 font-bold transition-colors sm:px-7",
                 loading || !invoiceNumber.trim()
                   ? "bg-slate-800/50 text-slate-500"
                   : "bg-cyan-500 text-slate-950 hover:bg-cyan-400",
@@ -383,7 +383,7 @@ export function AddFieldFromDispensaDialog({
         </div>
 
         {loading && !validated ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#090e17] px-5 py-4 sm:px-6">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background px-5 py-4 sm:px-6">
             <BackendRequestSkeleton
               description="El backend está leyendo la dispensación real y extrayendo campos auditables."
               title="Buscando factura"
@@ -394,12 +394,12 @@ export function AddFieldFromDispensaDialog({
 
         {/* ── Post-search results ─────────────────────────────────────── */}
         {!loading && validated && dispensaInfo && (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#090e17] animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background animate-in fade-in duration-200">
             
             {/* Header Result + Tabs section */}
-            <div className="relative z-10 shrink-0 border-b border-white/[0.05] bg-slate-900/40">
+            <div className="relative z-10 shrink-0 border-b border-border bg-card">
               {/* Verification Bar */}
-              <div className="flex items-center gap-3 border-b border-white/[0.03] bg-emerald-500/[0.04] px-5 py-2 sm:px-6">
+              <div className="flex items-center gap-3 border-b border-border bg-success/5 px-5 py-2 sm:px-6">
                 <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/12">
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
                 </div>
@@ -449,7 +449,7 @@ export function AddFieldFromDispensaDialog({
             {fields.length > 0 && (
               <div className="flex flex-1 flex-col overflow-hidden relative">
                 {/* Controls Bar */}
-                <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-white/[0.03] bg-slate-950/92 px-5 py-2.5 sm:px-6">
+                <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-border bg-background px-5 py-2.5 sm:px-6">
                   <div className="flex items-center gap-2">
                     <span className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-400 sm:text-xs">
                       {selectedCount} seleccionados
@@ -553,7 +553,7 @@ export function AddFieldFromDispensaDialog({
 
                   {/* Existing fields section - Demoted to the bottom */}
                   {existingFilteredFields.length > 0 && (
-                    <div className="mt-6 border-t border-white/[0.04] pt-5">
+                    <div className="mt-6 border-t border-border pt-5">
                       <div className="mb-2.5 flex items-center gap-2 opacity-60">
                         <CheckCircle2 className="h-4 w-4 text-slate-500" />
                         <span className="text-[11px] font-bold uppercase tracking-widest text-slate-500">
@@ -579,7 +579,7 @@ export function AddFieldFromDispensaDialog({
             {/* Empty fields state */}
             {fields.length === 0 && (
               <div className="flex flex-col items-center justify-center flex-1 px-6 text-center animate-in fade-in">
-                <div className="h-20 w-20 bg-slate-900/80 rounded-full flex items-center justify-center mb-4 ring-1 ring-white/5">
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-muted">
                   <Search className="h-8 w-8 text-slate-600" />
                 </div>
                 <p className="text-slate-400 font-medium">
@@ -590,12 +590,12 @@ export function AddFieldFromDispensaDialog({
 
             {/* Footer */}
             {fields.length > 0 && (
-              <div className="flex shrink-0 items-center justify-between border-t border-white/[0.05] bg-slate-950/88 px-5 py-3.5 sm:px-6">
+              <div className="flex shrink-0 items-center justify-between border-t border-border bg-card px-5 py-3.5 sm:px-6">
                 <Button
                   type="button"
                   onClick={onClose}
                   variant="ghost"
-                  className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-400 hover:text-white"
+                  className="rounded-md px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
                 >
                   Cancelar
                 </Button>
@@ -604,10 +604,10 @@ export function AddFieldFromDispensaDialog({
                   onClick={handleConfirm}
                   disabled={selectedCount === 0}
                   className={cn(
-                    "rounded-xl px-6 py-2.5 text-sm font-bold transition-transform duration-200 shadow-xl active:scale-[0.98]",
+                    "rounded-md px-6 py-2.5 text-sm font-bold transition-colors",
                     selectedCount > 0
                       ? "bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-                      : "border border-white/[0.04] bg-slate-800/40 text-slate-600 shadow-none",
+                      : "border border-border bg-muted text-muted-foreground",
                   )}
                 >
                     <Plus className="h-4.5 w-4.5" />
@@ -641,14 +641,14 @@ function FieldOption({
   return (
     <div
       className={cn(
-        "group flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-all duration-200",
+        "group flex w-full items-start gap-3 rounded-md border px-3 py-2.5 text-left transition-colors",
         isExisting
-          ? "cursor-default border-transparent bg-white/[0.02]"
+          ? "cursor-default border-transparent bg-muted/40"
           : isBlocked
             ? "cursor-default border-amber-500/20 bg-amber-500/[0.04]"
           : field.selected
             ? "border-cyan-500/30 bg-cyan-500/[0.08] hover:border-cyan-500/50"
-            : "border-white/[0.04] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.04]",
+            : "border-border bg-background hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
       )}
     >
       <Checkbox
@@ -690,7 +690,7 @@ function FieldOption({
                   ? "text-amber-200"
                 : field.selected
                   ? "text-cyan-300"
-                  : "text-slate-300 group-hover:text-white",
+                  : "text-muted-foreground group-hover:text-foreground",
             )}
             title={field.name}
           >

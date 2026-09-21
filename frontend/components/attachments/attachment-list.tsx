@@ -19,7 +19,7 @@ export function AttachmentList({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-white/10 bg-card px-4 py-5 text-sm text-slate-400">
+      <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
         No hay adjuntos asociados visibles para este caso.
       </div>
     );
@@ -28,11 +28,11 @@ export function AttachmentList({
   return (
     <section className="flex flex-col gap-1 overflow-hidden">
       {/* Compact header */}
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+      <div className="flex items-center justify-between gap-2 border-b border-border pb-2.5">
         <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
           Adjuntos
         </p>
-        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-400">
+        <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
           {items.length}
         </span>
       </div>

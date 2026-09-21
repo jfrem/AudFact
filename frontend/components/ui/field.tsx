@@ -22,7 +22,7 @@ const FieldLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <Label
     ref={ref}
-    className={cn("text-xs font-medium uppercase tracking-[0.12em] text-slate-400", className)}
+    className={cn("text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground", className)}
     {...props}
   />
 ));
@@ -34,7 +34,7 @@ const FieldDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn("text-xs leading-relaxed text-slate-500", className)}
+    className={cn("text-xs leading-relaxed text-muted-foreground", className)}
     {...props}
   />
 ));

@@ -1,91 +1,110 @@
-import React, { useCallback, useMemo, useEffect } from "react";
-import { ReactFlow, Controls, Background, MiniMap, BackgroundVariant, useReactFlow } from "@xyflow/react";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  ReactFlow,
+  useReactFlow,
+} from "@xyflow/react";
+import { Activity, AlertTriangle, History } from "lucide-react";
 import "@xyflow/react/dist/style.css";
-import { useAuditFlowStore } from "@/store/use-audit-flow-store";
-import { nodeTypes } from "./custom-nodes";
-import { NodeInspector } from "./node-inspector";
-import type { AuditNode } from "@/lib/audit-flow/dag-builder";
 
-const STATUS_BADGE_CLASS = {
-  live: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20",
-  historical: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
-} as const;
+import type { AuditNode } from "@/lib/audit-flow/dag-builder";
+import { useAuditFlowStore } from "@/store/use-audit-flow-store";
+import { nodeTypes } from "@/components/audit-flow/custom-nodes";
+
+import { NodeInspector } from "./node-inspector";
 
 function AutoFitView({ nodeCount }: { nodeCount: number }) {
   const { fitView } = useReactFlow();
 
   useEffect(() => {
-    if (nodeCount > 0) {
-      const timer = setTimeout(() => {
-        fitView({ padding: 0.2, duration: 800 });
-      }, 50);
-      return () => clearTimeout(timer);
-    }
+    if (nodeCount === 0) return;
+
+    const timer = window.setTimeout(() => {
+      void fitView({ padding: 0.2, duration: 200 });
+    }, 50);
+
+    return () => window.clearTimeout(timer);
   }, [nodeCount, fitView]);
 
   return null;
 }
 
 export function AuditFlowGraph() {
-  const { nodes, edges, onNodesChange, onEdgesChange, setSelectedNode, status } = useAuditFlowStore();
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    setSelectedNode,
+    status,
+  } = useAuditFlowStore();
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: AuditNode) => {
-      setSelectedNode(node);
-    },
+    (_event: React.MouseEvent, node: AuditNode) => setSelectedNode(node),
     [setSelectedNode],
   );
 
-  const onPaneClick = useCallback(() => {
-    setSelectedNode(null);
-  }, [setSelectedNode]);
+  const onPaneClick = useCallback(() => setSelectedNode(null), [setSelectedNode]);
 
-  const defaultEdgeOptions = useMemo(() => ({
-    type: "smoothstep",
-    style: { strokeWidth: 2, stroke: "#cbd5e1" },
-    animated: status === "live",
-  }), [status]);
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      type: "smoothstep",
+      style: {
+        strokeWidth: 1.5,
+        stroke: "oklch(0.69 0.035 247 / 0.42)",
+      },
+      animated: status === "live",
+    }),
+    [status],
+  );
 
   return (
-    <div className="w-full h-full relative">
-      {status === "error" && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 bg-red-50 text-red-900 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium shadow-sm dark:bg-red-950/50 dark:border-red-900/50 dark:text-red-200">
-          Error conectando a telemetría. Reintentando...
+    <div className="relative h-full w-full">
+      {status === "error" ? (
+        <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-200">
+          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+          Telemetría interrumpida, reintentando
         </div>
-      )}
+      ) : null}
 
-      {(status === "live" || status === "historical") && (
-        <div
-          className={`absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest shadow-sm transition-colors ${STATUS_BADGE_CLASS[status]}`}
-        >
-          {status === "live" && (
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+      {status === "live" || status === "historical" ? (
+        <div className="absolute left-4 top-4 z-20 inline-flex items-center gap-2 rounded-md border border-border bg-popover/90 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {status === "live" ? (
+            <Activity className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
+          ) : (
+            <History className="h-3.5 w-3.5 text-sky-300" aria-hidden="true" />
           )}
           {status === "live" ? "En vivo" : "Histórico"}
         </div>
-      )}
+      ) : null}
 
       <style>{`
-        .dark .react-flow__controls-button {
-          background-color: #0f172a !important;
-          border-bottom-color: #1e293b !important;
-          fill: #cbd5e1 !important;
+        .react-flow__controls {
+          overflow: hidden;
+          border: 1px solid var(--border);
+          border-radius: 0.375rem;
+          box-shadow: none;
         }
-        .dark .react-flow__controls-button:hover {
-          background-color: #1e293b !important;
+        .react-flow__controls-button {
+          background: var(--surface-raised);
+          border-bottom-color: var(--border);
+          fill: var(--muted-foreground);
         }
-        .dark .react-flow__controls {
-          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-          border: 1px solid #1e293b;
+        .react-flow__controls-button:hover {
+          background: var(--surface-hover);
+          fill: var(--foreground);
         }
-        .dark .react-flow__minimap {
-          background-color: #020617 !important;
-          border: 1px solid #1e293b !important;
-        }
-        .dark .react-flow__minimap-mask {
-          fill: rgba(255, 255, 255, 0.08) !important;
+        .react-flow__minimap {
+          overflow: hidden;
+          border: 1px solid var(--border);
+          border-radius: 0.375rem;
+          background: var(--surface-raised);
         }
       `}</style>
+
       <ReactFlow<AuditNode>
         nodes={nodes}
         edges={edges}
@@ -104,28 +123,22 @@ export function AuditFlowGraph() {
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={16}
-          size={1.5}
-          className="opacity-50 dark:opacity-30"
+          gap={18}
+          size={1}
+          color="oklch(0.69 0.035 247 / 0.22)"
         />
         <Controls showInteractive={false} />
         <MiniMap
           zoomable
           pannable
-          nodeClassName={(node: AuditNode) => {
-            if (node.data?.state === "failed" || node.data?.state === "rejected") {
-              return "!bg-red-500 dark:!bg-red-600";
-            }
-            if (node.data?.state === "completed") {
-              return "!bg-emerald-500 dark:!bg-emerald-600";
-            }
-            if (node.data?.state === "running") {
-              return "!bg-blue-500 dark:!bg-blue-600";
-            }
-            return "!bg-slate-300 dark:!bg-slate-700";
+          nodeColor={(node: AuditNode) => {
+            if (node.data?.state === "failed") return "oklch(0.7 0.18 18)";
+            if (node.data?.state === "rejected") return "oklch(0.8 0.15 78)";
+            if (node.data?.state === "completed") return "oklch(0.74 0.16 158)";
+            if (node.data?.state === "running") return "oklch(0.75 0.14 244)";
+            return "oklch(0.46 0.03 247)";
           }}
-          className="border-slate-200 shadow-sm !rounded-lg overflow-hidden"
-          maskColor="rgba(0,0,0,0.1)"
+          maskColor="oklch(0.11 0.018 252 / 0.55)"
           maskStrokeColor="transparent"
           maskStrokeWidth={1}
         />

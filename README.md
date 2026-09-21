@@ -212,7 +212,7 @@ Características:
 - Cache de extracción por `document_hash` (idempotencia).
 - Modelo Gemini base configurable (`GEMINI_MODEL`).
 - Soporte nativo para **Thinking Mode** (razonamiento profundo latente) configurable independientemente por tipo de tarea (`GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_LEVEL`). La clase `GeminiConfig` centraliza esta orquestación y garantiza compatibilidad entre versiones del modelo.
-- Fallback semántico vía `ArticleSemanticMatchJudge` para homologación de artículos.
+- Fallback semántico vía `SemanticMatchJudge` para homologación de artículos y personas con contexto documental.
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - PDO fresco por operación SQL y replay solo para lecturas/escrituras idempotentes, con backoff fijo de 1/5/30 segundos.
 - Los fallos técnicos de SQL, Drive o transferencia BLOB nunca se convierten en decisiones documentales; al agotarse SQL pasan a DLQ y liberan el turno en la misma entrega.
@@ -310,6 +310,8 @@ El frontend Next.js vive versionado dentro de `frontend/`. En CI se valida con `
 - Healthcheck interno del frontend: `/api/health`.
 - `INTERNAL_API_URL=http://nginx` se inyecta en compose para que el proxy `/api/backend/*` consuma la API dentro de la red Docker.
 - El navegador y SSR llaman rutas relativas `/api/backend/*`; Next.js reenvía al backend en runtime.
+- La interfaz usa el sistema visual **Mesa de evidencia**: tokens OKLCH en `app/globals.css`, primitivas accesibles en `components/ui/` y componentes de dominio sin lógica REST duplicada.
+- El rollback visual/funcional se realiza desplegando nuevamente el SHA anterior de `ghcr.io/jfrem/audfact-frontend`.
 
 ### Seguridad pendiente
 

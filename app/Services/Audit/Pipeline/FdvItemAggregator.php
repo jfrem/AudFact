@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
-use App\Services\Audit\AuditComparisonType;
 use App\Services\Audit\AuditFieldValueType;
 use App\Services\Audit\AuditFindingRules;
 
@@ -26,7 +25,7 @@ final class FdvItemAggregator
         }
 
         $contractBuilder ??= new DocumentExtractionContractBuilder();
-        [$groupingKeys, $summableKeys] = self::classifyItemFields($fieldsConfig, $contractBuilder, $documentType);
+        [$groupingKeys, $summableKeys] = self::classifyItemFields($fieldsConfig, $contractBuilder);
 
         if ($groupingKeys === []) {
             return $items;
@@ -43,8 +42,7 @@ final class FdvItemAggregator
      */
     private static function classifyItemFields(
         array $fieldsConfig,
-        DocumentExtractionContractBuilder $contractBuilder,
-        string $documentType
+        DocumentExtractionContractBuilder $contractBuilder
     ): array {
         $groupingKeys = [];
         $summableKeys = [];
@@ -63,11 +61,9 @@ final class FdvItemAggregator
                 continue;
             }
 
-            $comparison = AuditComparisonType::fromTipoCampo($tipoCampo);
-
             if ($valueType !== null && $valueType->isQuantitySummable()) {
                 $summableKeys[] = $name;
-            } elseif ($comparison === AuditComparisonType::EXACT || $comparison === AuditComparisonType::SEMANTIC) {
+            } elseif ($valueType === null || $valueType->isAggregationGroupingKey()) {
                 $groupingKeys[] = $name;
             }
         }
@@ -115,25 +111,45 @@ final class FdvItemAggregator
     {
         $result = [];
         foreach ($groups as $members) {
-            $merged = $members[0];
-
-            if (count($members) > 1) {
-                foreach ($summableKeys as $field) {
-                    $values = [];
-                    foreach ($members as $member) {
-                        if (array_key_exists($field, $member) && AuditFindingRules::isPresent($member[$field])) {
-                            $values[] = AuditFindingRules::scalarToString($member[$field]);
-                        }
-                    }
-                    $sum = AuditFindingRules::sumNumericValues($values);
-                    if ($sum !== null) {
-                        $merged[$field] = AuditFindingRules::formatNumber($sum);
-                    }
-                }
-            }
-
-            $result[] = $merged;
+            $result[] = self::mergeGroupMembers($members, $summableKeys);
         }
         return $result;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $members
+     * @param  array<int,string>              $summableKeys
+     * @return array<string,mixed>
+     */
+    private static function mergeGroupMembers(array $members, array $summableKeys): array
+    {
+        $merged = $members[0];
+        if (count($members) <= 1) {
+            return $merged;
+        }
+
+        foreach ($summableKeys as $field) {
+            $sum = self::sumFieldValues($members, $field);
+            if ($sum !== null) {
+                $merged[$field] = AuditFindingRules::formatNumber($sum);
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $members
+     */
+    private static function sumFieldValues(array $members, string $field): ?float
+    {
+        $values = [];
+        foreach ($members as $member) {
+            if (array_key_exists($field, $member) && AuditFindingRules::isPresent($member[$field])) {
+                $values[] = AuditFindingRules::scalarToString($member[$field]);
+            }
+        }
+
+        return AuditFindingRules::sumNumericValues($values);
     }
 }

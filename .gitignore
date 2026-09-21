@@ -10,10 +10,8 @@ composer.lock
 
 # Logs, Caché y Archivos Temporales
 *.log
-/logs/*.log
-/logs/ratelimit.json
-/logs/ratelimit.lock
-/logs/responseIA/
+/logs/
+/scratch/
 .phpunit.cache
 /responseIA/
 /tmp/

@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import {
-  Save,
   Eye,
   Database,
   Plus,
@@ -10,11 +9,14 @@ import {
   FileText,
   ClipboardCheck,
   Pill,
-  Sparkles,
   AlertCircle,
   CheckCircle2,
-  Settings2,
   Scale,
+  FileCheck2,
+  RotateCcw,
+  Sparkles,
+  Save,
+  Settings2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -27,6 +29,14 @@ import { saveAuditConfig, type AuditConfigPayload } from "@/lib/api/audfact";
 import type { AuditConfig, FieldCatalogItem } from "@/lib/schemas/domain";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -38,14 +48,6 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -71,6 +73,18 @@ type DocState = {
   docId: number;
   docName: string;
   fields: FieldToggle[];
+  tipoDocDirective?: string;
+};
+
+// ─── Directivas sugeridas de tipología documental ───────────────────────────
+
+const TIPO_DOC_PRESETS: Record<string, string> = {
+  "FORMULA MEDICA":
+    "Fórmula médica u orden médica oficial con membrete de la IPS/médico, prescripción legible de medicamentos, posología, firma y/o sello médico. Rechazar si es orden de laboratorio, resultado de exámenes, epicrisis sin prescripción o comprobante de cita.",
+  AUTORIZACION:
+    "Documento o volante de autorización expedido por la EPS o aseguradora, que detalle número de autorización, vigencia, paciente y medicamentos autorizados. Rechazar si es solo constancia de afiliación o solicitud en trámite.",
+  DISPENSA:
+    "Comprobante o acta de entrega con firma y/o huella del paciente o acudiente, fecha de entrega y medicamentos entregados. Rechazar si no contiene constancia de recepción física.",
 };
 
 // ─── Doc icon map ────────────────────────────────────────────────────────────
@@ -166,8 +180,24 @@ export function AuditConfigEditor({
   React.useEffect(() => {
     const docEntries = Object.entries(config.documents).map(
       ([docName, doc]) => {
+        // Extraer directiva de tipología documental si viene en el catálogo de campos
+        const tipoDocField = doc.fields.find(
+          (f) =>
+            sameFieldName(f.campoNombre, "TipoDocumento") ||
+            (f.codigoCampo && f.codigoCampo.toUpperCase() === "TIP"),
+        );
+        const tipoDocDirective =
+          tipoDocField?.descripcionOverride ?? tipoDocField?.description ?? "";
+
+        // Filtrar fuera TipoDocumento para no mezclarlo con los campos tabulares de datos
+        const regularFields = doc.fields.filter(
+          (f) =>
+            !sameFieldName(f.campoNombre, "TipoDocumento") &&
+            (!f.codigoCampo || f.codigoCampo.toUpperCase() !== "TIP"),
+        );
+
         // Unify data fields
-        const dataFields: FieldToggle[] = doc.fields.map((f) => {
+        const dataFields: FieldToggle[] = regularFields.map((f) => {
           const tipo = (f.tipoCampo || "E").trim().toUpperCase();
 
           return {
@@ -208,6 +238,7 @@ export function AuditConfigEditor({
         return {
           docId: doc.docId,
           docName,
+          tipoDocDirective,
           fields: [...filteredDataFields, ...visualFields].sort(
             (a, b) => a.orden - b.orden,
           ),
@@ -250,6 +281,20 @@ export function AuditConfigEditor({
     setDirty(true);
   };
 
+  const updateTipoDocDirective = (docName: string, directive: string) => {
+    setDocs((prev) =>
+      prev.map((d) =>
+        d.docName === docName
+          ? {
+              ...d,
+              tipoDocDirective: directive,
+            }
+          : d,
+      ),
+    );
+    setDirty(true);
+  };
+
   const removeField = (docName: string, campoNombre: string) => {
     setDocs((prev) =>
       prev.map((d) =>
@@ -285,7 +330,14 @@ export function AuditConfigEditor({
           if (existingNames.has(lowerName)) continue;
 
           const item = catalog.find((c) => sameFieldName(c.campoNombre, name));
-          if (!item || item.esVisual) continue;
+          if (
+            !item ||
+            item.esVisual ||
+            sameFieldName(item.campoNombre, "TipoDocumento") ||
+            (item.codigoCampo && item.codigoCampo.toUpperCase() === "TIP")
+          ) {
+            continue;
+          }
 
           newFields.push({
             campoNombre: item.campoNombre,
@@ -350,6 +402,19 @@ export function AuditConfigEditor({
     const fields: AuditConfigPayload["fields"] = [];
 
     for (const doc of docs) {
+      if (doc.tipoDocDirective && doc.tipoDocDirective.trim() !== "") {
+        fields.push({
+          docId: doc.docId,
+          campoNombre: "TipoDocumento",
+          enabled: true,
+          description: doc.tipoDocDirective.trim(),
+          severity: "ALTA",
+          orden: 0,
+          aplicaServicio: "TODOS",
+          esMultiItem: false,
+        });
+      }
+
       for (const f of doc.fields) {
         fields.push({
           docId: doc.docId,
@@ -423,7 +488,7 @@ export function AuditConfigEditor({
   return (
     <div className="space-y-6">
       {/* ── Stats Bar ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid border-y border-border sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Cliente" value={config.nitSec} tone="cyan" />
         <StatCard
           label="Estado"
@@ -444,7 +509,7 @@ export function AuditConfigEditor({
       </div>
 
       {/* ── Document Tabs ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 overflow-hidden rounded-lg border border-border lg:grid-cols-3">
         {docs.map((doc) => {
           const Icon = docIcons[doc.docName] ?? FileText;
           const isActive = activeTab === doc.docName;
@@ -457,10 +522,10 @@ export function AuditConfigEditor({
               type="button"
               onClick={() => setActiveTab(doc.docName)}
               className={cn(
-                "group relative flex cursor-pointer flex-col gap-3 overflow-hidden rounded-lg border p-5 text-left transition-all duration-200",
+                "group relative flex cursor-pointer flex-col gap-3 border-b border-border p-4 text-left transition-colors last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0",
                 isActive
-                  ? "border-sky-500/25 bg-white/[0.04]"
-                  : "border-white/[0.06] bg-white/[0.02] hover:border-white/[0.10] hover:bg-white/[0.04]",
+                  ? "bg-primary/10 text-foreground"
+                  : "bg-card text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground",
               )}
             >
               {/* Active state styling relies purely on the solid background and border */}
@@ -468,10 +533,10 @@ export function AuditConfigEditor({
               <div className="flex items-start justify-between">
                 <div
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                    "flex h-9 w-9 items-center justify-center rounded-md border transition-colors",
                     isActive
-                      ? "border border-white/[0.08] bg-white/[0.03] text-cyan-400"
-                      : "bg-white/[0.06] text-slate-500 group-hover:text-slate-400",
+                      ? "border-primary/35 bg-primary/10 text-primary"
+                      : "border-border bg-muted text-muted-foreground",
                   )}
                 >
                   <Icon className="h-5 w-5" />
@@ -485,13 +550,21 @@ export function AuditConfigEditor({
                 <p
                   className={cn(
                     "text-sm font-semibold transition-colors",
-                    isActive ? "text-white" : "text-slate-400",
+                    isActive ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {doc.docName}
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-600">
                   <span>{docTotal} campos activos</span>
+                  {doc.tipoDocDirective?.trim() && (
+                    <>
+                      <span className="text-slate-700">·</span>
+                      <span className="font-medium text-amber-400">
+                        Criterio IA
+                      </span>
+                    </>
+                  )}
                   {hasVisuals && (
                     <>
                       <span className="text-slate-700">·</span>
@@ -503,10 +576,10 @@ export function AuditConfigEditor({
                 </div>
               </div>
               {/* Indicator bar */}
-              <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.05]">
+              <div className="h-0.5 w-full overflow-hidden rounded-full bg-muted">
                 <div
                   className={cn(
-                    "h-full rounded-full transition-all duration-500",
+                    "h-full rounded-full transition-[width] duration-300",
                     docTotal > 0
                       ? isActive
                         ? "bg-sky-500"
@@ -523,11 +596,11 @@ export function AuditConfigEditor({
 
       {/* ── Active Document Panel ────────────────────────────────────── */}
       {activeDoc && (
-        <div className="space-y-5 rounded-3xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
+        <section className="space-y-5 rounded-lg border border-border bg-card p-5 sm:p-6">
           {/* Panel header */}
-          <div className="flex flex-col gap-3 border-b border-white/[0.05] pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-foreground">
                 {activeDoc.docName}
               </h3>
               <p className="text-[11px] text-slate-500">
@@ -551,11 +624,72 @@ export function AuditConfigEditor({
             <button
               type="button"
               onClick={() => setAddFieldDialogOpen(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-dashed border-white/[0.12] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-cyan-400 transition hover:bg-white/[0.05]"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary/40 bg-transparent px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
             >
               <Plus className="h-3.5 w-3.5" />
               Descubrir campos
             </button>
+          </div>
+
+          {/* ── Criterio de Tipología y Conformidad Documental (IA) ── */}
+          <div className="space-y-3 rounded-lg border border-warning/25 bg-warning/5 p-4 sm:p-5">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <FileCheck2 className="h-4 w-4 shrink-0 text-amber-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Criterio de Tipología y Conformidad Documental (IA)
+                </span>
+                <span className="rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300">
+                  Campo TIP · Alta
+                </span>
+                <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  Short-Circuit
+                </span>
+              </div>
+
+              {TIPO_DOC_PRESETS[activeDoc.docName] && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateTipoDocDirective(
+                      activeDoc.docName,
+                      TIPO_DOC_PRESETS[activeDoc.docName],
+                    )
+                  }
+                  className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-amber-400/90 transition hover:text-amber-300 hover:underline"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Cargar plantilla sugerida
+                </button>
+              )}
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              Directiva de extracción e inspección inyectada a Gemini para verificar que el documento adjunto corresponde inequívocamente a{" "}
+              <strong className="text-foreground">{activeDoc.docName}</strong>. Si no cumple o es un tipo no permitido, se activará el rechazo automático de tipología <code className="rounded bg-muted px-1 py-0.5 text-warning">[TIP]</code>.
+            </p>
+
+            <div className="space-y-1.5">
+              <Textarea
+                value={activeDoc.tipoDocDirective ?? ""}
+                onChange={(e) =>
+                  updateTipoDocDirective(activeDoc.docName, e.target.value)
+                }
+                rows={3}
+                placeholder={`Defina directivas de inspección y exclusión (ej. "Formato con membrete oficial de IPS, prescripción médica y posología. No aceptar órdenes de laboratorio ni citas"). Si se deja vacío, la IA usará validación general por nombre.`}
+                className="resize-y bg-background font-mono text-xs focus-visible:ring-warning/40"
+              />
+              <div className="flex items-center justify-between text-[10px] text-slate-500">
+                <span>
+                  {activeDoc.tipoDocDirective?.trim()
+                    ? "Directiva personalizada activa en extracción IA"
+                    : "Sin directiva específica (usará validación básica por nombre)"}
+                </span>
+                <span>
+                  {activeDoc.tipoDocDirective?.length ?? 0} caracteres
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* ── Data Fields ─────────────────────────────────────────── */}
@@ -616,11 +750,11 @@ export function AuditConfigEditor({
               </div>
             )}
           </div>
-        </div>
+        </section>
       )}
 
       {/* ── Factor de Conversión (Empaque) ─────────────────────────── */}
-      <div className="rounded-3xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
+      <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
@@ -651,10 +785,10 @@ export function AuditConfigEditor({
             />
           </div>
         </div>
-      </div>
+      </section>
 
       {/* ── System Prompt ────────────────────────────────────────────── */}
-      <div className="rounded-3xl border border-white/[0.06] bg-white/[0.02] p-5 sm:p-6">
+      <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
         <div className="mb-3 flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-amber-400" />
           <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
@@ -676,15 +810,15 @@ export function AuditConfigEditor({
           cliente. Déjalo vacío para usar el comportamiento por defecto del
           sistema.
         </p>
-      </div>
+      </section>
 
       {/* ── Save Bar ─────────────────────────────────────────────────── */}
       <div
         className={cn(
-          "flex items-center justify-between rounded-lg border px-5 py-4 transition-all duration-300",
+          "sticky bottom-4 z-20 flex items-center justify-between rounded-lg border px-5 py-4 transition-colors",
           dirty
-            ? "border-sky-500/20 bg-white/[0.04]"
-            : "border-white/[0.06] bg-white/[0.02]",
+            ? "border-primary/35 bg-popover/95"
+            : "border-border bg-card/95",
         )}
       >
         <div className="flex items-center gap-2">
@@ -706,9 +840,9 @@ export function AuditConfigEditor({
           loading={saving}
           loadingLabel="Guardando..."
           className={cn(
-            "inline-flex cursor-pointer items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200",
+            "inline-flex cursor-pointer items-center gap-2 rounded-md px-5 py-2.5 text-sm font-semibold transition-colors",
             dirty && !saving
-              ? "bg-sky-500 text-white hover:brightness-110 active:scale-[0.97]"
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
               : "cursor-not-allowed bg-slate-800/40 text-slate-600",
           )}
         >
@@ -761,15 +895,15 @@ function StatCard({
   icon?: React.ElementType;
 }) {
   const colors = {
-    cyan: "border-white/[0.08] bg-white/[0.03] text-cyan-300",
-    emerald: "border-white/[0.08] bg-white/[0.03] text-emerald-300",
-    violet: "border-white/[0.08] bg-white/[0.03] text-violet-300",
-    rose: "border-white/[0.08] bg-white/[0.03] text-rose-300",
-    amber: "border-white/[0.08] bg-white/[0.03] text-amber-300",
+    cyan: "text-info",
+    emerald: "text-success",
+    violet: "text-violet-300",
+    rose: "text-destructive",
+    amber: "text-warning",
   };
   return (
     <div
-      className={`flex flex-col gap-1.5 rounded-lg border px-4 py-3.5 ${colors[tone]}`}
+      className={`flex flex-col gap-1.5 border-b border-border px-4 py-3.5 last:border-b-0 sm:border-b-0 sm:border-r xl:last:border-r-0 ${colors[tone]}`}
     >
       {Icon && <Icon className="h-4 w-4 opacity-60" />}
       <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
@@ -782,11 +916,11 @@ function StatCard({
 
 function InlineMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2">
+    <div className="border-l-2 border-primary/40 pl-3">
       <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
         {label}
       </p>
-      <p className="text-sm font-bold text-white">{value}</p>
+      <p className="text-sm font-bold text-foreground">{value}</p>
     </div>
   );
 }
@@ -843,10 +977,10 @@ function VisualCheckPicker({
               onToggle(option);
             }}
             className={cn(
-              "flex min-h-14 cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-all duration-150",
+              "flex min-h-14 cursor-pointer items-start gap-3 rounded-md border px-3 py-3 transition-colors",
               checked
-                ? "border-violet-400/30 bg-violet-500/10 text-slate-200"
-                : "border-white/[0.06] bg-white/[0.02] text-slate-500 hover:border-white/[0.12] hover:bg-white/[0.04]",
+                ? "border-violet-400/35 bg-violet-500/10 text-foreground"
+                : "border-border bg-background text-muted-foreground hover:bg-[var(--surface-hover)]",
             )}
           >
             <Checkbox
@@ -868,7 +1002,7 @@ function VisualCheckPicker({
               <span
                 className={cn(
                   "block text-[12px] font-semibold",
-                  checked ? "text-white" : "text-slate-400",
+                  checked ? "text-foreground" : "text-muted-foreground",
                 )}
               >
                 {option.campoNombre}
@@ -893,8 +1027,8 @@ function ServiceBadge({ service }: { service?: string }) {
       className={cn(
         "shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider transition-colors",
         normalized === "POS"
-          ? "border-amber-500/30 bg-amber-500/10 text-amber-300/90 shadow-[0_0_10px_rgba(245,158,11,0.05)]"
-          : "border-sky-500/30 bg-sky-500/10 text-sky-300/90 shadow-[0_0_10px_rgba(56,189,248,0.05)]",
+          ? "border-warning/30 bg-warning/10 text-warning"
+          : "border-info/30 bg-info/10 text-info",
       )}
     >
       {normalized === "POS" ? "POS" : "MIPRES"}
@@ -915,15 +1049,15 @@ function ServiceSelect({
         Servicio
       </span>
       <Select value={normalizeAplicaServicio(value)} onValueChange={onChange}>
-        <SelectTrigger className="h-8 rounded-lg border-white/[0.08] bg-background/50 text-[11px] text-slate-200 transition-colors hover:border-white/[0.16] hover:bg-background/80">
+        <SelectTrigger className="h-8 rounded-md bg-background text-[11px]">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="border-white/[0.08] bg-[#0c1424]">
+        <SelectContent>
           {APLICA_SERVICIO_OPTIONS.map((opt) => (
             <SelectItem
               key={opt.value}
               value={opt.value}
-              className="text-[11px] text-slate-300 focus:bg-white/[0.06] focus:text-white"
+              className="text-[11px]"
             >
               {opt.label}
             </SelectItem>
@@ -944,14 +1078,14 @@ function FieldRow({
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
   return (
-    <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
+    <div className="group rounded-md border border-border bg-background transition-colors hover:border-[var(--border-strong)]">
       <div className="flex items-center justify-between px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
             {field.campoNombre}
           </Label>
           {field.tipoCampo !== "E" && (
-            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+            <span className="shrink-0 rounded border border-info/25 bg-info/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-info">
               {field.tipoCampo === "S"
                 ? "Semántico"
                 : field.tipoCampo === "B"
@@ -960,7 +1094,7 @@ function FieldRow({
             </span>
           )}
           {field.tipoDato && (
-            <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               {TIPO_DATO_LABELS[field.tipoDato] ?? field.tipoDato}
             </span>
           )}
@@ -974,7 +1108,7 @@ function FieldRow({
                   <button
                     type="button"
                     aria-label={`Configurar override de ${field.campoNombre}`}
-                    className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-500 opacity-100 transition-all hover:bg-slate-800 hover:text-slate-300 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                    className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                   </button>
@@ -1022,7 +1156,7 @@ function FieldRow({
                 type="button"
                 onClick={onRemove}
                 aria-label={`Eliminar ${field.campoNombre}`}
-                className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-700 opacity-100 transition-all hover:bg-rose-500/10 hover:text-rose-400 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1032,7 +1166,7 @@ function FieldRow({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
+      <div className="flex flex-col gap-2.5 border-t border-border px-3 pb-3 pt-2">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
@@ -1092,14 +1226,14 @@ function VisualCheckRow({
   onUpdate: (u: Partial<FieldToggle>) => void;
 }) {
   return (
-    <div className="group rounded-lg border border-white/[0.08] bg-white/[0.03] transition-all duration-150 hover:border-white/[0.12]">
+    <div className="group rounded-md border border-border bg-background transition-colors hover:border-[var(--border-strong)]">
       {/* Row header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
           <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
             {field.campoNombre}
           </Label>
-          <span className="shrink-0 rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-400">
+          <span className="shrink-0 rounded border border-violet-400/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
             Visual
           </span>
           <ServiceBadge service={field.aplicaServicio} />
@@ -1112,7 +1246,7 @@ function VisualCheckRow({
                   <button
                     type="button"
                     aria-label={`Configurar override de ${field.campoNombre}`}
-                    className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-500 opacity-100 transition-all hover:bg-slate-800 hover:text-slate-300 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                    className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <Settings2 className="h-3.5 w-3.5" />
                   </button>
@@ -1160,7 +1294,7 @@ function VisualCheckRow({
                 type="button"
                 onClick={onRemove}
                 aria-label={`Eliminar ${field.campoNombre}`}
-                className="shrink-0 flex h-7 w-7 items-center justify-center cursor-pointer rounded-lg text-slate-700 opacity-100 transition-all hover:bg-rose-500/10 hover:text-rose-400 focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1171,7 +1305,7 @@ function VisualCheckRow({
       </div>
 
       {/* Expanded options */}
-      <div className="flex flex-col gap-2.5 border-t border-white/[0.06] px-3 pb-3 pt-2">
+      <div className="flex flex-col gap-2.5 border-t border-border px-3 pb-3 pt-2">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">

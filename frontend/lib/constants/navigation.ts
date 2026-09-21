@@ -9,33 +9,46 @@ import {
   PackageSearch,
   ScanSearch,
   Settings2,
-  ShieldCheck,
   Users2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-export const navigationSections = [
+export type NavigationItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  code: string;
+};
+
+type NavigationSection = {
+  label: string;
+  items: readonly NavigationItem[];
+};
+
+export const navigationSections: readonly NavigationSection[] = [
   {
     label: "Operación",
     items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/audit/single", label: "Auditoría 1:1", icon: ClipboardCheck },
-      { href: "/audit/batch", label: "Auditoría batch", icon: Files },
-      { href: "/audit/jobs", label: "Jobs async", icon: Clock3 },
-      { href: "/audit/results", label: "Resultados", icon: BarChart3 },
+      { href: "/dashboard", label: "Mesa de control", icon: LayoutDashboard, code: "01" },
+      { href: "/audit/single", label: "Auditoría 1:1", icon: ClipboardCheck, code: "02" },
+      { href: "/audit/batch", label: "Auditoría batch", icon: Files, code: "03" },
+      { href: "/audit/jobs", label: "Jobs async", icon: Clock3, code: "04" },
+      { href: "/audit/results", label: "Resultados", icon: BarChart3, code: "05" },
       {
         href: "/audit/documents-history",
         label: "Historial documental",
         icon: FileSearch,
+        code: "06",
       },
     ],
   },
   {
     label: "Consulta",
     items: [
-      { href: "/invoices", label: "Facturas", icon: PackageSearch },
-      { href: "/clients", label: "Clientes", icon: Users2 },
-      { href: "/dispensation", label: "Dispensación", icon: ScanSearch },
-      { href: "/observability", label: "Observabilidad", icon: Activity },
+      { href: "/invoices", label: "Facturas", icon: PackageSearch, code: "07" },
+      { href: "/clients", label: "Clientes", icon: Users2, code: "08" },
+      { href: "/dispensation", label: "Dispensación", icon: ScanSearch, code: "09" },
+      { href: "/observability", label: "Observabilidad", icon: Activity, code: "10" },
     ],
   },
   {
@@ -45,27 +58,10 @@ export const navigationSections = [
         href: "/clients/audit-config",
         label: "Config auditoría",
         icon: Settings2,
+        code: "11",
       },
     ],
   },
 ];
 
 export const productLabel = process.env.NEXT_PUBLIC_APP_NAME ?? "AudFact";
-
-export const statusLegend = [
-  { key: "CONCILIADO", label: "Conciliado" },
-  { key: "DISCREPANCIA", label: "Discrepancia" },
-] as const;
-
-export const healthLegend = {
-  ok: { label: "OK", tone: "emerald" },
-  warn: { label: "Alerta", tone: "amber" },
-  fail: { label: "Falla", tone: "rose" },
-  unknown: { label: "Desconocido", tone: "slate" },
-};
-
-export const auditWorkspaceTabs = [
-  { key: "summary", label: "Resumen", icon: ShieldCheck },
-  { key: "findings", label: "Hallazgos", icon: FileSearch },
-  { key: "attachments", label: "Adjuntos", icon: Files },
-] as const;

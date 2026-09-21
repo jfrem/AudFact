@@ -41,10 +41,14 @@ phpunit.xml
 .env.dev
 .env.test
 
-# ── Agentes de IA ──
+# ── Agentes de IA y scratch ──
 .agent/
 .agents/
+.gemini/
+CLAUDE.md
+GEMINI.md
 skills-lock.json
+scratch/
 
 # ── IDEs y entornos ──
 .vscode/

@@ -1,5 +1,56 @@
 # Changelog AudFact
 
+## [2026-09-21] - Mejora del sidebar operativo
+
+- **Corrección de scroll**: el contenedor externo del dashboard cambia de `overflow-x-hidden` a `overflow-x-clip`. El recorte horizontal deja de crear un ancestro desplazable y sidebar/topbar conservan su posición sticky durante el scroll vertical de páginas largas.
+- **Verificación de scroll en Chrome**: configuración del cliente 2624, sidebar compacto y expandido, viewport de escritorio de 900px/600px de alto y móvil de 390px de ancho. Sidebar/topbar mantienen `top=0` tras desplazar la página, el control de colapso permanece visible y el menú tiene scroll independiente en ventanas bajas. Typecheck, lint y build documental correctos.
+
+- Sidebar de 76px compacto y 280px expandido, filas de al menos 44px, secciones legibles y selección con fondo tonal, peso tipográfico y chevron. Se retira la numeración decorativa de los enlaces.
+- Nombres accesibles en modo compacto, foco visible dentro del área de scroll y control de colapso con estado ARIA.
+- Menú móvil con cierre integrado al encabezado, áreas seguras y primitivas Radix para restaurar el foco. Cierra al navegar y al cruzar el breakpoint de escritorio.
+- Contrato visual actualizado en `DESIGN.md`. Revisión de las skills `impeccable` y `next-best-practices` sin cambios requeridos; se conservan rutas, variables de entorno y contratos REST.
+- Validación inicial: typecheck, lint y build de Docusaurus correctos. El build del frontend generó todas las rutas en una copia aislada (el `.next` de trabajo tenía artefactos faltantes); Windows advirtió `EPERM` al enlazar dependencias del paquete standalone. La revisión posterior de scroll en Chrome se documenta arriba.
+
+## [2026-09-15] - Refactor: Clean rebuild integral del frontend operativo
+
+### Frontend / UI, accesibilidad y arquitectura
+- **Decisión de rebuild con excepción contractual**: se reconstruyó la capa de presentación completa conservando rutas App Router, payloads REST, schemas Zod, query keys, polling, telemetría SSE e idempotencia de formularios.
+- **Sistema visual “Mesa de evidencia”**: `app/globals.css` centraliza tokens OKLCH, tipografía, superficies, foco visible, estados semánticos y movimiento reducido. Se eliminaron glassmorphism, tarjetas métricas genéricas, sombras decorativas y acciones críticas visibles solo en hover.
+- **Shell y primitivas**: se reconstruyeron sidebar responsivo, topbar, breadcrumbs, encabezados, paneles compartidos y primitivas de formularios/tablas/overlays para una jerarquía plana, densa y consistente.
+- **Cobertura de producto**: se migraron dashboard, clientes, facturas, dispensación, auditoría individual y batch, configuración dinámica, jobs, resultados, adjuntos, trazabilidad y observabilidad.
+- **Estados accesibles**: badges y nodos expresan estado mediante icono, texto y color; se corrigieron contratos ARIA de combobox y progreso, y el visor de imágenes usa `next/image` sin optimización para URLs `blob:`.
+- **Lógica preservada**: se conservaron e integraron los cambios preexistentes del editor para directivas documentales `TipoDocumento` / `[TIP]`; no se modificaron backend, endpoints ni variables de entorno.
+- **Validación**: `npm.cmd run typecheck`, `npm.cmd run lint` y `npm.cmd run build` completaron sin errores. Rollback: redeploy del SHA previo de la imagen GHCR del frontend.
+
+## [2026-09-09] - Feat: Motor de Arbitraje Semántico Desacoplado y Reconstrucción Limpia (`SemanticMatchJudge`)
+
+### Pipeline IA / Arbitraje Semántico
+- **Desacoplamiento de Negocio de la Plataforma**: Se eliminó la clase monolítica `ArticleSemanticMatchJudge` y se reemplazó por el servicio agnóstico de plataforma `SemanticMatchJudge`. Se limpiaron los prompts de toda jerga gremial o geográfica local ("salud en Colombia", "tirillas", "insulina vs metformina", "los médicos prescriben"), convirtiendo el evaluador en un árbitro semántico de entidades universal.
+- **Inyección de Contexto Documental**: `DocumentPolicyEngine` compila y pasa de forma agnóstica los campos extraídos del documento soporte (`document_context` con posología, concentración, forma farmacéutica o notas adyacentes) hacia el evaluador semántico.
+- **Homologación DCI / Marca con Rigor Clínico**: Permite la homologación válida entre denominaciones genéricas/estándar y marcas comerciales/referencias de fabricante cuando no existe contradicción y la información se corrobora en el soporte (resolviendo el falso positivo `LEVOTIROXINA 200MCG C*50 TABLETA` vs `LEVOTIROXINA (EUTIROX)` de la dispensa `T58260400854`), manteniendo un rechazo estricto (`is_match = false`) ante discrepancias cuantitativas explícitas de dosis (ej. `50mcg` vs `200mcg`).
+- **Fallback Defensivo en `AuditFieldValueType`**: Se dotó a `ARTICLE_NAME` de un `fieldDescriptionFallback()` por defecto para garantizar que cuando la descripción en base de datos venga vacía (`""`, como en Nueva EPS 2624), el extractor multimodal incluya concentración y forma farmacéutica.
+- **Caché Versionada en Redis**: Se actualizaron los namespaces a `audfact:semantic:match:v5:product` y `audfact:semantic:match:v2:person`, invalidando limpiamente los falsos positivos anteriores.
+- **Clean Rebuild**: Erradicación física de código muerto y de la suite obsoleta, reemplazada por `SemanticMatchJudgeTest` con 11 pruebas exhaustivas.
+- **Unificación en Structured Output Nativo**: Se migró `SemanticMatchJudge` de Function Calling (`sendWithFunctionCalling()`) a Structured Output (`sendWithStructuredOutput()`), eliminando declaraciones de funciones y toolConfigs artificiales.
+- **Erradicación de Function Calling en `GeminiGateway`**: Se retiró el método obsoleto `sendWithFunctionCalling()` y su constructor `buildPayload()`, unificando el gateway 100% sobre `sendWithStructuredOutput()` nativo.
+- **Especificación SDD**: Documentada en [`plans/sdd-arbitraje-semantico-desacoplado.md`](file:///c:/Users/USER/Desktop/AudFact/plans/sdd-arbitraje-semantico-desacoplado.md) clasificada como Nivel A — Implementable.
+
+## [2026-09-08] - Fix: Exclusión de Dispensaciones Facturadas con Múltiples Entregas en `InvoicesModel`
+
+### Modelos / SQL Server
+- **Diagnóstico de Fuga en `#CRUZE`**: En dispensaciones con entregas parciales/múltiples (`DisEntTot > 1`, caso `D31260200150`), existen múltiples registros en `Factura` con `FueCod = 'DISP'` (`...-1-1`, `...-1-2`). La factura institucional comercial (`FueCod = 'FACT'`) asocia la entrega facturada vía `FacturaKardex.FacSecRem`. Previamente, `#FACT1` almacenaba únicamente `k.FacSecRem` y `#CRUZE` realizaba `NOT EXISTS (SELECT 1 FROM #FACT1 WHERE f.FacSecRem = d.FacSec)`. Por consiguiente, los renglones de entregas posteriores no referenciados directamente en ese kardex sobrevivían a `#CRUZE` y provocaban que la dispensa se presentara como pendiente de auditar.
+- **Ajuste en Sentencia SQL Batch**: Se modificó `#FACT1` para proyectar y agrupar por `(d.DisId, d.DisDetId, f.FacNro)` e indexar por `(DisId, DisDetId)`. En `#CRUZE`, la exclusión se actualizó a `NOT EXISTS (SELECT 1 FROM #FACT1 AS f WHERE f.DisId = d.DisId AND f.DisDetId = d.DisDetId)`.
+- **Pruebas**: Se incorporó prueba contractual `testSearchInvoicesExcludesBilledDispensationsByDisIdAndDisDetId` en `tests/Models/InvoicesModelTest.php`.
+
+## [2026-09-07] - Feat: Reconciliación y Agregación Agnóstica de Ítems Multilote (FdvItemAggregator & DocumentPolicyEngine)
+
+### Pipeline IA / Auditoría de Ítems
+- **Bipartición Declarativa Exhaustiva en `FdvItemAggregator`**: Se eliminó la restricción excluyente que limitaba las llaves de agrupación a tipos de comparación `EXACT` o `SEMANTIC`. Todo campo de ítem no acumulable (`!isQuantitySummable()`, tales como `CodigoProducto`, `Lote`, `CUM`, `NombreArticulo`) se clasifica automáticamente como dimensión discriminante de agrupación (`$groupingKeys`), sin importar si su `tipoCampo` está configurado como `B`, `E` o `S`.
+- **Consolidación Automática de Entregas Multilote en FDV**: Entregas de almacén divididas en múltiples renglones por fechas de vencimiento o lotes diferentes se fusionan en un único ítem consolidado si el documento evaluado no audita trazabilidad de lotes (ej. autorizaciones médicas), totalizando cantidades y calculando con precisión `$expectedItemsCount`, eliminando los falsos positivos de `ITEM_SEGMENTATION_INCOMPLETE`.
+- **Resiliencia de Balance Cuantitativo en `DocumentPolicyEngine`**: Si se presenta una advertencia de segmentación de ítems, el motor de políticas pre-evalúa si la comparación cuantitativa y de código resulta en `COINCIDE` (100% de la cantidad y código cubiertos por la evidencia física). Si coincide, resuelve el hallazgo como `COINCIDE` (anexando telemetría en `extraction_meta`), evitando degradar facturas válidas a `manual_review`. Si existe un faltante real, preserva `NO_CONCLUYENTE`.
+- **Especificación SDD**: Documentada en [`plans/sdd-reconciliacion-agnostica-items.md`](file:///c:/Users/USER/Desktop/AudFact/plans/sdd-reconciliacion-agnostica-items.md) clasificada como Nivel A — Implementable.
+- **Suites de Pruebas Unitarias**: Ampliada `FdvItemAggregatorTest` y `DocumentPolicyEngineTest`. 570 pruebas unitarias pasando al 100%.
+
 ## [2026-09-07] - Refactor: Política Táctica de Clean Rebuild y Calidad MVP
 
 ### Gobernanza / Skills

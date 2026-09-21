@@ -183,7 +183,7 @@ export function AuditResultsTable({
                   aria-label={`Abrir detalle: ${item.FacNro ?? item.DisId}`}
                 >
                   <TableCell className="min-w-0">
-                    <p className="truncate font-medium text-white" title={String(item.FacNro ?? "N/D")}>{item.FacNro ?? "N/D"}</p>
+                    <p className="truncate font-medium text-foreground" title={String(item.FacNro ?? "N/D")}>{item.FacNro ?? "N/D"}</p>
                     <p
                       className="mt-0.5 font-mono text-[11px] leading-4 text-slate-600 truncate"
                       title={String(item.DisId)}

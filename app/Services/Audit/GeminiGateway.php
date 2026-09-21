@@ -90,42 +90,6 @@ class GeminiGateway
         );
     }
 
-    /**
-     * Envía un request de Function Calling a la API de Gemini.
-     *
-     * @param  string $prompt  Texto del prompt del usuario.
-     * @param  array<int, array<string, mixed>> $files  Archivos inline (mime + data + label).
-     * @param  string $systemInstruction  Instrucción de sistema.
-     * @param  array<int, array<string, mixed>> $tools  Declaraciones de funciones.
-     * @param  array<string, mixed> $toolConfig  Configuración de function calling.
-     * @param  string $taskType Perfil explícito de tarea Gemini.
-     * @param  array<string, mixed> $generationOverrides  Sobrecargas de generación (temp, tokens, etc).
-     * @param  array<string, mixed>|null $debugContext  Metadata de trazabilidad para debug (audit_id, document_id, etc).
-     * @return array<string, mixed>
-     */
-    public function sendWithFunctionCalling(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $tools,
-        array $toolConfig,
-        string $taskType,
-        array $generationOverrides = [],
-        ?array $debugContext = null
-    ): array {
-        $ctx = array_merge($debugContext ?? [], [
-            'task_type' => $taskType,
-            'source'    => 'GeminiGateway::sendWithFunctionCalling',
-            'mode'      => 'function_calling',
-        ]);
-
-        $this->cbCheck();
-
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
-        $payload = $this->buildPayload($prompt, $files, $systemInstruction, $tools, $toolConfig, $taskType, $generationOverrides);
-
-        return $this->executePost($url, $payload, $ctx, 'FC');
-    }
 
     /**
      * Envía un request de Structured Output a la API de Gemini (generationConfig.responseSchema).
@@ -378,46 +342,6 @@ class GeminiGateway
         return [$httpCode, $errorMessage];
     }
 
-    /**
-     * @param  array<int, array<string, mixed>> $files
-     * @param  array<int, array<string, mixed>> $tools
-     * @param  array<string, mixed> $toolConfig
-     * @param  string $taskType
-     * @param  array<string, mixed> $generationOverrides
-     * @return array<string, mixed>
-     */
-    private function buildPayload(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $tools,
-        array $toolConfig,
-        string $taskType,
-        array $generationOverrides = []
-    ): array {
-        $this->assertTaskProfile($taskType, $files);
-        $generationConfig = $this->config->toGenerationConfig(
-            $generationOverrides,
-            $taskType === self::TASK_EXTRACTION
-        );
-
-        $payload = $this->buildBaseEnvelope(
-            prompt: $prompt,
-            files: $files,
-            systemInstruction: $systemInstruction,
-            generationConfig: $generationConfig
-        );
-
-        if (!empty($tools)) {
-            $payload['tools'] = self::normalizeSchemaProperties($tools);
-        }
-
-        if (!empty($toolConfig)) {
-            $payload['toolConfig'] = $toolConfig;
-        }
-
-        return $payload;
-    }
 
     /**
      * @param  array<int, array<string, mixed>> $files

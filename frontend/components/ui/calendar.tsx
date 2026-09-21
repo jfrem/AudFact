@@ -31,12 +31,12 @@ function Calendar({
         nav: cn("absolute inset-x-3 top-3 flex items-center justify-between", classNames?.nav),
         button_previous: cn(
           buttonVariants({ variant: "ghost", size: "icon" }),
-          "h-8 w-8 rounded-md text-slate-400 hover:bg-white/[0.05] hover:text-slate-100",
+          "h-8 w-8 rounded-md text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground",
           classNames?.button_previous,
         ),
         button_next: cn(
           buttonVariants({ variant: "ghost", size: "icon" }),
-          "h-8 w-8 rounded-md text-slate-400 hover:bg-white/[0.05] hover:text-slate-100",
+          "h-8 w-8 rounded-md text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground",
           classNames?.button_next,
         ),
         chevron: cn("h-4 w-4", classNames?.chevron),
@@ -50,7 +50,7 @@ function Calendar({
         week: cn("flex w-full", classNames?.week),
         day: cn("relative h-9 w-9 p-0 text-center text-sm", classNames?.day),
         day_button: cn(
-          "flex h-9 w-9 items-center justify-center rounded-md text-sm text-slate-200 transition-colors duration-150 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
+          "flex h-9 w-9 items-center justify-center rounded-md text-sm text-foreground transition-colors duration-150 hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
           classNames?.day_button,
         ),
         selected: cn(

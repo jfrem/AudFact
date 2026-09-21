@@ -10,20 +10,19 @@ use App\Services\Audit\AuditFindingResult;
 use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
-use App\Services\Audit\ArticleSemanticMatchJudge;
+use App\Services\Audit\SemanticMatchJudge;
 use App\Services\Audit\TextNormalization;
 use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private ?ArticleSemanticMatchJudge $semanticJudge;
+    private ?SemanticMatchJudge $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
     private int $semanticCacheHits = 0;
 
     public function __construct(
-        ?ArticleSemanticMatchJudge $semanticJudge = null
-
+        ?SemanticMatchJudge $semanticJudge = null
     ) {
         $this->semanticJudge = $semanticJudge;
     }
@@ -91,6 +90,12 @@ class DocumentPolicyEngine
         $items         = FieldValueResolver::normalizeRows($normalizedPayload['items_normalized'] ?? []);
         $visualChecks  = VisualCheckEvaluator::normalizeVisualCheckResults($normalizedPayload['visual_checks_resultado'] ?? []);
         $documentQuality = $this->resolveDocumentQuality($normalizedPayload);
+
+        $context['document_fields'] = $fields;
+        $context['document_items'] = $items;
+        if (!empty($normalizedPayload['quality_notes'])) {
+            $context['quality_notes'] = (string) $normalizedPayload['quality_notes'];
+        }
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
 
@@ -209,66 +214,147 @@ class DocumentPolicyEngine
         $itemSegmentationWarning = $this->findItemSegmentationWarning($extractionWarnings);
 
         foreach ($indexedFields as $canonicalField => $fieldConfig) {
-            $tipoCampo = strtoupper(trim((string)($fieldConfig['tipoCampo'] ?? '')));
-            if ($tipoCampo === 'V' || $tipoCampo === 'I') {
-                continue;
-            }
-
-            $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
-            $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
-            $fdvResolution = FieldValueResolver::resolveSourceTruthField($canonicalField, $valueType, $sourceTruth);
-
-            if (
-                !$fdvResolution->hasValue()
-                && !$docResolution->hasValue()
-                && !$fdvResolution->ambiguous
-                && !$docResolution->ambiguous
-            ) {
-                continue;
-            }
-
-            $tipoCampo    = $fieldConfig['tipoCampo'] ?? 'E';
-            $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
-            $isItemSourced = $this->isItemSourcedField($canonicalField, $sourceTruth);
-
-            if ($isItemSourced && $itemSegmentationWarning !== null) {
-                $findings[] = $this->buildItemSegmentationFinding(
-                    $canonicalField,
-                    $fieldConfig,
-                    $documentType,
-                    $fdvResolution,
-                    $docResolution,
-                    $internalType,
-                    $valueType,
-                    $itemSegmentationWarning
-                );
-                continue;
-            }
-
-            $comparison = $this->evaluateDataFieldComparison(
-                $canonicalField,
-                $fdvResolution,
-                $docResolution,
-                $valueType,
-                $documentQuality,
-                $context,
-                $internalType,
-                $tipoCampo
-            );
-
-            $findings[] = $this->buildDataFinding(
+            $finding = $this->evaluateSingleDataField(
                 $canonicalField,
                 $fieldConfig,
-                $comparison,
+                $fields,
+                $items,
+                $sourceTruth,
                 $documentType,
-                $fdvResolution,
-                $docResolution,
-                $internalType,
-                $valueType
+                $documentQuality,
+                $context,
+                $itemSegmentationWarning
             );
+
+            if ($finding !== null) {
+                $findings[] = $finding;
+            }
         }
 
         return $findings;
+    }
+
+    private function evaluateSingleDataField(
+        string $canonicalField,
+        array $fieldConfig,
+        array $fields,
+        array $items,
+        array $sourceTruth,
+        string $documentType,
+        string $documentQuality,
+        array $context,
+        ?array $itemSegmentationWarning
+    ): ?array {
+        $tipoCampo = strtoupper(trim((string) ($fieldConfig['tipoCampo'] ?? 'E')));
+        if ($tipoCampo === '' || $this->isVisualOrInformationalField($tipoCampo)) {
+            return null;
+        }
+
+        $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
+        $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
+        $fdvResolution = FieldValueResolver::resolveSourceTruthField($canonicalField, $valueType, $sourceTruth);
+
+        if ($this->shouldSkipEmptyField($fdvResolution, $docResolution)) {
+            return null;
+        }
+
+        $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
+        $isItemSourced = $this->isItemSourcedField($canonicalField, $sourceTruth);
+
+        $comparison = $this->evaluateDataFieldComparison(
+            $canonicalField,
+            $fdvResolution,
+            $docResolution,
+            $valueType,
+            $documentQuality,
+            $context,
+            $internalType,
+            $tipoCampo
+        );
+
+        return $this->resolveDataFinding(
+            $canonicalField,
+            $fieldConfig,
+            $comparison,
+            $documentType,
+            $fdvResolution,
+            $docResolution,
+            $internalType,
+            $valueType,
+            $isItemSourced,
+            $itemSegmentationWarning
+        );
+    }
+
+    private function isVisualOrInformationalField(string $tipoCampo): bool
+    {
+        return $tipoCampo === 'V' || $tipoCampo === 'I';
+    }
+
+    private function shouldSkipEmptyField(ResolvedAuditValue $fdvResolution, ResolvedAuditValue $docResolution): bool
+    {
+        return !$fdvResolution->hasValue()
+            && !$docResolution->hasValue()
+            && !$fdvResolution->ambiguous
+            && !$docResolution->ambiguous;
+    }
+
+    private function resolveDataFinding(
+        string $canonicalField,
+        array $fieldConfig,
+        array $comparison,
+        string $documentType,
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution,
+        string $internalType,
+        AuditFieldValueType $valueType,
+        bool $isItemSourced,
+        ?array $itemSegmentationWarning
+    ): array {
+        $isSetEvaluated = $valueType->requiresTraceSetComparison()
+            || $valueType->requiresArticleSetComparison();
+        $hasSegmentationIssue = $isItemSourced
+            && $itemSegmentationWarning !== null
+            && !$isSetEvaluated;
+
+        $effectiveComparison = ($hasSegmentationIssue && $comparison['resultado'] !== AuditFindingResult::MATCH->value)
+            ? $this->buildItemSegmentationComparison($canonicalField, $itemSegmentationWarning)
+            : $comparison;
+
+        $finding = $this->buildDataFinding(
+            $canonicalField,
+            $fieldConfig,
+            $effectiveComparison,
+            $documentType,
+            $fdvResolution,
+            $docResolution,
+            $internalType,
+            $valueType
+        );
+
+        if ($hasSegmentationIssue) {
+            $finding['extraction_meta'] = $finding['extraction_meta'] ?? [];
+            $finding['extraction_meta']['item_segmentation'] = $itemSegmentationWarning;
+        }
+
+        return $finding;
+    }
+
+    /**
+     * @param  array<string,mixed> $warning
+     * @return array{resultado:string,detalle:string}
+     */
+    private function buildItemSegmentationComparison(string $canonicalField, array $warning): array
+    {
+        return [
+            'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+            'detalle' => sprintf(
+                "La extracción de líneas del documento fue incompleta: se extrajeron %d de %d items esperados. No se confirma el total de %s.",
+                $warning['extracted_items_count'] ?? 0,
+                $warning['expected_items_count'] ?? 0,
+                TextNormalization::humanizeFieldName($canonicalField)
+            ),
+        ];
     }
 
     private function findItemSegmentationWarning(array $extractionWarnings): ?array
@@ -295,41 +381,6 @@ class DocumentPolicyEngine
             }
         }
         return false;
-    }
-
-    private function buildItemSegmentationFinding(
-        string $canonicalField,
-        array $fieldConfig,
-        string $documentType,
-        ResolvedAuditValue $fdvResolution,
-        ResolvedAuditValue $docResolution,
-        string $internalType,
-        AuditFieldValueType $valueType,
-        array $warning
-    ): array {
-        $finding = $this->buildDataFinding(
-            $canonicalField,
-            $fieldConfig,
-            [
-                'resultado' => AuditFindingResult::INCONCLUSIVE->value,
-                'detalle' => sprintf(
-                    "La extracción de líneas del documento fue incompleta: se extrajeron %d de %d items esperados. No se confirma el total de %s.",
-                    $warning['extracted_items_count'] ?? 0,
-                    $warning['expected_items_count'] ?? 0,
-                    TextNormalization::humanizeFieldName($canonicalField)
-                ),
-            ],
-            $documentType,
-            $fdvResolution,
-            $docResolution,
-            $internalType,
-            $valueType
-        );
-
-        $finding['extraction_meta'] = $finding['extraction_meta'] ?? [];
-        $finding['extraction_meta']['item_segmentation'] = $warning;
-
-        return $finding;
     }
 
     /**
@@ -661,14 +712,16 @@ class DocumentPolicyEngine
     }
 
     /**
-     * Emparejamiento biyectivo greedy de artículos FDV vs documento.
+     * Emparejamiento suryectivo (N:1) de artículos FDV vs documento.
      *
      * Cascada de 3 niveles por par (f_i, d_j):
      *   1. Normalización léxica directa o contención de substring.
      *   2. Similitud léxica ≥ umbral semántico.
-     *   3. ArticleSemanticMatchJudge (Gemini con caché Redis 30d).
+     *   3. SemanticMatchJudge (Gemini con caché Redis 30d).
      *
-     * Cada d_j solo puede emparejarse con un único f_i (consumo).
+     * Cobertura suryectiva: cada artículo entregado en FDV debe estar respaldado
+     * por alguna línea del documento de prescripción/soporte (N filas de bodega
+     * pueden respaldarse en la misma prescripción clínica de un producto).
      *
      * @param  array<int,string> $fdvArticles  Artículos de la FDV
      * @param  array<int,string> $docArticles  Artículos extraídos del documento
@@ -688,8 +741,6 @@ class DocumentPolicyEngine
         $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $fdvArticles);
         $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $docArticles);
 
-        /** @var array<int,true> */
-        $usedDoc = [];
         /** @var array<int,int> Mapa fdvIdx => docIdx emparejado */
         $matchedFdv = [];
 
@@ -699,12 +750,8 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
-                if (isset($usedDoc[$di])) {
-                    continue;
-                }
                 if ($fNorm === $dNorm || TextNormalization::containsNormalizedSubstring($fNorm, $dNorm)) {
                     $matchedFdv[$fi] = $di;
-                    $usedDoc[$di] = true;
                     break;
                 }
             }
@@ -716,32 +763,27 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
-                if (isset($usedDoc[$di])) {
-                    continue;
-                }
                 if (TextNormalization::similarity($fNorm, $dNorm) >= $threshold) {
                     $matchedFdv[$fi] = $di;
-                    $usedDoc[$di] = true;
                     break;
                 }
             }
         }
 
-        // Fase 3: ArticleSemanticMatchJudge para los no emparejados
+        // Fase 3: SemanticMatchJudge para los no emparejados
         if ($this->semanticJudge !== null) {
+            $docContextStr = $this->buildDocumentContextSummary($context, $field);
             foreach ($fdvArticles as $fi => $fdvOriginal) {
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
                 foreach ($docArticles as $di => $docOriginal) {
-                    if (isset($usedDoc[$di])) {
-                        continue;
-                    }
                     $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docOriginal, array_merge($context, [
                         'field' => $field,
                         'tipoCampo' => $tipoCampo,
                         'tipoDato' => AuditFieldValueType::ARTICLE_NAME->value,
-                        'call_purpose' => 'article_homologation',
+                        'call_purpose' => SemanticMatchJudge::PURPOSE_PRODUCT_MATCH,
+                        'document_context' => $docContextStr,
                     ]));
                     if (is_array($judgeResult['gemini_metrics'] ?? null)) {
                         $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
@@ -751,7 +793,6 @@ class DocumentPolicyEngine
                     }
                     if ($judgeResult['is_match']) {
                         $matchedFdv[$fi] = $di;
-                        $usedDoc[$di] = true;
                         break;
                     }
                 }
@@ -843,15 +884,17 @@ class DocumentPolicyEngine
 
         if ($this->semanticJudge !== null && $valueType->allowsSemanticGeminiFallback()) {
             $callPurpose = match ($valueType) {
-                AuditFieldValueType::PERSON_NAME  => 'person_name_match',
-                AuditFieldValueType::ARTICLE_NAME => 'article_homologation',
-                default                           => 'generic_semantic',
+                AuditFieldValueType::PERSON_NAME  => SemanticMatchJudge::PURPOSE_PERSON_MATCH,
+                AuditFieldValueType::ARTICLE_NAME => SemanticMatchJudge::PURPOSE_PRODUCT_MATCH,
+                default                           => SemanticMatchJudge::PURPOSE_PRODUCT_MATCH,
             };
+            $docContextStr = $this->buildDocumentContextSummary($context, $field);
             $judgeResult = $this->semanticJudge->evaluate($fdvValue, $docValue, array_merge($context, [
                 'field' => $field,
                 'tipoCampo' => $tipoCampo,
                 'tipoDato' => $valueType->value,
                 'call_purpose' => $callPurpose,
+                'document_context' => $docContextStr,
             ]));
             if (is_array($judgeResult['gemini_metrics'] ?? null)) {
                 $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
@@ -875,6 +918,34 @@ class DocumentPolicyEngine
                 mb_substr($fdvValue, 0, 120)
             ),
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $context
+     */
+    private function buildDocumentContextSummary(array $context, string $excludeField = ''): string
+    {
+        $parts = [];
+        if (!empty($context['document_fields']) && is_array($context['document_fields'])) {
+            foreach ($context['document_fields'] as $k => $v) {
+                if ($k === $excludeField) {
+                    continue;
+                }
+                $val = match (true) {
+                    $v instanceof ExtractedEvidence => $v->valor,
+                    is_array($v) && array_key_exists('valor', $v) => $v['valor'],
+                    default => $v,
+                };
+                if (is_scalar($val) && trim((string) $val) !== '') {
+                    $parts[] = "{$k}: " . trim((string) $val);
+                }
+            }
+        }
+        if (!empty($context['quality_notes'])) {
+            $parts[] = 'Notas: ' . trim((string) $context['quality_notes']);
+        }
+
+        return implode(' | ', $parts);
     }
 
     /**

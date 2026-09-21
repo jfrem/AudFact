@@ -10,11 +10,11 @@ const itemVariants = cva(
     variants: {
       variant: {
         default:
-          "border-white/10 bg-white/[0.03] text-slate-200 hover:border-white/14 hover:bg-white/[0.045]",
+          "border-border bg-card text-foreground hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
         subtle:
-          "border-white/10 bg-white/[0.025] text-slate-200 hover:border-white/12 hover:bg-white/[0.04]",
+          "border-border bg-background text-foreground hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
         ghost:
-          "border-transparent bg-transparent text-slate-200 hover:border-white/10 hover:bg-white/[0.035]",
+          "border-transparent bg-transparent text-foreground hover:border-border hover:bg-[var(--surface-hover)]",
       },
       size: {
         default: "px-4 py-3.5",
@@ -61,7 +61,7 @@ const ItemMedia = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-slate-300",
+      "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground",
       className,
     )}
     {...props}
@@ -83,7 +83,7 @@ const ItemTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn("truncate text-sm font-medium text-white", className)}
+    className={cn("truncate text-sm font-medium text-foreground", className)}
     {...props}
   />
 ));

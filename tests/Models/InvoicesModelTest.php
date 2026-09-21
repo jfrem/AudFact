@@ -89,6 +89,22 @@ final class InvoicesModelTest extends TestCase
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa1']);
     }
 
+    public function testSearchInvoicesExcludesBilledDispensationsByDisIdAndDisDetId(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        $model->searchInvoices([
+            'facNitSec' => 2624,
+            'dateFrom' => '2026-02-01',
+            'dateTo' => '2026-02-28',
+        ]);
+
+        $this->assertStringContainsString('select f.DisId,f.DisDetId,f.FacNro factura', $pdo->preparedSql);
+        $this->assertStringContainsString('CREATE CLUSTERED INDEX IX_TMP_FACT ON #FACT (DisId,DisDetId);', $pdo->preparedSql);
+        $this->assertStringContainsString('NOT EXISTS (SELECT 1 FROM #FACT AS f WHERE f.DisId = d.DisId AND f.DisDetId = d.DisDetId)', $pdo->preparedSql);
+    }
+
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel
     {
         return new InvoicesModel(new SqlServerConnectionExecutor(

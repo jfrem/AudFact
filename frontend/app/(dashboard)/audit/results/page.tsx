@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { AuditResultsTable } from "@/components/results/audit-results-table";
 import { AuditResultsFilterForm } from "@/components/results/audit-results-filter-form";
 import { TableSkeleton } from "@/components/shared/loading-skeleton";
+import { SectionCard } from "@/components/shared/section-card";
 
 export default async function AuditResultsPage({
   searchParams,
@@ -31,7 +32,7 @@ export default async function AuditResultsPage({
       />
 
       {/* Filters: inline, no SectionCard wrapper — reduces vertical noise */}
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
+      <SectionCard title="Filtros" description="Cliente, factura y ventana de auditoría.">
         <AuditResultsFilterForm
           allClients={allClients}
           initialFacNitSec={facNitSec}
@@ -40,7 +41,7 @@ export default async function AuditResultsPage({
           initialDateTo={dateTo}
           initialPageSize={pageSize}
         />
-      </div>
+      </SectionCard>
 
       <Suspense
         key={searchParamsKey}

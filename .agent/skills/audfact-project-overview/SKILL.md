@@ -119,7 +119,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ DocumentPolicyEngine: COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE
    ├─ valida por separado mapping (orquestador) y contenido (extractor)
    ├─ mapping inválido genera hallazgo MAP sin pasar por Gemini
-   ├─ ArticleSemanticMatchJudge como fallback exclusivo de homologación de artículos
+   ├─ SemanticMatchJudge como fallback de homologación semántica contextual (productos y personas)
    └─ cuando docs_done == docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
 
 7. AuditPersistenceWorker (group: persistence, ×3 réplicas)

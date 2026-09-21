@@ -45,7 +45,7 @@ export function AuditTimingsPanel({
     return (
       <div
         className={cn(
-          "rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm",
+          "rounded-lg border border-dashed border-border bg-muted/40 px-4 py-5 text-sm",
           className,
         )}
       >
@@ -67,7 +67,7 @@ export function AuditTimingsPanel({
   return (
     <TooltipProvider delayDuration={250}>
     <div className={cn("space-y-5", className)}>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-white/10 pb-4">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border pb-4">
         <InlineMetric
           icon={<Timer className="h-4 w-4 text-emerald-400" />}
           label="Procesamiento activo"
@@ -122,10 +122,10 @@ export function AuditTimingsPanel({
           title="Fases del pipeline"
           description="Promedios y p95 por fase persistida en el resultado."
         />
-        <div className="overflow-x-auto rounded-lg border border-white/8 bg-[#09111d]/35 scrollbar-thin">
+        <div className="overflow-x-auto rounded-lg border border-border bg-background scrollbar-thin">
           <table className="w-full min-w-[680px] text-sm">
             <thead>
-              <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <th scope="col" className="px-4 py-3 font-semibold">
                   Fase
                 </th>
@@ -189,10 +189,10 @@ export function AuditTimingsPanel({
           title="Consumo Gemini"
           description="Latencia y tokens separados por extracción documental y homologación semántica."
         />
-        <div className="overflow-x-auto rounded-lg border border-white/8 bg-[#09111d]/35 scrollbar-thin">
+        <div className="overflow-x-auto rounded-lg border border-border bg-background scrollbar-thin">
           <table className="w-full min-w-[860px] text-sm">
             <thead>
-              <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <th scope="col" className="px-4 py-3 font-semibold">
                   Tarea
                 </th>
@@ -292,7 +292,7 @@ function InlineMetric({
           {label}
           {tooltip && <HelpCircle className="h-2.5 w-2.5 text-slate-600" />}
         </span>
-        <span className="mt-0.5 block truncate text-sm font-semibold tabular-nums text-white">
+        <span className="mt-0.5 block truncate text-sm font-semibold tabular-nums text-foreground">
           {value}
         </span>
         {detail ? (

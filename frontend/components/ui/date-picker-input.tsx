@@ -72,13 +72,13 @@ function DatePickerInput({
             variant="outline"
             disabled={disabled}
             className={cn(
-              "h-11 w-full justify-start px-3 text-left font-normal",
-              !selectedValue && "text-slate-500",
+              "h-10 w-full justify-start px-3 text-left font-normal",
+              !selectedValue && "text-muted-foreground",
               buttonClassName,
             )}
             {...buttonProps}
           >
-            <CalendarIcon className="h-4 w-4 text-slate-400" />
+            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
             <span className="truncate">
               {selectedDate ? formatDisplayDate(selectedDate) : placeholder}
             </span>
@@ -86,7 +86,7 @@ function DatePickerInput({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-auto overflow-hidden rounded-lg border border-white/15 bg-[color:var(--popover)] p-0 text-[color:var(--popover-foreground)] shadow-2xl shadow-slate-950/70"
+          className="w-auto overflow-hidden rounded-md border border-border bg-popover p-0 text-popover-foreground"
         >
           <Calendar
             mode="single"
@@ -98,7 +98,7 @@ function DatePickerInput({
             }}
           />
           {clearable && selectedValue ? (
-            <div className="border-t border-white/10 p-2">
+            <div className="border-t border-border p-2">
               <Button
                 type="button"
                 variant="ghost"

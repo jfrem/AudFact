@@ -3,7 +3,6 @@
 import * as React from "react";
 
 import type { AttachmentRecord, DispensationDetail } from "@/lib/schemas/domain";
-import { Card } from "@/components/ui/card";
 import { SectionCard } from "@/components/shared/section-card";
 import { AttachmentList } from "@/components/attachments/attachment-list";
 import { AttachmentViewerPanel } from "@/components/attachments/attachment-viewer-panel";
@@ -49,9 +48,9 @@ export function AttachmentResultDetailClient({
       </div>
 
       {/* Main Workspace: PDF Viewer */}
-      <Card className="flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#111c2b] p-4 md:p-5">
+      <section className="flex h-full flex-col overflow-hidden rounded-lg border border-border bg-card p-4 md:p-5">
         <AttachmentViewerPanel disDetNro={disDetNro} attachment={selected} />
-      </Card>
+      </section>
     </div>
   );
 }

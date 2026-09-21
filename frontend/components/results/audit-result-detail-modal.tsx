@@ -88,7 +88,10 @@ export function AuditResultDetailModal({
     enabled: open && Boolean(facNro) && Boolean(disId),
   });
 
-  const attachments = attachmentsQ.data ?? [];
+  const attachments = React.useMemo(
+    () => attachmentsQ.data ?? [],
+    [attachmentsQ.data],
+  );
   const detail = detailQ.data;
   const patientName = String(
     dispensationQ.data?.header.NombrePaciente ?? "Paciente no disponible",
@@ -119,12 +122,12 @@ export function AuditResultDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-h-[96vh] w-[96vw] max-w-[1600px] gap-0 overflow-hidden rounded-xl border-white/10 bg-[#0d1724] p-0">
-        <DialogHeader className="border-b border-white/8 px-5 py-4 pr-14 text-left sm:px-6 sm:pr-16">
+      <DialogContent className="max-h-[96vh] w-[96vw] max-w-[1600px] gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-14 text-left sm:px-6 sm:pr-16">
           <div className="space-y-3">
             {/* Title row */}
             <div className="flex flex-wrap items-center gap-2.5">
-              <DialogTitle className="[font-family:var(--font-heading)] text-lg font-semibold text-white sm:text-xl">
+              <DialogTitle className="[font-family:var(--font-heading)] text-lg font-semibold text-foreground sm:text-xl">
                 {facNro || "Sin factura"}
               </DialogTitle>
               <AuditStatusBadge status={record.EstadoDetallado} />
@@ -187,7 +190,7 @@ export function AuditResultDetailModal({
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(value) => setTab(value as TabId)} className="w-full">
-          <TabsList className="w-full justify-start gap-2 rounded-none border-b border-white/8 bg-[#09111d]/60 px-5 py-2 sm:px-6">
+          <TabsList className="w-full justify-start gap-2 rounded-none border-b border-border bg-muted/40 px-5 py-2 sm:px-6">
             <TabsTrigger value="incidencias">Incidencias ({findingCount})</TabsTrigger>
             <TabsTrigger value="campos">Campos auditados ({fieldDecisions.length})</TabsTrigger>
             <TabsTrigger value="rendimiento">Rendimiento</TabsTrigger>
@@ -271,7 +274,7 @@ function FindingsTab({
 
   return (
     <div className="space-y-3">
-      <section className="rounded-lg border border-white/8 bg-[#09111d]/40 px-4 py-3">
+      <section className="rounded-lg border border-border bg-muted/40 px-4 py-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
           <span>{findings.length} incidencias estructuradas</span>
           <span>{findings.filter((item) => normalizeSeverity(item.severidad) === "ALTA").length} alta severidad</span>
@@ -303,7 +306,7 @@ function FieldDecisionsTab({
 
   if (items.length === 0) {
     return (
-      <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#09111d]/30 px-6 text-center">
+      <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
         <FileWarning className="h-10 w-10 text-slate-500/40" />
         <p className="mt-3 font-medium text-slate-300">Sin campos persistidos</p>
         <p className="mt-1 text-sm text-slate-400">
@@ -314,7 +317,7 @@ function FieldDecisionsTab({
   }
 
   return (
-    <div className="rounded-lg border border-white/8 bg-[#09111d]/30">
+    <div className="rounded-lg border border-border bg-background">
       <Table>
         <TableHeader>
           <TableRow>
@@ -329,10 +332,10 @@ function FieldDecisionsTab({
         <TableBody>
           {items.map((item, index) => (
             <TableRow key={`${item.campo}-${index}`}>
-              <TableCell className="font-medium text-white" title={item.campo}>{item.campo}</TableCell>
+              <TableCell className="font-medium text-foreground" title={item.campo}>{item.campo}</TableCell>
               <TableCell className="text-slate-400 text-xs" title={item.documento ?? "N/D"}>
                 {item.documento ? (
-                  <span className="inline-flex items-center rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
+                  <span className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {item.documento}
                   </span>
                 ) : (
@@ -413,7 +416,7 @@ function AttachmentsTab({
 
   if (attachments.length === 0) {
     return (
-      <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#09111d]/30 px-6 text-center">
+      <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
         <Eye className="h-10 w-10 text-slate-500/40" />
         <p className="mt-3 font-medium text-slate-300">Sin adjuntos</p>
         <p className="mt-1 text-sm text-slate-400">

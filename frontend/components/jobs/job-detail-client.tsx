@@ -57,7 +57,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
       <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
-            <p className="text-3xl font-semibold tabular-nums text-white">
+            <p className="text-3xl font-semibold tabular-nums text-foreground">
               {formatNumber(progressPct)}%
             </p>
             <JobStatusBadge status={status} />
@@ -89,7 +89,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
             <Button
               variant="secondary"
               asChild
-              className="group h-9 rounded-lg border-0 bg-slate-800/40 px-5 font-medium tracking-wide text-slate-300 transition-colors duration-200 hover:bg-slate-800/80 hover:text-white"
+              className="group h-9 px-5 font-medium tracking-wide"
             >
               <Link href="/audit/results" className="flex items-center gap-2">
                 Ver resultados detallados
@@ -100,9 +100,16 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      <div className="h-1 flex-shrink-0 overflow-hidden rounded-full bg-slate-800/50">
+      <div
+        className="h-1 flex-shrink-0 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-label="Progreso del job"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.min(progressPct, 100)}
+      >
         <div
-          className="h-full rounded-full bg-sky-500 transition-all duration-300"
+          className="h-full rounded-full bg-primary transition-[width] duration-300"
           style={{ width: `${Math.min(progressPct, 100)}%` }}
         />
       </div>
@@ -121,7 +128,7 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
         <AuditFlowGraph />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-slate-800/60 pb-2 pt-4 font-mono text-[11px] text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 border-t border-border pb-2 pt-4 font-mono text-[11px] text-muted-foreground">
         <div className="flex flex-wrap gap-x-6 gap-y-2">
           <span>
             ID: <span className="text-slate-300">{jobId}</span>

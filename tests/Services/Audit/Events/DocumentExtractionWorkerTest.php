@@ -1115,19 +1115,6 @@ final class StubThrowingGeminiGateway extends GeminiGateway
     ): array {
         throw $this->exception;
     }
-
-    public function sendWithFunctionCalling(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $tools,
-        array $toolConfig,
-        string $taskType,
-        array $generationOverrides = [],
-        ?array $debugContext = null
-    ): array {
-        throw $this->exception;
-    }
 }
 
 final class StubGeminiGateway extends GeminiGateway
@@ -1135,8 +1122,6 @@ final class StubGeminiGateway extends GeminiGateway
     public int $calls = 0;
     public array $receivedFiles = [];
     public array $lastResponseSchema = [];
-    public array $lastTools = [];
-    public array $lastToolConfig = [];
     public string $lastPrompt = '';
     public string $lastSystemInstruction = '';
     public string $lastTaskType = '';
@@ -1163,30 +1148,6 @@ final class StubGeminiGateway extends GeminiGateway
         $this->lastPrompt = $prompt;
         $this->lastSystemInstruction = $systemInstruction;
         $this->lastResponseSchema = $responseSchema;
-        $this->lastTaskType = $taskType;
-        $this->lastGenerationOverrides = $generationOverrides;
-        $this->lastDebugContext = array_merge($debugContext ?? [], ['task_type' => $taskType]);
-
-        $idx = min($this->calls - 1, count($this->responses) - 1);
-        return $this->responses[$idx] ?? [];
-    }
-
-    public function sendWithFunctionCalling(
-        string $prompt,
-        array $files,
-        string $systemInstruction,
-        array $tools,
-        array $toolConfig,
-        string $taskType,
-        array $generationOverrides = [],
-        ?array $debugContext = null
-    ): array {
-        $this->calls++;
-        $this->receivedFiles[] = $files;
-        $this->lastPrompt = $prompt;
-        $this->lastSystemInstruction = $systemInstruction;
-        $this->lastTools = $tools;
-        $this->lastToolConfig = $toolConfig;
         $this->lastTaskType = $taskType;
         $this->lastGenerationOverrides = $generationOverrides;
         $this->lastDebugContext = array_merge($debugContext ?? [], ['task_type' => $taskType]);

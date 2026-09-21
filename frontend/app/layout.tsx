@@ -18,7 +18,7 @@ const bodyFont = IBM_Plex_Sans({
 });
 
 export const metadata: NextMetadata = {
-  title: `${appConfig.appName} | Control Center`,
+  title: `${appConfig.appName} | Mesa de evidencia`,
   description: "Centro de operación para auditoría documental y seguimiento de jobs.",
 };
 
@@ -31,9 +31,7 @@ export default function RootLayout({
     <html lang="es-CO" suppressHydrationWarning>
       <body className={`${headingFont.variable} ${bodyFont.variable}`}>
         <a href="#main-content" className="skip-link">Saltar al contenido principal</a>
-        <div id="main-content">
-          <AppProviders>{children}</AppProviders>
-        </div>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

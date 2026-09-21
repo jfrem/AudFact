@@ -1,25 +1,32 @@
 "use client";
 
-import * as React from "react";
-import { LayoutPanelTop } from "lucide-react";
+import Link from "next/link";
+import { Activity, Plus } from "lucide-react";
 
 import { MobileSidebarToggle } from "@/components/layout/app-sidebar";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 
 export function AppTopbar() {
   return (
-    <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-1 pb-3">
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-border bg-background px-4 sm:px-6 lg:px-8 xl:px-10">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="lg:hidden">
-          <MobileSidebarToggle />
-        </div>
-        <div className="min-w-0">
-          <Breadcrumbs />
-        </div>
+        <MobileSidebarToggle />
+        <Breadcrumbs />
       </div>
-      <div className="hidden items-center gap-2 rounded-md border border-white/8 bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-500 md:flex">
-        <LayoutPanelTop className="h-3.5 w-3.5" />
-        <span>Interfaz operativa</span>
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="hidden items-center gap-2 text-xs text-muted-foreground md:flex">
+          <Activity className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          <span>Consola operativa</span>
+        </div>
+        <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
+        <Link
+          href="/audit/single"
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/30 bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-[oklch(0.81_0.12_244)]"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="hidden sm:inline">Nueva auditoría</span>
+          <span className="sm:hidden">Nueva</span>
+        </Link>
       </div>
     </header>
   );

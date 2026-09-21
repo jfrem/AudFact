@@ -76,12 +76,12 @@ export function AuditSingleWorkspace({
             <SeverityBadge severity={result.severity} />
           </KpiChip>
           <KpiChip label="Tiempo">
-            <span className="text-lg font-semibold tracking-tight text-white">
+            <span className="text-lg font-semibold tracking-tight text-foreground">
               {formatDurationMs(result._meta?.totalTimeMs)}
             </span>
           </KpiChip>
           <KpiChip label="Intentos">
-            <span className="text-lg font-semibold tracking-tight text-white">
+            <span className="text-lg font-semibold tracking-tight text-foreground">
               {formatNumber(result._meta?.attempts ?? 1)}
             </span>
           </KpiChip>
@@ -99,7 +99,7 @@ export function AuditSingleWorkspace({
         </div>
 
         {/* Mensaje funcional — colapsable */}
-        <div className="mt-3 rounded-xl border border-white/10 bg-black/10 px-4 py-2.5">
+        <div className="mt-3 rounded-md border border-border bg-muted/40 px-4 py-2.5">
           <p
             className={cn(
               "text-sm leading-6 text-slate-300",
@@ -155,10 +155,10 @@ export function AuditSingleWorkspace({
 
         {/* ── Tab: Hallazgos (L1 — default) ── */}
         <TabsContent value="findings">
-          <div className="rounded-xl border border-white/10 bg-card px-5 py-5">
-            <header className="mb-4 flex items-start justify-between border-b border-white/10 pb-4">
+          <section className="rounded-lg border border-border bg-card px-5 py-5">
+            <header className="mb-4 flex items-start justify-between border-b border-border pb-4">
               <div className="space-y-1">
-                <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-white">
+                <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-foreground">
                   Hallazgos críticos
                 </h2>
                 <p className="max-w-2xl text-sm text-slate-400">
@@ -170,14 +170,14 @@ export function AuditSingleWorkspace({
             <div className="max-h-[65vh] overflow-y-auto scrollbar-thin">
               <ResultItemsTable items={result.findings} />
             </div>
-          </div>
+          </section>
         </TabsContent>
 
         {/* ── Tab: Métricas (L2) ── */}
         <TabsContent value="metrics">
-          <div className="rounded-xl border border-white/10 bg-card px-5 py-5">
-            <header className="mb-4 border-b border-white/10 pb-4">
-              <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-white">
+          <section className="rounded-lg border border-border bg-card px-5 py-5">
+            <header className="mb-4 border-b border-border pb-4">
+              <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-foreground">
                 Métricas y configuración
               </h2>
               <p className="mt-1 max-w-2xl text-sm text-slate-400">
@@ -199,7 +199,7 @@ export function AuditSingleWorkspace({
                   </p>
                 </div>
                 <div>
-                  <h3 className="text-base font-medium text-white mb-1">
+                  <h3 className="mb-1 text-base font-medium text-foreground">
                     Conjunto de auditoría
                   </h3>
                   <p className="text-xs text-slate-400 leading-relaxed">
@@ -230,7 +230,7 @@ export function AuditSingleWorkspace({
                     </span>
                   </div>
                 </div>
-                <div className="divide-y divide-white/[0.04]">
+                <div className="divide-y divide-border">
                   {Object.entries(result._meta?.phases ?? {}).map(
                     ([phase, value]) => {
                       const tier = getPhaseTier(value as number);
@@ -251,7 +251,7 @@ export function AuditSingleWorkspace({
                             >
                               {tier.label}
                             </span>
-                            <span className="min-w-[4rem] text-right text-[13px] font-semibold tabular-nums text-white">
+                            <span className="min-w-[4rem] text-right text-[13px] font-semibold tabular-nums text-foreground">
                               {formatDurationMs(value as number)}
                             </span>
                           </div>
@@ -262,14 +262,14 @@ export function AuditSingleWorkspace({
                 </div>
               </div>
             </div>
-          </div>
+          </section>
         </TabsContent>
 
         {/* ── Tab: Evidencia (L3) ── */}
         <TabsContent value="evidence">
-          <div className="rounded-xl border border-white/10 bg-card px-5 py-5">
-            <header className="mb-4 border-b border-white/10 pb-4">
-              <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-white">
+          <section className="rounded-lg border border-border bg-card px-5 py-5">
+            <header className="mb-4 border-b border-border pb-4">
+              <h2 className="[font-family:var(--font-heading)] text-lg font-semibold tracking-tight text-foreground">
                 Evidencia documental
               </h2>
               <p className="mt-1 max-w-2xl text-sm text-slate-400">
@@ -279,7 +279,7 @@ export function AuditSingleWorkspace({
 
             {patientSummary ? (
               <div className="mb-4 surface-subtle rounded-lg p-4 text-sm text-slate-300 xl:hidden">
-                <p className="font-medium text-white">
+                <p className="font-medium text-foreground">
                   {patientSummary.patientName}
                 </p>
                 <p className="mt-1 text-slate-400">
@@ -304,7 +304,7 @@ export function AuditSingleWorkspace({
                 attachment={selectedAttachment}
               />
             </div>
-          </div>
+          </section>
         </TabsContent>
       </Tabs>
     </div>

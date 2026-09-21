@@ -19,7 +19,7 @@ final class ResponseIADiskStore
     private const ENV_ENABLED = 'AUDIT_RESPONSE_IA_ENABLED';
     private const ENV_DIR = 'AUDIT_RESPONSE_IA_DIR';
     private const DEFAULT_STATUS = 'unknown';
-    private const SOURCE = 'GeminiGateway::sendWithFunctionCalling';
+    private const SOURCE = 'GeminiGateway::sendWithStructuredOutput';
 
     private string $baseDir;
 
@@ -52,7 +52,7 @@ final class ResponseIADiskStore
             'meta' => [
                 'saved_at' => gmdate('Y-m-d\TH:i:s\Z'),
                 'app_env' => $appEnv,
-                'source' => (string) ($context['source'] ?? ((isset($context['mode']) && $context['mode'] === 'structured_output') ? 'GeminiGateway::sendWithStructuredOutput' : self::SOURCE)),
+                'source' => (string) ($context['source'] ?? self::SOURCE),
                 'audit_id' => $context['audit_id'] ?? null,
                 'document_id' => $context['document_id'] ?? null,
                 'dis_det_nro' => $disDetNro,

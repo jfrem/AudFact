@@ -64,10 +64,16 @@ final class ExtractionPromptBuilder
      */
     public function buildUserPrompt(string $documentType, array $payload, array $contract): string
     {
+        $tipoDocDirective = DocumentExtractionContractBuilder::findTipoDocumentoDirective($payload['fields_config'] ?? []);
+        $conformityRule = "1. Verifica primero si el formato y estructura del archivo corresponden genuinamente a un(a) \"{$documentType}\".";
+        if ($tipoDocDirective !== null) {
+            $conformityRule .= " Criterios y requisitos específicos de identificación: {$tipoDocDirective}";
+        }
+
         $parts = [
             "Documento objetivo: {$documentType}.",
             '### Regla de tipología y conformidad documental',
-            "1. Verifica primero si el formato y estructura del archivo corresponden genuinamente a un(a) \"{$documentType}\".",
+            $conformityRule,
             '2. Si el archivo adjunto corresponde a otra tipología documental distinta (ej: documento de identidad, recibo, factura u otro tipo que no es el solicitado):',
             '   - Asigna `document_conformity.matches_expected_type = false`.',
             '   - Describe en `document_conformity.detected_type` y `document_conformity.justification` lo que contiene el archivo.',

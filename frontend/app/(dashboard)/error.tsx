@@ -18,11 +18,11 @@ export default function DashboardError({
   return (
     <div className="flex min-h-[50vh] items-center justify-center px-6">
       <div className="w-full max-w-lg space-y-6 text-center">
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-rose-500/14 text-rose-300">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/10 text-destructive">
           <AlertTriangle className="h-7 w-7" />
         </div>
         <div className="space-y-2">
-          <h2 className="[font-family:var(--font-heading)] text-2xl font-semibold text-white">
+          <h2 className="[font-family:var(--font-heading)] text-2xl font-semibold text-foreground">
             Algo salió mal
           </h2>
           <p className="text-sm text-slate-400">

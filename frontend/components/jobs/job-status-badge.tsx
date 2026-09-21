@@ -1,39 +1,56 @@
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  LoaderCircle,
+  XCircle,
+} from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 
-type JobStatusType = "queued" | "running" | "completed" | "completed_with_errors" | "failed";
+type JobStatus = "queued" | "running" | "completed" | "completed_with_errors" | "failed";
 
-const variantMap: Record<JobStatusType, "warning" | "info" | "success" | "danger"> = {
-  queued: "warning",
-  running: "info",
-  completed: "success",
-  completed_with_errors: "warning",
-  failed: "danger",
-};
+const statusConfig = {
+  queued: { label: "En cola", variant: "warning", icon: Clock3 },
+  running: { label: "Ejecutando", variant: "info", icon: LoaderCircle },
+  completed: { label: "Completado", variant: "success", icon: CheckCircle2 },
+  completed_with_errors: {
+    label: "Completado con errores",
+    variant: "warning",
+    icon: AlertTriangle,
+  },
+  failed: { label: "Fallido", variant: "danger", icon: XCircle },
+} satisfies Record<
+  JobStatus,
+  {
+    label: string;
+    variant: "warning" | "info" | "success" | "danger";
+    icon: typeof Clock3;
+  }
+>;
 
-const labelMap: Record<JobStatusType, string> = {
-  queued: "En cola",
-  running: "Ejecutando",
-  completed: "Completado",
-  completed_with_errors: "Completado con errores",
-  failed: "Fallido",
-};
-
-export function JobStatusBadge({ status }: { status?: string | null }) {
-  const normalized =
+function normalizeStatus(status?: string | null): JobStatus {
+  if (
     status === "queued" ||
     status === "running" ||
     status === "completed" ||
     status === "completed_with_errors" ||
     status === "failed"
-      ? (status as JobStatusType)
-      : "queued";
+  ) {
+    return status;
+  }
 
-  const variant = variantMap[normalized];
-  const label = labelMap[normalized];
+  return "queued";
+}
+
+export function JobStatusBadge({ status }: { status?: string | null }) {
+  const entry = statusConfig[normalizeStatus(status)];
+  const Icon = entry.icon;
 
   return (
-    <Badge variant={variant}>
-      {label}
+    <Badge variant={entry.variant}>
+      <Icon aria-hidden="true" />
+      {entry.label}
     </Badge>
   );
 }

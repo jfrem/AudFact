@@ -18,30 +18,28 @@ export function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div
+    <header
       className={cn(
-        "flex flex-col gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-5 py-5 md:px-6 md:py-5 md:flex-row md:items-end md:justify-between",
+        "grid gap-5 border-b border-border pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end",
         className,
       )}
     >
-      <div className="space-y-2">
+      <div className="min-w-0">
         {eyebrow ? (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-300">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
             {eyebrow}
           </p>
         ) : null}
-        <div className="space-y-1.5">
-          <h1 className="[font-family:var(--font-heading)] text-[1.85rem] font-semibold tracking-tight text-white">
-            {title}
-          </h1>
-          {description ? (
-            <p className="max-w-3xl text-sm tabular-nums leading-6 text-slate-400">
-              {description}
-            </p>
-          ) : null}
-        </div>
+        <h1 className="font-display text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.025em] text-foreground sm:text-[2rem]">
+          {title}
+        </h1>
+        {description ? (
+          <p className="mt-2 max-w-[72ch] text-sm leading-6 text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
       </div>
-      {actions ? <div className="shrink-0 self-start md:self-auto">{actions}</div> : null}
-    </div>
+      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+    </header>
   );
 }

@@ -1,148 +1,135 @@
-import React from "react";
 import { Handle, Position } from "@xyflow/react";
-import { CircleAlert, CheckCircle2, Loader2, XCircle, Clock } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
+  LoaderCircle,
+  XCircle,
+} from "lucide-react";
 
 import type { AuditNodeData } from "@/lib/audit-flow/dag-builder";
+import { cn } from "@/lib/utils";
 
-const StateIcon = ({ state, className }: { state: AuditNodeData["state"]; className?: string }) => {
-  switch (state) {
-    case "pending":
-      return <Clock className={`h-4 w-4 ${className}`} />;
-    case "running":
-      return <Loader2 className={`h-4 w-4 animate-spin ${className}`} />;
-    case "completed":
-      return <CheckCircle2 className={`h-4 w-4 ${className}`} />;
-    case "failed":
-      return <XCircle className={`h-4 w-4 ${className}`} />;
-    case "rejected":
-      return <CircleAlert className={`h-4 w-4 ${className}`} />;
-    default:
-      return null;
+const stateConfig = {
+  pending: {
+    icon: Clock3,
+    label: "Pendiente",
+    shell: "border-border bg-[var(--surface-raised)]",
+    iconClass: "text-muted-foreground",
+    handle: "!border-border !bg-muted",
+  },
+  running: {
+    icon: LoaderCircle,
+    label: "Ejecutando",
+    shell: "border-sky-500/45 bg-sky-500/[0.07]",
+    iconClass: "text-sky-300",
+    handle: "!border-sky-500/60 !bg-sky-500/25",
+  },
+  completed: {
+    icon: CheckCircle2,
+    label: "Completado",
+    shell: "border-emerald-500/35 bg-emerald-500/[0.055]",
+    iconClass: "text-emerald-300",
+    handle: "!border-emerald-500/45 !bg-emerald-500/20",
+  },
+  failed: {
+    icon: XCircle,
+    label: "Fallido",
+    shell: "border-rose-500/45 bg-rose-500/[0.07]",
+    iconClass: "text-rose-300",
+    handle: "!border-rose-500/55 !bg-rose-500/20",
+  },
+  rejected: {
+    icon: AlertCircle,
+    label: "Revisión",
+    shell: "border-amber-500/45 bg-amber-500/[0.07]",
+    iconClass: "text-amber-300",
+    handle: "!border-amber-500/55 !bg-amber-500/20",
+  },
+} satisfies Record<
+  AuditNodeData["state"],
+  {
+    icon: typeof Clock3;
+    label: string;
+    shell: string;
+    iconClass: string;
+    handle: string;
   }
-};
-
-function getNodeStyles(state: AuditNodeData["state"]) {
-  switch (state) {
-    case "pending":
-      return {
-        bg: "bg-white dark:bg-slate-800/90",
-        border: "border-slate-200 dark:border-slate-700/80",
-        text: "text-slate-500 dark:text-slate-400",
-        icon: "text-slate-400",
-        handle: "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800",
-      };
-    case "running":
-      return {
-        bg: "bg-white dark:bg-slate-800/90",
-        border: "border-blue-500 dark:border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]",
-        text: "text-slate-900 dark:text-white font-medium",
-        icon: "text-blue-500 dark:text-blue-400",
-        handle: "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900",
-      };
-    case "completed":
-      return {
-        bg: "bg-white dark:bg-slate-800/90",
-        border: "border-emerald-500/60 dark:border-emerald-400/70",
-        text: "text-slate-900 dark:text-slate-100",
-        icon: "text-emerald-500 dark:text-emerald-400",
-        handle: "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800",
-      };
-    case "failed":
-      return {
-        bg: "bg-red-50 dark:bg-red-950/80",
-        border: "border-red-500/70 dark:border-red-500/80",
-        text: "text-red-900 dark:text-red-100",
-        icon: "text-red-500 dark:text-red-400",
-        handle: "border-red-200 bg-red-100 dark:border-red-800 dark:bg-red-900",
-      };
-    case "rejected":
-      return {
-        bg: "bg-white dark:bg-slate-800/90",
-        border: "border-orange-500/70 dark:border-orange-400/80",
-        text: "text-slate-900 dark:text-slate-100",
-        icon: "text-orange-500 dark:text-orange-400",
-        handle: "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800",
-      };
-    default:
-      return {
-        bg: "bg-white dark:bg-slate-800/90",
-        border: "border-slate-200 dark:border-slate-700/80",
-        text: "text-slate-900 dark:text-slate-100",
-        icon: "text-slate-400",
-        handle: "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-800",
-      };
-  }
-}
+>;
 
 export function AuditNodeComponent({ data }: { data: AuditNodeData }) {
-  const styles = getNodeStyles(data.state);
+  const config = stateConfig[data.state];
+  const Icon = config.icon;
 
   return (
-    <div
-      className={`group/node relative min-w-[180px] rounded-lg border px-4 py-3 shadow-sm transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-md hover:ring-2 hover:ring-slate-400/20 dark:hover:ring-slate-500/30 ${styles.bg} ${styles.border} ${data.state === "running" ? "ring-2 ring-blue-500/20 ring-offset-1 dark:ring-blue-400/20 dark:ring-offset-slate-950 animate-[pulse_2s_ease-in-out_infinite]" : ""}`}
+    <article
+      className={cn(
+        "relative min-w-[188px] rounded-md border px-3.5 py-3 transition-colors duration-150",
+        config.shell,
+      )}
+      aria-label={`${data.label}, ${config.label}`}
     >
       <Handle
         type="target"
         position={Position.Left}
-        className={`h-3 w-3 !rounded-sm !border-2 transition-colors ${styles.handle}`}
+        className={cn("!h-2.5 !w-2.5 !rounded-sm !border-2", config.handle)}
       />
 
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 shrink-0 ${styles.icon}`}>
-          <StateIcon state={data.state} />
-        </div>
-
-        <div className="flex flex-col gap-0.5">
-          <div className={`text-sm tracking-tight ${styles.text}`}>
-            {data.label}
+      <div className="flex items-start gap-2.5">
+        <Icon
+          className={cn("mt-0.5 h-4 w-4 shrink-0", config.iconClass, data.state === "running" && "animate-spin")}
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold tracking-[-0.01em] text-foreground">{data.label}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={cn("text-[9px] font-semibold uppercase tracking-[0.16em]", config.iconClass)}>
+              {config.label}
+            </span>
+            {data.durationMs !== undefined ? (
+              <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                {data.durationMs} ms
+              </span>
+            ) : null}
           </div>
-          {data.durationMs !== undefined && (
-            <div className="font-mono text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {data.durationMs} ms
+          {data.metrics ? (
+            <div className="mt-2 flex items-center gap-1.5 font-mono text-[10px] tabular-nums">
+              <span className="text-emerald-300" title="Completadas">{data.metrics.completed}</span>
+              <span className="text-muted-foreground/55">/</span>
+              <span className="text-rose-300" title="Fallidas">{data.metrics.failed}</span>
+              <span className="text-muted-foreground/55">/</span>
+              <span className="text-amber-300" title="Revisión">{data.metrics.rejected ?? 0}</span>
+              <span className="text-muted-foreground/55">/</span>
+              <span className="text-foreground" title="Total">{data.metrics.total}</span>
             </div>
-          )}
-          {data.metrics && (
-            <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-mono bg-slate-100 dark:bg-slate-900/50 px-1.5 py-0.5 rounded-md w-fit">
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium" title="Completado">{data.metrics.completed}</span>
-              <span className="text-slate-400">/</span>
-              <span className="text-red-600 dark:text-red-400 font-medium" title="Fallido">{data.metrics.failed}</span>
-              {(data.metrics.rejected ?? 0) > 0 && (
-                <>
-                  <span className="text-slate-400">/</span>
-                  <span className="text-amber-600 dark:text-amber-400 font-medium" title="Revisión">{data.metrics.rejected}</span>
-                </>
-              )}
-              <span className="text-slate-400">/</span>
-              <span className="text-slate-600 dark:text-slate-300" title="Total">{data.metrics.total}</span>
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {data.metrics && data.metrics.total > 0 && (
-        <div className="absolute bottom-0 left-0 flex h-1 w-full overflow-hidden rounded-b-lg">
-          <div
-            className="bg-emerald-500 transition-all duration-500 ease-out"
+      {data.metrics && data.metrics.total > 0 ? (
+        <div className="absolute inset-x-0 bottom-0 flex h-0.5 overflow-hidden rounded-b-md" aria-hidden="true">
+          <span
+            className="bg-emerald-400"
             style={{ width: `${(data.metrics.completed / data.metrics.total) * 100}%` }}
           />
-          <div
-            className="bg-amber-500 transition-all duration-500 ease-out"
+          <span
+            className="bg-amber-400"
             style={{ width: `${((data.metrics.rejected ?? 0) / data.metrics.total) * 100}%` }}
           />
-          <div
-            className="bg-red-500 transition-all duration-500 ease-out"
+          <span
+            className="bg-rose-400"
             style={{ width: `${(data.metrics.failed / data.metrics.total) * 100}%` }}
           />
-          <div className="flex-1 bg-slate-100 dark:bg-slate-800/50" />
+          <span className="flex-1 bg-muted" />
         </div>
-      )}
+      ) : null}
 
       <Handle
         type="source"
         position={Position.Right}
-        className={`h-3 w-3 !rounded-sm !border-2 transition-colors ${styles.handle}`}
+        className={cn("!h-2.5 !w-2.5 !rounded-sm !border-2", config.handle)}
       />
-    </div>
+    </article>
   );
 }
 

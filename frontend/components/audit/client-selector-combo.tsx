@@ -39,6 +39,7 @@ export function ClientSelectorCombo({
   ariaDescribedBy,
 }: ClientSelectorComboProps) {
   const [open, setOpen] = React.useState(false);
+  const listboxId = React.useId();
   const selected = clients.find((c) => String(extractClient(c).nitSec) === value) ?? null;
   const selectedDisplay = selected ? extractClient(selected) : null;
 
@@ -50,15 +51,16 @@ export function ClientSelectorCombo({
           id={id}
           role="combobox"
           aria-expanded={open}
+          aria-controls={listboxId}
           aria-invalid={invalid || undefined}
           aria-describedby={ariaDescribedBy}
           className={cn(
-            "group flex h-11 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left text-sm transition-all duration-200",
+            "group flex h-11 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left text-sm transition-colors",
             invalid
               ? "border-rose-400/70 bg-rose-500/[0.06] hover:border-rose-300/80"
               : open
-                ? "border-sky-500/40 bg-white/[0.04]"
-                : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.05]",
+                ? "border-primary/45 bg-primary/10"
+                : "border-border bg-background hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
           )}
         >
           {/* Icon */}
@@ -66,8 +68,8 @@ export function ClientSelectorCombo({
             className={cn(
               "flex h-6 w-6 shrink-0 items-center justify-center rounded-lg transition-colors",
               open || selected
-                ? "border border-white/[0.08] bg-white/[0.03] text-sky-400"
-                : "bg-white/[0.06] text-slate-500 group-hover:text-slate-400",
+                ? "border border-primary/30 bg-primary/10 text-primary"
+                : "border border-border bg-muted text-muted-foreground",
             )}
           >
             <Building2 className="h-3.5 w-3.5" />
@@ -76,7 +78,7 @@ export function ClientSelectorCombo({
           {/* Label */}
           <div className="min-w-0 flex-1 overflow-hidden">
             {selectedDisplay ? (
-              <span className="block truncate font-medium text-white" title={selectedDisplay.nitCom}>
+              <span className="block truncate font-medium text-foreground" title={selectedDisplay.nitCom}>
                 {selectedDisplay.nitCom}
               </span>
             ) : (
@@ -95,21 +97,21 @@ export function ClientSelectorCombo({
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] border-white/[0.08] bg-[#0d1526] p-0 shadow-2xl shadow-black/50"
+        className="w-[--radix-popover-trigger-width] max-w-[calc(100vw-2rem)] p-0"
         align="start"
         sideOffset={6}
       >
         <Command className="border-0 bg-transparent">
           {/* Search */}
-          <div className="flex items-center border-b border-white/[0.06] px-3">
+          <div className="flex items-center border-b border-border px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 text-slate-500" />
             <CommandInput
               placeholder="Buscar por nombre o código..."
-              className="h-11 flex-1 border-0 bg-transparent text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-0"
+              className="h-11 flex-1 border-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0"
             />
           </div>
 
-          <CommandList className="max-h-72 overflow-y-auto">
+          <CommandList id={listboxId} className="max-h-72 overflow-y-auto">
             <CommandEmpty>
               <div className="flex flex-col items-center gap-2 py-8 text-center">
                 <Building2 className="h-8 w-8 text-slate-700" />
@@ -141,10 +143,10 @@ export function ClientSelectorCombo({
                         setOpen(false);
                       }}
                       className={cn(
-                        "group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors",
+                        "group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors",
                         isSelected
-                          ? "border border-white/[0.08] bg-white/[0.04] text-white"
-                          : "text-slate-300 hover:bg-white/[0.04] hover:text-white",
+                          ? "border border-primary/25 bg-primary/10 text-foreground"
+                          : "text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground",
                       )}
                     >
                       {/* Avatar */}
@@ -152,8 +154,8 @@ export function ClientSelectorCombo({
                         className={cn(
                           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold transition-colors",
                           isSelected
-                            ? "border border-white/[0.08] bg-white/[0.03] text-sky-300"
-                            : "bg-white/[0.06] text-slate-500 group-hover:bg-white/[0.09] group-hover:text-slate-300",
+                            ? "border border-primary/25 bg-primary/10 text-primary"
+                            : "border border-border bg-muted text-muted-foreground",
                         )}
                       >
                         {initials || "?"}

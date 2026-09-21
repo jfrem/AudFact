@@ -26,14 +26,14 @@ function FindingStatusLabel({ status }: { status: AuditFinding["resultado"] }) {
 export function ResultItemsTable({ items }: { items: AuditFinding[] }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-white/10 bg-card px-4 py-5 text-sm text-slate-400">
+      <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
         No hay hallazgos estructurados en este resultado.
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-white/10 bg-slate-950/35">
+    <div className="overflow-hidden rounded-lg border border-border bg-background">
       <Table>
         <TableHeader>
           <TableRow>
@@ -48,10 +48,10 @@ export function ResultItemsTable({ items }: { items: AuditFinding[] }) {
         <TableBody>
           {items.map((item, index) => (
             <TableRow key={`${item.campo}-${index}`} className="align-top">
-              <TableCell className="text-white" title={item.campo}>{item.campo}</TableCell>
+              <TableCell className="text-foreground" title={item.campo}>{item.campo}</TableCell>
               <TableCell className="text-slate-400 text-xs" title={item.documento ?? "N/D"}>
                 {item.documento ? (
-                  <span className="inline-flex items-center rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-300">
+                  <span className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {item.documento}
                   </span>
                 ) : (

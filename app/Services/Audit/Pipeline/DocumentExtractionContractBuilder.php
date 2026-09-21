@@ -21,9 +21,12 @@ final class DocumentExtractionContractBuilder
     public function build(string $documentName, array $fields, array $visualChecks): array
     {
         $fieldGroups = $this->groupFields($documentName, $fields);
+        $conformityDirective = self::findTipoDocumentoDirective($fields);
         $responseSchema = $this->buildResponseSchema(
             $fieldGroups,
-            $this->activeVisualChecks($visualChecks)
+            $this->activeVisualChecks($visualChecks),
+            $documentName,
+            $conformityDirective
         );
 
         return [
@@ -39,19 +42,52 @@ final class DocumentExtractionContractBuilder
     }
 
     /**
+     * Localiza la directiva de tipología configurada en el campo TipoDocumento (TIP).
+     *
+     * @param  array<int,array<string,mixed>> $fields
+     */
+    public static function findTipoDocumentoDirective(array $fields): ?string
+    {
+        foreach ($fields as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+            $name = trim((string) ($field['campoNombre'] ?? ''));
+            $code = trim((string) ($field['codigoCampo'] ?? ''));
+            if ($name === 'TipoDocumento' || $code === 'TIP') {
+                $desc = trim((string) ($field['descripcionOverride'] ?? $field['description'] ?? ''));
+                return $desc !== '' ? $desc : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param  array{fields:array<int,array<string,mixed>>,items:array<int,array<string,mixed>>} $fieldGroups
      * @param  array<int,array<string,mixed>> $visualChecks
      * @return array<string,mixed>
      */
-    private function buildResponseSchema(array $fieldGroups, array $visualChecks): array
-    {
+    private function buildResponseSchema(
+        array $fieldGroups,
+        array $visualChecks,
+        string $documentName = '',
+        ?string $conformityDirective = null
+    ): array {
+        $docNameStr = trim($documentName) !== '' ? "'{$documentName}'" : 'objetivo';
+        $directiveSuffix = $conformityDirective !== null
+            ? " Criterios específicos de identificación para {$docNameStr}: {$conformityDirective}."
+            : '';
+
+        $conformityDescription = "True si el formato y estructura del documento corresponden genuinamente al tipo documental {$docNameStr}.{$directiveSuffix} False si el archivo corresponde a otra tipología documental distinta.";
+
         $properties = [
             'document_conformity' => [
                 'type' => 'object',
                 'properties' => [
                     'matches_expected_type' => [
                         'type' => 'boolean',
-                        'description' => 'True si el formato y estructura del documento corresponden genuinamente al tipo documental objetivo. False si el archivo corresponde a otra tipología documental distinta.',
+                        'description' => $conformityDescription,
                     ],
                     'detected_type' => [
                         'type' => 'string',

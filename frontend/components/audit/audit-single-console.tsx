@@ -13,6 +13,7 @@ import { describeError, isRetryableError } from "@/lib/api/errors";
 
 import { runAuditSingle, getAuditLiveStatus } from "@/lib/api/audfact";
 import { LiveAuditFlow } from "@/components/audit/live-audit-flow";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -131,8 +132,11 @@ export function AuditSingleConsole() {
   const isPolling = pollingAuditId !== null;
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-white/10 bg-card p-4">
+    <div className="space-y-6">
+      <SectionCard
+        title="Parámetros de ejecución"
+        description="Identifica la dispensación que debe recorrer el pipeline documental."
+      >
         <form
           className="grid gap-4 md:grid-cols-[1fr_1fr_auto]"
           onSubmit={form.handleSubmit(handleSubmit)}
@@ -209,19 +213,19 @@ export function AuditSingleConsole() {
             </Button>
           </div>
         </form>
-      </div>
+      </SectionCard>
 
-      <div className="flex flex-col gap-5 pt-4">
+      <section className="flex flex-col gap-4">
         <div>
-          <h2 className="[font-family:var(--font-heading)] text-xl font-semibold tracking-tight text-white">
+          <h2 className="font-display text-lg font-semibold tracking-[-0.015em] text-foreground">
             Lienzo de Telemetría
           </h2>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-1 text-sm text-muted-foreground">
             Observación en vivo y trazabilidad técnica del pipeline de auditoría IA.
           </p>
         </div>
         <LiveAuditFlow auditId={activeAuditId ?? undefined} />
-      </div>
+      </section>
     </div>
   );
 }

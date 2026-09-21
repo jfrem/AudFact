@@ -24,7 +24,7 @@ export function BackendRequestSkeleton({
       aria-label={title}
       aria-live="polite"
       className={cn(
-        "rounded-xl border border-sky-500/15 bg-sky-500/[0.04] px-4 py-4 text-slate-100",
+        "rounded-lg border border-info/20 bg-info/5 px-4 py-4 text-foreground",
         className,
       )}
       role="status"

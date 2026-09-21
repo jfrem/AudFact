@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
+import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ export default function DispensationSearchPage() {
         title="Dispensación"
         description="Busca una dispensación por su identificador para ver el detalle técnico completo."
       />
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
+      <SectionCard title="Llave de dispensación" description="DisDetNro es obligatorio; DisId ayuda a resolver la entrega exacta.">
         <form
           aria-busy={navigation.isPending}
           className="grid gap-4 md:grid-cols-[1fr_auto]"
@@ -86,7 +87,7 @@ export default function DispensationSearchPage() {
             Ver detalle
           </Button>
         </form>
-      </div>
+      </SectionCard>
       {navigation.isPending ? (
         <BackendRequestSkeleton
           description="El backend está cargando el detalle técnico y los adjuntos."

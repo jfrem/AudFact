@@ -45,8 +45,8 @@ export function PageLoadingHeader({
 
 export function CardSkeleton() {
   return (
-    <div className="rounded-xl border border-white/10 bg-card px-5 py-5" role="status" aria-label="Cargando tarjeta">
-      <div className="mb-4 space-y-2 border-b border-white/8 pb-4" aria-hidden="true">
+    <div className="rounded-lg border border-border bg-card px-5 py-5" role="status" aria-label="Cargando panel">
+      <div className="mb-4 space-y-2 border-b border-border pb-4" aria-hidden="true">
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-3 w-64" />
       </div>
@@ -72,9 +72,9 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export function MetricGridSkeleton({ items = 4 }: { items?: number }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" role="status" aria-label="Cargando métricas">
+    <div className="grid border-y border-border md:grid-cols-2 xl:grid-cols-4" role="status" aria-label="Cargando métricas">
       {Array.from({ length: items }).map((_, i) => (
-        <div key={i} className="rounded-xl border border-white/10 bg-card p-5" aria-hidden="true">
+        <div key={i} className="border-b border-border p-5 last:border-b-0 md:border-r xl:border-b-0 xl:last:border-r-0" aria-hidden="true">
           <div className="flex items-center gap-2">
             <Skeleton className="h-8 w-8" />
             <Skeleton className="h-4 w-24" />

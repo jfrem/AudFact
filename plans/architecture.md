@@ -4,6 +4,21 @@
 
 AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA moderno** construido en **Next.js (React)** que consume un **Backend REST API en PHP (custom MVC)**. El backend cuenta con un balanceador **Nginx (`least_conn`)** que reparte el tráfico sobre **múltiples réplicas Docker de PHP-FPM (static pool)** y se comunica con SQL Server para datos, Gemini API para IA, y Google Drive para almacenamiento documental. La arquitectura soporta **Alta Disponibilidad (HA)** aislando recursos compartidos (como logs multi-nodo) para evitar race-conditions en concurrencia.
 
+### Frontend Next.js (`frontend/`)
+
+El frontend se organiza como una mesa operativa de evidencia sobre **Next.js App Router**. Las páginas de `frontend/app/(dashboard)/` conservan el límite de renderizado por ruta y delegan la interacción en componentes de dominio; `frontend/lib/api/`, `frontend/lib/query/` y los schemas Zod mantienen los contratos con el proxy relativo `/api/backend/*`. React Query gestiona consultas y polling, mientras la telemetría SSE alimenta las vistas de trazabilidad sin duplicar reglas del backend.
+
+La capa de presentación reconstruida se divide en cuatro niveles:
+
+| Nivel | Responsabilidad |
+|---|---|
+| `app/globals.css` | Tokens OKLCH, tipografía, superficies, estados semánticos y reglas de foco/movimiento reducido. |
+| `components/ui/` | Primitivas accesibles y planas para botones, inputs, tablas, tabs, diálogos y overlays. |
+| `components/layout/` y `components/shared/` | Shell responsivo, navegación, encabezados, paneles, estados vacíos y feedback transversal. |
+| Componentes por dominio | Clientes, facturas, dispensación, auditoría individual/batch, jobs, resultados, adjuntos y observabilidad. |
+
+Los estados operativos nunca dependen solo del color: badges y nodos combinan icono, texto y tono semántico. Las sombras quedan restringidas a overlays con elevación real; las vistas persistentes usan bordes, jerarquía tipográfica y densidad de datos. El clean rebuild no modifica rutas, payloads, schemas, React Query keys, eventos SSE ni contratos REST. En producción, el rollback consiste en redeplegar el SHA anterior de la imagen inmutable `AUDFACT_FRONTEND_IMAGE` desde GHCR.
+
 ---
 
 ## Desglose de Componentes
@@ -82,7 +97,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `GeminiGateway.php` | Cliente HTTP (Guzzle) hacia la API de Gemini; implementa Circuit Breaker, retry/backoff y manejo de cuota |
 | `GeminiConfig.php` | Configuración determinista de Gemini: `temperature=0`, `topP=1`, `topK=1`, `seed=42`, `thinkingLevel=MINIMAL` |
 | `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
-| `ArticleSemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver |
+| `SemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver, integrando contexto documental |
 | `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |
 | `AuditComparisonType.php` | Enum de tipos de comparación: `exact`, `semantic`, `business`, `visual` |
 | `AuditFieldValueType.php` | Tipos de valor de campo extraído; determina cómo normaliza `FieldValueResolver` |
@@ -147,7 +162,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 **Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher levanta servicios independientes: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=2`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 > [!NOTE]
-> **Workers que requieren `GEMINI_API_KEY`**: `extraction` (extrae con Gemini multimodal) y `policy` (`RulesEvaluationWorker` invoca `ArticleSemanticMatchJudge` para homologación semántica de artículos/pacientes cuando el comparador determinísta no puede resolver). Un fallo de cuota o key expirada afecta ambos workers.
+> **Workers que requieren `GEMINI_API_KEY`**: `extraction` (extrae con Gemini multimodal) y `policy` (`RulesEvaluationWorker` invoca `SemanticMatchJudge` para homologación semántica de artículos/pacientes cuando el comparador determinísta no puede resolver). Un fallo de cuota o key expirada afecta ambos workers.
 
 > [!NOTE]
 > `bin/schedule-daily-batches.php` es un script CLI independiente ubicado en `bin/` (no en `app/Services/Audit/Pipeline/`). Se ejecuta como cron dentro del contenedor PHP: `docker compose exec php php bin/schedule-daily-batches.php`.

@@ -77,7 +77,7 @@ final class FdvItemAggregatorTest extends TestCase
         $this->assertSame('P1', $result[0]['CodigoProducto']);
     }
 
-    public function testPreservesSeparationWhenLoteConfiguredAndDifferent(): void
+    public function testAggregatesWhenSameProductCodeEvenIfLotesAreDifferent(): void
     {
         $items = [
             ['CodigoProducto' => 'P1', 'Lote' => 'L1', 'CantidadEntregada' => '10'],
@@ -91,7 +91,30 @@ final class FdvItemAggregatorTest extends TestCase
         
         $result = FdvItemAggregator::aggregate($items, $config, $this->documentType);
         
-        $this->assertCount(2, $result);
+        // TRACE_TOKEN no es grouping key: los lotes se evalúan como set en evaluateTraceSetField
+        $this->assertCount(1, $result);
+        $this->assertSame('30', $result[0]['CantidadEntregada']);
+        $this->assertSame('P1', $result[0]['CodigoProducto']);
+    }
+
+    public function testAggregatesWhenSameProductCodeEvenIfArticleNamesAreDifferent(): void
+    {
+        $items = [
+            ['CodigoProducto' => 'MD003128', 'NombreArticulo' => 'SERTRALINA 100MG C*10 TABLETA', 'CantidadEntregada' => '20'],
+            ['CodigoProducto' => 'MD003128', 'NombreArticulo' => 'SERTRALINA 100MG C*28 TABLETA', 'CantidadEntregada' => '10'],
+        ];
+        $config = [
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'E', 'tipoDato' => 'code', 'esMultiItem' => true],
+            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name'],
+            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity']
+        ];
+        
+        $result = FdvItemAggregator::aggregate($items, $config, $this->documentType);
+        
+        // ARTICLE_NAME no es grouping key: se evalúa semánticamente / suryectivamente
+        $this->assertCount(1, $result);
+        $this->assertSame('30', $result[0]['CantidadEntregada']);
+        $this->assertSame('MD003128', $result[0]['CodigoProducto']);
     }
 
     public function testAggregatesWhenLoteConfiguredAndSame(): void
@@ -147,5 +170,45 @@ final class FdvItemAggregatorTest extends TestCase
         // NumeroAutorizacion es campo de header, no de ítem → no participa en agrupación.
         $this->assertCount(1, $result);
         $this->assertSame('30', $result[0]['CantidadEntregada']);
+    }
+
+    public function testAggregatesByProductCodeWhenTipoCampoIsBusiness(): void
+    {
+        $items = [
+            ['CodigoProducto' => '20175802', 'CantidadEntregada' => '60', 'Lote' => 'L1', 'FechaVencimiento' => '2029-02-28'],
+            ['CodigoProducto' => '20175802', 'CantidadEntregada' => '60', 'Lote' => 'L2', 'FechaVencimiento' => '2029-08-20'],
+        ];
+        // En configuración real de AUTORIZACION, CodigoProducto es B y code, CantidadEntregada es B y quantity
+        $config = [
+            ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'auth_number'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'B', 'tipoDato' => 'code'],
+            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity'],
+        ];
+
+        $result = FdvItemAggregator::aggregate($items, $config, 'AUTORIZACION');
+
+        $this->assertCount(1, $result);
+        $this->assertSame('20175802', $result[0]['CodigoProducto']);
+        $this->assertSame('120', $result[0]['CantidadEntregada']);
+    }
+
+    public function testPreservesMultipleItemsWhenDifferentProductsWithBusinessComparison(): void
+    {
+        $items = [
+            ['CodigoProducto' => '20175802', 'CantidadEntregada' => '60'],
+            ['CodigoProducto' => '10045678', 'CantidadEntregada' => '30'],
+        ];
+        $config = [
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'B', 'tipoDato' => 'code'],
+            ['campoNombre' => 'CantidadEntregada', 'tipoCampo' => 'B', 'tipoDato' => 'quantity'],
+        ];
+
+        $result = FdvItemAggregator::aggregate($items, $config, 'AUTORIZACION');
+
+        $this->assertCount(2, $result);
+        $this->assertSame('20175802', $result[0]['CodigoProducto']);
+        $this->assertSame('60', $result[0]['CantidadEntregada']);
+        $this->assertSame('10045678', $result[1]['CodigoProducto']);
+        $this->assertSame('30', $result[1]['CantidadEntregada']);
     }
 }

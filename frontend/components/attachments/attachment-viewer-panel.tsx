@@ -32,14 +32,14 @@ export function AttachmentViewerPanel({
 
   return (
     <section className="flex flex-col overflow-hidden">
-      <div className="border-b border-white/10 pb-3 sm:pb-3.5">
+      <div className="border-b border-border pb-3 sm:pb-3.5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-1.5">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-slate-500">
               <FileText className="h-3.5 w-3.5" />
               <span>Visor de evidencia</span>
             </div>
-            <div className="truncate text-sm font-semibold text-white sm:text-base">
+            <div className="truncate text-sm font-semibold text-foreground sm:text-base">
               {attachmentName}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
@@ -49,7 +49,7 @@ export function AttachmentViewerPanel({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] text-slate-400">
+            <span className="rounded border border-border bg-muted px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
               {storageType}
             </span>
             <Button asChild variant="secondary" size="sm">
@@ -75,7 +75,7 @@ export function AttachmentViewerPanel({
             variant="detail"
           />
         ) : isError ? (
-          <div className="flex h-[65vh] min-h-[500px] flex-col items-center justify-center space-y-3 rounded-lg border border-dashed border-white/5 bg-white/[0.02] px-6 text-center">
+          <div className="flex h-[65vh] min-h-[500px] flex-col items-center justify-center space-y-3 rounded-lg border border-dashed border-border bg-muted/40 px-6 text-center">
             <AlertTriangle className="h-8 w-8 text-rose-500/50" strokeWidth={1.5} />
             <div className="space-y-1">
               <p className="text-sm font-medium text-slate-300">No se pudo cargar el documento</p>

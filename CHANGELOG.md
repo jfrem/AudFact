@@ -1,6 +1,41 @@
+## [2026-09-21]
+
+### UI
+- Corregido el scroll del shell: sidebar y topbar mantienen su posición al recorrer páginas largas; el recorte horizontal usa `overflow-x-clip` para no interferir con `position: sticky`.
+- Sidebar más legible y accesible: selección activa reforzada, enlaces compactos con nombre accesible, áreas de interacción de 44px y menú móvil con cierre integrado y restauración del foco. Contrato visual sincronizado en `DESIGN.md`.
+
+## [2026-09-09]
+
+### feat
+- **Motor de Arbitraje Semántico Desacoplado y Reconstrucción Limpia (`SemanticMatchJudge`)**:
+  - **Desacoplamiento de Negocio de la Plataforma**: Se eliminó la clase monolítica acoplada `ArticleSemanticMatchJudge` y se sustituyó por el servicio agnóstico de plataforma `SemanticMatchJudge`. Se erradicó del prompt toda jerga médica, gremial o geográfica local ("salud en Colombia", "tirillas", "insulina vs metformina", "los médicos prescriben"), convirtiendo el evaluador en un árbitro semántico de entidades general.
+  - **Inyección de Contexto Documental**: `DocumentPolicyEngine` compila y pasa de forma agnóstica los campos extraídos del documento soporte (`document_context` con posología, concentración, forma farmacéutica o notas adyacentes) hacia el evaluador semántico.
+  - **Homologación DCI / Marca con Rigor Clínico**: Permite la homologación válida entre denominaciones genéricas/estándar y marcas comerciales/referencias de fabricante cuando no existe contradicción y la información se corrobora en el soporte (resolviendo el falso positivo `LEVOTIROXINA 200MCG C*50 TABLETA` vs `LEVOTIROXINA (EUTIROX)` de la dispensa `T58260400854`), manteniendo un rechazo estricto (`is_match = false`) ante discrepancias cuantitativas explícitas de dosis (ej. `50mcg` vs `200mcg`).
+  - **Fallback Defensivo en `AuditFieldValueType`**: Se dotó a `ARTICLE_NAME` de un `fieldDescriptionFallback()` por defecto para garantizar que cuando la descripción en base de datos venga vacía (`""`, como en Nueva EPS 2624), el extractor multimodal incluya concentración y forma farmacéutica.
+  - **Caché Versionada en Redis**: Se actualizaron los namespaces a `audfact:semantic:match:v5:product` y `audfact:semantic:match:v2:person`, invalidando limpiamente los falsos positivos anteriores.
+  - **Clean Rebuild**: Eliminación de código muerto y de la suite de pruebas obsoleta, sustituyéndola por `SemanticMatchJudgeTest` con 11 tests exhaustivos. 574 pruebas unitarias globales en verde (100% de éxito).
+  - **Unificación en Structured Output Nativo**: Se migró `SemanticMatchJudge` de Function Calling (`sendWithFunctionCalling()`) a Structured Output (`sendWithStructuredOutput()`), eliminando declaraciones de funciones y toolConfigs artificiales.
+  - **Erradicación de Function Calling en `GeminiGateway`**: Se retiró el método obsoleto `sendWithFunctionCalling()` y su constructor `buildPayload()`, unificando el gateway 100% sobre `sendWithStructuredOutput()` nativo.
+  - Archivos modificados: `app/Services/Audit/SemanticMatchJudge.php`, `app/Services/Audit/GeminiGateway.php`, `app/Services/Audit/ResponseIADiskStore.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`, `app/Services/Audit/AuditFieldValueType.php`, `app/Services/Audit/AuditComparisonType.php`, `tests/Services/Audit/SemanticMatchJudgeTest.php`, `tests/Services/Audit/GeminiConfigTest.php`, `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php`, `README.md`, `plans/features/audit-workflow.md`, `plans/architecture.md`, `plans/architecture-executive-report.md`, `plans/sdd-arbitraje-semantico-desacoplado.md`, `CHANGELOG.md`, `plans/changelog.md`.
+
+## [2026-09-08]
+
+### fix
+- **Exclusión de Dispensaciones Facturadas con Múltiples Entregas en `InvoicesModel`**:
+  - **Diagnóstico**: En dispensaciones con entregas parciales/múltiples (`DisEntTot > 1`, ej. `D31260200150`), cada entrega genera un `FacSec` diferenciado (`...-1-1`, `...-1-2`) con `FueCod = 'DISP'`. Cuando la factura comercial institucional (`FueCod = 'FACT'`) factura el movimiento mediante `FacturaKardex.FacSecRem`, `#FACT1` registraba únicamente el `FacSecRem` puntual y `#CRUZE` evaluaba `NOT EXISTS (SELECT 1 FROM #FACT1 WHERE f.FacSecRem = d.FacSec)`. Esto provocaba que las entregas posteriores no facturadas directamente en ese kardex sobrevivieran a `#CRUZE` y se agruparan en la consulta final, reemitiendo erróneamente la dispensa como pendiente de auditar.
+  - **Ajuste en Sentencia SQL Batch**: Se modificó la tabla temporal `#FACT1` para proyectar y agrupar por `(d.DisId, d.DisDetId, f.FacNro)` en lugar de `k.FacSecRem`, indexando por `(DisId, DisDetId)`. En `#CRUZE`, la exclusión se actualizó a `NOT EXISTS (SELECT 1 FROM #FACT1 AS f WHERE f.DisId = d.DisId AND f.DisDetId = d.DisDetId)`, garantizando que si cualquier entrega de la dispensa ya fue facturada, toda la tupla `(DisId, DisDetId)` sea excluida.
+  - **Pruebas**: Se incorporó `testSearchInvoicesExcludesBilledDispensationsByDisIdAndDisDetId` en `tests/Models/InvoicesModelTest.php`. Suite de pruebas ejecutada con 571 tests y 1958 aserciones sin errores.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `tests/Models/InvoicesModelTest.php`.
+
 ## [2026-09-07]
 
 ### feat
+- **Reconciliación y Agregación Agnóstica de Ítems Multilote (FdvItemAggregator & DocumentPolicyEngine)**:
+  - **Bipartición Declarativa Exhaustiva en `FdvItemAggregator`**: Se corrigió el clasificador de dimensiones de ítem eliminando la restricción excluyente `elseif ($comparison === EXACT || $comparison === SEMANTIC)`. Ahora, todo campo perteneciente a ítem (`isItemField == true`) no acumulable (`!isQuantitySummable()`, como `CodigoProducto`, `Lote`, `CUM`, `NombreArticulo`) se clasifica automáticamente como dimensión discriminante de agrupación (`$groupingKeys`), sin importar si su `tipoCampo` está configurado como `B`, `E` o `S`.
+  - **Consolidación Automática de Entregas Multilote**: Registros de bodega divididos por fechas de vencimiento o lotes diferentes se fusionan en un único ítem consolidado si el documento no audita trazabilidad de lotes (ej. autorizaciones médicas), sumando las cantidades y calculando con precisión `$expectedItemsCount`, lo que elimina los falsos positivos de `ITEM_SEGMENTATION_INCOMPLETE`.
+  - **Resiliencia de Balance Cuantitativo en `DocumentPolicyEngine`**: Ante la presencia de una advertencia de segmentación de ítems, el motor de políticas pre-evalúa si la comparación cuantitativa y de código resulta en `COINCIDE` (100% de la cantidad y código cubiertos por la evidencia física). Si coincide, resuelve el hallazgo como `COINCIDE` (registrando la telemetría en `extraction_meta`), evitando degradar facturas válidas a `manual_review`. Si existe un faltante real, preserva `NO_CONCLUYENTE`.
+  - **Suites de Pruebas Unitarias**: Se amplió `FdvItemAggregatorTest` con pruebas de agrupación para `tipoCampo = 'B'` y consolidación multilote, y `DocumentPolicyEngineTest` para coincidencia cuantitativa con advertencia de segmentación. La suite global de 570 pruebas unitarias pasa con 100% de éxito.
+  - Archivos modificados: `app/Services/Audit/Pipeline/FdvItemAggregator.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Pipeline/FdvItemAggregatorTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md`, `plans/sdd-reconciliacion-agnostica-items.md`.
 - **Fase 2 — Aislamiento de Carril VIP / Prioritario y Partición de Extractores**:
   - **Partición del Pool de Extractores en Docker Compose**: Se reemplazó el servicio monolítico `worker-extraction` por dos servicios dedicados bajo el mismo presupuesto global de recursos (8 réplicas, 8 GB RAM, 6.4 CPUs):
     - `worker-extraction-vip`: 2 réplicas dedicadas (`--priority-only`, `AUDIT_WORKER_LANE=priority`) que consumen exclusivamente del stream de alta prioridad `audit.documents.priority`.
@@ -501,3 +536,12 @@
   - Archivos modificados: `frontend/lib/schemas/domain.ts`, `frontend/components/audit/audit-timings-panel.tsx`, `frontend/components/audit/audit-single-workspace.tsx`, `frontend/components/audit/status-badge.tsx`, `frontend/components/results/audit-result-detail-modal.tsx`, `frontend/components/results/audit-results-table.tsx`, `frontend/app/(dashboard)/audit/results/[facSec]/page.tsx`
   - Hallazgo resuelto: ninguno
   - Impacto: Los auditores pueden revisar duración total, fase dominante, cache, desglose por fase y consumo Gemini sin llamadas adicionales al backend.
+## [2026-09-15]
+
+### refactor
+- **Clean rebuild integral del frontend operativo**:
+  - Reconstruido el sistema visual “Mesa de evidencia” sobre tokens OKLCH, superficies planas, tipografía técnica y estados semánticos accesibles.
+  - Migrados shell, navegación, dashboard, clientes, facturas, dispensación, auditoría individual/batch, configuración, jobs, resultados, adjuntos, trazabilidad y observabilidad.
+  - Conservados los contratos activos de App Router, REST, Zod, React Query, polling, SSE, formularios e idempotencia; integrada sin regresión la directiva documental `TipoDocumento` / `[TIP]` preexistente.
+  - Corregidos estados que dependían solo del color, semántica ARIA de combobox/progreso y render de imágenes `blob:` mediante `next/image`.
+  - Validado con typecheck, ESLint y build de producción de Next.js. Rollback disponible mediante redeploy del SHA anterior de GHCR.

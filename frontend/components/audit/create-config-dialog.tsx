@@ -77,14 +77,14 @@ export function CreateConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-md gap-0 overflow-hidden rounded-3xl border-white/[0.08] bg-[#0d1526] p-0">
-        <DialogHeader className="border-b border-white/[0.06] px-6 py-5 pr-16">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-6 py-5 pr-16">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-cyan-400">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-primary">
               <Settings2 className="h-5 w-5" />
             </div>
             <div>
-              <DialogTitle className="text-base font-semibold text-white">
+              <DialogTitle className="text-base font-semibold text-foreground">
                 Nueva configuración
               </DialogTitle>
               <DialogDescription className="text-xs leading-5 text-slate-500">
@@ -133,8 +133,8 @@ export function CreateConfigDialog({
                     onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
                     placeholder="Ej: 2426"
                     className={cn(
-                      "h-12 rounded-xl bg-white/[0.03] pl-10 pr-4",
-                      initialNitSec && "opacity-70 cursor-not-allowed bg-white/[0.05]"
+                      "h-12 rounded-md bg-background pl-10 pr-4",
+                      initialNitSec && "cursor-not-allowed bg-muted opacity-70"
                     )}
                   />
                 </div>
@@ -146,7 +146,7 @@ export function CreateConfigDialog({
           )}
         </div>
 
-        <DialogFooter className="flex-row justify-end border-t border-white/[0.06] px-6 py-4">
+        <DialogFooter className="flex-row justify-end border-t border-border px-6 py-4">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
@@ -157,9 +157,9 @@ export function CreateConfigDialog({
             loading={isBusy}
             loadingLabel="Creando..."
             className={cn(
-              "gap-2 rounded-xl px-5 py-2.5",
+              "gap-2 rounded-md px-5 py-2.5",
               nitSec.trim() && !isBusy
-                ? "bg-cyan-500 text-white hover:bg-cyan-400"
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
                 : "cursor-not-allowed bg-slate-800/60 text-slate-600",
             )}
           >

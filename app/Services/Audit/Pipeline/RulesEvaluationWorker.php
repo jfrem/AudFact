@@ -10,7 +10,7 @@ use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentDuplicationEvaluator;
 use App\Services\Audit\DeliveryValidityEvaluator;
 use App\Services\Audit\GeminiGateway;
-use App\Services\Audit\ArticleSemanticMatchJudge;
+use App\Services\Audit\SemanticMatchJudge;
 use Core\Logger;
 use RuntimeException;
 use App\Services\Audit\Telemetry\TelemetryPublisher;
@@ -40,7 +40,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         if ($policyEngine === null) {
             $gateway = GeminiGateway::create(lane: $this->laneEnum);
-            $semanticJudge = new ArticleSemanticMatchJudge($gateway, $this->redis);
+            $semanticJudge = new SemanticMatchJudge($gateway, $this->redis);
             $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
         } else {
             $this->policyEngine = $policyEngine;

@@ -4,23 +4,23 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex min-h-6 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold tracking-[0.02em] transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0",
+  "inline-flex min-h-6 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold tracking-[0.01em] focus:outline-none focus:ring-2 focus:ring-ring [&_svg]:h-3 [&_svg]:w-3",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
+          "border-primary/35 bg-primary text-primary-foreground",
         secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+          "border-border bg-secondary text-secondary-foreground",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
+          "border-destructive/45 bg-destructive text-destructive-foreground",
         outline: "text-foreground",
-        success: "border-emerald-500/25 bg-emerald-500/14 text-emerald-300 hover:bg-emerald-500/20",
-        warning: "border-amber-500/25 bg-amber-500/14 text-amber-300 hover:bg-amber-500/20",
-        danger: "border-rose-500/25 bg-rose-500/14 text-rose-300 hover:bg-rose-500/20",
-        info: "border-sky-500/25 bg-sky-500/14 text-sky-300 hover:bg-sky-500/20",
-        human: "border-violet-500/25 bg-violet-500/14 text-violet-300 hover:bg-violet-500/20",
-        neutral: "border-slate-500/25 bg-slate-500/14 text-slate-300 hover:bg-slate-500/20",
+        success: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+        warning: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+        danger: "border-rose-500/25 bg-rose-500/10 text-rose-300",
+        info: "border-sky-500/25 bg-sky-500/10 text-sky-300",
+        human: "border-violet-500/25 bg-violet-500/10 text-violet-300",
+        neutral: "border-border bg-muted text-muted-foreground",
       },
     },
     defaultVariants: {

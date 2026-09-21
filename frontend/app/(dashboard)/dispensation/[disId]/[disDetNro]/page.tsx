@@ -19,9 +19,6 @@ export default async function DispensationDetailPage({ params }: PageProps) {
     : [];
   const items = dispensation?.items ?? [];
 
-  const disIdHeader = dispensation?.header?.DisId
-    ? String(dispensation.header.DisId)
-    : null;
   const numFactura = dispensation?.header?.NumeroFactura
     ? String(dispensation.header.NumeroFactura)
     : null;
@@ -51,7 +48,7 @@ export default async function DispensationDetailPage({ params }: PageProps) {
                 Copago
               </p>
               <p
-                className={`text-xl font-semibold tabular-nums ${isCopagoZero ? "text-slate-400" : "text-white"}`}
+                className={`text-xl font-semibold tabular-nums ${isCopagoZero ? "text-muted-foreground" : "text-foreground"}`}
               >
                 {copago}
               </p>

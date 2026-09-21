@@ -1,256 +1,304 @@
-import React from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { X, Code2, Activity, Hash, Layers, AlertTriangle, Info } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock3,
+  Code2,
+  Hash,
+  Info,
+  Layers3,
+  LoaderCircle,
+  X,
+  XCircle,
+} from "lucide-react";
 
+import type { AuditNodeState } from "@/lib/audit-flow/dag-builder";
 import { useAuditFlowStore } from "@/store/use-audit-flow-store";
 import { auditJobQuery } from "@/lib/query/audit";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-const STATUS_CLASS = {
-  completed: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20",
-  running: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20",
-  failed: "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20",
-  rejected: "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-500/10 dark:text-orange-400 dark:border-orange-500/20",
-  pending: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
-} as const;
+const statusConfig = {
+  completed: { label: "Completado", icon: CheckCircle2, className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300" },
+  running: { label: "Ejecutando", icon: LoaderCircle, className: "border-sky-500/25 bg-sky-500/10 text-sky-300" },
+  failed: { label: "Fallido", icon: XCircle, className: "border-rose-500/25 bg-rose-500/10 text-rose-300" },
+  rejected: { label: "Revisión", icon: AlertCircle, className: "border-amber-500/25 bg-amber-500/10 text-amber-300" },
+  pending: { label: "Pendiente", icon: Clock3, className: "border-border bg-muted text-muted-foreground" },
+} satisfies Record<
+  AuditNodeState,
+  { label: string; icon: typeof Clock3; className: string }
+>;
 
 const FAILED_STAGE_MAP: Record<string, string> = {
   "App\\Services\\Audit\\Pipeline\\DocumentAuditOrchestrator": "orchestration",
   "App\\Services\\Audit\\Pipeline\\DocumentExtractionWorker": "extraction",
   "App\\Services\\Audit\\Pipeline\\DocumentNormalizer": "normalization",
   "App\\Services\\Audit\\Pipeline\\RulesEvaluationWorker": "policy",
-  "final_persistence": "aggregation",
+  final_persistence: "aggregation",
 };
 
 export function NodeInspector() {
   const { selectedNode, setSelectedNode } = useAuditFlowStore();
-
   const params = useParams();
   const jobId = typeof params?.jobId === "string" ? params.jobId : undefined;
-  
   const { data: jobData } = useQuery({
     ...auditJobQuery(jobId!),
     enabled: Boolean(jobId),
   });
 
-  if (!selectedNode) {
-    return null;
-  }
+  if (!selectedNode) return null;
 
   const { data, id } = selectedNode;
-  
-  const failedAudits = jobData?.audits?.filter((a) => 
-    a.status === "failed" && 
-    a.failed_stage && 
-    FAILED_STAGE_MAP[a.failed_stage] === id
-  ) || [];
+  const failedAudits =
+    jobData?.audits?.filter(
+      (audit) =>
+        audit.status === "failed" &&
+        audit.failed_stage &&
+        FAILED_STAGE_MAP[audit.failed_stage] === id,
+    ) ?? [];
+  const reviewAudits =
+    jobData?.audits?.filter(
+      (audit) =>
+        audit.status === "manual_review" &&
+        audit.failed_stage &&
+        FAILED_STAGE_MAP[audit.failed_stage] === id,
+    ) ?? [];
 
-  const reviewAudits = jobData?.audits?.filter((a) =>
-    a.status === "manual_review" &&
-    a.failed_stage &&
-    FAILED_STAGE_MAP[a.failed_stage] === id
-  ) || [];
+  const observation =
+    typeof data.details?.observation === "string" ? data.details.observation : null;
+  const documentName =
+    typeof data.details?.documentName === "string" ? data.details.documentName : null;
+  const rawDetails = data.details ? { ...data.details } : null;
 
-  const hasDetails = data.details && Object.keys(data.details).length > 0;
-
-  const observation = typeof data.details?.observation === "string" ? data.details.observation : null;
-  const documentName = typeof data.details?.documentName === "string" ? data.details.documentName : null;
-
-  const rawDetails = hasDetails ? { ...data.details } : null;
   if (rawDetails) {
     delete rawDetails.observation;
     delete rawDetails.documentName;
   }
+
   const showRawDetails = rawDetails && Object.keys(rawDetails).length > 0;
+  const status = statusConfig[data.state];
+  const StatusIcon = status.icon;
 
   return (
-    <aside className="absolute right-4 top-4 z-30 flex max-h-[calc(100%-2rem)] w-80 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950 animate-in slide-in-from-right-4 fade-in duration-200">
-      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <h3 className="font-semibold tracking-tight text-slate-900 dark:text-slate-100">{data.label}</h3>
-        <button
+    <aside className="absolute right-3 top-3 z-30 flex max-h-[calc(100%-1.5rem)] w-[min(22rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-[0_20px_56px_oklch(0.08_0.02_252/0.48)]">
+      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Inspector de nodo
+          </p>
+          <h3 className="mt-1 truncate font-display text-sm font-semibold text-foreground">
+            {data.label}
+          </h3>
+        </div>
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
           onClick={() => setSelectedNode(null)}
-          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
           aria-label="Cerrar inspector"
         >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
+          <X />
+        </Button>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="flex flex-col gap-6">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <Activity className="h-3 w-3" /> Estado
+      <div className="overflow-y-auto p-4">
+        <div className="space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <InspectorDatum icon={<Activity />} label="Estado">
+              <span className={cn("inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-semibold", status.className)}>
+                <StatusIcon className={cn("h-3.5 w-3.5", data.state === "running" && "animate-spin")} aria-hidden="true" />
+                {status.label}
               </span>
-              <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${STATUS_CLASS[data.state]}`}>
-                {data.state.toUpperCase()}
-              </span>
-            </div>
-            <div className="flex-1">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <Hash className="h-3 w-3" /> Nodo ID
-              </span>
-              <code className="block truncate rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400" title={id}>
+            </InspectorDatum>
+            <InspectorDatum icon={<Hash />} label="Nodo ID">
+              <code className="block truncate rounded border border-border bg-muted/45 px-2 py-1 font-mono text-xs text-muted-foreground" title={id}>
                 {id.split("-").pop() || id}
               </code>
-            </div>
+            </InspectorDatum>
           </div>
 
-          {data.metrics && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800/60 dark:bg-slate-900/50">
-              <span className="mb-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <Layers className="h-3 w-3" /> Rendimiento de Lote
-              </span>
-              <div className="grid grid-cols-4 gap-2 text-center">
-                <div className="flex flex-col rounded-md border border-emerald-100 bg-emerald-50 py-1.5 dark:border-emerald-900/50 dark:bg-emerald-500/10">
-                  <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Éxitos</span>
-                  <span className="text-lg font-light text-emerald-700 dark:text-emerald-300">{data.metrics.completed}</span>
-                </div>
-                <div className="flex flex-col rounded-md border border-red-100 bg-red-50 py-1.5 dark:border-red-900/50 dark:bg-red-500/10">
-                  <span className="text-[10px] font-medium text-red-600 dark:text-red-400 uppercase tracking-wider">Fallos</span>
-                  <span className="text-lg font-light text-red-700 dark:text-red-300">{data.metrics.failed}</span>
-                </div>
-                <div className="flex flex-col rounded-md border border-amber-100 bg-amber-50 py-1.5 dark:border-amber-900/50 dark:bg-amber-500/10">
-                  <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">Revisión</span>
-                  <span className="text-lg font-light text-amber-700 dark:text-amber-300">{data.metrics.rejected ?? 0}</span>
-                </div>
-                <div className="flex flex-col rounded-md border border-slate-200 bg-slate-100 py-1.5 dark:border-slate-700 dark:bg-slate-800">
-                  <span className="text-[10px] font-medium text-slate-600 dark:text-slate-400 uppercase tracking-wider">Total</span>
-                  <span className="text-lg font-light text-slate-700 dark:text-slate-300">{data.metrics.total}</span>
-                </div>
-              </div>
-            </div>
-          )}
+          {data.metrics ? (
+            <section>
+              <SectionLabel icon={<Layers3 />}>Rendimiento del lote</SectionLabel>
+              <dl className="mt-2 grid grid-cols-4 overflow-hidden rounded-md border border-border">
+                <Metric label="Éxitos" value={data.metrics.completed} tone="success" />
+                <Metric label="Fallos" value={data.metrics.failed} tone="danger" />
+                <Metric label="Revisión" value={data.metrics.rejected ?? 0} tone="warning" />
+                <Metric label="Total" value={data.metrics.total} />
+              </dl>
+            </section>
+          ) : null}
 
-          {failedAudits.length > 0 && (data.metrics?.failed ? data.metrics.failed > 0 : data.state === "failed") && (
+          {failedAudits.length > 0 && (data.metrics?.failed ? data.metrics.failed > 0 : data.state === "failed") ? (
             <AuditBadgeList
-              variant="rose"
-              title={`Facturas con Fallo Crítico (${failedAudits.length})`}
-              description="Documentos trasladados al Dead Letter Queue (DLQ) por estar completamente corruptos o por caídas de infraestructura."
+              tone="danger"
+              title={`Facturas con fallo crítico (${failedAudits.length})`}
+              description="Ejecuciones enviadas a DLQ por error técnico o contenido no procesable."
               audits={failedAudits}
             />
-          )}
+          ) : null}
 
-          {reviewAudits.length > 0 && (
+          {reviewAudits.length > 0 ? (
             <AuditBadgeList
-              variant="amber"
-              title={`Documentos en Revisión (${reviewAudits.length})`}
-              description="Documentos rechazados por integridad (PDF vacíos, corruptos) procesados como revisión manual."
+              tone="warning"
+              title={`Documentos en revisión (${reviewAudits.length})`}
+              description="Ejecuciones que requieren verificación humana."
               audits={reviewAudits}
             />
-          )}
+          ) : null}
 
-          {data.error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-                <AlertTriangle className="h-3 w-3" /> Error del sistema
-              </span>
-              <p className="text-xs font-medium text-red-800 dark:text-red-300">{data.error}</p>
+          {data.error ? (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertDescription>{data.error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {observation ? (
+            <Alert variant="warning">
+              <Info />
+              <AlertDescription>
+                {observation}
+                {documentName ? (
+                  <span className="mt-2 block border-t border-amber-500/20 pt-2 text-xs">
+                    Documento: <strong>{documentName}</strong>
+                  </span>
+                ) : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {data.durationMs !== undefined || data.worker ? (
+            <div className="grid grid-cols-2 gap-4 border-y border-border py-4">
+              {data.durationMs !== undefined ? (
+                <InspectorDatum icon={<Activity />} label="Duración">
+                  <span className="font-mono text-xs tabular-nums text-foreground">{data.durationMs} ms</span>
+                </InspectorDatum>
+              ) : null}
+              {data.worker ? (
+                <InspectorDatum icon={<Layers3 />} label="Worker">
+                  <code className="block truncate font-mono text-xs text-muted-foreground" title={data.worker}>
+                    {data.worker.split("-").pop() || data.worker}
+                  </code>
+                </InspectorDatum>
+              ) : null}
             </div>
-          )}
+          ) : null}
 
-          {observation && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                <Info className="h-3 w-3" /> Observación
-              </span>
-              <p className="text-xs font-medium leading-relaxed text-amber-900 dark:text-amber-200">{observation}</p>
-              {documentName && (
-                <p className="mt-2 text-[10px] text-amber-700/80 dark:text-amber-400/80 border-t border-amber-200 dark:border-amber-900/50 pt-2">
-                  Relacionado al documento: <span className="font-semibold">{documentName}</span>
-                </p>
-              )}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 border-y border-slate-100 py-4 dark:border-slate-800/60">
-            {data.durationMs !== undefined && (
-              <div>
-                <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <Activity className="h-3 w-3" /> Duración
-                </span>
-                <span className="font-mono text-xs tracking-tight text-slate-900 dark:text-slate-200">
-                  {data.durationMs} ms
-                </span>
-              </div>
-            )}
-            {data.worker && (
-              <div>
-                <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  <Layers className="h-3 w-3" /> Instancia Worker
-                </span>
-                <code className="block truncate rounded bg-slate-50 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-900 dark:text-slate-400" title={data.worker}>
-                  {data.worker.split("-").pop() || data.worker}
-                </code>
-              </div>
-            )}
-          </div>
-
-          {showRawDetails && (
-            <div>
-              <span className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <Code2 className="h-3 w-3" /> Detalles extra
-              </span>
-              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
-                <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 dark:bg-slate-900 dark:border-slate-800">
-                  <span className="text-[10px] font-medium text-slate-500">Payload metadata</span>
-                </div>
-                <pre className="max-h-64 overflow-x-auto overflow-y-auto bg-white p-3 text-[11px] leading-relaxed text-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                  <code>{JSON.stringify(rawDetails, null, 2)}</code>
-                </pre>
-              </div>
-            </div>
-          )}
+          {showRawDetails ? (
+            <section>
+              <SectionLabel icon={<Code2 />}>Metadata</SectionLabel>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-[var(--surface-base)] p-3 font-mono text-[11px] leading-relaxed text-foreground/80">
+                <code>{JSON.stringify(rawDetails, null, 2)}</code>
+              </pre>
+            </section>
+          ) : null}
         </div>
       </div>
     </aside>
   );
 }
 
-/* ─── Subcomponente: lista de badges de auditoría por variante ─── */
+function InspectorDatum({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <span className="mb-1.5 flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground [&_svg]:h-3 [&_svg]:w-3">
+        {icon}
+        {label}
+      </span>
+      <div>{children}</div>
+    </div>
+  );
+}
 
-const BADGE_VARIANT = {
-  rose: {
-    container: "rounded-lg border border-rose-900/50 bg-rose-950/20 p-3 text-rose-200",
-    header: "mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-rose-500",
-    body: "text-[11px] leading-relaxed text-rose-200/80 mb-2",
-    badge: "rounded border border-rose-800/60 bg-rose-950/40 px-1.5 py-0.5 font-mono text-[10px] text-rose-300 shadow-sm",
-  },
-  amber: {
-    container: "rounded-lg border border-amber-900/50 bg-amber-950/20 p-3 text-amber-200",
-    header: "mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-500",
-    body: "text-[11px] leading-relaxed text-amber-200/80 mb-2",
-    badge: "rounded border border-amber-800/60 bg-amber-950/40 px-1.5 py-0.5 font-mono text-[10px] text-amber-300 shadow-sm",
-  },
-} as const;
+function SectionLabel({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <h4 className="flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground [&_svg]:h-3 [&_svg]:w-3">
+      {icon}
+      {children}
+    </h4>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}) {
+  const tones = {
+    neutral: "text-foreground",
+    success: "text-emerald-300",
+    warning: "text-amber-300",
+    danger: "text-rose-300",
+  };
+
+  return (
+    <div className="border-l border-border p-2 text-center first:border-l-0">
+      <dt className="text-[8px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</dt>
+      <dd className={cn("mt-1 font-mono text-base font-semibold tabular-nums", tones[tone])}>{value}</dd>
+    </div>
+  );
+}
 
 function AuditBadgeList({
-  variant,
+  tone,
   title,
   description,
   audits,
 }: {
-  variant: keyof typeof BADGE_VARIANT;
+  tone: "danger" | "warning";
   title: string;
   description: string;
   audits: { audit_id: string; dis_det_nro?: string | null }[];
 }) {
-  const styles = BADGE_VARIANT[variant];
+  const tones = {
+    danger: {
+      shell: "border-rose-500/25 bg-rose-500/[0.055]",
+      title: "text-rose-300",
+      badge: "border-rose-500/25 bg-rose-500/10 text-rose-200",
+    },
+    warning: {
+      shell: "border-amber-500/25 bg-amber-500/[0.055]",
+      title: "text-amber-300",
+      badge: "border-amber-500/25 bg-amber-500/10 text-amber-200",
+    },
+  }[tone];
+
   return (
-    <div className={styles.container}>
-      <span className={styles.header}>
-        <AlertTriangle className="h-3 w-3" /> {title}
-      </span>
-      <div className={styles.body}>{description}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {audits.map((a) => (
-          <span key={a.audit_id} className={styles.badge} title={`Audit ID: ${a.audit_id}`}>
-            {a.dis_det_nro || a.audit_id}
+    <section className={cn("rounded-md border p-3", tones.shell)}>
+      <h4 className={cn("flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em]", tones.title)}>
+        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+        {title}
+      </h4>
+      <p className="mt-1.5 text-[11px] leading-5 text-foreground/70">{description}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {audits.map((audit) => (
+          <span
+            key={audit.audit_id}
+            className={cn("rounded border px-1.5 py-0.5 font-mono text-[10px]", tones.badge)}
+            title={`Audit ID: ${audit.audit_id}`}
+          >
+            {audit.dis_det_nro || audit.audit_id}
           </span>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

@@ -1128,6 +1128,51 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('NO_CONCLUYENTE', $cant['resultado']);
     }
 
+    public function testIncompleteItemSegmentationResolvesAsMatchWhenQuantitativeBalanceSatisfied(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $result = $engine->evaluate(
+            self::baseState(
+                'AUTORIZACION',
+                [self::field('CodigoProducto', 'B'), self::field('CantidadEntregada', 'B')],
+                ['header' => [], 'items' => [['CodigoProducto' => '20175802', 'CantidadEntregada' => '60'], ['CodigoProducto' => '20175802', 'CantidadEntregada' => '60']]]
+            ),
+            [
+                'tipo_documento'         => 'AUTORIZACION',
+                'fields_normalized'      => [],
+                'items_normalized'       => [
+                    [
+                        'CodigoProducto'    => ExtractedEvidence::fromArray(['valor' => '20175802-4', 'presente' => true, 'estadoExtraccion' => 'FOUND']),
+                        'CantidadEntregada' => ExtractedEvidence::fromArray(['valor' => '120', 'presente' => true, 'estadoExtraccion' => 'FOUND']),
+                    ],
+                ],
+                'visual_checks_resultado' => [],
+                'document_quality'       => 'legible',
+                'extraction_warnings'    => [
+                    [
+                        'code' => 'ITEM_SEGMENTATION_INCOMPLETE',
+                        'severity' => 'warning',
+                        'scope' => 'items',
+                        'expected_items_count' => 2,
+                        'extracted_items_count' => 1,
+                    ],
+                ],
+            ]
+        );
+
+        $this->assertCount(2, $result['hallazgos']['items']);
+
+        $cant = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'CantidadEntregada'))[0];
+        $this->assertSame('COINCIDE', $cant['resultado']);
+        $this->assertArrayHasKey('item_segmentation', $cant['extraction_meta']);
+        $this->assertSame('ITEM_SEGMENTATION_INCOMPLETE', $cant['extraction_meta']['item_segmentation']['code']);
+
+        $prd = array_values(array_filter($result['hallazgos']['items'], fn($h) => $h['campo'] === 'CodigoProducto'))[0];
+        $this->assertSame('COINCIDE', $prd['resultado']);
+        $this->assertArrayHasKey('item_segmentation', $prd['extraction_meta']);
+    }
+
     // ─── Article Set Matching ───────────────────────────────────────────────
 
     public function testEvaluateArticleSetMatchesTwoDistinctArticlesWhenBothMatch(): void
@@ -1245,7 +1290,7 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
     }
 
-    public function testEvaluateArticleSetRespectsConsumptionNoDuplicateMatch(): void
+    public function testEvaluateArticleSetReportsInconclusiveWhenDistinctArticleMissing(): void
     {
         $engine = new DocumentPolicyEngine();
 
@@ -1272,6 +1317,83 @@ final class DocumentPolicyEngineTest extends TestCase
         $nomIdx = array_search('NombreArticulo', $campos, true);
         $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$nomIdx]['resultado']);
         $this->assertStringContainsString('OMEPRAZOL', (string) $result['hallazgos']['items'][$nomIdx]['detalle']);
+    }
+
+    public function testEvaluateArticleSetSurjectiveMatchingMultipleFdvRowsToOneDocItem(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        // FDV tiene múltiples filas de bodega para el mismo producto clínico (multi-presentación)
+        // más otro producto: 3 filas en bodega -> 2 líneas en la fórmula médica
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'SERTRALINA 100MG C*10 TABLETA'],
+                    ['NombreArticulo' => 'TRIMEBUTINA 200MG C*60 TABLETA'],
+                    ['NombreArticulo' => 'SERTRALINA 100MG C*28 TABLETA'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'SERTRALINA 100MG TABLETA'],
+                    ['NombreArticulo' => 'TRIMEBUTINA 200MG TABLETA'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testResolveDataFindingPreservesSetEvaluatedDetailWithoutSegmentationOverwrite(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        // Cuando hay warning de segmentación y falta un artículo genuinamente,
+        // el detalle debe ser el diagnóstico específico del comparador de conjuntos y no el warning genérico.
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'IBUPROFENO 400MG CAJA X 10'],
+                    ['NombreArticulo' => 'LOSARTAN 50MG CAJA X 30'],
+                ]]
+            ),
+            array_merge(
+                self::payload(
+                    'FORMULA MEDICA',
+                    [],
+                    [
+                        ['NombreArticulo' => 'IBUPROFENO 400MG'],
+                    ]
+                ),
+                [
+                    'extraction_warnings' => [
+                        [
+                            'code'                  => 'ITEM_SEGMENTATION_INCOMPLETE',
+                            'severity'              => 'warning',
+                            'scope'                 => 'items',
+                            'document_type'         => 'FORMULA MEDICA',
+                            'expected_items_count'  => 2,
+                            'extracted_items_count' => 1,
+                        ]
+                    ]
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        $this->assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][$nomIdx]['resultado']);
+        // El detalle preserva el nombre del artículo faltante ("LOSARTAN") y no el genérico de líneas
+        $this->assertStringContainsString('LOSARTAN', (string) $result['hallazgos']['items'][$nomIdx]['detalle']);
     }
 
     public function testEvaluateArticleSetMatchesArticlesInReversedOrder(): void

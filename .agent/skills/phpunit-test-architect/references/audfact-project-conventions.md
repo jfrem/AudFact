@@ -194,7 +194,7 @@ Componentes deterministas sin I/O propio. Instanciarlos directamente y probar en
 - reglas y normalización: `AuditFindingRules`, `DeliveryValidityEvaluator`, `TextNormalization`, `IdentityDocNormalizer`, `DocumentDuplicationEvaluator`, `FieldValueResolver`, `VisualCheckEvaluator`;
 - políticas deterministas: `DocumentAttachmentMatcher`, `DocumentIntegrityValidator`, `DocumentExtractionContractBuilder` y el núcleo de `DocumentPolicyEngine`.
 
-Si `DocumentPolicyEngine` usa el fallback semántico, doblar `ArticleSemanticMatchJudge` porque esa colaboración termina en Gemini/Redis.
+Si `DocumentPolicyEngine` usa el fallback semántico, doblar `SemanticMatchJudge` porque esa colaboración termina en Gemini/Redis.
 
 ### Aplicación y orquestación
 
@@ -212,7 +212,7 @@ Tratar siempre como fronteras sustituibles en pruebas unitarias:
 
 - `app/Models/*`, `Core\Database`, `SqlServerConnectionExecutor` y PDO;
 - `Core\RedisClient`, `AuditEventPublisher`, `AuditStateStore`, `BatchJobStore`, `AuditPersistenceQueue` y `TelemetryPublisher`;
-- `GeminiGateway`, `ArticleSemanticMatchJudge`, `GoogleDriveAuthService`, `AttachmentDownloadService` y `ResponseIADiskStore` cuando acceden a red o filesystem;
+- `GeminiGateway`, `SemanticMatchJudge`, `GoogleDriveAuthService`, `AttachmentDownloadService` y `ResponseIADiskStore` cuando acceden a red o filesystem;
 - `Core\Router`, `Core\Response`, `Core\Validator`, `Logger`, `Env`, `Cache`, `RateLimit` y `Middleware`;
 - `app/wrap`, `public/index.php`, `bin/`, Docker y Nginx.
 

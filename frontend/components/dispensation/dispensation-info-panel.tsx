@@ -20,19 +20,6 @@ function s(val: unknown): string | null {
   return str === "" ? null : str;
 }
 
-/** Format currency */
-function currency(val: unknown): string | null {
-  const raw = s(val);
-  if (!raw) return null;
-  const num = Number(raw);
-  if (isNaN(num)) return raw;
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num);
-}
 
 function InfoRow({
   label,
@@ -85,16 +72,13 @@ export function DispensationInfoPanel({
   if (!header || Object.keys(header).length === 0) {
     return (
       <SectionCard title="Información">
-        <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-400">
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-5 text-center text-sm text-muted-foreground">
           No se encontró información de la dispensación.
         </div>
       </SectionCard>
     );
   }
 
-  const disId = s(header.DisId);
-  const numFactura = s(header.NumeroFactura);
-  const copago = currency(header.VlrCobrado);
   const nombrePaciente = s(header.NombrePaciente);
   const tipoDocPac = s(header.TipoDocumentoPaciente);
   const docPaciente = s(header.DocumentoPaciente);
@@ -129,7 +113,7 @@ export function DispensationInfoPanel({
             <div className="space-y-0 divide-y divide-white/[0.06]">
               {/* Patient name + regime badge */}
               <div className="pb-2.5">
-                <p className="text-[14px] font-semibold text-white leading-snug">
+                <p className="text-[14px] font-semibold leading-snug text-foreground">
                   {nombrePaciente ?? "Paciente no disponible"}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -164,7 +148,7 @@ export function DispensationInfoPanel({
             <div className="space-y-0 divide-y divide-white/[0.06]">
               {/* Doctor info */}
               <div className="pb-2.5">
-                <p className="text-[14px] font-semibold text-white leading-snug">
+                <p className="text-[14px] font-semibold leading-snug text-foreground">
                   {medico ?? "Médico no disponible"}
                 </p>
               </div>
@@ -212,13 +196,13 @@ export function DispensationInfoPanel({
       <SectionCard
         title="Ítems Dispensados"
         actions={
-          <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-400">
+          <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
             {items.length}
           </span>
         }
       >
         {items.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-white/10 px-4 py-5 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-5 text-center text-sm text-muted-foreground">
             No se encontraron ítems dispensados.
           </div>
         ) : (

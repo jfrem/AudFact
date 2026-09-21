@@ -53,7 +53,7 @@ export function DispensationDatesTimeline({
               {/* Vertical line connector */}
               {!isLast && (
                 <div
-                  className="absolute left-[11px] top-[24px] h-[calc(100%-12px)] w-px bg-white/10"
+                  className="absolute left-[11px] top-[24px] h-[calc(100%-12px)] w-px bg-border"
                   aria-hidden="true"
                 />
               )}
@@ -66,7 +66,7 @@ export function DispensationDatesTimeline({
                     ? isLast
                       ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
                       : "border-sky-500/30 bg-sky-500/10 text-sky-400"
-                    : "border-white/10 bg-white/[0.04] text-slate-500"
+                    : "border-border bg-muted text-muted-foreground"
                 )}
               >
                 <Icon className="h-3 w-3" />
@@ -78,7 +78,7 @@ export function DispensationDatesTimeline({
                 <p
                   className={cn(
                     "mt-0.5 text-[12px] tabular-nums",
-                    hasDate ? "text-white" : "text-slate-500"
+                    hasDate ? "text-foreground" : "text-muted-foreground"
                   )}
                 >
                   {node.date ?? "N/D"}
@@ -91,11 +91,11 @@ export function DispensationDatesTimeline({
 
       {/* Authorization number */}
       {autNum && (
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+        <div className="rounded-md border border-border bg-background px-3 py-2">
           <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-slate-500">
             No. Autorización
           </p>
-          <p className="mt-0.5 text-[13px] font-medium tabular-nums text-white">
+          <p className="mt-0.5 text-[13px] font-medium tabular-nums text-foreground">
             {autNum}
           </p>
         </div>

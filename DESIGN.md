@@ -183,10 +183,11 @@ Contenidos e instrumentales. Cada componente existe para transmitir o capturar i
 - **Error:** Border `rose-500/50`, label color shifts a `rose-400`.
 
 ### Navigation (Sidebar)
-- **Desktop collapsed** (76px): Icon-only, tooltip on hover. Logo reducido a initial.
-- **Desktop expanded** (280px): Icon + label + chevron indicator. Active item: `white/[0.06]` bg, `sky-500/30` border, 1px left accent line en sky-400.
-- **Mobile:** Drawer lateral con backdrop `black/60 blur-sm`. Transición 300ms ease-out.
-- **Section dividers:** Label uppercase en `slate-500`, tracking 0.24em, 10px.
+- **Scroll de página:** El shell usa `overflow-x-clip` para recortar excedentes horizontales sin crear un contenedor de scroll intermedio. Sidebar y topbar mantienen `sticky top-0` respecto a la ventana; el menú tiene su propio scroll cuando no cabe en altura. No sustituir por `overflow-x-hidden`, que convierte el eje vertical en `auto` y rompe este comportamiento.
+- **Desktop collapsed** (76px, estado inicial): Iconos con nombre accesible y tooltip al pasar el cursor o enfocar. Marca AF en superficie neutra.
+- **Desktop expanded** (280px): Icono + etiqueta; chevron reservado para la ruta activa. Selección con `--surface-selected`, borde completo de 1px y texto semibold. Filas de al menos 44px, sin numeración decorativa.
+- **Mobile:** Drawer de hasta 320px, limitado al viewport menos 24px, con cierre junto a la marca y áreas seguras. Trigger/cierre Radix con restauración del foco; cierra al navegar, con Escape o al pasar a escritorio (1024px).
+- **Section dividers:** Etiquetas de 11px, tracking 0.12em y `--muted-foreground`; separadores tonales en modo compacto. Navegación con scroll independiente y control de colapso fijo al pie.
 
 ### Signature Component: Verdict Badge
 Indicador circular compacto que comunica el resultado de una auditoría IA:

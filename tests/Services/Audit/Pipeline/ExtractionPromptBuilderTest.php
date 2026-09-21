@@ -265,4 +265,45 @@ final class ExtractionPromptBuilderTest extends TestCase
         $this->assertFalse($this->builder->contractRequiresItems($emptyContract));
         $this->assertFalse($this->builder->contractRequiresVisualChecks($emptyContract));
     }
+
+    public function testBuildUserPromptInjectsTipoDocDirectiveInConformityRule(): void
+    {
+        $contract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'fields' => ['type' => 'object'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => ['NumeroFactura'],
+                'items' => [],
+            ],
+        ];
+
+        $payloadWithoutDirective = [
+            'fields_config' => [
+                ['campoNombre' => 'NumeroFactura', 'tipoDato' => 'text'],
+            ],
+        ];
+
+        $payloadWithDirective = [
+            'fields_config' => [
+                ['campoNombre' => 'NumeroFactura', 'tipoDato' => 'text'],
+                [
+                    'campoNombre'         => 'TipoDocumento',
+                    'tipoCampo'           => 'I',
+                    'tipoDato'            => 'text',
+                    'descripcionOverride' => 'Formato con membrete oficial de IPS. Rechazar órdenes de laboratorio.',
+                ],
+            ],
+        ];
+
+        $promptDefault = $this->builder->buildUserPrompt('FORMULA MEDICA', $payloadWithoutDirective, $contract);
+        $promptCustom  = $this->builder->buildUserPrompt('FORMULA MEDICA', $payloadWithDirective, $contract);
+
+        $this->assertStringNotContainsString('Criterios y requisitos específicos de identificación:', $promptDefault);
+        $this->assertStringContainsString('Criterios y requisitos específicos de identificación: Formato con membrete oficial de IPS. Rechazar órdenes de laboratorio.', $promptCustom);
+        $this->assertStringContainsString('### Regla de tipología y conformidad documental', $promptCustom);
+    }
 }

@@ -50,7 +50,7 @@ export function DispensationItemCard({
   index,
 }: {
   item: Record<string, unknown>;
-  index: number;
+  index?: number;
 }) {
   const [expanded, setExpanded] = React.useState(false);
 
@@ -79,15 +79,20 @@ export function DispensationItemCard({
   const hasTraceability = mipres !== null || traceIds.length > 0;
 
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+    <div className="rounded-md border border-border bg-background p-3">
       {/* Title row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-slate-400">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border bg-muted text-muted-foreground">
             <Pill className="h-3 w-3" />
           </div>
           <div className="min-w-0">
-            <p className="text-[13px] font-medium leading-snug text-white">{nombre}</p>
+            <p className="text-[13px] font-medium leading-snug text-foreground">
+              {index !== undefined && (
+                <span className="mr-1.5 text-xs text-slate-500">#{index + 1}</span>
+              )}
+              {nombre}
+            </p>
             {laboratorio && (
               <p className="mt-0.5 text-[11px] text-slate-500">{laboratorio}</p>
             )}
@@ -120,7 +125,7 @@ export function DispensationItemCard({
 
       {/* Collapsible traceability */}
       {hasTraceability && (
-        <div className="mt-2.5 border-t border-white/[0.06] pt-2">
+        <div className="mt-2.5 border-t border-border pt-2">
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}

@@ -196,9 +196,9 @@ está activo en `fields`, el `DocumentPolicyEngine` lo evalúa; no existe hoy un
 runtime `INFORMATIVO` para excluirlo de la decisión.
 
 Implicación operativa: un campo como `NombreArticulo` configurado con `TipoCampo = S`
-dispara comparación semántica y puede usar `ArticleSemanticMatchJudge` como fallback
+dispara comparación semántica y puede usar `SemanticMatchJudge` como fallback
 Gemini cuando las heurísticas locales no alcanzan el umbral. Ese fallback queda
-limitado a campos con `TipoDato = article_name`; nombres de pacientes, IPS u otros
+limitado a campos con `TipoDato = article_name` o `person_name`; nombres de IPS u otros
 textos semánticos se resuelven con reglas locales determinísticas.
 
 `TipoCampo` define la estrategia de comparación (`E`, `S`, `B`, `V`). `TipoDato`

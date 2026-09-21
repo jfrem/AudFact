@@ -93,7 +93,7 @@ final class GeminiConfigTest extends TestCase
                 mediaResolution: 'MEDIA_RESOLUTION_MEDIUM'
             )
         );
-        $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
+        $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildStructuredOutputPayload');
         $buildPayload->setAccessible(true);
 
         $semanticPayload = $buildPayload->invoke(
@@ -101,8 +101,7 @@ final class GeminiConfigTest extends TestCase
             'prompt',
             [],
             'system',
-            [['functionDeclarations' => [$this->toolDeclaration()]]],
-            $this->toolConfig(),
+            ['type' => 'object'],
             GeminiGateway::TASK_SEMANTIC_MATCH,
             []
         );
@@ -112,8 +111,7 @@ final class GeminiConfigTest extends TestCase
             'prompt',
             [['mime' => 'application/pdf', 'data' => base64_encode('pdf'), 'label' => 'DOC']],
             'system',
-            [['functionDeclarations' => [$this->toolDeclaration()]]],
-            $this->toolConfig(),
+            ['type' => 'object'],
             GeminiGateway::TASK_EXTRACTION,
             []
         );
@@ -141,58 +139,24 @@ final class GeminiConfigTest extends TestCase
             'test-key',
             new GeminiConfig(model: 'gemini-3.5-flash')
         );
-        $buildPayload = new \ReflectionMethod(GeminiGateway::class, 'buildPayload');
-        $buildPayload->setAccessible(true);
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('semantic_match no acepta archivos');
 
-        $buildPayload->invoke(
-            $gateway,
-            'prompt',
-            [['mime' => 'application/pdf', 'data' => base64_encode('pdf'), 'label' => 'DOC']],
-            'system',
-            [['functionDeclarations' => [$this->toolDeclaration()]]],
-            $this->toolConfig(),
-            GeminiGateway::TASK_SEMANTIC_MATCH,
-            []
+        $gateway->sendWithStructuredOutput(
+            prompt: 'prompt',
+            files: [['mime' => 'application/pdf', 'data' => base64_encode('pdf'), 'label' => 'DOC']],
+            systemInstruction: 'system',
+            responseSchema: ['type' => 'object'],
+            taskType: GeminiGateway::TASK_SEMANTIC_MATCH
         );
     }
 
     public function testRejectsInvalidGenerationOverridePrefix(): void
     {
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Prefijo de configuración Gemini inválido');
 
         GeminiConfig::generationOverridesFromEnv('GEMINI-TEST');
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    private function toolDeclaration(): array
-    {
-        return [
-            'name' => 'test_function',
-            'parameters' => [
-                'type' => 'object',
-                'properties' => [
-                    'ok' => ['type' => 'boolean'],
-                ],
-                'required' => ['ok'],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<string,mixed>
-     */
-    private function toolConfig(): array
-    {
-        return [
-            'functionCallingConfig' => [
-                'mode' => 'ANY',
-                'allowedFunctionNames' => ['test_function'],
-            ],
-        ];
     }
 }

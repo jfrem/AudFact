@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import { Eye, FileImage, FileText } from "lucide-react";
 
 import type { AttachmentPreview } from "@/lib/schemas/domain";
@@ -32,7 +33,7 @@ export function AttachmentIframeViewer({
 
   if (!preview) {
     return (
-      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 px-6 text-center">
+      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
         <Eye className="h-10 w-10 text-slate-500/45" />
         <p className="mt-3 text-sm font-medium text-slate-300">Selecciona un adjunto</p>
         <p className="mt-1 max-w-sm text-sm text-slate-400">
@@ -49,7 +50,7 @@ export function AttachmentIframeViewer({
 
   if (!canEmbed || !objectUrl) {
     return (
-      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-xl border border-dashed border-white/10 px-6 text-center">
+      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
         <FileText className="h-10 w-10 text-slate-500/45" />
         <p className="mt-3 text-sm font-medium text-slate-300">Vista previa no disponible</p>
         <p className="mt-1 max-w-sm text-sm text-slate-400">
@@ -62,19 +63,22 @@ export function AttachmentIframeViewer({
 
   if (isImage) {
     return (
-      <div className="flex h-[65vh] min-h-[600px] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/20 p-4">
-        <img
+      <div className="relative h-[65vh] min-h-[600px] overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
+        <Image
           src={objectUrl}
           alt={title}
-          className="max-h-full max-w-full rounded-lg object-contain"
+          fill
+          sizes="(max-width: 1024px) 100vw, 68vw"
+          unoptimized
+          className="object-contain p-4"
         />
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+    <div className="overflow-hidden rounded-lg border border-border">
+      <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
         <FileImage className="h-3.5 w-3.5" />
         <span>{isPdf ? "Documento PDF" : "Vista embebida"}</span>
       </div>

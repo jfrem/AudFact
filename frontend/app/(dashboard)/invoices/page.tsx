@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { InvoicesTable } from "@/components/invoices/invoices-table";
 import { InvoicesFilterForm } from "@/components/invoices/invoices-filter-form";
 import { TableSkeleton } from "@/components/shared/loading-skeleton";
+import { SectionCard } from "@/components/shared/section-card";
 import type { ClientRecord, InvoiceRecord } from "@/lib/schemas/domain";
 
 export default async function InvoicesPage({
@@ -57,7 +58,7 @@ export default async function InvoicesPage({
         description="Busca dispensaciones disponibles para revisar detalle técnico o disparar una auditoría 1:1."
       />
 
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 md:px-5">
+      <SectionCard title="Criterios de búsqueda" description="Cliente, rango de fechas y tamaño de página.">
         <InvoicesFilterForm
           allClients={allClients}
           initialFacNitSec={facNitSec}
@@ -66,7 +67,7 @@ export default async function InvoicesPage({
           initialPageSize={resolvedPageSize}
           clientsError={clientsError}
         />
-      </div>
+      </SectionCard>
 
       <Suspense
         key={searchParamsKey}

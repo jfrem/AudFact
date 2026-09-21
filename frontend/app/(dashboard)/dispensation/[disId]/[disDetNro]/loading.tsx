@@ -5,7 +5,7 @@ export default function DispensationDetailLoading() {
     <div className="space-y-6">
       <PageLoadingHeader eyebrowWidth="w-20" titleWidth="w-64" />
       <CardSkeleton />
-      <div className="panel rounded-xl border px-5 py-5">
+      <div className="panel rounded-lg border px-5 py-5">
         <TableSkeleton rows={4} />
       </div>
     </div>

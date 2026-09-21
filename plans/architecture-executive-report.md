@@ -269,7 +269,7 @@ Detalla los componentes especializados que gobiernan el pipeline asíncrono even
 *   **GeminiGateway**: Cliente HTTP de Gemini con control de cuotas, Circuit Breaker integrado en Redis y reintentos exponenciales.
 *   **DocumentPolicyEngine**: Evaluador de reglas invariantes del negocio (coincidencia de datos personales, vigencias y control de cantidades).
 *   **AuditPersistenceQueue / Worker**: Scheduler Redis/Lua con un turno activo por job y worker SQL horizontal; conserva las dos escrituras exigidas por dominio dentro de una transacción.
-*   **ArticleSemanticMatchJudge**: Evaluador semántico por IA para la homologación de nombres de medicamentos contra la base de datos oficial.
+*   **SemanticMatchJudge**: Evaluador semántico por IA para la homologación de nombres de medicamentos y personas, desacoplado y enriquecido con contexto documental.
 
 ---
 
@@ -590,7 +590,7 @@ flowchart TD
 ```
 
 1.  **Parseo y Validación Estricta**: Al recibir la llamada a la función estructurada, el gateway valida que el payload JSON cumpla con todos los tipos estructurales. Se verifica que las cadenas de fechas (`fecha_emision`) sean parseables a objetos `DateTime` válidos, que la identificación del paciente contenga caracteres lógicos y que los medicamentos requeridos no posean arreglos vacíos o propiedades corruptas.
-2.  **Perfiles de generación, no fallback de modelo**: `DocumentExtractionWorker` invoca Gemini con perfil `extraction` y `GEMINI_EXTRACTION_*`; `ArticleSemanticMatchJudge` usa el perfil text-only `semantic_match` y `GEMINI_SEMANTIC_*`. Ambos perfiles usan el mismo `GeminiConfig::model` resuelto desde `GEMINI_MODEL`.
+2.  **Perfiles de generación, no fallback de modelo**: `DocumentExtractionWorker` invoca Gemini con perfil `extraction` y `GEMINI_EXTRACTION_*`; `SemanticMatchJudge` usa el perfil text-only `semantic_match` y `GEMINI_SEMANTIC_*`. Ambos perfiles usan el mismo `GeminiConfig::model` resuelto desde `GEMINI_MODEL`.
 3.  **Manejo controlado de fallos**: El `GeminiGateway` reintenta errores HTTP recuperables (`429`, `500`, `502`, `503`, `504`) con backoff. Si la respuesta de function calling es inválida o el evento agota intentos, el `AuditEventConsumer` enruta el caso al flujo de retry/DLQ; la decisión funcional final sigue en PHP y no en un re-prompt de autocorrección.
 
 #### C. Evitando Errores 400 mediante Normalización de Esquemas en PHP (`normalizeSchemaProperties`)
@@ -784,7 +784,7 @@ A continuación se realiza una evaluación honesta y pragmática de la arquitect
 | Riesgo Técnico Identificado | Impacto | Nivel de Riesgo | Estrategia de Mitigación Implementada / Propuesta |
 | :--- | :--- | :--- | :--- |
 | **Agotamiento de cuota de API Gemini (Errores 429)** | Detención completa de las auditorías asíncronas. | **Medio-Alto** | Implementación del **Circuit Breaker** en Redis y políticas de **Exponential Backoff** de 1s, 2s y 4s. Si persiste, el lote se enruta a `manual_review` y el sistema detiene ráfagas de reintentos para no penalizar el procesamiento general. |
-| **Fallas en la homologación de nuevos nombres de medicamentos** | Incremento de falsos negativos en la comparación de artículos, elevando la tasa de revisión manual. | **Medio** | Uso de **ArticleSemanticMatchJudge** como fallback semántico text-only contra el mismo modelo configurado en `GEMINI_MODEL`, con cache versionada en Redis y decisión PHP conservadora ante evidencia incompleta. |
+| **Fallas en la homologación de nuevos nombres de medicamentos** | Incremento de falsos negativos en la comparación de artículos, elevando la tasa de revisión manual. | **Medio** | Uso de **SemanticMatchJudge** como fallback semántico text-only contra el mismo modelo configurado en `GEMINI_MODEL`, con cache versionada en Redis y decisión PHP conservadora ante evidencia incompleta. |
 | **Caídas fatales de contenedores Worker PHP-CLI** | Pérdida potencial de eventos en tránsito a mitad de la auditoría. | **Bajo** | Uso nativo de **XREADGROUP** en Redis Streams. Los eventos no confirmados quedan registrados como `pending` y son recuperados automáticamente por workers sanos mediante **xAutoClaim** al expirar `AUDIT_PENDING_RECLAIM_IDLE_MS`. |
 | **Cambios estructurales imprevistos en vistas SQL Server Legacy** | Fallos de mapeo en modelos PHP y detención de importaciones de dispensas. | **Medio-Alto** | Implementación de **SQL Preflight Checks** automáticos durante la fase CD del deployment. Si las vistas sufrieron un cambio de firma o columnas faltantes, el preflight falla y aborta el deploy de la nueva imagen inmutable, previniendo caídas en producción. |
 

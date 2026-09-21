@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
-import { BackendRequestSkeleton } from "@/components/shared/backend-request-skeleton";
 import { Pagination } from "@/components/shared/pagination";
 import { Button } from "@/components/ui/button";
 import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
@@ -117,7 +116,7 @@ export function InvoicesTable({
       {invoices.length > 0 ? (
         <Table>
           <TableHeader>
-            <TableRow className="border-slate-800 bg-slate-900/50">
+            <TableRow>
               <TableHead className="text-slate-400">Dispensación</TableHead>
               <TableHead className="text-slate-400">NIT Cliente</TableHead>
               <TableHead className="text-slate-400">ID Dispensación</TableHead>
@@ -129,9 +128,9 @@ export function InvoicesTable({
               return (
                 <TableRow
                   key={`${disId}-${index}`}
-                  className="group border-slate-800/50 transition-colors hover:bg-slate-800/50"
+                  className="group"
                 >
-                  <TableCell className="font-mono text-sm text-white" title={dispensa}>
+                  <TableCell className="font-mono text-sm text-foreground" title={dispensa}>
                     {dispensa}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-slate-300" title={nitSec}>
@@ -141,12 +140,11 @@ export function InvoicesTable({
                     #{disId}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex justify-end gap-2">
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-8 border-slate-700 bg-slate-900/50 hover:bg-slate-800 hover:text-white"
                         loading={navigation.isPending && pendingRoute === `detail:${dispensa}`}
                         loadingLabel="Abriendo"
                         onClick={() => {
@@ -160,7 +158,6 @@ export function InvoicesTable({
                         type="button"
                         size="sm"
                         onClick={() => setAuditTarget({ disId, dispensa })}
-                        className="h-8 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 hover:text-blue-300 border border-blue-500/20"
                       >
                         Auditar
                       </Button>

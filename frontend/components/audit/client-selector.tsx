@@ -32,6 +32,7 @@ export function ClientSelector({
   onCreateNew?: () => void;
 }) {
   const navigation = usePendingNavigation();
+  const listboxId = React.useId();
   const [open, setOpen] = React.useState(false);
   const [pendingClientId, setPendingClientId] = React.useState<string | null>(null);
 
@@ -59,13 +60,14 @@ export function ClientSelector({
           type="button"
           role="combobox"
           aria-expanded={open}
+          aria-controls={listboxId}
           aria-busy={navigation.isPending}
           aria-label="Seleccionar cliente EPS"
           className={cn(
-            "group flex h-14 w-full cursor-pointer items-center gap-3 rounded-lg border px-4 text-left transition-all duration-200",
+            "group flex h-14 w-full cursor-pointer items-center gap-3 rounded-lg border px-4 text-left transition-colors",
             open
-              ? "border-cyan-500/40 bg-white/[0.04]"
-              : "border-white/[0.08] bg-white/[0.03] hover:border-white/[0.14] hover:bg-white/[0.05]",
+              ? "border-primary/45 bg-primary/10"
+              : "border-border bg-background hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
           )}
         >
           {/* Icon */}
@@ -73,8 +75,8 @@ export function ClientSelector({
             className={cn(
               "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
               open || selected
-                ? "border border-white/[0.08] bg-white/[0.03] text-cyan-400"
-                : "bg-white/[0.06] text-slate-500 group-hover:text-slate-400",
+                ? "border border-primary/30 bg-primary/10 text-primary"
+                : "border border-border bg-muted text-muted-foreground",
             )}
           >
             <Building2 className="h-4 w-4" />
@@ -84,7 +86,7 @@ export function ClientSelector({
           <div className="flex-1">
             {selectedDisplay ? (
               <>
-                <p className="truncate text-sm font-semibold text-white">
+                <p className="truncate text-sm font-semibold text-foreground">
                   {selectedDisplay.nitCom}
                 </p>
                 <p className="text-[11px] text-slate-500">NitSec: {selectedDisplay.nitSec}</p>
@@ -97,7 +99,7 @@ export function ClientSelector({
           {/* Right side */}
           <div className="flex shrink-0 items-center gap-2">
             {selectedDisplay && (
-              <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10px] font-bold tracking-wider text-cyan-300">
+              <span className="rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-primary">
                 {selectedDisplay.nitSec}
               </span>
             )}
@@ -112,21 +114,21 @@ export function ClientSelector({
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[--radix-popover-trigger-width] border-white/[0.08] bg-[#0d1526] p-0 shadow-2xl shadow-black/50"
+        className="w-[--radix-popover-trigger-width] p-0"
         align="start"
         sideOffset={6}
       >
         <Command className="border-0 bg-transparent">
           {/* Search */}
-          <div className="flex items-center border-b border-white/[0.06] px-3">
+          <div className="flex items-center border-b border-border px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 text-slate-500" />
             <CommandInput
               placeholder="Buscar por nombre o código..."
-              className="h-11 flex-1 border-0 bg-transparent text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-0"
+              className="h-11 flex-1 border-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0"
             />
           </div>
 
-          <CommandList className="max-h-72 overflow-y-auto">
+          <CommandList id={listboxId} className="max-h-72 overflow-y-auto">
             <CommandEmpty>
               <div className="flex flex-col items-center gap-2 py-8 text-center">
                 <Users className="h-8 w-8 text-slate-700" />
@@ -158,20 +160,20 @@ export function ClientSelector({
                       value={`${c.nitCom} ${c.nitSec}`}
                       onSelect={() => handleSelect(client)}
                       className={cn(
-                        "group flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition-colors",
+                        "group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors",
                         isSelected
-                          ? "border border-white/[0.08] bg-white/[0.04] text-white"
-                          : "text-slate-300 hover:bg-white/[0.04] hover:text-white",
+                          ? "border border-primary/25 bg-primary/10 text-foreground"
+                          : "text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground",
                         pendingClientId === c.nitSec && "pointer-events-none bg-sky-500/[0.08] text-sky-200",
                       )}
                     >
                       {/* Avatar */}
                       <div
                         className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold transition-colors",
+                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-xs font-bold transition-colors",
                           isSelected
-                            ? "border border-white/[0.08] bg-white/[0.03] text-cyan-300"
-                            : "bg-white/[0.06] text-slate-500 group-hover:bg-white/[0.09] group-hover:text-slate-300",
+                            ? "border border-primary/25 bg-primary/10 text-primary"
+                            : "border border-border bg-muted text-muted-foreground",
                         )}
                       >
                         {initials || "?"}
@@ -203,7 +205,7 @@ export function ClientSelector({
             {/* Create new */}
             {onCreateNew && (
               <>
-                <CommandSeparator className="bg-white/[0.05]" />
+                <CommandSeparator />
                 <CommandGroup className="px-1 py-1">
                   <CommandItem
                     value="__create_new__"
@@ -211,9 +213,9 @@ export function ClientSelector({
                       setOpen(false);
                       onCreateNew();
                     }}
-                    className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-slate-300 transition-colors hover:bg-white/[0.04] hover:text-cyan-300"
+                    className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-primary"
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-dashed border-white/[0.12] bg-white/[0.03] text-cyan-400">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-dashed border-primary/35 bg-primary/5 text-primary">
                       <Plus className="h-4 w-4" />
                     </div>
                     <div className="flex-1">

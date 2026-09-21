@@ -101,18 +101,17 @@ La policy no compara un item aislado contra toda la factura. Antes de evaluar, `
 
 - `TipoCampo=B` + `TipoDato=quantity`: suma cantidades de todos los items de FDV y del documento.
 - `TipoDato=trace_token`: compara sets completos de trazabilidad (`Lote`, seriales) y persiste `valoresFuenteVerdad` / `valoresDocumento`.
-- `TipoDato=article_name`: aplica emparejamiento biyectivo (*Greedy Bipartite Matching*) en 3 fases (normalización léxica directa / substring, similitud léxica $\ge 0.82$, y desempate semántico con `ArticleSemanticMatchJudge` y caché de 30d en Redis) garantizando asignación 1:1 sin reutilización de ítems y reportando artículos faltantes en entregas multi-ítem ($N \ge 2$).
+- `TipoDato=article_name`: aplica emparejamiento biyectivo (*Greedy Bipartite Matching*) en 3 fases (normalización léxica directa / substring, similitud léxica $\ge 0.82$, y desempate semántico con `SemanticMatchJudge` y caché de 30d en Redis) garantizando asignación 1:1 sin reutilización de ítems y reportando artículos faltantes en entregas multi-ítem ($N \ge 2$).
 - Campos escalares de cabecera no sumables ni set-based con múltiples valores distintos quedan `NO_CONCLUYENTE` por ambigüedad.
 
 Caso de regresion cubierto: `D13260500540` con dos items debe producir `Lote={5D03364,5G00989}`, `CantidadEntregada=7` y `CantidadPrescrita=30` como `COINCIDE`.
 
-## Extracción Parcial de Líneas (Item Segmentation)
+## Extracción Parcial de Líneas y Reconciliación de Ítems (Item Segmentation & Aggregation)
 
-Cuando el documento tiene múltiples ítems y la IA no logra extraerlos todos de manera limpia (segmentación parcial o incompleta), el extractor no falla con una excepción (que enviaría el evento a DLQ o forzaría un reintento). En cambio:
-
-1. Agrega un warning `ITEM_SEGMENTATION_INCOMPLETE` al payload del evento.
-2. La política de auditoría (Policy Engine) detecta este warning y, para evitar sumatorias parciales peligrosas, fuerza el resultado `NO_CONCLUYENTE` para todas las evaluaciones de nivel línea (`TipoCampo = 'B'`).
-3. Los campos de cabecera siguen siendo evaluados con normalidad.
+1. **Agregación Declarativa previa en FDV (`FdvItemAggregator`):** Antes de la extracción, la FDV consolida los ítems de bodega según los campos de ítem requeridos por el documento. Todo campo de ítem no acumulable (`isQuantitySummable() = false`, e.g. `CodigoProducto`, `Lote`, `CUM`) actúa como llave discriminante de agrupación (independientemente de si su `tipoCampo` es `B`, `E` o `S`), mientras que las cantidades se totalizan. Esto alinea `$expectedItemsCount` con documentos consolidados (ej. autorizaciones médicas que unifican entregas multilote).
+2. **Advertencia de Segmentación (`ITEM_SEGMENTATION_INCOMPLETE`):** Cuando la cantidad de ítems extraídos del documento físico es menor a los ítems esperados, el extractor agrega un warning `ITEM_SEGMENTATION_INCOMPLETE` al payload del evento.
+3. **Resiliencia de Balance en Policy Engine:** Antes de degradar a `NO_CONCLUYENTE`, el motor de políticas evalúa la comparación directa. Si la sumatoria cuantitativa y los códigos de producto coinciden al 100% con la FDV (`COINCIDE`), el hallazgo se resuelve como `COINCIDE` preservando la telemetría de segmentación en `extraction_meta`. Si el balance cuantitativo o identificador no se satisface (faltante real), se preserva el resultado `NO_CONCLUYENTE` para proteger contra extracciones parciales.
+4. Los campos de cabecera continúan siendo evaluados con normalidad.
 
 ## Contrato de Hallazgos
 

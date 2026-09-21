@@ -204,7 +204,7 @@ flowchart TD
     subgraph E5 ["Etapa 5: Evaluación de Reglas"]
         S_Norm --> W5["RulesEvaluationWorker (2 replicas)"]
         W5 --> Engine["DocumentPolicyEngine"]
-        Engine -.->|"Fallback semantico farmacos"| Judge["ArticleSemanticMatchJudge"]
+        Engine -.->|"Fallback semantico"| Judge["SemanticMatchJudge"]
         W5 --> Cross1["DocumentDuplicationEvaluator"]
         W5 --> Cross2["DeliveryValidityEvaluator"]
         W5 -->|"Lua: docs_done = docs_total"| S_Eval[("Cola: AuditPersistenceQueue")]
