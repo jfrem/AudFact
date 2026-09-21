@@ -173,7 +173,7 @@
 
 | ID | Decisión | Alternativas Rechazadas | Justificación |
 | :--- | :--- | :--- | :--- |
-| **AD-01** | `Clean Rebuild`: Eliminar `ArticleSemanticMatchJudge.php` y actualizar a `SemanticMatchJudge` de forma directa y atómica. | (a) Crear 6 archivos con interfaces y Strategy pattern.<br>(b) Mantener wrappers legacy. | Cumple `clean-rebuild-policy` (solución mínima y proporcional, cero capas ceremoniales). |
+| **AD-01** | `Clean Rebuild`: Eliminar `ArticleSemanticMatchJudge.php` y actualizar a `SemanticMatchJudge` de forma directa y atómica. | (a) Crear 6 archivos con interfaces y Strategy pattern.<br />(b) Mantener wrappers legacy. | Cumple `clean-rebuild-policy` (solución mínima y proporcional, cero capas ceremoniales). |
 | **AD-02** | Un solo archivo cohesivo `SemanticMatchJudge.php` que maneje productos, personas y general. | Descomponer en 3 clases de estrategia separadas. | Reduce la complejidad cognitiva a cero. Todo el flujo técnico (Redis + Gemini + Métricas) se mantiene en un único punto fácilmente testeable. |
 | **AD-03** | Inyección de `document_context` desde `DocumentPolicyEngine`. | Releer el documento o consultar base de datos. | `DocumentPolicyEngine` ya tiene los campos extraídos del documento; solo requiere transferirlos en `$context['document_context']`. |
 | **AD-04** | Namespace Redis `v5:product`. | Mantener `v4:article`. | Invalida limpiamente los falsos positivos cacheados sin tocar las claves de personas ni registros no afectados. |
