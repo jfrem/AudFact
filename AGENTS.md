@@ -27,29 +27,29 @@
 
 El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el mapeo archivo → skill.
 
-| Skill                             | Área              | Cuándo usar                                                                                           |
-| --------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
-| `audfact-project-overview`        | Contexto          | Arquitectura, flujos, dependencias                                                                    |
-| `audfact-api-rest`                | REST API          | Rutas, controladores, validación                                                                      |
-| `audfact-audit-gemini`            | Auditoría IA      | Pipeline Gemini, prompts, schemas                                                                     |
-| `audfact-sqlsrv-models`           | SQL Server        | Modelos, queries, BLOBs                                                                               |
-| `audfact-mcp-wrap`                | MCP               | Webhook, herramientas, ApiClient                                                                      |
-| `audfact-runtime-docker`          | Docker/Ops        | Contenedores, Nginx, conectividad                                                                     |
-| `audfact-production-ops`          | Producción LAN    | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
-| `audfact-security-guardrails`     | Seguridad         | Rate limit, CORS, sanitización                                                                        |
-| `audfact-docs-sync`               | Documentación     | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills                                     |
-| `audit-skill-router`              | Auditoría técnica | Enrutamiento de auditorías amplias/ambiguas a dominios especializados                                 |
-| `architecture-assessment`         | Auditoría técnica | Evaluación de arquitectura, acoplamiento y escalabilidad                                              |
-| `code-quality-assessment`         | Auditoría técnica | Evaluación de calidad de código, mantenibilidad y deuda técnica                                       |
-| `security-assessment`             | Auditoría técnica | Auditoría de seguridad para readiness de release                                                      |
-| `technical-governance-assessment` | Auditoría técnica | Evaluación de madurez de gobernanza técnica                                                           |
-| `next-best-practices`             | Frontend Next.js  | Convenciones de App Router, Server Components, datos, errores y self-hosting                           |
-| `next-cache-components`           | Frontend Next.js  | Caché y PPR únicamente durante una migración confirmada a Next.js 16+                                  |
-| `next-upgrade`                    | Frontend Next.js  | Actualización incremental de Next.js con guías oficiales y codemods                                    |
-| `impeccable`                      | UI/UX             | Diseño, auditoría y refinamiento de interfaces frontend                                                |
-| `clean-rebuild-policy`            | Gobernanza técnica | Decisión rebuild/refactor/parche, contratos activos y calidad estructural dentro del MVP               |
-| `write-sdd-spec`                  | Especificación    | Diseño técnico determinista, trazabilidad, migración y rollback antes de implementar                   |
-| `phpunit-test-architect`          | Testing / TDD     | Contratos ejecutables y suites unitarias completas para PHP 8.2+ con PHPUnit 10+                       |
+| Skill                             | Área               | Cuándo usar                                                                                           |
+| --------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `audfact-project-overview`        | Contexto           | Arquitectura, flujos, dependencias                                                                    |
+| `audfact-api-rest`                | REST API           | Rutas, controladores, validación                                                                      |
+| `audfact-audit-gemini`            | Auditoría IA       | Pipeline Gemini, prompts, schemas                                                                     |
+| `audfact-sqlsrv-models`           | SQL Server         | Modelos, queries, BLOBs                                                                               |
+| `audfact-mcp-wrap`                | MCP                | Webhook, herramientas, ApiClient                                                                      |
+| `audfact-runtime-docker`          | Docker/Ops         | Contenedores, Nginx, conectividad                                                                     |
+| `audfact-production-ops`          | Producción LAN     | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
+| `audfact-security-guardrails`     | Seguridad          | Rate limit, CORS, sanitización                                                                        |
+| `audfact-docs-sync`               | Documentación      | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills                                     |
+| `audit-skill-router`              | Auditoría técnica  | Enrutamiento de auditorías amplias/ambiguas a dominios especializados                                 |
+| `architecture-assessment`         | Auditoría técnica  | Evaluación de arquitectura, acoplamiento y escalabilidad                                              |
+| `code-quality-assessment`         | Auditoría técnica  | Evaluación de calidad de código, mantenibilidad y deuda técnica                                       |
+| `security-assessment`             | Auditoría técnica  | Auditoría de seguridad para readiness de release                                                      |
+| `technical-governance-assessment` | Auditoría técnica  | Evaluación de madurez de gobernanza técnica                                                           |
+| `next-best-practices`             | Frontend Next.js   | Convenciones de App Router, Server Components, datos, errores y self-hosting                          |
+| `next-cache-components`           | Frontend Next.js   | Caché y PPR únicamente durante una migración confirmada a Next.js 16+                                 |
+| `next-upgrade`                    | Frontend Next.js   | Actualización incremental de Next.js con guías oficiales y codemods                                   |
+| `impeccable`                      | UI/UX              | Diseño, auditoría y refinamiento de interfaces frontend                                               |
+| `clean-rebuild-policy`            | Gobernanza técnica | Decisión rebuild/refactor/parche, contratos activos y calidad estructural dentro del MVP              |
+| `write-sdd-spec`                  | Especificación     | Diseño técnico determinista, trazabilidad, migración y rollback antes de implementar                  |
+| `phpunit-test-architect`          | Testing / TDD      | Contratos ejecutables y suites unitarias completas para PHP 8.2+ con PHPUnit 10+                      |
 
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
 Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_shared/scripts/validate-skills.mjs`.
@@ -141,13 +141,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Mapeo de Modelos
 
-| Modelo              | Tabla / Vista                                    | Propósito                                  | PK / Identificador                                       |
-| ------------------- | ------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------- |
-| `InvoicesModel`     | `vw_discolnet_dispensas`                         | Facturas con datos de dispensación         | `DisId`                                                  |
-| `ClientsModel`      | `NIT` / `Clientes`                               | Gestión de EPS/Clientes                    | `NitSec`                                                 |
-| `DispensationModel` | `vw_discolnet_dispensas`                         | Datos detallados de entrega                | `DisDetNro`                                              |
-| `AttachmentsModel`  | `AdjuntosDispensacion`                           | Archivos binarios (BLOB/URL)               | `AdjDisId`                                               |
-| `AuditStatusModel`  | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle` | Lectura de resultados de auditoría IA + observaciones | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
+| Modelo                        | Tabla / Vista                                                             | Propósito                                                                  | PK / Identificador                                       |
+| ----------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `InvoicesModel`               | `vw_discolnet_dispensas`                                                  | Facturas con datos de dispensación                                         | `DisId`                                                  |
+| `ClientsModel`                | `NIT` / `Clientes`                                                        | Gestión de EPS/Clientes                                                    | `NitSec`                                                 |
+| `DispensationModel`           | `vw_discolnet_dispensas`                                                  | Datos detallados de entrega                                                | `DisDetNro`                                              |
+| `AttachmentsModel`            | `AdjuntosDispensacion`                                                    | Archivos binarios (BLOB/URL)                                               | `AdjDisId`                                               |
+| `AuditStatusModel`            | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle`                          | Lectura de resultados de auditoría IA + observaciones                      | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 | `AuditResultPersistenceModel` | `dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Escritura transaccional del resumen, hallazgos documentales y trazabilidad | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 
 ### Relaciones Clave
@@ -179,11 +179,12 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 > 🚨 **REGLA OBLIGATORIA E INFALIBLE: SINCRONIZACIÓN EN GITHUB REMOTO** 🚨
 >
 > **Cada vez que un agente cree, modifique o renombre una variable de entorno o secreto en el código PHP/Next.js o en `.env.example`:**
+>
 > 1. **`.env.example`**: Agregar la clave inmediatamente. El pipeline CI (`Validate env contract completeness`) bloqueará el commit si alguna variable usada en código falta en `.env.example`.
 > 2. **GitHub Remoto (`gh cli`)**: Es **estrictamente obligatorio** crear o actualizar la variable/secreto en el repositorio remoto de GitHub antes de hacer push a `main`:
 >    - **Variables no sensibles**: `gh variable set <KEY> --body "<VAL>" --env production`
 >    - **Secretos / Credenciales**: `gh secret set <KEY> --body "<SECRET>" --env production`
-> 3. **`AGENTS.md`**: Documentar la variable en el *Catálogo de Variables de Entorno*.
+> 3. **`AGENTS.md`**: Documentar la variable en el _Catálogo de Variables de Entorno_.
 >
 > **Queda prohibido dar por finalizada una tarea con variables nuevas sin haber ejecutado `gh variable set` / `gh secret set` en GitHub.**
 
@@ -223,14 +224,14 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Despliegue Docker/GHCR
 
-| Variable                     | Default                          | Requerida     | Módulo / Uso                                                             |
-| ---------------------------- | -------------------------------- | ------------- | ------------------------------------------------------------------------ |
-| `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.yml` — imagen PHP-FPM/workers publicada en GHCR          |
-| `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.yml` — imagen Nginx publicada en GHCR                    |
-| `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.yml` — imagen frontend Next.js publicada en GHCR         |
-| `AUDFACT_DOCS_IMAGE`         | `ghcr.io/jfrem/audfact-docs`     | ⚠️ Producción | `docker-compose.yml` — imagen Docusaurus publicada en GHCR               |
-| `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.yml` — tag inmutable por SHA o rollback manual           |
-| `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.yml` — puerto LAN dedicado para el frontend AudFact      |
+| Variable                     | Default                          | Requerida     | Módulo / Uso                                                        |
+| ---------------------------- | -------------------------------- | ------------- | ------------------------------------------------------------------- |
+| `AUDFACT_PHP_IMAGE`          | `ghcr.io/jfrem/audfact-php`      | ⚠️ Producción | `docker-compose.yml` — imagen PHP-FPM/workers publicada en GHCR     |
+| `AUDFACT_NGINX_IMAGE`        | `ghcr.io/jfrem/audfact-nginx`    | ⚠️ Producción | `docker-compose.yml` — imagen Nginx publicada en GHCR               |
+| `AUDFACT_FRONTEND_IMAGE`     | `ghcr.io/jfrem/audfact-frontend` | ⚠️ Producción | `docker-compose.yml` — imagen frontend Next.js publicada en GHCR    |
+| `AUDFACT_DOCS_IMAGE`         | `ghcr.io/jfrem/audfact-docs`     | ⚠️ Producción | `docker-compose.yml` — imagen Docusaurus publicada en GHCR          |
+| `AUDFACT_IMAGE_TAG`          | `latest`                         | ⚠️ Producción | `docker-compose.yml` — tag inmutable por SHA o rollback manual      |
+| `AUDFACT_FRONTEND_HOST_PORT` | `3100`                           | ⚠️ Producción | `docker-compose.yml` — puerto LAN dedicado para el frontend AudFact |
 
 ### Frontend público
 
@@ -275,13 +276,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Logging
 
-| Variable             | Default | Requerida | Módulo / Uso                                              |
-| -------------------- | ------- | --------- | --------------------------------------------------------- |
-| `LOG_LEVEL`          | `info`  | ❌        | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`) |
-| `LOG_RETENTION_DAYS` | `7`     | ❌        | `Core\Logger` — días antes de borrar logs                 |
-| `LOG_MAX_SIZE_MB`    | `10`    | ❌        | `Core\Logger` — tamaño máximo por archivo                 |
-| `AUDIT_RESPONSE_IA_ENABLED` | `1` | ❌ | `ResponseIADiskStore` — snapshots Gemini solo en `APP_ENV=development`; usar `0` en producción |
-| `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | ❌ | `ResponseIADiskStore` — directorio configurable de snapshots locales |
+| Variable                    | Default                         | Requerida | Módulo / Uso                                                                                   |
+| --------------------------- | ------------------------------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `LOG_LEVEL`                 | `info`                          | ❌        | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`)                                      |
+| `LOG_RETENTION_DAYS`        | `7`                             | ❌        | `Core\Logger` — días antes de borrar logs                                                      |
+| `LOG_MAX_SIZE_MB`           | `10`                            | ❌        | `Core\Logger` — tamaño máximo por archivo                                                      |
+| `AUDIT_RESPONSE_IA_ENABLED` | `1`                             | ❌        | `ResponseIADiskStore` — snapshots Gemini solo en `APP_ENV=development`; usar `0` en producción |
+| `AUDIT_RESPONSE_IA_DIR`     | `/var/www/html/logs/responseIA` | ❌        | `ResponseIADiskStore` — directorio configurable de snapshots locales                           |
 
 ### Seguridad y red
 
@@ -293,44 +294,44 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Gemini API (Auditoría IA)
 
-| Variable                              | Default                 | Requerida | Módulo / Uso                                                                                                   |
-| ------------------------------------- | ----------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
-| `GEMINI_API_KEY`                      | _(vacío)_               | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                            |
-| `GEMINI_API_KEY_PRIORITY`             | _(vacío)_               | ❌        | `GeminiGateway` — API key dedicada opcional para carril prioritario/VIP (fallback a `GEMINI_API_KEY`)          |
-| `GEMINI_API_KEY_BATCH`                | _(vacío)_               | ❌        | `GeminiGateway` — API key dedicada opcional para carril batch/masivo (fallback a `GEMINI_API_KEY`)             |
-| `GEMINI_MODEL`                        | `gemini-3.7-flash`      | ❌        | Modelo de Gemini a usar                                                                                        |
-| `GEMINI_TEMPERATURE`                  | `0.0`                   | ❌        | Temperatura (0 = determinístico)                                                                               |
-| `GEMINI_TIMEOUT`                      | `300`                   | ❌        | Timeout de la API en segundos                                                                                  |
-| `GEMINI_TOP_P`                        | `1.0`                   | ❌        | Nucleus sampling para determinismo                                                                             |
-| `GEMINI_TOP_K`                        | `1`                     | ❌        | Top-K sampling para determinismo                                                                               |
-| `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                  | ❌        | Límite de tokens en la respuesta                                                                               |
-| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_MEDIUM` | ❌      | `GeminiConfig` — Resolución de imágenes. Enums Protobuf: `MEDIA_RESOLUTION_LOW`, `MEDIA_RESOLUTION_MEDIUM`, `MEDIA_RESOLUTION_HIGH`. |
-| `GEMINI_THINKING_BUDGET`              | _(vacío)_               | ❌        | Presupuesto de razonamiento (thinking mode)                                                                    |
-| `GEMINI_THINKING_LEVEL`               | _(vacío)_               | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                           |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                  | ❌        | Límite de salida para extracción documental                                                                    |
-| `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_               | ❌        | Presupuesto de razonamiento para extracción documental                                                         |
-| `GEMINI_EXTRACTION_THINKING_LEVEL`    | _(vacío)_               | ❌        | Nivel de razonamiento Gemini 3 para extracción documental — dejar vacío para Parallel Function Calling determinista |
-| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`   | `2048`                  | ❌        | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3)      |
-| `GEMINI_SEMANTIC_THINKING_LEVEL`      | _(vacío)_               | ❌        | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1 |
-| `GEMINI_SEMANTIC_THINKING_BUDGET`     | _(vacío)_               | ❌        | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica                                  |
-| `GEMINI_SEED`                         | _(vacío)_               | ❌        | Semilla para reproducibilidad (opcional; dejar vacío para inferencia nativa)                                   |
+| Variable                              | Default                   | Requerida | Módulo / Uso                                                                                                                         |
+| ------------------------------------- | ------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GEMINI_API_KEY`                      | _(vacío)_                 | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                                                  |
+| `GEMINI_API_KEY_PRIORITY`             | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril prioritario/VIP (fallback a `GEMINI_API_KEY`)                                |
+| `GEMINI_API_KEY_BATCH`                | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril batch/masivo (fallback a `GEMINI_API_KEY`)                                   |
+| `GEMINI_MODEL`                        | `gemini-3.7-flash`        | ❌        | Modelo de Gemini a usar                                                                                                              |
+| `GEMINI_TEMPERATURE`                  | `0.0`                     | ❌        | Temperatura (0 = determinístico)                                                                                                     |
+| `GEMINI_TIMEOUT`                      | `300`                     | ❌        | Timeout de la API en segundos                                                                                                        |
+| `GEMINI_TOP_P`                        | `1.0`                     | ❌        | Nucleus sampling para determinismo                                                                                                   |
+| `GEMINI_TOP_K`                        | `1`                       | ❌        | Top-K sampling para determinismo                                                                                                     |
+| `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                    | ❌        | Límite de tokens en la respuesta                                                                                                     |
+| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_MEDIUM` | ❌        | `GeminiConfig` — Resolución de imágenes. Enums Protobuf: `MEDIA_RESOLUTION_LOW`, `MEDIA_RESOLUTION_MEDIUM`, `MEDIA_RESOLUTION_HIGH`. |
+| `GEMINI_THINKING_BUDGET`              | _(vacío)_                 | ❌        | Presupuesto de razonamiento (thinking mode)                                                                                          |
+| `GEMINI_THINKING_LEVEL`               | _(vacío)_                 | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                                                 |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                    | ❌        | Límite de salida para extracción documental                                                                                          |
+| `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_                 | ❌        | Presupuesto de razonamiento para extracción documental                                                                               |
+| `GEMINI_EXTRACTION_THINKING_LEVEL`    | _(vacío)_                 | ❌        | Nivel de razonamiento Gemini 3 para extracción documental — dejar vacío para Parallel Function Calling determinista                  |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`   | `2048`                    | ❌        | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3)                            |
+| `GEMINI_SEMANTIC_THINKING_LEVEL`      | _(vacío)_                 | ❌        | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1                       |
+| `GEMINI_SEMANTIC_THINKING_BUDGET`     | _(vacío)_                 | ❌        | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica                                                        |
+| `GEMINI_SEED`                         | _(vacío)_                 | ❌        | Semilla para reproducibilidad (opcional; dejar vacío para inferencia nativa)                                                         |
 
 ### Redis
 
-| Variable                 | Default               | Requerida      | Módulo / Uso                                                                         |
-| ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------ |
-| `REDIS_HOST`             | `redis`               | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                             |
-| `REDIS_PORT`             | `6379`                | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                    |
-| `REDIS_PASSWORD`         | _(vacío)_             | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
-| `REDIS_PREFIX`           | `audfact:`            | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                   |
-| `REDIS_MAXMEMORY`        | `4gb`                 | ❌             | `docker-compose.yml` — límite interno de memoria Redis (`--maxmemory`)               |
-| `REDIS_MAXMEMORY_POLICY` | `volatile-lru`        | ❌             | `docker-compose.yml` — política de evicción Redis para llaves con TTL                |
-| `REDIS_CONTAINER_MEMORY` | `5G`                  | ❌             | `docker-compose.yml` — límite de memoria del contenedor Redis                        |
-| `REDIS_MODE`             | `standalone`          | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                       |
-| `REDIS_SENTINELS`        | _(comentado)_         | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                              |
-| `REDIS_SENTINEL_SERVICE` | _(comentado)_         | ⚠️ Sentinel    | Nombre del master Sentinel                                                           |
-| `REDIS_CLUSTER_NODES`    | _(comentado)_         | ⚠️ Cluster     | Lista de nodos `host:port` para modo cluster                                         |
-| `REDIS_PERSISTENT`       | `0`                   | ❌             | Habilita conexiones persistentes Redis en PHP-FPM                                    |
+| Variable                 | Default        | Requerida      | Módulo / Uso                                                                         |
+| ------------------------ | -------------- | -------------- | ------------------------------------------------------------------------------------ |
+| `REDIS_HOST`             | `redis`        | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                             |
+| `REDIS_PORT`             | `6379`         | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                    |
+| `REDIS_PASSWORD`         | _(vacío)_      | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
+| `REDIS_PREFIX`           | `audfact:`     | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                   |
+| `REDIS_MAXMEMORY`        | `4gb`          | ❌             | `docker-compose.yml` — límite interno de memoria Redis (`--maxmemory`)               |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | ❌             | `docker-compose.yml` — política de evicción Redis para llaves con TTL                |
+| `REDIS_CONTAINER_MEMORY` | `5G`           | ❌             | `docker-compose.yml` — límite de memoria del contenedor Redis                        |
+| `REDIS_MODE`             | `standalone`   | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                       |
+| `REDIS_SENTINELS`        | _(comentado)_  | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                              |
+| `REDIS_SENTINEL_SERVICE` | _(comentado)_  | ⚠️ Sentinel    | Nombre del master Sentinel                                                           |
+| `REDIS_CLUSTER_NODES`    | _(comentado)_  | ⚠️ Cluster     | Lista de nodos `host:port` para modo cluster                                         |
+| `REDIS_PERSISTENT`       | `0`            | ❌             | Habilita conexiones persistentes Redis en PHP-FPM                                    |
 
 ### Circuit Breaker Gemini
 
@@ -341,41 +342,42 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Auditoría Async
 
-| Variable                             | Default                     | Requerida  | Módulo / Uso                                                                        |
-| ------------------------------------ | --------------------------- | ---------- | ----------------------------------------------------------------------------------- |
-| `AUDIT_BATCH_TIMEOUT`                | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers   |
-| `AUDIT_BATCH_MAX_LIMIT`              | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                             |
-| `AUDIT_BATCH_CHUNK_SIZE`             | `50`                        | ❌         | `AuditBatchOrchestrator` — tamaño de chunk para ingesta fair-queuing de lotes masivos |
-| `AUDIT_BATCH_LOCK_TTL_SECONDS`        | `300`                       | ❌         | `AuditBatchOrchestrator` — TTL del lock atómico de generación distribuida por chunk |
-| `AUDIT_BATCH_CRON_LIMIT`             | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
-| `AUDIT_INTERNAL_API_BASE`            | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                     |
-| `AUDIT_WORKER_LANE`                  | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                |
-| `AUDIT_CACHE_TTL`                    | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría           |
-| `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                    |
-| `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                        |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `12`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2`                       | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`) |
-| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12`                    | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)   |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas legacy de extractores Gemini                        |
-| `AUDIT_WORKER_NORMALIZER_REPLICAS`   | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                         |
-| `AUDIT_WORKER_POLICY_REPLICAS`       | `8`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS`  | `6`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                        |
-| `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
-| `AUDIT_JOB_TTL`                      | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                |
-| `AUDIT_STATE_TTL`                    | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                        |
-| `AUDIT_PERSISTENCE_QUEUE_TTL`        | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job          |
-| `AUDIT_RESERVATION_TTL`              | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                       |
-| `AUDIT_PENDING_RECLAIM_IDLE_MS`      | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados |
-| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`  | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`         |
-| `AUDIT_EVENT_MAX_RETRIES`            | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                      |
-| `AUDIT_STREAM_BLOCK_MS`              | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                     |
-| `AUDIT_DLQ_STREAM`                   | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                               |
-| `AUDIT_VERSION_EXTRACTOR`            | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                               |
-| `AUDIT_VERSION_NORMALIZER`           | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                            |
-| `AUDIT_VERSION_RULES`                | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                   |
-| `AUDIT_NGINX_READ_TIMEOUT`           | `3600`                      | ❌         | Timeout de lectura Nginx para endpoints de auditoría                                |
-| `AUDIT_FPM_TERMINATE_TIMEOUT`        | `3600`                      | ❌         | Timeout de terminación PHP-FPM para procesos de auditoría                           |
+| Variable                                 | Default                     | Requerida  | Módulo / Uso                                                                                      |
+| ---------------------------------------- | --------------------------- | ---------- | ------------------------------------------------------------------------------------------------- |
+| `AUDIT_BATCH_TIMEOUT`                    | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers                 |
+| `AUDIT_BATCH_MAX_LIMIT`                  | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                                           |
+| `AUDIT_BATCH_CHUNK_SIZE`                 | `500`                       | ❌         | `AuditBatchOrchestrator` — tamaño de chunk para ingesta fair-queuing de lotes masivos             |
+| `AUDIT_BATCH_LOCK_TTL_SECONDS`           | `300`                       | ❌         | `AuditBatchOrchestrator` — TTL del lock atómico de generación distribuida por chunk               |
+| `AUDIT_BATCH_CRON_LIMIT`                 | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
+| `AUDIT_INTERNAL_API_BASE`                | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                                   |
+| `AUDIT_WORKER_LANE`                      | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                              |
+| `AUDIT_CACHE_TTL`                        | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría                         |
+| `AUDIT_EXTRACTION_CACHE_TTL`             | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`                      |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`     | `3`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                                  |
+| `AUDIT_WORKER_BATCH_REPLICAS`            | `2`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                                      |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`       | `12`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                                           |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`   | `2`                         | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`)           |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12`                        | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)                 |
+| `AUDIT_WORKER_EXTRACTION_REPLICAS`       | `8`                         | ❌         | `docker-compose.yml` — réplicas legacy de extractores Gemini                                      |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS`       | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                                       |
+| `AUDIT_WORKER_POLICY_REPLICAS`           | `8`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                                           |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`      | `6`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                                      |
+| `AUDIT_IDEMPOTENCY_KEY_TTL`              | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                              |
+| `AUDIT_JOB_TTL`                          | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                              |
+| `AUDIT_STATE_TTL`                        | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                                      |
+| `AUDIT_PERSISTENCE_QUEUE_TTL`            | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job                       |
+| `AUDIT_RESERVATION_TTL`                  | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                                     |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS`          | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados               |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`      | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`                       |
+| `AUDIT_EVENT_MAX_RETRIES`                | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                                    |
+| `AUDIT_STREAM_BLOCK_MS`                  | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                                   |
+| `AUDIT_DLQ_STREAM`                       | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                                             |
+| `AUDIT_VERSION_EXTRACTOR`                | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                                             |
+| `AUDIT_VERSION_NORMALIZER`               | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                                          |
+| `AUDIT_VERSION_RULES`                    | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                                 |
+| `AUDIT_NGINX_READ_TIMEOUT`               | `3600`                      | ❌         | Timeout de lectura Nginx para endpoints de auditoría                                              |
+| `AUDIT_FPM_TERMINATE_TIMEOUT`            | `3600`                      | ❌         | Timeout de terminación PHP-FPM para procesos de auditoría                                         |
+| `PHP_CLI_MEMORY_LIMIT`                   | `768M`                      | ❌         | `bin/audit-worker.php` / Docker — memoria máxima para workers CLI evitando OOM en PDFs multipágina |
 
 ### Leyenda
 
@@ -559,19 +561,19 @@ Antes de **crear, modificar, refactorizar o eliminar** código en cualquiera de 
 
 #### Archivos y directorios que disparan el Business Gate
 
-| Ruta / Patrón | Motivo |
-|---|---|
-| `app/Services/Audit/**` | Pipeline IA, reglas de negocio, normalización, policy engine |
-| `app/Models/DispensationModel.php` | Fuente de Verdad (FDV), campos de dispensación |
-| `app/Models/AuditStatusModel.php` | Lectura de resultados y timings de auditoría |
-| `app/Models/AuditResultPersistenceModel.php` | Escritura transaccional del resultado global y detalle documental |
-| `app/Models/AuditConfigModel.php` | Configuración dinámica de auditoría por cliente |
-| `app/Models/AttachmentsModel.php` | Adjuntos documentales del expediente |
-| `app/Controllers/AuditController.php` | Endpoints de auditoría (single, async, results) |
-| `app/Controllers/AuditConfigController.php` | Configuración de campos auditables por EPS |
-| `app/Controllers/AuditDlqController.php` | Dead Letter Queue de auditoría |
-| `bin/audit-*.php` | Workers del pipeline event-driven |
-| Cualquier archivo que contenga lógica de comparación de campos (`TipoCampo`, `TipoDato`, `normalizeForComparison`, `evaluateBusinessField`) | Reglas de evaluación de la auditoría |
+| Ruta / Patrón                                                                                                                               | Motivo                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `app/Services/Audit/**`                                                                                                                     | Pipeline IA, reglas de negocio, normalización, policy engine      |
+| `app/Models/DispensationModel.php`                                                                                                          | Fuente de Verdad (FDV), campos de dispensación                    |
+| `app/Models/AuditStatusModel.php`                                                                                                           | Lectura de resultados y timings de auditoría                      |
+| `app/Models/AuditResultPersistenceModel.php`                                                                                                | Escritura transaccional del resultado global y detalle documental |
+| `app/Models/AuditConfigModel.php`                                                                                                           | Configuración dinámica de auditoría por cliente                   |
+| `app/Models/AttachmentsModel.php`                                                                                                           | Adjuntos documentales del expediente                              |
+| `app/Controllers/AuditController.php`                                                                                                       | Endpoints de auditoría (single, async, results)                   |
+| `app/Controllers/AuditConfigController.php`                                                                                                 | Configuración de campos auditables por EPS                        |
+| `app/Controllers/AuditDlqController.php`                                                                                                    | Dead Letter Queue de auditoría                                    |
+| `bin/audit-*.php`                                                                                                                           | Workers del pipeline event-driven                                 |
+| Cualquier archivo que contenga lógica de comparación de campos (`TipoCampo`, `TipoDato`, `normalizeForComparison`, `evaluateBusinessField`) | Reglas de evaluación de la auditoría                              |
 
 #### Checklist obligatorio (Business Gate)
 
@@ -648,13 +650,13 @@ Esta regla tiene prioridad sobre estilo libre en tareas de auditoría.
 
 ### Archivos que NO deben editarse
 
-| Archivo         | Razón                                               |
-| --------------- | --------------------------------------------------- |
-| `vendor/*`      | Gestionado por Composer                             |
-| `.env`          | Contiene credenciales reales                        |
-| `logs/*`        | Generados por la aplicación                         |
-| `logs/responseIA/*`  | Respuestas crudas de Gemini para debug local        |
-| `composer.lock` | Solo modificar indirectamente vía `composer update` |
+| Archivo             | Razón                                               |
+| ------------------- | --------------------------------------------------- |
+| `vendor/*`          | Gestionado por Composer                             |
+| `.env`              | Contiene credenciales reales                        |
+| `logs/*`            | Generados por la aplicación                         |
+| `logs/responseIA/*` | Respuestas crudas de Gemini para debug local        |
+| `composer.lock`     | Solo modificar indirectamente vía `composer update` |
 
 ### Archivos que SIEMPRE deben actualizarse en conjunto
 
@@ -1086,6 +1088,7 @@ Este archivo (`AGENTS.md`) es la fuente canónica de guidelines. Los siguientes 
 ## Tooling y Comandos Útiles
 
 ### GitHub CLI (`gh`)
+
 - **Lectura de issues largos:** Al usar `gh issue view`, la terminal y el paginador pueden truncar la salida. Para extraer el cuerpo completo de manera confiable (especialmente para SDD y specs largas), usa SIEMPRE:
   ```bash
   gh issue view <id> --json body --jq '.body'

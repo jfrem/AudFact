@@ -10,6 +10,11 @@ use Core\Logger;
 
 Env::load();
 
+$cliMemoryLimit = (string) Env::get('PHP_CLI_MEMORY_LIMIT', '768M');
+if ($cliMemoryLimit !== '') {
+    ini_set('memory_limit', $cliMemoryLimit);
+}
+
 // ─── Worker registry ─────────────────────────────────────────────────────────
 
 $registry = [
@@ -119,7 +124,11 @@ if (function_exists('pcntl_signal')) {
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
 try {
-    Logger::info("{$label}: iniciando");
+    Logger::info("{$label}: iniciando", [
+        'worker' => $workerName,
+        'lane' => $lane,
+        'memory_limit' => ini_get('memory_limit'),
+    ]);
     $processed = $consumer->run();
     Logger::info("{$label}: terminado", ['processed' => $processed]);
     exit(0);

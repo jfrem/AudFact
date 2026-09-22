@@ -2,7 +2,11 @@
 # Entrypoint: Auto-configura dependencias, permisos y PHP-FPM antes de arrancar
 set -e
 
-# ── 1. PHP-FPM Config ────────────────────────────────────────────
+# ── 1. PHP Memory Limit & PHP-FPM Config ─────────────────────────
+export PHP_CLI_MEMORY_LIMIT="${PHP_CLI_MEMORY_LIMIT:-768M}"
+echo "memory_limit = ${PHP_CLI_MEMORY_LIMIT}" > /usr/local/etc/php/conf.d/memory-limit.ini
+echo "[entrypoint] PHP memory_limit = ${PHP_CLI_MEMORY_LIMIT}"
+
 export AUDIT_FPM_TERMINATE_TIMEOUT="${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
 
 envsubst '${AUDIT_FPM_TERMINATE_TIMEOUT}' \

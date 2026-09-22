@@ -8,6 +8,12 @@
   - **Fix de Advertencia en `DocumentPolicyEngine`**: Normalización segura de `$normalizedPayload['quality_notes']` (array a string concatenado con `; `) eliminando la advertencia `Array to string conversion` en tiempo de ejecución.
   - **Pruebas Unitarias**: Ampliada la suite `DocumentPdfRasterizerTest` con pruebas de resolución de binarios, construcción de comandos y `DocumentPolicyEngineTest` con verificación de notas de calidad en formato arreglo. 100% de pruebas unitarias en verde.
   - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `docker/Dockerfile`, `tests/Services/Audit/Pipeline/DocumentPdfRasterizerTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/architecture.md`.
+- **Ampliación de Límite de Memoria PHP CLI y Soporte para Documentos Multipágina Complejos**:
+  - **Límite de Memoria de 768M**: Configuración horneada en `docker/Dockerfile` (`/usr/local/etc/php/conf.d/memory-limit.ini`) y en `bin/audit-worker.php` con fallback automático a `768M` (configurable vía variable de entorno `PHP_CLI_MEMORY_LIMIT`). Resuelve definitivamente el error fatal `Allowed memory size of 134217728 bytes exhausted` en GuzzleHttp/serialización Base64 al auditar paquetes médicos multipágina complejos (como órdenes oncológicas y fórmulas de hasta 8 o más páginas del Instituto Nacional de Cancerología).
+  - **Alineación con Límites de Docker**: Aprovecha la reserva de `1G` de RAM por contenedor asignada a `worker-extraction-vip` y `worker-extraction-batch` en `docker-compose.yml`, manteniendo 256M libres para el sistema operativo y herramientas del sistema (Ghostscript/poppler).
+  - **Observabilidad Operativa Estructurada**: Se agregó telemetría de memoria (`memory_limit`, `worker`, `lane`) en el log JSON estructurado de arranque de cada worker en `bin/audit-worker.php`.
+  - **Ajuste de Fair-Queuing**: Actualizado `AUDIT_BATCH_CHUNK_SIZE=500` en `.env.example` y `AGENTS.md` para equilibrar la velocidad de ingesta en lotes masivos.
+  - Archivos modificados: `bin/audit-worker.php`, `docker/Dockerfile`, `docker/docker-entrypoint.sh`, `.env.example`, `AGENTS.md`, `CHANGELOG.md`.
 
 ## [2026-09-21]
 
