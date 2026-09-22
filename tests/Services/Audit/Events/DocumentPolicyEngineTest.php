@@ -1486,4 +1486,22 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertCount(1, $result['document_decision']['payload']['hallazgos']);
         $this->assertSame('TIP', $result['document_decision']['payload']['hallazgos'][0]['Codigo']);
     }
+
+    public function testQualityNotesAsArrayDoesNotTriggerWarning(): void
+    {
+        $engine = new DocumentPolicyEngine();
+        $payload = self::payload('ACTA DE ENTREGA', [
+            'NumeroFactura' => ['valor' => 'F123', 'presente' => true, 'estadoExtraccion' => 'FOUND'],
+        ]);
+        $payload['quality_notes'] = ['Nota de calidad 1', 'Nota de calidad 2'];
+
+        $state = self::baseState(
+            'ACTA DE ENTREGA',
+            [self::field('NumeroFactura', 'E')],
+            ['header' => ['NumeroFactura' => 'F123'], 'items' => []]
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-001');
+        $this->assertTrue($result['document_decision']['approved']);
+    }
 }

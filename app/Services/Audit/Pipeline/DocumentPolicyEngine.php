@@ -94,7 +94,9 @@ class DocumentPolicyEngine
         $context['document_fields'] = $fields;
         $context['document_items'] = $items;
         if (!empty($normalizedPayload['quality_notes'])) {
-            $context['quality_notes'] = (string) $normalizedPayload['quality_notes'];
+            $context['quality_notes'] = is_array($normalizedPayload['quality_notes'])
+                ? implode('; ', $normalizedPayload['quality_notes'])
+                : (string) $normalizedPayload['quality_notes'];
         }
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);

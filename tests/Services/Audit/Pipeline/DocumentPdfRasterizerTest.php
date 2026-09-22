@@ -220,4 +220,81 @@ final class DocumentPdfRasterizerTest extends TestCase
         $this->assertSame('DOCUMENTO TEST', $parts[0]['label']);
         $this->assertNotEmpty($parts[0]['data']);
     }
+
+    public function testEngineResolutionForExplicitBinaries(): void
+    {
+        $gs = new DocumentPdfRasterizer('gs');
+        $this->assertSame(DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT, $gs->getEngine());
+        $this->assertSame('gs', $gs->getBinary());
+
+        $gsWin = new DocumentPdfRasterizer('gswin64c.exe');
+        $this->assertSame(DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT, $gsWin->getEngine());
+
+        $poppler = new DocumentPdfRasterizer('pdftoppm');
+        $this->assertSame(DocumentPdfRasterizer::ENGINE_PDFTOPPM, $poppler->getEngine());
+        $this->assertSame('pdftoppm', $poppler->getBinary());
+    }
+
+    public function testBuildCommandGeneratesAppropriateParameters(): void
+    {
+        $rasterizer = new DocumentPdfRasterizer();
+
+        $gsCmd = $rasterizer->buildCommand('/tmp/doc.pdf', '/tmp/page', 200, 51, DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT, 'gs');
+        $this->assertStringContainsString('-sDEVICE=jpeg', $gsCmd);
+        $this->assertStringContainsString('-dJPEGQ=90', $gsCmd);
+        $this->assertStringContainsString('-r200', $gsCmd);
+        $this->assertStringContainsString('-dFirstPage=1', $gsCmd);
+        $this->assertStringContainsString('-dLastPage=51', $gsCmd);
+
+        $popplerCmd = $rasterizer->buildCommand('/tmp/doc.pdf', '/tmp/page', 200, 51, DocumentPdfRasterizer::ENGINE_PDFTOPPM, 'pdftoppm');
+        $this->assertStringContainsString('-jpeg', $popplerCmd);
+        $this->assertStringContainsString('-r 200', $popplerCmd);
+        $this->assertStringContainsString('-f 1 -l 51', $popplerCmd);
+    }
+
+    public function testFallbackToPdftoppmWhenGhostscriptFailsInAutoDetect(): void
+    {
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public int $executeCallCount = 0;
+            public array $executedCommands = [];
+
+            public function __construct()
+            {
+                parent::__construct();
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            protected function checkBinaryExists(string $binary): bool
+            {
+                return true;
+            }
+
+            protected function executeProcess(string $cmd): void
+            {
+                $this->executeCallCount++;
+                $this->executedCommands[] = $cmd;
+
+                if ($this->executeCallCount === 1) {
+                    throw new RuntimeException('Simulated Ghostscript failure');
+                }
+
+                preg_match('/([^\s]+)$/', trim($cmd), $m);
+                $prefix = trim($m[1] ?? '', "'\"");
+                if ($prefix !== '') {
+                    file_put_contents("{$prefix}-1.jpg", 'fallback_jpeg_bytes');
+                }
+            }
+        };
+
+        $parts = $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'FALLBACK TEST');
+
+        $this->assertSame(2, $rasterizer->executeCallCount, 'Debe haber intentado 2 veces (Ghostscript y luego fallback pdftoppm)');
+        $this->assertCount(1, $parts);
+        $this->assertSame('FALLBACK TEST', $parts[0]['label']);
+        $this->assertSame(base64_encode('fallback_jpeg_bytes'), $parts[0]['data']);
+    }
 }

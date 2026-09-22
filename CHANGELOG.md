@@ -1,3 +1,14 @@
+## [2026-09-22]
+
+### feat
+- **Rasterización Dual Tolerante a Fallos en `DocumentPdfRasterizer` (Ghostscript + poppler)**:
+  - **Soporte Ghostscript (`gs`) Primario**: Integración de Ghostscript como motor primario de renderizado PDF a JPEG (200 DPI nativos). Corrige y repara de forma transparente la sintaxis malformada de `iText Core 8.0.0` y resuelve el mapeo de fuentes tipográficas no embebidas con codificación `Identity-H` (como `Segoe UI` en Actas de Entrega de Discolnet/Discolmets), eliminando el fallo donde `pdftoppm` producía cuadros vacíos (*tofu*) y símbolos corruptos (*mojibake*).
+  - **Fallback Automático**: Si el motor primario falla o no está disponible, degrada automáticamente a `pdftoppm` preservando compatibilidad estricta.
+  - **Paquetes en Docker**: Agregados `ghostscript`, `poppler-data` y `fontconfig` a `docker/Dockerfile`.
+  - **Fix de Advertencia en `DocumentPolicyEngine`**: Normalización segura de `$normalizedPayload['quality_notes']` (array a string concatenado con `; `) eliminando la advertencia `Array to string conversion` en tiempo de ejecución.
+  - **Pruebas Unitarias**: Ampliada la suite `DocumentPdfRasterizerTest` con pruebas de resolución de binarios, construcción de comandos y `DocumentPolicyEngineTest` con verificación de notas de calidad en formato arreglo. 100% de pruebas unitarias en verde.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php`, `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `docker/Dockerfile`, `tests/Services/Audit/Pipeline/DocumentPdfRasterizerTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `.agent/skills/audfact-audit-gemini/SKILL.md`, `plans/architecture.md`.
+
 ## [2026-09-21]
 
 ### UI
