@@ -92,11 +92,12 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 |---|---|---:|
 | `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` |
 | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
-| `worker-downloader` | `AttachmentDownloadWorker` | `AUDIT_WORKER_DOWNLOADER_REPLICAS=8` |
-| `worker-extraction` | `DocumentExtractionWorker` | `8` |
-| `worker-normalizer` | `DocumentNormalizer` | `AUDIT_WORKER_NORMALIZER_REPLICAS=2` |
-| `worker-policy` | `RulesEvaluationWorker` | `2` |
-| `worker-persistence` | `AuditPersistenceWorker` | `AUDIT_WORKER_PERSISTENCE_REPLICAS=3` |
+| `worker-downloader` | `AttachmentDownloadWorker` | `AUDIT_WORKER_DOWNLOADER_REPLICAS=12` |
+| `worker-extraction-batch` | `DocumentExtractionWorker` | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS=12` |
+| `worker-extraction-vip` | `DocumentExtractionWorker` | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=2` |
+| `worker-normalizer` | `DocumentNormalizer` | `AUDIT_WORKER_NORMALIZER_REPLICAS=4` |
+| `worker-policy` | `RulesEvaluationWorker` | `AUDIT_WORKER_POLICY_REPLICAS=8` |
+| `worker-persistence` | `AuditPersistenceWorker` | `AUDIT_WORKER_PERSISTENCE_REPLICAS=6` |
 
 Los nombres de consumer incluyen rol + hostname + PID para que Redis refleje
 replicas reales y para que `XAUTOCLAIM` pueda recuperar mensajes `pending`

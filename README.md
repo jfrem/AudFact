@@ -97,10 +97,12 @@ npm run dev
 | `REDIS_PASSWORD` / `REDIS_MODE`                                        | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`)                               |
 | `AUDIT_WORKER_BATCH_REPLICAS`                                          | Réplicas del worker de batches (default: `2`)                                                  |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`                                   | Réplicas de orquestadores async (default: `3`)                                                 |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de descargadores de adjuntos (default: `8`)                                           |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS`                                     | Réplicas de extractores Gemini (default: `8`)                                                  |
-| `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `2`)                                                |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `3`)                                           |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de descargadores de adjuntos (default: `12`)                                          |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS`                               | Réplicas de extractores Gemini batch (default: `12`)                                           |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`                                 | Réplicas de extractores Gemini VIP (default: `2`)                                             |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS`                                     | Réplicas de normalizador documental (default: `4`)                                             |
+| `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `8`)                                                |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `6`)                                           |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`                                          | TTL de turnos, pendientes y deduplicación de persistencia por job (default: `604800`)          |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`                                        | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`)                  |

@@ -112,11 +112,12 @@ Variables de capacidad inicial:
 |---|---:|---|
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `8` | `worker-downloader` |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | `worker-extraction` |
-| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `2` | `worker-normalizer` |
-| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | `worker-policy` |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | `worker-persistence` |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | `worker-downloader` |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | `worker-extraction-batch` |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | `worker-extraction-vip` |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | `worker-normalizer` |
+| `AUDIT_WORKER_POLICY_REPLICAS` | `8` | `worker-policy` |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | `worker-persistence` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | recuperación de pending |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | escaneo de pending |
 

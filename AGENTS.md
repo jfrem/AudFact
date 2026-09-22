@@ -354,12 +354,13 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_EXTRACTION_CACHE_TTL`         | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`        |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                    |
 | `AUDIT_WORKER_BATCH_REPLICAS`        | `2`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                        |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`   | `12`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                             |
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2`                       | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`) |
-| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `6`                     | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)   |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12`                    | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)   |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS`   | `8`                         | ❌         | `docker-compose.yml` — réplicas legacy de extractores Gemini                        |
-| `AUDIT_WORKER_POLICY_REPLICAS`       | `2`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS`  | `3`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                        |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS`   | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                         |
+| `AUDIT_WORKER_POLICY_REPLICAS`       | `8`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                             |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`  | `6`                         | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                        |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`          | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                |
 | `AUDIT_JOB_TTL`                      | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                |
 | `AUDIT_STATE_TTL`                    | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                        |

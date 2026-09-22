@@ -125,9 +125,12 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 |---|---|---|
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Workers que procesan batches |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Workers que resuelven FDV/config/adjuntos |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Workers que consumen Gemini |
-| `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Workers de evaluación de reglas |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | Workers SQL globales; la cola limita a uno por job |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | Workers que descargan adjuntos |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | Workers que consumen Gemini batch |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | Workers que consumen Gemini VIP |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | Workers que normalizan documentos |
+| `AUDIT_WORKER_POLICY_REPLICAS` | `8` | Workers de evaluación de reglas |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | Workers SQL globales; la cola limita a uno por job |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retención de turnos, pendientes y deduplicación |
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | TTL de `X-Idempotency-Key` para `/audit/async` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar mensajes pending |
