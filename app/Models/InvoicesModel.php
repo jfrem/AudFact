@@ -278,17 +278,21 @@ class InvoicesModel extends Model
 
         $sql = $this->buildOptimizedBatchSql($finalSelect);
 
+        $effectiveDateFrom = ($cursor !== null && !empty($cursor['date']))
+            ? (string) substr((string) $cursor['date'], 0, 10)
+            : $dateFrom;
+
         $result = $this->read(function (PDO $connection) use (
             $sql,
             $facNitSec,
-            $dateFrom,
+            $effectiveDateFrom,
             $dateTo,
             $cursorWhere,
             $cursor
         ): array {
             $stmt = $connection->prepare($sql);
             $stmt->bindValue(':facNitSec', $facNitSec, PDO::PARAM_INT);
-            $stmt->bindValue(':dateFromD', $dateFrom);
+            $stmt->bindValue(':dateFromD', $effectiveDateFrom);
             $stmt->bindValue(':dateToD', $dateTo);
 
             if ($cursorWhere !== '') {

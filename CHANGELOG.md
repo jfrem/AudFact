@@ -1,3 +1,12 @@
+## [2026-09-23]
+
+### perf
+- **Optimización de Rendimiento en Paginación Keyset de Candidatas a Auditoría Batch (`InvoicesModel` & `AuditBatchOrchestrator`)**:
+  - **Fecha Keyset Efectiva en `#DISP`**: En `InvoicesModel::getInvoicesForAuditBatch`, cuando la consulta opera con un cursor keyset activo (`$cursor['date']`), se deriva `$effectiveDateFrom = substr($cursor['date'], 0, 10)` para el placeholder `:dateFromD` de la tabla temporal `#DISP`. Esto preserva al 100% el soporte al rango histórico desde el 1 de enero (`2026-01-01`) al iniciar lotes nuevos o consultar sin cursor, pero evita que SQL Server re-escanee meses pasados en chunks subsiguientes, reduciendo drásticamente los tiempos de lectura por chunk.
+  - **Ampliación de `MAX_FETCH_LIMIT` a 500**: Se elevó `MAX_FETCH_LIMIT` de 200 a 500 en `AuditBatchOrchestrator`, alineándolo con `AUDIT_BATCH_CHUNK_SIZE=500` para resolver cada lote en 1 sola consulta SQL en vez de 3 queries redundantes por chunk.
+  - **Pruebas Unitarias**: Actualizada y ampliada la suite `InvoicesModelTest` validando el enlace de `:dateFromD` tanto con cursor truncado como sin cursor. 588 pruebas unitarias en verde.
+  - Archivos modificados: `app/Models/InvoicesModel.php`, `app/Services/Audit/AuditBatchOrchestrator.php`, `tests/Models/InvoicesModelTest.php`.
+
 ## [2026-09-22]
 
 ### feat

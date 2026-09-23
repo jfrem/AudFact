@@ -76,7 +76,7 @@ Los estados operativos nunca dependen solo del color: badges y nodos combinan ic
 |---|---|---|
 | `Model.php` | Base de ejecución SQL | Callbacks `read()`, `idempotentWrite()`, `nonReplayableWrite()` sin retener PDO. `AuditStatusModel` añade `readWithFallback()` local: intenta `default` primero (consistencia post-escritura), degrada a `db2` si falla |
 | `ClientsModel.php` | `NIT` + `Clientes` | `getClientById()`, `getAllClients()` |
-| `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno para batches y selecciona `DisId` como llave canónica |
+| `InvoicesModel.php` | `Factura` + dispensación/kardex | `searchInvoices()`/`countInvoices()` exponen búsqueda interactiva paginada; `getInvoicesForAuditBatch()` usa keyset interno con fecha efectiva por cursor en `#DISP` para batches y selecciona `DisId` como llave canónica |
 | `AttachmentsModel.php` | `AdjuntosDispensacion` + `NitDocumentos` + `DispensacionDetalleServicio` + `vw_discolnet_dispensas` | Metadata pública, stream HTTP y materialización BLOB para pipeline con `bytes === DATALENGTH` en la misma consulta; `countAuditHistory()` y `getAuditHistory()` para el endpoint `GET /audit/documents-history` |
 | `DispensationModel.php` | `vw_discolnet_dispensas` | `getDispensationData()` expone `facsecF AS FacSec` |
 | `AuditConfigModel.php` | `AudDisp` + `AudDispCampo` + `AudDispCampoCatalogo` + `NitDocumentos` | `getConfig()` (JOIN con catálogo), `saveConfig()`, `catalog()` |

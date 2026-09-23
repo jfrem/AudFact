@@ -81,12 +81,24 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('SELECT TOP (50)', $pdo->preparedSql);
         $this->assertStringContainsString('s.fecha > :cursorDate1', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
+        $this->assertSame('2025-07-10', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate1']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate2']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate3']);
         $this->assertSame('87723098', $pdo->statement->boundValues[':cursorDisId1']);
         $this->assertSame('87723098', $pdo->statement->boundValues[':cursorDisId2']);
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':cursorDispensa1']);
+    }
+
+    public function testGetInvoicesForAuditBatchWithoutCursorUsesOriginalDateFrom(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 50, null);
+
+        $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
+        $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
     }
 
     public function testSearchInvoicesExcludesBilledDispensationsByDisIdAndDisDetId(): void

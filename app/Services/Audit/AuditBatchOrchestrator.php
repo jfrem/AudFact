@@ -25,7 +25,7 @@ final class AuditBatchOrchestrator
     public const DEFAULT_CHUNK_SIZE = 50;
     public const DEFAULT_LOCK_TTL_SECONDS = 300;
     private const MIN_FETCH_LIMIT = 50;
-    private const MAX_FETCH_LIMIT = 200;
+    private const MAX_FETCH_LIMIT = 500;
 
     public function __construct(
         private readonly AuditStateStore $stateStore,
