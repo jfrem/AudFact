@@ -50,7 +50,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
 | `RulesEvaluationWorker` | Evalúa reglas y convierte contratos cerrados de contenido o `DOCUMENT_MAPPING`; mapping produce código `MAP`, severidad alta y resultado `RECHAZADO` |
 | `AuditPersistenceQueue` | Deduplica `rules_evaluated` y mantiene un solo turno de persistencia activo por job |
-| `AuditPersistenceWorker` | Consume `audit.persistence:{queue}`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
+| `AuditPersistenceWorker` | Consume `audit.persistence.priority` y `audit.persistence.batch`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
 | `BatchJobStore` | Estado Redis por job, idempotencia/reservas y contadores atómicos `queued/running/completed/failed` basados en transiciones del job |
 | `AuditResultPersistenceModel` | Escritura transaccional en `Discolnet.dbo.AudDispEst`, `AdjuntosDispensacion` y `DispensacionDetalleServicio` con emparejamiento determinista por `attachment_id` |
@@ -76,11 +76,98 @@ de mapping; el extractor solo puede emitir clase `document_content`. Fallos de
 PDO, SQL Server, Drive o transferencia BLOB son técnicos: terminan en DLQ y
 nunca se convierten en un hallazgo funcional.
 
+### Continuidad del carril de auditoría
+
+`AuditEvent::followUp()` crea eventos de la misma auditoría conservando `audit_id`,
+`job_id` y la correlación `parent_event_id`. Copia exclusivamente `source` e
+`is_priority` del payload padre sobre el nuevo payload funcional; los resultados
+normalizados, agregados o recuperados de Redis no pueden sobreescribirlos. El
+documento es un argumento obligatorio: se pasa el ID para una etapa documental
+o `documentId: null` para una etapa consolidada, como `rules_evaluated` o
+`audit_completed`. Así, olvidar el alcance falla en la llamada en lugar de
+producir silenciosamente un evento sin documento.
+
+La factory separa la identidad/correlación de `inheritRoutingMetadata()`, cuyo
+único cometido es aplicar la lista cerrada `ROUTING_PAYLOAD_KEYS`. Esa lista
+describe claves del transporte activo; no agrega reglas de negocio ni cambia
+el clasificador de prioridad. Las pruebas separan identidad, serialización y
+enrutamiento; enqueue, reprocess y advance tienen casos explícitos por contrato.
+
+Orquestación, descarga, extracción (incluyendo cache y rechazo), normalización, evaluación,
+persistencia y la terminalización técnica de `AuditEventConsumer` usan esta
+factory. El orquestador deriva tanto `document_registered` como los rechazos por
+mapping del mismo `audit_created`, con IDs documentales distintos y el mismo
+padre. `buildDocumentState()` conserva solo el contexto funcional; el transporte
+se añade al evento mediante `followUp()`. `AuditEventPublisher::isPriorityEvent()` sigue siendo
+el único clasificador: `source === 'single'` o `is_priority === true` seleccionan
+prioridad. Un origen `cron` prioritario conserva `cron`; no se infiere `single`
+desde prioridad ni desde la ausencia de `job_id`. Metadatos ausentes permanecen
+ausentes y no promueven eventos batch.
+
+Cada señal basta por sí sola aunque falte la otra. Un evento publicado directamente
+sin `followUp()` también respeta esta regla: `job_id=null` no demuestra origen
+interactivo, y valores como `"true"` o `1` no equivalen al booleano `true`.
+
+La serialización JSON, tipos de evento, nombres de streams y contratos HTTP no
+cambian. Los metadatos permanecen en el payload por ser un contrato activo de
+los consumidores. `rules_evaluated` continúa pasando exclusivamente por
+`AuditPersistenceQueue`, incluidos los reprocesos; el transporte se aplica
+después de recuperar el outcome canónico de Redis en un reintento.
+
 ### Concurrencia de Persistencia
 
-`RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. La cola permite un solo `rules_evaluated` activo por `job_id`; los restantes quedan ordenados en un ZSET por secuencia global. Jobs distintos sí publican un turno simultáneo en `audit.persistence:{queue}`, por lo que las 3 réplicas de `worker-persistence` procesan hasta 3 jobs en paralelo sin que una factura lenta bloquee a las demás.
+`RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. La cola permite un solo `rules_evaluated` activo por `job_id`; los restantes quedan ordenados en un ZSET por secuencia global. Jobs distintos publican turnos simultáneos en `audit.persistence.priority` o `audit.persistence.batch`, hasta la capacidad configurada de `worker-persistence`. Sin job, el turno se delimita por `audit_id`; una auditoría individual no queda detrás del turno reservado a un lote. `audit.persistence:{queue}:*` es el namespace de las claves de scheduling, no un stream.
 
 El turno avanza únicamente después del cierre exitoso o después de la terminalización DLQ. Una redelivery posterior a `advance` es idempotente. Las dos persistencias exigidas por dominio permanecen dentro de la misma transacción SQL.
+
+### Despliegue, diagnóstico y recuperación del desvío a batch
+
+El ajuste del 2026-09-23 es una refactorización incremental aprobada sin
+excepciones de compatibilidad. No requiere migración SQL, nuevos secretos ni
+variables de entorno. Publicar una imagen PHP inmutable y recrear los servicios
+PHP/workers con el mismo SHA; la corrección completa requiere que normalizador,
+policy y persistencia hayan adoptado la versión. El rollback consiste en
+redeplegar el SHA anterior, conservando Redis y SQL; devuelve también el defecto
+de enrutamiento. No borrar grupos, streams, estados ni reservas al desplegar.
+
+Los mensajes ya publicados sin metadatos no se reparan ni se mueven al desplegar.
+Para una auditoría afectada:
+
+1. Correlacionar `audit_id`, `event_id`, `parent_event_id` y `stream_id` en los logs
+   de publicación; comprobar el SHA real de los workers. Localizar sus eventos
+   `document_normalized` y el grupo `policy` en ambos streams documentales.
+2. Consultar `XINFO GROUPS` (consumidores, último ID entregado y `lag`, cuando
+   esté disponible) y `XPENDING` del grupo `policy`. PEL cuenta entregados sin
+   ACK; no mide los mensajes todavía sin entregar. `/metrics/async` suma PEL de
+   varios grupos documentales y no permite atribuir todo el valor a policy.
+3. Si el evento sigue sin entregar, mantener consumidores batch activos y
+   verificar que el grupo avance hasta su ID. Si fue entregado, revisar su
+   consumidor, idle, reintentos y logs; un evento abandonado se recupera por el
+   mecanismo existente de reclaim. No reclamar uno que aún está ejecutándose.
+4. Si terminó en DLQ, corregir primero el fallo técnico y usar el reproceso
+   administrativo existente sobre el evento original. Sus metadatos se
+   conservan; un evento antiguo sin metadatos seguirá en batch. Si el evento no
+   existe, detener el reproceso automático y reconstruir su trazabilidad antes
+   de cualquier intervención. No fabricar resultados ni duplicar publicaciones
+   para adelantar la cola.
+5. Verificar el cierre en Redis, resultado SQL y eventos terminales. Para el
+   flujo nuevo, comprobar que una auditoría single bajo carga batch conserve
+   `.priority` en documentos, persistencia y resultados.
+
+`docs_done` se actualiza antes de publicar `document_normalized` y
+`docs_evaluated` después de guardar una evaluación. Estos contadores aislados
+no prueban publicación exitosa ni ausencia de trabajo en curso. SQL y el cierre
+Redis preceden a `audit_completed`; su carril terminal no determina el estado
+que devuelve el polling. Los workers registran al iniciar identidad, grupo,
+carril, streams, bloqueo de lectura, máximo de reintentos e intervalos de reclaim,
+sin volcar payloads o configuración sensible. El enrutamiento preservado no
+garantiza latencia máxima: policy y persistencia comparten capacidad entre carriles.
+
+Pruebas de regresión: continuidad tras serialización, prioridad con origen
+distinto de single, batch y metadatos ausentes, resultados con metadatos
+contradictorios, normalización repetida, rechazo documental, outcome canónico en
+reintento, enqueue/reprocess/advance de persistencia, éxito SQL y fallo técnico
+con evento original conservado en DLQ. Ejecutar `php vendor/bin/phpunit --no-coverage`.
 
 ### Resiliencia SQL/PDO
 

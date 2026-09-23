@@ -14,11 +14,85 @@ use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
 use Core\RedisClient;
 use DomainException;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 final class DocumentAuditOrchestratorTest extends TestCase
 {
+    #[DataProvider('routingCases')]
+    public function testFanOutPreservesRoutingAndCausalityForMatchesAndRejections(array $routing, ?string $jobId, bool $priority): void
+    {
+        // Arrange:
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $dataService = new StubAuditDataService(
+            dispensation: [
+                'header' => ['NitSec' => '2426', 'DisId' => '87723098', 'NumeroFactura' => 'T38250701547'],
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 1, 'NitMedDocNom' => 'DISPENSA'],
+                ['NitMedDocId' => 2, 'NitMedDocNom' => 'AUTORIZACION'],
+                ['NitMedDocId' => 3, 'NitMedDocNom' => 'FORMULA MEDICA'],
+            ],
+            auditConfig: [
+                'activo' => true,
+                'documents' => [
+                    'DISPENSA' => ['docId' => 1, 'fields' => [], 'visualChecks' => []],
+                    'AUTORIZACION' => ['docId' => 2, 'fields' => [], 'visualChecks' => []],
+                    'FORMULA MEDICA' => ['docId' => 3, 'fields' => [], 'visualChecks' => []],
+                ],
+            ],
+            attachments: [
+                ['attachment_id' => '1', 'physical_document_name' => 'DISPENSA', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '2', 'physical_document_name' => 'AUTORIZACION', 'storage_type' => 'BLOB'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::fromArray([
+            'event_id' => '11111111-1111-4111-8111-111111111111',
+            'audit_id' => '22222222-2222-4222-8222-222222222222',
+            'job_id' => $jobId,
+            'event_type' => AuditEvent::TYPE_AUDIT_CREATED,
+            'timestamp' => '2026-09-23T12:00:00Z',
+            'payload' => $routing + ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098'],
+        ]);
+
+        // Act:
+        $orchestrator->processEvent($event);
+
+        // Assert:
+        $this->assertSame([
+            AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            AuditEvent::TYPE_DOCUMENT_REJECTED,
+        ], array_column($publisher->published, 'eventType'));
+        $this->assertCount(3, array_unique(array_column($publisher->published, 'documentId')));
+        $this->assertCount(3, array_unique(array_column($publisher->published, 'eventId')));
+        foreach ($publisher->published as $index => $child) {
+            $this->assertSame($event->eventId, $child->parentEventId);
+            $this->assertSame($event->auditId, $child->auditId);
+            $this->assertSame($jobId, $child->jobId);
+            $this->assertSame($store->registeredDocuments[$index]['documentId'], $child->documentId);
+            $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
+            $this->assertSame($priority, AuditEventPublisher::isPriorityEvent($child));
+        }
+    }
+
+    public static function routingCases(): iterable
+    {
+        foreach ([null, '33333333-3333-4333-8333-333333333333'] as $jobId) {
+            $scope = $jobId === null ? 'without job' : 'with job';
+            yield "single $scope" => [['source' => 'single'], $jobId, true];
+            yield "priority only $scope" => [['is_priority' => true], $jobId, true];
+            yield "cron $scope" => [['source' => 'cron', 'is_priority' => true], $jobId, true];
+            yield "batch $scope" => [['source' => 'batch', 'is_priority' => false], $jobId, false];
+            yield "absent $scope" => [[], $jobId, false];
+            yield "null $scope" => [['source' => null, 'is_priority' => null], $jobId, false];
+        }
+    }
+
     public function testAuditCreatedFor2426PublishesThreeDocumentRegisteredEventsWithContractPayload(): void
     {
         // Arrange:

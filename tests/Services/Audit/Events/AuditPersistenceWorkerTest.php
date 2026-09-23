@@ -11,12 +11,65 @@ use App\Services\Audit\Pipeline\AuditPersistenceQueue;
 use App\Services\Audit\Pipeline\AuditPersistenceWorker;
 use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
 use Core\RedisClient;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 final class AuditPersistenceWorkerTest extends TestCase
 {
+    #[DataProvider('routingCases')]
+    public function testCompletionPreservesRoutingAfterSqlAndRedisClose(array $routing, string $stream): void
+    {
+        // Arrange:
+        $auditId = '22222222-2222-4222-8222-222222222222';
+        $store = new AggregationRecordingStateStore($auditId, null);
+        $model = new RecordingAuditResultPersistenceModel();
+        $queue = new RecordingAuditPersistenceQueue();
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->once())->method('xAdd')->with(
+            $stream,
+            $this->callback(function (array $fields) use ($routing, $store, $model): bool {
+                $child = AuditEvent::fromArray(json_decode($fields['event'], true, flags: JSON_THROW_ON_ERROR));
+                $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $child->eventType);
+                $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
+                $this->assertSame('completed', $store->lastCompletion['status']);
+                $this->assertSame('87723098', $model->lastAuditResultData['DisId']);
+                return true;
+            }),
+            $this->anything()
+        )->willReturn('1-0');
+        $worker = new AuditPersistenceWorker(
+            stateStore: $store,
+            jobStore: new RecordingBatchJobStore($store),
+            persistenceModel: $model,
+            persistenceQueue: $queue,
+            redis: $redis,
+            publisher: new AuditEventPublisher($redis),
+            telemetryPublisher: new TelemetryPublisher($this->createStub(RedisClient::class)),
+            lane: 'all'
+        );
+        $payload = self::rulesOutcomePayload('completed');
+        $payload['completion_payload']['source'] = 'stale-origin';
+        $payload['completion_payload']['is_priority'] = true;
+        $event = AuditEvent::create(AuditEvent::TYPE_RULES_EVALUATED, $auditId, payload: $routing + $payload);
+
+        // Act:
+        $worker->processEvent($event);
+
+        // Assert:
+        $this->assertSame([$auditId], $queue->advancedAuditIds);
+    }
+
+    public static function routingCases(): iterable
+    {
+        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_RESULTS_BATCH];
+        yield 'absent' => [[], AuditEventPublisher::STREAM_RESULTS_BATCH];
+    }
+
     public function testRulesEvaluatedPersistsCompletesAuditAndPublishesBatchTerminalEvent(): void
     {
         $auditId = AuditEvent::uuidV4();

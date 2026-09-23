@@ -112,13 +112,10 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
                 'document_hash'      => $documentHash,
             ]);
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_DOCUMENT_DOWNLOADED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
                 documentId: $event->documentId,
                 payload: $newPayload,
-                parentEventId: $event->eventId
             ));
 
             $this->telemetryPublisher->completed(

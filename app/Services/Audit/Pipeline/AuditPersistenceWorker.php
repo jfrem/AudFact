@@ -123,16 +123,14 @@ final class AuditPersistenceWorker extends AuditEventConsumer
                 $this->markJobAuditCompleted($event, $aggregate, $finalAudit);
             }
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_AUDIT_COMPLETED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
+                documentId: null,
                 payload: array_merge($aggregate['completion_payload'], [
                     'audit_result_data' => $aggregate['audit_result_data'],
                     'document_decisions' => $aggregate['document_decisions'],
                     'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
                 ]),
-                parentEventId: $event->eventId,
             ));
 
             if ($event->jobId !== null) {

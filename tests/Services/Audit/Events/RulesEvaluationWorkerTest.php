@@ -15,13 +15,16 @@ use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
 use App\Services\Audit\Pipeline\DocumentRejectionReason;
 use App\Services\Audit\Pipeline\RulesEvaluationWorker;
 use Core\RedisClient;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 final class RulesEvaluationWorkerTest extends TestCase
 {
-    public function testDocumentNormalizedPublishesRulesEvaluatedWhenAuditIsReady(): void
+    #[DataProvider('routingCases')]
+    public function testDocumentNormalizedPublishesRulesEvaluatedWhenAuditIsReady(array $routing, bool $priority): void
     {
+        // Arrange:
         $auditId = AuditEvent::uuidV4();
         $documentId = AuditEvent::uuidV4();
         $publisher = new RulesPublisher();
@@ -72,11 +75,12 @@ final class RulesEvaluationWorkerTest extends TestCase
             persistenceQueue: $queue
         );
 
+        // Act:
         $worker->processEvent(AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
             auditId: $auditId,
             documentId: $documentId,
-            payload: [
+            payload: $routing + [
                 'tipo_documento' => 'DISPENSA',
                 'fields_normalized' => ['Autorizacion' => '46338218'],
                 'items_normalized' => [],
@@ -86,6 +90,10 @@ final class RulesEvaluationWorkerTest extends TestCase
             ]
         ));
 
+        // Assert:
+        $this->assertSame($priority, AuditEventPublisher::isPriorityEvent($queue->enqueued[0]));
+        $this->assertSame($routing, array_intersect_key($queue->enqueued[0]->payload, ['source' => true, 'is_priority' => true]));
+        $this->assertNull($queue->enqueued[0]->documentId);
         $this->assertSame('evaluated', $store->lastPolicyPatch['status'] ?? null);
         $this->assertSame(1, $store->lastPolicyPatch['gemini_semantic_metrics']['semantic_calls'] ?? null);
         $this->assertCount(1, $queue->enqueued);
@@ -96,8 +104,10 @@ final class RulesEvaluationWorkerTest extends TestCase
         $this->assertSame([], $publisher->published);
     }
 
-    public function testDocumentRejectedPublishesRulesEvaluatedWithCanonicalFinding(): void
+    #[DataProvider('routingCases')]
+    public function testDocumentRejectedPublishesRulesEvaluatedWithCanonicalFinding(array $routing, bool $priority): void
     {
+        // Arrange:
         $auditId = AuditEvent::uuidV4();
         $documentId = AuditEvent::uuidV4();
         $publisher = new RulesPublisher();
@@ -113,11 +123,12 @@ final class RulesEvaluationWorkerTest extends TestCase
             persistenceQueue: $queue
         );
 
+        // Act:
         $worker->processEvent(AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
             auditId: $auditId,
             documentId: $documentId,
-            payload: [
+            payload: $routing + [
                 'document_type' => 'FORMULA MEDICA',
                 'rejection_class' => DocumentRejectionReason::REJECTION_CLASS,
                 'rejection_origin' => DocumentExtractionWorker::class,
@@ -125,6 +136,9 @@ final class RulesEvaluationWorkerTest extends TestCase
             ]
         ));
 
+        // Assert:
+        $this->assertSame($priority, AuditEventPublisher::isPriorityEvent($queue->enqueued[0]));
+        $this->assertSame($routing, array_intersect_key($queue->enqueued[0]->payload, ['source' => true, 'is_priority' => true]));
         $this->assertSame('evaluated', $store->lastPolicyPatch['status'] ?? null);
         $this->assertCount(1, $queue->enqueued);
         $payload = $queue->enqueued[0]->payload;
@@ -281,13 +295,17 @@ final class RulesEvaluationWorkerTest extends TestCase
         }
     }
 
-    public function testRetryEnqueuesTheCanonicalOutcomeAlreadyStoredInRedis(): void
+    #[DataProvider('routingCases')]
+    public function testRetryEnqueuesTheCanonicalOutcomeAlreadyStoredInRedis(array $routing, bool $priority): void
     {
+        // Arrange:
         $auditId = AuditEvent::uuidV4();
         $documentId = AuditEvent::uuidV4();
         $canonicalOutcome = [
             'final_status' => 'manual_review',
-            'source' => 'canonical-redis-outcome',
+            'detail_message' => 'canonical-redis-outcome',
+            'source' => 'stale-origin',
+            'is_priority' => !$priority,
         ];
         $store = new RulesReadyStateStore(
             $auditId,
@@ -311,11 +329,12 @@ final class RulesEvaluationWorkerTest extends TestCase
             persistenceQueue: $queue
         );
 
+        // Act:
         $worker->processEvent(AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
             auditId: $auditId,
             documentId: $documentId,
-            payload: [
+            payload: $routing + [
                 'tipo_documento' => 'DISPENSA',
                 'fields_normalized' => [],
                 'items_normalized' => [],
@@ -325,8 +344,19 @@ final class RulesEvaluationWorkerTest extends TestCase
             ]
         ));
 
+        // Assert:
         $this->assertCount(1, $queue->enqueued);
-        $this->assertSame($canonicalOutcome, $queue->enqueued[0]->payload);
+        unset($canonicalOutcome['source'], $canonicalOutcome['is_priority']);
+        $this->assertSame($canonicalOutcome + $routing, $queue->enqueued[0]->payload);
+        $this->assertSame($priority, AuditEventPublisher::isPriorityEvent($queue->enqueued[0]));
+    }
+
+    public static function routingCases(): iterable
+    {
+        yield 'single' => [['source' => 'single'], true];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], true];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], false];
+        yield 'absent' => [[], false];
     }
 
     public function testPublishesCalculatedDeliveryValidityFindingWhenVisualEvidenceIsComplete(): void

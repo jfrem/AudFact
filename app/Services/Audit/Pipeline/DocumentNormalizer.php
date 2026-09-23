@@ -97,10 +97,8 @@ final class DocumentNormalizer extends AuditEventConsumer
                 'normalization_duration_ms' => $durationMs,
             ]);
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_DOCUMENT_NORMALIZED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
                 documentId: $event->documentId,
                 payload: [
                     'tipo_documento'          => (string) ($normalized['tipo_documento'] ?? ''),
@@ -113,7 +111,6 @@ final class DocumentNormalizer extends AuditEventConsumer
                     'normalization_log'       => $normalized['normalization_log'] ?? [],
                     'extraction_warnings'     => $normalized['extraction_warnings'] ?? [],
                 ],
-                parentEventId: $event->eventId,
             ));
             $this->telemetryPublisher->completed(
                 $event->auditId,

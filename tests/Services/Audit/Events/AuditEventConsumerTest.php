@@ -13,11 +13,69 @@ use Core\RedisUnavailableException;
 use Core\SqlServerOperationException;
 use Core\SqlServerOperationMode;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 final class AuditEventConsumerTest extends TestCase
 {
+    #[DataProvider('failureRoutingCases')]
+    public function testTerminalFailureKeepsRoutingAndOriginalEventInDlq(array $routing, string $stream): void
+    {
+        // Arrange:
+        $event = AuditEvent::fromArray([
+            'event_id' => '11111111-1111-4111-8111-111111111111',
+            'audit_id' => '22222222-2222-4222-8222-222222222222',
+            'event_type' => AuditEvent::TYPE_DOCUMENT_EXTRACTED,
+            'timestamp' => '2026-09-23T12:00:00Z',
+            'payload' => $routing,
+        ]);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xGroupCreate')->willReturn(true);
+        $redis->method('get')->willReturn(json_encode(['audit_id' => $event->auditId, 'status' => 'processing']));
+        $redis->method('eval')->willReturn(1);
+        $redis->method('incr')->willReturn(1);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1-0',
+            'stream' => 'test.stream',
+            'fields' => ['event' => $event->toJson()],
+        ]]);
+        $publisher = $this->createMock(AuditEventPublisher::class);
+        $publisher->expects($this->once())->method('publish')->with(
+            $this->callback(function (AuditEvent $failed) use ($routing, $stream, $event): bool {
+                $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $failed->eventType);
+                $this->assertSame($stream, AuditEventPublisher::streamForEvent($failed));
+                $this->assertSame($event->eventId, $failed->parentEventId);
+                $this->assertSame($routing, array_intersect_key($failed->payload, ['source' => true, 'is_priority' => true]));
+                return true;
+            })
+        )->willReturn('2-0');
+        $publisher->expects($this->once())->method('publishDeadLetter')->with(
+            $this->callback(function (AuditEvent $dlq) use ($event): bool {
+                $this->assertSame($event->toArray(), $dlq->payload['original_event']);
+                return true;
+            })
+        )->willReturn('3-0');
+        $redis->expects($this->once())->method('xAck')->with('test.stream', 'test-group', '1-0');
+        $consumer = new TerminalFailureConsumer(redis: $redis, publisher: $publisher, lane: 'all');
+
+        // Act:
+        $processed = $consumer->run(1);
+
+        // Assert:
+        $this->assertSame(1, $processed);
+        $this->assertSame([$event->eventId], $consumer->terminalFailureEventIds);
+    }
+
+    public static function failureRoutingCases(): iterable
+    {
+        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_RESULTS_BATCH];
+        yield 'absent' => [[], AuditEventPublisher::STREAM_RESULTS_BATCH];
+    }
+
     public function testEnsureGroupCreatesFromStreamOrigin(): void
     {
         $redis = $this->createMock(RedisClient::class);

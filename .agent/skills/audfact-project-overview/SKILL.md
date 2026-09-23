@@ -87,14 +87,14 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 ```
 1. POST /audit/single → AuditController::single
-   └─ publica `audit_created` en stream `audit.inbox` (202 con audit_id)
+   └─ publica `audit_created` en stream `audit.inbox.priority` (202 con audit_id)
 
 2. DocumentAuditOrchestrator (group: orchestrator)
    ├─ resuelve FDV, audit-config y adjuntos mediante AuditDataService sobre modelos PHP
    ├─ reconcilia globalmente documentos lógicos ↔ adjuntos físicos (nombre, ID corroborado, alias único)
    ├─ missing/ambiguous/no-content/reused → document_rejected category=DOCUMENT_MAPPING
-   ├─ construye `extraction_contract` con cuatro function declarations paralelas desde audit-config
-   └─ publica N × `document_registered` en `audit.documents`
+   ├─ construye `extraction_contract` con response_schema desde audit-config
+   └─ publica N × `document_registered` en `audit.documents.priority` o `audit.documents.batch`
 
 3. AttachmentDownloadWorker (group: downloaders, ×8 réplicas)
    ├─ descarga adjunto (Drive URL o BLOB)
@@ -108,8 +108,8 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ delega estado transitorio y cache a `ExtractionCacheManager`
    ├─ productor exclusivo de `document_rejected` por contenido comprobado
    ├─ si es válido: construye prompts dinámicos con `ExtractionPromptBuilder`
-   ├─ Gemini function calling
-   └─ parsea y recupera con `GeminiResponseParser` (política 3 fases) → publica `document_extracted`
+   ├─ Gemini Structured Outputs (responseSchema y application/json)
+   └─ parsea y rehidrata con `GeminiResponseParser` → publica `document_extracted`
 
 5. DocumentNormalizer (group: normalizers)
    ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío
@@ -120,7 +120,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ valida por separado mapping (orquestador) y contenido (extractor)
    ├─ mapping inválido genera hallazgo MAP sin pasar por Gemini
    ├─ SemanticMatchJudge como fallback de homologación semántica contextual (productos y personas)
-   └─ cuando docs_done == docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
+   └─ cuando docs_done + docs_rejected >= docs_total y docs_evaluated >= docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
 
 7. AuditPersistenceWorker (group: persistence, ×3 réplicas)
    ├─ AuditResultData + documentDecisions
@@ -132,6 +132,16 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
 
 Reintentos por evento → DLQ (`audit.dlq`) tras AUDIT_EVENT_MAX_RETRIES (3).
 ```
+
+Las etapas desde orquestación hasta finalización usan `AuditEvent::followUp()` para
+conservar `source`, `is_priority`, identidad y correlación del evento padre sin
+mezclar el payload de negocio anterior. Cada llamada declara `documentId`
+obligatoriamente: ID documental o null explícito para consolidación. La persistencia usa streams
+`audit.persistence.priority` / `audit.persistence.batch`; los terminales usan
+`audit.results.priority` / `audit.results.batch`. `audit_failed` se emite desde el
+consumer base. El contrato JSON activo se mantiene y los eventos históricos sin
+metadatos siguen en batch; consultar el procedimiento de recuperación en
+`plans/features/audit-workflow.md`.
 
 ## Skills disponibles
 

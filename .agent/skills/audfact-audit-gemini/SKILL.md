@@ -14,7 +14,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 
 | Archivo | Rol |
 |---|---|
-| `app/Services/Audit/Pipeline/AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601) |
+| `app/Services/Audit/Pipeline/AuditEvent.php` | Value-object inmutable; `followUp()` deriva etapas de la misma auditoría conservando identidad, correlación y `source` / `is_priority` del padre |
 | `app/Services/Audit/Pipeline/AuditEventPublisher.php` | Publica a streams duales `.priority` y `.batch` (`audit.inbox.*`, `audit.documents.*`, `audit.results.*`, `audit.dlq`); enrutamiento automático de prioridad para auditorías interactivas 1:1; `rules_evaluated` debe pasar exclusivamente por `AuditPersistenceQueue` |
 | `app/Services/Audit/Pipeline/AuditEventConsumer.php` | Base abstracta multi-stream: consume prioritariamente con `xReadGroupMulti` (`.priority` antes de `.batch`), ack, reintentos y DLQ; SQL agotado y descarga técnica son terminales en la misma entrega |
 | `app/Services/Audit/Pipeline/AuditStateStore.php` | Claves Redis de estado (`audit:{id}:*`, `job:{id}:*`, contadores, FDV cache) |
@@ -68,14 +68,14 @@ Tras la consolidación AUDIT-015 (2026-04-27), existe **un único launcher** `bi
 | Comando | Stream consumido | Consumer group |
 |---|---|---|
 | `php bin/audit-worker.php batch` | `audit.batch.inbox` | `batch-workers` |
-| `php bin/audit-worker.php orchestrator` | `audit.inbox` | `orchestrator` |
-| `php bin/audit-worker.php downloader` | `audit.documents` | `downloaders` |
-| `php bin/audit-worker.php extraction` | `audit.documents` | `extractors` |
-| `php bin/audit-worker.php normalizer` | `audit.documents` | `normalizers` |
-| `php bin/audit-worker.php policy` | `audit.documents` | `policy` |
-| `php bin/audit-worker.php persistence` | `audit.persistence:{queue}` | `persistence` |
+| `php bin/audit-worker.php orchestrator` | `audit.inbox.priority` / `audit.inbox.batch` | `orchestrator` |
+| `php bin/audit-worker.php downloader` | `audit.documents.priority` / `audit.documents.batch` | `downloaders` |
+| `php bin/audit-worker.php extraction` | `audit.documents.priority` / `audit.documents.batch` (filtrados por carril) | `extractors` |
+| `php bin/audit-worker.php normalizer` | `audit.documents.priority` / `audit.documents.batch` | `normalizers` |
+| `php bin/audit-worker.php policy` | `audit.documents.priority` / `audit.documents.batch` | `policy` |
+| `php bin/audit-worker.php persistence` | `audit.persistence.priority` / `audit.persistence.batch` | `persistence` |
 
-El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. `docker-compose.yml` levanta los 7 servicios con este mismo binario y argumento distinto.
+El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTERM/SIGINT para stop gracioso y llama `run()`; `pcntl_signal_dispatch` se procesa dentro del loop del consumer base. Los consumer names son únicos por rol + hostname + PID para que Redis refleje réplicas reales. El inicio registra grupo, consumer, carril, streams, bloqueo, reintentos y límites de reclaim. Compose separa extracción en servicios VIP y batch usando el mismo launcher.
 
 ### Controllers y endpoints
 
@@ -86,13 +86,45 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 ## Streams y eventos
 
+### Invariante de transporte (2026-09-23)
+
+Orquestación, descarga, extracción (éxito/cache/rechazo), normalización, reglas, persistencia y
+fallo terminal usan `AuditEvent::followUp(eventType, payload, documentId)`.
+Conserva `audit_id`, `job_id` y referencia al evento padre; `documentId` es un
+argumento obligatorio: ID en etapas documentales y null explícito en etapas
+consolidadas. El payload funcional no puede reemplazar
+`source` o `is_priority`: esas claves provienen exclusivamente del evento padre.
+No inferir `source=single` desde prioridad o `job_id=null`; no copiar todo el
+payload anterior para conservar solo transporte. El clasificador sigue siendo
+`AuditEventPublisher::isPriorityEvent()` (`source === 'single'` o booleano true).
+Cada señal basta aunque falte la otra; eventos directos sin ambas quedan en batch,
+independientemente de `job_id`. No aceptar strings o enteros como booleano true.
+El orquestador usa `followUp()` tanto para registros como para rechazos de mapping;
+`buildDocumentState()` construye solo contexto funcional, sin copiar transporte.
+La lista cerrada `ROUTING_PAYLOAD_KEYS` y el helper privado
+`inheritRoutingMetadata()` concentran la copia de transporte; no duplicar esa
+lógica en workers ni exponer helpers productivos solo para pruebas.
+
+`RulesEvaluationWorker` aplica transporte después de recuperar el outcome
+canónico de Redis, por lo que un reintento conserva origen y carril.
+`audit_failed` se publica en `AuditEventConsumer`; `audit_completed`, en
+`AuditPersistenceWorker`, después del cierre Redis. No publicar
+`rules_evaluated` fuera de `AuditPersistenceQueue`.
+
+PEL no equivale a backlog sin entregar: `/metrics/async` suma PEL de varios
+grupos y no demuestra bloqueo en policy. El despliegue no corrige eventos
+antiguos sin metadatos. Diagnóstico y recuperación: ver
+`plans/features/audit-workflow.md`, sección «Despliegue, diagnóstico y recuperación
+del desvío a batch». Mantener consumidores batch activos durante el drenaje;
+no borrar ni duplicar mensajes para adelantar una auditoría.
+
 | Stream | Productor | Eventos |
 |---|---|---|
 | `audit.batch.inbox` | `AuditController` / `BatchRequestedWorker` (re-encolado) | `batch_requested` (con cursor keyset y chunk_index para ingesta fair-queuing) |
-| `audit.inbox` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
-| `audit.documents` | Orchestrator (`registered`/mapping `rejected`), Downloader (`downloaded`), Extractor (`extracted`/content `rejected`), Normalizer (`normalized`) | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
-| `audit.persistence:{queue}` | `AuditPersistenceQueue` | `rules_evaluated` |
-| `audit.results` | Persistence Worker | `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
+| `audit.inbox.priority` / `audit.inbox.batch` | `BatchRequestedWorker` / `AuditController` | `audit_created`, `batch_created` |
+| `audit.documents.priority` / `audit.documents.batch` | Orchestrator (`registered`/mapping `rejected`), Downloader (`downloaded`), Extractor (`extracted`/content `rejected`), Normalizer (`normalized`) | `document_registered`, `document_downloaded`, `document_extracted`, `document_rejected`, `document_normalized` |
+| `audit.persistence.priority` / `audit.persistence.batch` | `AuditPersistenceQueue` | `rules_evaluated` |
+| `audit.results.priority` / `audit.results.batch` | Persistence Worker / Consumer base | `audit_completed`, `audit_failed`, `batch_completed(_with_errors)` |
 | `audit.telemetry` | Workers de auditoría | Eventos live `started`, `completed`, `failed`, `rejected` por fase real del DAG |
 | `audit.dlq` | Cualquier worker | `dead_letter` (despliega payload original + etapa, attempts y last_error_*) |
 
@@ -130,13 +162,13 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 
 ## Flujo técnico
 
-1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox` → retorna 202 con `audit_id`.
+1. `POST /audit/single` valida `DisDetNro` → publica `audit_created` en `audit.inbox.priority` → retorna 202 con `audit_id`.
 2. `DocumentAuditOrchestrator` consume `audit_created`, resuelve FDV, `audit-config`, catálogo y todos los adjuntos físicos. Ejecuta una sola reconciliación global mediante `DocumentAttachmentMatcher`: nombre exacto normalizado, ID corroborado y alias único. Cada `attachment_id` se usa como máximo una vez. Los matches publican `document_registered` con trazabilidad lógica/física; missing, ambiguous, no content y reused se registran como rechazados y publican `document_rejected` con `rejection_category=DOCUMENT_MAPPING`, sin descarga ni Gemini. La regla `Autorizacion=R` reutiliza ese mismo resultado y solo transforma ausencia real en el hallazgo sintético `AUT` existente.
 3. `AttachmentDownloadWorker` consume `document_registered`, descarga el adjunto y lo almacena temporalmente en Redis con key lógica `audit:blob:*` (`RedisClient` aplica `REDIS_PREFIX`). Para BLOB exige `bytes === DATALENGTH`. Publica `document_downloaded`; fuente ausente/vacía, transferencia parcial, SQL o Drive son fallos técnicos y se propagan, nunca publican `document_rejected`.
 4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Es el único productor autorizado de rechazos de contenido: todo rechazo incluye `rejection_class=document_content`, origen exacto y razón de `DocumentRejectionReason`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con Structured Outputs nativos (`responseSchema` y `responseMimeType: application/json`). Si Gemini lanza HTTP 400 por error de decodificación o archivo corrupto confirmado, emite el rechazo tipado. Si es exitoso, parsea, rehidrata los campos planos a la forma canónica y publica `document_extracted`.
 5. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
 6. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue`. Valida dos contratos cerrados sin fallback: contenido solo desde `DocumentExtractionWorker` y mapping solo desde `DocumentAuditOrchestrator`. Mapping genera hallazgo `MAP`, severidad alta, `RECHAZADO` e `integrity`, preservando `logical_doc_id` y candidatos. Cualquier evento legacy o `DOWNLOAD_ERROR` falla técnicamente. Espera `docs_done + docs_rejected >= docs_total`, guarda el outcome y lo encola en `AuditPersistenceQueue`.
-7. `AuditPersistenceQueue` publica un único turno activo por job en `audit.persistence:{queue}`; jobs diferentes pueden usar las tres réplicas en paralelo.
+7. `AuditPersistenceQueue` publica un único turno activo por job en `audit.persistence.priority` o `audit.persistence.batch`; sin job usa un scope por auditoría. Jobs diferentes usan las réplicas configuradas en paralelo. `audit.persistence:{queue}:*` contiene claves de scheduling, no streams.
 8. `AuditPersistenceWorker` aplica una barrera independiente contra `DOWNLOAD_ERROR` y contratos de rechazo inválidos, ejecuta la transacción dual idempotente sobre `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`, libera el turno y publica `audit_completed`.
 9. SQL usa PDO fresco por operación y replay interno solo para lectura/escritura idempotente, con pausas de 1/5/30 segundos. Al agotar SQL o ante un fallo técnico tipado de descarga, `AuditEventConsumer` genera `dead_letter`, hace ACK y ejecuta el cierre terminal en la misma entrega; no espera `XAUTOCLAIM`.
 
@@ -295,7 +327,7 @@ curl http://localhost:8080/audit/dlq?limit=20
 4. Búsqueda de nombres legacy de cola y llamadas Redis list (`LPUSH`/`BRPOP`) sin coincidencias; tampoco debe existir orquestador monolítico anterior en `app/Services/Audit/`.
 5. `audit.dlq` recibe `dead_letter` al agotar reintentos.
 6. Persistencia final transaccional en `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`.
-7. PHPUnit completo verde antes de merge; suite actual organizada en 47 archivos PHP bajo `tests/`.
+7. PHPUnit completo verde antes de merge; suite organizada bajo `tests/`.
 8. `php vendor/bin/phpunit tests/Services/Audit/GoldenSetReplayTest.php --no-coverage` valida los fixtures golden.
 9. Hallazgos de tipo `CODE`/`TRACE_TOKEN` incluyen `valueType` y arrays de valores FDV/documento cuando aplican.
 10. Multi-item divergente emite `NO_CONCLUYENTE` con `ambiguous=true`, no silencio.

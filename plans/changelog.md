@@ -1,5 +1,18 @@
 # Changelog AudFact
 
+## [2026-09-23] - Fix: Continuidad del carril prioritario de auditoría
+
+- **Cierre del fan-out documental**: `DocumentAuditOrchestrator` deriva registros y rechazos de mapping mediante `followUp()`. Se elimina la inferencia `job_id=null -> source=single` y la copia manual de transporte en `buildDocumentState()`. El publisher mantiene sus señales explícitas independientes; nuevas pruebas cubren fan-out mixto, correlación, ausencia/null de metadata y publicación directa con/sin job, incluyendo tipos no booleanos. Sincronizadas arquitectura, workflow y skills de auditoría/overview.
+- **Revisión de mantenibilidad**: `followUp()` exige alcance documental explícito (`documentId` o null), separa identidad de la herencia privada de transporte y nombra la lista cerrada de metadatos. Se actualizaron todos los consumidores de esta API interna aún no desplegada. Pruebas de identidad y transporte separadas; scheduling cubierto por tres contratos claros (enqueue, reprocess, advance) sin invocación dinámica ni aserciones condicionales entre operaciones. Se conserva el formato de eventos en Redis y no se añade compatibilidad especulativa.
+
+- **Decisión `APROBAR` — refactorización incremental, sin excepciones**: se conserva el contrato JSON activo y se centraliza la derivación de eventos en `AuditEvent::followUp()`. No hay nuevas variables, secretos, endpoints ni migración SQL.
+- Descarga, extracción (incluyendo cache y rechazo), normalización, reglas, persistencia y fallo terminal conservan `source` e `is_priority` del padre. El resultado funcional no puede reemplazar transporte; un cron prioritario mantiene su origen. La ausencia de metadata no promueve eventos batch.
+- Policy conserva el carril incluso al recuperar el outcome canónico en un reintento; `rules_evaluated` mantiene su paso exclusivo por el scheduler y el turno por job/auditoría. Los fallos técnicos se corrigen en `AuditEventConsumer`, productor real de `audit_failed`.
+- El log estructurado de inicio añade bloqueo de lectura, máximo de reintentos e intervalos de reclaim a la identidad y los streams existentes, sin secretos ni payloads.
+- Documentados diagnóstico por grupo/evento, drenaje de eventos ya desviados, despliegue de imagen inmutable y rollback. PEL agregado no demuestra backlog ni bloqueo de policy; el despliegue no modifica mensajes históricos.
+- Sincronizados `plans/architecture.md`, `plans/features/audit-workflow.md` y las skills `audfact-audit-gemini` / `audfact-project-overview`. No se crean ni eliminan archivos; el mapeo del catálogo permanece vigente.
+- Validación tras la revisión de mantenibilidad: `php vendor/bin/phpunit --no-coverage` — 634 pruebas, 2360 aserciones y cero fallos; omitidas la integración Redis opt-in y la rasterización que requiere `pdftoppm`. Las aserciones de identidad se ejecutan en su propio caso en vez de repetirse por cada combinación de transporte. `php scripts/lint-php.php` — 167 archivos, cero errores. `node .agent/skills/_shared/scripts/validate-skills.mjs` — PASS (21 skills, 8 bundles). `npm.cmd run build` en `website` — build estático correcto. `git -c core.whitespace=cr-at-eol diff --check` — correcto, respetando CRLF existente. Verificado en ejecución de pruebas el log de inicio con límites de consumo y reclaim. No se ejecutó despliegue ni recuperación en producción.
+
 ## [2026-09-21] - Mejora del sidebar operativo
 
 - **Corrección de scroll**: el contenedor externo del dashboard cambia de `overflow-x-hidden` a `overflow-x-clip`. El recorte horizontal deja de crear un ancestro desplazable y sidebar/topbar conservan su posición sticky durante el scroll vertical de páginas largas.

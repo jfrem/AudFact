@@ -131,7 +131,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 
 | Worker / Componente | Responsabilidad |
 |---|---|
-| `AuditEvent.php` | Value-object inmutable de evento (tipos, payload, UUID v4, timestamps ISO 8601, banderas `source` e `is_priority`) |
+| `AuditEvent.php` | Value-object inmutable; `followUp()` conserva identidad, correlación y metadatos `source` / `is_priority` del padre sin copiar el payload funcional anterior ni inferir el origen |
 | `AuditEventPublisher.php` | Publica a los streams canónicos duales (`audit.inbox.priority`, `audit.inbox.batch`, `audit.documents.priority`, `audit.documents.batch`, `audit.results.priority`, `audit.results.batch`), `audit.batch.inbox` y `audit.dlq`; rechaza `rules_evaluated` para impedir bypass del scheduler |
 | `AuditEventConsumer.php` | Base abstracta: `xReadGroupMulti` sobre `streams() = [STREAM_PRIORITY, STREAM_BATCH]`, posicional de izquierda a derecha (prioridad $P_0$ de ventanilla), recuperación de `pending`, ack por stream exacto, reintentos, envío a DLQ, cierre terminal y telemetría |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
@@ -151,7 +151,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes de `audit.documents.priority` y `audit.documents.batch`, valida integridad y extrae con Gemini; publica `document_extracted` en el stream respectivo |
 | `DocumentNormalizer.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, normalización determinística PHP, publica `document_normalized` respetando prioridad |
 | `RulesEvaluationWorker.php` | Consume `audit.documents.priority` y `audit.documents.batch`, evalúa por documento; encola `rules_evaluated` hacia `audit.persistence.priority` o `audit.persistence.batch` vía `AuditPersistenceQueue` |
-| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job en lotes y bypass directo para peticiones 1:1 |
+| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job, o por auditoría cuando no tiene job |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
@@ -159,6 +159,19 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `AuditPersistenceWorker.php` | Worker: consume `audit.persistence.priority` y `audit.persistence.batch`, persiste SQL, libera el turno, recalcula timings y publica el terminal en `audit.results.priority` o `audit.results.batch` |
 
 **Dependencias**: Todo el stack de IA, base de datos y Redis.
+
+El transporte se conserva en cada etapa derivada mediante `AuditEvent::followUp()`.
+Esto incluye la división documental del orquestador: registros y rechazos por
+mapping heredan el mismo padre y su carril, sin inferir prioridad desde `job_id`.
+El argumento obligatorio `documentId` distingue explícitamente documento de
+consolidación (null); `inheritRoutingMetadata()` aplica la lista cerrada de
+claves de transporte sin mezclar esa responsabilidad con identidad/correlación.
+El clasificador existente del publisher y el scheduler siguen leyendo el contrato
+JSON activo; no hay consultas adicionales a Redis para deducir prioridad. La
+terminalización técnica se publica desde `AuditEventConsumer`, incluyendo fallos
+anteriores a SQL. Contrato, despliegue y recuperación de eventos antiguos:
+[flujo de auditoría](features/audit-workflow.md#continuidad-del-carril-de-auditoría).
+
 **Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher levanta servicios independientes: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=2`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
 
 > [!NOTE]

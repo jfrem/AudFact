@@ -297,9 +297,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         DocumentAttachmentMatchResult $matchResult
     ): void
     {
-        $source = (string) ($event->payload['source'] ?? ($event->jobId === null ? 'single' : 'batch'));
-        $isPriority = AuditEventPublisher::isPriorityEvent($event);
-
         foreach ($matchResult->matches as $match) {
             $configuredDocument = $match['logical_document'];
             $attachment = $match['physical_attachment'];
@@ -313,22 +310,17 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $attachment,
                 $context,
                 (string) $match['strategy'],
-                $match['candidate_attachment_ids'],
-                $source,
-                $isPriority
+                $match['candidate_attachment_ids']
             );
 
             if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
                 throw new RuntimeException('No se pudo registrar el documento en Redis');
             }
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
                 documentId: $documentId,
                 payload: $documentState,
-                parentEventId: $event->eventId,
             ));
 
             Logger::info('Adjunto físico asociado a documento lógico', [
@@ -360,9 +352,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $attachment,
                 $context,
                 null,
-                $candidateAttachmentIds,
-                $source,
-                $isPriority
+                $candidateAttachmentIds
             );
 
             if (!$this->stateStore->registerDocument($event->auditId, $documentId, $documentState)) {
@@ -381,10 +371,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 throw new RuntimeException('No se pudo marcar el rechazo de mapping en Redis');
             }
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
                 documentId: $documentId,
                 payload: [
                     'rejection_reason' => $rejectionReason,
@@ -394,10 +382,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                     'logical_doc_id' => (string) $rejection['logical_doc_id'],
                     'candidate_attachment_ids' => $candidateAttachmentIds,
                     'rejected_at' => $rejectedAt,
-                    'source' => $source,
-                    'is_priority' => $isPriority,
                 ],
-                parentEventId: $event->eventId,
             ));
 
             Logger::warning('Documento lógico rechazado durante asociación física', [
@@ -424,9 +409,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         array $attachment,
         array $context,
         ?string $matchStrategy,
-        array $matchCandidates,
-        ?string $source = null,
-        bool $isPriority = false
+        array $matchCandidates
     ): array {
         $attachmentId = (string) ($attachment['attachment_id'] ?? '');
         $contractHash = (string) ($configuredDocument['extraction_contract']['contract_hash'] ?? '');
@@ -453,8 +436,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'numero_factura'     => $context['numeroFactura'],
             'dis_id'             => $context['disId'],
             'fac_nit_sec'        => $context['nitSec'],
-            'source'             => $source,
-            'is_priority'        => $isPriority,
             'extraction_contract' => $configuredDocument['extraction_contract'],
             'fields_config'      => $configuredDocument['fields'],
             'visual_checks'      => $configuredDocument['visual_checks'],

@@ -148,6 +148,10 @@ abstract class AuditEventConsumer
             'consumer' => $this->consumer(),
             'lane'     => $this->lane,
             'streams'  => $this->activeStreams(),
+            'block_ms' => $this->blockMs,
+            'max_retries' => $this->maxRetries,
+            'pending_reclaim_idle_ms' => $this->pendingReclaimIdleMs,
+            'pending_reclaim_interval_ms' => $this->pendingReclaimIntervalMs,
         ]);
 
         $this->ensureGroup();
@@ -578,13 +582,10 @@ abstract class AuditEventConsumer
 
             $jobStore->releaseAuditReservationFromAudit($audit);
 
-            $this->publisher->publish(AuditEvent::create(
+            $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_AUDIT_FAILED,
-                auditId: $event->auditId,
-                jobId: $event->jobId,
                 documentId: $event->documentId,
                 payload: array_merge($failedPayload, ['failed_at' => gmdate('Y-m-d\TH:i:s\Z')]),
-                parentEventId: $event->eventId,
             ));
         } catch (Throwable $finalizeError) {
             Logger::error('AuditEventConsumer: no se pudo cerrar auditoría antes de DLQ', [

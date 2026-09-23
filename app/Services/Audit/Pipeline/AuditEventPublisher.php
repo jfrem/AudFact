@@ -95,6 +95,7 @@ class AuditEventPublisher
 
     public static function isPriorityEvent(AuditEvent $event): bool
     {
+        // Cada señal explícita basta por sí sola; jobId no determina el carril.
         if (($event->payload['source'] ?? '') === 'single') {
             return true;
         }

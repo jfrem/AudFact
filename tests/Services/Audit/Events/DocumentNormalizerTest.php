@@ -5,12 +5,74 @@ declare(strict_types=1);
 namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\DocumentNormalizer;
+use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Telemetry\TelemetryPublisher;
+use Core\RedisClient;
+use PHPUnit\Framework\Attributes\DataProvider;
 use App\Services\Audit\Pipeline\ExtractedEvidence;
 use App\Services\Audit\Pipeline\ExtractionState;
 use PHPUnit\Framework\TestCase;
 
 final class DocumentNormalizerTest extends TestCase
 {
+    #[DataProvider('routingCases')]
+    public function testProcessingAndRedeliveryPublishNormalizedDocumentsOnOriginalLane(array $routing, string $stream): void
+    {
+        // Arrange:
+        $event = AuditEvent::fromArray([
+            'event_id' => '11111111-1111-4111-8111-111111111111',
+            'audit_id' => '22222222-2222-4222-8222-222222222222',
+            'document_id' => 'doc-1',
+            'event_type' => AuditEvent::TYPE_DOCUMENT_EXTRACTED,
+            'timestamp' => '2026-09-23T12:00:00Z',
+            'payload' => $routing + [
+                'tipo_documento' => 'DISPENSA',
+                'fields_config' => [],
+                'extraction_result' => ['fields' => [], 'items' => [], 'document_quality' => 'legible'],
+            ],
+        ]);
+        $store = $this->createMock(AuditStateStore::class);
+        $store->expects($this->exactly(2))->method('markDocumentNormalized')->willReturn(true);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->exactly(2))->method('xAdd')->with(
+            $stream,
+            $this->callback(function (array $fields) use ($routing, $event): bool {
+                $child = AuditEvent::fromArray(json_decode($fields['event'], true, flags: JSON_THROW_ON_ERROR));
+                $this->assertSame(AuditEvent::TYPE_DOCUMENT_NORMALIZED, $child->eventType);
+                $this->assertSame($event->eventId, $child->parentEventId);
+                $this->assertSame('doc-1', $child->documentId);
+                $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
+                $this->assertArrayNotHasKey('extraction_result', $child->payload);
+                return true;
+            }),
+            $this->anything()
+        )->willReturn('1-0');
+        $worker = new DocumentNormalizer(
+            stateStore: $store,
+            redis: $redis,
+            publisher: new AuditEventPublisher($redis),
+            telemetryPublisher: new TelemetryPublisher($this->createStub(RedisClient::class)),
+            lane: 'all'
+        );
+
+        // Act:
+        $worker->processEvent($event);
+        $worker->processEvent(AuditEvent::fromArray(json_decode($event->toJson(), true, flags: JSON_THROW_ON_ERROR)));
+
+        // Assert:
+        $this->assertSame($routing, array_intersect_key($event->payload, ['source' => true, 'is_priority' => true]));
+    }
+
+    public static function routingCases(): iterable
+    {
+        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_DOCUMENTS_BATCH];
+        yield 'absent' => [[], AuditEventPublisher::STREAM_DOCUMENTS_BATCH];
+    }
+
     public function testNormalizeProducesPlanningContractWithNormalizationLog(): void
     {
         $normalizer = new DocumentNormalizer();

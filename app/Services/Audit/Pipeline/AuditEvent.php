@@ -25,6 +25,7 @@ final class AuditEvent
     public const TYPE_BATCH_REQUESTED      = 'batch_requested';
 
     private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
+    private const ROUTING_PAYLOAD_KEYS = ['source', 'is_priority'];
 
     public readonly string $eventId;
     public readonly ?string $parentEventId;
@@ -109,6 +110,42 @@ final class AuditEvent
             versionRules: self::envVersion('AUDIT_VERSION_RULES', '1.0.0'),
             payload: $payload,
         );
+    }
+
+    /**
+     * Crea la siguiente etapa de la misma auditoría, conservando su transporte.
+     * El payload funcional no puede cambiar el origen ni el carril del padre.
+     * documentId es obligatorio: null representa una etapa de auditoría consolidada.
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function followUp(string $eventType, array $payload, ?string $documentId): self
+    {
+        return self::create(
+            eventType: $eventType,
+            auditId: $this->auditId,
+            jobId: $this->jobId,
+            documentId: $documentId,
+            payload: $this->inheritRoutingMetadata($payload),
+            parentEventId: $this->eventId,
+        );
+    }
+
+    /**
+     * @param array<string,mixed> $stagePayload
+     * @return array<string,mixed>
+     */
+    private function inheritRoutingMetadata(array $stagePayload): array
+    {
+        foreach (self::ROUTING_PAYLOAD_KEYS as $key) {
+            unset($stagePayload[$key]);
+            // La ausencia y null se preservan: no inventar origen ni prioridad.
+            if (array_key_exists($key, $this->payload)) {
+                $stagePayload[$key] = $this->payload[$key];
+            }
+        }
+
+        return $stagePayload;
     }
 
     /**

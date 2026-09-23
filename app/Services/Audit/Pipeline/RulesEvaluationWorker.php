@@ -149,12 +149,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         $rulesEvaluation = $this->aggregateRulesEvaluation($updatedAudit);
         $rulesEvaluation = $this->ensureRulesEvaluationStored($event, $rulesEvaluation);
-        $persistenceEvent = AuditEvent::create(
+        $persistenceEvent = $event->followUp(
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
             payload: $rulesEvaluation,
-            parentEventId: $event->eventId,
+            documentId: null,
         );
 
         $this->persistenceQueue->enqueue($persistenceEvent);

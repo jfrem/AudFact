@@ -420,13 +420,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
      */
     private function publishDocumentExtracted(AuditEvent $event, array $payload, array $documentState): void
     {
-        $this->publisher->publish(AuditEvent::create(
+        $this->publisher->publish($event->followUp(
             eventType: AuditEvent::TYPE_DOCUMENT_EXTRACTED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
             documentId: $event->documentId,
             payload: array_merge($payload, $documentState),
-            parentEventId: $event->eventId,
         ));
     }
 
@@ -485,13 +482,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             throw new RuntimeException('No se pudo marcar el documento como rechazado en Redis');
         }
 
-        $this->publisher->publish(AuditEvent::create(
+        $this->publisher->publish($event->followUp(
             eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
-            auditId: $event->auditId,
-            jobId: $event->jobId,
             documentId: $event->documentId,
             payload: array_merge($payload, $patch),
-            parentEventId: $event->eventId,
         ));
 
         Logger::info('Document rejected by integrity validation', [
