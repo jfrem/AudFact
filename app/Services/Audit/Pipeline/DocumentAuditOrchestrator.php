@@ -96,6 +96,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 'fac_nit_sec' => $context['nitSec'],
                 'dis_id' => $context['disId'],
                 'numero_factura' => $context['numeroFactura'],
+                'dias_vigencia' => $context['auditConfig']['diasVigencia'] ?? null,
             ];
             if (!empty($context['syntheticRejections'])) {
                 $auditPatch['synthetic_rejections'] = $context['syntheticRejections'];

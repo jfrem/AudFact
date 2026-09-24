@@ -11,7 +11,7 @@ namespace App\Services\Audit;
  * de la vigencia de la autorización.
  *
  * Estrategia de resolución:
- * 1. Parámetros de vigencia: evidencia visual de Gemini → defaults globales
+ * 1. Parámetros de vigencia: evidencia visual → configuración del cliente → 60 días
  * 2. Fechas del cálculo: Fuente de Verdad (FDV) del sistema transaccional
  */
 final class DeliveryValidityEvaluator
@@ -34,10 +34,7 @@ final class DeliveryValidityEvaluator
             return [];
         }
 
-        $params = self::resolveValidityParams($candidate['visual']);
-        if ($params === null) {
-            return [self::buildInconclusiveFinding($candidate, 'No se pudo determinar los parámetros de vigencia de entrega.')];
-        }
+        $params = self::resolveValidityParams($candidate['visual'], $audit['dias_vigencia'] ?? null);
 
         $deliveryDate = self::resolveFdvDate($audit, 'FechaEntrega');
         $baseDate     = self::resolveFdvDate($audit, $params['baseField']);
@@ -91,11 +88,12 @@ final class DeliveryValidityEvaluator
     }
 
     /**
-     * Resuelve los parámetros de vigencia priorizando evidencia visual sobre defaults globales.
+     * Resuelve los parámetros de vigencia priorizando evidencia visual sobre configuración
+     * de cliente en BD y finalmente fallback global.
      *
-     * @return array{days:int,baseField:string,source:string}|null
+     * @return array{days:int,baseField:string,source:DeliveryValiditySource}
      */
-    private static function resolveValidityParams(?array $visual): ?array
+    private static function resolveValidityParams(?array $visual, mixed $configuredDays): array
     {
         if (is_array($visual) && ($visual['presente'] ?? false) === true) {
             $days      = self::resolvePositiveInteger($visual['valor'] ?? null);
@@ -103,14 +101,17 @@ final class DeliveryValidityEvaluator
             $baseField = trim((string) ($visual['fecha_base'] ?? ''));
 
             if ($days !== null && $unit === self::DEFAULT_VALIDITY_UNIT && $baseField !== '') {
-                return ['days' => $days, 'baseField' => $baseField, 'source' => 'visual'];
+                return ['days' => $days, 'baseField' => $baseField, 'source' => DeliveryValiditySource::VISUAL];
             }
         }
 
+        $clientDays = self::resolvePositiveInteger($configuredDays);
         return [
-            'days'      => self::DEFAULT_VALIDITY_DAYS,
+            'days'      => $clientDays ?? self::DEFAULT_VALIDITY_DAYS,
             'baseField' => self::DEFAULT_VALIDITY_BASE_FIELD,
-            'source'    => 'default',
+            'source'    => $clientDays === null
+                ? DeliveryValiditySource::SYSTEM_DEFAULT
+                : DeliveryValiditySource::CLIENT_CONFIG,
         ];
     }
 
@@ -187,7 +188,7 @@ final class DeliveryValidityEvaluator
     }
 
     /**
-     * @param array{days:int,baseField:string,source:string} $params
+     * @param array{days:int,baseField:string,source:DeliveryValiditySource} $params
      */
     private static function buildFinding(
         array $candidate,
@@ -204,9 +205,11 @@ final class DeliveryValidityEvaluator
         $limitDateText    = $limitDate->format('Y-m-d');
         $severity         = AuditSeverity::fromInput((string) ($candidate['expected']['severity'] ?? AuditSeverity::MEDIUM->value))->value;
 
-        $sourceNote = $params['source'] === 'visual'
-            ? ''
-            : ' (vigencia por defecto del sistema)';
+        $sourceNote = match ($params['source']) {
+            DeliveryValiditySource::VISUAL => '',
+            DeliveryValiditySource::CLIENT_CONFIG => " (vigencia configurada del cliente: {$days} días)",
+            DeliveryValiditySource::SYSTEM_DEFAULT => ' (vigencia por defecto del sistema)',
+        };
 
         $finding = [
             'campo'              => AuditFindingRules::FIELD_DELIVERY_VALIDITY,

@@ -7,6 +7,7 @@ namespace Tests\Controllers;
 use App\Controllers\AuditConfigController;
 use App\Models\AuditConfigModel;
 use Core\Exceptions\HttpResponseException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class AuditConfigControllerTest extends TestCase
@@ -33,7 +34,8 @@ final class AuditConfigControllerTest extends TestCase
                     return true;
                 }),
                 null,
-                false
+                false,
+                null
             )
             ->willReturn(true);
 
@@ -69,6 +71,99 @@ final class AuditConfigControllerTest extends TestCase
             $this->assertTrue($decoded['success']);
             $this->assertSame(1, $decoded['data']['fieldCount']);
         }
+    }
+
+    #[DataProvider('validValidityDays')]
+    public function testSaveAcceptsValidDiasVigencia(array $validityPayload, ?int $expectedDays): void
+    {
+        // Arrange:
+        $this->modelMock->expects($this->once())
+            ->method('saveConfig')
+            ->with(
+                '2624',
+                $this->isType('array'),
+                null,
+                false,
+                $expectedDays
+            )
+            ->willReturn(true);
+
+        $controller = $this->controllerWithBody($validityPayload);
+
+        // Act:
+        $response = self::captureResponse(fn() => $controller->save('2624'));
+
+        // Assert:
+        $this->assertSame(200, $response->getCode());
+        $this->assertTrue($response->getData()['success']);
+    }
+
+    public static function validValidityDays(): iterable
+    {
+        yield 'minimum' => [['diasVigencia' => 1], 1];
+        yield 'custom days' => [['diasVigencia' => 45], 45];
+        yield 'maximum' => [['diasVigencia' => 365], 365];
+        yield 'integer string' => [['diasVigencia' => '45'], 45];
+        yield 'omitted preserves configuration' => [[], null];
+        yield 'null preserves configuration' => [['diasVigencia' => null], null];
+    }
+
+    #[DataProvider('invalidValidityDays')]
+    public function testSaveRejectsInvalidDiasVigencia(mixed $days): void
+    {
+        // Arrange:
+        $this->modelMock->expects($this->never())->method('saveConfig');
+        $this->modelMock->expects($this->never())->method('catalogFieldExists');
+        $controller = $this->controllerWithBody(['diasVigencia' => $days]);
+
+        // Act:
+        $response = self::captureResponse(fn() => $controller->save('2624'));
+
+        // Assert:
+        $this->assertSame(422, $response->getCode());
+        $this->assertFalse($response->getData()['success']);
+        $this->assertStringContainsString('diasVigencia', $response->getData()['message']);
+    }
+
+    public static function invalidValidityDays(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+        yield 'above maximum' => [366];
+        yield 'fraction' => [1.5];
+        yield 'float' => [1.0];
+        yield 'true' => [true];
+        yield 'false' => [false];
+        yield 'empty' => [''];
+        yield 'text' => ['treinta'];
+        yield 'array' => [[30]];
+    }
+
+    private function controllerWithBody(array $validityPayload): AuditConfigController
+    {
+        $body = $validityPayload + ['systemPrompt' => null, 'fields' => []];
+        return new class($this->modelMock, $body) extends AuditConfigController {
+            public function __construct(AuditConfigModel $model, private array $body)
+            {
+                $this->model = $model;
+            }
+
+            protected function getBody(): array
+            {
+                return $this->body;
+            }
+        };
+    }
+
+    private static function captureResponse(callable $action): HttpResponseException
+    {
+        try {
+            $action();
+        } catch (HttpResponseException $response) {
+            return $response;
+        }
+
+        self::fail('Se esperaba una respuesta HTTP.');
     }
 
     public function testSaveRejectsInvalidAplicaServicioCharacters(): void

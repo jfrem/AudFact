@@ -254,3 +254,16 @@ Consultar estado:
 curl.exe http://localhost:8080/audit/jobs/{jobId}
 curl.exe http://localhost:8080/audit/status/{auditId}
 ```
+
+## Vigencia de entrega configurable
+
+El orquestador copia `auditConfig.diasVigencia` a `dias_vigencia` en Redis,
+conservando null. La evaluación prioriza evidencia visual completa, plazo del
+cliente y fallback de 60 días, en ese orden. `DeliveryValiditySource` distingue
+el origen en el detalle del hallazgo sin añadir campos al contrato persistido.
+La ausencia de fechas FDV sigue produciendo `NO_CONCLUYENTE`. El worker de
+reglas no necesita consultar SQL nuevamente.
+
+El editor conserva null al guardar otros ajustes; seleccionar un plazo lo
+vuelve explícito para el cliente. Ver contrato, validación y rollout en
+[la especificación de vigencia](../sdd-vigencia-entrega-dinamica.md).

@@ -116,9 +116,24 @@ class AuditConfigController extends Controller
 
         $factorConv = (bool) ($body['factorConv'] ?? false);
 
+        $diasVigencia = $body['diasVigencia'] ?? null;
+        if ($diasVigencia !== null) {
+            // No convertir booleanos o decimales JSON en días válidos.
+            $validatedDays = is_int($diasVigencia) || is_string($diasVigencia)
+                ? filter_var($diasVigencia, FILTER_VALIDATE_INT)
+                : false;
+            if ($validatedDays === false || $validatedDays < 1 || $validatedDays > 365) {
+                Response::error(
+                    'El campo "diasVigencia" debe ser un número entero entre 1 y 365 días.',
+                    422
+                );
+            }
+            $diasVigencia = $validatedDays;
+        }
+
         $sanitizedFields = $this->sanitizeFields($body['fields']);
 
-        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt, $factorConv);
+        $this->model->saveConfig($clientId, $sanitizedFields, $systemPrompt, $factorConv, $diasVigencia);
 
         Response::success(
             ['fieldCount' => count($sanitizedFields)],

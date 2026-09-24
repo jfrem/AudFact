@@ -223,11 +223,20 @@ requiere DDL ni migración de esquema.
 |---|---|---|
 | `FacNitSec` | int/varchar | Identificador del cliente/NIT |
 | `SystemPrompt` | text/varchar | Prompt base de extracción/evaluación por cliente |
+| `DiasVigencia` | int nullable | Plazo del cliente; `NULL` conserva el origen del fallback global de 60 días |
 | `Activo` | bit/int | Indica si la configuración está activa |
 | `FecCre` | datetime | Fecha de creación |
 | `FecMod` | datetime | Fecha de modificación |
 
 **Usada por**: `AuditConfigModel` (`getHeader()`, `saveConfig()` con `MERGE`).
+
+`saveConfig(..., diasVigencia: null)` conserva el valor en UPDATE mediante
+`ISNULL(:dvU, target.DiasVigencia)`. En INSERT se enlaza `NULL` explícitamente:
+el `DEFAULT 60` de SQL no se aplica a un NULL explícito. La migración
+`database/migrations/004_add_DiasVigencia_to_AudDisp.sql` agrega la columna solo
+si falta y no modifica valores históricos. Verificar/aplicar el esquema antes
+de desplegar el código que consulta la columna. Rollback: volver a la imagen
+anterior conservando columna y datos.
 
 ---
 

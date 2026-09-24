@@ -59,6 +59,16 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 ## Conexiones y ejecución
 
+### Vigencia por cliente (`AudDisp.DiasVigencia`)
+
+`AuditConfigModel::getConfig()` retorna entero o null sin aplicar el fallback
+de dominio. `saveConfig()` acepta el quinto argumento opcional `?int`;
+`ISNULL(:dvU, target.DiasVigencia)` conserva el valor al omitirlo o enviar null.
+En INSERT, `:dvI = NULL` no activa el DEFAULT SQL. El fallback de 60 días vive
+en `DeliveryValidityEvaluator`. La migración 004 solo agrega la columna ausente;
+verificarla antes del despliegue. No elimina ni actualiza datos históricos.
+
+
 | Método | Descripción |
 |---|---|
 | `getConnection($name)` | Conexión cacheada por fingerprint; usar para health y consumidores puntuales, no en modelos de workers largos |

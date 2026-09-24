@@ -138,6 +138,15 @@ public function miAccion(): void
 ```
 
 ## Anti-patterns ⚠️
+
+### Vigencia configurable del cliente
+
+`GET /clients/{clientId}/audit-config` expone `diasVigencia` como entero o null,
+sin convertir ausencia de configuración en 60 persistido. POST acepta 1..365
+como entero o string entero; rechaza booleanos/floats con 422. Ausencia/null
+preserva el plazo existente; una cabecera nueva conserva NULL. El formulario
+de creación que solo envía `systemPrompt` y `fields` sigue siendo válido.
+
 1. **No concatenar parámetros de ruta en SQL** — siempre parametrizar vía modelo.
 2. **No crear endpoints sin validación** — todo POST/PUT requiere `validate()`.
 3. **No devolver excepciones al cliente en prod** — `index.php` ya maneja esto globalmente.

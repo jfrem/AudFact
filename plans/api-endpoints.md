@@ -527,6 +527,10 @@ Respuesta:
 
 Obtiene la configuración completa de auditoría para un cliente, incluyendo el prompt del sistema, campos de datos por documento y visual checks separados con su respectivo `aplicaServicio` (`TODOS`, `POS`, `MIPRES`, etc.).
 
+`diasVigencia` conserva el plazo configurado o `null` si no existe. El fallback
+de 60 días se aplica al evaluar y mostrar la vigencia; no se presenta como una
+configuración persistida. La evidencia visual completa del documento tiene prioridad.
+
 Respuesta:
 ```json
 {
@@ -536,6 +540,7 @@ Respuesta:
     "activo": true,
     "systemPrompt": "...",
     "factorConv": false,
+    "diasVigencia": 30,
     "documents": {
       "DISPENSA": {
         "docId": 1,
@@ -582,11 +587,18 @@ Respuesta:
 Guarda/reemplaza completamente la configuración de auditoría. La UI envía solo los campos activos; no existe `enabled` ni `rol` en el contrato runtime. Se puede especificar opcionalmente `aplicaServicio` (`TODOS` por defecto, o modalidades específicas como `POS` o `MIPRES`).
 **NOTA:** El campo `systemPrompt` es de envío **obligatorio** (`string` o `null`); omitirlo resulta en un error HTTP 422 para prevenir borrados accidentales del prompt.
 
+`diasVigencia` es opcional: acepta enteros entre 1 y 365, incluyendo strings
+enteros normalizados por el controlador. Booleanos, floats y valores fuera del
+rango producen HTTP 422 antes de consultar el catálogo o guardar. Omitirlo o
+enviar `null` conserva el valor existente; al crear una cabecera guarda `NULL`.
+`null` no es una orden para borrar un plazo ya configurado.
+
 Body:
 ```json
 {
   "systemPrompt": "...",
   "factorConv": false,
+  "diasVigencia": 30,
   "fields": [
     {
       "docId": 1,

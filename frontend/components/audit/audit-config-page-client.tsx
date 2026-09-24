@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   AlertTriangle,
+  Building2,
   DatabaseZap,
   FileX2,
   RefreshCw,
@@ -83,30 +84,63 @@ export function AuditConfigPageClient({
           />
         </div>
 
-        <SectionCard
-          title="Cliente bajo análisis"
-          description="Selecciona la EPS cuyo contrato de auditoría deseas consultar o editar."
-        >
-          <Field className="relative z-40 max-w-3xl">
-            <FieldLabel>
-              <Users className="h-3.5 w-3.5" aria-hidden="true" />
-              EPS / cliente
-            </FieldLabel>
-            <ClientSelector
-              clients={clients}
-              currentClientId={clientId}
-              onCreateNew={() => setCreateOpen(true)}
-            />
-            {clientsError ? (
-              <Alert variant="warning" className="mt-2 px-3 py-2">
-                <AlertTriangle />
-                <AlertDescription className="text-xs leading-5">
-                  No se pudo cargar el listado de clientes: {clientsError}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-          </Field>
-        </SectionCard>
+        {clientId && hasConfig ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+                <Building2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                    Cliente en configuración
+                  </span>
+                  <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    NitSec: {clientId}
+                  </span>
+                </div>
+                <h2 className="truncate text-base font-semibold text-foreground">
+                  {selected?.NitCom ?? `Cliente ${clientId}`}
+                </h2>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="w-full sm:w-64">
+                <ClientSelector
+                  clients={clients}
+                  currentClientId={clientId}
+                  onCreateNew={() => setCreateOpen(true)}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <SectionCard
+            title="Cliente bajo análisis"
+            description="Selecciona la EPS cuyo contrato de auditoría deseas consultar o editar."
+          >
+            <Field className="relative z-40 max-w-3xl">
+              <FieldLabel>
+                <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                EPS / cliente
+              </FieldLabel>
+              <ClientSelector
+                clients={clients}
+                currentClientId={clientId}
+                onCreateNew={() => setCreateOpen(true)}
+              />
+            </Field>
+          </SectionCard>
+        )}
+
+        {clientsError ? (
+          <Alert variant="warning" className="px-3 py-2">
+            <AlertTriangle />
+            <AlertDescription className="text-xs leading-5">
+              No se pudo cargar el listado de clientes: {clientsError}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {!clientId && clientsError ? (
           <ErrorPanel

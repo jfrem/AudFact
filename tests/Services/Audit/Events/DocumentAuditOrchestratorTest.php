@@ -20,6 +20,40 @@ use RuntimeException;
 
 final class DocumentAuditOrchestratorTest extends TestCase
 {
+    #[DataProvider('validityConfigurations')]
+    public function testOrchestratorPatchesDiasVigencia(array $configuration, ?int $expectedDays): void
+    {
+        // Arrange:
+        $store = new RecordingStateStore();
+        $orchestrator = $this->makeOrchestrator(
+            $this->makeSingleDocumentDataService(configOverrides: $configuration),
+            $store,
+        );
+        $event = AuditEvent::fromArray([
+            'event_id' => '11111111-1111-4111-8111-111111111111',
+            'audit_id' => '22222222-2222-4222-8222-222222222222',
+            'event_type' => AuditEvent::TYPE_AUDIT_CREATED,
+            'timestamp' => '2026-09-24T12:00:00Z',
+            'payload' => ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098'],
+        ]);
+
+        // Act:
+        $orchestrator->processEvent($event);
+
+        // Assert:
+        $this->assertCount(1, $store->patches);
+        $this->assertArrayHasKey('dias_vigencia', $store->patches[0]);
+        $this->assertSame($expectedDays, $store->patches[0]['dias_vigencia']);
+    }
+
+    public static function validityConfigurations(): iterable
+    {
+        yield 'custom days' => [['diasVigencia' => 30], 30];
+        yield 'explicit 60' => [['diasVigencia' => 60], 60];
+        yield 'null' => [['diasVigencia' => null], null];
+        yield 'absent' => [[], null];
+    }
+
     #[DataProvider('routingCases')]
     public function testFanOutPreservesRoutingAndCausalityForMatchesAndRejections(array $routing, ?string $jobId, bool $priority): void
     {
@@ -657,7 +691,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
     /**
      * @param array<string,string> $headerOverrides
      */
-    private function makeSingleDocumentDataService(array $headerOverrides = []): StubAuditDataService
+    private function makeSingleDocumentDataService(array $headerOverrides = [], array $configOverrides = []): StubAuditDataService
     {
         return new StubAuditDataService(
             dispensation: [
@@ -671,7 +705,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             clientDocuments: [
                 ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
             ],
-            auditConfig: [
+            auditConfig: $configOverrides + [
                 'nitSec'    => '2426',
                 'activo'    => true,
                 'documents' => [

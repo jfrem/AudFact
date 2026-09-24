@@ -231,6 +231,16 @@ flowchart TD
 
 ## Aplicabilidad condicional por servicio (`AplicaServicio`)
 
+### Vigencia de entrega por cliente
+
+`DocumentAuditOrchestrator` copia `auditConfig.diasVigencia` a `dias_vigencia`
+del estado Redis. Conserva null y evita otra consulta desde policy.
+`DeliveryValidityEvaluator` prioriza evidencia visual completa, luego entero
+positivo configurado y finalmente 60 días. Usa el enum interno
+`DeliveryValiditySource` para distinguir el origen en `detalle`; no serializa
+el enum ni cambia la firma pública `evaluate(array, array)`.
+
+
 El sistema soporta aplicabilidad condicional declarativa por modalidad de servicio (`AplicaServicio`: `TODOS`, `POS`, `MIPRES`, etc.):
 - `DocumentAuditOrchestrator::resolveServiceType()` extrae dinámicamente la clave canónica `'Tipo'` de los ítems de la Fuente de Verdad (`$fuenteVerdad['items']`).
 - Al armar `configuredDocuments`, `DocumentAuditOrchestrator` filtra en memoria los `fields` y `visualChecks` según el servicio resuelto (`$aplica === 'TODOS' || $serviceType === 'TODOS' || $aplica === $serviceType`).

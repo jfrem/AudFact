@@ -1,5 +1,15 @@
 # Changelog AudFact
 
+## [2026-09-24] - Vigencia configurable: revisión de mantenibilidad
+
+- **Decisión `APROBAR`**, evolución incremental, sin excepciones: se mantiene evidencia visual > plazo de cliente > 60 días. Enum interno `DeliveryValiditySource`, resolución total sin retorno nullable imposible y propagación del plazo vía Redis.
+- `diasVigencia` conserva null desde SQL hasta el editor: mostrar el fallback no lo convierte en plazo configurado al guardar otros ajustes. POST conserva datos si el campo falta o es null y rechaza booleanos/floats antes de escribir. Se conservan los consumidores que omiten el quinto argumento y la firma pública del evaluador.
+- UI: opciones de días declaradas una sola vez, nombres consistentes al editar checks, controles con nombre accesible, checks guardados visibles aunque falten del catálogo y errores de carga visibles con cliente seleccionado. Se mantienen los cambios visuales del diff y se recuperan finales de línea de bloques originales.
+- Pruebas por API pública con providers para rango/tipos, nulabilidad y binds PDO, precedencia y límites temporales, y propagación desde el orquestador. No se usa Reflection ni SQL/Redis/Gemini reales.
+- Sincronizados API, esquema, arquitectura, workflow y SDD; skills REST, SQL y auditoría, además del catálogo. La migración se documenta antes del despliegue; NULL explícito no activa DEFAULT SQL. No se afirma haber consultado ni migrado producción.
+- Validación: `php vendor/bin/phpunit --no-coverage`: 702 pruebas, 2814 aserciones, cero fallos, dos omisiones (Redis opt-in y `pdftoppm` ausente). `php scripts/lint-php.php`: 168 archivos sin errores. Typecheck y lint frontend correctos; esquema Zod comprobado con 15 casos válidos/inválidos. `node .agent/skills/_shared/scripts/validate-skills.mjs`: PASS (21 skills, 8 bundles). `npm.cmd run build` en `website`: correcto. `git -c core.whitespace=cr-at-eol diff --check`: correcto.
+- Build final de frontend (`npm.cmd run build`): correcto. Una ejecución intermedia falló por archivos generados de páginas ausentes durante recopilación; el reintento secuencial completó compilación, comprobación de tipos y generación de páginas sin cambios de código adicionales. No se verificó SQL Server real ni interacción en navegador.
+
 ## [2026-09-23] - Fix: Continuidad del carril prioritario de auditoría
 
 - **Cierre del fan-out documental**: `DocumentAuditOrchestrator` deriva registros y rechazos de mapping mediante `followUp()`. Se elimina la inferencia `job_id=null -> source=single` y la copia manual de transporte en `buildDocumentState()`. El publisher mantiene sus señales explícitas independientes; nuevas pruebas cubren fan-out mixto, correlación, ausencia/null de metadata y publicación directa con/sin job, incluyendo tipos no booleanos. Sincronizadas arquitectura, workflow y skills de auditoría/overview.

@@ -17,6 +17,7 @@ import {
   Sparkles,
   Save,
   Settings2,
+  CalendarClock,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -75,6 +76,9 @@ type DocState = {
   fields: FieldToggle[];
   tipoDocDirective?: string;
 };
+
+const DEFAULT_VALIDITY_DAYS = 60;
+const VALIDITY_DAY_OPTIONS = [30, 60, 90, 120, 180, 365];
 
 // ─── Directivas sugeridas de tipología documental ───────────────────────────
 
@@ -172,6 +176,10 @@ export function AuditConfigEditor({
   const [factorConv, setFactorConv] = React.useState(
     config.factorConv ?? false,
   );
+  const [diasVigencia, setDiasVigencia] = React.useState<number | null>(
+    config.diasVigencia,
+  );
+  const effectiveValidityDays = diasVigencia ?? DEFAULT_VALIDITY_DAYS;
   const [saving, setSaving] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [addFieldDialogOpen, setAddFieldDialogOpen] = React.useState(false);
@@ -248,6 +256,7 @@ export function AuditConfigEditor({
     setDocs(docEntries);
     setSystemPrompt(config.systemPrompt ?? "");
     setFactorConv(config.factorConv ?? false);
+    setDiasVigencia(config.diasVigencia);
     setActiveTab((current) => {
       if (docEntries.length === 0) return "";
       return docEntries.some((doc) => doc.docName === current)
@@ -258,6 +267,11 @@ export function AuditConfigEditor({
 
   const handleToggleFactorConv = (checked: boolean) => {
     setFactorConv(checked);
+    setDirty(true);
+  };
+
+  const handleValidityDaysChange = (days: number) => {
+    setDiasVigencia(days);
     setDirty(true);
   };
 
@@ -272,7 +286,7 @@ export function AuditConfigEditor({
           ? {
               ...d,
               fields: d.fields.map((f) =>
-                f.campoNombre === campoNombre ? { ...f, ...updates } : f,
+                sameFieldName(f.campoNombre, campoNombre) ? { ...f, ...updates } : f,
               ),
             }
           : d,
@@ -432,6 +446,7 @@ export function AuditConfigEditor({
     return {
       systemPrompt: systemPrompt.trim() || null,
       factorConv,
+      diasVigencia,
       fields,
     };
   };
@@ -464,11 +479,23 @@ export function AuditConfigEditor({
   const dataFields = activeDoc?.fields.filter((f) => f.tipoCampo !== "V") ?? [];
   const visualFields =
     activeDoc?.fields.filter((f) => f.tipoCampo === "V") ?? [];
-  const selectedVisualCount = visualCheckOptions.filter((option) =>
-    visualFields.some((field) =>
-      sameFieldName(field.campoNombre, option.campoNombre),
-    ),
-  ).length;
+  // Los checks guardados siguen siendo editables si dejan de aparecer en el catálogo.
+  const visibleVisualOptions: FieldCatalogItem[] = [
+    ...visualCheckOptions,
+    ...visualFields
+      .filter((field) => !visualCheckOptions.some((option) =>
+        sameFieldName(field.campoNombre, option.campoNombre),
+      ))
+      .map((field) => ({
+        campoNombre: field.campoNombre,
+        codigoCampo: field.codigoCampo ?? "",
+        tipoCampo: "V",
+        tipoDato: null,
+        descripcion: field.descripcionOverride ?? null,
+        severidad: field.severityOverride ?? "ALTA",
+        esVisual: true,
+      })),
+  ];
   const totalCount = activeDoc?.fields.length ?? 0;
 
   const totalAllFields = docs.reduce((acc, d) => acc + d.fields.length, 0);
@@ -488,7 +515,7 @@ export function AuditConfigEditor({
   return (
     <div className="space-y-6">
       {/* ── Stats Bar ──────────────────────────────────────────────── */}
-      <div className="grid border-y border-border sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid border-y border-border sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Cliente" value={config.nitSec} tone="cyan" />
         <StatCard
           label="Estado"
@@ -505,6 +532,12 @@ export function AuditConfigEditor({
           label="Campos activos"
           value={`${totalAllFields} configurados`}
           tone="amber"
+        />
+        <StatCard
+          label={diasVigencia === null ? "Vigencia por defecto" : "Vigencia del cliente"}
+          value={`${effectiveValidityDays} días`}
+          tone="cyan"
+          icon={CalendarClock}
         />
       </div>
 
@@ -723,66 +756,99 @@ export function AuditConfigEditor({
             <SectionLabel
               icon={Eye}
               text="Verificaciones visuales"
-              count={`${selectedVisualCount}/${visualCheckOptions.length}`}
+              count={`${visualFields.length}/${visibleVisualOptions.length}`}
               color="violet"
             />
-            <VisualCheckPicker
-              options={visualCheckOptions}
-              selectedFields={visualFields}
-              onToggle={(option) =>
-                toggleVisualCheckOption(activeDoc.docName, option)
-              }
-            />
-            {visualFields.length > 0 && (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {visualFields.map((field, index) => (
-                  <VisualCheckRow
-                    key={`V-${field.campoNombre}-${index}`}
-                    field={field}
-                    onRemove={() =>
-                      removeField(activeDoc.docName, field.campoNombre)
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleVisualOptions.map((option) => {
+                const selectedField = visualFields.find((f) =>
+                  sameFieldName(f.campoNombre, option.campoNombre),
+                );
+                return (
+                  <VisualCheckCard
+                    key={option.campoNombre}
+                    option={option}
+                    selectedField={selectedField}
+                    onToggle={() =>
+                      toggleVisualCheckOption(activeDoc.docName, option)
                     }
                     onUpdate={(updates) =>
-                      updateField(activeDoc.docName, field.campoNombre, updates)
+                      updateField(activeDoc.docName, option.campoNombre, updates)
                     }
+                    diasVigencia={diasVigencia}
+                    onUpdateDiasVigencia={handleValidityDaysChange}
                   />
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
         </section>
       )}
 
-      {/* ── Factor de Conversión (Empaque) ─────────────────────────── */}
-      <section className="rounded-lg border border-border bg-card p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Scale className={cn("h-4 w-4", factorConv ? "text-emerald-400" : "text-slate-400")} />
-              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-                Tolerancia por Factor de Conversión (Empaque Comercial)
-              </span>
+      {/* ── Política Global de Liquidación & Tolerancia ──────────── */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <Settings2 className="h-4 w-4 text-slate-400" />
+          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+            Política de Tolerancia de Liquidación
+          </span>
+        </div>
+
+        {/* Card: Tolerancia por Factor de Conversión */}
+        <div className="flex flex-col justify-between rounded-lg border border-border bg-card p-5 transition-colors duration-150 hover:border-slate-700/60">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-md border transition-colors",
+                    factorConv
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                      : "border-slate-700/40 bg-slate-800/60 text-slate-400",
+                  )}
+                >
+                  <Scale className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold text-foreground">
+                    Factor de Conversión
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    Tolerancia por empaque comercial no fraccionable
+                  </p>
+                </div>
+              </div>
               <span
                 className={cn(
-                  "rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                  "rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-semibold transition-colors",
                   factorConv
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+                    ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
                     : "border-slate-700/40 bg-slate-800/60 text-slate-400",
                 )}
               >
                 {factorConv ? "Tolerancia Activa" : "Entrega Exacta"}
               </span>
             </div>
-            <p className="text-xs leading-relaxed text-slate-500 max-w-3xl">
-              Permite auditar entregas de medicamentos en presentación comercial cerrada no fraccionable con diferencias justificadas por empaque (ej. Positiva 2426). Desactívelo para clientes con liquidación posológica exacta estricta (ej. Nueva EPS 2624).
+
+            <p className="text-xs leading-relaxed text-slate-400">
+              Audita entregas con diferencias toleradas por presentación comercial no fraccionable (blíster, frasco o caja cerrada). Desactívelo si la aseguradora liquida con precisión posológica estricta.
             </p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <Switch
-              checked={factorConv}
-              onCheckedChange={handleToggleFactorConv}
-              aria-label="Tolerancia por Factor de Conversión"
-            />
+
+          <div className="mt-4 flex items-center justify-between border-t border-border/80 pt-3">
+            <span className="text-[11px] text-slate-500">
+              Estado de la regla:
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground font-mono">
+                {factorConv ? "Habilitado" : "Deshabilitado"}
+              </span>
+              <Switch
+                checked={factorConv}
+                onCheckedChange={handleToggleFactorConv}
+                aria-label="Tolerancia por Factor de Conversión"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -951,72 +1017,7 @@ function SectionLabel({
   );
 }
 
-function VisualCheckPicker({
-  options,
-  selectedFields,
-  onToggle,
-}: {
-  options: FieldCatalogItem[];
-  selectedFields: FieldToggle[];
-  onToggle: (option: FieldCatalogItem) => void;
-}) {
-  return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-      {options.map((option) => {
-        const checkboxId = `visual-check-${option.campoNombre}`;
-        const checked = selectedFields.some((field) =>
-          sameFieldName(field.campoNombre, option.campoNombre),
-        );
 
-        return (
-          <div
-            key={option.campoNombre}
-            onClick={(event) => {
-              const target = event.target as HTMLElement;
-              if (target.closest("label")) return;
-              onToggle(option);
-            }}
-            className={cn(
-              "flex min-h-14 cursor-pointer items-start gap-3 rounded-md border px-3 py-3 transition-colors",
-              checked
-                ? "border-violet-400/35 bg-violet-500/10 text-foreground"
-                : "border-border bg-background text-muted-foreground hover:bg-[var(--surface-hover)]",
-            )}
-          >
-            <Checkbox
-              id={checkboxId}
-              checked={checked}
-              onCheckedChange={(nextChecked) => {
-                if (nextChecked !== checked) {
-                  onToggle(option);
-                }
-              }}
-              onClick={(event) => event.stopPropagation()}
-              aria-label={`Seleccionar ${option.campoNombre}`}
-              className="mt-0.5"
-            />
-            <Label
-              htmlFor={checkboxId}
-              className="min-w-0 cursor-pointer space-y-1 normal-case tracking-normal"
-            >
-              <span
-                className={cn(
-                  "block text-[12px] font-semibold",
-                  checked ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                {option.campoNombre}
-              </span>
-              <span className="block text-[10px] leading-relaxed text-slate-600">
-                {option.descripcion}
-              </span>
-            </Label>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function ServiceBadge({ service }: { service?: string }) {
   const normalized = normalizeAplicaServicio(service);
@@ -1216,121 +1217,211 @@ function FieldRow({
   );
 }
 
-function VisualCheckRow({
-  field,
-  onRemove,
+function VisualCheckCard({
+  option,
+  selectedField,
+  onToggle,
   onUpdate,
+  diasVigencia,
+  onUpdateDiasVigencia,
 }: {
-  field: FieldToggle;
-  onRemove: () => void;
+  option: FieldCatalogItem;
+  selectedField?: FieldToggle;
+  onToggle: () => void;
   onUpdate: (u: Partial<FieldToggle>) => void;
+  diasVigencia: number | null;
+  onUpdateDiasVigencia: (days: number) => void;
 }) {
+  const isEnabled = selectedField !== undefined;
+  const checkboxId = `visual-check-${option.campoNombre}`;
+  const isVigencia = sameFieldName(option.campoNombre, "VigenciaEntrega");
+
   return (
-    <div className="group rounded-md border border-border bg-background transition-colors hover:border-[var(--border-strong)]">
-      {/* Row header */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <Label className="truncate font-mono text-[12px] normal-case tracking-normal text-slate-300">
-            {field.campoNombre}
-          </Label>
-          <span className="shrink-0 rounded border border-violet-400/25 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
-            Visual
-          </span>
-          <ServiceBadge service={field.aplicaServicio} />
+    <div
+      className={cn(
+        "group flex flex-col justify-between rounded-lg border transition-colors duration-150",
+        isEnabled
+          ? isVigencia
+            ? "border-cyan-500/35 bg-card"
+            : "border-violet-500/35 bg-card"
+          : "border-border/80 bg-background/50 hover:border-slate-700/80 hover:bg-[var(--surface-hover)]",
+      )}
+    >
+      {/* Header con checkbox, nombre, badge e interacción */}
+      <div className="p-3.5 space-y-2">
+        <div className="flex items-start justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Checkbox
+              id={checkboxId}
+              checked={isEnabled}
+              onCheckedChange={onToggle}
+              aria-label={`Activar verificación visual ${option.campoNombre}`}
+              className="mt-0.5"
+            />
+            <Label
+              htmlFor={checkboxId}
+              className={cn(
+                "cursor-pointer truncate font-mono text-[12px] font-semibold tracking-normal transition-colors",
+                isEnabled ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {option.campoNombre}
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isVigencia && isEnabled && (
+              <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300">
+                {diasVigencia ?? DEFAULT_VALIDITY_DAYS}d
+              </span>
+            )}
+            <span
+              className={cn(
+                "rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                isEnabled
+                  ? isVigencia
+                    ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-300"
+                    : "border-violet-500/30 bg-violet-500/10 text-violet-300"
+                  : "border-slate-800 bg-slate-900/60 text-slate-500",
+              )}
+            >
+              Visual
+            </span>
+
+            {isEnabled && (
+              <Dialog>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DialogTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Configurar hint de ${option.campoNombre}`}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Settings2 className="h-3 w-3" />
+                      </button>
+                    </DialogTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Configurar Hint Visual</TooltipContent>
+                </Tooltip>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Configurar {option.campoNombre}</DialogTitle>
+                    <DialogDescription>
+                      Ajusta la instrucción para la IA sobre esta verificación visual.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor={`desc-${option.campoNombre}`} className="text-xs">
+                        Descripción / Hint Visual
+                      </Label>
+                      <Textarea
+                        id={`desc-${option.campoNombre}`}
+                        value={selectedField.descripcionOverride ?? option.descripcion ?? ""}
+                        onChange={(e) =>
+                          onUpdate({ descripcionOverride: e.target.value })
+                        }
+                        placeholder="Ej: Verificar vigencia en días desde fecha base"
+                        className="min-h-[120px] resize-none bg-background/50 font-mono text-xs text-slate-300"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button type="button">Listo</Button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Dialog>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DialogTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`Configurar override de ${field.campoNombre}`}
-                    className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <Settings2 className="h-3.5 w-3.5" />
-                  </button>
-                </DialogTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Configurar Hint Visual</TooltipContent>
-            </Tooltip>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Configurar {field.campoNombre}</DialogTitle>
-                <DialogDescription>
-                  Ajusta la instrucción para la IA sobre esta verificación
-                  visual.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label
-                    htmlFor={`desc-${field.campoNombre}`}
-                    className="text-xs"
-                  >
-                    Descripción / Hint Visual
-                  </Label>
-                  <Textarea
-                    id={`desc-${field.campoNombre}`}
-                    value={field.descripcionOverride ?? ""}
-                    onChange={(e) =>
-                      onUpdate({ descripcionOverride: e.target.value })
-                    }
-                    placeholder="Ej: Verificar firma del médico tratante"
-                    className="min-h-[120px] resize-none bg-background/50 font-mono text-xs text-slate-300"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button">Listo</Button>
-                </DialogClose>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onRemove}
-                aria-label={`Eliminar ${field.campoNombre}`}
-                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Eliminar verificación</TooltipContent>
-          </Tooltip>
-        </div>
+
+        {/* Descripción de la verificación */}
+        <p className={cn(
+          "text-[11px] leading-relaxed transition-colors",
+          isEnabled ? "text-slate-400" : "text-slate-600",
+        )}>
+          {selectedField?.descripcionOverride ?? option.descripcion}
+        </p>
       </div>
 
-      {/* Expanded options */}
-      <div className="flex flex-col gap-2.5 border-t border-border px-3 pb-3 pt-2">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div className="space-y-1">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
-              Severidad
-            </span>
-            <Select
-              value={field.severityOverride ?? "ALTA"}
-              onValueChange={(val) => onUpdate({ severityOverride: val })}
-            >
-              <SelectTrigger className="h-8 rounded-lg bg-background/50 text-[11px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALTA">Alta</SelectItem>
-                <SelectItem value="MEDIA">Media</SelectItem>
-                <SelectItem value="BAJA">Baja</SelectItem>
-              </SelectContent>
-            </Select>
+      {/* Opciones configurables cuando está habilitada */}
+      {isEnabled ? (
+        <div className="border-t border-border/70 bg-muted/20 px-3.5 py-2.5">
+          <div
+            className={cn(
+              "grid gap-2",
+              isVigencia ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2",
+            )}
+          >
+            <div className="space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Severidad
+              </span>
+              <Select
+                value={selectedField.severityOverride ?? "ALTA"}
+                onValueChange={(val) => onUpdate({ severityOverride: val })}
+              >
+                <SelectTrigger aria-label={`Severidad de ${option.campoNombre}`} className="h-7.5 rounded-md bg-background/80 text-[11px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALTA">Alta</SelectItem>
+                  <SelectItem value="MEDIA">Media</SelectItem>
+                  <SelectItem value="BAJA">Baja</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <ServiceSelect
+              value={selectedField.aplicaServicio}
+              onChange={(val) => onUpdate({ aplicaServicio: val })}
+            />
+            {isVigencia && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Plazo del cliente
+                </span>
+                <Select
+                  value={diasVigencia === null ? "default" : String(diasVigencia)}
+                  onValueChange={(val) =>
+                    onUpdateDiasVigencia(parseInt(val, 10))
+                  }
+                >
+                  <SelectTrigger aria-label="Plazo de vigencia del cliente en días" className="h-7.5 rounded-md bg-background/80 text-[11px] font-medium text-cyan-300">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {diasVigencia === null && (
+                      <SelectItem value="default" disabled>
+                        {DEFAULT_VALIDITY_DAYS} días (por defecto)
+                      </SelectItem>
+                    )}
+                    {VALIDITY_DAY_OPTIONS.map((days) => (
+                      <SelectItem key={days} value={String(days)}>
+                        {days} días
+                      </SelectItem>
+                    ))}
+                    {diasVigencia !== null && !VALIDITY_DAY_OPTIONS.includes(diasVigencia) && (
+                      <SelectItem value={String(diasVigencia)}>
+                        {diasVigencia} días
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground">
+                  Aplica a todos los documentos del cliente sin vigencia explícita.
+                </p>
+              </div>
+            )}
           </div>
-          <ServiceSelect
-            value={field.aplicaServicio}
-            onChange={(val) => onUpdate({ aplicaServicio: val })}
-          />
         </div>
-      </div>
+      ) : (
+        <div className="border-t border-border/40 px-3.5 py-2 text-right">
+          <span className="text-[10px] text-slate-600 font-mono">Inactivo</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -104,7 +104,8 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `AuditFindingResult.php` | Value-object inmutable de resultado de hallazgo: `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `INCONCLUSO` |
 | `AuditFindingRules.php` | Reglas de evaluación de hallazgos por tipo de campo y severidad |
 | `AuditSeverity.php` | Enum de severidad: `alta`, `media`, `baja` |
-| `DeliveryValidityEvaluator.php` | Valida la vigencia de la entrega (fechas, cantidades) contra la FDV |
+| `DeliveryValidityEvaluator.php` | Calcula vigencia con fechas de FDV: evidencia visual, plazo del cliente o fallback de 60 días |
+| `DeliveryValiditySource.php` | Enum interno del origen del plazo; evita strings de control y no cambia HTTP/Redis |
 | `DocumentDuplicationEvaluator.php` | Detecta documentos binariamente idénticos (SHA-256) cargados en distintas ranuras de la misma auditoría |
 | `DocumentQuality.php` | Enum de calidad documental: `legible`, `parcialmente_legible`, `ilegible` |
 | `IdentityDocNormalizer.php` | Normalización de nombres y documentos de identidad para comparación determinista |

@@ -144,6 +144,7 @@ export const AuditConfigSchema = z.object({
   activo: z.boolean(),
   systemPrompt: z.string().nullable(),
   factorConv: z.boolean().optional().default(false),
+  diasVigencia: z.number().int().min(1).max(365).nullable().optional().default(null),
   documents: z.record(z.string(), AuditConfigDocumentSchema),
 });
 

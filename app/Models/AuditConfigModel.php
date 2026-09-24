@@ -111,6 +111,7 @@ class AuditConfigModel extends Model
             'activo'       => (bool) $header['Activo'],
             'systemPrompt' => $header['SystemPrompt'],
             'factorConv'   => (bool) ($header['FactorConv'] ?? false),
+            'diasVigencia' => isset($header['DiasVigencia']) ? (int) $header['DiasVigencia'] : null,
             'documents'    => empty($documents) ? new \stdClass() : $documents,
         ];
     }
@@ -121,7 +122,7 @@ class AuditConfigModel extends Model
     public function getHeader(string $nitSec): ?array
     {
         $sql = "
-            SELECT FacNitSec, SystemPrompt, Activo, FecCre, FecMod, FactorConv
+            SELECT FacNitSec, SystemPrompt, Activo, FecCre, FecMod, FactorConv, DiasVigencia
             FROM Discolnet.dbo.AudDisp WITH (NOLOCK)
             WHERE FacNitSec = :nitSec
         ";
@@ -155,22 +156,26 @@ class AuditConfigModel extends Model
      *                                    'orden'=>1,'description'=>null,
      *                                    'severity'=>null], ...]
      * @param string|null $systemPrompt Prompt personalizado (opcional)
+     * @param bool        $factorConv   Flag factor de conversión
+     * @param int|null    $diasVigencia Días configurados; null conserva el valor existente.
      */
     public function saveConfig(
         string $nitSec,
         array $fields,
         ?string $systemPrompt = null,
-        bool $factorConv = false
+        bool $factorConv = false,
+        ?int $diasVigencia = null
     ): bool {
         return $this->nonReplayableWrite(function (PDO $db) use (
             $nitSec,
             $fields,
             $systemPrompt,
-            $factorConv
+            $factorConv,
+            $diasVigencia
         ): bool {
             try {
                 $db->beginTransaction();
-                $this->upsertHeader($db, $nitSec, $systemPrompt, $factorConv);
+                $this->upsertHeader($db, $nitSec, $systemPrompt, $factorConv, $diasVigencia);
                 $this->replaceFields($db, $nitSec, $fields);
                 $db->commit();
             } catch (\Throwable $error) {
@@ -195,6 +200,7 @@ class AuditConfigModel extends Model
             Logger::info('AuditConfigModel::saveConfig — OK', [
                 'nitSec' => $nitSec,
                 'fieldCount' => count($fields),
+                'diasVigencia' => $diasVigencia,
             ]);
 
             return true;
@@ -209,8 +215,13 @@ class AuditConfigModel extends Model
      * Inserta o actualiza la fila en AudDisp.
      * Usa MERGE para ser idempotente (primera vez crea, siguientes actualizan).
      */
-    private function upsertHeader(\PDO $db, string $nitSec, ?string $systemPrompt, bool $factorConv = false): void
-    {
+    private function upsertHeader(
+        \PDO $db,
+        string $nitSec,
+        ?string $systemPrompt,
+        bool $factorConv = false,
+        ?int $diasVigencia = null
+    ): void {
         $sql = "
             MERGE Discolnet.dbo.AudDisp AS target
             USING (SELECT :nitSec AS FacNitSec) AS source
@@ -219,10 +230,11 @@ class AuditConfigModel extends Model
                 UPDATE SET
                     SystemPrompt = :promptU,
                     FactorConv   = :fcU,
+                    DiasVigencia = ISNULL(:dvU, target.DiasVigencia),
                     FecMod       = GETDATE()
             WHEN NOT MATCHED THEN
-                INSERT (FacNitSec, SystemPrompt, Activo, FactorConv, FecCre, FecMod)
-                VALUES (:nitSecI, :promptI, 1, :fcI, GETDATE(), GETDATE());";
+                INSERT (FacNitSec, SystemPrompt, Activo, FactorConv, DiasVigencia, FecCre, FecMod)
+                VALUES (:nitSecI, :promptI, 1, :fcI, :dvI, GETDATE(), GETDATE());";
 
         $stmt = $db->prepare($sql);
         $stmt->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
@@ -240,6 +252,10 @@ class AuditConfigModel extends Model
         $fcVal = $factorConv ? 1 : 0;
         $stmt->bindValue(':fcU', $fcVal, PDO::PARAM_INT);
         $stmt->bindValue(':fcI', $fcVal, PDO::PARAM_INT);
+
+        $validityType = $diasVigencia === null ? PDO::PARAM_NULL : PDO::PARAM_INT;
+        $stmt->bindValue(':dvU', $diasVigencia, $validityType);
+        $stmt->bindValue(':dvI', $diasVigencia, $validityType);
 
         try {
             $stmt->execute();

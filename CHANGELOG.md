@@ -1,3 +1,17 @@
+## [2026-09-24]
+
+### feat
+- **Vigencia de Entrega Dinámica y Configurable por Cliente (`DeliveryValidityEvaluator`, `AuditConfigModel`, UI)**:
+  - **Jerarquía de 3 Niveles en `DeliveryValidityEvaluator`**: Desacoplamiento de la constante rígida de 60 días en favor de la resolución jerárquica: Nivel 1 = Evidencia visual física del documento extraída por IA; Nivel 2 = Plazo en días configurado para el cliente en BD (`AudDisp.DiasVigencia`); Nivel 3 = Fallback global del sistema (60 días).
+  - **MERGE Idempotente y Defensivo en `AuditConfigModel`**: Incorporación de `DiasVigencia` en `getHeader`, `getConfig`, `saveConfig` y `upsertHeader`. Uso de `ISNULL(:dvU, target.DiasVigencia)` en `WHEN MATCHED` para preservar el valor existente cuando los invocadores envían payloads parciales.
+  - **Validación Estricta en `AuditConfigController`**: Validación de entrada HTTP 422 para valores de `diasVigencia` fuera del rango admisible de 1 a 365 días calendario.
+  - **Propagación en Pipeline vía Redis StateStore**: `DocumentAuditOrchestrator` inyecta `dias_vigencia` en Redis para evaluar sin consultar nuevamente la configuración SQL.
+  - **Interfaz de Usuario y Tipado Zod/TypeScript**: Selector de plazos con soporte para valores personalizados ya guardados, actualización de `AuditConfigSchema` en `domain.ts` y `AuditConfigPayload` en `audfact.ts`.
+  - **Migración SQL Documental**: Script DDL idempotente `database/migrations/004_add_DiasVigencia_to_AudDisp.sql` verificando `COL_LENGTH`.
+  - **Clean code incremental**: Origen tipado con `DeliveryValiditySource`; null se conserva entre SQL, API, Redis y editor para distinguir fallback de plazo explícito. Validación rechaza booleanos y floats; eliminación de rama inalcanzable, binds y pruebas duplicadas; checks guardados y errores de clientes permanecen visibles.
+  - **Validación local**: PHPUnit completo: 702 pruebas, 2814 aserciones, cero fallos y dos omisiones por requisitos externos. Sintaxis PHP: 168 archivos sin errores. Typecheck, lint y build de Next.js correctos. Detalle en `plans/changelog.md`.
+  - Archivos: `database/migrations/004_add_DiasVigencia_to_AudDisp.sql`, `app/Models/AuditConfigModel.php`, `app/Controllers/AuditConfigController.php`, `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php`, `app/Services/Audit/DeliveryValidityEvaluator.php`, `frontend/lib/schemas/domain.ts`, `frontend/lib/api/audfact.ts`, `frontend/components/audit/audit-config-editor.tsx`, `tests/Models/AuditConfigModelTest.php`, `tests/Controllers/AuditConfigControllerTest.php`, `tests/Services/Audit/DeliveryValidityEvaluatorTest.php`.
+
 ## [2026-09-23]
 
 ### perf

@@ -8,6 +8,7 @@ use App\Models\AuditConfigModel;
 use Core\SqlServerConnectionExecutor;
 use PDO;
 use PDOStatement;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class AuditConfigModelTest extends TestCase
@@ -106,6 +107,76 @@ final class AuditConfigModelTest extends TestCase
         $this->assertSame('POS', $insertStmt->boundValues[':aplicaServicio']);
     }
 
+    #[DataProvider('configuredValidityDays')]
+    public function testGetConfigMapsDiasVigenciaFromHeader(mixed $storedDays, ?int $expectedDays): void
+    {
+        // Arrange:
+        $pdo = new AuditConfigFakePdo();
+        $pdo->headerRow = [
+            'FacNitSec' => '1165',
+            'SystemPrompt' => null,
+            'Activo' => 1,
+            'FactorConv' => 0,
+            'DiasVigencia' => $storedDays,
+        ];
+        $pdo->fieldRows = [];
+
+        $model = $this->makeModel($pdo);
+
+        // Act:
+        $result = $model->getConfig('1165');
+
+        // Assert:
+        $this->assertNotNull($result);
+        $this->assertSame($expectedDays, $result['diasVigencia']);
+    }
+
+    public static function configuredValidityDays(): iterable
+    {
+        yield 'configured days' => [30, 30];
+        yield 'SQL numeric string' => ['45', 45];
+        yield 'explicit 60 remains configured' => [60, 60];
+        yield 'null preserves system default origin' => [null, null];
+    }
+
+    #[DataProvider('validityDaysToSave')]
+    public function testSaveConfigBindsNullableDiasVigenciaInAudDisp(?int $days, int $expectedType): void
+    {
+        // Arrange:
+        $pdo = new AuditConfigFakePdo();
+        $model = $this->makeModel($pdo);
+
+        // Act:
+        $success = $model->saveConfig('2624', [], null, false, $days);
+
+        // Assert:
+        $this->assertTrue($success);
+        $mergeStmt = null;
+        foreach ($pdo->statements as $stmt) {
+            if (str_contains($stmt->sql, 'MERGE Discolnet.dbo.AudDisp')) {
+                $mergeStmt = $stmt;
+                break;
+            }
+        }
+
+        $this->assertNotNull($mergeStmt);
+        $this->assertStringContainsString('DiasVigencia = ISNULL(:dvU, target.DiasVigencia)', $mergeStmt->sql);
+        $this->assertSame($days, $mergeStmt->boundValues[':dvU']);
+        $this->assertSame($days, $mergeStmt->boundValues[':dvI']);
+        $this->assertSame($expectedType, $mergeStmt->boundTypes[':dvU']);
+        $this->assertSame($expectedType, $mergeStmt->boundTypes[':dvI']);
+        $this->assertSame(1, $pdo->commitCount);
+        $this->assertSame(0, $pdo->rollbackCount);
+    }
+
+    public static function validityDaysToSave(): iterable
+    {
+        yield 'minimum' => [1, PDO::PARAM_INT];
+        yield 'custom' => [45, PDO::PARAM_INT];
+        yield 'maximum' => [365, PDO::PARAM_INT];
+        yield 'null preserves existing value' => [null, PDO::PARAM_NULL];
+    }
+
     private function makeModel(AuditConfigFakePdo $pdo): AuditConfigModel
     {
         $executor = new SqlServerConnectionExecutor(
@@ -169,6 +240,7 @@ final class AuditConfigFakeStatement extends PDOStatement
 {
     public string $sql;
     public array $boundValues = [];
+    public array $boundTypes = [];
     private AuditConfigFakePdo $pdo;
 
     public function __construct(string $sql, AuditConfigFakePdo $pdo)
@@ -180,6 +252,7 @@ final class AuditConfigFakeStatement extends PDOStatement
     public function bindValue(string|int $param, mixed $value, int $type = PDO::PARAM_STR): bool
     {
         $this->boundValues[(string) $param] = $value;
+        $this->boundTypes[(string) $param] = $type;
         return true;
     }
 
