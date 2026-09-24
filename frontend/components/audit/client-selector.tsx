@@ -64,7 +64,7 @@ export function ClientSelector({
           aria-busy={navigation.isPending}
           aria-label="Seleccionar cliente EPS"
           className={cn(
-            "group flex h-14 w-full cursor-pointer items-center gap-3 rounded-lg border px-4 text-left transition-colors",
+            "group flex h-11 w-full min-w-0 max-w-full cursor-pointer items-center gap-2.5 rounded-lg border px-3 text-left transition-colors",
             open
               ? "border-primary/45 bg-primary/10"
               : "border-border bg-background hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
@@ -73,39 +73,41 @@ export function ClientSelector({
           {/* Icon */}
           <div
             className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
               open || selected
                 ? "border border-primary/30 bg-primary/10 text-primary"
                 : "border border-border bg-muted text-muted-foreground",
             )}
           >
-            <Building2 className="h-4 w-4" />
+            <Building2 className="h-3.5 w-3.5" />
           </div>
 
           {/* Label */}
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 overflow-hidden">
             {selectedDisplay ? (
               <>
-                <p className="truncate text-sm font-semibold text-foreground">
+                <p
+                  className="truncate text-xs sm:text-sm font-semibold text-foreground leading-tight"
+                  title={selectedDisplay.nitCom}
+                >
                   {selectedDisplay.nitCom}
                 </p>
-                <p className="text-[11px] text-slate-500">NitSec: {selectedDisplay.nitSec}</p>
+                <p className="truncate text-[10px] text-muted-foreground font-mono leading-none mt-0.5">
+                  NitSec: {selectedDisplay.nitSec}
+                </p>
               </>
             ) : (
-              <p className="text-sm text-slate-500">Seleccionar EPS / cliente...</p>
+              <p className="truncate text-xs sm:text-sm text-muted-foreground">
+                Seleccionar EPS / cliente...
+              </p>
             )}
           </div>
 
           {/* Right side */}
-          <div className="flex shrink-0 items-center gap-2">
-            {selectedDisplay && (
-              <span className="rounded border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-primary">
-                {selectedDisplay.nitSec}
-              </span>
-            )}
+          <div className="flex shrink-0 items-center gap-1.5">
             <ChevronDown
               className={cn(
-                "h-4 w-4 text-slate-500 transition-transform duration-200",
+                "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
                 open && "rotate-180",
               )}
             />
@@ -114,8 +116,8 @@ export function ClientSelector({
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[--radix-popover-trigger-width] p-0"
-        align="start"
+        className="w-[--radix-popover-trigger-width] min-w-[320px] max-w-[calc(100vw-2rem)] p-0"
+        align="end"
         sideOffset={6}
       >
         <Command className="border-0 bg-transparent">
@@ -170,7 +172,7 @@ export function ClientSelector({
                       {/* Avatar */}
                       <div
                         className={cn(
-                          "flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-xs font-bold transition-colors",
+                          "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-bold transition-colors",
                           isSelected
                             ? "border border-primary/25 bg-primary/10 text-primary"
                             : "border border-border bg-muted text-muted-foreground",
@@ -180,8 +182,8 @@ export function ClientSelector({
                       </div>
 
                       {/* Info */}
-                      <div className="flex-1">
-                        <p className="truncate text-sm font-medium leading-tight">
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <p className="truncate text-sm font-medium leading-tight" title={c.nitCom}>
                           {c.nitCom}
                         </p>
                         <p className="mt-0.5 font-mono text-[11px] text-slate-500">
@@ -215,7 +217,7 @@ export function ClientSelector({
                     }}
                     className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-primary"
                   >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-dashed border-primary/35 bg-primary/5 text-primary">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-dashed border-primary/35 bg-primary/5 text-primary">
                       <Plus className="h-4 w-4" />
                     </div>
                     <div className="flex-1">

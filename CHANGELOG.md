@@ -1,5 +1,13 @@
 ## [2026-09-24]
 
+### fix
+- **Reubicación de Selector de Cliente en Cabecera y Prevención de Desbordamiento de Texto (`ClientSelector` & `AuditConfigPageClient`)**:
+  - **Ubicación Ergonómica en `PageHeader`**: Traslado del selector de cliente (`ClientSelector`) al slot `actions` de la cabecera principal (`w-full sm:w-80 md:w-96 min-w-0`), alineado de forma natural a la derecha del título de la página, liberando el área de contenido principal.
+  - **Blindaje contra Desbordamiento (`CSS Flexbox`)**: Corrección de cálculo de ancho intrínseco en flexbox aplicando `min-w-0 max-w-full overflow-hidden` en el botón trigger y `min-w-0 flex-1 overflow-hidden` en el contenedor del nombre. La clase `truncate` ahora corta de forma predecible con puntos suspensivos incluso ante nombres extensos de EPS (ej. "ENTIDAD PROMOTORA DE SALUD SANITAS S.A.S."), incorporando `title` nativo para inspección en hover.
+  - **Alineación de Popover y Altura Compacta**: Estilizado a altura estándar `h-11` (44px) y popover con `align="end"` y `min-w-[320px]`, evitando que el desplegable se corte en el margen derecho de la pantalla.
+  - **Limpieza de Tarjeta Activa**: Remoción de duplicación de cliente y selector redundante en la tarjeta inferior, mostrando la entidad activa a ancho completo de forma limpia y legible.
+  - Archivos modificados: `frontend/components/audit/client-selector.tsx`, `frontend/components/audit/audit-config-page-client.tsx`.
+
 ### feat
 - **Vigencia de Entrega Dinámica y Configurable por Cliente (`DeliveryValidityEvaluator`, `AuditConfigModel`, UI)**:
   - **Jerarquía de 3 Niveles en `DeliveryValidityEvaluator`**: Desacoplamiento de la constante rígida de 60 días en favor de la resolución jerárquica: Nivel 1 = Evidencia visual física del documento extraída por IA; Nivel 2 = Plazo en días configurado para el cliente en BD (`AudDisp.DiasVigencia`); Nivel 3 = Fallback global del sistema (60 días).

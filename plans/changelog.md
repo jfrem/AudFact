@@ -2,6 +2,11 @@
 
 ## [2026-09-24] - Vigencia configurable: revisión de mantenibilidad
 
+- **Refinamiento UI de Selector de Cliente (`ClientSelector` & `AuditConfigPageClient`)**:
+  - Traslado ergonómico del selector de EPS al slot `actions` de `PageHeader` (`w-full sm:w-80 md:w-96 min-w-0`), eliminando la duplicación en el banner inferior.
+  - Corrección de desbordamiento en Flexbox (`min-w-0` en trigger y label) asegurando truncado elíptico con tooltip `title` nativo.
+  - Altura estándar `h-11` y popover alineado a la derecha (`align="end"`, `min-w-[320px]`).
+
 - **Decisión `APROBAR`**, evolución incremental, sin excepciones: se mantiene evidencia visual > plazo de cliente > 60 días. Enum interno `DeliveryValiditySource`, resolución total sin retorno nullable imposible y propagación del plazo vía Redis.
 - `diasVigencia` conserva null desde SQL hasta el editor: mostrar el fallback no lo convierte en plazo configurado al guardar otros ajustes. POST conserva datos si el campo falta o es null y rechaza booleanos/floats antes de escribir. Se conservan los consumidores que omiten el quinto argumento y la firma pública del evaluador.
 - UI: opciones de días declaradas una sola vez, nombres consistentes al editar checks, controles con nombre accesible, checks guardados visibles aunque falten del catálogo y errores de carga visibles con cliente seleccionado. Se mantienen los cambios visuales del diff y se recuperan finales de línea de bloques originales.

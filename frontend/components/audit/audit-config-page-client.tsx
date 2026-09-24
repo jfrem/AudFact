@@ -16,10 +16,8 @@ import { ClientSelector } from "@/components/audit/client-selector";
 import { CreateConfigDialog } from "@/components/audit/create-config-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/layout/page-header";
-import { SectionCard } from "@/components/shared/section-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { usePendingNavigation } from "@/lib/hooks/use-pending-navigation";
 
 type Client = { NitSec: string; NitCom: string };
@@ -61,6 +59,15 @@ export function AuditConfigPageClient({
           eyebrow="Reglas de auditoría"
           title="Configuración por cliente"
           description="Define el contrato documental y los campos que Gemini debe comprobar para cada EPS."
+          actions={
+            <div className="w-full sm:w-80 md:w-96 min-w-0">
+              <ClientSelector
+                clients={clients}
+                currentClientId={clientId}
+                onCreateNew={() => setCreateOpen(true)}
+              />
+            </div>
+          }
         />
 
         <div className="grid border-y border-border sm:grid-cols-3">
@@ -85,53 +92,25 @@ export function AuditConfigPageClient({
         </div>
 
         {clientId && hasConfig ? (
-          <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
-                <Building2 className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                    Cliente en configuración
-                  </span>
-                  <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                    NitSec: {clientId}
-                  </span>
-                </div>
-                <h2 className="truncate text-base font-semibold text-foreground">
-                  {selected?.NitCom ?? `Cliente ${clientId}`}
-                </h2>
-              </div>
+          <div className="flex items-center gap-3.5 rounded-lg border border-border bg-card p-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+              <Building2 className="h-5 w-5" />
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="w-full sm:w-64">
-                <ClientSelector
-                  clients={clients}
-                  currentClientId={clientId}
-                  onCreateNew={() => setCreateOpen(true)}
-                />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                  Cliente en configuración
+                </span>
+                <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  NitSec: {clientId}
+                </span>
               </div>
+              <h2 className="truncate text-base font-semibold text-foreground sm:text-lg" title={selected?.NitCom}>
+                {selected?.NitCom ?? `Cliente ${clientId}`}
+              </h2>
             </div>
           </div>
-        ) : (
-          <SectionCard
-            title="Cliente bajo análisis"
-            description="Selecciona la EPS cuyo contrato de auditoría deseas consultar o editar."
-          >
-            <Field className="relative z-40 max-w-3xl">
-              <FieldLabel>
-                <Users className="h-3.5 w-3.5" aria-hidden="true" />
-                EPS / cliente
-              </FieldLabel>
-              <ClientSelector
-                clients={clients}
-                currentClientId={clientId}
-                onCreateNew={() => setCreateOpen(true)}
-              />
-            </Field>
-          </SectionCard>
-        )}
+        ) : null}
 
         {clientsError ? (
           <Alert variant="warning" className="px-3 py-2">
@@ -156,7 +135,7 @@ export function AuditConfigPageClient({
           <EmptyState
             icon={<SlidersHorizontal className="h-5 w-5" />}
             title="Selecciona un cliente"
-            description="La configuración aparecerá aquí cuando elijas una EPS del selector."
+            description="Utiliza el selector superior de la cabecera para elegir una EPS y gestionar sus reglas de auditoría."
           />
         ) : null}
 
