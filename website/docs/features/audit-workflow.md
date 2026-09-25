@@ -16,7 +16,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 | Método | Ruta | Controlador | Descripción |
 |---|---|---|---|
-| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `DisId` |
+| `POST` | `/audit/single` | `AuditController::single` | Encola una auditoría individual por `disDetNro` (con `disId` opcional) |
 | `POST` | `/audit/async` | `AuditController::async` | Encola un batch por cliente/rango y responde `202` |
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` | Estado Redis de una auditoría individual |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` | Estado y progreso de un job batch |
@@ -161,3 +161,30 @@ Consultar estado:
 curl.exe http://localhost:8080/audit/jobs/{jobId}
 curl.exe http://localhost:8080/audit/status/{auditId}
 ```
+
+## Importación desde CSV o XLSX
+
+`bin/audit-import.php` es un cliente CLI de `POST /audit/single`; cada fila entra
+por el carril individual. Requiere PHP 8.2 y cURL para enviar; XLSX además requiere
+ZIP y SimpleXML. No necesita cargar `.env` ni conectarse directamente a SQL o Redis.
+
+```bash
+php bin/audit-import.php dispensaciones.csv --dry-run --column=DisDetNro
+php bin/audit-import.php dispensaciones.csv --endpoint=http://localhost:8080/audit/single --output=logs/importacion.csv
+php bin/audit-import.php dispensaciones.csv --endpoint=http://localhost:8080/audit/single --output=logs/importacion.csv --resume
+```
+
+El encabezado `DisDetNro` y la columna opcional `DisId` se detectan por nombre.
+`--column` acepta nombre, letra Excel o índice desde cero. Una sola columna sin
+encabezado se interpreta como números de dispensa; archivos ambiguos requieren
+selección explícita. XLSX lee `sheet1.xml` o, si no existe, la primera hoja física
+del ZIP; no recalcula fórmulas ni aplica formatos de celdas. Los identificadores
+deben guardarse como texto para conservar ceros iniciales.
+
+Se usa una pausa de 650 ms por defecto, configurable con `--delay-ms`. Solo se
+reintentan HTTP 429/503 (hasta tres intentos); un error de red no se reintenta
+automáticamente porque el servidor pudo aceptar el envío. `--resume` omite las
+aceptaciones de la bitácora; no verifica que la auditoría haya terminado.
+Si el proceso se interrumpe después de la aceptación y antes de escribir la
+bitácora, hay que conciliar esa dispensa antes de reanudar: no hay garantía de
+exactamente una auditoría por fila. `--dry-run` no verifica existencia en SQL.

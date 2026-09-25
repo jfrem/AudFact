@@ -1,5 +1,32 @@
 # Changelog AudFact
 
+## [2026-09-25] - Exportación tabular de Rendimiento Mensual por EPS (CSV / Excel)
+
+- **Funcionalidad de Exportación en UI (`MonthlyClientPerformance`)**:
+  - Incorporación de botón accesible `Exportar` con menú desplegable (`Popover` de Radix UI) en la barra de acciones de la sección "Producción mensual por EPS".
+  - Opciones de exportación en dos formatos sin dependencias pesadas:
+    - **Excel (.xlsx)**: Libro Office Open XML con encabezados, totales resaltados, NIT como texto y porcentajes numéricos (`0.0%`). Generación nativa en el navegador, sin dependencias adicionales: `stored-zip.ts` empaqueta las seis partes del libro con CRC32 y directorio ZIP. Sustituye la salida XML introducida durante la refactorización.
+    - **CSV (.csv)**: Comas, BOM UTF-8, escape de comillas y directiva `sep=,` para Excel. La directiva hace que no sea RFC 4180 estricto. Los textos que pueden interpretarse como fórmulas reciben un apóstrofo inicial.
+  - Sincronización reactiva con filtros de búsqueda por texto (filtra por EPS, NIT o mes) y selección de año; cálculo completo de totales consolidados (`totalFacturas`, `totalConf`, `totalRech`, `totalDocConf`, `totalDocRech`, `totalDocs`, `rate`).
+  - Cierre automático de menú contextual al cambiar el año o seleccionar formato de descarga.
+- **Módulo Desacoplado (`frontend/lib/export/monthly-performance-export.ts`)**:
+  - Meses y cálculo ponderado de totales compartidos en `frontend/lib/monthly-performance.ts`. El exportador deriva los totales de las filas recibidas y comparte orden de columnas entre formatos.
+  - Generación en cliente sin carga adicional sobre backend ni base de datos SQL Server.
+  - Serialización pura separada de la descarga; limpieza de recursos en `finally`, revocación diferida de URL y mensajes visibles ante errores. La opción Excel usa extensión `.xlsx` y MIME `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`; el CSV conserva su comportamiento.
+  - Un fallo al cambiar de año conserva las etiquetas del conjunto recibido y bloquea la exportación hasta obtener el año solicitado.
+- **Importador CLI (`bin/audit-import.php`)**:
+  - Separación de lectura/validación, reanudación, envío HTTP y bitácora. Opciones desconocidas y columnas ambiguas fallan explícitamente; un nombre de encabezado tiene precedencia sobre letras Excel.
+  - CSV/TXT y XLSX simple; deduplicación por `DisDetNro` con rechazo de `DisId` contradictorios. `--dry-run` valida estructura sin consultar API.
+  - Destino predeterminado local (`http://localhost:8080/audit/single`), configurable con `--endpoint`; pausa de 650 ms. Retirada la variable nueva `AUDIT_ENDPOINT` que no tenía contrato ni consumidores previos.
+  - `--resume` exige bitácora explícita y válida. Lock exclusivo, cierre de recursos y verificación de escritura; HTTP 202 con `success=true` y `audit_id` es la única aceptación. Los errores devuelven código de salida 1.
+- **Revisión clean-rebuild-policy**:
+  - Estrategia incremental en UI; limpieza de módulos nuevos sin adaptadores de compatibilidad. Se preservan los endpoints y schemas existentes. Sin migración SQL ni variables de entorno nuevas; rollback del frontend mediante la imagen del SHA anterior.
+  - Retirada la afirmación de una SDD de exportación inexistente. Se conservan las 12 eliminaciones SDD preexistentes y se enlazan sus referencias históricas a la revisión Git que las contiene.
+  - Catálogo ampliado para TypeScript, importador CLI y pruebas. Sin cambios requeridos en las convenciones frontend.
+  - Validación: `npm.cmd run typecheck`, `npm.cmd run lint` y `npm.cmd run build` en `frontend` correctos; 8 pruebas con `node --test frontend/scripts/monthly-performance.test.cjs` y 7 con `node --test scripts/audit-import.test.mjs`. La suite frontend requiere Python 3 para verificar el XLSX con `zipfile` y `ElementTree` estándar (CRC32, XML, relaciones, tipos de celda y totales), sin instalar paquetes. El importador se probó con archivos sintéticos y un servidor HTTP local simulado, sin auditorías reales.
+  - `php -l bin/audit-import.php`, `git diff --check` y `node .agent/skills/_shared/scripts/validate-skills.mjs` correctos (21 skills, 8 bundles). Build Docusaurus correcto con `npm.cmd --prefix website run build`; sincronizada la guía de importación del portal.
+  - Apertura manual en Excel y prueba visual en navegador no ejecutadas. Los CSV de bitácora son archivos de reanudación, no el reporte del dashboard. Una interrupción después de aceptar HTTP y antes de persistir la bitácora exige conciliación manual; `/audit/single` no aporta idempotencia al importador.
+
 ## [2026-09-24] - Vigencia configurable: revisión de mantenibilidad
 
 - **Refinamiento UI de Selector de Cliente (`ClientSelector` & `AuditConfigPageClient`)**:
@@ -61,7 +88,7 @@
 - **Clean Rebuild**: Erradicación física de código muerto y de la suite obsoleta, reemplazada por `SemanticMatchJudgeTest` con 11 pruebas exhaustivas.
 - **Unificación en Structured Output Nativo**: Se migró `SemanticMatchJudge` de Function Calling (`sendWithFunctionCalling()`) a Structured Output (`sendWithStructuredOutput()`), eliminando declaraciones de funciones y toolConfigs artificiales.
 - **Erradicación de Function Calling en `GeminiGateway`**: Se retiró el método obsoleto `sendWithFunctionCalling()` y su constructor `buildPayload()`, unificando el gateway 100% sobre `sendWithStructuredOutput()` nativo.
-- **Especificación SDD**: Documentada en [`plans/sdd-arbitraje-semantico-desacoplado.md`](file:///c:/Users/USER/Desktop/AudFact/plans/sdd-arbitraje-semantico-desacoplado.md) clasificada como Nivel A — Implementable.
+- **Especificación SDD**: Documentada en [`plans/sdd-arbitraje-semantico-desacoplado.md`](https://github.com/jfrem/AudFact/blob/7ee649f7f06551d52962a4b6f8836fd5d571e690/plans/sdd-arbitraje-semantico-desacoplado.md) clasificada como Nivel A — Implementable.
 
 ## [2026-09-08] - Fix: Exclusión de Dispensaciones Facturadas con Múltiples Entregas en `InvoicesModel`
 
@@ -76,7 +103,7 @@
 - **Bipartición Declarativa Exhaustiva en `FdvItemAggregator`**: Se eliminó la restricción excluyente que limitaba las llaves de agrupación a tipos de comparación `EXACT` o `SEMANTIC`. Todo campo de ítem no acumulable (`!isQuantitySummable()`, tales como `CodigoProducto`, `Lote`, `CUM`, `NombreArticulo`) se clasifica automáticamente como dimensión discriminante de agrupación (`$groupingKeys`), sin importar si su `tipoCampo` está configurado como `B`, `E` o `S`.
 - **Consolidación Automática de Entregas Multilote en FDV**: Entregas de almacén divididas en múltiples renglones por fechas de vencimiento o lotes diferentes se fusionan en un único ítem consolidado si el documento evaluado no audita trazabilidad de lotes (ej. autorizaciones médicas), totalizando cantidades y calculando con precisión `$expectedItemsCount`, eliminando los falsos positivos de `ITEM_SEGMENTATION_INCOMPLETE`.
 - **Resiliencia de Balance Cuantitativo en `DocumentPolicyEngine`**: Si se presenta una advertencia de segmentación de ítems, el motor de políticas pre-evalúa si la comparación cuantitativa y de código resulta en `COINCIDE` (100% de la cantidad y código cubiertos por la evidencia física). Si coincide, resuelve el hallazgo como `COINCIDE` (anexando telemetría en `extraction_meta`), evitando degradar facturas válidas a `manual_review`. Si existe un faltante real, preserva `NO_CONCLUYENTE`.
-- **Especificación SDD**: Documentada en [`plans/sdd-reconciliacion-agnostica-items.md`](file:///c:/Users/USER/Desktop/AudFact/plans/sdd-reconciliacion-agnostica-items.md) clasificada como Nivel A — Implementable.
+- **Especificación SDD**: Documentada en [`plans/sdd-reconciliacion-agnostica-items.md`](https://github.com/jfrem/AudFact/blob/7ee649f7f06551d52962a4b6f8836fd5d571e690/plans/sdd-reconciliacion-agnostica-items.md) clasificada como Nivel A — Implementable.
 - **Suites de Pruebas Unitarias**: Ampliada `FdvItemAggregatorTest` y `DocumentPolicyEngineTest`. 570 pruebas unitarias pasando al 100%.
 
 ## [2026-09-07] - Refactor: Política Táctica de Clean Rebuild y Calidad MVP

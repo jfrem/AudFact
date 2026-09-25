@@ -90,6 +90,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
+| `bin/audit-import.php`, `scripts/audit-import.test.mjs` | `audfact-audit-gemini` + `audfact-runtime-docker` (cliente CLI de `/audit/single`) |
 | `public/index.php` | `audfact-runtime-docker` + `audfact-security-guardrails` |
 | `core/RateLimit.php`, `core/RedisClient.php` | `audfact-security-guardrails` |
 | `core/Logger.php` | `audfact-security-guardrails` |
@@ -97,7 +98,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
 | Módulos nuevos, reconstrucciones o refactorizaciones profundas explícitas | `clean-rebuild-policy` |
 | Especificaciones de implementación en `plans/*` | `write-sdd-spec` |
-| `frontend/**/*.tsx`, `frontend/**/*.css` | `next-best-practices`, `impeccable` |
+| `frontend/**/*.{ts,tsx}`, `frontend/**/*.css` | `next-best-practices`, `impeccable` |
+| `frontend/scripts/*.test.cjs` | `next-best-practices` (pruebas Node de módulos frontend) |
 | `tests/**/*.php` | `phpunit-test-architect` + skill del dominio funcional probado |
 
 ---
