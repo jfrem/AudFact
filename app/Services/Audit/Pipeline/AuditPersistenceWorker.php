@@ -180,15 +180,19 @@ final class AuditPersistenceWorker extends AuditEventConsumer
 
     protected function afterTerminalFailure(AuditEvent $event, Throwable $error): void
     {
-        if (
-            $event->eventType === AuditEvent::TYPE_RULES_EVALUATED
-            && !$this->persistenceQueue->advance($event)
-        ) {
-            throw new RuntimeException(
-                'No se pudo liberar el turno tras el fallo terminal de persistencia',
-                0,
-                $error
-            );
+        if ($event->eventType !== AuditEvent::TYPE_RULES_EVALUATED) {
+            return;
+        }
+
+        try {
+            $this->persistenceQueue->advance($event);
+        } catch (Throwable $advanceError) {
+            Logger::warning('AuditPersistenceWorker: no se pudo liberar turno de persistencia tras fallo terminal', [
+                'auditId'      => $event->auditId,
+                'event_id'     => $event->eventId,
+                'advance_err'  => $advanceError->getMessage(),
+                'original_err' => $error->getMessage(),
+            ]);
         }
     }
 

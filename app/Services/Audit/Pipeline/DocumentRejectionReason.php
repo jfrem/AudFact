@@ -16,6 +16,7 @@ final class DocumentRejectionReason
     public const EMPTY_PDF_NO_PAGES = 'EMPTY_PDF_NO_PAGES';
     public const GEMINI_DECODE_FAILURE = 'GEMINI_DECODE_FAILURE';
     public const CORRUPTED_DOCUMENT = 'CORRUPTED_DOCUMENT';
+    public const RASTERIZATION_FAILURE = 'RASTERIZATION_FAILURE';
 
     private const ALLOWED = [
         self::EMPTY_DOCUMENT,
@@ -27,6 +28,7 @@ final class DocumentRejectionReason
         self::EMPTY_PDF_NO_PAGES,
         self::GEMINI_DECODE_FAILURE,
         self::CORRUPTED_DOCUMENT,
+        self::RASTERIZATION_FAILURE,
     ];
 
     private function __construct()

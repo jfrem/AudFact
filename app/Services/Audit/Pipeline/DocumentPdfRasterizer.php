@@ -194,6 +194,11 @@ class DocumentPdfRasterizer
 
     /**
      * Ejecuta el comando de rasterización gestionando fallback automático entre motores.
+     *
+     * Fallback se activa cuando:
+     * 1. El motor primario lanza RuntimeException (exit code ≠ 0), o
+     * 2. El motor primario retorna exit 0 pero no genera imágenes JPEG (PDFs de iText 8.0.0
+     *    sin /Pages válido — Ghostscript y pdftoppm retornan exit 0 sin output).
      */
     private function executeRasterization(
         string $inputPdfPath,
@@ -210,37 +215,47 @@ class DocumentPdfRasterizer
 
         $cmd = $this->buildCommand($inputPdfPath, $outputPrefix, $dpi, $maxPagesToRender, $engine, $binary);
 
+        $primaryFailed = false;
         try {
             $this->executeProcess($cmd);
-            return $engine;
+            // Verificar que el motor primario haya producido imágenes
+            $primaryImages = glob($outputPrefix . '-*.jpg') ?: [];
+            if (empty($primaryImages) && $this->shouldAttemptFallback($engine)) {
+                $primaryFailed = true;
+            }
         } catch (RuntimeException $e) {
             if ($this->shouldAttemptFallback($engine)) {
-                Logger::warning('DocumentPdfRasterizer: Motor primario Ghostscript falló, ejecutando fallback con pdftoppm...', [
-                    'error' => $e->getMessage(),
-                    'label' => $label,
-                ]);
+                $primaryFailed = true;
+            } else {
+                throw $e;
+            }
+        }
 
-                $this->cleanupPrefixFiles($tempDir, $uniqueId);
+        if ($primaryFailed) {
+            Logger::warning('DocumentPdfRasterizer: Motor primario Ghostscript no generó imágenes o falló, ejecutando fallback con pdftoppm...', [
+                'label' => $label,
+            ]);
 
-                if (!is_file($inputPdfPath)) {
-                    $this->writeTemporaryPdf($inputPdfPath, $pdfDataRaw);
-                }
+            $this->cleanupPrefixFiles($tempDir, $uniqueId);
 
-                $fallbackCmd = $this->buildCommand(
-                    $inputPdfPath,
-                    $outputPrefix,
-                    $dpi,
-                    $maxPagesToRender,
-                    self::ENGINE_PDFTOPPM,
-                    'pdftoppm'
-                );
-
-                $this->executeProcess($fallbackCmd);
-                return self::ENGINE_PDFTOPPM;
+            if (!is_file($inputPdfPath)) {
+                $this->writeTemporaryPdf($inputPdfPath, $pdfDataRaw);
             }
 
-            throw $e;
+            $fallbackCmd = $this->buildCommand(
+                $inputPdfPath,
+                $outputPrefix,
+                $dpi,
+                $maxPagesToRender,
+                self::ENGINE_PDFTOPPM,
+                'pdftoppm'
+            );
+
+            $this->executeProcess($fallbackCmd);
+            return self::ENGINE_PDFTOPPM;
         }
+
+        return $engine;
     }
 
     /**
@@ -266,7 +281,7 @@ class DocumentPdfRasterizer
         if (empty($generatedImages)) {
             throw new RuntimeException(
                 "DocumentPdfRasterizer: {$engine} no generó imágenes JPEG. "
-                . 'Verificar integridad del PDF y disponibilidad de herramientas.'
+                . 'El PDF no contiene páginas renderizables o su estructura es incompatible.'
             );
         }
 

@@ -167,6 +167,25 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     $disDetNro,
                     $event
                 );
+            } catch (RasterizationFailureException $rasterError) {
+                $integrity = [
+                    'valid'         => false,
+                    'reason'        => DocumentRejectionReason::RASTERIZATION_FAILURE,
+                    'declared_mime' => $document['mime'] ?? '',
+                    'detected_mime' => null,
+                    'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
+                ];
+                $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                $this->telemetryPublisher->rejected(
+                    $event->auditId,
+                    'extraction',
+                    self::elapsedMs($extractionStartedAt),
+                    $event->documentId,
+                    $disDetNro,
+                    array_merge($telemetryMeta, ['reason' => DocumentRejectionReason::RASTERIZATION_FAILURE]),
+                    $event->jobId
+                );
+                return;
             } catch (RuntimeException $geminiError) {
                 if ($this->isGeminiDocumentContentError($geminiError)) {
                     $reason    = $this->classifyGeminiContentError($geminiError);
@@ -366,7 +385,15 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             if ($rawBytes === false || $rawBytes === '') {
                 throw new \RuntimeException('DocumentExtractionWorker: Base64 de PDF inválido o vacío');
             }
-            return $this->pdfRasterizer->rasterize($rawBytes, $documentType);
+            try {
+                return $this->pdfRasterizer->rasterize($rawBytes, $documentType);
+            } catch (\RuntimeException $rasterError) {
+                throw new RasterizationFailureException(
+                    $rasterError->getMessage(),
+                    $document,
+                    $rasterError
+                );
+            }
         }
 
         return [[
