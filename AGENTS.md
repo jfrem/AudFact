@@ -149,6 +149,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AttachmentsModel`            | `AdjuntosDispensacion`                                                    | Archivos binarios (BLOB/URL)                                               | `AdjDisId`                                               |
 | `AuditStatusModel`            | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle`                          | Lectura de resultados de auditoría IA + observaciones                      | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
 | `AuditResultPersistenceModel` | `dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Escritura transaccional del resumen, hallazgos documentales y trazabilidad | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
+| `AuditConfigModel`            | `dbo.AudDisp` + `AudDispCampo` + `AudDispCampoCatalogo`                   | Configuración dinámica de auditoría por cliente                           | `FacNitSec`                                              |
 
 ### Relaciones Clave
 

@@ -206,4 +206,25 @@ final class AuditEventPublisherTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         AuditEventPublisher::streamForEventType(AuditEvent::TYPE_DEAD_LETTER);
     }
+
+    public function testDeadLetterPublicationAtomicallyStoresReceiptByFailedEventId(): void
+    {
+        $parentEventId = AuditEvent::uuidV4();
+        $deadLetter = AuditEvent::create(
+            eventType: AuditEvent::TYPE_DEAD_LETTER,
+            auditId: AuditEvent::uuidV4(),
+            parentEventId: $parentEventId,
+            payload: ['failed_event_type' => AuditEvent::TYPE_RULES_EVALUATED]
+        );
+        $this->redis->expects($this->once())->method('eval')->with(
+            $this->stringContains("redis.call('SET', KEYS[2], id)"),
+            [AuditEventPublisher::dlqStream(), AuditEventPublisher::deadLetterReceiptKey($parentEventId)],
+            $this->callback(static function (array $args) use ($deadLetter): bool {
+                return $args[0] === $deadLetter->toJson() && is_int($args[1]);
+            })
+        )->willReturn('1730000000000-2');
+        $this->redis->expects($this->never())->method('xAdd');
+
+        $this->assertSame('1730000000000-2', $this->publisher->publishDeadLetter($deadLetter));
+    }
 }

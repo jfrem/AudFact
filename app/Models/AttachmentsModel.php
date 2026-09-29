@@ -79,6 +79,7 @@ class AttachmentsModel extends Model
                 a.DisId AS [dispensacion_id],
                 d.DisDetNro AS [dis_det_nro],
                 a.AdjDisId AS [attachment_id],
+                a.DisDetId AS [dis_det_id],
                 n.NitMedDocId AS [physical_catalog_id],
                 n.NitMedDocNom AS [physical_document_name],
                 n.NitMedDocCodAlt AS [physical_catalog_alias],

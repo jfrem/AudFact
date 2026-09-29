@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
+use App\Services\Audit\Pipeline\PdfContentFailure;
+use App\Services\Audit\Pipeline\RasterizationFailureException;
+use App\Services\Audit\Pipeline\RasterizationProcessResult;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -45,6 +48,49 @@ final class DocumentPdfRasterizerTest extends TestCase
         $rasterizer->rasterize($corruptedPdf, 'AUTORIZACION');
     }
 
+    public function testRecognizedNoPagesDiagnosticsBecomeTypedContentFailureAfterFallback(): void
+    {
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            private int $calls = 0;
+
+            public function __construct()
+            {
+                parent::__construct();
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            protected function executeProcess(string $cmd): RasterizationProcessResult
+            {
+                ++$this->calls;
+                return new RasterizationProcessResult(
+                    0,
+                    $this->calls === 1
+                        ? 'Requested FirstPage is greater than the number of pages in the file: 0'
+                        : 'Wrong page range given: first page (1) after last page (0)'
+                );
+            }
+        };
+
+        try {
+            $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DISPENSA');
+            $this->fail('Expected typed PDF content failure was not thrown');
+        } catch (RasterizationFailureException $e) {
+            $this->assertSame(PdfContentFailure::NO_PAGES, $e->reason);
+            $this->assertSame('EMPTY_PDF_NO_PAGES', $e->reason->value);
+        }
+    }
+
+    public function testOperationalProcessFailureIsNotMisclassifiedAsDocumentRejection(): void
+    {
+        $result = new RasterizationProcessResult(1, 'No space left on device; requested first page greater than number of pages: 0');
+
+        $this->assertNull($result->contentFailure());
+    }
+
     public function testIsAvailableDetectsExistingOrMissingBinary(): void
     {
         $missing = new DocumentPdfRasterizer('totally_fake_binary_xyz_999');
@@ -67,7 +113,7 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
-            protected function executeProcess(string $cmd): void
+            protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 // Extrae output prefix y simula un archivo parcial antes de fallar
                 preg_match('/([^\s]+)$/', trim($cmd), $m);
@@ -106,13 +152,14 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
-            protected function executeProcess(string $cmd): void
+            protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 preg_match('/([^\s]+)$/', trim($cmd), $m);
                 $prefix = trim($m[1] ?? '', "'\"");
                 for ($i = 1; $i <= 52; $i++) {
                     file_put_contents("{$prefix}-{$i}.jpg", "image_page_{$i}");
                 }
+                return new RasterizationProcessResult(0);
             }
         };
 
@@ -143,12 +190,13 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
-            protected function executeProcess(string $cmd): void
+            protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 preg_match('/([^\s]+)$/', trim($cmd), $m);
                 $prefix = trim($m[1] ?? '', "'\"");
                 // Archivo vacío (0 bytes) para que falle la lectura
                 file_put_contents("{$prefix}-1.jpg", "");
+                return new RasterizationProcessResult(0);
             }
         };
 
@@ -179,12 +227,13 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
-            protected function executeProcess(string $cmd): void
+            protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 preg_match('/([^\s]+)$/', trim($cmd), $m);
                 $prefix = trim($m[1] ?? '', "'\"");
                 file_put_contents("{$prefix}-1.jpg", "JPEG_BINARY_PAGE_1");
                 file_put_contents("{$prefix}-2.jpg", "JPEG_BINARY_PAGE_2");
+                return new RasterizationProcessResult(0);
             }
         };
 
@@ -273,7 +322,7 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
-            protected function executeProcess(string $cmd): void
+            protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 $this->executeCallCount++;
                 $this->executedCommands[] = $cmd;
@@ -287,6 +336,7 @@ final class DocumentPdfRasterizerTest extends TestCase
                 if ($prefix !== '') {
                     file_put_contents("{$prefix}-1.jpg", 'fallback_jpeg_bytes');
                 }
+                return new RasterizationProcessResult(0);
             }
         };
 

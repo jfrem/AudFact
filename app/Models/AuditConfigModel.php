@@ -33,7 +33,9 @@ class AuditConfigModel extends Model
         }
 
         $sql = "SELECT nd.NitMedDocId AS docId, nd.NitMedDocNom AS docNombre,
-               cat.CampoNombre, cat.TipoCampo, cat.TipoDato,
+               cat.CampoNombre,
+               COALESCE(ac.TipoCampoOverride, cat.TipoCampo) AS TipoCampo,
+               cat.TipoDato,
                cat.CodigoCampo, cat.EsVisual,
                cat.Descripcion AS DescripcionDefault,
                cat.Severidad   AS SeveridadDefault,

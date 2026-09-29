@@ -195,10 +195,8 @@ class DocumentPdfRasterizer
     /**
      * Ejecuta el comando de rasterización gestionando fallback automático entre motores.
      *
-     * Fallback se activa cuando:
-     * 1. El motor primario lanza RuntimeException (exit code ≠ 0), o
-     * 2. El motor primario retorna exit 0 pero no genera imágenes JPEG (PDFs de iText 8.0.0
-     *    sin /Pages válido — Ghostscript y pdftoppm retornan exit 0 sin output).
+     * El éxito requiere salida cero e imágenes. Un diagnóstico explícito del
+     * parser permite rechazo; un fallo desconocido conserva naturaleza técnica.
      */
     private function executeRasterization(
         string $inputPdfPath,
@@ -215,25 +213,19 @@ class DocumentPdfRasterizer
 
         $cmd = $this->buildCommand($inputPdfPath, $outputPrefix, $dpi, $maxPagesToRender, $engine, $binary);
 
-        $primaryFailed = false;
         try {
-            $this->executeProcess($cmd);
-            // Verificar que el motor primario haya producido imágenes
-            $primaryImages = glob($outputPrefix . '-*.jpg') ?: [];
-            if (empty($primaryImages) && $this->shouldAttemptFallback($engine)) {
-                $primaryFailed = true;
-            }
+            $this->executeAndValidateOutput($cmd, $outputPrefix, $engine);
+            return $engine;
         } catch (RuntimeException $e) {
-            if ($this->shouldAttemptFallback($engine)) {
-                $primaryFailed = true;
-            } else {
+            if (!$this->shouldAttemptFallback($engine)) {
                 throw $e;
             }
-        }
-
-        if ($primaryFailed) {
-            Logger::warning('DocumentPdfRasterizer: Motor primario Ghostscript no generó imágenes o falló, ejecutando fallback con pdftoppm...', [
+            Logger::warning('DocumentPdfRasterizer: intentando motor alternativo', [
                 'label' => $label,
+                'engine' => $engine,
+                'error_class' => get_class($e),
+                'reason' => $e instanceof RasterizationFailureException ? $e->reason->value : 'TECHNICAL_FAILURE',
+                'error' => $e->getMessage(),
             ]);
 
             $this->cleanupPrefixFiles($tempDir, $uniqueId);
@@ -251,11 +243,22 @@ class DocumentPdfRasterizer
                 'pdftoppm'
             );
 
-            $this->executeProcess($fallbackCmd);
+            $this->executeAndValidateOutput($fallbackCmd, $outputPrefix, self::ENGINE_PDFTOPPM);
             return self::ENGINE_PDFTOPPM;
         }
+    }
 
-        return $engine;
+    private function executeAndValidateOutput(string $cmd, string $outputPrefix, string $engine): void
+    {
+        $result = $this->executeProcess($cmd);
+        if ($result->exitCode === 0 && (glob($outputPrefix . '-*.jpg') ?: []) !== []) {
+            return;
+        }
+        $contentFailure = $result->contentFailure();
+        if ($contentFailure !== null) {
+            throw new RasterizationFailureException($contentFailure);
+        }
+        throw new RuntimeException("DocumentPdfRasterizer: {$engine} sin salida utilizable (exit {$result->exitCode}); diagnóstico de contenido no confirmado.");
     }
 
     /**
@@ -281,7 +284,7 @@ class DocumentPdfRasterizer
         if (empty($generatedImages)) {
             throw new RuntimeException(
                 "DocumentPdfRasterizer: {$engine} no generó imágenes JPEG. "
-                . 'El PDF no contiene páginas renderizables o su estructura es incompatible.'
+                . 'Diagnóstico de contenido no confirmado.'
             );
         }
 
@@ -414,7 +417,7 @@ class DocumentPdfRasterizer
     /**
      * Ejecuta el comando controlando timeouts y capturando streams de error.
      */
-    protected function executeProcess(string $cmd): void
+    protected function executeProcess(string $cmd): RasterizationProcessResult
     {
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -432,7 +435,7 @@ class DocumentPdfRasterizer
         fclose($pipes[0]);
 
         $startTime = microtime(true);
-        $stderr = '';
+        $output = '';
 
         // Modo no bloqueante para evitar deadlocks de buffer del SO entre stdout/stderr
         stream_set_blocking($pipes[1], false);
@@ -440,8 +443,7 @@ class DocumentPdfRasterizer
 
         $exitCode = 0;
         while (true) {
-            stream_get_contents($pipes[1]);
-            $stderr .= stream_get_contents($pipes[2]);
+            $output = substr($output . stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]), -65536);
 
             $status = proc_get_status($process);
 
@@ -462,20 +464,14 @@ class DocumentPdfRasterizer
         }
 
         // Drenado final de streams
-        stream_get_contents($pipes[1]);
-        $stderr .= stream_get_contents($pipes[2]);
+        $output = substr($output . stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]), -65536);
 
         fclose($pipes[1]);
         fclose($pipes[2]);
 
         proc_close($process);
 
-        if ($exitCode !== 0) {
-            $engine = $this->activeEngine ?? 'motor';
-            throw new RuntimeException(
-                "DocumentPdfRasterizer: {$engine} finalizó con código {$exitCode}. Stderr: " . trim($stderr)
-            );
-        }
+        return new RasterizationProcessResult($exitCode, $output);
     }
 
     /**

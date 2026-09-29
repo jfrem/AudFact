@@ -170,7 +170,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             } catch (RasterizationFailureException $rasterError) {
                 $integrity = [
                     'valid'         => false,
-                    'reason'        => DocumentRejectionReason::RASTERIZATION_FAILURE,
+                    'reason'        => $rasterError->reason->value,
                     'declared_mime' => $document['mime'] ?? '',
                     'detected_mime' => null,
                     'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
@@ -182,7 +182,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     self::elapsedMs($extractionStartedAt),
                     $event->documentId,
                     $disDetNro,
-                    array_merge($telemetryMeta, ['reason' => DocumentRejectionReason::RASTERIZATION_FAILURE]),
+                    array_merge($telemetryMeta, ['reason' => $rasterError->reason->value]),
                     $event->jobId
                 );
                 return;
@@ -385,15 +385,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             if ($rawBytes === false || $rawBytes === '') {
                 throw new \RuntimeException('DocumentExtractionWorker: Base64 de PDF inválido o vacío');
             }
-            try {
-                return $this->pdfRasterizer->rasterize($rawBytes, $documentType);
-            } catch (\RuntimeException $rasterError) {
-                throw new RasterizationFailureException(
-                    $rasterError->getMessage(),
-                    $document,
-                    $rasterError
-                );
-            }
+            return $this->pdfRasterizer->rasterize($rawBytes, $documentType);
         }
 
         return [[

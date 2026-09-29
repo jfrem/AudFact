@@ -291,10 +291,23 @@ abstract class AuditEventConsumer
         $handleStart = hrtime(true);
 
         try {
+            $receipt = $this->redis->get(AuditEventPublisher::deadLetterReceiptKey($event->eventId));
+        } catch (Throwable $error) {
+            $this->logTerminalRecoveryPending($event, $streamId, $error);
+            return;
+        }
+        if ($receipt !== null && preg_match('/^\d+-\d+$/', $receipt)) {
+            $this->finishTerminalMessage($event, $streamName, $streamId, new RuntimeException('Reanudación de cierre terminal'));
+            return;
+        }
+
+        try {
             $this->handle($event);
             $handleDurationMs = self::elapsedMs($handleStart);
             $ackStart = hrtime(true);
-            $this->ackMessage($streamName, $streamId);
+            if (!$this->ackMessage($streamName, $streamId)) {
+                return;
+            }
             $ackDurationMs = self::elapsedMs($ackStart);
             $this->recordSuccessfulTelemetry(
                 $event,
@@ -318,7 +331,11 @@ abstract class AuditEventConsumer
                 self::elapsedMs($handleStart),
                 $e
             );
-            $this->handleFailure($event, $streamName, $streamId, $e);
+            try {
+                $this->handleFailure($event, $streamName, $streamId, $e);
+            } catch (Throwable $terminalError) {
+                $this->logTerminalRecoveryPending($event, $streamId, $terminalError);
+            }
         }
     }
 
@@ -539,10 +556,48 @@ abstract class AuditEventConsumer
                 'attempts'    => $attempts,
                 'error'       => $error->getMessage(),
             ]);
-            $this->afterTerminalFailure($event, $error);
-            $this->ackMessage($streamName, $streamId);
-            $this->clearAttempts($event->eventId);
+            $this->finishTerminalMessage($event, $streamName, $streamId, $error);
         }
+    }
+
+    private function finishTerminalMessage(AuditEvent $event, string $streamName, string $streamId, Throwable $error): void
+    {
+        try {
+            $this->afterTerminalFailure($event, $error);
+            $ack = $this->redis->eval(self::TERMINAL_ACK_LUA, [
+                $streamName,
+                AuditEventPublisher::deadLetterReceiptKey($event->eventId),
+                self::attemptsKey($event->eventId),
+            ], [$this->group(), $streamId]);
+            if ($ack !== 0 && $ack !== 1) {
+                throw new RuntimeException('Redis no confirmó el ACK terminal');
+            }
+        } catch (Throwable $terminalError) {
+            $this->logTerminalRecoveryPending($event, $streamId, $terminalError);
+        }
+    }
+
+    private const TERMINAL_ACK_LUA = <<<'LUA'
+        if not redis.call('GET', KEYS[2]) then
+            return redis.error_reply('Falta recibo DLQ para ACK terminal')
+        end
+        local ack = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
+        redis.call('EXPIRE', KEYS[2], 604800)
+        redis.call('DEL', KEYS[3])
+        return ack
+    LUA;
+
+    private function logTerminalRecoveryPending(AuditEvent $event, string $streamId, Throwable $error): void
+    {
+        Logger::warning('AuditEventConsumer: cierre pendiente de recuperación', [
+            'event_id' => $event->eventId,
+            'audit_id' => $event->auditId,
+            'job_id' => $event->jobId,
+            'stream_id' => $streamId,
+            'consumer' => $this->consumer(),
+            'error_class' => get_class($error),
+            'error' => $error->getMessage(),
+        ]);
     }
 
     private function finalizeDeadLetterAudit(AuditEvent $event, Throwable $error): void
@@ -588,11 +643,7 @@ abstract class AuditEventConsumer
                 payload: array_merge($failedPayload, ['failed_at' => gmdate('Y-m-d\TH:i:s\Z')]),
             ));
         } catch (Throwable $finalizeError) {
-            Logger::error('AuditEventConsumer: no se pudo cerrar auditoría antes de DLQ', [
-                'event_id' => $event->eventId,
-                'audit_id' => $event->auditId,
-                'error' => $finalizeError->getMessage(),
-            ]);
+            throw new RuntimeException('No se pudo cerrar auditoría antes de DLQ', 0, $finalizeError);
         }
     }
 
@@ -655,16 +706,11 @@ abstract class AuditEventConsumer
             parentEventId: $event->eventId,
         );
 
+        $this->publisher->publishDeadLetter($deadLetter);
         try {
-            $this->publisher->publishDeadLetter($deadLetter);
-            
-            try {
-                $this->redis->hIncrBy('telemetry:async_metrics', 'terminal_failures', 1);
-            } catch (\Throwable $e) {
-                // Ignore telemetry errors
-            }
-        } catch (RuntimeException $e) {
-            Logger::error('AuditEventConsumer: no se pudo publicar dead_letter', [
+            $this->redis->hIncrBy('telemetry:async_metrics', 'terminal_failures', 1);
+        } catch (Throwable $e) {
+            Logger::warning('AuditEventConsumer: métrica terminal no registrada', [
                 'event_id' => $event->eventId,
                 'error' => $e->getMessage(),
             ]);
@@ -695,9 +741,15 @@ abstract class AuditEventConsumer
         return "event:{$eventId}:attempts";
     }
 
-    private function ackMessage(string $stream, string $streamId): void
+    private function ackMessage(string $stream, string $streamId): bool
     {
-        $this->redis->xAck($stream, $this->group(), $streamId);
+        if ($this->redis->xAck($stream, $this->group(), $streamId) === 1) {
+            return true;
+        }
+        Logger::warning('AuditEventConsumer: ACK no confirmado', [
+            'stream' => $stream, 'stream_id' => $streamId, 'group' => $this->group(),
+        ]);
+        return false;
     }
 
     private static function errorCode(Throwable $error): string

@@ -184,15 +184,8 @@ final class AuditPersistenceWorker extends AuditEventConsumer
             return;
         }
 
-        try {
-            $this->persistenceQueue->advance($event);
-        } catch (Throwable $advanceError) {
-            Logger::warning('AuditPersistenceWorker: no se pudo liberar turno de persistencia tras fallo terminal', [
-                'auditId'      => $event->auditId,
-                'event_id'     => $event->eventId,
-                'advance_err'  => $advanceError->getMessage(),
-                'original_err' => $error->getMessage(),
-            ]);
+        if (!$this->persistenceQueue->advanceAfterFailure($event)) {
+            throw new RuntimeException('Turno terminal de persistencia pendiente de recuperación', 0, $error);
         }
     }
 

@@ -43,7 +43,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, guarda el BLOB temporal en Redis y propaga fallos técnicos sin publicar rechazos funcionales |
 | `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
-| `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI nativos) con `pdftoppm` (`poppler-utils`) para ingesta multimodal de alta resolución |
+| `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI) con Ghostscript y fallback Poppler; solo diagnósticos reconocidos de PDF sin páginas/corrupto generan rechazo documental tipado, mientras los fallos operativos siguen siendo técnicos |
 | `ExtractionPromptBuilder` | Construye prompts estructurados y deterministas para Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
@@ -118,7 +118,7 @@ después de recuperar el outcome canónico de Redis en un reintento.
 
 `RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. La cola permite un solo `rules_evaluated` activo por `job_id`; los restantes quedan ordenados en un ZSET por secuencia global. Jobs distintos publican turnos simultáneos en `audit.persistence.priority` o `audit.persistence.batch`, hasta la capacidad configurada de `worker-persistence`. Sin job, el turno se delimita por `audit_id`; una auditoría individual no queda detrás del turno reservado a un lote. `audit.persistence:{queue}:*` es el namespace de las claves de scheduling, no un stream.
 
-El turno avanza únicamente después del cierre exitoso o después de la terminalización DLQ. Una redelivery posterior a `advance` es idempotente. Las dos persistencias exigidas por dominio permanecen dentro de la misma transacción SQL.
+El turno avanza únicamente después del cierre exitoso o después de la terminalización DLQ. Ante fallo terminal, la cola retira atómicamente el turno fallido y promueve el siguiente sin liberar el turno de otra auditoría. La publicación DLQ crea un recibo idempotente junto al evento; el consumidor conserva el mensaje original pendiente si falla el avance y una redelivery reanuda el cierre sin repetir el procesamiento ni publicar otra DLQ. El ACK terminal consume el recibo y limpia los reintentos atómicamente. Una redelivery posterior a `advance` es idempotente. Las dos persistencias exigidas por dominio permanecen dentro de la misma transacción SQL.
 
 ### Despliegue, diagnóstico y recuperación del desvío a batch
 
@@ -177,10 +177,13 @@ segundos, ante desconexiones de conexión. `HYT00` se reintenta solo si ocurre a
 abrir; un timeout de statement, deadlock o escritura no reproducible no se
 repite automáticamente.
 
-Al agotar la política, `AuditEventConsumer` publica DLQ, hace ACK y ejecuta los
-hooks terminales en la misma entrega. `AuditPersistenceWorker` aplica una
-barrera independiente antes de SQL y rechaza cualquier resultado que contenga
-`DOWNLOAD_ERROR` o un contrato de rechazo inválido.
+Al agotar la política, `AuditEventConsumer` finaliza el estado, publica DLQ junto
+con un recibo idempotente y ejecuta los hooks terminales antes del ACK. Si un
+hook falla, el mensaje queda pendiente; la redelivery detecta el recibo y
+reanuda el cierre sin ejecutar de nuevo el handler ni duplicar la DLQ.
+`AuditPersistenceWorker` aplica una barrera independiente antes de SQL y
+rechaza cualquier resultado que contenga `DOWNLOAD_ERROR` o un contrato de
+rechazo inválido.
 
 ## Evaluacion Multi-Item
 

@@ -99,7 +99,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
 | `SemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver, integrando contexto documental |
 | `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |
-| `AuditComparisonType.php` | Enum de tipos de comparación: `exact`, `semantic`, `business`, `visual` |
+| `AuditComparisonType.php` | Enum de tipos de comparación: `exact`, `semantic`, `business`, `visual`, `internal`, `presence` |
 | `AuditFieldValueType.php` | Tipos de valor de campo extraído; determina cómo normaliza `FieldValueResolver` |
 | `AuditFindingResult.php` | Value-object inmutable de resultado de hallazgo: `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `INCONCLUSO` |
 | `AuditFindingRules.php` | Reglas de evaluación de hallazgos por tipo de campo y severidad |
@@ -134,7 +134,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 |---|---|
 | `AuditEvent.php` | Value-object inmutable; `followUp()` conserva identidad, correlación y metadatos `source` / `is_priority` del padre sin copiar el payload funcional anterior ni inferir el origen |
 | `AuditEventPublisher.php` | Publica a los streams canónicos duales (`audit.inbox.priority`, `audit.inbox.batch`, `audit.documents.priority`, `audit.documents.batch`, `audit.results.priority`, `audit.results.batch`), `audit.batch.inbox` y `audit.dlq`; rechaza `rules_evaluated` para impedir bypass del scheduler |
-| `AuditEventConsumer.php` | Base abstracta: `xReadGroupMulti` sobre `streams() = [STREAM_PRIORITY, STREAM_BATCH]`, posicional de izquierda a derecha (prioridad $P_0$ de ventanilla), recuperación de `pending`, ack por stream exacto, reintentos, envío a DLQ, cierre terminal y telemetría |
+| `AuditEventConsumer.php` | Base abstracta: `xReadGroupMulti` sobre `streams() = [STREAM_PRIORITY, STREAM_BATCH]`, recuperación de pending, ACK por stream, reintentos y DLQ durable; receipt idempotente permite reanudar hooks terminales antes del ACK sin repetir handler |
 | `AuditStateStore.php` | Claves Redis de estado de auditoría individual (`audit:{id}:*`, contadores, `event_timings`, `aggregation_timings`) |
 | `BatchJobStore.php` | Claves Redis de jobs/reservas y transición atómica de métricas según el estado anterior del job, incluyendo terminal directo de lotes de una auditoría |
 | `bin/schedule-daily-batches.php` | Script CLI (cron): encola auditorías batch diarias para todos los clientes configurados (`BatchRequestedWorker` vía `audit.batch.inbox`) con rango dinámico anual. Límite configurable vía `AUDIT_BATCH_CRON_LIMIT` (default: 5000) o `--limit` CLI |
@@ -147,12 +147,13 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `AttachmentDownloadWorker.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, descarga y almacena el adjunto en Redis; publica `document_downloaded` en el stream de origen y propaga cualquier fallo técnico sin crear decisiones documentales |
 | `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
-| `DocumentPdfRasterizer.php` | Renderizador determinista PDF a JPEG (200 DPI nativos) con motor primario Ghostscript (`gs`, tolerante a fuentes no incrustadas y reparación iText) y fallback a `pdftoppm` (`poppler-utils`) con limpieza estricta en `finally` |
+| `DocumentPdfRasterizer.php` | Renderizador determinista PDF a JPEG (200 DPI) con Ghostscript y fallback Poppler; emite fallos documentales tipados solo ante diagnósticos reconocidos, no ante errores operativos |
+| `RasterizationProcessResult.php`, `PdfContentFailure.php`, `RasterizationFailureException.php` | Clasificación interna de diagnósticos de parser PDF para separar contenido no procesable de fallos técnicos sin exponer salida de binarios |
 | `ExtractionPromptBuilder.php` | Constructor de prompts deterministas de extracción para Gemini con schema estructurado |
 | `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes de `audit.documents.priority` y `audit.documents.batch`, valida integridad y extrae con Gemini; publica `document_extracted` en el stream respectivo |
 | `DocumentNormalizer.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, normalización determinística PHP, publica `document_normalized` respetando prioridad |
 | `RulesEvaluationWorker.php` | Consume `audit.documents.priority` y `audit.documents.batch`, evalúa por documento; encola `rules_evaluated` hacia `audit.persistence.priority` o `audit.persistence.batch` vía `AuditPersistenceQueue` |
-| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job, o por auditoría cuando no tiene job |
+| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job, o por auditoría cuando no tiene job; terminaliza turnos fallidos de forma atómica |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |

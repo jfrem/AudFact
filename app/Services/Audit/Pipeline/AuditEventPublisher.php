@@ -56,8 +56,36 @@ class AuditEventPublisher
             throw new \InvalidArgumentException('publishDeadLetter requiere evento de tipo dead_letter');
         }
 
-        return $this->publishTo(self::dlqStream(), $event);
+        $result = $this->redis->eval(
+            self::DEAD_LETTER_LUA,
+            [self::dlqStream(), self::deadLetterReceiptKey($event->parentEventId ?? $event->eventId)],
+            [$event->toJson(), $this->streamMaxLen ?? 0]
+        );
+        if (!is_string($result) || !preg_match('/^\d+-\d+$/', $result)) {
+            throw new RuntimeException('Redis no confirmó la publicación durable de dead_letter');
+        }
+        return $result;
     }
+
+    public static function deadLetterReceiptKey(string $eventId): string
+    {
+        return "event:{$eventId}:dead_letter";
+    }
+
+    // El recibo no expira mientras el mensaje espera cierre/ACK. El consumidor
+    // le aplica retención después del ACK. XADD y recibo comparten operación.
+    private const DEAD_LETTER_LUA = <<<'LUA'
+        local receipt = redis.call('GET', KEYS[2])
+        if receipt then return receipt end
+        local id
+        if tonumber(ARGV[2]) > 0 then
+            id = redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[2], '*', 'event', ARGV[1])
+        else
+            id = redis.call('XADD', KEYS[1], '*', 'event', ARGV[1])
+        end
+        redis.call('SET', KEYS[2], id)
+        return id
+    LUA;
 
     private function publishTo(string $stream, AuditEvent $event): string
     {

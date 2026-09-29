@@ -23,9 +23,14 @@ class AuditResultPersistenceModel extends Model
     private const ATTACHMENT_APPROVED_FLAG = 'N';
     private const REJECTION_SUPPORT_CODE = 30;
 
-    public function __construct(?SqlServerConnectionExecutor $executor = null)
-    {
+    private AttachmentsModel $attachmentsModel;
+
+    public function __construct(
+        ?SqlServerConnectionExecutor $executor = null,
+        ?AttachmentsModel $attachmentsModel = null
+    ) {
         parent::__construct($executor);
+        $this->attachmentsModel = $attachmentsModel ?? new AttachmentsModel();
     }
 
     /**
@@ -229,7 +234,7 @@ class AuditResultPersistenceModel extends Model
         string $nitSec,
         array $documentDecisions
     ): void {
-        $attachments = $this->fetchDispensationAttachments($connection, $facNro, $nitSec);
+        $attachments = $this->attachmentsModel->getPhysicalAttachmentsByDisDetNro($facNro, $nitSec);
         if ($attachments === []) {
             throw new RuntimeException("No se encontraron adjuntos para la dispensación {$facNro}.");
         }
@@ -249,8 +254,8 @@ class AuditResultPersistenceModel extends Model
         $matchedNames = [];
 
         foreach ($attachments as $attachment) {
-            $attachmentId = (int) $attachment['AdjDisId'];
-            $documentName = strtoupper(trim((string) ($attachment['AdjDisNom'] ?? '')));
+            $attachmentId = (int) $attachment['attachment_id'];
+            $documentName = strtoupper(trim((string) ($attachment['physical_document_name'] ?? $attachment['AdjDisNom'] ?? '')));
 
             // 1. Prioridad: Emparejamiento por attachment_id estable
             if (isset($decisionsByAttachmentId[$attachmentId])) {
@@ -291,7 +296,7 @@ class AuditResultPersistenceModel extends Model
                     continue;
                 }
 
-                $fallbackId = (int) $fallback['AdjDisId'];
+                $fallbackId = (int) $fallback['attachment_id'];
                 $updatesByAttachmentId[$fallbackId] = $normalized;
                 Logger::info('Persistencia: decisión huérfana asignada al adjunto fallback', [
                     'documentName' => $normalized['documentName'],
@@ -303,48 +308,21 @@ class AuditResultPersistenceModel extends Model
 
         $this->executeAttachmentUpdates(
             $connection,
-            (string) $attachments[0]['DisId'],
-            (int) $attachments[0]['DisDetId'],
+            (string) $attachments[0]['dispensacion_id'],
+            (int) $attachments[0]['dis_det_id'],
             $updatesByAttachmentId
         );
     }
 
     /**
-     * @return array<int,array{AdjDisId:mixed,AdjDisNom:mixed,DisId:mixed,DisDetId:mixed}>
-     */
-    private function fetchDispensationAttachments(PDO $connection, string $facNro, string $nitSec): array
-    {
-        $sql = "SELECT DISTINCT
-                    a.AdjDisId,
-                    COALESCE(n.NitMedDocNom, a.AdjDisNom) AS AdjDisNom,
-                    a.DisId,
-                    a.DisDetId
-                FROM AdjuntosDispensacion a
-                INNER JOIN DispensacionDetalleServicio d
-                    ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId
-                LEFT JOIN NitDocumentos n
-                    ON n.NitMedDocCodAlt = a.AdjDisCodDocAlt AND n.NitSec = :nitSec
-                WHERE d.DisDetNro = :facNro
-                ORDER BY a.AdjDisId ASC";
-
-        $statement = $connection->prepare($sql);
-        $statement->bindValue(':nitSec', $nitSec, PDO::PARAM_STR);
-        $statement->bindValue(':facNro', $facNro, PDO::PARAM_STR);
-        $statement->execute();
-        $rows = $statement->fetchAll(PDO::FETCH_ASSOC);
-        $statement->closeCursor();
-
-        return is_array($rows) ? $rows : [];
-    }
-
-    /**
-     * @param array<int,array{AdjDisId:mixed,AdjDisNom:mixed,DisId:mixed,DisDetId:mixed}> $attachments
-     * @return array{AdjDisId:mixed,AdjDisNom:mixed,DisId:mixed,DisDetId:mixed}
+     * @param array<int,array<string,mixed>> $attachments
+     * @return array<string,mixed>
      */
     private function resolveFallbackAttachment(array $attachments): array
     {
         foreach ($attachments as $attachment) {
-            if (strtoupper(trim((string) ($attachment['AdjDisNom'] ?? ''))) === 'DISPENSA') {
+            $name = strtoupper(trim((string) ($attachment['physical_document_name'] ?? $attachment['AdjDisNom'] ?? '')));
+            if ($name === 'DISPENSA') {
                 return $attachment;
             }
         }
@@ -383,7 +361,7 @@ class AuditResultPersistenceModel extends Model
                 INNER JOIN (VALUES %s) AS source (AdjDisId, Approved, Observation)
                     ON source.AdjDisId = target.AdjDisId
                 WHERE target.DisId = @DisId
-                  AND target.DisDetId = @DisDetId;
+                  AND target.DisDetId = @DisDetId AND target.AdjDisId = source.AdjDisId;
 
                 SQL,
                 implode(', ', $values)

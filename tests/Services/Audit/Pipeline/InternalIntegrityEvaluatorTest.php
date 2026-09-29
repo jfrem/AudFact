@@ -202,4 +202,11 @@ final class InternalIntegrityEvaluatorTest extends TestCase
         $this->assertSame(AuditComparisonType::INTERNAL, AuditComparisonType::fromTipoCampo('i'));
         $this->assertSame('internal', AuditComparisonType::INTERNAL->value);
     }
+
+    public function testAuditComparisonTypeFromTipoCampoPresence(): void
+    {
+        $this->assertSame(AuditComparisonType::PRESENCE, AuditComparisonType::fromTipoCampo('P'));
+        $this->assertSame(AuditComparisonType::PRESENCE, AuditComparisonType::fromTipoCampo('p'));
+        $this->assertSame('presence', AuditComparisonType::PRESENCE->value);
+    }
 }

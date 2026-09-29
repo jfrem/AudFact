@@ -33,8 +33,11 @@ final class AuditEventConsumerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
         $redis->method('xGroupCreate')->willReturn(true);
-        $redis->method('get')->willReturn(json_encode(['audit_id' => $event->auditId, 'status' => 'processing']));
-        $redis->method('eval')->willReturn(1);
+        $redis->method('get')->willReturnCallback(static function (string $key) use ($event): ?string {
+            return $key === AuditStateStore::auditKey($event->auditId)
+                ? json_encode(['audit_id' => $event->auditId, 'status' => 'processing'])
+                : null;
+        });
         $redis->method('incr')->willReturn(1);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1-0',
@@ -57,7 +60,7 @@ final class AuditEventConsumerTest extends TestCase
                 return true;
             })
         )->willReturn('3-0');
-        $redis->expects($this->once())->method('xAck')->with('test.stream', 'test-group', '1-0');
+        $redis->expects($this->exactly(3))->method('eval')->willReturn(1);
         $consumer = new TerminalFailureConsumer(redis: $redis, publisher: $publisher, lane: 'all');
 
         // Act:
@@ -140,7 +143,7 @@ final class AuditEventConsumerTest extends TestCase
         ]]);
         $redis->expects($this->once())
             ->method('xAck')
-            ->with('test.stream', 'test-group', '1700000000000-0');
+            ->with('test.stream', 'test-group', '1700000000000-0')->willReturn(1);
 
         $consumer = new MinimalConsumer(redis: $redis);
         $processed = $consumer->run(1);
@@ -182,7 +185,7 @@ final class AuditEventConsumerTest extends TestCase
         $redis->expects($this->never())->method('xReadGroupMulti');
         $redis->expects($this->once())
             ->method('xAck')
-            ->with('test.stream', 'test-group', '1700000000001-0');
+            ->with('test.stream', 'test-group', '1700000000001-0')->willReturn(1);
 
         $consumer = new MinimalConsumer(redis: $redis);
         $processed = $consumer->run(1);
@@ -209,7 +212,7 @@ final class AuditEventConsumerTest extends TestCase
             'fields' => ['event' => $event->toJson()],
         ]]);
         $redis->expects($this->never())->method('xAdd');
-        $redis->expects($this->once())->method('xAck');
+        $redis->expects($this->once())->method('xAck')->willReturn(1);
 
         $consumer = new MinimalConsumer(redis: $redis, stateStore: $telemetryStore);
         $consumer->run(1);
@@ -251,12 +254,10 @@ final class AuditEventConsumerTest extends TestCase
             'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
-        $redis->method('xAdd')->willReturn('1700000000004-0');
-        $redis->expects($this->once())
-            ->method('xAck')
-            ->with('test.stream', 'test-group', '1700000000003-0');
+        $redis->method('get')->willReturn(null);
+        $redis->expects($this->exactly(2))->method('eval')->willReturn(1);
 
-        $consumer = new TerminalFailureConsumer(redis: $redis);
+        $consumer = new TerminalFailureConsumer(redis: $redis, publisher: new ConsumerRecordingPublisher());
         $consumer->run(1);
 
         $this->assertSame([$event->eventId], $consumer->terminalFailureEventIds);
@@ -277,9 +278,7 @@ final class AuditEventConsumerTest extends TestCase
             'stream' => 'test.stream',
             'fields' => ['event' => $event->toJson()],
         ]]);
-        $redis->expects($this->once())
-            ->method('xAck')
-            ->with('test.stream', 'test-group', '1700000000005-0');
+        $redis->expects($this->exactly(2))->method('eval')->willReturn(1);
 
         $publisher = new ConsumerRecordingPublisher();
         $error = new SqlServerOperationException(

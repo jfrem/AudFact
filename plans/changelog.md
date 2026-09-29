@@ -1,5 +1,30 @@
 # Changelog AudFact
 
+## [2026-09-29] - Feat: Auditoría de Presencia Bilateral Desacoplada (TipoCampo 'P')
+
+- **Estrategia de Presencia Bilateral (`AuditComparisonType::PRESENCE`)**:
+  - Incorporado el caso `PRESENCE = 'presence'` con mapeo de base de datos `'P'` en `AuditComparisonType`.
+  - Habilitada la compatibilidad de tipos de valor en `AuditFieldValueType::allowedTypesForTipoCampo('P')`.
+- **Motor de Políticas Documentales (`DocumentPolicyEngine`)**:
+  - Implementada evaluación agnóstica de presencia bilateral (`evaluatePresenceField`) cubriendo los cuatro cuadrantes de consistencia: presencia en ambas fuentes (`COINCIDE`), faltante en documento (`NO_EXISTE_EN_SOPORTE`), faltante en dispensación (`NO_COINCIDE`) o faltante en ambas fuentes (`NO_COINCIDE`).
+  - Previene omisión de campos vacíos en `shouldSkipEmptyField()` para estrategia `PRESENCE`, garantizando que la obligatoriedad bilateral genere hallazgo si ambos están ausentes.
+  - Flujo unificado a través de `resolveDataFinding` sin duplicación de lógica ni rutas paralelas de salida. Cero nombres de campo o documentos hardcodeados en el código PHP.
+- **Configuración Dinámica y Esquema SQL (`AuditConfigModel` & `AudDispCampo`)**:
+  - Migración DDL idempotente `database/migrations/005_add_TipoCampoOverride_to_AudDispCampo.sql` que añade la columna nullable `TipoCampoOverride CHAR(1)` a `Discolnet.dbo.AudDispCampo`.
+  - Actualización de `AuditConfigModel::getConfig()` con `COALESCE(ac.TipoCampoOverride, cat.TipoCampo) AS TipoCampo`, permitiendo sobreescribir la estrategia de comparación por documento sin alterar el catálogo general.
+  - Configuración aplicada en base de datos para el campo `Medico` en el documento `FORMULA MEDICA`.
+- **Gobernanza, Especificación y Pruebas**:
+  - Especificación formal en `plans/sdd-auditoria-presencia-bilateral.md`.
+  - Pruebas unitarias añadidas en `tests/Services/Audit/Events/DocumentPolicyEngineTest.php` y `tests/Services/Audit/Pipeline/InternalIntegrityEvaluatorTest.php`.
+  - Validación completa: suite PHPUnit (713 tests, 2850 assertions, 0 errores), validación de skills PASS (21 skills, 8 bundles) y build Docusaurus exitoso.
+
+## [2026-09-28] - Recuperación terminal DLQ y clasificación de fallos PDF
+
+- El cierre terminal del consumidor conserva el evento original en PEL si falla el avance de persistencia. Un recibo Redis idempotente enlaza publicación DLQ y ACK, permitiendo reanudar el cierre sin reejecutar el procesamiento ni duplicar el evento DLQ.
+- `AuditPersistenceQueue` elimina de forma atómica el turno que falló, preserva cualquier dueño activo distinto y promueve el siguiente pendiente cuando el turno activo ya expiró.
+- La rasterización ahora clasifica como rechazo documental solo diagnósticos conocidos de cero páginas o PDF corrupto. Fallos operativos (permisos, almacenamiento, memoria o salida no concluyente) continúan por la ruta técnica y el fallback valida salida utilizable.
+- Sin cambios en contratos de evento, esquema SQL o variables de entorno. Validación: PHPUnit dirigido (68 pruebas; 1 skip por Poppler), PHPUnit completo (707 pruebas, 2828 assertions; 2 skips), validación de skills, sintaxis PHP y build de Docusaurus.
+
 ## [2026-09-25] - Exportación tabular de Rendimiento Mensual por EPS (CSV / Excel)
 
 - **Funcionalidad de Exportación en UI (`MonthlyClientPerformance`)**:

@@ -231,7 +231,7 @@ enum AuditFieldValueType: string
                 self::INSTITUTION_NAME,
                 self::ARTICLE_NAME,
             ],
-            'E' => self::cases(),
+            'E', 'P' => self::cases(),
             default => [],
         };
     }

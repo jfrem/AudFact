@@ -39,6 +39,17 @@ class AuditPersistenceQueue
 
     public function advance(AuditEvent $event): bool
     {
+        return $this->advanceInternal($event, false);
+    }
+
+    /** Resuelve un turno fallido, incluso si su estado/turno ya expiró. */
+    public function advanceAfterFailure(AuditEvent $event): bool
+    {
+        return $this->advanceInternal($event, true);
+    }
+
+    private function advanceInternal(AuditEvent $event, bool $terminal): bool
+    {
         $auditId = self::requirePersistenceEvent($event);
         $scope = self::scopeFor($event);
         $ttl = self::ttlSeconds();
@@ -56,7 +67,7 @@ class AuditPersistenceQueue
                 self::seenKey($scope),
                 $stream,
             ],
-            [$auditId, $ttl]
+            $terminal ? [$auditId, $ttl, 1] : [$auditId, $ttl]
         );
 
         if (!is_int($result) && !is_numeric($result)) {
@@ -198,10 +209,17 @@ class AuditPersistenceQueue
         local activeAuditId = redis.call('GET', KEYS[1])
 
         if activeAuditId ~= auditId then
-            if redis.call('HEXISTS', KEYS[4], auditId) == 1 then
+            if tonumber(ARGV[3]) == 1 then
+                -- Retirar sólo la auditoría fallida; nunca liberar otro dueño.
+                redis.call('ZREM', KEYS[2], auditId)
+                redis.call('HDEL', KEYS[3], auditId)
+                if activeAuditId then return 3 end
+                -- Sin dueño, recuperar el siguiente pendiente en este mismo Lua.
+            elseif redis.call('HEXISTS', KEYS[4], auditId) == 1 then
                 return 3
+            else
+                return 0
             end
-            return 0
         end
 
         redis.call('HDEL', KEYS[3], auditId)

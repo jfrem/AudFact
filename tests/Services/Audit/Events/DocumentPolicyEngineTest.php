@@ -1504,4 +1504,126 @@ final class DocumentPolicyEngineTest extends TestCase
         $result = $engine->evaluate($state, $payload, 'FAC-001');
         $this->assertTrue($result['document_decision']['approved']);
     }
+
+    // ─── PRESENCE (Presencia Bilateral) ──────────────────────────────────────
+
+    public function testPresenceComparisonMatchesWhenBothValuesExistEvenIfDifferent(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('Medico', 'P', 'alta', 'person_name')],
+            ['header' => ['Medico' => 'DR. PEREZ JUAN'], 'items' => []]
+        );
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            ['Medico' => 'DRA. GOMEZ MARIA']
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-PRES-01');
+
+        $finding = $result['hallazgos']['items'][0] ?? null;
+        $this->assertNotNull($finding, 'Debe emitir un hallazgo para Medico');
+        $this->assertSame('COINCIDE', $finding['resultado']);
+        $this->assertSame('presence', $finding['tipo_auditoria']);
+        $this->assertTrue($result['document_decision']['approved']);
+    }
+
+    public function testPresenceComparisonReportsNotFoundWhenDocValueIsNull(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('Medico', 'P', 'alta', 'person_name')],
+            ['header' => ['Medico' => 'DR. PEREZ JUAN'], 'items' => []]
+        );
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            ['Medico' => ['valor' => null, 'presente' => false, 'estadoExtraccion' => 'NOT_FOUND']]
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-PRES-02');
+
+        $finding = $result['hallazgos']['items'][0] ?? null;
+        $this->assertNotNull($finding, 'Debe emitir un hallazgo por ausencia en documento');
+        $this->assertSame('NO_ENCONTRADO', $finding['resultado']);
+        $this->assertSame('presence', $finding['tipo_auditoria']);
+        $this->assertFalse($result['document_decision']['approved']);
+    }
+
+    public function testPresenceComparisonReportsMismatchWhenFdvValueIsNull(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('Medico', 'P', 'alta', 'person_name')],
+            ['header' => ['Medico' => null], 'items' => []]
+        );
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            ['Medico' => 'DRA. GOMEZ MARIA']
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-PRES-03');
+
+        $finding = $result['hallazgos']['items'][0] ?? null;
+        $this->assertNotNull($finding, 'Debe emitir un hallazgo por ausencia en FdV');
+        $this->assertSame('VALOR_DISTINTO', $finding['resultado']);
+        $this->assertSame('presence', $finding['tipo_auditoria']);
+    }
+
+    public function testPresenceComparisonPreservesInconclusiveWhenQualityIsIllegible(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('Medico', 'P', 'alta', 'person_name')],
+            ['header' => ['Medico' => 'DR. PEREZ JUAN'], 'items' => []]
+        );
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            ['Medico' => ['valor' => null, 'presente' => false, 'estadoExtraccion' => 'NOT_FOUND']],
+            [],
+            [],
+            'ilegible'
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-PRES-04');
+
+        $finding = $result['hallazgos']['items'][0] ?? null;
+        $this->assertNotNull($finding, 'Debe emitir hallazgo inconcluso por calidad');
+        $this->assertSame('NO_CONCLUYENTE', $finding['resultado']);
+    }
+
+    public function testPresenceComparisonReportsNotFoundWhenBothValuesAreNull(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('Medico', 'P', 'alta', 'person_name')],
+            ['header' => ['Medico' => null], 'items' => []]
+        );
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            ['Medico' => ['valor' => null, 'presente' => false, 'estadoExtraccion' => 'NOT_FOUND']]
+        );
+
+        $result = $engine->evaluate($state, $payload, 'FAC-PRES-05');
+
+        $finding = $result['hallazgos']['items'][0] ?? null;
+        $this->assertNotNull($finding, 'PRESENCE con ambos nulos debe emitir hallazgo, no omitirse');
+        $this->assertSame('NO_ENCONTRADO', $finding['resultado']);
+        $this->assertSame('presence', $finding['tipo_auditoria']);
+        $this->assertFalse($result['document_decision']['approved']);
+    }
 }

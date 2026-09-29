@@ -205,6 +205,26 @@ final class AuditPersistenceQueueTest extends TestCase
         $this->assertTrue($queue->advance($event));
     }
 
+    public function testAdvanceAfterFailureUsesTerminalLuaMode(): void
+    {
+        $event = self::persistenceEvent(['source' => 'batch']);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->once())->method('eval')->with(
+            $this->stringContains('ZPOPMIN'),
+            $this->callback(function (array $keys): bool {
+                $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $keys[4]);
+                return true;
+            }),
+            $this->callback(function (array $args) use ($event): bool {
+                $this->assertSame($event->auditId, $args[0]);
+                $this->assertSame(1, $args[2]);
+                return true;
+            })
+        )->willReturn(2);
+
+        $this->assertTrue((new AuditPersistenceQueue($redis))->advanceAfterFailure($event));
+    }
+
     public function testRejectsEventsOutsidePersistenceBoundary(): void
     {
         $queue = new AuditPersistenceQueue($this->createMock(RedisClient::class));

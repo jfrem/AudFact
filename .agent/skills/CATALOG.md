@@ -83,6 +83,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/Audit/*.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/DeliveryValiditySource.php` | `audfact-audit-gemini` (origen interno de vigencia) |
 | `database/migrations/004_add_DiasVigencia_to_AudDisp.sql` | `audfact-sqlsrv-models` |
+| `database/migrations/005_add_TipoCampoOverride_to_AudDispCampo.sql` | `audfact-sqlsrv-models` |
 | `app/Services/GoogleDrive*.php` | `audfact-audit-gemini` |
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |

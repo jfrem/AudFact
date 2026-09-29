@@ -10,6 +10,8 @@ use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
 use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
+use App\Services\Audit\Pipeline\PdfContentFailure;
+use App\Services\Audit\Pipeline\RasterizationFailureException;
 use App\Services\Audit\GeminiGateway;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
@@ -18,6 +20,44 @@ use RuntimeException;
 final class DocumentExtractionWorkerTest extends TestCase
 {
     private const BLOB_KEY = 'audit:blob:att-1:test-hash';
+
+    public function testKnownRasterizationContentFailurePublishesTypedDocumentRejection(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+        $redis = $this->createMock(RedisClient::class);
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+        $redis->method('get')->willReturnCallback(static function (string $key) use ($blobJson): ?string {
+            return str_starts_with($key, 'audit:blob:') ? $blobJson : null;
+        });
+        $gateway = new StubGeminiGateway([]);
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public function __construct() { parent::__construct('test-rasterizer'); }
+            public function isAvailable(): bool { return true; }
+            public function rasterize(string $pdfDataRaw, string $label, ?int $customDpi = null): array
+            {
+                throw new RasterizationFailureException(PdfContentFailure::NO_PAGES);
+            }
+        };
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redis,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: $rasterizer
+        );
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertSame(0, $gateway->calls);
+        $this->assertSame('EMPTY_PDF_NO_PAGES', $store->lastRejectedPatch['rejection_reason'] ?? null);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('EMPTY_PDF_NO_PAGES', $publisher->published[0]->payload['rejection_reason'] ?? null);
+    }
 
     public function testCacheHitSkipsGeminiAndPublishesDocumentExtracted(): void
     {

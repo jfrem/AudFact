@@ -256,23 +256,43 @@ class DocumentPolicyEngine
         $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
         $fdvResolution = FieldValueResolver::resolveSourceTruthField($canonicalField, $valueType, $sourceTruth);
 
-        if ($this->shouldSkipEmptyField($fdvResolution, $docResolution)) {
+        $comparisonType = AuditComparisonType::fromTipoCampo($tipoCampo);
+
+        if ($this->shouldSkipEmptyField($fdvResolution, $docResolution, $comparisonType)) {
             return null;
         }
 
-        $internalType = AuditComparisonType::fromTipoCampo($tipoCampo)->value;
+        $internalType = $comparisonType->value;
         $isItemSourced = $this->isItemSourcedField($canonicalField, $sourceTruth);
 
-        $comparison = $this->evaluateDataFieldComparison(
-            $canonicalField,
-            $fdvResolution,
-            $docResolution,
-            $valueType,
-            $documentQuality,
-            $context,
-            $internalType,
-            $tipoCampo
-        );
+        // --- Determinar $comparison según estrategia ---
+        if ($comparisonType === AuditComparisonType::PRESENCE) {
+            // PRESENCE verifica existencia bilateral, no identidad de valores.
+            $docValue = $docResolution->displayValue;
+            $fdvValue = $fdvResolution->displayValue;
+
+            $comparison = ($documentQuality !== 'legible' && $docValue === null)
+                ? [
+                    'resultado' => AuditFindingResult::INCONCLUSIVE->value,
+                    'detalle'   => sprintf(
+                        "No fue posible verificar '%s' porque la calidad de la imagen del documento no permite leer el valor con certeza.",
+                        TextNormalization::humanizeFieldName($canonicalField)
+                    ),
+                ]
+                : $this->evaluatePresenceField($canonicalField, $fdvValue, $docValue, $documentType);
+        } else {
+            // Flujo normal: EXACT / SEMANTIC / BUSINESS
+            $comparison = $this->evaluateDataFieldComparison(
+                $canonicalField,
+                $fdvResolution,
+                $docResolution,
+                $valueType,
+                $documentQuality,
+                $context,
+                $internalType,
+                $tipoCampo
+            );
+        }
 
         return $this->resolveDataFinding(
             $canonicalField,
@@ -293,8 +313,15 @@ class DocumentPolicyEngine
         return $tipoCampo === 'V' || $tipoCampo === 'I';
     }
 
-    private function shouldSkipEmptyField(ResolvedAuditValue $fdvResolution, ResolvedAuditValue $docResolution): bool
-    {
+    private function shouldSkipEmptyField(
+        ResolvedAuditValue $fdvResolution,
+        ResolvedAuditValue $docResolution,
+        AuditComparisonType $comparisonType = AuditComparisonType::EXACT
+    ): bool {
+        if ($comparisonType === AuditComparisonType::PRESENCE) {
+            return false;
+        }
+
         return !$fdvResolution->hasValue()
             && !$docResolution->hasValue()
             && !$fdvResolution->ambiguous
@@ -1077,6 +1104,74 @@ class DocumentPolicyEngine
             'payload'      => $payload,
             'doc_id'       => is_scalar($docId) ? (string)$docId : null,
             'attachment_id'=> is_scalar($attachmentId) ? (string)$attachmentId : null,
+        ];
+    }
+
+    /**
+     * Evalúa la presencia obligatoria bilateral.
+     *
+     * No compara identidad de valores — solo verifica que ambas fuentes
+     * (FdV y documento soporte) contengan un valor no nulo para el campo.
+     *
+     * @return array{resultado:string,tipo_auditoria:string,detalle?:string}
+     */
+    private function evaluatePresenceField(
+        string $field,
+        ?string $fdvValue,
+        ?string $docValue,
+        string $documentType
+    ): array {
+        $humanField = TextNormalization::humanizeFieldName($field);
+        $tipoAuditoria = AuditComparisonType::PRESENCE->value;
+
+        // Caso 1: Ambos presentes (no exige misma persona) -> COINCIDE
+        if ($fdvValue !== null && $docValue !== null) {
+            return [
+                'resultado'      => AuditFindingResult::MATCH->value,
+                'tipo_auditoria' => $tipoAuditoria,
+                'detalle'        => sprintf(
+                    "Presencia obligatoria verificada: figura %s en el registro de dispensación ('%s') y en el documento soporte ('%s').",
+                    $humanField,
+                    $fdvValue,
+                    $docValue
+                ),
+            ];
+        }
+
+        // Caso 2: Falta en documento físico
+        if ($docValue === null && $fdvValue !== null) {
+            return [
+                'resultado'      => AuditFindingResult::NOT_FOUND->value,
+                'tipo_auditoria' => $tipoAuditoria,
+                'detalle'        => sprintf(
+                    "No se encontró '%s' en el documento soporte %s, siendo un requisito obligatorio.",
+                    $humanField,
+                    $documentType
+                ),
+            ];
+        }
+
+        // Caso 3: Falta en registro de dispensación (FdV)
+        if ($fdvValue === null && $docValue !== null) {
+            return [
+                'resultado'      => AuditFindingResult::MISMATCH->value,
+                'tipo_auditoria' => $tipoAuditoria,
+                'detalle'        => sprintf(
+                    "El registro de dispensación en base de datos carece de '%s', siendo un campo obligatorio según la política de auditoría.",
+                    $humanField
+                ),
+            ];
+        }
+
+        // Caso 4: Ausente en ambos extremos
+        return [
+            'resultado'      => AuditFindingResult::NOT_FOUND->value,
+            'tipo_auditoria' => $tipoAuditoria,
+            'detalle'        => sprintf(
+                "No se registró '%s' en la dispensación ni se encontró en el documento soporte %s.",
+                $humanField,
+                $documentType
+            ),
         ];
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Models;
 
+use App\Models\AttachmentsModel;
 use App\Models\AuditResultPersistenceModel;
 use Core\SqlServerConnectionExecutor;
 use PDO;
@@ -17,11 +18,11 @@ final class AuditResultPersistenceModelTest extends TestCase
     public function testPersistsBothDomainWritesWithSetBasedAttachmentUpdate(): void
     {
         $pdo = new PersistenceFakePdo();
-        $pdo->attachmentRows = [
-            ['AdjDisId' => 41, 'AdjDisNom' => 'DISPENSA', 'DisId' => '87723098', 'DisDetId' => 7],
-            ['AdjDisId' => 42, 'AdjDisNom' => 'FORMULA MEDICA', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 41, 'physical_document_name' => 'DISPENSA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
+            ['attachment_id' => 42, 'physical_document_name' => 'FORMULA MEDICA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
-        $model = $this->makeModel($pdo);
+        $model = $this->makeModel($pdo, $attachmentRows);
 
         $model->persist(self::auditResultData(), [
             ['documentName' => 'DISPENSA', 'approved' => true],
@@ -35,32 +36,31 @@ final class AuditResultPersistenceModelTest extends TestCase
         $this->assertSame(1, $pdo->beginCount);
         $this->assertSame(1, $pdo->commitCount);
         $this->assertSame(0, $pdo->rollbackCount);
-        $this->assertCount(3, $pdo->preparedSql);
+        $this->assertCount(2, $pdo->preparedSql);
         $this->assertStringContainsString(
             'WITH (UPDLOCK, SERIALIZABLE)',
             $pdo->preparedSql[0]
         );
-        $this->assertStringContainsString('SELECT DISTINCT', $pdo->preparedSql[1]);
         $this->assertStringContainsString(
             '(VALUES (:attachmentId0, :approved0, :observation0), ' .
             '(:attachmentId1, :approved1, :observation1))',
-            $pdo->preparedSql[2]
+            $pdo->preparedSql[1]
         );
-        $this->assertSame(41, $pdo->statements[2]->boundValues[':attachmentId0']);
-        $this->assertSame(42, $pdo->statements[2]->boundValues[':attachmentId1']);
-        $this->assertSame(1, $pdo->statements[2]->boundValues[':approved0']);
-        $this->assertSame(0, $pdo->statements[2]->boundValues[':approved1']);
+        $this->assertSame(41, $pdo->statements[1]->boundValues[':attachmentId0']);
+        $this->assertSame(42, $pdo->statements[1]->boundValues[':attachmentId1']);
+        $this->assertSame(1, $pdo->statements[1]->boundValues[':approved0']);
+        $this->assertSame(0, $pdo->statements[1]->boundValues[':approved1']);
         $this->assertSame(['2426'], $model->invalidatedScopes);
     }
 
     public function testRollsBackBothWritesWhenAttachmentPersistenceFails(): void
     {
         $pdo = new PersistenceFakePdo();
-        $pdo->attachmentRows = [
-            ['AdjDisId' => 41, 'AdjDisNom' => 'DISPENSA', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 41, 'physical_document_name' => 'DISPENSA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
-        $pdo->throwOnExecuteIndex = 2;
-        $model = $this->makeModel($pdo);
+        $pdo->throwOnExecuteIndex = 1;
+        $model = $this->makeModel($pdo, $attachmentRows);
 
         try {
             $model->persist(self::auditResultData(), [
@@ -79,11 +79,11 @@ final class AuditResultPersistenceModelTest extends TestCase
     public function testAssignsOrphanRejectionToDispensationFallback(): void
     {
         $pdo = new PersistenceFakePdo();
-        $pdo->attachmentRows = [
-            ['AdjDisId' => 41, 'AdjDisNom' => 'DISPENSA', 'DisId' => '87723098', 'DisDetId' => 7],
-            ['AdjDisId' => 42, 'AdjDisNom' => 'FORMULA MEDICA', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 41, 'physical_document_name' => 'DISPENSA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
+            ['attachment_id' => 42, 'physical_document_name' => 'FORMULA MEDICA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
-        $model = $this->makeModel($pdo);
+        $model = $this->makeModel($pdo, $attachmentRows);
 
         $model->persist(self::auditResultData(), [
             ['documentName' => 'DISPENSA', 'approved' => true],
@@ -94,7 +94,7 @@ final class AuditResultPersistenceModelTest extends TestCase
             ],
         ]);
 
-        $update = $pdo->statements[2];
+        $update = $pdo->statements[1];
         $this->assertSame(41, $update->boundValues[':attachmentId0']);
         $this->assertSame(0, $update->boundValues[':approved0']);
         $observation = json_decode(
@@ -130,12 +130,12 @@ final class AuditResultPersistenceModelTest extends TestCase
     public function testRollbackFailurePreservesOriginalError(): void
     {
         $pdo = new PersistenceFakePdo();
-        $pdo->attachmentRows = [
-            ['AdjDisId' => 41, 'AdjDisNom' => 'DISPENSA', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 41, 'physical_document_name' => 'DISPENSA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
-        $pdo->throwOnExecuteIndex = 2;
+        $pdo->throwOnExecuteIndex = 1;
         $pdo->throwOnRollback = true;
-        $model = $this->makeModel($pdo);
+        $model = $this->makeModel($pdo, $attachmentRows);
 
         try {
             $model->persist(self::auditResultData(), [
@@ -157,8 +157,8 @@ final class AuditResultPersistenceModelTest extends TestCase
         $first->executeError = self::pdoError('08S01', 'Communication link failure');
 
         $second = new PersistenceFakePdo();
-        $second->attachmentRows = [
-            ['AdjDisId' => 41, 'AdjDisNom' => 'DISPENSA', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 41, 'physical_document_name' => 'DISPENSA', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
 
         $connections = [$first, $second];
@@ -175,7 +175,8 @@ final class AuditResultPersistenceModelTest extends TestCase
             },
             sleeper: static function (int $milliseconds): void {}
         );
-        $model = new TestableAuditResultPersistenceModel($executor);
+        $stubAtts = new PersistenceStubAttachmentsModel($attachmentRows);
+        $model = new TestableAuditResultPersistenceModel($executor, $stubAtts);
 
         $model->persist(self::auditResultData(), [
             ['documentName' => 'DISPENSA', 'approved' => true],
@@ -208,12 +209,19 @@ final class AuditResultPersistenceModelTest extends TestCase
         ];
     }
 
-    private function makeModel(PersistenceFakePdo $pdo): TestableAuditResultPersistenceModel
+    /**
+     * @param array<int,array<string,mixed>> $attachmentRows
+     */
+    private function makeModel(PersistenceFakePdo $pdo, array $attachmentRows = []): TestableAuditResultPersistenceModel
     {
-        return new TestableAuditResultPersistenceModel(new SqlServerConnectionExecutor(
-            connector: static fn(string $name): PDO => $pdo,
-            sleeper: static function (int $milliseconds): void {}
-        ));
+        $stubAtts = new PersistenceStubAttachmentsModel($attachmentRows);
+        return new TestableAuditResultPersistenceModel(
+            new SqlServerConnectionExecutor(
+                connector: static fn(string $name): PDO => $pdo,
+                sleeper: static function (int $milliseconds): void {}
+            ),
+            $stubAtts
+        );
     }
 
     private static function pdoError(string $sqlState, string $message): PDOException
@@ -227,11 +235,11 @@ final class AuditResultPersistenceModelTest extends TestCase
     public function testMatchesDecisionsByAttachmentIdEvenWhenPhysicalNameDiffers(): void
     {
         $pdo = new PersistenceFakePdo();
-        $pdo->attachmentRows = [
-            ['AdjDisId' => 101, 'AdjDisNom' => 'SCAN_RAW_001.PDF', 'DisId' => '87723098', 'DisDetId' => 7],
-            ['AdjDisId' => 102, 'AdjDisNom' => 'SCAN_RAW_002.PDF', 'DisId' => '87723098', 'DisDetId' => 7],
+        $attachmentRows = [
+            ['attachment_id' => 101, 'physical_document_name' => 'SCAN_RAW_001.PDF', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
+            ['attachment_id' => 102, 'physical_document_name' => 'SCAN_RAW_002.PDF', 'dispensacion_id' => '87723098', 'dis_det_id' => 7],
         ];
-        $model = $this->makeModel($pdo);
+        $model = $this->makeModel($pdo, $attachmentRows);
 
         $model->persist(self::auditResultData(), [
             [
@@ -247,7 +255,7 @@ final class AuditResultPersistenceModelTest extends TestCase
             ],
         ]);
 
-        $update = $pdo->statements[2];
+        $update = $pdo->statements[1];
         $this->assertSame(101, $update->boundValues[':attachmentId0']);
         $this->assertSame(1, $update->boundValues[':approved0']);
         $this->assertSame(102, $update->boundValues[':attachmentId1']);
@@ -259,6 +267,13 @@ final class TestableAuditResultPersistenceModel extends AuditResultPersistenceMo
 {
     /** @var array<int,string> */
     public array $invalidatedScopes = [];
+
+    public function __construct(
+        ?SqlServerConnectionExecutor $executor = null,
+        ?AttachmentsModel $attachmentsModel = null
+    ) {
+        parent::__construct($executor, $attachmentsModel);
+    }
 
     protected function invalidateResultCache(string $scope): void
     {
@@ -272,8 +287,7 @@ final class PersistenceFakePdo extends PDO
     public array $preparedSql = [];
     /** @var array<int,PersistenceFakePdoStatement> */
     public array $statements = [];
-    /** @var array<int,array<string,mixed>> */
-    public array $attachmentRows = [];
+
     public ?int $throwOnExecuteIndex = null;
     public ?\Throwable $executeError = null;
     public bool $throwOnRollback = false;
@@ -292,9 +306,6 @@ final class PersistenceFakePdo extends PDO
         $index = count($this->preparedSql);
         $this->preparedSql[] = $query;
         $statement = new PersistenceFakePdoStatement($this, $index);
-        if (str_contains($query, 'SELECT DISTINCT')) {
-            $statement->result = $this->attachmentRows;
-        }
         $this->statements[] = $statement;
 
         return $statement;
@@ -373,5 +384,21 @@ final class PersistenceFakePdoStatement extends PDOStatement
     public function closeCursor(): bool
     {
         return true;
+    }
+}
+
+/**
+ * @internal Test double — returns predefined attachment rows without database access.
+ */
+final class PersistenceStubAttachmentsModel extends AttachmentsModel
+{
+    /** @param array<int,array<string,mixed>> $rows */
+    public function __construct(private array $rows = [])
+    {
+    }
+
+    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    {
+        return $this->rows;
     }
 }

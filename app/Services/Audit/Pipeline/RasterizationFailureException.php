@@ -8,28 +8,13 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Excepción emitida cuando la rasterización de un PDF produce 0 imágenes.
- *
- * Transporta el documento original para que el llamador pueda clasificar
- * el fallo como rechazo documental con contexto completo.
+ * Rechazo respaldado por un diagnóstico conocido del parser PDF.
+ * La ausencia de imágenes por sí sola no demuestra corrupción documental.
  */
 final class RasterizationFailureException extends RuntimeException
 {
-    /** @var array<string,mixed> */
-    private array $document;
-
-    /**
-     * @param array<string,mixed> $document Documento original (mime+data) que falló
-     */
-    public function __construct(string $message, array $document, ?Throwable $previous = null)
+    public function __construct(public readonly PdfContentFailure $reason, ?Throwable $previous = null)
     {
-        parent::__construct($message, 0, $previous);
-        $this->document = $document;
-    }
-
-    /** @return array<string,mixed> */
-    public function getDocument(): array
-    {
-        return $this->document;
+        parent::__construct('PDF no procesable: ' . $reason->value, 0, $previous);
     }
 }
