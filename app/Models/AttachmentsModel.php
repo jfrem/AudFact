@@ -40,8 +40,8 @@ class AttachmentsModel extends Model
                     ELSE 'SIN_DOCUMENTOS'
                 END AS TipoAlmacenamiento
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                LEFT JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId=a.DisId and d.DisDetId=a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocCod = a.AdjDisCodDoc AND n.NitMedDocNom = a.AdjDisNom
+                INNER JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId 
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId = a.AdjDisDocId
                 WHERE d.DisDetNro = :disDetNro AND n.NitSec = :nitSec";
 
         $result = $this->read(function (PDO $connection) use ($sql, $disDetNro, $nitSec): array {
@@ -91,12 +91,8 @@ class AttachmentsModel extends Model
                     ELSE 'SIN_DOCUMENTOS'
                 END AS [storage_type]
                 FROM AdjuntosDispensacion a WITH (NOLOCK)
-                INNER JOIN DispensacionDetalleServicio d WITH (NOLOCK)
-                    ON d.DisId = a.DisId
-                   AND d.DisDetId = a.DisDetId
-                LEFT JOIN NitDocumentos n WITH (NOLOCK)
-                    ON n.NitMedDocCod = a.AdjDisCodDoc
-                   AND n.NitMedDocNom = a.AdjDisNom
+                INNER JOIN DispensacionDetalleServicio d WITH (NOLOCK) ON d.DisId = a.DisId AND d.DisDetId = a.DisDetId
+                LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId = a.AdjDisDocId
                    AND n.NitSec = :nitSec
                 WHERE d.DisDetNro = :disDetNro
                 ORDER BY a.AdjDisId ASC";

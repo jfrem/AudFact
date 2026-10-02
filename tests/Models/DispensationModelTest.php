@@ -56,6 +56,9 @@ final class DispensationModelTest extends TestCase
         $this->assertStringContainsString('AND', $pdo->preparedSql);
         $this->assertSame('877', $pdo->statement->boundValues[':dis_id']);
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':dis_det_nro']);
+        $this->assertStringContainsString("WHEN NitSec = '2426' THEN Codigo_aut", $pdo->preparedSql);
+        $this->assertStringContainsString("ELSE LEFT(Codigo_aut, CHARINDEX('-', Codigo_aut + '-') - 1)", $pdo->preparedSql);
+        $this->assertStringContainsString("END AS CodigoProducto", $pdo->preparedSql);
     }
 
     private function makeModelWithReadDb(DispensationFakePdo $pdo): DispensationModel

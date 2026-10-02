@@ -178,6 +178,8 @@ final class AuditFindingRulesNormalizationTest extends TestCase
             'ISO 8601 UTC Z'                     => ['2026-01-09T08:51:04Z', '2026-01-09'],
             'ISO 8601 sin milisegundos'          => ['2026-01-09T08:51:04-05:00', '2026-01-09'],
             'ISO 8601 solo hora sin timezone'    => ['2026-01-09T08:51:04', '2026-01-09'],
+            'Múltiples horas concatenadas (SQL Server medianoche + hora)' => ['25/08/2026 0:00:00 05:31:18', '2026-08-25'],
+            'Múltiples horas con AM PM'          => ['25/08/2026 0:00:00 a. m. 05:31:18 p. m.', '2026-08-25'],
         ];
     }
 

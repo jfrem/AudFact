@@ -236,7 +236,10 @@ class DispensationModel extends Model
 
                 -- Producto
                 Codigo AS CodigoArticulo,
-                LEFT(Codigo_aut, CHARINDEX('-', Codigo_aut + '-') - 1) AS CodigoProducto,
+                CASE
+                    WHEN NitSec = '2426' THEN Codigo_aut
+                    ELSE LEFT(Codigo_aut, CHARINDEX('-', Codigo_aut + '-') - 1)
+                END AS CodigoProducto,
                 Producto AS NombreArticulo,
                 Laboratorio,
                 CASE

@@ -233,7 +233,7 @@ final class SimpleCsvReader
 
 final class AuditBatchImporter
 {
-    private const DEFAULT_ENDPOINT = 'http://172.16.0.3:8080/audit/single';
+    private const DEFAULT_ENDPOINT = 'http://localhost:8080/audit/single';
     private const DEFAULT_DELAY_MS = 650;
     private const REPORT_HEADER = [
         'Timestamp',
