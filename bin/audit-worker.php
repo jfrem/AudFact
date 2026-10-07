@@ -124,11 +124,19 @@ if (function_exists('pcntl_signal')) {
 // ─── Run ─────────────────────────────────────────────────────────────────────
 
 try {
-    Logger::info("{$label}: iniciando", [
+    $startupContext = [
         'worker' => $workerName,
         'lane' => $lane,
         'memory_limit' => ini_get('memory_limit'),
-    ]);
+        'instance' => gethostname(),
+        'pid' => getmypid(),
+    ];
+    if (in_array($workerName, ['policy', 'persistence'], true)) {
+        $persistenceLimits = (new \App\Services\Audit\Pipeline\AuditPersistenceQueue())->configuration();
+        $startupContext['persistence_job_slots'] = $persistenceLimits['job_slots'];
+        $startupContext['persistence_queue_ttl'] = $persistenceLimits['queue_ttl'];
+    }
+    Logger::info("{$label}: iniciando", $startupContext);
     $processed = $consumer->run();
     Logger::info("{$label}: terminado", ['processed' => $processed]);
     exit(0);

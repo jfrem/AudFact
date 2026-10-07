@@ -153,7 +153,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `DocumentExtractionWorker.php` | Productor exclusivo de `document_rejected` de categoría de contenido; consume bytes de `audit.documents.priority` y `audit.documents.batch`, valida integridad y extrae con Gemini; publica `document_extracted` en el stream respectivo |
 | `DocumentNormalizer.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, normalización determinística PHP, publica `document_normalized` respetando prioridad |
 | `RulesEvaluationWorker.php` | Consume `audit.documents.priority` y `audit.documents.batch`, evalúa por documento; encola `rules_evaluated` hacia `audit.persistence.priority` o `audit.persistence.batch` vía `AuditPersistenceQueue` |
-| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; scheduler Redis/Lua que deduplica y mantiene un turno activo por job, o por auditoría cuando no tiene job; terminaliza turnos fallidos de forma atómica |
+| `AuditPersistenceQueue.php` | Único productor de `audit.persistence.priority` y `audit.persistence.batch`; Redis/Lua fija slots por job (default 2), recupera metadata desde scopes existentes, deduplica, mantiene FIFO por slot y recupera fallos terminales; single conserva turno por auditId. El índice de métricas incorpora legacy mediante reconciliación incremental al primer uso o si se pierde |
 | `DocumentPolicyEngine.php` | Orquestador de la evaluación de políticas de documento |
 | `VisualCheckEvaluator.php` | Evaluación de discrepancias visuales vs legibles |
 | `FieldValueResolver.php` | Resolución tipada del valor extraído según `AuditFieldValueType` |
@@ -215,7 +215,7 @@ anteriores a SQL. Contrato, despliegue y recuperación de eventos antiguos:
 |---|---|
 | Framework PHP custom | Control total sobre el pipeline, sin overhead de frameworks grandes |
 | PDO sqlsrv | Acceso nativo a SQL Server con prepared statements |
-| Un turno SQL por job | Evita head-of-line blocking entre jobs sin eliminar la doble persistencia exigida por dominio |
+| Slots estables por job | Limita concurrencia por job y permite aprovechar réplicas globales; conserva la transacción principal y la actualización final de timings |
 | `aggregation` como nombre de telemetría | Compatibilidad temporal limitada al contrato del DAG. Responsable: Pipeline/Frontend. Retiro: migrar schema y store UI a `persistence`. Validación: `ObservabilityControllerTest` + typecheck frontend. El runtime y las clases no conservan el agregador |
 | Gemini Flash (no Pro) | Balance costo/velocidad para análisis multimodal masivo |
 | Dual storage (BLOB + Drive URL) | Compatibilidad con documentos legacy (BLOB) y nuevos (Drive) |

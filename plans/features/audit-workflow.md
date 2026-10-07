@@ -49,7 +49,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
 | `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
 | `RulesEvaluationWorker` | Evalúa reglas y convierte contratos cerrados de contenido o `DOCUMENT_MAPPING`; mapping produce código `MAP`, severidad alta y resultado `RECHAZADO` |
-| `AuditPersistenceQueue` | Deduplica `rules_evaluated` y mantiene un solo turno de persistencia activo por job |
+| `AuditPersistenceQueue` | Deduplica `rules_evaluated`, fija slots por job y mantiene un turno activo por slot |
 | `AuditPersistenceWorker` | Consume `audit.persistence.priority` y `audit.persistence.batch`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |
 | `BatchJobStore` | Estado Redis por job, idempotencia/reservas y contadores atómicos `queued/running/completed/failed` basados en transiciones del job |
@@ -116,7 +116,7 @@ después de recuperar el outcome canónico de Redis en un reintento.
 
 ### Concurrencia de Persistencia
 
-`RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. La cola permite un solo `rules_evaluated` activo por `job_id`; los restantes quedan ordenados en un ZSET por secuencia global. Jobs distintos publican turnos simultáneos en `audit.persistence.priority` o `audit.persistence.batch`, hasta la capacidad configurada de `worker-persistence`. Sin job, el turno se delimita por `audit_id`; una auditoría individual no queda detrás del turno reservado a un lote. `audit.persistence:{queue}:*` es el namespace de las claves de scheduling, no un stream.
+`RulesEvaluationWorker` guarda el outcome idempotente y lo entrega a `AuditPersistenceQueue`. Redis fija `AUDIT_PERSISTENCE_JOB_SLOTS` al primer uso del job (default 2, rango 1..16). Cada slot admite un `rules_evaluated` activo y un ZSET FIFO; el hash del auditId determina su slot. Enqueue, reproceso y avance recuperan el valor fijado aunque cambie la configuración. Un job con claves legacy mantiene un turno. Las réplicas de `worker-persistence` limitan la concurrencia global. Sin job, el turno se delimita por auditId. `audit.persistence:{queue}:*` contiene claves de scheduling, no un stream. El índice de scopes expone pendientes internos y activos. La actualización SQL final de timings permanece.
 
 El turno avanza únicamente después del cierre exitoso o después de la terminalización DLQ. Ante fallo terminal, la cola retira atómicamente el turno fallido y promueve el siguiente sin liberar el turno de otra auditoría. La publicación DLQ crea un recibo idempotente junto al evento; el consumidor conserva el mensaje original pendiente si falla el avance y una redelivery reanuda el cierre sin repetir el procesamiento ni publicar otra DLQ. El ACK terminal consume el recibo y limpia los reintentos atómicamente. Una redelivery posterior a `advance` es idempotente. Las dos persistencias exigidas por dominio permanecen dentro de la misma transacción SQL.
 
@@ -228,6 +228,17 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 | `AUDIT_WORKER_POLICY_REPLICAS` | `8` | Workers de evaluación de reglas |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | Workers SQL globales; la cola limita a uno por job |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retención de turnos, pendientes y deduplicación |
+| `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados por job; cambiar la variable afecta jobs nuevos |
+
+Cutover y rollback de slots: [SDD de persistencia](../sdd-optimizacion-cuello-botella-persistencia.md). Drenar antes del primer despliegue y antes de volver a imágenes que desconocen slots. Reducir réplicas conserva los turnos en vuelo. TTL no recupera eventos pendientes.
+
+Si desaparece la metadata de slots, el scheduler recupera el contador guardado
+en los scopes antes de aplicar configuración nueva. Los turnos particionados
+anteriores sin contador recuperable pueden drenarse por su identidad original;
+el scheduler rechaza auditorías nuevas de ese job hasta disponer de metadata
+consistente. No borrar scopes ni repartir esos pendientes como un job nuevo.
+Las métricas reconcilian legacy antes de certificar el índice y responden 503
+ante fallos parciales de Redis o reconciliación incompleta.
 | `AUDIT_IDEMPOTENCY_KEY_TTL` | `300` | TTL de `X-Idempotency-Key` para `/audit/async` |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar mensajes pending |
 | `AUDIT_EVENT_MAX_RETRIES` | `3` | Reintentos antes de enviar a DLQ |

@@ -21,6 +21,7 @@
 - **Tests**: `tests/` — Pruebas unitarias/integración (PHPUnit)
 - **Logs**: `logs/` — Rotación automática por `Core\Logger` (Mount persistente en host)
 - **Docs/Plans**: `plans/` — Documentación y planificación fuente de verdad para los agentes. La documentación para humanos se genera con Docusaurus y se sirve en `/docs/`.
+- **Especificaciones Agnósticas (DDF)**: opt/ — Especificaciones técnicas formales (DOC-01 a DOC-07) para la reingeniería desacoplada y agnóstica de la plataforma.
 - **Zero-Source**: El Host de producción solo contiene orquestación y secretos. El código vive dentro de las imágenes.
 
 ### Skills disponibles
@@ -50,6 +51,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `clean-rebuild-policy`            | Gobernanza técnica | Decisión rebuild/refactor/parche, contratos activos y calidad estructural dentro del MVP              |
 | `write-sdd-spec`                  | Especificación     | Diseño técnico determinista, trazabilidad, migración y rollback antes de implementar                  |
 | `phpunit-test-architect`          | Testing / TDD      | Contratos ejecutables y suites unitarias completas para PHP 8.2+ con PHPUnit 10+                      |
+| `ddf-agnostic-spec`               | Especificación     | Framework DDF para los 7 documentos (DOC-01 a DOC-07) de reingeniería agnóstica de la plataforma      |
 
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
 Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_shared/scripts/validate-skills.mjs`.
@@ -367,6 +369,7 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `AUDIT_JOB_TTL`                          | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                              |
 | `AUDIT_STATE_TTL`                        | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                                      |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`            | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job                       |
+| `AUDIT_PERSISTENCE_JOB_SLOTS`            | `2`                         | ❌         | `AuditPersistenceQueue` — turnos por job (1..16), fijados en Redis al primer uso; cambios afectan jobs nuevos |
 | `AUDIT_RESERVATION_TTL`                  | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                                     |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`          | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados               |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`      | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`                       |

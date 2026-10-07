@@ -34,7 +34,7 @@ AudFact/
 │   ├── Controllers/     # 12 controladores HTTP (incluye base)
 │   ├── Models/          # 8 modelos SQL Server (incluye base Model.php)
 │   ├── Services/        # 51 servicios PHP; 50 bajo Audit/ (Pipeline/ + raíz)
-│   ├── Routes/web.php   # 29 rutas registradas
+│   ├── Routes/web.php   # 31 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
@@ -45,7 +45,7 @@ AudFact/
 └── logs/                # Logs rotativos por hostname (HA-safe); `logs/responseIA` solo para snapshots dev
 ```
 
-## Endpoints REST (29)
+## Endpoints REST (31)
 
 > Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
@@ -71,9 +71,11 @@ AudFact/
 | GET | `/audit/results` | AuditController::results |
 | GET | `/audit/results/{facNro}` | AuditController::resultDetail |
 | GET | `/audit/stats` | AuditController::stats |
+| GET | `/audit/stats/monthly` | AuditController::monthlyPerformance |
 | GET | `/audit/documents-history` | AuditController::documentsHistory |
 | POST | `/audit/single` | AuditController::single |
 | POST | `/audit/async` | AuditController::async |
+| GET | `/audit/jobs` | AuditController::jobsList |
 | GET | `/audit/jobs/{jobId}` | AuditController::jobStatus |
 | GET | `/audit/status/{auditId}` | AuditController::status |
 | GET | `/audit/{facNro}/timings` | AuditController::timings |
@@ -122,9 +124,10 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ SemanticMatchJudge como fallback de homologación semántica contextual (productos y personas)
    └─ cuando docs_done + docs_rejected >= docs_total y docs_evaluated >= docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
 
-7. AuditPersistenceWorker (group: persistence, ×3 réplicas)
+7. AuditPersistenceWorker (group: persistence, ×6 réplicas)
    ├─ AuditResultData + documentDecisions
-   ├─ un turno activo por job; jobs distintos persisten en paralelo
+   ├─ un turno por slot; default 2 slots fijados en Redis por job
+   ├─ recupera metadata de slots desde scopes sin reparticionar pendientes
    ├─ bloquea `DOWNLOAD_ERROR` y contratos de rechazo inválidos
    ├─ AuditResultPersistenceModel.persist()
    │    → PDO fresco + transacción idempotente dual con retry 1/5/30 s

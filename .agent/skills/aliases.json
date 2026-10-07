@@ -27,6 +27,10 @@
     "impeccable": "impeccable",
     "phpunit": "phpunit-test-architect",
     "tdd": "phpunit-test-architect",
-    "test-architect": "phpunit-test-architect"
+    "test-architect": "phpunit-test-architect",
+    "ddf": "ddf-agnostic-spec",
+    "agnostic": "ddf-agnostic-spec",
+    "rewrite-spec": "ddf-agnostic-spec",
+    "reingenieria": "ddf-agnostic-spec"
   }
 }

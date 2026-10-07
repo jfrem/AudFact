@@ -11,6 +11,7 @@ composer.lock
 # Logs, Caché y Archivos Temporales
 *.log
 /logs/
+/opt/
 /scratch/
 .phpunit.cache
 /responseIA/

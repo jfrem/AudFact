@@ -105,7 +105,11 @@
     {
       "path": ".agent/skills/phpunit-test-architect",
       "description": "DiseÃ±a suites PHPUnit 10+ como contratos ejecutables alineados con las convenciones arquitectÃ³nicas de AudFact.",
-      "name": "phpunit-test-architect"
+      "name": "phpunit-test-architect"    },
+    {
+      "path": ".agent/skills/ddf-agnostic-spec",
+      "description": "Framework de Documentación Determinista (DDF) para reingeniería agnóstica. Especificaciones DOC-01 a DOC-07 desacopladas de dominio, IA, datos y almacenamiento.",
+      "name": "ddf-agnostic-spec"
     }
   ]
 }

@@ -47,7 +47,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/FieldValueResolver.php` | Utilidad que extrae y normaliza el valor del documento (header vs items), incluyendo candidatos `valores` de evidencia v1, resolviendo dependencias de normalización cruzada. |
 | `app/Services/Audit/Pipeline/ResolvedAuditValue.php` | DTO inmutable para comparar FDV y documento con el mismo contrato (`displayValue`, `values`, `normalizedValues`, `ambiguous`, `evidenceMeta`). |
 | `app/Services/Audit/Pipeline/RulesEvaluationWorker.php` | Consume `document_normalized` y `document_rejected`, consolida hallazgos, métricas, `audit_result_data` y decisiones documentales, guarda el outcome y lo entrega a `AuditPersistenceQueue` cuando todos los documentos están evaluados |
-| `app/Services/Audit/Pipeline/AuditPersistenceQueue.php` | Scheduler Redis/Lua idempotente: mantiene un evento activo por job y promueve el siguiente al cerrar el turno; el modo terminal retira solo el turno fallido y recupera el siguiente pendiente |
+| `app/Services/Audit/Pipeline/AuditPersistenceQueue.php` | Scheduler Redis/Lua: fija slots por job (default 2, 1..16), recupera metadata desde `seen.__job_slots` y scopes existentes, mantiene un activo por slot e índice de backlog reconciliado con legacy; conserva deduplicación, reproceso y recuperación terminal |
 | `app/Services/Audit/Pipeline/AuditPersistenceWorker.php` | Consume `rules_evaluated`, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales. No toma decisiones funcionales de auditoría. |
 | `app/Models/AuditResultPersistenceModel.php` | Escritura SQL transaccional del resumen, hallazgos por adjunto y trazabilidad de la factura |
 | `app/Services/Audit/Pipeline/AuditTimingSummarizer.php` | Agrega duraciones de las fases del pipeline y extrae los `phase_timings` para reporte. |
@@ -131,6 +131,16 @@ no borrar ni duplicar mensajes para adelantar una auditoría.
 
 ## Variables de entorno relevantes
 
+Persistencia: conservar `updateFinalTimings`; los timings SQL finales no existen antes de persistir. Cambiar slots no redistribuye jobs. Primer cutover y rollback a imágenes anteriores requieren drenaje coordinado de policy/persistence. TTL no recupera mensajes. `/metrics/async` agrega lag e índice interno sin cambiar campos PEL existentes; falla con 503 registrado. Redis Cluster no queda certificado: los streams no comparten el hashtag del scheduler. Ver `plans/sdd-optimizacion-cuello-botella-persistencia.md`.
+
+Si falta `:slots`, inspeccionar los 17 scopes posibles; recuperar N del campo
+interno `__job_slots` de seen. Los scopes particionados anteriores sin N sólo
+admiten operaciones de auditorías conocidas para drenar/reprocesar; nunca
+reparticionar ni admitir auditorías nuevas adivinando N. Resolver y mutar el
+turno verifican el contador; las pruebas cubren pérdida entre ambas operaciones.
+Las métricas reconcilian active/pending por SCAN en páginas antes de la primera
+lectura o si se pierde el índice; el miembro `__ready` no cuenta como scope.
+
 | Variable | Uso |
 |---|---|
 | `GEMINI_API_KEY` | Credencial obligatoria para el extractor (fallback general) |
@@ -152,7 +162,8 @@ no borrar ni duplicar mensajes para adelantar una auditoría.
 | `AUDIT_JOB_TTL` | TTL de estado de jobs batch async en Redis (default 604800) |
 | `AUDIT_STATE_TTL` | TTL de estado transitorio de auditorias en Redis (default 604800) |
 | `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | Réplicas SQL globales (default 3); la cola limita a una activa por job |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | Réplicas SQL globales (default 6); la cola limita a un activo por slot |
+| `AUDIT_PERSISTENCE_JOB_SLOTS` | Slots 1..16 (default 2), fijados en Redis al primer uso; cambios afectan jobs nuevos |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | TTL de turnos, pendientes y deduplicación de persistencia (default 604800) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
@@ -169,7 +180,7 @@ no borrar ni duplicar mensajes para adelantar una auditoría.
 4. `DocumentExtractionWorker` consume `document_downloaded`, lee el BLOB desde Redis y evalúa su integridad estructural mediante `DocumentIntegrityValidator`. Es el único productor autorizado de rechazos de contenido: todo rechazo incluye `rejection_class=document_content`, origen exacto y razón de `DocumentRejectionReason`. Si es válido, calcula `document_hash`, arma prompt compacto, consulta cache; si no hay hit, invoca Gemini con Structured Outputs nativos (`responseSchema` y `responseMimeType: application/json`). Si Gemini lanza HTTP 400 por error de decodificación o archivo corrupto confirmado, emite el rechazo tipado. Si es exitoso, parsea, rehidrata los campos planos a la forma canónica y publica `document_extracted`.
 5. `DocumentNormalizer` normaliza `fields`/`items`/`visual_checks` (fechas ISO, identidad documental, numéricos canónicos, evidencia visual estructurada, null para vacío) y emite `document_normalized` con `normalization_log` sin PII cruda.
 6. `RulesEvaluationWorker` evalúa `document_normalized` contra FDV usando `DocumentPolicyEngine`; FDV y documento se resuelven primero como `ResolvedAuditValue`. Valida dos contratos cerrados sin fallback: contenido solo desde `DocumentExtractionWorker` y mapping solo desde `DocumentAuditOrchestrator`. Mapping genera hallazgo `MAP`, severidad alta, `RECHAZADO` e `integrity`, preservando `logical_doc_id` y candidatos. Cualquier evento legacy o `DOWNLOAD_ERROR` falla técnicamente. Espera `docs_done + docs_rejected >= docs_total`, guarda el outcome y lo encola en `AuditPersistenceQueue`.
-7. `AuditPersistenceQueue` publica un único turno activo por job en `audit.persistence.priority` o `audit.persistence.batch`; sin job usa un scope por auditoría. Jobs diferentes usan las réplicas configuradas en paralelo. `audit.persistence:{queue}:*` contiene claves de scheduling, no streams.
+7. `AuditPersistenceQueue` publica un turno activo por slot en `audit.persistence.priority` o `audit.persistence.batch`; fija la cantidad de slots por job en Redis y conserva scopes legacy. Sin job usa un scope por auditId. Réplicas limitan concurrencia global. `audit.persistence:{queue}:*` contiene claves de scheduling e índice operacional, no streams.
 8. `AuditPersistenceWorker` aplica una barrera independiente contra `DOWNLOAD_ERROR` y contratos de rechazo inválidos, ejecuta la transacción dual idempotente sobre `AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio`, libera el turno y publica `audit_completed`.
 9. SQL usa PDO fresco por operación y replay interno solo para lectura/escritura idempotente, con pausas de 1/5/30 segundos. Al agotar SQL o ante un fallo técnico tipado de descarga, `AuditEventConsumer` genera `dead_letter`, hace ACK y ejecuta el cierre terminal en la misma entrega; no espera `XAUTOCLAIM`.
 

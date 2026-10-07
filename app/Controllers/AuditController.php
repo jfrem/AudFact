@@ -531,16 +531,16 @@ class AuditController extends Controller
             Response::error('No se encontró el job solicitado', 404);
         }
 
-        Response::success(self::formatJobStatus($state), 'Estado del job');
+        Response::success(self::formatJobStatus($state, $this->currentTime()), 'Estado del job');
     }
 
-    private static function formatJobStatus(array $state): array
+    private static function formatJobStatus(array $state, \DateTimeImmutable $now): array
     {
         $total = (int) ($state['total'] ?? 0);
         $done = (int) ($state['done'] ?? 0);
         $failed = (int) ($state['failed'] ?? 0);
         $pending = max(0, $total - $done - $failed);
-        $performance = self::formatJobPerformance($state, $done + $failed);
+        $performance = BatchJobStore::calculatePerformance($state, $now);
 
         $audits = [];
         $auditsMap = is_array($state['audits'] ?? null) ? $state['audits'] : [];
@@ -568,6 +568,7 @@ class AuditController extends Controller
             'avg_duration_ms' => $performance['avg_duration_ms'],
             'accumulated_duration_ms' => $performance['accumulated_duration_ms'],
             'throughput_per_sec' => $performance['throughput_per_sec'],
+            'elapsed_ms' => $performance['elapsed_ms'],
             'created_at' => (string) ($state['created_at'] ?? ''),
             'updated_at' => (string) ($state['updated_at'] ?? ''),
             'audits'     => $audits,
@@ -582,25 +583,9 @@ class AuditController extends Controller
         return function_exists('getallheaders') ? getallheaders() : [];
     }
 
-    /**
-     * @param  array<string,mixed> $state
-     * @return array{avg_duration_ms:int,accumulated_duration_ms:int,throughput_per_sec:float}
-     */
-    private static function formatJobPerformance(array $state, int $processed): array
+    protected function currentTime(): \DateTimeImmutable
     {
-        $accumulatedDurationMs = max(0, (int) ($state['accumulated_duration_ms'] ?? 0));
-        $avgDurationMs = max(0, (int) ($state['avg_duration_ms'] ?? 0));
-        $throughput = 0.0;
-
-        if ($processed > 0 && $accumulatedDurationMs > 0) {
-            $throughput = round($processed / ($accumulatedDurationMs / 1000), 2);
-        }
-
-        return [
-            'avg_duration_ms' => $avgDurationMs,
-            'accumulated_duration_ms' => $accumulatedDurationMs,
-            'throughput_per_sec' => $throughput,
-        ];
+        return new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
     }
 
     public function timings(string $facNro): void

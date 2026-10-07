@@ -96,7 +96,8 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Réplicas del worker Gemini; subir con cuidado por cuotas 429/503 |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS` | `2` | Réplicas del worker que consume `document_extracted` y publica `document_normalized` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `2` | Réplicas del worker de reglas |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `3` | Réplicas SQL globales; la cola limita a una activa por job |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | Réplicas SQL globales; un turno activo por slot |
+| `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados en Redis por job; cambiar configuración afecta jobs nuevos |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
 | `AUDIT_JOB_TTL` | `604800` | Retencion de estado de jobs batch async en Redis |
@@ -105,6 +106,12 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia |
 
 ## Flujo de revisión
+
+Para slots de persistencia, desplegar policy/persistence/API coordinadamente después de drenar colas. Reducir réplicas conserva los scopes fijados. Rollback a imágenes sin slots requiere drenar primero; restart no incorpora cambios de entorno. Workflow production inyecta y genera la variable nueva. Ver `plans/sdd-optimizacion-cuello-botella-persistencia.md`.
+Metadata perdida se recupera desde scopes, no desde la configuración nueva.
+Un job particionado anterior sin N permite drenar auditorías conocidas y
+rechaza nuevas; no borrar claves para forzar N. Métricas reconcilian legacy
+al primer uso o después de perder el índice y fallan con 503 si no completan.
 1. Verificar servicios en `docker-compose.yml`.
 2. Verificar extensiones en `docker/Dockerfile`.
 3. Validar `frontend/next.config.ts` (output: standalone).

@@ -67,6 +67,16 @@
         "phpunit-test-architect",
         "audfact-docs-sync"
       ]
+    },
+    {
+      "name": "audfact-rewrite",
+      "skills": [
+        "ddf-agnostic-spec",
+        "audfact-project-overview",
+        "audfact-audit-gemini",
+        "audfact-sqlsrv-models",
+        "audfact-docs-sync"
+      ]
     }
   ]
 }

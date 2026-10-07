@@ -251,7 +251,8 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(2, $data['pending']);
         $this->assertSame(60000, $data['accumulated_duration_ms']);
         $this->assertSame(20000, $data['avg_duration_ms']);
-        $this->assertSame(0.05, $data['throughput_per_sec']);
+        $this->assertSame(0.01, $data['throughput_per_sec']);
+        $this->assertSame(300000, $data['elapsed_ms']);
         $this->assertCount(1, $data['audits']);
         $this->assertSame($auditId, $data['audits'][0]['audit_id']);
     }
@@ -480,6 +481,11 @@ final class TestableAuditController extends AuditController
     protected function getBody(): array
     {
         return $this->body;
+    }
+
+    protected function currentTime(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable('2026-04-23T10:05:00Z');
     }
 
     protected function getRequestHeaders(): array

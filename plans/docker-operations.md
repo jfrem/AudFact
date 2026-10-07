@@ -134,6 +134,7 @@ Redis se configura desde Compose mediante variables no sensibles:
 | `AUDIT_STATE_TTL` | `604800` | Retencion de `audit:{auditId}:state` durante 7 dias. |
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` durante 24h. |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia por job. |
+| `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados por job; cambios de configuración afectan jobs nuevos. |
 
 Validaciones operativas despues de deploy:
 
@@ -179,7 +180,13 @@ wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
 wsl docker compose exec redis redis-cli XINFO GROUPS 'audfact:audit.persistence:{queue}'
 ```
 
-Estrategia: subir primero `worker-downloader` cuando la espera aparezca en `document_registered` y Drive/SQL no esté saturado. Subir `worker-extraction` cuando la espera aparezca en `document_downloaded` y Gemini no esté devolviendo 429/503. Subir `worker-orchestrator` solo si `audit.inbox` acumula espera. Subir `worker-policy` cuando la espera aparezca en `document_normalized`, no por latencia Gemini. Escalar `worker-persistence` solo cuando varios jobs distintos acumulen espera y SQL Server conserve capacidad; la cola siempre limita a una persistencia activa por job.
+Estrategia: subir downloader cuando espere document_registered y Drive/SQL tenga capacidad; extraction cuando espere document_downloaded sin cuotas agotadas; orchestrator cuando espere audit_created; policy cuando espere document_normalized. Persistencia admite un turno por slot, dos slots por job por defecto, limitada globalmente por réplicas. Medir `persistenceScheduler.pending`, latencia SQL y deadlocks antes de aumentar slots o réplicas. Reducir réplicas conserva scopes en vuelo. Ver [cutover y rollback](sdd-optimizacion-cuello-botella-persistencia.md); recrear contenedores para incorporar entorno nuevo, no solo restart.
+
+El scheduler recupera la metadata de slots perdida desde los scopes. Si un job
+particionado anterior no conserva su contador, permite drenar sus turnos
+conocidos y rechaza admisión nueva en ese job. No borrar claves para forzar
+otra configuración. El endpoint de métricas reconcilia el índice al primer
+uso o tras su pérdida; una reconciliación incompleta responde 503.
 
 Si `XINFO GROUPS` muestra `pending > 0` con `lag=0`, hay eventos entregados a un consumer que no hizo `XACK`. Los workers reclaman esos eventos periódicamente cuando superan `AUDIT_PENDING_RECLAIM_IDLE_MS`; no bajar este valor por debajo del peor caso de duración Gemini, porque puede duplicar procesamiento legítimo en curso.
 

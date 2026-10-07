@@ -15,14 +15,14 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 
 | Archivo | Tamaño | Rol |
 |---|---|---|
-| `app/Routes/web.php` | ~1.8 KB | Definición de 29 rutas |
+| `app/Routes/web.php` | ~2.6 KB | Definición de 31 rutas |
 | `app/Controllers/Controller.php` | 3.6 KB | Base: `validate()`, `validateArray()`, `getBody()`, `validateQuery()` |
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 8.9 KB | Configuración dinámica de auditoría por cliente |
-| `app/Controllers/AuditController.php` | 13.9 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
+| `app/Controllers/AuditController.php` | ~25.1 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
 | `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ; `rules_evaluated` se reencola mediante el scheduler de persistencia |
 | `app/Controllers/AuditFlowController.php` | 3 KB | Stream SSE de telemetría live por `audit_id` UUID v4 |
-| `app/Controllers/ObservabilityController.php` | 3.9 KB | Métricas async Redis para UI, incluido el stream `persistence` |
+| `app/Controllers/ObservabilityController.php` | ~7.6 KB | Métricas async Redis por XINFO/eval, incluido el backlog de persistencia y legacy |
 | `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
 | `app/Controllers/ClientsController.php` | 1.6 KB | Gestión de clientes y catálogo documental |
 | `app/Controllers/ConfigController.php` | 0.6 KB | Configuración pública frontend |
@@ -32,7 +32,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `core/Response.php` | 1.6 KB | `success($data)`, `error($msg, $code)` |
 | `core/Router.php` | 3.6 KB | Dispatch, sanitización params (max 255 chars) |
 
-## Endpoints actuales (29)
+## Endpoints actuales (31)
 
 | Método | URI | Controlador::Acción |
 |---|---|---|
@@ -56,15 +56,34 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/audit/results` | `AuditController::results` |
 | `GET` | `/audit/results/{facNro}` | `AuditController::resultDetail` |
 | `GET` | `/audit/stats` | `AuditController::stats` |
+| `GET` | `/audit/stats/monthly` | `AuditController::monthlyPerformance` |
 | `GET` | `/audit/documents-history` | `AuditController::documentsHistory` |
 | `POST` | `/audit/single` | `AuditController::single` |
 | `POST` | `/audit/async` | `AuditController::async` |
+| `GET` | `/audit/jobs` | `AuditController::jobsList` |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` |
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` |
 | `GET` | `/audit/dlq` | `AuditDlqController::index` |
 | `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |
 | `GET` | `/audit/{auditId}/flow-stream` | `AuditFlowController::stream` |
+
+## Contratos actuales de procesamiento
+
+- `POST /audit/single`: `disDetNro` requerido, `disId` opcional; resuelve una dispensación existente, publica `audit_created` y responde HTTP 202 con `audit_id` y `status=pending`. El avance se consulta en `/audit/status/{auditId}`.
+- `POST /audit/async`: `facNitSec` y `date` requeridos; `dateTo` opcional, igual a `date` si se omite; `limit` opcional/null, 1..100, por defecto 100. Requiere `X-Idempotency-Key`; publica `batch_requested` y responde HTTP 202 con `job_id` y `status=pending`.
+- Lote: cabecera ausente/vacía produce HTTP 400; campos o rango de fechas inválidos, HTTP 422; una clave reclamada devuelve HTTP 409 con el job existente. La barrera tiene TTL (`AUDIT_IDEMPOTENCY_KEY_TTL`, por defecto 300 segundos). No se genera automáticamente la clave ni se devuelve `idempotency_key`.
+- El controlador de lote no acepta `dateFrom` como sustituto de `date` y fija el máximo en 100; `AUDIT_BATCH_MAX_LIMIT` se expone mediante `ConfigController`, pero no determina ese máximo HTTP.
+- Ambas modalidades son asíncronas y están consumidas por el portal en `frontend/lib/api/audfact.ts`. Solicitar procesamiento de registros existentes no acredita una carga manual de archivos.
+
+Fuente: `AuditController::single()/async()/status()/jobStatus()`; contrato detallado en `plans/api-endpoints.md`.
+
+`GET /metrics/async` conserva PEL en queueDepth/streamDepths y agrega streamBacklogs (pending/lag/lagKnown), persistenceScheduler (active/pending/scopes) y backlogDepth (PEL + lag conocido + pendientes internos). No contar activos dos veces ni interpretar trabajo de grupos como documentos únicos. Un error Redis produce 503 registrado. Lista y detalle de jobs comparten throughput_per_sec basado en tiempo de pared desde created_at y elapsed_ms; los terminales se congelan en completed_at, con fallback updated_at legacy.
+
+El endpoint usa XINFO GROUPS para pending y lag de la misma lectura, y eval
+para DLQ/telemetría. No usar xPending, xLen o hGetAll con fallbacks silenciosos
+para certificar métricas. Respuestas malformadas, fallos parciales y un índice
+sin reconciliación completa producen 503; incluir legacy aun sin enqueue nuevo.
 
 ## Flujo de trabajo
 1. Revisar rutas en `app/Routes/web.php`.

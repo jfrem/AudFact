@@ -120,32 +120,28 @@ final class AuditPersistenceQueueTest extends TestCase
             payload: ['final_status' => 'completed'],
         );
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())
-            ->method('eval')
-            ->with(
-                $this->stringContains('ZADD'),
-                $this->callback(function (array $keys) use ($event): bool {
-                    $this->assertCount(6, $keys);
-                    $this->assertSame(
-                        AuditEventPublisher::STREAM_PERSISTENCE_BATCH,
-                        $keys[5]
-                    );
-                    for ($i = 0; $i < 5; $i++) {
-                        $this->assertStringContainsString('{queue}', $keys[$i]);
-                    }
-                    $this->assertStringContainsString((string) $event->jobId, $keys[0]);
-                    return true;
-                }),
-                $this->callback(function (array $arguments) use ($event): bool {
-                    $this->assertSame($event->auditId, $arguments[0]);
-                    $this->assertSame($event->eventId, $arguments[2]);
-                    $this->assertSame(0, $arguments[4]);
-                    $decoded = json_decode($arguments[1], true);
-                    $this->assertSame($event->eventId, $decoded['event_id'] ?? null);
-                    return true;
-                })
-            )
-            ->willReturn(AuditPersistenceQueue::ENQUEUE_PENDING);
+        $redis->expects($this->exactly(2))->method('eval')->willReturnCallback(
+            function (string $script, array $keys, array $arguments) use ($event): mixed {
+                if (str_ends_with($keys[0], ':slots')) {
+                    $this->assertCount(69, $keys);
+                    $this->assertSame(2, $arguments[0]);
+                    return [1, 'job:' . $event->jobId]; // Job legacy: conserva el scope anterior.
+                }
+                $this->assertStringContainsString('ZADD', $script);
+                $this->assertCount(8, $keys);
+                $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $keys[5]);
+                for ($i = 0; $i < 5; $i++) {
+                    $this->assertStringContainsString('{queue}', $keys[$i]);
+                }
+                $this->assertStringContainsString((string) $event->jobId, $keys[0]);
+                $this->assertSame($event->auditId, $arguments[0]);
+                $this->assertSame($event->eventId, $arguments[2]);
+                $this->assertSame(0, $arguments[4]);
+                $decoded = json_decode($arguments[1], true);
+                $this->assertSame($event->eventId, $decoded['event_id'] ?? null);
+                return AuditPersistenceQueue::ENQUEUE_PENDING;
+            }
+        );
 
         $queue = new AuditPersistenceQueue($redis);
 
@@ -187,18 +183,17 @@ final class AuditPersistenceQueueTest extends TestCase
             jobId: AuditEvent::uuidV4(),
         );
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())
-            ->method('eval')
-            ->with(
-                $this->stringContains('HEXISTS'),
-                $this->callback(function (array $keys): bool {
-                    $this->assertCount(5, $keys);
-                    $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $keys[4]);
-                    return true;
-                }),
-                $this->anything()
-            )
-            ->willReturn(3);
+        $redis->expects($this->exactly(2))->method('eval')->willReturnCallback(
+            function (string $script, array $keys) use ($event): mixed {
+                if (str_ends_with($keys[0], ':slots')) {
+                    return [1, 'job:' . $event->jobId];
+                }
+                $this->assertStringContainsString('HEXISTS', $script);
+                $this->assertCount(7, $keys);
+                $this->assertSame(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $keys[4]);
+                return 3;
+            }
+        );
 
         $queue = new AuditPersistenceQueue($redis);
 
@@ -235,5 +230,82 @@ final class AuditPersistenceQueueTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
         $queue->enqueue($event);
+    }
+
+    #[DataProvider('invalidSlotCounts')]
+    public function testRejectsInvalidSlotCounts(int $slots): void
+    {
+        // Arrange:
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->never())->method('eval');
+        $this->expectException(InvalidArgumentException::class);
+
+        // Act:
+        new AuditPersistenceQueue($redis, $slots);
+
+        // Assert: la excepción evita cualquier acceso a Redis.
+    }
+
+    public static function invalidSlotCounts(): iterable
+    {
+        yield 'zero' => [0];
+        yield 'negative' => [-1];
+        yield 'over limit' => [17];
+    }
+
+    public function testUsesPersistedSlotsInsteadOfCurrentConfiguration(): void
+    {
+        // Arrange:
+        $event = AuditEvent::create(AuditEvent::TYPE_RULES_EVALUATED,
+            '00000001-0000-4000-8000-000000000000', jobId: '10000000-0000-4000-8000-000000000000');
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->exactly(2))->method('eval')->willReturnCallback(
+            function (string $script, array $keys, array $args) use ($event): mixed {
+                if (str_ends_with($keys[0], ':slots')) {
+                    $this->assertSame(4, $args[0]);
+                    return [2, 'job:' . $event->jobId . ':slot:1'];
+                }
+                $this->assertSame('audit.persistence:{queue}:job:' . $event->jobId . ':slot:1:active', $keys[0]);
+                return AuditPersistenceQueue::ENQUEUE_DISPATCHED;
+            }
+        );
+        $queue = new AuditPersistenceQueue($redis, 4);
+
+        // Act:
+        $result = $queue->enqueue($event);
+
+        // Assert:
+        $this->assertSame(AuditPersistenceQueue::ENQUEUE_DISPATCHED, $result);
+    }
+
+    public function testRejectsIncompleteReconciliationInsteadOfReportingZeroBacklog(): void
+    {
+        // Arrange:
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturnCallback(static function (string $script): mixed {
+            return str_contains($script, 'ZRANGEBYSCORE') ? [0, 0, 0, 0] : '1';
+        });
+        $queue = new AuditPersistenceQueue($redis, 2);
+
+        // Assert:
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('excedió el límite de páginas');
+
+        // Act:
+        $queue->metrics();
+    }
+
+    public function testRejectsMalformedSchedulerCounters(): void
+    {
+        // Arrange:
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturn(['unknown', 0, 0, 1]);
+        $queue = new AuditPersistenceQueue($redis, 2);
+
+        // Assert:
+        $this->expectException(\RuntimeException::class);
+
+        // Act:
+        $queue->metrics();
     }
 }

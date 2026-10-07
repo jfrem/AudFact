@@ -1,0 +1,4 @@
+interface:
+  display_name: "DDF Agnostic Specification"
+  short_description: "Specs deterministas para reingeniería agnóstica"
+  default_prompt: "Usa $ddf-agnostic-spec para redactar un documento de especificación (DOC-01 a DOC-07) para la reescritura agnóstica de la plataforma, siguiendo el framework DDF-SDD."

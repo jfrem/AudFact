@@ -134,11 +134,57 @@ class BatchJobStore
 
             usort($decoded, static fn (array $a, array $b) => strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? '')));
 
+            $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+            foreach ($decoded as &$job) {
+                $job = array_merge($job, self::calculatePerformance($job, $now));
+            }
+            unset($job);
+
             return $decoded;
         } catch (\Throwable $e) {
             Logger::error('BatchJobStore::listJobs falló', ['error' => $e->getMessage()]);
             return [];
         }
+    }
+
+    /**
+     * Rendimiento de pared; las duraciones de auditorías concurrentes no son elapsed.
+     * @return array{avg_duration_ms:int,accumulated_duration_ms:int,elapsed_ms:int,throughput_per_sec:float}
+     */
+    public static function calculatePerformance(array $state, ?\DateTimeImmutable $now = null): array
+    {
+        $result = [
+            'avg_duration_ms' => max(0, (int) ($state['avg_duration_ms'] ?? 0)),
+            'accumulated_duration_ms' => max(0, (int) ($state['accumulated_duration_ms'] ?? 0)),
+            'elapsed_ms' => 0,
+            'throughput_per_sec' => 0.0,
+        ];
+        $createdAt = trim((string) ($state['created_at'] ?? ''));
+        if ($createdAt === '') {
+            return $result;
+        }
+        $terminal = in_array($state['status'] ?? '', [
+            self::JOB_STATUS_COMPLETED, self::JOB_STATUS_COMPLETED_WITH_ERR, self::JOB_STATUS_FAILED,
+        ], true);
+        $completedAt = trim((string) ($state['completed_at'] ?? $state['updated_at'] ?? ''));
+        if ($terminal && $completedAt === '') {
+            return $result;
+        }
+        try {
+            $start = new \DateTimeImmutable($createdAt);
+            $end = $terminal ? new \DateTimeImmutable($completedAt)
+                : ($now ?? new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+        } catch (\Exception) {
+            // Estado histórico sin timestamp interpretable: duración desconocida.
+            return $result;
+        }
+        $elapsedMs = max(0, (int) round(((float) $end->format('U.u') - (float) $start->format('U.u')) * 1000));
+        $processed = max(0, (int) ($state['done'] ?? 0)) + max(0, (int) ($state['failed'] ?? 0));
+        $result['elapsed_ms'] = $elapsedMs;
+        if ($elapsedMs > 0 && $processed > 0) {
+            $result['throughput_per_sec'] = round($processed / ($elapsedMs / 1000), 4);
+        }
+        return $result;
     }
 
     public function getJob(string $jobId): ?array
@@ -545,6 +591,9 @@ if processed > 0 then
 end
 
 local newJobStatus = job['status'] or 'pending'
+if newJobStatus == 'completed' or newJobStatus == 'completed_with_errors' then
+    job['completed_at'] = now
+end
 
 if oldJobStatus == 'pending' then
     redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
@@ -638,11 +687,6 @@ for i = 1, #rawList do
         end
         local accDur = tonumber(job['accumulated_duration_ms']) or 0
         local avgDur = tonumber(job['avg_duration_ms']) or 0
-        local throughput = 0
-        local processed = done + failed
-        if processed > 0 and accDur > 0 then
-            throughput = math.floor((processed / (accDur / 1000)) * 100) / 100
-        end
 
         results[#results + 1] = {
             job_id = tostring(job['job_id'] or ''),
@@ -655,9 +699,9 @@ for i = 1, #rawList do
             progress_percent = progress,
             avg_duration_ms = avgDur,
             accumulated_duration_ms = accDur,
-            throughput_per_sec = throughput,
             created_at = tostring(job['created_at'] or ''),
             updated_at = tostring(job['updated_at'] or ''),
+            completed_at = job['completed_at'],
             date_from = tostring(job['date_from'] or ''),
             date_to = tostring(job['date_to'] or '')
         }

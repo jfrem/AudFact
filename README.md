@@ -104,6 +104,7 @@ npm run dev
 | `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `8`)                                                |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `6`)                                           |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`                                          | TTL de turnos, pendientes y deduplicación de persistencia por job (default: `604800`)          |
+| `AUDIT_PERSISTENCE_JOB_SLOTS`                                          | Turnos por job (1..16, default `2`); Redis fija el valor al primer uso y conserva jobs existentes |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`                                        | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`)                  |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`                                    | Intervalo de escaneo de pending por worker (default: `30000`)                                  |
@@ -152,11 +153,13 @@ Base URL: `http://localhost:8080`
 | `GET`  | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto                              |
 | `POST` | `/audit/single`                                                 | Auditoría individual por `disDetNro` (con `disId` opcional)  |
 | `POST` | `/audit/async`                                                  | Auditoría en lote asíncrona (→ 202)                          |
+| `GET`  | `/audit/jobs`                                                   | Listar jobs de auditoría en lote                             |
 | `GET`  | `/audit/jobs/{jobId}`                                           | Estado de auditoría asíncrona                                |
 | `GET`  | `/audit/status/{auditId}`                                       | Estado Redis de una auditoría individual encolada            |
 | `GET`  | `/audit/results`                                                | Resumen paginado de auditorías persistidas                   |
 | `GET`  | `/audit/results/{facNro}`                                       | Detalle persistido por FacNro                                |
 | `GET`  | `/audit/stats`                                                  | Conteos agregados para dashboard                             |
+| `GET`  | `/audit/stats/monthly`                                          | Rendimiento mensual por cliente (`year` opcional)            |
 | `GET`  | `/audit/documents-history`                                      | Historial de documentos auditados                            |
 | `GET`  | `/audit/{facNro}/timings`                                       | Timings detallados por factura                               |
 | `GET`  | `/audit/{auditId}/flow-stream`                                  | Telemetría SSE en vivo por auditoría                         |
@@ -165,6 +168,11 @@ Base URL: `http://localhost:8080`
 | `POST` | `/app/wrap/webhook.php`                                         | Endpoint MCP                                                 |
 
 > Ver documentación detallada en [`plans/api-endpoints.md`](plans/api-endpoints.md)
+
+Las operaciones individual y en lote encolan trabajo y responden HTTP 202 con
+`audit_id` y `job_id`, respectivamente. El lote exige la cabecera
+`X-Idempotency-Key`; repetir una clave durante el TTL de su barrera devuelve
+HTTP 409 con el job existente. El portal consume estos mismos endpoints.
 
 ### Nota de Optimización (Pipeline IA)
 
@@ -207,7 +215,7 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 - **Extracción**: Descarga tipada de adjuntos, verificación exacta del BLOB contra `DATALENGTH`, validación estructural con `DocumentIntegrityValidator` y análisis multimodal con Gemini (parallel function calling).
 - **Normalización**: Estandarización de valores extraídos (fechas, cantidades, tipos de documento).
 - **Políticas**: Comparación campo a campo contra la Fuente de Verdad (FDV); solo convierte rechazos de contenido emitidos por extracción y validados contra una allowlist cerrada en hallazgo canónico `RECHAZADO`.
-- **Persistencia**: Cola justa con un turno activo por job, escritura dual transaccional en SQL Server, reconexión PDO por operación y publicación de eventos terminales.
+- **Persistencia**: Cola con turnos por slots estables de cada job (default 2), escritura dual transaccional en SQL Server, timings finales, reconexión PDO por operación y eventos terminales.
 
 Características:
 
@@ -218,7 +226,9 @@ Características:
 - Dead Letter Queue (DLQ) para eventos irrecuperables con reproceso administrativo.
 - PDO fresco por operación SQL y replay solo para lecturas/escrituras idempotentes, con backoff fijo de 1/5/30 segundos.
 - Los fallos técnicos de SQL, Drive o transferencia BLOB nunca se convierten en decisiones documentales; al agotarse SQL pasan a DLQ y liberan el turno en la misma entrega.
-- Cola `audit.persistence:{queue}` que impide que una factura lenta bloquee la persistencia de otros jobs; cada job mantiene un solo turno SQL activo y las 3 réplicas atienden jobs distintos en paralelo.
+- Cola `audit.persistence:{queue}` con un turno activo por slot y hasta 6 réplicas globales por defecto. El número de slots queda fijado por job; reducir configuración no abandona scopes existentes. Ver [especificación y cutover](plans/sdd-optimizacion-cuello-botella-persistencia.md).
+- El scheduler recupera metadata de slots perdida desde los scopes existentes; los turnos anteriores sin contador pueden drenarse sin adivinar otra partición.
+- `/metrics/async` expone PEL, lag y pendientes internos, incluyendo colas legacy tras reconciliar el índice; los jobs calculan throughput sobre tiempo de pared. Errores parciales y mediciones incompletas devuelven 503.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
 - Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-policy` y `worker-persistence` sin perder idempotencia por `DisId`.
@@ -281,7 +291,7 @@ docker compose exec php php bin/schedule-daily-batches.php --dry-run
 docker compose exec php php bin/schedule-daily-batches.php --date-from=2026-06-01 --limit=2000
 ```
 
-> **Nota**: El límite por defecto es controlado por la variable de entorno `AUDIT_BATCH_CRON_LIMIT` (default: 5000). El parámetro `--limit` permite un override manual sin restricciones. El controlador HTTP (`POST /audit/async`) mantiene su propio tope independiente vía `AUDIT_BATCH_MAX_LIMIT` (default: 100).
+> **Nota**: El límite por defecto del cron es controlado por `AUDIT_BATCH_CRON_LIMIT` (default: 5000). El parámetro `--limit` permite un override manual sin restricciones. El controlador HTTP (`POST /audit/async`) valida `limit` entre 1 y 100 y utiliza 100 por defecto; ese máximo está fijado en su código. `AUDIT_BATCH_MAX_LIMIT` se expone en la configuración pública del frontend, pero no cambia el máximo admitido por este controlador.
 
 Para sincronizar la configuración local hacia el Environment `production` de
 GitHub, usar el script seguro:

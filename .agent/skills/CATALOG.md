@@ -27,6 +27,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `impeccable` | UI/UX Design | `frontend/*` | The vocabulary you didn't know you needed. 23 commands y anti-patrones para un diseño frontend impecable. |
 | `write-sdd-spec` | Especificación SDD | `plans/*` | Especificaciones de implementación deterministas, auditables y trazables antes de codificar. |
 | `phpunit-test-architect` | Testing / TDD | `tests/**/*.php` | Suites PHPUnit 10+ como contrato ejecutable, alineadas con estructura, namespaces, dependencias y límites arquitectónicos de AudFact. |
+| `ddf-agnostic-spec` | Especificación | `opt/*` | Framework de Documentación Determinista (DDF) para reingeniería agnóstica: meta-modelo, motor de reglas, contratos IA, puertos, pipeline, perfil de referencia y suite de calibración (DOC-01 a DOC-07). |
 
 ## Triggers Sugeridos por Skill
 
@@ -52,6 +53,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `impeccable` | impeccable, audit UI, diseño frontend, anti-patrones, polish UI, diseño |
 | `write-sdd-spec` | SDD, especificación de implementación, diseño técnico, trazabilidad, migración, rollback |
 | `phpunit-test-architect` | PHPUnit, pruebas unitarias, TDD, test suite, contrato ejecutable, data provider, mocks, stubs, namespace de tests, dependencias, HttpResponseException |
+| `ddf-agnostic-spec` | DDF, reingeniería agnóstica, especificación de plataforma, meta-modelo, motor de reglas declarativo, contratos de IA, puertos y adaptadores, máquina de estados, perfil de referencia, oráculo dorado, DOC-01 a DOC-07, desacoplamiento, vendor agnostic |
 
 ## Bundles
 
@@ -65,6 +67,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-docs` | `audfact-docs-sync`, `audfact-project-overview` | Sincronización documental y validación de drift |
 | `audfact-frontend` | `next-best-practices`, `impeccable`, `audfact-docs-sync` | Cambios de frontend en Next.js 15.5.15 con revisión UI/UX |
 | `audfact-testing` | `phpunit-test-architect`, `audfact-docs-sync` | Diseño de contratos ejecutables PHPUnit y sincronización de la estrategia de pruebas |
+| `audfact-rewrite` | `ddf-agnostic-spec`, `audfact-project-overview`, `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-docs-sync` | Levantamiento y especificación para reescritura agnóstica de la plataforma |
 
 ## Mapeo Archivo → Skill
 
@@ -102,6 +105,9 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `frontend/**/*.{ts,tsx}`, `frontend/**/*.css` | `next-best-practices`, `impeccable` |
 | `frontend/scripts/*.test.cjs` | `next-best-practices` (pruebas Node de módulos frontend) |
 | `tests/**/*.php` | `phpunit-test-architect` + skill del dominio funcional probado |
+| Especificaciones agnósticas en `opt/*` | `ddf-agnostic-spec` |
+| `opt/SPEC-SAAS-MASTER.md` (autoridad documental y cierre de gaps SaaS) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
+| `opt/tools/*.cjs` (comprobadores de contratos documentales) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
 
 ---
 

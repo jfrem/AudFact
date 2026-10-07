@@ -91,8 +91,11 @@ flowchart LR
 | `AUDFACT_FRONTEND_HOST_PORT` | — | Puerto LAN del frontend productivo (`3100` por defecto) |
 | `AUDFACT_FRONTEND_PUBLIC_URL` | — | Origen público del frontend para CORS |
 | `AUDFACT_API_PUBLIC_URL` | — | URL pública del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL` |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | — | Réplicas globales de `worker-persistence` (`3` por defecto) |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | — | Réplicas globales de `worker-persistence` (`6` por defecto) |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | — | Retención del scheduler justo por job (`604800` por defecto) |
+| `AUDIT_PERSISTENCE_JOB_SLOTS` | — | Turnos por job (`2` por defecto, 1..16); fijados en Redis al primer uso |
+
+El workflow inyecta y genera `AUDIT_PERSISTENCE_JOB_SLOTS`. El primer despliegue requiere drenar jobs y colas con productores/consumidores actuales antes de recrearlos coordinadamente. Para rollback a una imagen sin slots, drenar primero; reducir réplicas con la imagen nueva limita concurrencia sin abandonar pendientes. [Especificación de migración](sdd-optimizacion-cuello-botella-persistencia.md).
 
 El `.env` generado por el workflow mantiene el mismo set base de variables
 activas documentadas en `.env.example`. Los valores sensibles se obtienen desde

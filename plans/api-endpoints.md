@@ -44,7 +44,7 @@ Health check funcional del backend. Devuelve estado global y detalle de base de 
 
 ### `GET /metrics/async`
 
-Métricas operativas del pipeline async en Redis: profundidad general (`queueDepth`), desglose por stream (`inbox`, `documents`, `persistence`, `results`, `batchInbox`), DLQ, jobs por estado y fallos terminales. Si Redis no está disponible, responde ceros para no romper la UI; `/health` expone el estado real.
+Métricas operativas del pipeline async en Redis. `queueDepth` y `streamDepths` conservan la suma de PEL por compatibilidad. `streamBacklogs` agrega por stream/grupo `pending`, `lag` y `lagKnown`; ambos conteos provienen de XINFO GROUPS, sin el fallback a cero de xPending. `persistenceScheduler` muestra `active`, `pending` y `scopes`, incluyendo colas legacy reconciliadas antes de la primera lectura o después de perder el índice. `backlogDepth` suma PEL, lag conocido y pendientes internos, sin duplicar turnos activos. Cuenta trabajo de grupos, no documentos únicos. Un lag desconocido permanece `null`. Incluye DLQ, jobs y fallos terminales. Errores parciales de Redis, respuestas malformadas o reconciliación incompleta se registran y producen 503.
 
 ### `GET /config/public`
 
@@ -204,10 +204,11 @@ Campos principales:
 
 ### `POST /audit/async`
 
-Encola una auditoría batch asíncrona mediante un pipeline 100% no bloqueante, delegando el procesamiento pesado a workers y garantizando alta concurrencia e idempotencia absoluta.
+Encola un lote de auditorías de dispensaciones existentes, seleccionado por cliente y fechas. El controlador publica `batch_requested` y los workers realizan el procesamiento. La respuesta HTTP confirma la admisión del job; el avance se consulta mediante `GET /audit/jobs/{jobId}`.
 
 #### Cabeceras
-- `X-Idempotency-Key` (opcional): clave para evitar doble encolamiento por reintentos rápidos del cliente. Si no se proporciona, el backend genera un UUID temporal y lo devuelve en la respuesta.
+- `Content-Type: application/json`.
+- `X-Idempotency-Key` (obligatoria): clave suministrada por el consumidor para evitar otra admisión mientras la barrera sigue vigente. Ausente o vacía produce HTTP 400. El TTL se configura con `AUDIT_IDEMPOTENCY_KEY_TTL`, por defecto 300 segundos.
 
 #### Parámetros (Body JSON)
 ```json
@@ -218,7 +219,14 @@ Encola una auditoría batch asíncrona mediante un pipeline 100% no bloqueante, 
   "limit": 10
 }
 ```
-*Nota: `dateTo` es opcional, si se omite, se iguala automáticamente a `date`. `date` también puede enviarse como `dateFrom`.*
+Validación del controlador actual:
+
+- `facNitSec`: requerido, entero `>= 1`.
+- `date`: requerido, fecha `YYYY-MM-DD`; `dateFrom` no sustituye este campo.
+- `dateTo`: opcional; si se omite, se utiliza `date`. Debe ser mayor o igual a `date`.
+- `limit`: opcional o `null`, entero `1..100` cuando se informa; por defecto `100`.
+
+El máximo HTTP de 100 está fijado en `AuditController::async()`. `AUDIT_BATCH_MAX_LIMIT` se expone en la configuración pública del frontend, pero este controlador no lo consulta para validar el lote.
 
 #### Respuestas
 
@@ -228,19 +236,16 @@ Se retorna si el lote fue encolado con éxito.
 ```json
 {
   "success": true,
-  "message": "Auditoría batch encolada con éxito",
+  "message": "Batch de auditoría encolado",
   "data": {
     "job_id": "e8d6411d-872f-4886-905c-e58f0ee2b453",
-    "status": "pending",
-    "idempotency_key": "4a74a67c-f7e4-4d17-8e2c-227508ce4e9b"
+    "status": "pending"
   }
 }
 ```
 
-`idempotency_key` solo se incluye cuando el backend tuvo que autogenerar la llave.
-
 ##### HTTP 409 Conflict (solicitud duplicada)
-Se retorna si la misma `X-Idempotency-Key` ya fue reclamada por un job vigente.
+Se retorna si la misma `X-Idempotency-Key` ya está reclamada durante el TTL de la barrera. Devuelve el `job_id` existente. La expiración de la barrera no depende de que el job haya terminado.
 
 ```json
 {
@@ -252,8 +257,13 @@ Se retorna si la misma `X-Idempotency-Key` ya fue reclamada por un job vigente.
 }
 ```
 
-##### 🔴 HTTP 400 Bad Request
-Se retorna si hay errores de validación de campos.
+##### Errores de admisión
+
+- HTTP `400`: cabecera `X-Idempotency-Key` ausente/vacía o JSON inválido.
+- HTTP `422`: campos inválidos, `date` ausente o `dateTo` anterior a `date`.
+- HTTP `503`: error al reclamar la clave, inicializar el job o publicar el evento.
+
+Referencia del contrato actual: `app/Controllers/AuditController.php::async()` y `app/Controllers/Controller.php::getBody()/validate()`. El portal consume esta operación mediante `frontend/lib/api/audfact.ts::enqueueAuditBatch()`.
 
 ---
 
@@ -296,7 +306,8 @@ Campos principales de la respuesta:
 - `job_id`, `status`, `total`, `done`, `failed`, `pending`
 - `avg_duration_ms`: duración activa promedio de las auditorías terminales
 - `accumulated_duration_ms`: duración activa acumulada del lote
-- `throughput_per_sec`: auditorías terminales por segundo activo acumulado
+- `throughput_per_sec`: `(done + failed) / segundos de pared desde created_at`; incluye preparación y espera. En jobs terminales se congela en completed_at (fallback updated_at para estados antiguos).
+- `elapsed_ms`: tiempo de pared usado para calcular throughput; compartido por lista y detalle.
 - `audits`: resumen por auditoría en el job
 
 ### `GET /audit/status/{audit_id}`

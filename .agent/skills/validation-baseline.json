@@ -193,6 +193,14 @@
         ".agent/skills/phpunit-test-architect/SKILL.md",
         ".agent/skills/phpunit-test-architect/agents/openai.yaml"
       ]
+    },
+    {
+      "name": "ddf-agnostic-spec",
+      "path": ".agent/skills/ddf-agnostic-spec",
+      "files": [
+        ".agent/skills/ddf-agnostic-spec/SKILL.md",
+        ".agent/skills/ddf-agnostic-spec/agents/openai.yaml"
+      ]
     }
   ],
   "consistency": {
