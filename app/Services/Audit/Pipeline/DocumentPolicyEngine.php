@@ -11,20 +11,38 @@ use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\SemanticMatchJudge;
+use App\Services\Audit\SemanticMatchResolver;
+use App\Services\Audit\SemanticCandidateCollector;
+use App\Services\Audit\ResolvedSemanticResolver;
 use App\Services\Audit\TextNormalization;
 use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private ?SemanticMatchJudge $semanticJudge;
+    private ?SemanticMatchResolver $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
     private int $semanticCacheHits = 0;
 
     public function __construct(
-        ?SemanticMatchJudge $semanticJudge = null
+        ?SemanticMatchResolver $semanticJudge = null
     ) {
         $this->semanticJudge = $semanticJudge;
+    }
+
+    public function plan(array $documentState, array $normalizedPayload, string $facNro = ''): array
+    {
+        $collector = new SemanticCandidateCollector();
+        $result = (new self($collector))->evaluate($documentState, $normalizedPayload, $facNro);
+        $candidates = $collector->candidates();
+        return ['requires_semantics' => $candidates !== [], 'candidates' => $candidates, 'provisional_result' => $result];
+    }
+
+    public function evaluateResolved(array $snapshot, array $resolvedResults): array
+    {
+        return (new self(new ResolvedSemanticResolver($resolvedResults)))->evaluate(
+            $snapshot['document_state'], $snapshot['normalized_payload'], (string) ($snapshot['fac_nro'] ?? '')
+        );
     }
 
     /**
@@ -766,9 +784,9 @@ class DocumentPolicyEngine
     ): array {
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
-        // Normalizar ambos sets
-        $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $fdvArticles);
-        $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $docArticles);
+        // Normalizar ambos sets con limpieza de sufijos farmacéuticos
+        $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $fdvArticles);
+        $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $docArticles);
 
         /** @var array<int,int> Mapa fdvIdx => docIdx emparejado */
         $matchedFdv = [];
@@ -808,6 +826,7 @@ class DocumentPolicyEngine
                 }
                 foreach ($docArticles as $di => $docOriginal) {
                     $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docOriginal, array_merge($context, [
+                        'semantic_row_index' => $fi,
                         'field' => $field,
                         'tipoCampo' => $tipoCampo,
                         'tipoDato' => AuditFieldValueType::ARTICLE_NAME->value,
