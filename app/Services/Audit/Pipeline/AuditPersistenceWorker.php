@@ -59,11 +59,13 @@ final class AuditPersistenceWorker extends AuditEventConsumer
         return $this->consumerName;
     }
 
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_RULES_EVALUATED];
+    }
+
     protected function handle(AuditEvent $event): void
     {
-        if ($event->eventType !== AuditEvent::TYPE_RULES_EVALUATED) {
-            return;
-        }
         if ($event->auditId === null) {
             throw new RuntimeException('rules_evaluated sin audit_id');
         }
@@ -123,7 +125,7 @@ final class AuditPersistenceWorker extends AuditEventConsumer
                 $this->markJobAuditCompleted($event, $aggregate, $finalAudit);
             }
 
-            $this->publisher->publish($event->followUp(
+            $completionEvent = $event->followUp(
                 eventType: AuditEvent::TYPE_AUDIT_COMPLETED,
                 documentId: null,
                 payload: array_merge($aggregate['completion_payload'], [
@@ -131,7 +133,14 @@ final class AuditPersistenceWorker extends AuditEventConsumer
                     'document_decisions' => $aggregate['document_decisions'],
                     'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
                 ]),
-            ));
+            );
+            if (($audit['execution_version'] ?? 1) === 2) {
+                $record = $completionEvent->toArray();
+                $record['event_id'] = AuditTaskEffects::uuid($event->auditId . ':' . AuditEvent::TYPE_AUDIT_COMPLETED);
+                $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
+            } else {
+                $this->publisher->publish($completionEvent);
+            }
 
             if ($event->jobId !== null) {
                 $this->publishBatchTerminalEventIfNeeded(

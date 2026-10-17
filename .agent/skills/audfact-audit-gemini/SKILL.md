@@ -8,6 +8,18 @@ description: Trabajar en el pipeline de auditoría IA event-driven de AudFact so
 ## Objetivo
 Mantener confiable el pipeline event-driven de auditoría documental con Redis Streams, extracción Gemini por Structured Outputs nativos (`responseSchema`), normalización y policy en PHP puro, y persistencia final en SQL Server.
 
+## Ejecución durable v2 (activación explícita)
+
+- Fuente contractual/evidencia: `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md`, §19. Código local implementado; versión 1 sigue por defecto y en GitHub. Los cortes productivos previos no miden el diff.
+- Nuevos componentes: enums de tarea/plan/purpose, FairAuditTaskQueue, AuditTaskRunner/Effects/Committer/Outbox, AuditExecutionConfig/AdmissionGuard/Inspector/Maintenance/Migration, GeminiQuotaBudget, SemanticEvaluationStore/Worker/FlightStore y SemanticBatchContract/CandidateCollector/ResolvedSemanticResolver. Verificarlos antes de tocar ejecución/corte.
+- Policy v2 prepara plan/evaluación sin HTTP. Snapshot y todos los candidatos necesarios permanecen congelados; nunca publicar evaluación provisional. Ondas hasta 16 pares/32768 bytes/8192 input tokens; salida agrupada 8192 independiente de los 2048 de v1. Cache v6 incluye modelo/versiones/contexto/dirección, con validación cerrada y single-flight owner/fence.
+- Mantenimiento hace intake independiente, guarda tarea antes del ACK, repara commits/publica outbox y protege referencias activas. RR por job y cap1 por etapa/carril; extraction/semantic comparten cuota y turnos de proveedor. Un intento realiza un HTTP; retries con due_at/Retry-After, máximo tres por operación. Respuestas se guardan antes de commit; unknown conserva cargo.
+- State/tareas/planes/receipts/outbox activos no expiran; la caché BLOB sí tiene TTL/bypass. Locator/hash originales permiten recuperación; fuente ausente/modificada es técnica, nunca hallazgo clínico inventado. Retención de streams protege lag/PEL de todos los grupos; DLQ no se poda automáticamente.
+- Protocolos Redis multillave exigen standalone/Sentinel, AOF/fsync always/noeviction reales. No habilitar v2 con scope UNCONFIGURED o cuotas 0; RPM/TPM/RPD son del proyecto, no de cada key. Documentación oficial no revela cuotas de la cuenta.
+- Migración: pause y drenar todos los procesos, inventario/checksums, import PEL/unread y continuaciones ACKed. Preservar document_id/terminales/contadores/slots SQL; payload ausente bloquea, no consultar FDV nuevo. Reconcile solo bajo pausa, nunca retirar claves ajenas a v2. Rollback replay idempotente conserva SQL/AOF; accept habilita GC después del horizonte terminal, no certifica corpus/cuota.
+- Timings v2 distinguen pares, generaciones exitosas, countTokens, intentos fallidos/unknown y espera. `/metrics/async` usa executionVersion/executionScheduler/geminiBudget/executionMaintenance; backlog incluye tareas ACKed durables.
+- E01: conservar ejecución/homologación v1 hasta cero consumidores/trabajo v1 y horizonte máximo desde su último terminal. Responsable autor del PR; retiro con búsquedas y pruebas de migración/rollback, no compatibilidad indefinida.
+
 ## Archivos clave
 
 ### Servicios del pipeline event-driven
@@ -21,7 +33,9 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AuditDataService.php` | Facade concreta de acceso interno a FDV, audit-config y catálogo documental usado por workers (no consultas SQL directas) |
 | `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | Descarga Drive/BLOB, valida bytes esperados y clasifica fallos técnicos |
 | `app/Services/Audit/Pipeline/AttachmentDownloadException.php` | Taxonomía tipada de fuente ausente/vacía, transferencia incompleta y fallo externo |
-| `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, guarda el BLOB en Redis y publica solo `document_downloaded`; propaga fallos técnicos |
+| `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, admite BLOB en caché global acotada cuando cabe y publica referencias recuperables en `document_downloaded`; propaga fallos técnicos |
+| `app/Services/Audit/Pipeline/AuditDocumentCache.php` | Presupuesto global atómico por bytes JSON/entradas; TTL 3600 s, bypass al llenarse, poda de 64 reservas vencidas por admisión y liberación idempotente |
+| `app/Services/Audit/Pipeline/AuditDocumentInput.php` | Lee caché o vuelve a descargar desde fuente durante extracción; verifica SHA256 de base64 y propaga fallos técnicos sin convertirlos en rechazo funcional |
 | `app/Services/Audit/Pipeline/DocumentRejectionReason.php` | Allowlist cerrada para rechazos comprobados de contenido |
 | `app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php` | Categoría y allowlist cerrada para rechazos de asociación lógica/física |
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatcher.php` | Matcher puro, determinista y global 1:1 por nombre, ID corroborado y alias único |
@@ -83,7 +97,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | Archivo | Endpoints |
 |---|---|
 | `app/Controllers/AuditController.php` | `POST /audit/single` (202), `POST /audit/async` (202), `GET /audit/jobs/{job_id}` |
-| `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess` (listar y republicar `dead_letter`) |
+| `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess`: nueva raíz independiente idempotente mediante `audit_created`; conserva el job histórico |
 
 ## Streams y eventos
 
@@ -146,17 +160,18 @@ lectura o si se pierde el índice; el miembro `__ready` no cuenta como scope.
 | `GEMINI_API_KEY` | Credencial obligatoria para el extractor (fallback general) |
 | `GEMINI_API_KEY_PRIORITY` | Credencial opcional dedicada para el carril VIP / prioritario (`--priority-only`) |
 | `GEMINI_API_KEY_BATCH` | Credencial opcional dedicada para el carril Batch / masivo (`--batch-only`) |
-| `GEMINI_MODEL` | Modelo Gemini (por defecto `gemini-3.5-flash`) |
+| `GEMINI_MODEL` | Modelo configurable; default de `GeminiConfig` y `.env.example`: `gemini-3.7-flash` |
 | `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica; en Gemini 3.1 dejar `THINKING_LEVEL` vacío si se desea omitir `thinkingConfig` |
 | `AUDIT_WORKER_LANE` | Filtro de carril en `AuditEventConsumer` (`all`, `priority`, `batch`) |
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | Réplicas dedicadas para el worker VIP (`worker-extraction-vip`, default 2) |
-| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | Réplicas dedicadas para el worker Batch (`worker-extraction-batch`, default 6) |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | Réplicas batch dedicadas (`worker-extraction-batch`, default Compose 12); verificar despliegue efectivo |
 | `AUDIT_STREAM_BLOCK_MS` | Bloqueo `XREADGROUP` |
 | `AUDIT_EVENT_MAX_RETRIES` | Reintentos por evento antes de DLQ |
 | `AUDIT_DLQ_STREAM` | Stream DLQ (default `audit.dlq`) |
-| `AUDIT_CACHE_TTL`, `AUDIT_EXTRACTION_CACHE_TTL` | TTL cache extracción Gemini |
+| `AUDIT_CACHE_TTL`, `AUDIT_EXTRACTION_CACHE_TTL` | TTL de caché general y de extracción Gemini, respectivamente |
+| `AUDIT_DOCUMENT_CACHE_MAX_BYTES`, `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` | Presupuesto global: 268435456 bytes JSON y 1024 entradas; no multiplicar por réplicas |
 | `AUDIT_BATCH_CHUNK_SIZE` | Tamaño de chunk para ingesta fair-queuing de lotes masivos (default 50) |
 | `AUDIT_BATCH_LOCK_TTL_SECONDS` | TTL del lock atómico de generación distribuida por chunk (default 300) |
 | `AUDIT_JOB_TTL` | TTL de estado de jobs batch async en Redis (default 604800) |
@@ -228,18 +243,26 @@ flowchart TD
 11. **Cadena documental**: Fórmula → Autorización → Dispensa. El `audit-config` runtime no persiste `rol`; todo campo activo en `fields` se evalúa según `TipoCampo` y severidad.
 12. **Entrega parcial** válida: `cantidad_entregada_total <= cantidad_autorizada` (o `cantidad_prescrita` si no hay autorización).
 13. **Exclusiones documentales**: no documentar campos como "informativos" si el `audit-config` real no trae esa marca. Para omitir un campo de auditoría debe no estar activo en `fields`; `omitirSi` no está implementado en el runtime actual.
-14. **Sin código legacy**: clean rebuild; no agregar shims ni compatibilidad con el pipeline monolítico anterior.
+14. **Evolución limpia**: refactorización incremental para contratos activos; eliminar código reemplazado sin consumidores y seguir `clean-rebuild-policy` para migración y rollback.
 15. **XACK solo tras éxito**: acknowledge después de publicar el evento siguiente o persistir resultado final.
 16. **Errores técnicos de Gemini no son detalle funcional**: loguear el error, devolver `NO_CONCLUYENTE` limpio y no cachear fallos transitorios del fallback semántico.
 17. **Métricas Gemini por tarea**: preservar `gemini_extraction`, `gemini_semantic` y `gemini_total` en `phase_timings`, incluyendo respuestas malformadas cuando Gemini entregue `usageMetadata`.
 18. **Perfiles Gemini aislados**: `mediaResolution` solo se permite en perfil `extraction`; `semantic_match` debe ser text-only, con cache semántica versionada. Política de homologación matizada: omisión de marca/modelo/presentación comercial es compatible (los médicos no prescriben marcas), pero omisión de dosis/concentración cuando el otro producto la especifica es `unresolved_differences=true` y decisión PHP conservadora (`INCONCLUSIVE`).
 19. **Visuales calculables**: `VigenciaEntrega` no se cierra como booleano en `DocumentPolicyEngine`; Gemini extrae `valor`, `unidad` y `fecha_base`, `DocumentNormalizer` los canoniza y `RulesEvaluationWorker` calcula `FechaEntrega <= fecha_base + valor`. Si falta evidencia suficiente en un visual activo, el resultado agregado es `NO_CONCLUYENTE`.
 20. **Identidad canónica E2E**: `DisId` de auditoría debe cumplir `vw_discolnet_dispensas.DisId == AudDispEst.FacSec` (columna legacy). `DisDetNro`/`Dispensa` se persiste como `AudDispEst.FacNro`, que es la PK operativa de resultados; `AuditResultPersistenceModel` hace el upsert serializable y `AuditStatusModel` consulta detalle y timings por `FacNro`. Ver `plans/audit-identity-contract.md`.
-21. **Persistencia justa y atómica**: máximo un evento SQL activo por job; nunca separar el resumen, los hallazgos del adjunto y la trazabilidad en transacciones distintas.
+21. **Persistencia justa y atómica**: un evento SQL activo por slot, default dos slots fijados por job; nunca separar resumen, hallazgos y trazabilidad en transacciones distintas.
 22. **Sin bypass de scheduling**: está prohibido publicar `rules_evaluated` mediante `AuditEventPublisher`; usar siempre `AuditPersistenceQueue`.
 23. **Fallo técnico no es rechazo documental**: PDO, SQL Server, Drive, fuente ausente/vacía durante descarga y transferencia parcial deben propagarse como excepciones técnicas. Está prohibido emitir `DOWNLOAD_ERROR`, `document_rejected` o un hallazgo funcional desde descarga. La ausencia o falta de contenido detectada durante la reconciliación de metadata sí pertenece a `DOCUMENT_MAPPING` y ocurre antes de encolar descarga.
 24. **Productores segregados y defensa en profundidad**: `DocumentAuditOrchestrator` solo publica rechazos `DOCUMENT_MAPPING`; `DocumentExtractionWorker` solo publica rechazos `document_content`. `RulesEvaluationWorker` valida categoría/clase, origen y allowlist, y `AuditPersistenceWorker` repite la barrera antes de SQL.
 25. **Reconciliación cerrada 1:1**: no seleccionar el primer candidato ni reutilizar un `attachment_id`. La única API del matcher es `matchAll()` y las únicas estrategias válidas son `exact_name`, `validated_id` y `unique_alias`.
+26. **Backlog de alto volumen**: el TTL de BLOB no decide la validez del trabajo. Recuperar desde origen y verificar hash; liberar caché después de publicar el efecto. Actualizar extractores antes que downloaders. Leer BLOBs históricos sigue siendo un contrato activo.
+    Reentrega con extracción persistida y mismos hashes de documento/contrato/prompt
+    republica el resultado sin descargar ni invocar Gemini; conservar métricas originales.
+27. **Retención segura**: inbox/documents/batch conservan entradas necesarias por cualquier grupo (last-delivered-id y PEL). `AUDIT_STREAM_MAXLEN` es una meta; poda MINID acotada a 1000 entradas por publicación. DLQ requiere archivo/verificación antes de borrado manual.
+    No podar antes de crear todos los grupos obligatorios del stream; incluir
+    también consumidores adicionales en el mínimo de retención.
+28. **Consumidores selectivos**: cada implementador declara `eventTypes()`; ACK de eventos ajenos sin recibos, HTTP ni telemetría de ejecución. Los terminales se omiten después de recuperar cierres DLQ; persistencia conserva recuperación de slots.
+29. **Reproceso real**: `/audit/dlq/reprocess` crea una nueva raíz independiente idempotente por auditoría fallida, sin reabrir contadores. Estado activo, exitoso o ausente produce 409. `rules_evaluated` se reconstruye desde raíz y llega al scheduler habitual.
 
 ## Aplicabilidad condicional por servicio (`AplicaServicio`)
 
@@ -314,7 +337,7 @@ En Gemini 3.x los thinking tokens pueden superar **4×** los output tokens (caso
 ```bash
 curl -X POST http://localhost:8080/audit/single \
   -H "Content-Type: application/json" \
-  -d '{"DisDetNro":"T38250701547"}'
+  -d '{"disDetNro":"T38250701547"}'
 # Respuesta esperada: 202 { "data": { "audit_id": "...", "status": "pending", ... } }
 ```
 
@@ -322,7 +345,7 @@ curl -X POST http://localhost:8080/audit/single \
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:8080/audit/single" `
   -Method POST -ContentType "application/json" `
-  -Body '{"DisDetNro":"T38250701547"}' | ConvertTo-Json -Depth 20
+  -Body '{"disDetNro":"T38250701547"}' | ConvertTo-Json -Depth 20
 ```
 Resultado esperado: `EstadoDetallado: "manual_review"`, 34 coincidencias, 1 discrepancia (NO_ENCONTRADO `CodigoDiagnostico` en FORMULA MEDICA), 1 NO_CONCLUYENTE (`NombreArticulo` por homologación de artículo).
 

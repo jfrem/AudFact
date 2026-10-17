@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "document": "plans/sdd-correccion-saturacion-arbitraje-costos-llm.md",
+  "validated_at": "2026-10-14T18:53:24.977Z",
+  "checks": {
+    "required_headings": 48,
+    "missing_headings": [],
+    "json_examples": 4,
+    "source_hashes": 28,
+    "source_hash_mismatches": [],
+    "unlabelled_lines": [],
+    "trailing_whitespace": [],
+    "prohibited_language": [],
+    "portal_matches": true,
+    "existing_referenced_files": 50,
+    "proposed_referenced_files": 25,
+    "identifiers": {
+      "R": 9,
+      "D": 12,
+      "C": 18,
+      "F": 24,
+      "T": 16,
+      "A": 12,
+      "K": 5,
+      "G": 5
+    }
+  },
+  "documentation_build": {
+    "command": "npm.cmd run build",
+    "working_directory": "website",
+    "exit_code": 0
+  },
+  "limitations": [
+    "DDL not executed",
+    "Future implementation tests not executed",
+    "Critical gates unresolved; Level C retained"
+  ]
+}

@@ -11,6 +11,17 @@ description: >
 ## ¿Qué es AudFact?
 Sistema de auditoría documental automatizada que compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, usando **Google Gemini API** como motor de análisis multimodal.
 
+## Ejecución v1/v2
+
+V1 conserva siete roles de worker y homologación HTTP en policy. V2 local
+agrega semantic y mantenimiento independiente: cuatro etapas con tareas
+durables/fences/receipts, RR por job, ondas agrupadas y cuota Gemini compartida.
+Policy planifica/evalúa PHP sin HTTP; persistencia/slots mantienen contrato.
+V2 requiere corte explícito y sigue apagado; ver SDD de homologación y §19.
+No presentar datos históricos productivos como medición del diff ni prometer
+throughput por haber añadido réplicas. Modelo configurado/default actual:
+gemini-3.7-flash; cuotas reales por proyecto se verifican en AI Studio.
+
 > [!NOTE]
 > Para una visión más profunda, consulta [overview.md](/plans/overview.md) y [architecture.md](/plans/architecture.md).
 
@@ -33,16 +44,16 @@ AudFact/
 ├── app/
 │   ├── Controllers/     # 12 controladores HTTP (incluye base)
 │   ├── Models/          # 8 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # 51 servicios PHP; 50 bajo Audit/ (Pipeline/ + raíz)
+│   ├── Services/        # 63 archivos PHP; 62 bajo Audit/ (incluye enums y value objects)
 │   ├── Routes/web.php   # 31 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # php (HA: 5 réplicas) + nginx + redis + workers (batch×2, orchestrator×3, downloader×8, extraction×8, normalizer, policy×2, persistence×3)
+├── docker-compose.yml   # Defaults: php×5, batch×2, orchestrator×3, downloader×12, extraction VIP×2/batch×12, normalizer×4, policy×8, persistence×6
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
-└── logs/                # Logs rotativos por hostname (HA-safe); `logs/responseIA` solo para snapshots dev
+└── logs/                # Logs rotativos en desarrollo; Core\Logger usa stderr en producción; `logs/responseIA` solo dev
 ```
 
 ## Endpoints REST (31)
@@ -98,20 +109,22 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ construye `extraction_contract` con response_schema desde audit-config
    └─ publica N × `document_registered` en `audit.documents.priority` o `audit.documents.batch`
 
-3. AttachmentDownloadWorker (group: downloaders, ×8 réplicas)
+3. AttachmentDownloadWorker (group: downloaders, default ×12 réplicas)
    ├─ descarga adjunto (Drive URL o BLOB)
    ├─ exige transferencia BLOB completa (`bytes === DATALENGTH`)
-   ├─ guarda el BLOB temporal en Redis con key lógica `audit:blob:*`
+   ├─ admite BLOB temporal en presupuesto global Redis por bytes/entradas cuando cabe
    └─ publica `document_downloaded`; fallos técnicos se propagan a DLQ
 
-4. DocumentExtractionWorker (group: extractors, ×8 réplicas)
+4. DocumentExtractionWorker (group: extractors, default VIP×2 y batch×12)
    ├─ consume `document_downloaded`
+   ├─ recupera caché faltante desde origen y verifica el mismo SHA256 de base64
    ├─ valida integridad estructural con `DocumentIntegrityValidator`
    ├─ delega estado transitorio y cache a `ExtractionCacheManager`
    ├─ productor exclusivo de `document_rejected` por contenido comprobado
    ├─ si es válido: construye prompts dinámicos con `ExtractionPromptBuilder`
    ├─ Gemini Structured Outputs (responseSchema y application/json)
    └─ parsea y rehidrata con `GeminiResponseParser` → publica `document_extracted`
+      y libera el BLOB después de publicar extracción/rechazo
 
 5. DocumentNormalizer (group: normalizers)
    ├─ fechas ISO, upper sin tildes, numéricos canónicos, null para vacío
@@ -146,6 +159,15 @@ consumer base. El contrato JSON activo se mantiene y los eventos históricos sin
 metadatos siguen en batch; consultar el procedimiento de recuperación en
 `plans/features/audit-workflow.md`.
 
+Cada consumer declara tipos de entrada y ACK de eventos ajenos sin reescribir
+telemetría. Trabajo terminal se omite después de recuperar cierres DLQ; persistencia
+conserva liberación de slots. Retención de trabajo respeta todos los grupos/PEL.
+Reprocesar DLQ crea un intento independiente e idempotente con referencia a la
+auditoría/job fallidos, sin reabrir historia. La ejecución durable v2 y la
+homologación semántica agrupada están implementadas en el workspace bajo
+activación explícita. El flujo anterior describe v1, que sigue siendo el
+protocolo predeterminado; estas defensas también operan en v1.
+
 ## Skills disponibles
 
 | Skill | Cuándo usarla |
@@ -166,10 +188,13 @@ metadatos siguen en batch; consultar el procedimiento de recuperación en
 - **Builder dinámico**: `DocumentExtractionContractBuilder` arma `extract_fields`, `extract_items`, `detect_visual_checks` y `assess_document_quality` desde `audit-config`.
 - **Chain of Responsibility**: Middleware pipeline en `Core\Router`.
 - **Facade**: `Response::success()` / `Response::error()`.
-- **Retry with Backoff**: `GeminiGateway` con `GeminiCircuitBreaker`.
+- **Retry with Backoff**: `GeminiGateway` contiene el circuit breaker; no existe una clase separada `GeminiCircuitBreaker`.
 - **Idempotencia con scripts Lua**: `AuditStateStore` (`STORE_RULES_EVALUATION_LUA`, `COMPLETE_AUDIT_LUA`, `REGISTER_DOCUMENT_LUA`).
 
 ## Instrucciones para el agente
+
+Las réplicas anteriores son defaults de Compose; las variables de producción pueden sobrescribirlas. Comprobar siempre el runtime antes de diagnosticar capacidad.
+La [SDD de homologación asíncrona y ejecución justa](../../../plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md) documenta la implementación local v2 y sus requisitos de activación. Comprobar `executionVersion` en `/metrics/async` y el marcador Redis antes de atribuir mejoras al scheduler justo. Implementación local, protocolo activo y despliegue productivo son evidencias distintas.
 
 1. **Antes de modificar**, identificar qué skill aplica.
 2. **Consultar la documentación en `plans/`** para contexto arquitectónico.

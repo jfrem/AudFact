@@ -94,4 +94,38 @@ final class AuditTimingSummarizerTest extends TestCase
         $this->assertSame(3000, AuditTimingSummarizer::resolveDurationMs($audit, $now));
         $this->assertSame(0, AuditTimingSummarizer::resolveQueueWaitMs($audit));
     }
+
+    public function testV2SeparatesPairsRetriesUnknownAttemptsAndDeduplicatedUsage(): void
+    {
+        // Arrange:
+        $metric = ['request_id' => 'same-request', 'duration_ms' => 50, 'prompt_tokens' => 100,
+            'output_tokens' => 20, 'total_tokens' => 120];
+        $audit = ['execution_version' => 2, 'documents' => [[
+            'semantic_pairs' => 16, 'semantic_wait_ms' => 7000, 'policy_duration_ms' => 5,
+            'gemini_semantic_metrics' => ['semantic' => [$metric, $metric], 'semantic_cache_hits' => 3],
+        ]], 'gemini_attempts' => [
+            'count' => ['stage' => 'semantic', 'operation' => 'count_tokens', 'state' => 'completed'],
+            'failed' => ['stage' => 'semantic', 'operation' => 'generate_content', 'state' => 'failed'],
+            'known' => ['stage' => 'semantic', 'operation' => 'generate_content', 'state' => 'completed'],
+            'unknown' => ['stage' => 'semantic', 'operation' => 'generate_content', 'state' => 'unknown'],
+            'other-stage' => ['stage' => 'extraction', 'operation' => 'generate_content', 'state' => 'completed'],
+        ]];
+
+        // Act:
+        $summary = AuditTimingSummarizer::buildPhaseTimings($audit);
+        $historical = AuditTimingSummarizer::buildPhaseTimings([]);
+
+        // Assert:
+        self::assertSame(2, $summary['timing_schema_version']);
+        self::assertSame(1, $historical['timing_schema_version']);
+        self::assertSame(16, $summary['semantic_pairs']);
+        self::assertSame(1, $summary['semantic_calls']);
+        self::assertSame(120, $summary['gemini_semantic']['total_tokens']);
+        self::assertSame(3, $summary['semantic_http_attempts']);
+        self::assertSame(1, $summary['semantic_count_tokens_attempts']);
+        self::assertSame(1, $summary['semantic_request_failures']);
+        self::assertSame(1, $summary['semantic_unknown_attempts']);
+        self::assertSame(7000, $summary['semantic_wait']['avg_ms']);
+        self::assertSame(5, $summary['policy']['avg_ms']);
+    }
 }

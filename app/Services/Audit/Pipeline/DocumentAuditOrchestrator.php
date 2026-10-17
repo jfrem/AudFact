@@ -58,12 +58,82 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         return $this->consumerName;
     }
 
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_AUDIT_CREATED];
+    }
+
+    public function taskStage(): ?AuditTaskStage
+    {
+        return AuditTaskStage::ORCHESTRATION;
+    }
+
+    public function prepareTask(AuditTask $task): array
+    {
+        $event = $task->event();
+        $identity = $this->assertAuditCreated($event);
+        $attachmentId = $this->extractAttachmentId($event);
+        $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro'], $attachmentId);
+        $this->assertIdentityContract($event, $identity, $context);
+        $this->filterDocumentsByAutorizacion($event, $context);
+        $this->assertConfiguredDocumentsHaveCatalog($context);
+        $matchResult = $this->attachmentMatcher->matchAll($context['configuredDocuments'], $context['catalogById'], $context['attachments']);
+        $matchResult = $this->applyMissingAuthorizationRule($event, $context, $matchResult);
+        if ($attachmentId !== null) {
+            $matchResult = $this->filterSelectiveReaudit($matchResult);
+        }
+        $audit = $this->stateStore->getAudit((string) $event->auditId);
+        if ($audit === null) {
+            throw new RuntimeException('audit_state_missing');
+        }
+        $effects = AuditTaskEffects::empty($task);
+        $effects['evaluation_base_revision'] = (int) ($audit['evaluation_revision'] ?? 0);
+        $patch = ['fac_nit_sec' => $context['nitSec'], 'dis_id' => $context['disId'],
+            'numero_factura' => $context['numeroFactura'], 'dias_vigencia' => $context['auditConfig']['diasVigencia'] ?? null];
+        if (!empty($context['syntheticRejections'])) {
+            $patch['synthetic_rejections'] = $context['syntheticRejections'];
+        }
+        $totalDocuments = $this->resolveTotalDocuments($attachmentId, $matchResult, $context['configuredDocuments']);
+        $effects['state_transitions'] = [
+            AuditTaskEffects::transition($task, 'start_audit', null, ['started_at' => gmdate('Y-m-d\TH:i:s\Z')]),
+            AuditTaskEffects::transition($task, 'patch_audit_context', null, $patch),
+            AuditTaskEffects::transition($task, 'set_documents_total', null, ['total' => $totalDocuments]),
+        ];
+        foreach (array_merge($matchResult->matches, $matchResult->rejections) as $match) {
+            $logical = $match['logical_document'];
+            $attachment = is_array($match['physical_attachment'] ?? null) ? $match['physical_attachment'] : [];
+            $documentId = AuditTaskEffects::uuid($event->auditId . ':document:' . $logical['doc_id']);
+            foreach (($audit['documents'] ?? []) as $existingId => $existing) {
+                if ((string) ($existing['doc_id'] ?? '') === (string) $logical['doc_id']) {
+                    $documentId = $existingId;
+                    break;
+                }
+            }
+            if (isset($audit['documents'][$documentId])) {
+                continue;
+            }
+            $state = $this->buildDocumentState($documentId, $logical, $context['catalogById'][$logical['doc_id']] ?? [],
+                $attachment, $context, $match['strategy'] ?? null, $match['candidate_attachment_ids']);
+            $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'register_document', $documentId, $state);
+            $type = AuditEvent::TYPE_DOCUMENT_REGISTERED;
+            if (isset($match['reason'])) {
+                $patch = $this->mappingRejectionPatch(
+                    (string) $match['reason'], (string) $match['logical_doc_id'],
+                    $match['candidate_attachment_ids'], $event->timestamp
+                );
+                $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'mark_rejected', $documentId, $patch);
+                $state = array_merge($state, $patch);
+                $type = AuditEvent::TYPE_DOCUMENT_REJECTED;
+            }
+            $name = 'document:' . $documentId;
+            $next = AuditTaskEffects::followUp($task, $type, $state, $documentId, $name);
+            $effects['outbox'][] = AuditTaskEffects::event($task, $next, $name);
+        }
+        return $effects;
+    }
+
     protected function handle(AuditEvent $event): void
     {
-        if ($event->eventType !== AuditEvent::TYPE_AUDIT_CREATED) {
-            return;
-        }
-
         $identity = $this->assertAuditCreated($event);
         $startedAt = hrtime(true);
         $meta = ['worker' => $this->consumer()];
@@ -81,7 +151,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 throw new RuntimeException('No se pudo marcar el inicio de procesamiento activo');
             }
 
-            $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro']);
+            $attachmentId = $this->extractAttachmentId($event);
+            $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro'], $attachmentId);
             $this->assertIdentityContract($event, $identity, $context);
             $this->filterDocumentsByAutorizacion($event, $context);
             $this->assertConfiguredDocumentsHaveCatalog($context);
@@ -91,6 +162,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 $context['attachments']
             );
             $matchResult = $this->applyMissingAuthorizationRule($event, $context, $matchResult);
+            if ($attachmentId !== null) {
+                $matchResult = $this->filterSelectiveReaudit($matchResult);
+            }
 
             $auditPatch = [
                 'fac_nit_sec' => $context['nitSec'],
@@ -105,7 +179,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 throw new RuntimeException('No se pudo actualizar el contexto de auditoría en Redis');
             }
 
-            if (!$this->stateStore->setAuditDocumentsTotal($event->auditId, count($context['configuredDocuments']))) {
+            $totalDocuments = $this->resolveTotalDocuments($attachmentId, $matchResult, $context['configuredDocuments']);
+
+            if (!$this->stateStore->setAuditDocumentsTotal($event->auditId, $totalDocuments)) {
                 throw new RuntimeException('No se pudo registrar el total de documentos de la auditoría');
             }
 
@@ -254,7 +330,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      *   attachments:array<int,array<string,mixed>>
      * }
      */
-    private function buildAuditContext(string $requestedDisId, string $requestedDisDetNro): array
+    private function buildAuditContext(string $requestedDisId, string $requestedDisDetNro, ?string $attachmentId = null): array
     {
         $fuenteVerdad  = $this->dataService->getDispensation([
             'dis_id' => $requestedDisId,
@@ -275,7 +351,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             throw new DomainException("Catálogo documental vacío para NitSec {$nitSec}");
         }
 
-        $attachments = $this->dataService->getAttachments($numeroFactura, $nitSec);
+        $attachments = $this->dataService->getAttachments($numeroFactura, $nitSec, $attachmentId);
 
         return [
             'nitSec' => $nitSec,
@@ -287,6 +363,51 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'catalogById' => $this->indexClientDocumentsById($clientDocuments),
             'attachments' => $attachments,
         ];
+    }
+
+    /**
+     * En reauditoría selectiva de un soporte específico, descarta las reyecciones por documentos
+     * faltantes (DOCUMENT_ATTACHMENT_MISSING) para no rechazar falsamente soportes no involucrados.
+     */
+    private function filterSelectiveReaudit(DocumentAttachmentMatchResult $matchResult): DocumentAttachmentMatchResult
+    {
+        $filteredRejections = array_values(array_filter(
+            $matchResult->rejections,
+            static fn(array $rejection): bool => ($rejection['reason'] ?? null) !== DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_MISSING
+        ));
+
+        return new DocumentAttachmentMatchResult($matchResult->matches, $filteredRejections);
+    }
+
+    /**
+     * Extrae y normaliza el ID de adjunto opcional desde el payload del evento de auditoría.
+     */
+    private function extractAttachmentId(AuditEvent $event): ?string
+    {
+        $id = $event->payload['attachment_id'] ?? null;
+        if ($id === null) {
+            return null;
+        }
+
+        $id = trim((string) $id);
+        return $id !== '' ? $id : null;
+    }
+
+    /**
+     * Calcula la cantidad total de documentos que serán procesados en el ciclo de auditoría.
+     * En reauditoría selectiva cuenta únicamente los soportes involucrados; en flujo completo
+     * considera la totalidad de documentos configurados.
+     *
+     * @param array<int, array<string, mixed>> $configuredDocuments
+     */
+    private function resolveTotalDocuments(
+        ?string $attachmentId,
+        DocumentAttachmentMatchResult $matchResult,
+        array $configuredDocuments
+    ): int {
+        return $attachmentId !== null
+            ? (count($matchResult->matches) + count($matchResult->rejections))
+            : count($configuredDocuments);
     }
 
     /**
@@ -360,14 +481,9 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 throw new RuntimeException('No se pudo registrar el documento previo al rechazo en Redis');
             }
 
-            $rejectionPatch = [
-                'rejection_category' => DocumentMappingRejectionReason::CATEGORY,
-                'rejection_origin' => self::class,
-                'rejection_reason' => $rejectionReason,
-                'logical_doc_id' => (string) $rejection['logical_doc_id'],
-                'candidate_attachment_ids' => $candidateAttachmentIds,
-                'rejected_at' => $rejectedAt,
-            ];
+            $rejectionPatch = $this->mappingRejectionPatch(
+                $rejectionReason, (string) $rejection['logical_doc_id'], $candidateAttachmentIds, $rejectedAt
+            );
             if (!$this->stateStore->markDocumentRejected($event->auditId, $documentId, $rejectionPatch)) {
                 throw new RuntimeException('No se pudo marcar el rechazo de mapping en Redis');
             }
@@ -375,14 +491,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             $this->publisher->publish($event->followUp(
                 eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
                 documentId: $documentId,
-                payload: [
-                    'rejection_reason' => $rejectionReason,
-                    'rejection_category' => DocumentMappingRejectionReason::CATEGORY,
-                    'rejection_origin' => self::class,
+                payload: $rejectionPatch + [
                     'document_type' => $configuredDocument['document_name'],
-                    'logical_doc_id' => (string) $rejection['logical_doc_id'],
-                    'candidate_attachment_ids' => $candidateAttachmentIds,
-                    'rejected_at' => $rejectedAt,
                 ],
             ));
 
@@ -396,11 +506,27 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         }
     }
 
+    /** Contrato de asociación física compartido por ejecución v1 y v2. */
+    private function mappingRejectionPatch(string $reason, string $logicalDocId, array $candidateIds, string $rejectedAt): array
+    {
+        if (!DocumentMappingRejectionReason::isAllowed($reason)) {
+            throw new DomainException('La asociación documental produjo una razón de rechazo inválida.');
+        }
+        return [
+            'rejection_category' => DocumentMappingRejectionReason::CATEGORY,
+            'rejection_origin' => self::class,
+            'rejection_reason' => $reason,
+            'logical_doc_id' => $logicalDocId,
+            'candidate_attachment_ids' => array_values(array_map('strval', $candidateIds)),
+            'rejected_at' => $rejectedAt,
+        ];
+    }
+
     /**
-     * @param  array<string,mixed> $configuredDocument
-     * @param  array<string,mixed> $catalogDocument
-     * @param  array<string,mixed> $attachment
-     * @param  array<string,mixed> $context
+     * @param array<string,mixed> $configuredDocument
+     * @param array<string,mixed> $catalogDocument
+     * @param array<string,mixed> $attachment
+     * @param array<string,mixed> $context
      * @return array<string,mixed>
      */
     private function buildDocumentState(

@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace App\Services\Audit;
 
 use App\Services\Audit\Pipeline\AuditLane;
+use App\Services\Audit\Pipeline\AuditTask;
+use App\Services\Audit\Pipeline\AuditTaskStage;
+use App\Services\Audit\Pipeline\FairAuditTaskQueue;
+use App\Services\Audit\Pipeline\GeminiQuotaBudget;
+use App\Services\Audit\Pipeline\QuotaDeferredException;
+use App\Services\Audit\Pipeline\AuditExecutionConfig;
 use App\Services\Audit\ResponseIADiskStore;
 use App\Services\Audit\GeminiCallMetrics;
 use Core\Env;
@@ -36,6 +42,9 @@ class GeminiGateway
     private RedisClient $cbRedis;
     private ResponseIADiskStore $diskStore;
     private AuditLane $lane;
+    private ?AuditTask $task = null;
+    private ?GeminiQuotaBudget $quota = null;
+    private ?FairAuditTaskQueue $taskQueue = null;
 
     public function __construct(
         Client $http,
@@ -118,12 +127,209 @@ class GeminiGateway
             'mode'      => 'structured_output',
         ]);
 
-        $this->cbCheck();
-
         $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
         $payload = $this->buildStructuredOutputPayload($prompt, $files, $systemInstruction, $responseSchema, $taskType, $generationOverrides);
+        if ($this->task !== null) {
+            return $this->executeTaskRequest($payload, $ctx);
+        }
+        $this->cbCheck();
 
         return $this->executePost($url, $payload, $ctx, 'Structured Output');
+    }
+
+    public function model(): string
+    {
+        return $this->config->model;
+    }
+
+    /** Ciclo de vida por tarea; los gateways legacy conservan su contrato. */
+    public function withTask(AuditTask $task, GeminiQuotaBudget $quota, FairAuditTaskQueue $queue): self
+    {
+        $gateway = clone $this;
+        $gateway->task = $task;
+        $gateway->quota = $quota;
+        $gateway->taskQueue = $queue;
+        return $gateway;
+    }
+
+    public function requestBody(string $prompt, array $files, string $system, array $schema, string $taskType, array $overrides = []): array
+    {
+        return $this->buildStructuredOutputPayload($prompt, $files, $system, $schema, $taskType, $overrides);
+    }
+
+    /**
+     * Envía un body pre-construido (vía requestBody()) con routing automático V1/V2.
+     *
+     * V1 (sin task): HTTP POST directo vía executePost().
+     * V2 (con task): routing a través del task queue vía executeTaskRequest().
+     *
+     * @param  array<string, mixed> $body     Payload completo listo para la API.
+     * @param  array<string, mixed> $context  Metadata de trazabilidad y task_type.
+     * @return array<string, mixed>
+     */
+    public function sendPrebuiltBody(array $body, array $context): array
+    {
+        $ctx = array_merge($context, [
+            'source' => $context['source'] ?? 'GeminiGateway::sendPrebuiltBody',
+            'mode'   => 'prebuilt_body',
+        ]);
+        if ($this->task !== null) {
+            return $this->executeTaskRequest($body, $ctx);
+        }
+        $this->cbCheck();
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$this->config->model}:generateContent";
+        return $this->executePost($url, $body, $ctx, 'Prebuilt Body');
+    }
+
+    public function countInputTokens(array $body, array $requestContext): array
+    {
+        $response = $this->executeSingleOperation('countTokens', ['generateContentRequest' => ['model' => 'models/' . $this->config->model] + $body], $requestContext);
+        if (!is_int($response['totalTokens'] ?? null) || $response['totalTokens'] < 1) {
+            throw new GeminiOperationException('count_tokens');
+        }
+        return $response;
+    }
+
+    public function sendSingleAttempt(array $body, array $requestContext): array
+    {
+        return $this->executeSingleOperation('generateContent', $body, $requestContext);
+    }
+
+    public function executeTaskRequest(array $body, array $context): array
+    {
+        if ($this->task === null || $this->quota === null || $this->taskQueue === null) {
+            throw new \LogicException('gemini_task_required');
+        }
+        $hash = hash('sha256', json_encode([$this->config->model, $body], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $latest = $this->taskQueue->get($this->task->id());
+        $artifact = $latest?->record['stage_artifact'] ?? [];
+        $artifact = is_array($artifact) ? $artifact : [];
+        foreach (($artifact['quota_finishes'] ?? []) as $attemptId => $usage) {
+            $this->quota->finish($attemptId, $usage);
+        }
+        if (is_array($artifact['responses'][$hash] ?? null)) {
+            return $artifact['responses'][$hash];
+        }
+        $artifact = is_array($artifact) ? $artifact : [];
+        $deadline = (int) $this->task->record['lease_until_ms'] - AuditExecutionConfig::LEASE_MS + AuditExecutionConfig::DEADLINE_MS;
+        $tokens = $artifact['token_counts'][$hash] ?? null;
+        foreach ($tokens === null ? ['count_tokens', 'generate_content'] : ['generate_content'] as $operation) {
+            if ($operation === 'generate_content' && $this->task->record['stage'] === AuditTaskStage::SEMANTIC->value
+                && $tokens > AuditExecutionConfig::MAX_INPUT_TOKENS) {
+                throw new \DomainException('semantic_input_too_large');
+            }
+            $grant = $this->quota->reserve(['task' => $this->task->record, 'operation' => $operation,
+                'tokens' => $operation === 'count_tokens' ? 0 : (int) ceil($tokens * 1.05), 'body_hash' => $hash]);
+            if ($grant['status'] === 'DEFERRED') {
+                throw new QuotaDeferredException((int) $grant['due_at_ms'], $grant['reason']);
+            }
+            $requestContext = $context + ['grant' => $grant, 'deadline_ms' => $deadline, 'body_hash' => $hash,
+                'task_id' => $this->task->id(), 'operation' => $operation];
+            try {
+                $result = $operation === 'count_tokens' ? $this->countInputTokens($body, $requestContext) : $this->sendSingleAttempt($body, $requestContext);
+            } catch (\Throwable $error) {
+                $usage = ['error' => true, 'http_status' => (int) $error->getCode(),
+                    'duration_ms' => $error instanceof GeminiOperationException ? $error->durationMs : null,
+                    'unknown' => $error instanceof GeminiOperationException && $error->unknownResult];
+                $artifact['attempt_ids'][] = $grant['attempt_id'];
+                $artifact['quota_finishes'][$grant['attempt_id']] = $usage;
+                $this->taskQueue->saveArtifact($this->task, $artifact);
+                try {
+                    $this->quota->finish($grant['attempt_id'], $usage);
+                } catch (\Throwable $finishError) {
+                    Logger::warning('Gemini attempt finish pending', ['attempt_id' => $grant['attempt_id'],
+                        'error_class' => get_class($finishError)]);
+                }
+                throw $error;
+            }
+            $artifact['attempt_ids'][] = $grant['attempt_id'];
+            $usage = ($result['usageMetadata'] ?? []) + ['duration_ms' => $result['X-Audit-Metrics']['duration_ms'] ?? null];
+            $artifact['quota_finishes'][$grant['attempt_id']] = $usage;
+            if ($operation === 'count_tokens') {
+                $tokens = $result['totalTokens'];
+                $artifact['token_counts'][$hash] = $tokens;
+            } else {
+                $artifact['responses'][$hash] = $result;
+            }
+            if (!$this->taskQueue->saveArtifact($this->task, $artifact)) {
+                throw new \RuntimeException('gemini_task_stale');
+            }
+            // Primero conservar la respuesta. Si finish falla, el siguiente turno
+            // completa el recibo y reutiliza el resultado sin otro HTTP.
+            $this->quota->finish($grant['attempt_id'], $usage);
+        }
+        return $artifact['responses'][$hash];
+    }
+
+    /** Descarta únicamente respuestas que el parser del contrato haya rechazado. */
+    public function invalidateTaskResponses(): void
+    {
+        if ($this->task === null || $this->taskQueue === null) {
+            return;
+        }
+        $artifact = $this->taskQueue->get($this->task->id())?->record['stage_artifact'] ?? [];
+        foreach (($artifact['responses'] ?? []) as $response) {
+            $id = $response['X-Audit-Metrics']['attempt_id'] ?? null;
+            if (is_string($id)) {
+                $this->quota?->failContract($id);
+            }
+        }
+        $artifact['responses'] = [];
+        if (!$this->taskQueue->saveArtifact($this->task, $artifact)) {
+            throw new \RuntimeException('gemini_task_stale');
+        }
+    }
+
+    private function executeSingleOperation(string $method, array $body, array $context): array
+    {
+        $now = $this->taskQueue?->nowMs() ?? (int) floor(microtime(true) * 1000);
+        $grant = $context['grant'] ?? [];
+        if (($grant['status'] ?? '') !== 'GRANTED' || ($grant['body_hash'] ?? '') !== ($context['body_hash'] ?? null)
+            || (int) ($grant['expires_at_ms'] ?? 0) <= $now || (int) ($context['deadline_ms'] ?? 0) <= $now) {
+            throw new \RuntimeException('gemini_grant_required');
+        }
+        $timeout = min((int) Env::get('GEMINI_TIMEOUT', 300), max(0.001, ((int) $context['deadline_ms'] - $now) / 1000));
+        if ($method === 'countTokens') {
+            $timeout = min(20, $timeout);
+        }
+        $start = hrtime(true);
+        try {
+            $response = $this->http->post('https://generativelanguage.googleapis.com/v1beta/models/' . $this->config->model . ':' . $method, [
+                'headers' => ['Content-Type' => 'application/json', 'x-goog-api-key' => $this->apiKey], 'json' => $body,
+                'timeout' => $timeout, 'connect_timeout' => min(10, $timeout), 'http_errors' => false,
+            ]);
+        } catch (GuzzleException) {
+            throw new GeminiOperationException($context['operation'], durationMs: (int) ((hrtime(true) - $start) / 1000000), unknownResult: true);
+        }
+        $code = $response->getStatusCode();
+        if ($code < 200 || $code >= 300) {
+            $header = trim($response->getHeaderLine('Retry-After'));
+            $retry = ctype_digit($header) ? (int) $header * 1000 : max(0, ((strtotime($header) ?: 0) * 1000) - $now);
+            $reason = null;
+            if ($code === 400 && ($context['task_type'] ?? '') === self::TASK_EXTRACTION) {
+                $message = strtolower((string) (json_decode((string) $response->getBody(), true)['error']['message'] ?? ''));
+                $reason = match (true) {
+                    str_contains($message, 'no pages') => \App\Services\Audit\Pipeline\DocumentRejectionReason::EMPTY_PDF_NO_PAGES,
+                    str_contains($message, 'corrupt') => \App\Services\Audit\Pipeline\DocumentRejectionReason::CORRUPTED_DOCUMENT,
+                    str_contains($message, 'could not be decoded'), str_contains($message, 'failed to decode') => \App\Services\Audit\Pipeline\DocumentRejectionReason::GEMINI_DECODE_FAILURE,
+                    str_contains($message, 'unsupported file'), str_contains($message, 'unsupported media'), str_contains($message, 'unsupported format') => \App\Services\Audit\Pipeline\DocumentRejectionReason::UNSUPPORTED_MIME,
+                    default => null,
+                };
+            }
+            throw new GeminiOperationException($context['operation'], $code, $retry, $reason, (int) ((hrtime(true) - $start) / 1000000));
+        }
+        try {
+            $result = json_decode((string) $response->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new GeminiOperationException($context['operation'], $code, durationMs: (int) ((hrtime(true) - $start) / 1000000));
+        }
+        if (!is_array($result)) {
+            throw new GeminiOperationException($context['operation'], $code, durationMs: (int) ((hrtime(true) - $start) / 1000000));
+        }
+        $result['X-Audit-Metrics'] = GeminiCallMetrics::fromResponse($result, (int) ((hrtime(true) - $start) / 1000000),
+            $context + ['request_id' => $grant['request_id'], 'attempt_id' => $grant['attempt_id'],
+                'operation' => $context['operation'], 'execution_version' => 2]);
+        return $result;
     }
 
     /**

@@ -13,7 +13,7 @@ final readonly class RasterizationProcessResult
 
     public function contentFailure(): ?PdfContentFailure
     {
-        if (!in_array($this->exitCode, [0, 1], true)) {
+        if (!in_array($this->exitCode, [0, 1, 99], true)) {
             return null;
         }
         // Una señal operativa prevalece sobre cualquier diagnóstico documental.

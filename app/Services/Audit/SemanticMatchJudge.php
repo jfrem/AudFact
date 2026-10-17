@@ -8,7 +8,7 @@ use App\Services\Audit\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
 
-final class SemanticMatchJudge
+final class SemanticMatchJudge implements SemanticMatchResolver
 {
     /** Propósito de arbitraje semántico para artículos o insumos farmacéuticos. */
     public const PURPOSE_PRODUCT_MATCH = 'article_homologation';
@@ -70,6 +70,23 @@ final class SemanticMatchJudge
         unset($result['cacheable']);
 
         return $result;
+    }
+
+    public function evaluateBatch(array $pairs, array $requestContext): array
+    {
+        $contract = new SemanticBatchContract();
+        $body = $contract->body($this->gateway, $pairs);
+        if (strlen(json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) > \App\Services\Audit\Pipeline\AuditExecutionConfig::MAX_REQUEST_BYTES) {
+            throw new \DomainException('semantic_input_too_large');
+        }
+        $response = $this->gateway->sendPrebuiltBody($body, $requestContext + ['task_type' => GeminiGateway::TASK_SEMANTIC_MATCH]);
+        try {
+            $results = $contract->validate($response, $pairs);
+        } catch (GeminiOperationException $error) {
+            $this->gateway->invalidateTaskResponses();
+            throw $error;
+        }
+        return ['results' => $results, 'request_metric' => $response['X-Audit-Metrics'] ?? []];
     }
 
     private function buildCacheKey(string $expected, string $actual, string $callPurpose, ?string $docContext = null): string

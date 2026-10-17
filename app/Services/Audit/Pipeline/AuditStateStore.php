@@ -69,9 +69,21 @@ class AuditStateStore
         ?string $facNitSec = null,
         ?string $disId = null
     ): bool {
+        $state = self::initialAuditState($auditId, $disDetNro, $jobId, $facNitSec, $disId);
+        $encoded = self::encodeJson($state, 'AuditStateStore');
+        if (($state['execution_version'] ?? 1) === 2) {
+            return $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::auditKey($auditId)], [$encoded]) === 1;
+        }
+        return $this->redis->setnx(self::auditKey($auditId), $encoded, self::auditTtlSeconds());
+    }
+
+    private static function initialAuditState(
+        string $auditId, string $disDetNro, ?string $jobId, ?string $facNitSec, ?string $disId
+    ): array {
         $now = self::nowUtc();
-        $state = [
+        return [
             'audit_id'    => $auditId,
+            'execution_version' => AuditExecutionConfig::fromEnv()->version,
             'status'      => self::AUDIT_STATUS_PENDING,
             'dis_det_nro' => $disDetNro,
             'job_id'      => $jobId,
@@ -87,9 +99,97 @@ class AuditStateStore
             'updated_at'  => $now,
         ];
 
-        $encoded = self::encodeJson($state, 'AuditStateStore');
-        return $this->redis->setnx(self::auditKey($auditId), $encoded, self::auditTtlSeconds());
     }
+
+    /** Crea y publica una sola recuperación por auditoría fallida, sin reabrir el job histórico. */
+    public function recoverFailedAudit(AuditEvent $recovery, string $originalAuditId): array
+    {
+        if ($recovery->eventType !== AuditEvent::TYPE_AUDIT_CREATED || $recovery->auditId === null
+            || $recovery->jobId !== null || $originalAuditId === $recovery->auditId) {
+            throw new \InvalidArgumentException('La recuperación requiere una nueva auditoría independiente');
+        }
+        $execution = AuditExecutionConfig::fromEnv();
+        (new AuditAdmissionGuard($this->redis, $execution))->assertAccepting();
+        $result = $this->redis->eval(self::RECOVER_FAILED_AUDIT_LUA, [
+            self::auditKey($originalAuditId), self::auditKey($recovery->auditId),
+            'audit:recovery:' . $originalAuditId, AuditEventPublisher::streamForEvent($recovery),
+            'audit:execution:version', 'audit:admission:paused', 'audit:execution:paused',
+            'audit:execution:heartbeat', FairAuditTaskQueue::COUNTS,
+        ], [
+            self::encodeJson(self::initialAuditState($recovery->auditId, '', null, null, null)),
+            $recovery->toJson(), self::auditTtlSeconds(),
+            $execution->version, (int) floor($execution->maxQueued * 0.8),
+            json_encode(array_column(AuditTaskStage::cases(), 'value'), JSON_THROW_ON_ERROR),
+        ]);
+        if (!is_string($result)) {
+            throw new RuntimeException('Redis no confirmó la recuperación de la auditoría');
+        }
+        $response = self::decodeJson($result);
+        if (isset($response['conflict'])) {
+            throw new RuntimeException('La auditoría debe estar fallida y conservar su identidad para reprocesarse', 409);
+        }
+        return $response;
+    }
+
+    private const RECOVER_FAILED_AUDIT_LUA = <<<'LUA'
+        -- Revalidar la barrera en la misma operación que crea/publica la raíz.
+        if (redis.call('GET',KEYS[5]) or '1')~=ARGV[4]
+        or redis.call('GET',KEYS[6])=='1' or redis.call('GET',KEYS[7])=='1' then
+            return redis.error_reply('audit_capacity_unavailable')
+        end
+        if ARGV[4]=='2' then
+            local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
+            local heartbeat=tonumber(redis.call('GET',KEYS[8]) or '')
+            if not heartbeat or heartbeat>now or now-heartbeat>10000 then return redis.error_reply('audit_capacity_unavailable') end
+            for _,stage in ipairs(cjson.decode(ARGV[6])) do
+                local waiting=0
+                for _,lane in ipairs({'priority','batch'}) do
+                    for _,status in ipairs({'pending','delayed'}) do
+                        local n=tonumber(redis.call('HGET',KEYS[9],stage..':'..lane..':'..status) or '0')
+                        if not n or n<0 then return redis.error_reply('task_metrics_invalid') end
+                        waiting=waiting+n
+                    end
+                end
+                if waiting>=tonumber(ARGV[5]) then return redis.error_reply('audit_capacity_unavailable') end
+            end
+        end
+        local receipt = redis.call('GET', KEYS[3])
+        if receipt then return receipt end
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return cjson.encode({conflict='missing_state'}) end
+        local original = cjson.decode(raw)
+        if original.status ~= 'failed' or type(original.dis_det_nro) ~= 'string'
+        or original.dis_det_nro == '' then return cjson.encode({conflict='invalid_state'}) end
+        local state = cjson.decode(ARGV[1])
+        local event = cjson.decode(ARGV[2])
+        state.dis_det_nro = original.dis_det_nro
+        state.dis_id = original.dis_id
+        state.fac_nit_sec = original.fac_nit_sec
+        state.recovery_of_audit_id = original.audit_id
+        state.recovery_of_job_id = original.job_id
+        event.payload.dis_det_nro = original.dis_det_nro
+        event.payload.dis_id = original.dis_id
+        event.payload.fac_nit_sec = original.fac_nit_sec
+        event.payload.recovery_of_audit_id = original.audit_id
+        event.payload.recovery_of_job_id = original.job_id
+        local response = cjson.encode({audit_id=state.audit_id, original_audit_id=original.audit_id,
+            original_job_id=original.job_id, reprocessed_event_id=event.event_id, event_type=event.event_type})
+        local created
+        if state.execution_version==2 then created=redis.call('SET',KEYS[2],cjson.encode(state),'NX')
+        else created=redis.call('SET',KEYS[2],cjson.encode(state),'EX',tonumber(ARGV[3]),'NX') end
+        if not created then return cjson.encode({conflict='audit_id_exists'}) end
+        local saved = redis.pcall('SET', KEYS[3], response, 'EX', tonumber(ARGV[3]), 'NX')
+        if not saved or (type(saved) == 'table' and saved.err) then
+            redis.call('DEL', KEYS[2])
+            return redis.error_reply('Could not save recovery receipt')
+        end
+        local published = redis.pcall('XADD', KEYS[4], '*', 'event', cjson.encode(event))
+        if type(published) == 'table' and published.err then
+            redis.call('DEL', KEYS[2], KEYS[3])
+            return published
+        end
+        return response
+    LUA;
 
     public function getAudit(string $auditId): ?array
     {
@@ -277,6 +377,16 @@ class AuditStateStore
         return "audit:{$auditId}:state";
     }
 
+    public static function isTerminalStatus(string $status): bool
+    {
+        return in_array($status, [
+            self::AUDIT_STATUS_COMPLETED,
+            self::AUDIT_STATUS_MANUAL_REVIEW,
+            self::AUDIT_STATUS_ERROR,
+            self::AUDIT_STATUS_FAILED,
+        ], true);
+    }
+
 
 
 
@@ -305,7 +415,7 @@ class AuditStateStore
         audit['documents'][documentId] = documentState
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 
@@ -331,7 +441,7 @@ class AuditStateStore
         audit['status'] = 'processing'
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', tonumber(ARGV[2]))
+        storeState(KEYS[1], audit, tonumber(ARGV[2]))
         return 1
     LUA;
 
@@ -383,7 +493,7 @@ class AuditStateStore
         audit['status'] = 'processing'
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 
@@ -434,7 +544,7 @@ class AuditStateStore
         audit['status'] = 'processing'
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 
@@ -455,7 +565,7 @@ class AuditStateStore
         audit['rules_evaluated_at'] = now
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 
@@ -482,7 +592,7 @@ class AuditStateStore
         audit['completed_at'] = now
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 
@@ -502,7 +612,7 @@ class AuditStateStore
         table.insert(audit['event_timings'], telemetry)
         audit['updated_at'] = now
 
-        redis.call('SET', KEYS[1], cjson.encode(audit), 'EX', ttl)
+        storeState(KEYS[1], audit, ttl)
         return 1
     LUA;
 }

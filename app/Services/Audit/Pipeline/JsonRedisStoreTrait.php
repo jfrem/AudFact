@@ -47,7 +47,7 @@ trait JsonRedisStoreTrait
     protected function runScript(string $lua, array $keys, array $args, string $errorMessage, array $logContext): bool
     {
         try {
-            $result = $this->redis->eval($lua, $keys, $args);
+            $result = $this->redis->eval(self::STATE_WRITE_LUA . "\n" . $lua, $keys, $args);
         } catch (\Exception $e) {
             Logger::error($errorMessage, array_merge($logContext, ['error' => $e->getMessage()]));
             throw new RuntimeException($errorMessage, 0, $e);
@@ -71,7 +71,15 @@ trait JsonRedisStoreTrait
             state[k] = v
         end
 
-        redis.call('SET', KEYS[1], cjson.encode(state), 'EX', tonumber(ARGV[2]))
+        storeState(KEYS[1], state, tonumber(ARGV[2]))
         return 1
+    LUA;
+
+    private const STATE_WRITE_LUA = <<<'LUA'
+        local function storeState(key,state,ttl)
+            if state.audit_id then state.evaluation_revision=tonumber(state.evaluation_revision or 0)+1 end
+            if state.execution_version==2 then redis.call('SET',key,cjson.encode(state))
+            else redis.call('SET',key,cjson.encode(state),'EX',ttl) end
+        end
     LUA;
 }

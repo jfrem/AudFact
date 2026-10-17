@@ -31,8 +31,9 @@ class AttachmentDownloadService
      */
     public function download(string $attachmentId, string $disDetNro): array
     {
-        $start      = microtime(true);
-        $attachment = $this->model->getAttachmentByIdForDisDetNro($attachmentId, $disDetNro);
+        $start       = microtime(true);
+        $attachments = $this->model->getPhysicalAttachmentsByDisDetNro($disDetNro, attachmentId: $attachmentId);
+        $attachment  = $attachments[0] ?? null;
 
         if (!$attachment) {
             throw new AttachmentDownloadException(

@@ -87,7 +87,7 @@ export function getDispensationDetail(
   );
 }
 
-export function getAttachments(disDetNro: string, nitSec: string | number) {
+export function getAttachments(disDetNro: string, nitSec?: string | number | null) {
   return requestJson(
     endpoints.dispensationAttachments(disDetNro, nitSec),
     AttachmentsSchema,
@@ -116,10 +116,21 @@ export function getAttachmentDownloadUrl(
 export function runAuditSingle(
   disId: string | undefined | null,
   disDetNro: string,
+  attachmentId?: string | number | null,
 ) {
+  const payload: { disId?: string; disDetNro: string; attachmentId?: string } = {
+    disDetNro: disDetNro.trim(),
+  };
+  if (disId?.trim()) {
+    payload.disId = disId.trim();
+  }
+  const cleanAttId = attachmentId != null ? String(attachmentId).trim() : "";
+  if (cleanAttId !== "" && cleanAttId !== "ALL") {
+    payload.attachmentId = cleanAttId;
+  }
   return postJson(
     endpoints.auditSingle(),
-    { disId: disId?.trim() || "", disDetNro },
+    payload,
     AuditSingleResponseSchema,
   );
 }

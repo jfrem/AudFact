@@ -7,10 +7,11 @@ namespace Tests\Controllers;
 use App\Controllers\AuditDlqController;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
-use App\Services\Audit\Pipeline\AuditPersistenceQueue;
+use App\Services\Audit\Pipeline\AuditStateStore;
 use Core\Exceptions\HttpResponseException;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 final class AuditDlqControllerTest extends TestCase
@@ -57,7 +58,7 @@ final class AuditDlqControllerTest extends TestCase
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_EXTRACTED, $data['items'][0]['failed_event_type']);
     }
 
-    public function testReprocessRepublishesOriginalEvent(): void
+    public function testReprocessCreatesIndependentAuditWithFreshEventIdentity(): void
     {
         $original = AuditEvent::create(
             eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,
@@ -87,21 +88,32 @@ final class AuditDlqControllerTest extends TestCase
                 'fields' => ['event' => $deadLetter->toJson()],
             ]]);
 
-        $publisher = new DlqPublisher();
+        $store = $this->createMock(AuditStateStore::class);
+        $newAuditId = AuditEvent::uuidV4();
+        $newEventId = AuditEvent::uuidV4();
+        $store->expects($this->once())->method('recoverFailedAudit')->with(
+            $this->callback(static function (AuditEvent $recovery) use ($original): bool {
+                return $recovery->eventType === AuditEvent::TYPE_AUDIT_CREATED
+                    && $recovery->eventId !== $original->eventId && $recovery->auditId !== $original->auditId
+                    && $recovery->jobId === null && $recovery->parentEventId === $original->eventId
+                    && $recovery->payload['is_priority'] === false;
+            }), $original->auditId
+        )->willReturn(['audit_id' => $newAuditId, 'original_audit_id' => $original->auditId,
+            'reprocessed_event_id' => $newEventId, 'event_type' => AuditEvent::TYPE_AUDIT_CREATED]);
         $controller = new TestableAuditDlqController(
             body: ['streamId' => '1700000000000-0'],
             redis: $redis,
-            publisher: $publisher,
+            stateStore: $store,
         );
 
         $response = self::captureResponse(static fn() => $controller->reprocess());
 
         $this->assertSame(200, $response->getCode());
-        $this->assertCount(1, $publisher->published);
-        $this->assertSame($original->eventId, $publisher->published[0]->eventId);
+        $this->assertSame($newAuditId, $response->getData()['data']['audit_id']);
+        $this->assertSame($newEventId, $response->getData()['data']['reprocessed_event_id']);
     }
 
-    public function testReprocessRoutesRulesEvaluatedThroughPersistenceQueue(): void
+    public function testFailedPersistenceRestartsTheAuditWithoutReopeningHistoricalJob(): void
     {
         $original = AuditEvent::create(
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
@@ -127,20 +139,21 @@ final class AuditDlqControllerTest extends TestCase
             'id' => '1700000000001-0',
             'fields' => ['event' => $deadLetter->toJson()],
         ]]);
-        $publisher = new DlqPublisher();
-        $queue = new DlqPersistenceQueue();
+        $store = $this->createMock(AuditStateStore::class);
+        $store->expects($this->once())->method('recoverFailedAudit')->with(
+            $this->callback(static fn(AuditEvent $recovery): bool => $recovery->eventType === AuditEvent::TYPE_AUDIT_CREATED
+                && $recovery->jobId === null), $original->auditId
+        )->willReturn(['audit_id' => AuditEvent::uuidV4(), 'event_type' => AuditEvent::TYPE_AUDIT_CREATED]);
         $controller = new TestableAuditDlqController(
             body: ['streamId' => '1700000000001-0'],
             redis: $redis,
-            publisher: $publisher,
-            persistenceQueue: $queue,
+            stateStore: $store,
         );
 
         $response = self::captureResponse(static fn() => $controller->reprocess());
 
         $this->assertSame(200, $response->getCode());
-        $this->assertSame([$original->eventId], $queue->reprocessedEventIds);
-        $this->assertSame([], $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $response->getData()['data']['event_type']);
     }
 
     public function testReprocessReturns404WhenEventMissing(): void
@@ -155,6 +168,32 @@ final class AuditDlqControllerTest extends TestCase
 
         $response = self::captureResponse(static fn() => $controller->reprocess());
         $this->assertSame(404, $response->getCode());
+    }
+
+    #[DataProvider('recoveryErrors')]
+    public function testRecoveryConflictAndInfrastructureFailureAreDistinct(int $code, int $expectedStatus): void
+    {
+        // Arrange:
+        $original = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, AuditEvent::uuidV4());
+        $dlq = AuditEvent::create(AuditEvent::TYPE_DEAD_LETTER, $original->auditId,
+            payload: ['original_event' => $original->toArray()]);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('xRange')->willReturn([['id' => '1-0', 'fields' => ['event' => $dlq->toJson()]]]);
+        $store = $this->createMock(AuditStateStore::class);
+        $store->method('recoverFailedAudit')->willThrowException(new RuntimeException('Recuperación no disponible', $code));
+        $controller = new TestableAuditDlqController(body: ['streamId' => '1-0'], redis: $redis, stateStore: $store);
+
+        // Act:
+        $response = self::captureResponse(static fn() => $controller->reprocess());
+
+        // Assert:
+        self::assertSame($expectedStatus, $response->getCode());
+    }
+
+    public static function recoveryErrors(): iterable
+    {
+        yield 'terminal state conflict' => [409, 409];
+        yield 'Redis failure' => [0, 503];
     }
 
     private static function captureResponse(callable $callback): HttpResponseException
@@ -174,8 +213,7 @@ final class TestableAuditDlqController extends AuditDlqController
     public function __construct(
         private array $body = [],
         private ?RedisClient $redis = null,
-        private ?AuditEventPublisher $publisher = null,
-        private ?AuditPersistenceQueue $persistenceQueue = null,
+        private ?AuditStateStore $stateStore = null,
     ) {
     }
 
@@ -189,50 +227,13 @@ final class TestableAuditDlqController extends AuditDlqController
         return $this->redis ?? $this->createRedisFailure();
     }
 
-    protected function buildEventPublisher(): AuditEventPublisher
+    protected function buildStateStore(): AuditStateStore
     {
-        return $this->publisher ?? new DlqPublisher();
-    }
-
-    protected function buildPersistenceQueue(): AuditPersistenceQueue
-    {
-        return $this->persistenceQueue ?? new DlqPersistenceQueue();
+        return $this->stateStore ?? new AuditStateStore($this->buildRedisClient());
     }
 
     private function createRedisFailure(): RedisClient
     {
         throw new RuntimeException('Redis no inyectado');
-    }
-}
-
-final class DlqPublisher extends AuditEventPublisher
-{
-    /** @var array<int,AuditEvent> */
-    public array $published = [];
-
-    public function __construct()
-    {
-    }
-
-    public function publish(AuditEvent $event): string
-    {
-        $this->published[] = $event;
-        return 'stream-' . count($this->published);
-    }
-}
-
-final class DlqPersistenceQueue extends AuditPersistenceQueue
-{
-    /** @var array<int,string> */
-    public array $reprocessedEventIds = [];
-
-    public function __construct()
-    {
-    }
-
-    public function reprocess(AuditEvent $event): int
-    {
-        $this->reprocessedEventIds[] = $event->eventId;
-        return self::ENQUEUE_DISPATCHED;
     }
 }

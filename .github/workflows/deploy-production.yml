@@ -10,6 +10,19 @@ on:
         description: "GHCR image tag to deploy. Use a commit SHA for rollback."
         required: true
         default: "latest"
+      execution_phase:
+        description: "Fase explícita del protocolo de ejecución"
+        type: choice
+        required: true
+        default: steady
+        options: [steady, prepare, cutover, rollback]
+      execution_run_id:
+        description: "Identificador del manifiesto para cutover/rollback"
+        required: false
+      execution_checks_passed:
+        description: "Cuotas verificadas en AI Studio, corpus clínico aprobado y backup/restore ensayado"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -27,6 +40,9 @@ env:
   DOCS_IMAGE: ${{ vars.AUDFACT_DOCS_IMAGE || format('ghcr.io/{0}/audfact-docs', github.repository_owner) }}
   FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT || '3100' }}
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.image_tag }}
+  EXECUTION_PHASE: ${{ inputs.execution_phase || 'steady' }}
+  EXECUTION_RUN_ID: ${{ inputs.execution_run_id }}
+  EXECUTION_CHECKS_PASSED: ${{ inputs.execution_checks_passed || false }}
 
 jobs:
   deploy:
@@ -133,6 +149,15 @@ jobs:
           GEMINI_API_KEY_PRIORITY: ${{ secrets.GEMINI_API_KEY_PRIORITY }}
           GEMINI_API_KEY_BATCH: ${{ secrets.GEMINI_API_KEY_BATCH }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_QUOTA_SCOPE: ${{ vars.GEMINI_QUOTA_SCOPE }}
+          GEMINI_QUOTA_RPM: ${{ vars.GEMINI_QUOTA_RPM }}
+          GEMINI_QUOTA_TPM: ${{ vars.GEMINI_QUOTA_TPM }}
+          GEMINI_QUOTA_RPD: ${{ vars.GEMINI_QUOTA_RPD }}
+          GEMINI_QUOTA_MAX_INFLIGHT: ${{ vars.GEMINI_QUOTA_MAX_INFLIGHT }}
+          AUDIT_PIPELINE_EXECUTION_VERSION: ${{ vars.AUDIT_PIPELINE_EXECUTION_VERSION }}
+          AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE: ${{ vars.AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE }}
+          AUDIT_WORKER_SEMANTIC_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_SEMANTIC_VIP_REPLICAS }}
+          AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS }}
           GEMINI_TEMPERATURE: ${{ vars.GEMINI_TEMPERATURE }}
           GEMINI_TIMEOUT: ${{ vars.GEMINI_TIMEOUT }}
           GEMINI_TOP_P: ${{ vars.GEMINI_TOP_P }}
@@ -196,6 +221,8 @@ jobs:
           AUDIT_STREAM_MAXLEN: ${{ vars.AUDIT_STREAM_MAXLEN }}
           AUDIT_CACHE_TTL: ${{ vars.AUDIT_CACHE_TTL }}
           AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
+          AUDIT_DOCUMENT_CACHE_MAX_BYTES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_BYTES }}
+          AUDIT_DOCUMENT_CACHE_MAX_ENTRIES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_ENTRIES }}
           RUN_REDIS_INTEGRATION: ${{ vars.RUN_REDIS_INTEGRATION }}
           AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
           AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
@@ -342,6 +369,15 @@ jobs:
             write_env_var 'GEMINI_API_KEY_PRIORITY' "${GEMINI_API_KEY_PRIORITY:-}"
             write_env_var 'GEMINI_API_KEY_BATCH' "${GEMINI_API_KEY_BATCH:-}"
             write_env_var 'GEMINI_MODEL' "${GEMINI_MODEL:-gemini-3.7-flash}"
+            write_env_var 'GEMINI_QUOTA_SCOPE' "${GEMINI_QUOTA_SCOPE:-UNCONFIGURED}"
+            write_env_var 'GEMINI_QUOTA_RPM' "${GEMINI_QUOTA_RPM:-0}"
+            write_env_var 'GEMINI_QUOTA_TPM' "${GEMINI_QUOTA_TPM:-0}"
+            write_env_var 'GEMINI_QUOTA_RPD' "${GEMINI_QUOTA_RPD:-0}"
+            write_env_var 'GEMINI_QUOTA_MAX_INFLIGHT' "${GEMINI_QUOTA_MAX_INFLIGHT:-4}"
+            write_env_var 'AUDIT_PIPELINE_EXECUTION_VERSION' "${AUDIT_PIPELINE_EXECUTION_VERSION:-1}"
+            write_env_var 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' "${AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE:-20000}"
+            write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-1}"
+            write_env_var 'AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS' "${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-2}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
             write_env_var 'GEMINI_TOP_P' "${GEMINI_TOP_P:-1.0}"
@@ -411,6 +447,8 @@ jobs:
             printf '\n'
             write_env_var 'AUDIT_CACHE_TTL' "${AUDIT_CACHE_TTL:-86400}"
             write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-86400}"
+            write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_BYTES' "${AUDIT_DOCUMENT_CACHE_MAX_BYTES:-268435456}"
+            write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_ENTRIES' "${AUDIT_DOCUMENT_CACHE_MAX_ENTRIES:-1024}"
             printf '\n'
             write_env_var 'RUN_REDIS_INTEGRATION' "${RUN_REDIS_INTEGRATION:-0}"
             printf '\n'
@@ -483,11 +521,103 @@ jobs:
           exit($failed ? 1 : 0);
           PHP
 
-      - name: Start production stack
+      - name: Ensure Redis is running without recreating a healthy instance
         run: |
           set -euo pipefail
           cd "$DEPLOY_PATH"
-          docker compose --profile frontend --profile docs up -d --no-build --remove-orphans
+          if [ -z "$(docker compose ps --status running -q redis)" ]; then
+            if [ "$EXECUTION_PHASE" = cutover ] || [ "$EXECUTION_PHASE" = rollback ]; then
+              echo "::error::A running Redis with the existing volume is required for a coordinated transition"
+              exit 1
+            fi
+            docker compose up -d --no-deps --no-build redis
+            for attempt in $(seq 1 30); do
+              if docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' >/dev/null; then break; fi
+              sleep 2
+            done
+          fi
+
+      - name: Upgrade extractors before bounded cache producers
+        if: env.EXECUTION_PHASE == 'steady' || env.EXECUTION_PHASE == 'prepare'
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          if ! docker run --rm --entrypoint php "${PHP_IMAGE}:${IMAGE_TAG}" -r 'exit(is_file("/var/www/html/app/Services/Audit/Pipeline/AuditDocumentInput.php") ? 0 : 1);'; then
+            echo "::error::This image cannot recover bounded-cache misses. Rollback to older images requires an approved drain; see plans/docker-operations.md."
+            exit 1
+          fi
+          docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php protocol
+          if [ "$EXECUTION_PHASE" = prepare ]; then
+            docker compose run --rm --no-deps -T --entrypoint php php -r 'require "vendor/autoload.php"; Core\Env::load(); exit(App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv()->version === 1 ? 0 : 1);'
+          fi
+          docker compose up -d --no-deps --no-build worker-extraction-vip worker-extraction-batch
+          expected_image=$(docker image inspect "${PHP_IMAGE}:${IMAGE_TAG}" --format '{{.Id}}')
+          for service in worker-extraction-vip worker-extraction-batch; do
+            mapfile -t containers < <(docker compose ps -aq "$service")
+            if [ "${#containers[@]}" -eq 0 ]; then
+              echo "::error::No running extractors for $service"
+              exit 1
+            fi
+            for container in "${containers[@]}"; do
+              actual_image=$(docker inspect "$container" --format '{{.Image}}')
+              running=$(docker inspect "$container" --format '{{.State.Running}}')
+              if [ "$actual_image" != "$expected_image" ] || [ "$running" != true ]; then
+                echo "::error::Extractor has not upgraded: $service"
+                exit 1
+              fi
+            done
+          done
+
+      - name: Coordinate explicit execution cutover or rollback
+        if: env.EXECUTION_PHASE == 'cutover' || env.EXECUTION_PHASE == 'rollback'
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          if [ "$EXECUTION_CHECKS_PASSED" != true ] || ! [[ "$EXECUTION_RUN_ID" =~ ^[a-zA-Z0-9_-]{1,80}$ ]]; then
+            echo "::error::Explicit release evidence and a valid manifest ID are required"
+            exit 1
+          fi
+          ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
+          # La barrera se conserva ante cualquier fallo; nunca reabrir en un trap.
+          ctl pause
+          # Esperar solicitudes HTTP iniciadas antes de la barrera.
+          docker compose stop -t 600 php
+          docker compose --profile execution-v2 stop -t 600 worker-batch worker-orchestrator worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance
+          if [ "$EXECUTION_PHASE" = cutover ]; then
+            docker compose run --rm --no-deps -T --entrypoint php php -r 'require "vendor/autoload.php"; Core\Env::load(); if (App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv()->version !== 2) exit(1); new App\Services\Audit\Pipeline\GeminiQuotaBudget(Core\RedisClient::getInstance());'
+            ctl migrate --run-id "$EXECUTION_RUN_ID" --dry-run
+            # Marcador del volumen: rollback funcional conserva AOF/noeviction.
+            docker compose exec -T redis sh -c 'touch /data/execution-durable-v2'
+            docker compose up -d --no-deps --no-build redis
+            durable=false
+            for attempt in $(seq 1 24); do
+              if ctl durability-check; then durable=true; break; fi
+              sleep 5
+            done
+            [ "$durable" = true ]
+            ctl migrate --run-id "$EXECUTION_RUN_ID" --apply
+          else
+            docker compose run --rm --no-deps -T --entrypoint php php -r 'require "vendor/autoload.php"; Core\Env::load(); exit(App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv()->version === 1 ? 0 : 1);'
+            ctl rollback --run-id "$EXECUTION_RUN_ID" --dry-run
+            ctl rollback --run-id "$EXECUTION_RUN_ID" --apply
+          fi
+          ctl verify --run-id "$EXECUTION_RUN_ID"
+
+      - name: Start production stack preserving Redis
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
+          ctl protocol
+          services=(php nginx frontend docs worker-batch worker-orchestrator worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence)
+          if docker compose run --rm --no-deps -T --entrypoint php php -r 'require "vendor/autoload.php"; Core\Env::load(); exit(App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv()->version === 2 ? 0 : 1);'; then
+            services+=(worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          fi
+          docker compose --profile frontend --profile docs --profile execution-v2 up -d --no-deps --no-build "${services[@]}"
+          if [ "$EXECUTION_PHASE" = cutover ] || [ "$EXECUTION_PHASE" = rollback ]; then
+            ctl observe
+            echo "Admission remains paused. Verify canary and the manifest before explicitly running resume."
+          fi
 
       - name: Health check
         run: |

@@ -1,5 +1,77 @@
 # Changelog AudFact
 
+## [2026-10-14] - SDD de saturación, arbitraje y contabilidad de intentos LLM
+
+- Creada `plans/sdd-correccion-saturacion-arbitraje-costos-llm.md` con la plantilla completa de `write-sdd-spec` y revisión `clean-rebuild-policy`; distingue código local, imagen v1 observada, propuestas y datos desconocidos.
+- Congelada evidencia sanitaria en `plans/evidence/saturacion-llm-2026-10-14.json`: hashes de 28 archivos, métricas locales y cinco facturas, sin prompts, respuestas clínicas ni secretos.
+- Especificados ranking conservador N:1, contexto/caché versionados, protección de dispatch/fence y respuestas tardías, journal durable y proyección SQL independiente, API aditiva, DDL/rollback y pruebas de fallos/concurrencia.
+- Nivel C para aprobación integral: corpus funcional, inventario productivo/consumidores, cuotas, SQL físico y backup/restauración no se presentan como verificados. El checklist conserva los FAIL/Sí pendientes; no acredita implementación ni activación v2.
+- Enlazada en README y portal. Entrega documental: sin cambios de aplicación, DDL ejecutado, variables o despliegue. Las skills de runtime no requieren actualización por una propuesta sin implementar.
+
+## [2026-10-13] - Gestión de Costos IA y Conversión TRM Dinámica
+
+- Implementada especificación SDD `plans/sdd-gestion-costos-auditoria-trm.md` aprobada bajo `clean-rebuild-policy`.
+- Creada tabla `Discolnet.dbo.AudDispCosto` con monotonicidad por `[AudCostoId]` y restricción de unicidad compuesta `UNIQUE ([FacNro], [Intento])` con bloqueo serializado `UPDLOCK, HOLDLOCK`.
+- Implementado `CurrencyExchangeService` con patrón Cache-Aside en Redis (`finance:trm:usd_cop`, TTL 24h), Datos Abiertos Colombia Socrata API (`32sa-8pi3` oficial Superfinanciera con app_token), DólarAPI como fallback secundario y contingencia estática (`3200.00 COP`). Timeouts estrictos de 2s conexión / 3s ejecución.
+- Extendido `AuditResultPersistenceModel::persist` para registrar el costo atómicamente en la misma transacción PDO de auditoría.
+- Creado `AuditCostModel` y `AuditCostController` con 4 endpoints REST (`GET /audit/costs`, `GET /audit/costs/clients`, `GET /audit/costs/trm`, `GET /audit/costs/{facNro}`) registrados con precedencia sobre rutas comodín.
+- Cero consumo adicional de variables en GitHub Actions; configuración encapsulada en constantes canónicas de dominio en PHP.
+- Pruebas unitarias: 876 pruebas y 3.210 aserciones en verde en PHPUnit (16 nuevos tests en `CurrencyExchangeServiceTest`, `AuditCostModelTest` y `AuditCostControllerTest`).
+
+## [2026-10-09] - SDD de corrección de fallos y rendimiento del pipeline
+
+- Creada `plans/sdd-correccion-fallos-y-rendimiento-pipeline.md` a partir del diagnóstico verificable, con la plantilla completa de `write-sdd-spec`, hechos/propuestas/pendientes clasificados, nueve requisitos y decisiones explícitas por contrato.
+- Especificadas correcciones PDF/Poppler 99, clasificación tipada de respuestas Gemini y retries v1/v2, perfiles candidatos sujetos a corpus, lectura SQL de configuración en una conexión, pooling Linux con reset y validación, TTL de nombres en polling y backpressure de predescargas con poda de expirados.
+- Incluidos archivos de implementación/pruebas, ejemplos completos, SQL de sesión/queries, invariantes, impacto, migración, rollback, pruebas de fallos y benchmark pareado. Se conserva RR/cap1 y la activación v2 exige los gates de su SDD existente.
+- Nivel B de diseño con supuestos declarados; cuotas, corpus y compatibilidad/ganancia operativa requieren evidencia antes de adoptar configuración o activar v2. No se acredita rendimiento futuro con los datos históricos.
+- Enlazada la SDD en README y navegación del portal. Entrega documental: no cambia aplicación, variables efectivas, GitHub ni producción; las skills de runtime conservan la distinción entre propuesta e implementación.
+- Validación documental: 48 encabezados obligatorios en orden, diez ejemplos JSON válidos y 65 rutas de archivos previstas contrastadas; trazabilidad R/F/T/A y lenguaje clasificado pasan. Build Docusaurus y diff propio sin errores de espacios pasan. Validador global de skills conserva fallas preexistentes de catálogo/baseline y tres skills Docker ajenas; no se declara PASS global ni ejecución de las pruebas de implementación propuestas.
+
+## [2026-10-09] - Diagnóstico verificable de rendimiento y fallos locales
+
+- Creado `plans/diagnostico-performance-2026-10-09.md` con referencias archivo/línea, snapshots HTTP/Redis, hashes del código ejecutado, logs sanitizados y reproducción PDF sintética con motores reales.
+- Confirmado defecto preexistente: Poppler devuelve 99 para PDF sin páginas; el clasificador lo descarta y el fallback pierde el rechazo tipado, provocando reintentos y DLQ. Ventana congelada: 189 fallos sobre 73 eventos; 58 de 67 eventos DLQ por rasterización y nueve por Gemini sin candidato.
+- Confirmados espera FIFO de NUEVA EPS, costo de apertura SQL sin configuración de pooling ODBC Linux y respuestas Gemini bloqueadas/truncadas. Runtime local en executionVersion=1; no se afirma mejora neta v2 sin comparación equivalente.
+- Corregido drift en skills overview y SQL: implementación v2 frente a protocolo activo, y requisitos Linux de pooling. Validador global sigue fallando por catálogo/baseline y tres skills ajenas preexistentes; evidencia conservada, sin declarar PASS global.
+- Entrega de diagnóstico: sin corrección del código de aplicación, cambios de entorno/secretos, activación v2, escrituras de negocio ni despliegue. Plan de corrección y criterios de aceptación incluidos en el reporte.
+- Validación: 27 referencias exactas y conteos/hash/JSON verificados; reproducción sintética confirma exit 99 sin rechazo tipado. Suite raster focalizada 14 pruebas/41 aserciones/un skip; lint de helpers PHP, revisión de espacios y build Docusaurus pasan.
+
+## [2026-10-08] - Ejecución durable v2 y homologación semántica agrupada
+
+- Implementados scheduler de orquestación/extracción/policy/semantic con RR por job y cap1, leases/fences, receipts reparables, artifacts de respuestas y outbox idempotente. Intake/repair/GC independientes del HTTP.
+- Policy planifica/evalúa PHP sin HTTP en v2; snapshot y candidatos completos, ondas hasta 16 pares/32768 bytes/8192 input, schema/validación estrictos y caché contextual v6/single-flight. Resultado provisional nunca se publica; agotamiento remoto es técnico/DLQ.
+- Cuota compartida por proyecto/modelo para countTokens/generateContent y retries, ventanas RPM/TPM y RPD Los Ángeles/DST, inflight, Retry-After y unknown sin devolver cargos. Ledger sanitario por intento y métricas deduplicadas por request, con pares/espera aparte.
+- Estado/snapshots/tareas/outbox activos protegidos, caché de bytes recuperable. Migración/rollback bajo pausa reconstruye índices/receipts y continuaciones ACKed, preserva fuentes/checksums/document_id/terminales/contadores/slots SQL. Manifiestos y evidencia solo se retiran tras accept y horizonte terminal máximo.
+- API y cron bloquean nueva admisión antes de reservas/jobs por pausa/capacidad/dependencias. Métricas incluyen backlog durable y semanticPlans como objeto aun vacío, compatible con frontend.
+- Perfil Compose execution-v2 y workflow phases/run-id/attestation explícitos; corte drena PHP-FPM/consumidores con indisponibilidad HTTP breve, valida AOF/fsync always/noeviction y arranca en observe con POST cerrados. Rollback conserva durabilidad.
+- Sincronizadas nueve variables nuevas con GitHub; reubicados nueve valores existentes al repo, sin modificarlos, por límite Environment=100. Execution=1 y UNCONFIGURED/0/0/0 mantienen v2 apagado. Documentación oficial Gemini 3.7: MINIMAL se rechaza; la cuota de la cuenta debe verificarse en AI Studio.
+- Validación local: PHPUnit 860/3120 con 67 omisiones; Redis 66/24784 sin omisiones/fallos, carga 3000+3000+69 en cuatro etapas y reservas concurrentes. Ensayo dedicado SIGKILL/reinicio AOF conserva tareas/ACK/artifact/cargo/receipt/outbox, rechaza fence viejo y publica una vez. Lint 220 PHP y frontend tsc pasan. CI incorpora integración Redis.
+- Cierre de verificación: portal Docusaurus compilado; YAML de ambos workflows/Compose y 20 bloques Bash válidos; los controles de CI para registro de ocho workers y contrato de entorno pasan. Cron ejecutado con `.env` sintético y Redis aislado pausado sale con código 1 antes de SQL/idempotencia/jobs y conserva únicamente sus dos claves de control. Retirados su contenedor y volumen de prueba tras verificar propiedad. Diff propio sin errores de espacios; preservada la edición SQL ajena.
+- Skills registradas: validador oficial PASS (22 skills/9 bundles) en copia aislada del catálogo vigente. El validador global sigue fallando por tres skills preexistentes fuera del catálogo y sus metadatos `agents/openai.yaml`; no se modifica ese trabajo ajeno para certificar esta entrega.
+- Sincronizadas SDD, alto volumen, API, arquitectura, flujos, operación/deploy, testing, README, AGENTS y portal; skills pipeline/API/runtime/overview/producción/seguridad y CATALOG. Corregido drift de rate-limit, componente eliminado y thinking del modelo.
+- APROBAR CON EXCEPCIÓN E01 la implementación incremental local; v1 se retira con cero trabajo/consumidores y horizonte máximo verificable. Cuotas, corpus/replay clínico, backup/restore productivo y canary aún bloquean activación. El diff no se ha desplegado ni se atribuye mejora productiva a datos anteriores.
+
+## [2026-10-08] - Confiabilidad de lotes de alto volumen
+
+- Caché documental global acotada por bytes JSON y entradas, admisión/release Lua atómicos y recuperación desde origen con SHA256 verificado si faltan bytes. TTL ya no determina el éxito de extracción; liberar después de publicar extracción/rechazo.
+- `eventTypes()` alineado en siete workers; ACK de etapas ajenas sin lecturas de recibos/estado ni telemetría de ejecución. Omitir trabajo terminal después de recuperar cierre DLQ; persistencia conserva liberación de slots.
+- Retención de inbox/documents/batch respeta last-delivered-id y PEL de todos los grupos; poda MINID acotada. DLQ ya no pierde evidencia por MAXLEN automático.
+- Reproceso DLQ idempotente por auditoría fallida: nueva raíz independiente, identidad nueva y referencias al original; conserva job histórico, compensa errores de publicación y devuelve conflictos 409 explícitos.
+- Workflow actualiza/verifica extractores antes que downloaders y bloquea downgrade sin recuperación. Documentados rollout, límites y rollback por drenaje.
+- Sincronizadas `AUDIT_DOCUMENT_CACHE_MAX_BYTES=268435456` y `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES=1024` con `gh variable set --env production`; sustituidas dos claves sin consumidores para respetar el límite de 100 variables del entorno. Sin cambios de secretos ni deploy.
+- Sincronizadas arquitectura, workflow, API, operación, testing, README, AGENTS, ambas SDD y portal. Actualizadas skills de pipeline/API/runtime/overview/producción y CATALOG. Corregido drift de defaults de réplicas, slots y modelo configurable.
+- Reintento de publicación reutiliza extracción persistida con los mismos hashes aunque falten BLOB/fuente; evita llamadas y descargas adicionales, conservando métricas originales.
+- Suite completa: 797 pruebas, 2993 aserciones, 35 omisiones. Redis real: 34 pruebas, 281 aserciones, todas pasan; incluye cuatro productores simultáneos, 3000 admisiones, retención/arranque de grupos y recuperación. Lint 182 archivos, contrato de entorno, YAML/Bash y Docusaurus pasan. Paquete registrado de 22 skills/9 bundles pasa en copia aislada; validación global del workspace falla por tres skills preexistentes no registradas, preservadas fuera de esta entrega. La homologación semántica asíncrona sigue pendiente; no se declara rendimiento productivo nuevo.
+
+## [2026-10-07] - SDD de homologación semántica asíncrona y ejecución justa
+
+- Creada `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md` con la plantilla SDD completa, evidencia operativa fechada, decisiones, contratos Redis/Gemini/PHP, cambios por archivo, trazabilidad, pruebas y aceptación.
+- Diseño propuesto: policy sin HTTP, requests semánticos agrupados, turnos por job, presupuesto común para extracción/semántica, retry programado, fencing, outbox, protección de estado y migración/rollback de jobs activos.
+- Nivel B: cuotas/project mapping, corpus clínico desidentificado y recuperación Redis son requisitos explícitos antes del release; no se presentan como datos comprobados. Compuerta clean-rebuild: aprobar el diseño con excepción acotada para contratos v1 activos y retiro verificable.
+- Enlazada la SDD en README y navegación Docusaurus. Corregido drift de conteos, defaults de réplicas, carriles de extracción, circuit breaker y logging en skills de overview/runtime, distinguiendo propuesta y código vigente.
+- Validación documental: 47 encabezados obligatorios en orden, rutas de archivos NEW/MODIFY comprobadas, siete ejemplos JSON válidos, filas clasificadas y lenguaje sin placeholders ambiguos; skills PASS (22 skills, 9 bundles) y build Docusaurus PASS. La validación se limita a la entrega documental; las pruebas de implementación permanecen pendientes.
+- Entrega documental: no se modificaron código de aplicación, variables efectivas ni producción. Conservada la modificación local preexistente de `app/Models/DispensationModel.php`.
+
 ## [2026-10-07] - Cierre de hallazgos de persistencia y métricas
 
 - P1: recuperación del contador de slots desde scopes existentes, renovación atómica con el turno y drenaje de comandos anteriores sin reparticionar. Regresiones para cambios 2→1/4/16, duplicados, fallo terminal y pérdida entre resolución y enqueue.

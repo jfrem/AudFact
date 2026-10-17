@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Tests\Models;
 
 use App\Models\AttachmentsModel;
+use App\Models\AuditCostModel;
 use App\Models\AuditResultPersistenceModel;
+use App\Services\Finance\CurrencyExchangeService;
 use Core\SqlServerConnectionExecutor;
 use PDO;
 use PDOException;
@@ -36,7 +38,7 @@ final class AuditResultPersistenceModelTest extends TestCase
         $this->assertSame(1, $pdo->beginCount);
         $this->assertSame(1, $pdo->commitCount);
         $this->assertSame(0, $pdo->rollbackCount);
-        $this->assertCount(2, $pdo->preparedSql);
+        $this->assertCount(4, $pdo->preparedSql);
         $this->assertStringContainsString(
             'WITH (UPDLOCK, SERIALIZABLE)',
             $pdo->preparedSql[0]
@@ -45,6 +47,14 @@ final class AuditResultPersistenceModelTest extends TestCase
             '(VALUES (:attachmentId0, :approved0, :observation0), ' .
             '(:attachmentId1, :approved1, :observation1))',
             $pdo->preparedSql[1]
+        );
+        $this->assertStringContainsString(
+            'WITH (UPDLOCK, HOLDLOCK)',
+            $pdo->preparedSql[2]
+        );
+        $this->assertStringContainsString(
+            'INSERT INTO Discolnet.dbo.AudDispCosto',
+            $pdo->preparedSql[3]
         );
         $this->assertSame(41, $pdo->statements[1]->boundValues[':attachmentId0']);
         $this->assertSame(42, $pdo->statements[1]->boundValues[':attachmentId1']);
@@ -176,7 +186,12 @@ final class AuditResultPersistenceModelTest extends TestCase
             sleeper: static function (int $milliseconds): void {}
         );
         $stubAtts = new PersistenceStubAttachmentsModel($attachmentRows);
-        $model = new TestableAuditResultPersistenceModel($executor, $stubAtts);
+        $currencyService = new CurrencyExchangeService(
+            redis: null,
+            defaultTrm: 3200.00,
+            httpHandler: static fn(string $url) => null
+        );
+        $model = new TestableAuditResultPersistenceModel($executor, $stubAtts, null, $currencyService);
 
         $model->persist(self::auditResultData(), [
             ['documentName' => 'DISPENSA', 'approved' => true],
@@ -212,15 +227,26 @@ final class AuditResultPersistenceModelTest extends TestCase
     /**
      * @param array<int,array<string,mixed>> $attachmentRows
      */
-    private function makeModel(PersistenceFakePdo $pdo, array $attachmentRows = []): TestableAuditResultPersistenceModel
-    {
+    private function makeModel(
+        PersistenceFakePdo $pdo,
+        array $attachmentRows = [],
+        ?AuditCostModel $auditCostModel = null,
+        ?CurrencyExchangeService $currencyService = null
+    ): TestableAuditResultPersistenceModel {
         $stubAtts = new PersistenceStubAttachmentsModel($attachmentRows);
+        $currencyService ??= new CurrencyExchangeService(
+            redis: null,
+            defaultTrm: 3200.00,
+            httpHandler: static fn(string $url) => null
+        );
         return new TestableAuditResultPersistenceModel(
             new SqlServerConnectionExecutor(
                 connector: static fn(string $name): PDO => $pdo,
                 sleeper: static function (int $milliseconds): void {}
             ),
-            $stubAtts
+            $stubAtts,
+            $auditCostModel,
+            $currencyService
         );
     }
 
@@ -270,9 +296,11 @@ final class TestableAuditResultPersistenceModel extends AuditResultPersistenceMo
 
     public function __construct(
         ?SqlServerConnectionExecutor $executor = null,
-        ?AttachmentsModel $attachmentsModel = null
+        ?AttachmentsModel $attachmentsModel = null,
+        ?AuditCostModel $auditCostModel = null,
+        ?CurrencyExchangeService $currencyService = null
     ) {
-        parent::__construct($executor, $attachmentsModel);
+        parent::__construct($executor, $attachmentsModel, $auditCostModel, $currencyService);
     }
 
     protected function invalidateResultCache(string $scope): void
@@ -371,6 +399,11 @@ final class PersistenceFakePdoStatement extends PDOStatement
         return true;
     }
 
+    public function fetch(int $mode = PDO::FETCH_DEFAULT, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0): mixed
+    {
+        return ['NextIntento' => 1];
+    }
+
     public function fetchAll(int $mode = PDO::FETCH_DEFAULT, mixed ...$args): array
     {
         return $this->result;
@@ -397,7 +430,7 @@ final class PersistenceStubAttachmentsModel extends AttachmentsModel
     {
     }
 
-    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, ?string $nitSec = null, ?string $attachmentId = null): array
     {
         return $this->rows;
     }

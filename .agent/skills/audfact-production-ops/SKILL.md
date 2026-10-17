@@ -11,6 +11,23 @@ Usar esta skill para operaciones remotas sobre el servidor de produccion LAN `ad
 
 ## Datos Base
 
+### Activación v2
+
+El diff implementa v2, pero no está desplegado; GitHub mantiene versión 1 y
+scope/cuotas sin configurar. Diagnósticos anteriores pertenecen a la versión
+previa. El procedimiento completo está en la SDD de ejecución justa y
+plans/deployment-and-ci.md. No deducir cuota de keys/tier/histórico; verificar
+proyecto y límites activos en AI Studio, incluyendo otras aplicaciones.
+Phases prepare/cutover/rollback son explícitas; corte drena PHP-FPM/workers y
+requiere ventana breve de indisponibilidad. Backup/restore del volumen,
+replay clínico y canary son requisitos externos. Observe mantiene admisión
+cerrada; accept no sustituye esas pruebas. Rollback conserva AOF/noeviction,
+terminales/SQL/slots; nunca FLUSH ni restaurar snapshot sobre SQL nuevo.
+`scripts/sync-execution-v2-github.ps1` sincroniza nueve claves y reubica nueve
+valores existentes al repo, sin secretos, por límite de 100 variables production.
+Los comandos CLI informan fallo sanitizado por STDERR y correlación al Logger;
+conservar pausa y consultar registro, sin publicar prompts ni datos clínicos.
+
 - Host SSH: `172.16.0.3`
 - Usuario: `admon`
 - Home remoto esperado: `/home/admon`
@@ -64,6 +81,20 @@ powershell -ExecutionPolicy Bypass -File .agent\skills\audfact-production-ops\sc
 Para diagnosticos mas completos, leer `references/runbooks.md`.
 
 ## Deploy y Rollback
+
+Para caché documental recuperable, actualizar/verificar extractores VIP/batch
+antes de downloaders. El workflow bloquea imágenes sin `AuditDocumentInput`;
+rollback anterior exige admisión/productores detenidos y drenaje comprobado
+de todos los grupos afectados antes de restaurar SHA bajo aprobación.
+Ver `plans/ajustes-alto-volumen-2026-10-08.md` y `plans/docker-operations.md`.
+
+GitHub Environment permite 100 variables. En el corte 2026-10-08 el entorno
+estaba lleno y `gh variable set` intentó POST incluso para una clave existente,
+recibiendo HTTP 429. No deducir límite de API agotado sin leer sus headers.
+Auditar referencias antes de retirar claves dentro del cambio; dejar un espacio
+disponible durante updates y verificar valores finales. En esta entrega se
+sustituyeron las claves sin consumidores `AUDIT_BLOB_TTL_SECONDS` y
+`AUDIT_CONSUMER_LEASE_TTL_SECONDS` por los dos límites `AUDIT_DOCUMENT_CACHE_*`.
 
 El camino normal es GitHub Actions:
 

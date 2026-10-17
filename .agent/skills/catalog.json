@@ -1,16 +1,16 @@
 {
   "catalog": "audfact-skills",
-  "generated_at": "2026-08-03",
+  "generated_at": "2026-10-08",
   "skills": [
     {
       "name": "audfact-api-rest",
       "path": ".agent/skills/audfact-api-rest",
-      "description": "Endpoints REST en PHP MVC. Cubre 29 rutas en web.php, controladores REST y validaci贸n centralizada."
+      "description": "Endpoints REST en PHP MVC. Cubre 31 rutas en web.php, controladores REST, recuperaci贸n DLQ y validaci贸n centralizada."
     },
     {
       "name": "audfact-audit-gemini",
       "path": ".agent/skills/audfact-audit-gemini",
-      "description": "Pipeline de auditor铆a IA event-driven con Gemini, Redis Streams, extracci贸n documental, normalizaci贸n, policy y agregaci贸n."
+      "description": "Pipeline Gemini/Redis: extracci贸n, policy, sem谩ntica agrupada, ejecuci贸n durable v2, cuota compartida, fencing/outbox y migraci贸n reversible."
     },
     {
       "name": "audfact-sqlsrv-models",
@@ -108,7 +108,7 @@
       "name": "phpunit-test-architect"    },
     {
       "path": ".agent/skills/ddf-agnostic-spec",
-      "description": "Framework de Documentaci髇 Determinista (DDF) para reingenier韆 agn髎tica. Especificaciones DOC-01 a DOC-07 desacopladas de dominio, IA, datos y almacenamiento.",
+      "description": "Framework de Documentaci贸n Determinista (DDF) para reingenier铆a agn贸stica. Especificaciones DOC-01 a DOC-07 desacopladas de dominio, IA, datos y almacenamiento.",
       "name": "ddf-agnostic-spec"
     }
   ]

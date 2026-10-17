@@ -114,18 +114,22 @@ class AuditDataService
     /**
      * Obtiene los adjuntos asociados a una dispensación.
      *
+     * @param string      $disDetNro     Identificador operativo de la dispensación.
+     * @param string      $nitSec        NIT del cliente.
+     * @param string|null $attachmentId  Identificador opcional del documento o adjunto para filtro selectivo.
      * @return array<int,array<string,mixed>> Filas físicas de adjuntos, una por attachment_id.
      */
-    public function getAttachments(string $disDetNro, string $nitSec): array
+    public function getAttachments(string $disDetNro, string $nitSec, ?string $attachmentId = null): array
     {
         $start = microtime(true);
-        $atts  = $this->attachmentsModel->getPhysicalAttachmentsByDisDetNro($disDetNro, $nitSec);
+        $atts  = $this->attachmentsModel->getPhysicalAttachmentsByDisDetNro($disDetNro, $nitSec, $attachmentId);
 
         Logger::info('AuditDataService::getAttachments', [
-            'dis_det_nro' => $disDetNro,
-            'nit_sec'     => $nitSec,
-            'count'       => count($atts),
-            'duration_ms' => (int) ((microtime(true) - $start) * 1000),
+            'dis_det_nro'   => $disDetNro,
+            'nit_sec'       => $nitSec,
+            'attachment_id' => $attachmentId,
+            'count'         => count($atts),
+            'duration_ms'   => (int) ((microtime(true) - $start) * 1000),
         ]);
 
         return $atts;

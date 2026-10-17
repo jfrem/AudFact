@@ -71,6 +71,10 @@ final class GeminiConfig
         // Gemini 3 usa thinkingLevel; Gemini 2.5 usa thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
         $thinkingLevel  = $overrides['thinkingLevel']  ?? $this->thinkingLevel;
+        if ($this->model === 'gemini-3.7-flash' && $thinkingLevel !== null
+            && !in_array(strtolower($thinkingLevel), ['low', 'medium', 'high'], true)) {
+            throw new \InvalidArgumentException('gemini_3_7_thinking_level_invalid');
+        }
         $cleanOverrides = array_diff_key($overrides, array_flip(['thinkingBudget', 'thinkingLevel']));
 
         $merged = array_merge($base, $cleanOverrides);

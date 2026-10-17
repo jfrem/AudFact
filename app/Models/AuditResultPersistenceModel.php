@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\Finance\CurrencyExchangeService;
 use Core\Cache;
 use Core\Logger;
 use Core\SqlServerConnectionExecutor;
@@ -24,13 +25,19 @@ class AuditResultPersistenceModel extends Model
     private const REJECTION_SUPPORT_CODE = 30;
 
     private AttachmentsModel $attachmentsModel;
+    private AuditCostModel $auditCostModel;
+    private CurrencyExchangeService $currencyService;
 
     public function __construct(
         ?SqlServerConnectionExecutor $executor = null,
-        ?AttachmentsModel $attachmentsModel = null
+        ?AttachmentsModel $attachmentsModel = null,
+        ?AuditCostModel $auditCostModel = null,
+        ?CurrencyExchangeService $currencyService = null
     ) {
         parent::__construct($executor);
         $this->attachmentsModel = $attachmentsModel ?? new AttachmentsModel();
+        $this->auditCostModel = $auditCostModel ?? new AuditCostModel();
+        $this->currencyService = $currencyService ?? new CurrencyExchangeService();
     }
 
     /**
@@ -62,6 +69,7 @@ class AuditResultPersistenceModel extends Model
                     $data['FacNitSec'],
                     $documentDecisions
                 );
+                $this->persistAuditCostRecord($writeDb, $data);
                 $writeDb->commit();
             } catch (\Throwable $error) {
                 try {
@@ -223,6 +231,74 @@ class AuditResultPersistenceModel extends Model
             PDO::PARAM_INT
         );
         $statement->bindValue(':FacNitSec', $data['FacNitSec'], PDO::PARAM_STR);
+    }
+
+    /**
+     * Extrae métricas de tokens y TRM para registrar de forma inmutable el costo del intento.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function persistAuditCostRecord(PDO $connection, array $data): void
+    {
+        $tokensEntrada = (int) ($data['TokensEntrada'] ?? 0);
+        $tokensSalida = (int) ($data['TokensSalida'] ?? 0);
+        $tokensPensamiento = (int) ($data['TokensPensamiento'] ?? 0);
+        $totalTokens = (int) ($data['TotalTokens'] ?? 0);
+        $docsProcesados = (int) ($data['DocumentosProcesados'] ?? 0);
+        $docsCacheHit = (int) ($data['DocsCacheHit'] ?? 0);
+        $esCacheHitTotal = 0;
+
+        if (!empty($data['Hallazgos'])) {
+            $hallazgos = is_array($data['Hallazgos'])
+                ? $data['Hallazgos']
+                : json_decode((string) $data['Hallazgos'], true);
+
+            if (is_array($hallazgos)) {
+                $geminiTotal = $hallazgos['timings']['gemini_total'] ?? [];
+                if ($tokensEntrada === 0 && isset($geminiTotal['prompt_tokens'])) {
+                    $tokensEntrada = (int) $geminiTotal['prompt_tokens'];
+                }
+                if ($tokensSalida === 0 && isset($geminiTotal['output_tokens'])) {
+                    $tokensSalida = (int) $geminiTotal['output_tokens'];
+                }
+                if ($tokensPensamiento === 0 && isset($geminiTotal['thoughts_tokens'])) {
+                    $tokensPensamiento = (int) $geminiTotal['thoughts_tokens'];
+                }
+                if ($totalTokens === 0 && isset($geminiTotal['total_tokens'])) {
+                    $totalTokens = (int) $geminiTotal['total_tokens'];
+                }
+
+                if ($docsCacheHit === 0 && isset($hallazgos['timings']['gemini_extraction']['cache_hits'])) {
+                    $docsCacheHit = (int) $hallazgos['timings']['gemini_extraction']['cache_hits'];
+                }
+
+                $cacheHitRate = (float) ($hallazgos['timings']['cache_hit_rate'] ?? 0.0);
+                if ($cacheHitRate >= 1.0 || ($docsProcesados > 0 && $docsProcesados === $docsCacheHit)) {
+                    $esCacheHitTotal = 1;
+                }
+            }
+        }
+
+        if ($totalTokens === 0 && ($tokensEntrada > 0 || $tokensSalida > 0 || $tokensPensamiento > 0)) {
+            $totalTokens = $tokensEntrada + $tokensSalida + $tokensPensamiento;
+        }
+
+        $trmData = $this->currencyService->getUsdCopRate();
+        $trmAplicada = (float) ($trmData['trm'] ?? CurrencyExchangeService::DEFAULT_FALLBACK_TRM);
+
+        $this->auditCostModel->recordCost($connection, [
+            'FacNro' => $data['FacNro'],
+            'FacNitSec' => $data['FacNitSec'],
+            'FacSec' => $data['DisId'],
+            'TokensEntrada' => $tokensEntrada,
+            'TokensSalida' => $tokensSalida,
+            'TokensPensamiento' => $tokensPensamiento,
+            'TotalTokens' => $totalTokens,
+            'TrmAplicada' => $trmAplicada,
+            'DocsProcesados' => $docsProcesados,
+            'DocsCacheHit' => $docsCacheHit,
+            'EsCacheHitTotal' => $esCacheHitTotal,
+        ]);
     }
 
     /**

@@ -21,6 +21,8 @@ class AuditEventPublisher
     public const STREAM_RESULTS_PRIORITY     = 'audit.results.priority';
     public const STREAM_RESULTS_BATCH        = 'audit.results.batch';
     public const STREAM_BATCH_INBOX          = 'audit.batch.inbox';
+    public const STREAM_SEMANTIC_PRIORITY    = 'audit.semantic.priority';
+    public const STREAM_SEMANTIC_BATCH       = 'audit.semantic.batch';
 
     public const GROUP_ORCHESTRATOR = 'orchestrator';
     public const GROUP_DOWNLOADERS  = 'downloaders';
@@ -29,8 +31,18 @@ class AuditEventPublisher
     public const GROUP_POLICY       = 'policy';
     public const GROUP_PERSISTENCE  = 'persistence';
     public const GROUP_BATCH        = 'batch-workers';
+    public const GROUP_SEMANTIC     = 'semantic';
 
     private const DEFAULT_STREAM_MAXLEN = 100000;
+    private const WORK_GROUPS = [
+        self::STREAM_INBOX_PRIORITY => [self::GROUP_ORCHESTRATOR],
+        self::STREAM_INBOX_BATCH => [self::GROUP_ORCHESTRATOR],
+        self::STREAM_DOCUMENTS_PRIORITY => [self::GROUP_DOWNLOADERS, self::GROUP_EXTRACTORS, self::GROUP_NORMALIZERS, self::GROUP_POLICY],
+        self::STREAM_DOCUMENTS_BATCH => [self::GROUP_DOWNLOADERS, self::GROUP_EXTRACTORS, self::GROUP_NORMALIZERS, self::GROUP_POLICY],
+        self::STREAM_BATCH_INBOX => [self::GROUP_BATCH],
+        self::STREAM_SEMANTIC_PRIORITY => [self::GROUP_SEMANTIC],
+        self::STREAM_SEMANTIC_BATCH => [self::GROUP_SEMANTIC],
+    ];
 
     private RedisClient $redis;
     private ?int $streamMaxLen;
@@ -59,7 +71,7 @@ class AuditEventPublisher
         $result = $this->redis->eval(
             self::DEAD_LETTER_LUA,
             [self::dlqStream(), self::deadLetterReceiptKey($event->parentEventId ?? $event->eventId)],
-            [$event->toJson(), $this->streamMaxLen ?? 0]
+            [$event->toJson()]
         );
         if (!is_string($result) || !preg_match('/^\d+-\d+$/', $result)) {
             throw new RuntimeException('Redis no confirmó la publicación durable de dead_letter');
@@ -77,12 +89,7 @@ class AuditEventPublisher
     private const DEAD_LETTER_LUA = <<<'LUA'
         local receipt = redis.call('GET', KEYS[2])
         if receipt then return receipt end
-        local id
-        if tonumber(ARGV[2]) > 0 then
-            id = redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[2], '*', 'event', ARGV[1])
-        else
-            id = redis.call('XADD', KEYS[1], '*', 'event', ARGV[1])
-        end
+        local id = redis.call('XADD', KEYS[1], '*', 'event', ARGV[1])
         redis.call('SET', KEYS[2], id)
         return id
     LUA;
@@ -90,7 +97,11 @@ class AuditEventPublisher
     private function publishTo(string $stream, AuditEvent $event): string
     {
         try {
-            $id = $this->redis->xAdd($stream, ['event' => $event->toJson()], $this->streamMaxLen);
+            $id = isset(self::WORK_GROUPS[$stream])
+                ? $this->redis->eval(self::WORK_STREAM_LUA, [$stream], [
+                    $event->toJson(), $this->streamMaxLen ?? 0, json_encode(self::WORK_GROUPS[$stream], JSON_THROW_ON_ERROR),
+                ])
+                : $this->redis->xAdd($stream, ['event' => $event->toJson()], $this->streamMaxLen);
         } catch (RedisUnavailableException $e) {
             Logger::error('AuditEventPublisher: Redis falló publicando evento', [
                 'stream' => $stream,
@@ -100,7 +111,7 @@ class AuditEventPublisher
             throw new RuntimeException('No se pudo publicar el evento en Redis', 0, $e);
         }
 
-        if ($id === null) {
+        if (!is_string($id) || preg_match('/^\d+-\d+$/D', $id) !== 1) {
             Logger::error('AuditEventPublisher: Redis no disponible', [
                 'stream' => $stream,
                 'event_type' => $event->eventType,
@@ -120,6 +131,69 @@ class AuditEventPublisher
 
         return $id;
     }
+
+    // MAXLEN es una meta: ningún grupo puede perder entradas no entregadas o en PEL.
+    // Cada publicación poda como máximo 1000 entradas ya consumidas por todos los grupos.
+    public function trimWorkStreams(): void
+    {
+        foreach (self::WORK_GROUPS as $stream => $groups) {
+            $this->redis->eval(self::WORK_STREAM_LUA, [$stream], ['', $this->streamMaxLen ?? 0,
+                json_encode($groups, JSON_THROW_ON_ERROR), 'trim_only']);
+        }
+    }
+
+    /** Evento terminal con recibo atómico; los reintentos del finalizador no duplican XADD. */
+    public function publishTerminalOnce(AuditEvent $event): string
+    {
+        if (!in_array($event->eventType, [AuditEvent::TYPE_AUDIT_FAILED, AuditEvent::TYPE_AUDIT_COMPLETED,
+            AuditEvent::TYPE_BATCH_COMPLETED, AuditEvent::TYPE_BATCH_COMPLETED_ERR], true)) {
+            throw new \InvalidArgumentException('terminal_event_required');
+        }
+        $value = $this->redis->eval('local types={"stream","string","hash"}; for i,k in ipairs(KEYS) do local ty=redis.call("TYPE",k).ok; if ty~="none" and ty~=types[i] then return redis.error_reply("terminal_key_type_invalid") end end; local old=redis.call("GET",KEYS[2]); if old then return cjson.decode(old).stream_id end; local event=cjson.decode(ARGV[1]); local id=redis.call("XADD",KEYS[1],"MAXLEN","~",ARGV[2],"*","event",ARGV[1]); local t=redis.call("TIME"); redis.call("SET",KEYS[2],cjson.encode({stream_id=id,audit_id=event.audit_id,job_id=event.job_id,published_at_ms=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)})); if ARGV[3]=="1" then redis.call("HINCRBY",KEYS[3],"terminal_failures",1) end; return id',
+            [self::streamForEvent($event), 'audit:terminal:v2:sent:' . $event->eventId, 'telemetry:async_metrics'],
+            [$event->toJson(), $this->streamMaxLen ?? 100000, $event->eventType === AuditEvent::TYPE_AUDIT_FAILED ? 1 : 0]);
+        if (!is_string($value)) {
+            throw new \RuntimeException('terminal_publication_invalid');
+        }
+        return $value;
+    }
+
+    private const WORK_STREAM_LUA = <<<'LUA'
+        if ARGV[4]=='trim_only' and redis.call('EXISTS',KEYS[1])==0 then return 0 end
+        local function less(a, b)
+            local am, as = string.match(a, '^(%d+)%-(%d+)$')
+            local bm, bs = string.match(b, '^(%d+)%-(%d+)$')
+            if #am ~= #bm then return #am < #bm end
+            if am ~= bm then return am < bm end
+            if #as ~= #bs then return #as < #bs end
+            return as < bs
+        end
+        local target = tonumber(ARGV[2])
+        if target > 0 and redis.call('XLEN', KEYS[1]) > target then
+            local groups = redis.call('XINFO', 'GROUPS', KEYS[1])
+            local frontier = nil
+            local found = {}
+            for _, group in ipairs(groups) do
+                local name, delivered
+                for i = 1, #group, 2 do
+                    if group[i] == 'name' then name = group[i + 1] end
+                    if group[i] == 'last-delivered-id' then delivered = group[i + 1] end
+                end
+                found[name] = true
+                if not frontier or less(delivered, frontier) then frontier = delivered end
+                local pending = redis.call('XPENDING', KEYS[1], name)
+                if tonumber(pending[1]) > 0 and less(pending[2], frontier) then frontier = pending[2] end
+            end
+            for _, required in ipairs(cjson.decode(ARGV[3])) do
+                if not found[required] then frontier = nil; break end
+            end
+            if frontier and frontier ~= '0-0' then
+                redis.call('XTRIM', KEYS[1], 'MINID', '~', frontier, 'LIMIT', 1000)
+            end
+        end
+        if ARGV[4]=='trim_only' then return 1 end
+        return redis.call('XADD', KEYS[1], '*', 'event', ARGV[1])
+    LUA;
 
     public static function isPriorityEvent(AuditEvent $event): bool
     {
@@ -151,7 +225,9 @@ class AuditEventPublisher
             AuditEvent::TYPE_DOCUMENT_DOWNLOADED,
             AuditEvent::TYPE_DOCUMENT_EXTRACTED,
             AuditEvent::TYPE_DOCUMENT_REJECTED,
+            AuditEvent::TYPE_SEMANTIC_RESOLVED,
             AuditEvent::TYPE_DOCUMENT_NORMALIZED => $isPriority ? self::STREAM_DOCUMENTS_PRIORITY : self::STREAM_DOCUMENTS_BATCH,
+            AuditEvent::TYPE_SEMANTIC_REQUESTED => $isPriority ? self::STREAM_SEMANTIC_PRIORITY : self::STREAM_SEMANTIC_BATCH,
             AuditEvent::TYPE_AUDIT_COMPLETED,
             AuditEvent::TYPE_AUDIT_FAILED,
             AuditEvent::TYPE_BATCH_COMPLETED,

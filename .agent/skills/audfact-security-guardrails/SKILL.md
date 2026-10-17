@@ -16,14 +16,15 @@ Mantener un baseline de seguridad consistente en todo el backend.
 | Archivo | Tamaño | Rol |
 |---|---|---|
 | `public/index.php` | 2 KB | CORS, exception handler, rate limit bootstrap |
-| `core/RateLimit.php` | 6.5 KB | Rate limiting APCu con file fallback (100/min por IP) |
+| `core/RateLimit.php` | — | Redis distribuido, APCu y archivo como fallbacks (100/min por IP) |
 | `core/Validator.php` | 4 KB | Validación de entrada: required, integer, date, min_value |
 | `core/Logger.php` | 4.5 KB | Logging rotacional con redacción de secretos |
 | `core/Middleware.php` | 1.6 KB | Sistema de middlewares (auth registrado) |
 | `core/Router.php` | 3.6 KB | Sanitización de params (FILTER_SANITIZE_SPECIAL_CHARS, max 255) |
 | `app/Controllers/Controller.php` | 2.3 KB | validate(), validateArray(), getJsonBody() |
 | `app/Controllers/AttachmentsController.php` | 6.7 KB | Stream/download seguro de archivos |
-| `app/Services/Audit/AuditFileManager.php` | 11.2 KB | Descarga y limpieza de archivos temporales |
+| `app/Services/Audit/Pipeline/AttachmentDownloadService.php` | — | Recuperación validada desde Drive/BLOB y clasificación técnica |
+| `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php` | — | Archivos temporales para rasterización y cleanup |
 
 ## Áreas clave de seguridad
 
@@ -35,9 +36,9 @@ Mantener un baseline de seguridad consistente en todo el backend.
 - Preflight `OPTIONS` → `200` inmediato
 
 ### 2. Rate Limiting (en `core/RateLimit.php`)
-- **Mecanismo**: APCu (cache en memoria) con file-based fallback cuando APCu no está disponible
+- **Mecanismo**: Redis distribuido; APCu por proceso y archivo como fallbacks
 - **Límite por defecto**: 100 requests/minuto por IP
-- **En producción**: Falla silenciosamente (permite request si rate limit falla)
+- **En producción**: Si fallan los backends, registra error y responde 503; no permite bypass silencioso
 - **En desarrollo**: Lanza excepción
 
 ### 3. Exception Handler (en `public/index.php`)
@@ -54,6 +55,14 @@ Mantener un baseline de seguridad consistente en todo el backend.
 - **Excede**: `400 Bad Request`
 
 ## Reglas de implementación
+
+Para ejecución v2, Core Redis expone INFO/CONFIG/SCAN para validar durabilidad
+e inventariar namespaces: nunca imprimir configuración completa ni credenciales.
+Validar llaves/prefijos y argumentos en fronteras. Logs/métricas operativos
+contienen IDs/clases/códigos, no FDV, prompts, expected/actual ni cuerpos HTTP.
+State/planes privados sí conservan evidencia necesaria; no exponerlos por GET
+metrics. Mensajes de admisión/mantenimiento son sanitizados. Probar prefijos
+aislados; un ensayo de SIGKILL usa exclusivamente contenedor/volumen de fixture.
 1. **No aceptar payload no JSON** en endpoints API con body.
 2. Mantener límites de tamaño de payload (`MAX_JSON_SIZE`).
 3. **No exponer mensajes internos** en `APP_ENV=production`.
@@ -107,7 +116,7 @@ if (Env::get('APP_ENV') === 'development') {
 ## Checklist rápido
 1. Validaciones obligatorias aplicadas en controlador.
 2. CORS configurado según entorno.
-3. Rate limit no rompe servicio ante fallo interno.
+3. Rate limit usa fallback y falla con 503 si no queda backend disponible.
 4. Logs sin secretos expuestos.
 5. Descargas seguras para URL/BLOB.
 6. Excepciones manejadas con logging.

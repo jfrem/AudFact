@@ -66,8 +66,8 @@ if [ "${APP_ENV}" = "production" ]; then
   echo "[entrypoint] APP_ENV=production -> logger uses stderr"
 else
   mkdir -p /var/www/html/logs
-  chown -R www-data:www-data /var/www/html/logs 2>/dev/null || true
-  chmod -R 775 /var/www/html/logs 2>/dev/null || true
+  chown www-data:www-data /var/www/html/logs 2>/dev/null || true
+  chmod 775 /var/www/html/logs 2>/dev/null || true
 
   if su -s /bin/sh -c 'touch /var/www/html/logs/.write-test && rm -f /var/www/html/logs/.write-test' www-data 2>/dev/null; then
     echo "[entrypoint] ✅ logs/ writable for www-data"

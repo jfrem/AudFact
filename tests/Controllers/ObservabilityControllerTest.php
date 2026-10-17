@@ -36,6 +36,9 @@ final class ObservabilityControllerTest extends TestCase
         $redis->expects($this->never())->method('hGetAll');
         $redis->method('eval')->willReturnCallback(
             static function (string $script, array $keys) use ($pendingByGroup): array {
+                if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+                    return [0, 0, []];
+                }
                 if (str_contains($script, 'ZRANGEBYSCORE')) {
                     return [1, 22, 1, 1];
                 }
@@ -74,6 +77,9 @@ final class ObservabilityControllerTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis->expects($this->never())->method('xPending');
         $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): array {
+            if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+                return [0, 0, []];
+            }
             if (str_contains($script, 'ZRANGEBYSCORE')) {
                 return [1, 2, 1, 1];
             }
@@ -112,12 +118,67 @@ final class ObservabilityControllerTest extends TestCase
         $this->assertFalse($response->getData()['success']);
     }
 
+    public function testV2BacklogIncludesTasksAfterTransportAcknowledgement(): void
+    {
+        // Arrange:
+        $env = ['AUDIT_PIPELINE_EXECUTION_VERSION' => '2', 'GEMINI_QUOTA_SCOPE' => 'synthetic',
+            'GEMINI_QUOTA_RPM' => '100', 'GEMINI_QUOTA_TPM' => '10000', 'GEMINI_QUOTA_RPD' => '1000',
+            'GEMINI_MODEL' => 'gemini-3.7-flash', 'REDIS_MODE' => 'standalone', 'GEMINI_QUOTA_MAX_INFLIGHT' => '4'];
+        $previous = [];
+        foreach ($env as $key => $value) {
+            $previous[$key] = \Core\Env::get($key, null);
+            \Core\Env::set($key, $value);
+        }
+        try {
+            $redis = $this->createMock(RedisClient::class);
+            $redis->method('get')->willReturnCallback(static fn(string $key): ?string => $key === 'audit:execution:version' ? '2' : null);
+            $redis->method('serverConfiguration')->willReturn(['appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction']);
+            $redis->method('serverInfo')->willReturn(['aof_last_write_status' => 'ok']);
+            $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): mixed {
+                $key = $keys[0] ?? '';
+                if ($keys === []) { return 1000000; }
+                if ($key === 'audit.persistence:{queue}:scopes') { return [0, 0, 0, 1]; }
+                if ($key === 'audit:document-cache:{budget}:bytes') { return [0, 0, []]; }
+                if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
+                    return ['policy:batch:pending', 2, 'extraction:batch:active', 1, 'semantic:batch:delayed', 3];
+                }
+                if (str_ends_with($key, ':waiting')) {
+                    return str_contains($key, ':policy:batch:') || str_contains($key, ':semantic:batch:') ? ['fixture', '999000'] : [];
+                }
+                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) { return [0, 0, [], '999999']; }
+                if (str_starts_with($key, 'gemini:quota:v2:')) { return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []]; }
+                if ($key === AuditEventPublisher::dlqStream()) { return [0, []]; }
+                return [];
+            });
+            $controller = new TestableObservabilityController($redis);
+
+            // Act:
+            $response = self::captureResponse(static fn() => $controller->asyncMetrics());
+            // Assert:
+            self::assertSame(200, $response->getCode());
+            $data = $response->getData()['data'];
+            self::assertSame(2, $data['executionVersion']);
+            self::assertSame(1, $data['queueDepth']);
+            self::assertSame(6, $data['backlogDepth']);
+            self::assertSame(3, $data['executionScheduler']['semantic']['batch']['delayed']);
+            self::assertInstanceOf(\stdClass::class, $data['executionMaintenance']['semanticPlans']);
+            self::assertStringContainsString('"semanticPlans":{}', json_encode($response->getData(), JSON_THROW_ON_ERROR));
+        } finally {
+            foreach ($previous as $key => $value) {
+                \Core\Env::set($key, $value);
+            }
+        }
+    }
+
     public function testReadsPendingFromXinfoWithoutTheZeroFallback(): void
     {
         // Arrange:
         $redis = $this->createMock(RedisClient::class);
         $redis->expects($this->never())->method('xPending');
         $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): array {
+            if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+                return [0, 0, []];
+            }
             if (str_contains($script, 'ZRANGEBYSCORE')) {
                 return [0, 0, 0, 1];
             }

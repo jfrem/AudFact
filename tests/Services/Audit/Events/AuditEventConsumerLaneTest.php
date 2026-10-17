@@ -14,6 +14,11 @@ use PHPUnit\Framework\TestCase;
 
 final class TestLaneConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_DOCUMENT_EXTRACTED];
+    }
+
     public function __construct(
         ?RedisClient $redis = null,
         string|AuditLane|null $lane = null
@@ -51,6 +56,11 @@ final class TestLaneConsumer extends AuditEventConsumer
 
 final class TestSingleStreamConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_DOCUMENT_EXTRACTED];
+    }
+
     public function __construct(
         ?RedisClient $redis = null,
         string|AuditLane|null $lane = null
@@ -80,6 +90,11 @@ final class TestSingleStreamConsumer extends AuditEventConsumer
 
 final class TestMixedStreamConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_DOCUMENT_EXTRACTED];
+    }
+
     public function __construct(
         ?RedisClient $redis = null,
         string|AuditLane|null $lane = null

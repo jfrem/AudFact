@@ -83,6 +83,18 @@ final class GeminiConfigTest extends TestCase
         $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
     }
 
+    public function testGemini37RejectsUnsupportedMinimalThinkingLevel(): void
+    {
+        // Arrange:
+        $config = new GeminiConfig(model: 'gemini-3.7-flash', thinkingLevel: 'minimal');
+
+        // Assert:
+        $this->expectException(\InvalidArgumentException::class);
+
+        // Act:
+        $config->toGenerationConfig();
+    }
+
     public function testGatewayAppliesMediaResolutionOnlyForExtractionProfile(): void
     {
         $gateway = new GeminiGateway(

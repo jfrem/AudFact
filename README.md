@@ -9,7 +9,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Backend        | PHP 8.2-FPM — Framework MVC custom                                           |
 | Base de datos  | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`)    |
 | IA             | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`)              |
-| Pipeline       | Event-driven sobre Redis Streams (7 servicios de worker especializados)      |
+| Pipeline       | Redis Streams: 7 roles v1; v2 agrega semantic y mantenimiento independiente |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD                                              |
 | Web Server     | Nginx 1.25 → PHP-FPM                                                         |
 | Contenedores   | Docker Compose único: build local en desarrollo, imágenes GHCR en producción |
@@ -203,7 +203,9 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 ## Pipeline de Auditoría IA
 
-El sistema utiliza un pipeline event-driven sobre Redis Streams con 7 servicios de worker especializados:
+El protocolo predeterminado v1 utiliza siete roles de worker. V2 agrega el
+rol semantic y un proceso de mantenimiento independiente, activados solamente
+con el perfil Compose `execution-v2` y un corte verificado:
 
 ```
 BatchRequestedWorker → DocumentAuditOrchestrator → AttachmentDownloadWorker → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditPersistenceWorker
@@ -218,6 +220,12 @@ Cada worker consume eventos del stream correspondiente, procesa su etapa y publi
 - **Persistencia**: Cola con turnos por slots estables de cada job (default 2), escritura dual transaccional en SQL Server, timings finales, reconexión PDO por operación y eventos terminales.
 
 Características:
+
+- Caché de adjuntos acotada globalmente a 256 MiB de JSON y 1024 entradas por
+  defecto; recuperación desde origen con hash verificado al expirar/llenarse,
+  liberación después de extracción y retención de eventos pendiente por grupo.
+- Reproceso DLQ con intento nuevo, idempotente y vinculado al original;
+  conserva contadores históricos. Ver [implementación y rollout](plans/ajustes-alto-volumen-2026-10-08.md).
 
 - Cache de extracción por `document_hash` (idempotencia).
 - Modelo Gemini base configurable (`GEMINI_MODEL`).
@@ -361,6 +369,9 @@ Documentación completa disponible en `plans/`:
 - [Testing Strategy](plans/testing-strategy.md) — Estrategia de pruebas.
 - [Domain Glossary](plans/domain-glossary.md) — Glosario de dominio.
 - [Architecture Decisions](plans/architecture-decisions.md) — Decisiones de arquitectura.
+- [SDD de homologación semántica asíncrona y ejecución justa](plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md) — Implementación local v2, contratos, evidencia y requisitos pendientes de activación.
+- [SDD de corrección de fallos y rendimiento](plans/sdd-correccion-fallos-y-rendimiento-pipeline.md) — Especificación propuesta: PDF, errores Gemini, SQL, polling y prefetch; pruebas, gates y rollback.
+- [SDD de saturación, arbitraje y costos LLM](plans/sdd-correccion-saturacion-arbitraje-costos-llm.md) — Diseño desde código/runtime: N:1, candidatos, caché contextual, ownership y ledger financiero; DDL, pruebas, migración y rollback. Nivel C: aprobación integral pendiente de evidencia externa.
 - [Changelog](plans/changelog.md) — Historial de cambios.
 
 ## Seguridad

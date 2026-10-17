@@ -21,6 +21,7 @@ $router->post('/invoices', 'InvoicesController', 'search');
 
 // Attachments (download route MUST come first — {nitSec} wildcard matches 'download')
 $router->get('/dispensation/{disDetNro}/attachments/download/{attachmentId}', 'AttachmentsController', 'downloadByDispensation');
+$router->get('/dispensation/{disDetNro}/attachments', 'AttachmentsController', 'showByDispensation');
 $router->get('/dispensation/{disDetNro}/attachments/{nitSec}', 'AttachmentsController', 'showByDispensation');
 
 
@@ -42,5 +43,13 @@ $router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus');
 $router->get('/audit/status/{auditId}', 'AuditController', 'status');
 $router->get('/audit/dlq', 'AuditDlqController', 'index');
 $router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess');
+
+// Costos de Auditoría IA y TRM (registrados antes de wildcards de auditoría)
+$router->get('/audit/costs', 'AuditCostController', 'index');
+$router->get('/audit/costs/clients', 'AuditCostController', 'byClients');
+$router->get('/audit/costs/trm', 'AuditCostController', 'currentTrm');
+$router->get('/audit/costs/{facNro}', 'AuditCostController', 'byInvoice');
+
 $router->get('/audit/{facNro}/timings', 'AuditController', 'timings');
 $router->get('/audit/{auditId}/flow-stream', 'AuditFlowController', 'stream');
+

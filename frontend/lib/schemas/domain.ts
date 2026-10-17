@@ -82,6 +82,25 @@ export const AsyncMetricsSchema = z.object({
   }),
   retries: z.number().int().nonnegative(),
   terminalFailures: z.number().int().nonnegative(),
+  executionVersion: z.union([z.literal(1), z.literal(2)]).optional(),
+  executionScheduler: z.record(z.string(), z.record(z.string(), z.object({
+    queued: z.number().int().nonnegative(), active: z.number().int().nonnegative(),
+    delayed: z.number().int().nonnegative(), oldest_wait_ms: z.number().int().nonnegative(),
+  }))).optional(),
+  geminiBudget: z.object({
+    scope_hash: z.string(), model: z.string(), rpm_used: z.number().int().nonnegative(),
+    tpm_reserved: z.number().int().nonnegative(), rpd_used: z.number().int().nonnegative(),
+    inflight: z.number().int().nonnegative(),
+  }).passthrough().optional(),
+  executionMaintenance: z.object({
+    commitsPending: z.number().int().nonnegative(), outboxPending: z.number().int().nonnegative(),
+    semanticPlans: z.record(z.string(), z.number().int().nonnegative()),
+    heartbeatAgeMs: z.number().int().nonnegative().nullable(),
+  }).optional(),
+  streamBacklogs: UnknownRecordSchema.optional(),
+  persistenceScheduler: UnknownRecordSchema.optional(),
+  documentCache: UnknownRecordSchema.optional(),
+  backlogDepth: z.number().int().nonnegative().optional(),
 });
 
 export const ClientSchema = UnknownRecordSchema;
@@ -247,6 +266,9 @@ export const AuditGeminiTimingSummarySchema = AuditTimingSummarySchema.extend({
 
 export const AuditPhaseTimingsSchema = z
   .object({
+    timing_schema_version: z.union([z.literal(1), z.literal(2)]).optional(),
+    semantic_wait: AuditTimingSummarySchema.nullish(),
+    semantic_pairs: z.number().int().nonnegative().nullish(),
     docs_total: z.number().int().nonnegative().optional().default(0),
     cache_hit_rate: z.number().nonnegative().nullish(),
     download: AuditTimingSummarySchema.nullish(),
@@ -275,6 +297,7 @@ export const AuditSingleResponseSchema = z
     ]),
     dis_det_nro: z.string().nullish(),
     dis_id: z.string().nullish(),
+    attachment_id: z.string().nullish(),
     findings: z.array(AuditFindingSchema).default([]),
     severity: AuditSeveritySchema.nullish(),
     message: z.string().nullish(),
@@ -556,6 +579,7 @@ export type DispensationHeader = z.infer<typeof DispensationHeaderSchema>;
 export type DispensationItem = z.infer<typeof DispensationItemSchema>;
 export type DispensationDetail = z.infer<typeof DispensationDetailSchema>;
 export type AttachmentRecord = z.infer<typeof AttachmentSchema>;
+export type Attachment = AttachmentRecord;
 export type AttachmentPreview = z.infer<typeof AttachmentPreviewSchema>;
 export type AuditFinding = z.infer<typeof AuditFindingSchema>;
 export type AuditTimingSummary = z.infer<typeof AuditTimingSummarySchema>;

@@ -18,6 +18,7 @@ final class AttachmentDownloadWorkerTest extends TestCase
 {
     public function testPublishesDocumentDownloadedAfterPersistingBlob(): void
     {
+        // Arrange:
         $document = $this->downloadedDocument();
         $documentHash = hash('sha256', $document['data']);
         $publisher = new DownloadPublisher();
@@ -25,18 +26,18 @@ final class AttachmentDownloadWorkerTest extends TestCase
         $documentId = AuditEvent::uuidV4();
 
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())
-            ->method('set')
-            ->with(
-                $this->callback(static fn(string $key): bool => str_starts_with($key, 'audit:blob:')
-                    && !str_starts_with($key, 'audfact:')),
-                $this->callback(static function (string $payload) use ($document): bool {
-                    $decoded = json_decode($payload, true);
-                    return $decoded === $document;
-                }),
-                60
-            )
-            ->willReturn(true);
+        $redis->expects($this->exactly(2))->method('eval')->willReturnCallback(
+            static function (string $script, array $keys, array $arguments) use ($document): int {
+                if ($keys[0] === 'telemetry:document_cache') {
+                    self::assertSame('admitted', $arguments[0]);
+                    return 1;
+                }
+                self::assertStringStartsWith('audit:blob:', $keys[0]);
+                self::assertSame($document, json_decode($arguments[0], true));
+                self::assertSame(60, $arguments[4]);
+                return 1;
+            }
+        );
 
         $worker = new AttachmentDownloadWorker(
             stateStore: new DownloadRecordingStateStore(),
@@ -47,22 +48,26 @@ final class AttachmentDownloadWorkerTest extends TestCase
             blobTtl: 60
         );
 
+        // Act:
         $worker->processEvent($this->documentRegisteredEvent($auditId, $documentId));
 
+        // Assert:
         $this->assertCount(1, $publisher->published);
         $event = $publisher->published[0];
         $this->assertSame(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $event->eventType);
         $this->assertSame($documentHash, $event->payload['document_hash']);
         $this->assertStringStartsWith("audit:blob:{$auditId}:{$documentId}:", $event->payload['blob_reference_key']);
         $this->assertArrayNotHasKey('data', $event->payload);
+        $this->assertTrue($event->payload['blob_cache_stored']);
     }
 
     public function testDownloadFailurePropagatesWithoutPublishingDocumentRejected(): void
     {
+        // Arrange:
         $stateStore = new DownloadRecordingStateStore();
         $publisher = new DownloadPublisher();
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->never())->method('set');
+        $redis->expects($this->never())->method('eval');
 
         $worker = new AttachmentDownloadWorker(
             stateStore: $stateStore,
@@ -76,9 +81,11 @@ final class AttachmentDownloadWorkerTest extends TestCase
             blobTtl: 60
         );
 
+        // Assert:
         $this->expectException(AttachmentDownloadException::class);
         $this->expectExceptionMessage('Adjunto no disponible');
 
+        // Act:
         try {
             $worker->processEvent(
                 $this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4())
@@ -91,9 +98,10 @@ final class AttachmentDownloadWorkerTest extends TestCase
 
     public function testBlobPersistenceFailureThrowsAndDoesNotPublishDownloaded(): void
     {
+        // Arrange:
         $publisher = new DownloadPublisher();
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())->method('set')->willReturn(false);
+        $redis->expects($this->once())->method('eval')->willThrowException(new RuntimeException('Redis no disponible'));
 
         $worker = new AttachmentDownloadWorker(
             stateStore: new DownloadRecordingStateStore(),
@@ -104,14 +112,42 @@ final class AttachmentDownloadWorkerTest extends TestCase
             blobTtl: 60
         );
 
+        // Assert:
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('No se pudo persistir BLOB documental en Redis');
+        $this->expectExceptionMessage('Redis no disponible');
 
+        // Act:
         try {
             $worker->processEvent($this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
         } finally {
             $this->assertCount(0, $publisher->published);
         }
+    }
+
+    public function testFullCachePublishesRecoverableReferenceWithoutDocumentBytes(): void
+    {
+        // Arrange:
+        $publisher = new DownloadPublisher();
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(0);
+        $worker = new AttachmentDownloadWorker(
+            downloader: new StubAttachmentDownloadService($this->downloadedDocument()),
+            redis: $redis,
+            publisher: $publisher
+        );
+        $event = $this->documentRegisteredEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4());
+
+        // Act:
+        $worker->processEvent($event);
+
+        // Assert:
+        $this->assertCount(1, $publisher->published);
+        $payload = $publisher->published[0]->payload;
+        $this->assertFalse($payload['blob_cache_stored']);
+        $this->assertSame($event->payload['attachment_id'], $payload['attachment_id']);
+        $this->assertSame($event->payload['dis_det_nro'], $payload['dis_det_nro']);
+        $this->assertSame(hash('sha256', $this->downloadedDocument()['data']), $payload['document_hash']);
+        $this->assertArrayNotHasKey('data', $payload);
     }
 
     /**

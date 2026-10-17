@@ -44,6 +44,15 @@ Health check funcional del backend. Devuelve estado global y detalle de base de 
 
 ### `GET /metrics/async`
 
+Campo aditivo `executionVersion` (1/2). V2 agrega `executionScheduler` por
+stage/lane (queued/active/delayed/oldest_wait_ms), `geminiBudget` (cuota usada,
+tokens reservados e inflight; modelo/scope_hash) y `executionMaintenance`
+(commitsPending/outboxPending/semanticPlans/heartbeatAgeMs). semanticPlans es
+objeto JSON aun vacío. Lectura inválida: 503 sin datos parciales; heartbeat
+viejo se informa y bloquea nuevas admisiones.
+queueDepth incluye tareas activas v2; backlogDepth agrega queued+active+delayed
+a PEL+lag conocido+pendientes SQL. No representa documentos únicos.
+
 Métricas operativas del pipeline async en Redis. `queueDepth` y `streamDepths` conservan la suma de PEL por compatibilidad. `streamBacklogs` agrega por stream/grupo `pending`, `lag` y `lagKnown`; ambos conteos provienen de XINFO GROUPS, sin el fallback a cero de xPending. `persistenceScheduler` muestra `active`, `pending` y `scopes`, incluyendo colas legacy reconciliadas antes de la primera lectura o después de perder el índice. `backlogDepth` suma PEL, lag conocido y pendientes internos, sin duplicar turnos activos. Cuenta trabajo de grupos, no documentos únicos. Un lag desconocido permanece `null`. Incluye DLQ, jobs y fallos terminales. Errores parciales de Redis, respuestas malformadas o reconciliación incompleta se registran y producen 503.
 
 ### `GET /config/public`
@@ -183,6 +192,11 @@ Comportamiento:
 - en cualquier otro caso hace streaming binario
 
 ### `POST /audit/single`
+
+Pausa de admisión/ejecución, cuota v2 sin configurar, mantenimiento no saludable
+o 80% de capacidad de etapa/memoria: HTTP 503 y `Retry-After: 5`, antes de
+crear auditoría/reserva. Mensaje público: «La auditoría está temporalmente al
+límite de capacidad». `/audit/async` usa la misma compuerta antes de crear job.
 
 Encola auditoría individual sobre una sola dispensación usando la llave compuesta `DisId` + `DisDetNro` como identidad canónica.
 
@@ -481,7 +495,63 @@ Respuesta:
 }
 ```
 
+### `GET /audit/costs`
+
+Reporte paginado de costos IA por intento individual con liquidación en USD y COP según la TRM oficial aplicada.
+
+Query Parameters opcionales:
+- `page`: entero (default: 1)
+- `pageSize`: entero (default: 20, max: 100)
+- `dateFrom`: fecha `YYYY-MM-DD`
+- `dateTo`: fecha `YYYY-MM-DD`
+- `facNitSec`: identificador del cliente
+- `facNro`: número de dispensación/factura
+
+Respuesta:
+```json
+{
+  "success": true,
+  "message": "Operación exitosa",
+  "data": {
+    "trm_vigente_hoy": 3194.44,
+    "trm_fuente": "datos_gov_co",
+    "pagination": {
+      "page": 1,
+      "pageSize": 20,
+      "totalRecords": 1,
+      "totalPages": 1
+    },
+    "totales_periodo": {
+      "gran_total_tokens": 10036,
+      "costo_total_usd": 0.016716,
+      "costo_total_cop": 53.4
+    },
+    "items": []
+  }
+}
+```
+
+### `GET /audit/costs/clients`
+
+Consolidado del gasto acumulado de auditoría IA agrupado por Cliente / EPS con sumatorias nativas `SUM(CostoUSD)` y `SUM(CostoCOP)`.
+
+### `GET /audit/costs/trm`
+
+Inspección en vivo de la Tasa Representativa del Mercado (TRM) vigente, origen activo (`datos_gov_co`, `dolarapi_fallback`, `redis_cache`, `static_fallback`) y vigencia legal.
+
+### `GET /audit/costs/{facNro}`
+
+Historial cronológico de todos los intentos de auditoría registrados para una dispensación (`FacNro`), detallando tokens por categoría, tarifa aplicada, costo liquidado en USD y COP, y porcentaje de acierto en caché.
+
 ### `GET /audit/{facNro}/timings`
+
+`timing_schema_version=1` conserva el significado histórico. V2 usa 2:
+policy mide ejecución PHP, `semantic_wait` mide espera de homologación,
+`semantic_pairs` cuenta pares; semantic_calls conserva generaciones exitosas
+deduplicadas por request_id. Contadores aparte: semantic_http_attempts,
+semantic_count_tokens_attempts, semantic_request_failures y
+semantic_unknown_attempts. Tokens/duración del request se agregan una vez,
+sin multiplicarlos por cada par. El ledger conserva null para uso desconocido.
 
 Consulta métricas persistidas por fase para una auditoría.
 
@@ -502,9 +572,20 @@ Parámetros opcionales:
 
 ### `POST /audit/dlq/reprocess`
 
-Reprocesa un evento de DLQ. Los eventos `rules_evaluated` pasan por
-`AuditPersistenceQueue` para restablecer su deduplicación sin omitir el turno
-por job; los demás eventos se republican a su stream canónico.
+Recupera una auditoría fallida mediante una nueva raíz `audit_created`,
+independiente e idempotente por auditoría original durante `AUDIT_STATE_TTL`.
+También reconstruye desde raíz los fallos de persistencia; al terminar policy,
+usa el scheduler SQL habitual. No reutiliza event_id ni modifica el job histórico.
+Repetir distintas entradas DLQ de una misma auditoría devuelve el mismo intento.
+
+HTTP 200 conserva `stream_id`, `reprocessed_event_id`, `event_type` y `audit_id`,
+con la identidad nueva y `event_type=audit_created`; agrega `original_audit_id`
+y `original_job_id`. Consultar progreso en `/audit/status/{auditId}` usando el
+nuevo ID. Conserva el carril de prioridad original. HTTP 409 indica estado
+activo/exitoso/ausente, identidad incompleta o evento sin auditoría; 422, streamId
+o evento original inválidos; 404, entrada DLQ ausente; 503, fallo Redis registrado.
+
+Ver [límites, recuperación del histórico y rollout](ajustes-alto-volumen-2026-10-08.md).
 
 ```json
 {

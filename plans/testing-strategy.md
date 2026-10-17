@@ -4,15 +4,39 @@
 
 - PHPUnit está configurado en el proyecto (`phpunit/phpunit` en `require-dev`).
 - Configuración activa en `phpunit.xml` con bootstrap de Composer.
-- Suite actual con 407 tests, 1431 aserciones y 1 integración opt-in omitida en la ejecución del 2026-08-03:
+- Ejecución v2 2026-10-08: 860 pruebas, 3120 aserciones y 67 omisiones en PHP 8.2.12;
+  Redis real por separado en PHP 8.2.33: 66 pruebas y 24784 aserciones, todas pasan.
+  La suite abarca:
   - Controladores: `AuditControllerTest.php`, `AuditDlqControllerTest.php`, `InvoicesControllerTest.php`, `ObservabilityControllerTest.php`
   - Core: `CacheTest.php`, `RedisClientTest.php`, `RedisClientStreamParsingTest.php`, `SqlServerConnectionExecutorTest.php`
   - Modelos: `AttachmentsModelTest.php`, `AuditResultPersistenceModelTest.php`, `DispensationModelTest.php`, `InvoicesModelTest.php`
   - Pipeline/eventos: `DocumentAuditOrchestratorTest.php`, `DocumentAttachmentMatcherTest.php`, `AttachmentDownloadWorkerTest.php`, `AttachmentDownloadServiceTest.php`, `DocumentExtractionWorkerTest.php`, `DocumentIntegrityValidatorTest.php`, `DocumentNormalizerTest.php`, `RulesEvaluationWorkerTest.php`, `AuditPersistenceQueueTest.php`, `AuditPersistenceWorkerTest.php`, `AuditEvent*`, `AuditStateStoreTest.php`
-  - Integración opt-in: `AuditPersistenceQueueRedisTest.php`, ejecutable con `RUN_REDIS_INTEGRATION=1` contra Redis real
+  - Integración opt-in: `AuditPersistenceQueueRedisTest.php`, `AuditDocumentCacheRedisTest.php`,
+    `AuditEventRetentionRedisTest.php`, `AuditDlqRecoveryRedisTest.php`; ejecutar
+    `RUN_REDIS_INTEGRATION=1` contra Redis standalone real, con namespaces aislados.
+    Caché cubre 3000 admisiones y cuatro procesos productores simultáneos; retención
+    conserva lag/PEL; recuperación verifica idempotencia, estados protegidos y compensación.
   - Policy/scoring: `DocumentPolicyEngineTest.php`, `AuditFindingRulesNormalizationTest.php`, `AuditFieldValueTypeTest.php`, `DeliveryValidityEvaluatorTest.php`, `TextNormalizationTest.php`
   - MCP tools: `GetAttachmentsTest.php`, `GetDispensationTest.php`
 - CI ejecuta pruebas unitarias con `vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always`.
+- CI también ejecuta `tests/Integration` con Redis 7 y RUN_REDIS_INTEGRATION=1.
+  V2 cubre carga 3000+3000+69 en cuatro etapas y llegada tardía, fences/commit/
+  outbox, migración/rollback/continuaciones ACKed/slots, respuesta reutilizada,
+  429 Retry-After, agotamiento técnico/DLQ e intentos unknown. Cuota incluye
+  cuatro procesos y 100 reservas, reparto 3:1/alternancia y días DST de 23/25 h.
+  Policy→semantic→policy verifica cero HTTP desde policy y salida 8192 del lote.
+  Estas pruebas usan Gemini simulado; no certifican exactitud clínica ni tiempo
+  productivo. Corpus etiquetado/replay real, cuotas de AI Studio y canary faltan.
+- Ensayo AOF dedicado: `tests/Support/exercise-aof-recovery.php` seed/verify,
+  Redis con fsync always/noeviction, SIGKILL/reinicio y validación de
+  tasks/ACK/artifact/cargo/receipt/outbox, fence y publicación única. Fixture
+  retirado tras las pruebas; no certifica pérdida de disco ni backup productivo.
+- Cron con `.env` sintético y Redis aislado pausado: código 1 antes de SQL,
+  sin jobs/idempotencia y sin claves nuevas. Docusaurus, frontend tsc, YAML,
+  20 bloques Bash, Compose v2 y controles CI de workers/entorno pasan.
+- Validador oficial de skills registradas pasa: 22 skills/9 bundles. El
+  validador global falla por tres skills preexistentes no registradas y sus
+  metadatos; ese hallazgo ajeno se conserva explícitamente.
 
 ## Diseño de contratos PHPUnit
 

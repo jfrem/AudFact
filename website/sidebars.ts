@@ -45,6 +45,10 @@ const sidebars: SidebarsConfig = {
       items: [
         'audit-findings',
         'audit-identity-contract',
+        'ajustes-alto-volumen-2026-10-08',
+        'sdd-homologacion-semantica-asincrona-ejecucion-justa',
+        'sdd-correccion-fallos-y-rendimiento-pipeline',
+        'sdd-correccion-saturacion-arbitraje-costos-llm',
       ],
     },
     {

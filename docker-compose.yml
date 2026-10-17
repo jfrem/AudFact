@@ -65,14 +65,20 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-4gb}
       REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+      AUDIT_PIPELINE_EXECUTION_VERSION: ${AUDIT_PIPELINE_EXECUTION_VERSION:-1}
     command:
       - sh
       - -c
       - |
-        if [ -n "$$REDIS_PASSWORD" ]; then
-          exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000 --requirepass "$$REDIS_PASSWORD"
+        if [ "$${AUDIT_PIPELINE_EXECUTION_VERSION:-1}" = "2" ] || [ -f /data/execution-durable-v2 ]; then
+          set -- --appendonly yes --appendfsync always --maxmemory-policy noeviction
+        else
+          set -- --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}"
         fi
-        exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}" --save 60 1000
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" "$$@" --save 60 1000 --requirepass "$$REDIS_PASSWORD"
+        fi
+        exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" "$$@" --save 60 1000
     expose:
       - "6379"
     restart: unless-stopped
@@ -321,6 +327,46 @@ services:
       default:
         aliases:
           - audfact-docs
+
+  worker-execution-maintenance:
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    profiles: [execution-v2]
+    env_file: [.env]
+    volumes: [./logs:/var/www/html/logs]
+    depends_on: [redis]
+    command: php bin/audit-execution-maintenance.php run
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  worker-semantic-vip: &semantic-worker
+    image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
+    profiles: [execution-v2]
+    env_file: [.env]
+    volumes: [./logs:/var/www/html/logs]
+    depends_on: [redis]
+    command: php bin/audit-worker.php semantic --priority-only
+    restart: unless-stopped
+    deploy:
+      replicas: ${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-1}
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  worker-semantic-batch:
+    <<: *semantic-worker
+    command: php bin/audit-worker.php semantic --batch-only
+    deploy:
+      replicas: ${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-2}
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
 
 volumes:
   redis_data:

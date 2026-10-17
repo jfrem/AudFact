@@ -19,6 +19,71 @@ use RuntimeException;
 
 final class AuditEventConsumerTest extends TestCase
 {
+    public function testUnrelatedEventIsAcknowledgedWithoutStateReadsOrTelemetryWrites(): void
+    {
+        // Arrange:
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_NORMALIZED, AuditEvent::uuidV4());
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xGroupCreate')->willReturn(true);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1700000000000-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects($this->exactly(3))->method('get')->willReturnCallback(static function (string $key): ?string {
+            self::assertContains($key, ['audit:execution:version', 'audit:execution:paused']);
+            return null;
+        });
+        $redis->expects($this->never())->method('eval');
+        $redis->expects($this->once())->method('xAck')->with('test.stream', 'test-group', '1700000000000-0')
+            ->willReturn(1);
+        $telemetry = new RecordingTelemetryStateStore();
+        $consumer = new MinimalConsumer(redis: $redis, stateStore: $telemetry);
+
+        // Act:
+        $processed = $consumer->run(1);
+
+        // Assert:
+        $this->assertSame(1, $processed);
+        $this->assertSame([], $consumer->handled);
+        $this->assertSame([], $telemetry->telemetry);
+    }
+
+    #[DataProvider('terminalStatuses')]
+    public function testTerminalAuditIsAcknowledgedWithoutRepeatingWork(string $status): void
+    {
+        // Arrange:
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, AuditEvent::uuidV4());
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xGroupCreate')->willReturn(true);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1700000000000-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects($this->exactly(4))->method('get')->willReturnCallback(static function (string $key) use ($event): ?string {
+            self::assertContains($key, ['audit:execution:version', 'audit:execution:paused', AuditEventPublisher::deadLetterReceiptKey($event->eventId)]);
+            return null;
+        });
+        $redis->expects($this->never())->method('eval');
+        $redis->expects($this->once())->method('xAck')->willReturn(1);
+        $telemetry = new RecordingTelemetryStateStore($status);
+        $consumer = new MinimalConsumer(redis: $redis, stateStore: $telemetry);
+
+        // Act:
+        $consumer->run(1);
+
+        // Assert:
+        $this->assertSame([], $consumer->handled);
+        $this->assertSame([], $telemetry->telemetry);
+    }
+
+    public static function terminalStatuses(): iterable
+    {
+        foreach ([AuditStateStore::AUDIT_STATUS_COMPLETED, AuditStateStore::AUDIT_STATUS_MANUAL_REVIEW,
+            AuditStateStore::AUDIT_STATUS_ERROR, AuditStateStore::AUDIT_STATUS_FAILED] as $status) {
+            yield $status => [$status];
+        }
+    }
+
     #[DataProvider('failureRoutingCases')]
     public function testTerminalFailureKeepsRoutingAndOriginalEventInDlq(array $routing, string $stream): void
     {
@@ -305,7 +370,7 @@ final class RecordingTelemetryStateStore extends AuditStateStore
     /** @var array<int,array<string,mixed>> */
     public array $telemetry = [];
 
-    public function __construct()
+    public function __construct(private readonly string $status = AuditStateStore::AUDIT_STATUS_PROCESSING)
     {
     }
 
@@ -314,10 +379,20 @@ final class RecordingTelemetryStateStore extends AuditStateStore
         $this->telemetry[] = $telemetry;
         return true;
     }
+
+    public function getAudit(string $auditId): ?array
+    {
+        return ['status' => $this->status];
+    }
 }
 
 final class MinimalConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_AUDIT_CREATED, AuditEvent::TYPE_DOCUMENT_REGISTERED];
+    }
+
     /** @var AuditEvent[] */
     public array $handled = [];
 
@@ -344,6 +419,11 @@ final class MinimalConsumer extends AuditEventConsumer
 
 final class TerminalFailureConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_AUDIT_CREATED, AuditEvent::TYPE_DOCUMENT_EXTRACTED];
+    }
+
     /** @var array<int,string> */
     public array $terminalFailureEventIds = [];
 
@@ -375,6 +455,11 @@ final class TerminalFailureConsumer extends AuditEventConsumer
 
 final class SqlTerminalFailureConsumer extends AuditEventConsumer
 {
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_RULES_EVALUATED];
+    }
+
     /** @var array<int,string> */
     public array $terminalFailureEventIds = [];
 

@@ -1,3 +1,20 @@
+## [2026-10-14]
+
+### docs
+- **SDD de corrección de saturación, arbitraje y costos LLM**: diseño basado en código, pruebas y evidencia local congelada; contratos N:1, caché, ejecución durable y ledger financiero, DDL aditivo y rollback. Clasificación Nivel C con pendientes explícitos de aprobación integral. No implementa ni despliega cambios de aplicación.
+
+## [2026-10-13]
+
+### feat
+- **Gestión de Costos de Auditoría IA y Conversión TRM Dinámica (`AudDispCosto`, `CurrencyExchangeService`, `AuditCostModel`, `AuditCostController`)**:
+  - **Tabla Dedicada `Discolnet.dbo.AudDispCosto`**: Registra de forma inmutable el consumo de tokens (entrada, salida, pensamiento, total), el costo liquidado en USD y en COP, y la TRM oficial aplicada en cada intento de auditoría. Soporta reauditorías múltiples preservando el histórico mediante clave subrogada `[AudCostoId]` y restricción de unicidad compuesta `UNIQUE ([FacNro], [Intento])` con resolución serializada `UPDLOCK, HOLDLOCK`.
+  - **Servicio de TRM Multinivel (`CurrencyExchangeService`)**: Cascada de consulta con patrón Cache-Aside en Redis (`finance:trm:usd_cop`, TTL 24h), Datos Abiertos Colombia Socrata API (`32sa-8pi3` oficial Superfinanciera), DólarAPI como fallback secundario y contingencia estática (`3200.00 COP`). Timeouts HTTP estrictos (2s conexión / 3s ejecución).
+  - **Persistencia Transaccional Atómica**: `AuditResultPersistenceModel::persist` persiste el registro de costo dentro de la misma transacción PDO de auditoría, garantizando consistencia absoluta sin estados huérfanos.
+  - **Reportería REST y Métricas**: 4 nuevos endpoints en `app/Routes/web.php` (`GET /audit/costs`, `GET /audit/costs/clients`, `GET /audit/costs/trm`, `GET /audit/costs/{facNro}`) con precedencia sobre rutas comodín.
+  - **Cero Saturación de GitHub Variables**: Operación gobernada por constantes canónicas de dominio en PHP sin requerir variables nuevas en GitHub Actions ni en `.env.example`.
+  - **Pruebas Unitarias Exhaustivas**: 16 nuevos tests en `CurrencyExchangeServiceTest`, `AuditCostModelTest` y `AuditCostControllerTest`, más actualización de `AuditResultPersistenceModelTest`. 876 pruebas totales en verde (3.210 aserciones).
+  - Archivos: `app/Models/migration/migration_AudDispCosto.sql`, `app/Models/migration/rollback_AudDispCosto.sql`, `app/Services/Finance/CurrencyExchangeService.php`, `app/Models/AuditCostModel.php`, `app/Models/AuditResultPersistenceModel.php`, `app/Controllers/AuditCostController.php`, `app/Routes/web.php`, `tests/Services/Finance/CurrencyExchangeServiceTest.php`, `tests/Models/AuditCostModelTest.php`, `tests/Controllers/AuditCostControllerTest.php`, `tests/Models/AuditResultPersistenceModelTest.php`, `plans/sdd-gestion-costos-auditoria-trm.md`, `plans/api-endpoints.md`, `AGENTS.md`.
+
 ## [2026-09-24]
 
 ### fix

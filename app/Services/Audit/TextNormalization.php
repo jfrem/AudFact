@@ -73,6 +73,40 @@ final class TextNormalization
         return self::normalizeText($upper);
     }
     /**
+     * Calcula similitud Jaccard con tokens ordenados alfabéticamente.
+     *
+     * Normaliza ambos valores con normalizeArticleName(), tokeniza,
+     * ordena los tokens y calcula la intersección / unión.
+     * Resuelve inversiones de principios activos compuestos sin LLM
+     * (ej: TAMSULOSINA+DUTASTERIDA vs DUTASTERIDA+TAMSULOSINA).
+     *
+     * @return float Jaccard entre 0.0 y 1.0
+     */
+    public static function tokenSortedJaccard(string $left, string $right): float
+    {
+        $leftNorm = self::normalizeArticleName($left);
+        $rightNorm = self::normalizeArticleName($right);
+
+        if ($leftNorm === '' || $rightNorm === '') {
+            return 0.0;
+        }
+
+        $leftTokens  = self::tokenize($leftNorm);
+        $rightTokens = self::tokenize($rightNorm);
+        sort($leftTokens, SORT_STRING);
+        sort($rightTokens, SORT_STRING);
+
+        if ($leftTokens === $rightTokens) {
+            return 1.0;
+        }
+
+        $intersection = array_intersect($leftTokens, $rightTokens);
+        $union        = array_unique(array_merge($leftTokens, $rightTokens));
+
+        return $union === [] ? 0.0 : (count($intersection) / count($union));
+    }
+
+    /**
      * Normaliza un token de texto: elimina acentos, pasa a mayúsculas y
      * suprime caracteres no alfanuméricos.
      *

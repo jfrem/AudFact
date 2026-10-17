@@ -41,6 +41,27 @@ final class AuditControllerTest extends TestCase
         $this->assertSame('T38250701547', $publisher->published[0]->payload['dis_det_nro']);
         $this->assertSame('87723098', $publisher->published[0]->payload['dis_id']);
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
+        $this->assertNull($publisher->published[0]->payload['attachment_id']);
+    }
+
+    public function testSingleWithAttachmentIdPropagatesToEventPayloadAndResponse(): void
+    {
+        $publisher = new InMemoryAuditEventPublisher();
+        $store = $this->newStoreStub(initAuditReturns: true);
+
+        $controller = new TestableAuditController(
+            body: ['disId' => '87723098', 'disDetNro' => 'T38250701547', 'attachmentId' => '14250781'],
+            stateStore: $store,
+            publisher: $publisher,
+        );
+
+        $response = self::captureResponse(static fn() => $controller->single());
+
+        $this->assertSame(202, $response->getCode());
+        $data = $response->getData()['data'];
+        $this->assertSame('14250781', $data['attachment_id']);
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame('14250781', $publisher->published[0]->payload['attachment_id']);
     }
 
     /**
@@ -77,6 +98,33 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(503, $response->getCode());
         $this->assertCount(1, $store->deletedAuditIds);
+    }
+
+    public function testPausedAdmissionReturns503BeforeCreatingAuditOrIdempotencyKey(): void
+    {
+        // Arrange:
+        $redis = $this->createMock(\Core\RedisClient::class);
+        $redis->method('get')->willReturnCallback(static fn(string $key): ?string =>
+            $key === 'audit:admission:paused' ? '1' : null);
+        $state = $this->createMock(AuditStateStore::class);
+        $state->expects($this->never())->method('initAudit');
+        $jobs = $this->createMock(BatchJobStore::class);
+        $jobs->expects($this->never())->method('claimIdempotencyKey');
+        $jobs->expects($this->never())->method('initJob');
+        $publisher = new InMemoryAuditEventPublisher();
+        $single = new TestableAuditController(body: ['disId' => 'synthetic', 'disDetNro' => 'synthetic'],
+            stateStore: $state, publisher: $publisher, admissionRedis: $redis);
+        $batch = new TestableAuditController(body: ['facNitSec' => 2426, 'date' => '2026-01-01'],
+            jobStore: $jobs, publisher: $publisher, admissionRedis: $redis);
+
+        // Act:
+        $singleResponse = self::captureResponse(static fn() => $single->single());
+        $batchResponse = self::captureResponse(static fn() => $batch->async());
+
+        // Assert:
+        self::assertSame(503, $singleResponse->getCode());
+        self::assertSame(503, $batchResponse->getCode());
+        self::assertSame([], $publisher->published);
     }
 
     public function testSingleReturns404WhenDispensationNotFound(): void
@@ -121,7 +169,7 @@ final class AuditControllerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_BATCH_REQUESTED, $publisher->published[0]->eventType);
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
-        
+
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
 
@@ -129,7 +177,7 @@ final class AuditControllerTest extends TestCase
     {
         $jobStore = $this->newJobStoreStub();
         $jobStore->claimIdempotencyKeyReturns = 'existing-job-id-456';
-        
+
         $controller = new TestableAuditController(
             body: [
                 'facNitSec' => 2426,
@@ -144,7 +192,7 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(409, $response->getCode());
         $this->assertSame('existing-job-id-456', $response->getData()['data']['job_id']);
-        
+
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
 
@@ -475,12 +523,21 @@ final class TestableAuditController extends AuditController
         private ?AuditDataService $auditDataService = null,
         private ?\App\Models\DispensationModel $dispensationModel = null,
         private ?\App\Models\ClientsModel $clientsModel = null,
+        private ?\Core\RedisClient $admissionRedis = null,
     ) {
     }
 
     protected function getBody(): array
     {
         return $this->body;
+    }
+
+    protected function buildAdmissionRedis(): \Core\RedisClient
+    {
+        return $this->admissionRedis ?? new class extends \Core\RedisClient {
+            public function __construct() {}
+            public function get(string $key): ?string { return null; }
+        };
     }
 
     protected function currentTime(): \DateTimeImmutable
@@ -623,7 +680,7 @@ final class StubAuditDataService extends AuditDataService
         ];
     }
 
-    public function getAttachments(string $disDetNro, string $nitSec): array
+    public function getAttachments(string $disDetNro, string $nitSec, ?string $attachmentId = null): array
     {
         return [
             [

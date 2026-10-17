@@ -45,6 +45,42 @@ class AuditPersistenceQueue
         return ['job_slots' => $this->jobSlots, 'queue_ttl' => self::ttlSeconds()];
     }
 
+    /** Inventario sin reconciliar/renovar TTL; útil para dry-run y corte quiescente. */
+    public function inventory(): array
+    {
+        $out = ['slots' => [], 'active' => [], 'pending' => []];
+        $cursor = '0';
+        do {
+            [$cursor, $keys] = $this->redis->scanKeys(self::KEY_PREFIX . '*', $cursor, 100);
+            foreach ($keys as $key) {
+                if (str_ends_with($key, ':slots')) {
+                    $value = $this->redis->get($key);
+                    if (!ctype_digit($value ?? '') || (int) $value < 1 || (int) $value > self::MAX_JOB_SLOTS) {
+                        throw new RuntimeException('persistence_slots_invalid');
+                    }
+                    $out['slots'][$key] = (int) $value;
+                } elseif (str_ends_with($key, ':active')) {
+                    $out['active'][$key] = $this->redis->get($key);
+                } elseif (str_ends_with($key, ':pending')) {
+                    $out['pending'][$key] = $this->redis->eval('return redis.call("ZCARD",KEYS[1])', [$key]);
+                } elseif (str_ends_with($key, ':seen')) {
+                    $value = $this->redis->eval('return redis.call("HGET",KEYS[1],"__job_slots")', [$key]);
+                    if ($value !== null) {
+                        if (!ctype_digit((string) $value) || (int) $value < 1 || (int) $value > self::MAX_JOB_SLOTS) {
+                            throw new RuntimeException('persistence_slots_invalid');
+                        }
+                        $out['slots'][$key . ':__job_slots'] = (int) $value;
+                    }
+                }
+            }
+        } while ($cursor !== '0');
+        foreach ($out as &$values) {
+            ksort($values, SORT_STRING);
+        }
+        unset($values);
+        return $out;
+    }
+
     /** @return array{active:int,pending:int,scopes:int} */
     public function metrics(): array
     {

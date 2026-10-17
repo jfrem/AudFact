@@ -97,9 +97,7 @@ final class BatchRequestedWorkerTest extends TestCase
             payload: []
         );
 
-        $refMethod = new \ReflectionMethod($worker, 'handle');
-        $refMethod->setAccessible(true);
-        $refMethod->invoke($worker, $event);
+        $worker->processEvent($event);
     }
 
     public function testHandleBatchRequestedPublishesContinuationWhenHasMore(): void

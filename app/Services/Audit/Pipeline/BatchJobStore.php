@@ -69,6 +69,7 @@ class BatchJobStore
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $state = [
             'job_id'      => $jobId,
+            'execution_version' => AuditExecutionConfig::fromEnv()->version,
             'status'      => self::JOB_STATUS_PENDING,
             'fac_nit_sec' => $facNitSec,
             'date_from'   => $dateFrom,
@@ -88,7 +89,9 @@ class BatchJobStore
             'audits'      => new \stdClass(),
         ];
 
-        $success = $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::jobTtlSeconds());
+        $success = $state['execution_version'] === 2
+            ? $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::jobKey($jobId)], [self::encodeJson($state, 'BatchJobStore')]) === 1
+            : $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::jobTtlSeconds());
 
         if ($success) {
             try {
@@ -324,6 +327,11 @@ class BatchJobStore
     {
         $redisKey = self::idempotencyKey($key);
 
+        if (AuditExecutionConfig::fromEnv()->version === 2) {
+            $claimed = $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [$redisKey], [$jobId]);
+            return $claimed === 1 ? null : $this->redis->get($redisKey);
+        }
+
         try {
             $claimed = $this->redis->setnx($redisKey, $jobId, $ttl);
         } catch (RedisUnavailableException $e) {
@@ -362,6 +370,11 @@ class BatchJobStore
         $reservation['token'] = $ownerToken;
         $reservation['claimed_at'] = $reservation['claimed_at'] ?? gmdate('Y-m-d\TH:i:s\Z');
         $ttlSeconds = ($ttl !== null && $ttl > 0) ? $ttl : self::reservationTtlSeconds();
+
+        if (AuditExecutionConfig::fromEnv()->version === 2) {
+            return $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
+                [self::auditReservationKey($disId)], [self::encodeJson($reservation, 'BatchJobStore')]) === 1;
+        }
 
         return $this->redis->setnx(
             self::auditReservationKey($disId),
@@ -522,7 +535,7 @@ job['audits'][auditId] = {
 job['total'] = (tonumber(job['total']) or 0) + 1
 job['updated_at'] = now
 
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
+storeState(KEYS[1], job, ttl)
 return 1
 LUA;
 
@@ -613,7 +626,7 @@ elseif oldJobStatus == 'processing' and newJobStatus == 'failed' then
 end
 
 job['updated_at'] = now
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', ttl)
+storeState(KEYS[1], job, ttl)
 return 1
 LUA;
 
@@ -631,7 +644,7 @@ end
 
 job['batch_event_published'] = ARGV[1]
 job['updated_at'] = ARGV[2]
-redis.call('SET', KEYS[1], cjson.encode(job), 'EX', tonumber(ARGV[3]))
+storeState(KEYS[1], job, tonumber(ARGV[3]))
 return 1
 LUA;
 

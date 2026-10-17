@@ -111,7 +111,28 @@ abstract class AuditEventConsumer
 
     abstract protected function consumer(): string;
 
+    /** @return list<string> Tipos atendidos por este grupo, antes de estado/telemetría. */
+    abstract protected function eventTypes(): array;
+
     abstract protected function handle(AuditEvent $event): void;
+
+    public function taskStage(): ?AuditTaskStage
+    {
+        return null;
+    }
+
+    public function prepareTask(AuditTask $task): array
+    {
+        throw new \LogicException('worker_has_no_scheduled_stage');
+    }
+
+    public function afterTaskCommitted(AuditTask $task): void
+    {
+    }
+
+    public function afterTaskDeferred(AuditTask $task): void
+    {
+    }
 
     protected function afterTerminalFailure(AuditEvent $event, Throwable $error): void
     {
@@ -119,7 +140,9 @@ abstract class AuditEventConsumer
 
     final public function processEvent(AuditEvent $event): void
     {
-        $this->handle($event);
+        if (in_array($event->eventType, $this->eventTypes(), true)) {
+            $this->handle($event);
+        }
     }
 
     protected static function defaultConsumerName(string $role, string|AuditLane $lane = AuditLane::ALL): string
@@ -143,11 +166,34 @@ abstract class AuditEventConsumer
             throw new RuntimeException('Redis no disponible al iniciar consumer');
         }
 
+        $execution = AuditExecutionConfig::fromEnv();
+        $execution->assertProtocol($this->redis);
+        if ($execution->version === 2 && $this->taskStage() !== null) {
+            Logger::info('Audit scheduled worker started', ['consumer' => $this->consumer(),
+                'stage' => $this->taskStage()->value, 'lane' => $this->laneEnum->value,
+                'execution_version' => 2, 'lease_ms' => AuditExecutionConfig::LEASE_MS,
+                'deadline_ms' => AuditExecutionConfig::DEADLINE_MS, 'max_queued_per_stage' => $execution->maxQueued]);
+            $runner = new AuditTaskRunner($this->redis, $execution);
+            $processed = 0;
+            while (!$this->stopRequested && ($maxEvents === 0 || $processed < $maxEvents)) {
+                if (function_exists('pcntl_signal_dispatch')) {
+                    pcntl_signal_dispatch();
+                }
+                if ($runner->tick($this, $this->laneEnum, $this->consumer())) {
+                    $processed++;
+                } else {
+                    usleep(100000);
+                }
+            }
+            return $processed;
+        }
+
         Logger::info('AuditEventConsumer: iniciando consumidor', [
             'group'    => $this->group(),
             'consumer' => $this->consumer(),
             'lane'     => $this->lane,
             'streams'  => $this->activeStreams(),
+            'event_types' => $this->eventTypes(),
             'block_ms' => $this->blockMs,
             'max_retries' => $this->maxRetries,
             'pending_reclaim_idle_ms' => $this->pendingReclaimIdleMs,
@@ -155,7 +201,7 @@ abstract class AuditEventConsumer
         ]);
 
         $this->ensureGroup();
-        $processed = $this->reclaimPending($maxEvents);
+        $processed = $this->intakeBlocked($execution) ? 0 : $this->reclaimPending($maxEvents);
         if ($maxEvents > 0 && $processed >= $maxEvents) {
             return $processed;
         }
@@ -170,6 +216,10 @@ abstract class AuditEventConsumer
             }
 
             $remaining = $maxEvents > 0 ? $maxEvents - $processed : 0;
+            if ($this->intakeBlocked($execution)) {
+                usleep(100000);
+                continue;
+            }
             $processed += $this->reclaimPendingIfDue($remaining);
             if ($maxEvents > 0 && $processed >= $maxEvents) {
                 break;
@@ -205,6 +255,14 @@ abstract class AuditEventConsumer
         }
 
         return $processed;
+    }
+
+    private function intakeBlocked(AuditExecutionConfig $execution): bool
+    {
+        return $this->redis->get('audit:execution:paused') === '1'
+            || ($this->group() === AuditEventPublisher::GROUP_BATCH
+                && ($this->redis->get('audit:admission:paused') === '1'
+                    || ($execution->version === 2 && (new AuditAdmissionGuard($this->redis, $execution))->atCapacity())));
     }
 
     private function reclaimPendingIfDue(int $maxMessages = 0): int
@@ -285,6 +343,12 @@ abstract class AuditEventConsumer
         if ($event === null) {
             return;
         }
+        // Cada grupo ve el stream compartido. Un evento de otra etapa no es
+        // trabajo procesado ni debe reescribir el JSON completo de la auditoría.
+        if (!in_array($event->eventType, $this->eventTypes(), true)) {
+            $this->ackMessage($streamName, $streamId);
+            return;
+        }
 
         $receivedAt = self::nowUtc();
         $publishedAt = self::resolvePublishedAt($streamId, $event->timestamp);
@@ -302,6 +366,13 @@ abstract class AuditEventConsumer
         }
 
         try {
+            if ($event->auditId !== null && $event->eventType !== AuditEvent::TYPE_RULES_EVALUATED) {
+                $audit = $this->telemetryStateStore->getAudit($event->auditId);
+                if (AuditStateStore::isTerminalStatus((string) ($audit['status'] ?? ''))) {
+                    $this->ackMessage($streamName, $streamId);
+                    return;
+                }
+            }
             $this->handle($event);
             $handleDurationMs = self::elapsedMs($handleStart);
             $ackStart = hrtime(true);
@@ -668,11 +739,10 @@ abstract class AuditEventConsumer
             default => null,
         };
 
-        if ($eventType === null || !$jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
+        if ($eventType === null) {
             return;
         }
-
-        $this->publisher->publish(AuditEvent::create(
+        $event = AuditEvent::create(
             eventType: $eventType,
             auditId: $auditId,
             jobId: $jobId,
@@ -683,7 +753,15 @@ abstract class AuditEventConsumer
                 'failed' => (int) ($job['failed'] ?? 0),
             ],
             parentEventId: $parentEventId,
-        ));
+        );
+        if (($job['execution_version'] ?? 1) === 2) {
+            $record = $event->toArray();
+            $record['event_id'] = AuditTaskEffects::uuid($jobId . ':' . $eventType);
+            $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
+            $jobStore->claimBatchTerminalEvent($jobId, $eventType);
+        } elseif ($jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
+            $this->publisher->publish($event);
+        }
     }
 
     private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error): void

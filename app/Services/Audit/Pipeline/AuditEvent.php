@@ -23,6 +23,8 @@ final class AuditEvent
     public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
     public const TYPE_BATCH_REQUESTED      = 'batch_requested';
+    public const TYPE_SEMANTIC_REQUESTED   = 'semantic_evaluation_requested';
+    public const TYPE_SEMANTIC_RESOLVED    = 'semantic_evaluation_resolved';
 
     private const DEFAULT_VERSION_EXTRACTOR = 'gemini-3.x-parallel-fc-v1';
     private const ROUTING_PAYLOAD_KEYS = ['source', 'is_priority'];

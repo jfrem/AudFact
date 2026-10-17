@@ -16,11 +16,14 @@ export const dispensationQuery = (disId: string | undefined | null, disDetNro: s
     enabled: Boolean(disDetNro),
   });
 
-export const attachmentsQuery = (disDetNro: string, nitSec: string | number) =>
+export const attachmentsQuery = (disDetNro: string, nitSec?: string | number | null) =>
   queryOptions({
     queryKey: queryKeys.attachments(disDetNro, nitSec),
-    queryFn: () => getAttachments(disDetNro, nitSec),
-    enabled: Boolean(disDetNro) && Boolean(nitSec),
+    queryFn: async () => {
+      const data = await getAttachments(disDetNro, nitSec);
+      return data ?? [];
+    },
+    enabled: Boolean(disDetNro),
   });
 
 export const attachmentPreviewQuery = (

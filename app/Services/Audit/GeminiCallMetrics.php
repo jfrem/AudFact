@@ -24,6 +24,10 @@ final class GeminiCallMetrics
             'duration_ms' => max(0, $durationMs),
             'model' => self::stringOrNull($responseBody['modelVersion'] ?? null),
             'task_type' => self::stringOrNull($context['task_type'] ?? null),
+            'request_id' => self::stringOrNull($context['request_id'] ?? null),
+            'attempt_id' => self::stringOrNull($context['attempt_id'] ?? null),
+            'operation' => self::stringOrNull($context['operation'] ?? null),
+            'execution_version' => self::intOrNull($context['execution_version'] ?? null),
             'document_type' => self::stringOrNull($context['document_type'] ?? null),
             'finish_reason' => self::stringOrNull($responseBody['candidates'][0]['finishReason'] ?? null),
             'cache_hit' => false,
@@ -76,6 +80,18 @@ final class GeminiCallMetrics
     public static function summarize(array $metrics): array
     {
         $filtered = array_values(array_filter($metrics, 'is_array'));
+        $seen = [];
+        $filtered = array_values(array_filter($filtered, static function (array $metric) use (&$seen): bool {
+            $id = $metric['request_id'] ?? null;
+            if (!is_string($id)) {
+                return true;
+            }
+            if (isset($seen[$id])) {
+                return false;
+            }
+            $seen[$id] = true;
+            return true;
+        }));
         $calls = count($filtered);
 
         if ($calls === 0) {
