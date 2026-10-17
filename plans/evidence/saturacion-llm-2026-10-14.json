@@ -1,0 +1,425 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-14T18:15:37.638Z",
+  "git_head": "653378bc842286322820f10614e57f378a3de42e",
+  "scope": "local checkout and localhost; documentation is not runtime evidence",
+  "runtime": {
+    "url": "http://localhost:8080",
+    "execution_version": 1,
+    "backlog": 0,
+    "groups": {
+      "downloaders": {
+        "pending": 0,
+        "lag": 0,
+        "lagKnown": true
+      },
+      "extractors": {
+        "pending": 0,
+        "lag": 0,
+        "lagKnown": true
+      },
+      "normalizers": {
+        "pending": 0,
+        "lag": 0,
+        "lagKnown": true
+      },
+      "policy": {
+        "pending": 0,
+        "lag": 0,
+        "lagKnown": true
+      }
+    },
+    "policy_image_observed": "ghcr.io/jfrem/audfact-php:16b7a7557f726f1e27882d3ee3667fcad95abfc0"
+  },
+  "sources": [
+    {
+      "path": "app/Services/Audit/Pipeline/DocumentPolicyEngine.php",
+      "sha256": "87620961c30313d03307041f63e9c287c283f471e3160297473b27555a407fb1"
+    },
+    {
+      "path": "app/Services/Audit/SemanticMatchJudge.php",
+      "sha256": "3c3bf0c65902c90f9357e2f081dd8fdf5cd9fac36d4755634432e8e61a2203f7"
+    },
+    {
+      "path": "app/Services/Audit/TextNormalization.php",
+      "sha256": "01e8d237a5e68d30b331095de2ed1778756bc7e43141b4e43499777f8d31b666"
+    },
+    {
+      "path": "app/Services/Audit/SemanticCandidateCollector.php",
+      "sha256": "e3ed8649cabc47f3b477ab1a96584ad98e4c7dd3cfc3bdf75cf2e51caa8c91d4"
+    },
+    {
+      "path": "app/Services/Audit/ResolvedSemanticResolver.php",
+      "sha256": "eee40ac0f4334b58d0d4fd87264cb5fd4a51b41a4044ab5cef9f2986509aecc5"
+    },
+    {
+      "path": "app/Services/Audit/SemanticBatchContract.php",
+      "sha256": "07b2af46c1a2532ebe3ff0e20b8274752150ccd2cc40adb3e65503a0323a17ee"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/RulesEvaluationWorker.php",
+      "sha256": "9d8a2306650ba5745978767d09859e36cfd7f876e2afcb96d550bf536f5a31ec"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/SemanticEvaluationStore.php",
+      "sha256": "8fc86e895ef02fd507aa90c2e6221b5cefa9e716620a9aa4ee0b8721988de2a5"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/SemanticEvaluationWorker.php",
+      "sha256": "76b9a28fec733766c67892c1c297cbfde8ba324b93ce41a54c00a6e675b29cb4"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/SemanticFlightStore.php",
+      "sha256": "4ffce4be57802b911ce0e4864f7fac190edd8163af5ffce324a7b5bf14aea11e"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/AuditTaskRunner.php",
+      "sha256": "6e4c1f66d1e1d9628f1cf9729a134f24c7bca0db032ba35e854474298e25cd56"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/FairAuditTaskQueue.php",
+      "sha256": "c0b90d7fb7c233292f518acedcf376956688bd7fede6c722f1a56cd0e9b2e2f2"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/GeminiQuotaBudget.php",
+      "sha256": "94ae36482a01f96192ad4a990c931aaeeb87802400c3f92547b2b959c8151a02"
+    },
+    {
+      "path": "app/Services/Audit/GeminiGateway.php",
+      "sha256": "ec0f0fad143c4a383c263b8aa33c4900a89577e5177e13bb7b6b29bcd34cd2f1"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/AuditExecutionMaintenance.php",
+      "sha256": "9a115f5406e626c86ddde9f7f29679f85e883b51001ab484703be5c54815043c"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/AuditExecutionMigration.php",
+      "sha256": "2dcbb7eda4c10b1dfe799bf4a74af6dd3c55f64f7a51a9b5e76d391cde0a8336"
+    },
+    {
+      "path": "app/Services/Audit/Pipeline/AuditTimingSummarizer.php",
+      "sha256": "a5119cd7fd9a493cdca9bcf2f0611bffe73c952566f82f77795994afa1d4afd0"
+    },
+    {
+      "path": "app/Models/AuditCostModel.php",
+      "sha256": "d16e4fea7317e3e8ac423fc49f469445c86213d57e29e3c49ba6dccdffa63a1a"
+    },
+    {
+      "path": "app/Models/AuditResultPersistenceModel.php",
+      "sha256": "d2a268f45ad62757dfe639e4806091a164c74d0bf747ee3636052cbaf460b1be"
+    },
+    {
+      "path": "app/Models/migration/migration_AudDispCosto.sql",
+      "sha256": "1cbe5e6fe05b091e923a319764f170906a1fb5c2a7c823d0c47c9f9753a9914f"
+    },
+    {
+      "path": "app/Controllers/AuditCostController.php",
+      "sha256": "212e6bdd8cbb318bfceb640ca81971a008e016bfb9c1afcb670e0cc7a9a87b6d"
+    },
+    {
+      "path": "app/Routes/web.php",
+      "sha256": "305d59fc567a41dd6532ff205aaaeb4952a56f87b810688662b1aebffab2c1d4"
+    },
+    {
+      "path": "docker-compose.yml",
+      "sha256": "f9405a8f8b64ed12c66a0c9368af29472c9215c048ec3c23d2b2701a776a0004"
+    },
+    {
+      "path": ".github/workflows/deploy-production.yml",
+      "sha256": "c1f8c1714c110d9adfdaeef60116fcc5ca940cfc4fc33fdac64020528a48c5e4"
+    },
+    {
+      "path": "tests/Services/Audit/Events/DocumentPolicyEngineTest.php",
+      "sha256": "24ee17638c89709e81825445a8f8ad1335f83a2ee56d38adc1a88f96c69a5a83"
+    },
+    {
+      "path": "tests/Services/Audit/SemanticBatchContractTest.php",
+      "sha256": "577388f9663c21879bbcb2db3ffd196bfc5bf4ce51659f38e2b1570c56da1664"
+    },
+    {
+      "path": "tests/Integration/AuditExecutionRedisTest.php",
+      "sha256": "f15d4a9502c077853fc08b5f9311a3df52f8ea7a491a862e5fac703c58f839b9"
+    },
+    {
+      "path": "tests/Integration/GeminiTaskExecutionRedisTest.php",
+      "sha256": "d1f39d3b4f6f3e00230971eadb2be2b682257a827b2fd0d7b501c64934d81caf"
+    }
+  ],
+  "invoices": [
+    {
+      "invoice": "V12260602202",
+      "snapshots": {
+        "responses": 14,
+        "semantic_responses": 11,
+        "total_tokens": 18278,
+        "negative_responses": 7,
+        "invalid_responses": 0,
+        "repeated_request_bodies": 0,
+        "models": [
+          "gemini-3.8-flash"
+        ],
+        "file_set_sha256": "4bcd009f91238c319de7f745574683c53ebe06f4492ada2e676a63ca90e81665",
+        "first_saved_at": "2026-10-13T23:09:12Z",
+        "last_saved_at": "2026-10-13T23:10:17Z"
+      },
+      "persisted": {
+        "state": "manual_review",
+        "metrics": {
+          "total_campos": 26,
+          "coincidencias": 21,
+          "discrepancias": 3,
+          "omitidos": 1,
+          "no_concluyentes": 1,
+          "risk_score": 40
+        },
+        "gemini_total": {
+          "count": 14,
+          "cache_hits": 0,
+          "avg_ms": 4559,
+          "min_ms": 2278,
+          "max_ms": 12060,
+          "p95_ms": 12060,
+          "prompt_tokens": 10957,
+          "output_tokens": 2243,
+          "thoughts_tokens": 4619,
+          "total_tokens": 17819,
+          "finish_reasons": {
+            "STOP": 14
+          }
+        },
+        "semantic_calls": 11,
+        "semantic_cache_hits": 0,
+        "policy": {
+          "count": 3,
+          "avg_ms": 12779,
+          "min_ms": 3,
+          "max_ms": 36053,
+          "p95_ms": 36053
+        },
+        "cost_tokens": 18278,
+        "cost_usd": 0.0355725,
+        "cost_cop": 113.6342
+      }
+    },
+    {
+      "invoice": "V12260708736",
+      "snapshots": {
+        "responses": 37,
+        "semantic_responses": 34,
+        "total_tokens": 41833,
+        "negative_responses": 27,
+        "invalid_responses": 0,
+        "repeated_request_bodies": 0,
+        "models": [
+          "gemini-3.8-flash"
+        ],
+        "file_set_sha256": "67a0ddbbc2c41485772a50a71890a5249d9b718b38a4a5d54c07bcdd3dd2d057",
+        "first_saved_at": "2026-10-13T23:12:31Z",
+        "last_saved_at": "2026-10-13T23:14:41Z"
+      },
+      "persisted": {
+        "state": "manual_review",
+        "metrics": {
+          "total_campos": 26,
+          "coincidencias": 25,
+          "discrepancias": 1,
+          "omitidos": 0,
+          "no_concluyentes": 0,
+          "risk_score": 10
+        },
+        "gemini_total": {
+          "count": 37,
+          "cache_hits": 0,
+          "avg_ms": 4755,
+          "min_ms": 3079,
+          "max_ms": 19781,
+          "p95_ms": 11720,
+          "prompt_tokens": 24262,
+          "output_tokens": 5264,
+          "thoughts_tokens": 12101,
+          "total_tokens": 41627,
+          "finish_reasons": {
+            "STOP": 37
+          }
+        },
+        "semantic_calls": 34,
+        "semantic_cache_hits": 0,
+        "policy": {
+          "count": 3,
+          "avg_ms": 46133,
+          "min_ms": 3,
+          "max_ms": 138394,
+          "p95_ms": 138394
+        },
+        "cost_tokens": 41833,
+        "cost_usd": 0.08398875,
+        "cost_cop": 268.297
+      }
+    },
+    {
+      "invoice": "D63260807482",
+      "snapshots": {
+        "responses": 49,
+        "semantic_responses": 46,
+        "total_tokens": 60149,
+        "negative_responses": 41,
+        "invalid_responses": 1,
+        "repeated_request_bodies": 0,
+        "models": [
+          "gemini-3.8-flash"
+        ],
+        "file_set_sha256": "017a266d4ef68e128afa217e36e401568dda0b00bf19ff83530c3fa228c4f6c0",
+        "first_saved_at": "2026-10-13T23:15:32Z",
+        "last_saved_at": "2026-10-13T23:20:03Z"
+      },
+      "persisted": {
+        "state": "manual_review",
+        "metrics": {
+          "total_campos": 26,
+          "coincidencias": 25,
+          "discrepancias": 0,
+          "omitidos": 0,
+          "no_concluyentes": 1,
+          "risk_score": 10
+        },
+        "gemini_total": {
+          "count": 49,
+          "cache_hits": 41,
+          "avg_ms": 1115,
+          "min_ms": 0,
+          "max_ms": 29381,
+          "p95_ms": 3967,
+          "prompt_tokens": 8201,
+          "output_tokens": 1398,
+          "thoughts_tokens": 4722,
+          "total_tokens": 14321,
+          "finish_reasons": {
+            "STOP": 8
+          }
+        },
+        "semantic_calls": 7,
+        "semantic_cache_hits": 39,
+        "policy": {
+          "count": 3,
+          "avg_ms": 8445,
+          "min_ms": 3,
+          "max_ms": 25329,
+          "p95_ms": 25329
+        },
+        "cost_tokens": 60149,
+        "cost_usd": 0.12139275,
+        "cost_cop": 387.7819
+      }
+    },
+    {
+      "invoice": "V12260903894",
+      "snapshots": {
+        "responses": 124,
+        "semantic_responses": 121,
+        "total_tokens": 124773,
+        "negative_responses": 106,
+        "invalid_responses": 0,
+        "repeated_request_bodies": 0,
+        "models": [
+          "gemini-3.8-flash"
+        ],
+        "file_set_sha256": "03e5fa9e711d694d1c608d05f22c9e2261f971cd0277a8e2836a7750248ab987",
+        "first_saved_at": "2026-10-14T13:40:16Z",
+        "last_saved_at": "2026-10-14T13:49:44Z"
+      },
+      "persisted": {
+        "state": "manual_review",
+        "metrics": {
+          "total_campos": 26,
+          "coincidencias": 24,
+          "discrepancias": 1,
+          "omitidos": 1,
+          "no_concluyentes": 0,
+          "risk_score": 10
+        },
+        "gemini_total": {
+          "count": 124,
+          "cache_hits": 0,
+          "avg_ms": 4839,
+          "min_ms": 3060,
+          "max_ms": 25188,
+          "p95_ms": 6371,
+          "prompt_tokens": 74390,
+          "output_tokens": 15967,
+          "thoughts_tokens": 34416,
+          "total_tokens": 124773,
+          "finish_reasons": {
+            "STOP": 124
+          }
+        },
+        "semantic_calls": 121,
+        "semantic_cache_hits": 0,
+        "policy": {
+          "count": 3,
+          "avg_ms": 183043,
+          "min_ms": 3,
+          "max_ms": 549125,
+          "p95_ms": 549125
+        },
+        "cost_tokens": 124773,
+        "cost_usd": 0.24472875,
+        "cost_cop": 778.6633
+      }
+    },
+    {
+      "invoice": "V12260406614",
+      "snapshots": {
+        "responses": 175,
+        "semantic_responses": 172,
+        "total_tokens": 173943,
+        "negative_responses": 152,
+        "invalid_responses": 0,
+        "repeated_request_bodies": 20,
+        "models": [
+          "gemini-3.8-flash"
+        ],
+        "file_set_sha256": "29709081d2593dd0c9fda5458def9226ce05f2e786fe23a7f9c6af72e55fa3f0",
+        "first_saved_at": "2026-10-14T03:18:32Z",
+        "last_saved_at": "2026-10-14T03:30:46Z"
+      },
+      "persisted": {
+        "state": "completed",
+        "metrics": {
+          "total_campos": 26,
+          "coincidencias": 26,
+          "discrepancias": 0,
+          "omitidos": 0,
+          "no_concluyentes": 0,
+          "risk_score": 0
+        },
+        "gemini_total": {
+          "count": 156,
+          "cache_hits": 0,
+          "avg_ms": 4894,
+          "min_ms": 2839,
+          "max_ms": 24987,
+          "p95_ms": 10018,
+          "prompt_tokens": 92059,
+          "output_tokens": 20729,
+          "thoughts_tokens": 43495,
+          "total_tokens": 156283,
+          "finish_reasons": {
+            "STOP": 156
+          }
+        },
+        "semantic_calls": 153,
+        "semantic_cache_hits": 0,
+        "policy": {
+          "count": 3,
+          "avg_ms": 237682,
+          "min_ms": 4,
+          "max_ms": 709711,
+          "p95_ms": 709711
+        },
+        "cost_tokens": 156283,
+        "cost_usd": 0.30988425,
+        "cost_cop": 989.9066
+      }
+    }
+  ]
+}

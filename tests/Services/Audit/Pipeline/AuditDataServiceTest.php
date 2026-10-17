@@ -119,7 +119,6 @@ final class AuditDataServiceTest extends TestCase
         // Assert:
         $this->assertSame($attachments->physicalResult, $result);
         $this->assertSame([['T38250701547', '2624']], $attachments->physicalCalls);
-        $this->assertSame([], $attachments->publicCalls);
     }
 
     private function buildService(
@@ -182,22 +181,14 @@ final class SpyAttachmentsModel extends AttachmentsModel
     public array $physicalResult = [];
     /** @var array<int,array{0:string,1:string}> */
     public array $physicalCalls = [];
-    /** @var array<int,array{0:string,1:string}> */
-    public array $publicCalls = [];
 
     public function __construct()
     {
     }
 
-    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
+    public function getPhysicalAttachmentsByDisDetNro(string $disDetNro, ?string $nitSec = null, ?string $attachmentId = null): array
     {
-        $this->physicalCalls[] = [$disDetNro, $nitSec];
+        $this->physicalCalls[] = $attachmentId !== null ? [$disDetNro, (string) $nitSec, $attachmentId] : [$disDetNro, (string) $nitSec];
         return $this->physicalResult;
-    }
-
-    public function getAttachmentsByDisDetNro(string $disDetNro, string $nitSec): array
-    {
-        $this->publicCalls[] = [$disDetNro, $nitSec];
-        return [];
     }
 }

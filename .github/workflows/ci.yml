@@ -86,6 +86,8 @@ jobs:
           fi
 
           echo "Worker registry and docker-compose services match"
+          test -f bin/audit-execution-maintenance.php
+          grep -q 'audit-execution-maintenance.php run' docker-compose.yml
 
       - name: Check for secrets in code
         run: |
@@ -110,18 +112,54 @@ jobs:
           echo "Scanning PHP code for env variable usage..."
           # Extraer todas las llamadas a getenv() y Env::get() usando \K para capturar solo el nombre de la variable
           USED_KEYS=$(grep -rhoP --include="*.php" --exclude-dir=vendor "(?:getenv|Env::get)\(['\"]\K[A-Z_][A-Z0-9_]*" . | sort -u || true)
-          
+
           EXAMPLE_KEYS=$(grep -oP "^[A-Z_][A-Z0-9_]*(?==)" .env.example | sort -u || true)
-          
+
           MISSING=""
           for key in $USED_KEYS; do
             if ! echo "$EXAMPLE_KEYS" | grep -qw "$key"; then
               MISSING="$MISSING $key"
             fi
           done
-          
+
           if [ -n "$MISSING" ]; then
             echo "::error::Variables usadas en PHP pero ausentes en .env.example:$MISSING"
             exit 1
           fi
           echo "Env contract is complete"
+
+  redis-integration:
+    name: Durable execution & Redis integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      RUN_REDIS_INTEGRATION: "1"
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo, mbstring
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Run isolated Redis contracts
+        env:
+          REDIS_SERVICE_ID: ${{ job.services.redis.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$REDIS_SERVICE_ID" redis-cli CONFIG SET appendonly yes appendfsync always maxmemory-policy noeviction
+          vendor/bin/phpunit --configuration phpunit.xml tests/Integration --no-coverage --do-not-cache-result

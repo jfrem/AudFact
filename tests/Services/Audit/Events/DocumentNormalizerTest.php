@@ -36,18 +36,18 @@ final class DocumentNormalizerTest extends TestCase
         $store = $this->createMock(AuditStateStore::class);
         $store->expects($this->exactly(2))->method('markDocumentNormalized')->willReturn(true);
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->exactly(2))->method('xAdd')->with(
-            $stream,
-            $this->callback(function (array $fields) use ($routing, $event): bool {
-                $child = AuditEvent::fromArray(json_decode($fields['event'], true, flags: JSON_THROW_ON_ERROR));
+        $redis->expects($this->exactly(2))->method('eval')->with(
+            $this->anything(),
+            [$stream],
+            $this->callback(function (array $args) use ($routing, $event): bool {
+                $child = AuditEvent::fromArray(json_decode($args[0], true, flags: JSON_THROW_ON_ERROR));
                 $this->assertSame(AuditEvent::TYPE_DOCUMENT_NORMALIZED, $child->eventType);
                 $this->assertSame($event->eventId, $child->parentEventId);
                 $this->assertSame('doc-1', $child->documentId);
                 $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
                 $this->assertArrayNotHasKey('extraction_result', $child->payload);
                 return true;
-            }),
-            $this->anything()
+            })
         )->willReturn('1-0');
         $worker = new DocumentNormalizer(
             stateStore: $store,

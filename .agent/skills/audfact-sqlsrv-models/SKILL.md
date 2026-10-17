@@ -91,6 +91,14 @@ Política del executor:
 
 **DSN**: `sqlsrv:Server={host},{port};Database={db};TrustServerCertificate=yes;ConnectionPooling={0|1};LoginTimeout={timeout}`
 
+En Linux, `ConnectionPooling=1` en el DSN no activa por sí solo el pooling.
+Verificar el `odbcinst.ini` efectivo: Microsoft requiere `[ODBC] Pooling=Yes`
+y `CPTimeout` positivo en la sección del driver. Separar duración de apertura
+PDO y duración de `SELECT 1` antes de atribuir toda latencia a la consulta.
+Mantener el PDO fresco por operación y los límites de replay del executor;
+evaluar el pooling ODBC con pruebas de desconexión y BLOB antes de habilitarlo.
+Referencia: [pooling oficial de Microsoft](https://learn.microsoft.com/en-us/sql/connect/php/connection-pooling-microsoft-drivers-for-php-for-sql-server).
+
 **Opciones PDO**:
 - `ERRMODE_EXCEPTION` — siempre lanza excepciones
 - `FETCH_ASSOC` — arrays asociativos por defecto

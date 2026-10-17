@@ -15,8 +15,10 @@ export const endpoints = {
   },
   dispensationById: (disId: string, disDetNro: string) => `/dispensation/${disId}/${disDetNro}`,
   dispensationLookup: () => "/dispensation",
-  dispensationAttachments: (disDetNro: string, nitSec: string | number) =>
-    `/dispensation/${disDetNro}/attachments/${nitSec}`,
+  dispensationAttachments: (disDetNro: string, nitSec?: string | number | null) =>
+    nitSec
+      ? `/dispensation/${disDetNro}/attachments/${nitSec}`
+      : `/dispensation/${disDetNro}/attachments`,
   attachmentDownload: (disDetNro: string, attachmentId: string | number) =>
     `/dispensation/${disDetNro}/attachments/download/${attachmentId}`,
   auditSingle: () => "/audit/single",

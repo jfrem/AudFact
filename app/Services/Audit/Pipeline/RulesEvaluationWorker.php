@@ -38,7 +38,9 @@ final class RulesEvaluationWorker extends AuditEventConsumer
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
 
-        if ($policyEngine === null) {
+        if ($policyEngine === null && AuditExecutionConfig::fromEnv()->version === 2) {
+            $this->policyEngine = new DocumentPolicyEngine();
+        } elseif ($policyEngine === null) {
             $gateway = GeminiGateway::create(lane: $this->laneEnum);
             $semanticJudge = new SemanticMatchJudge($gateway, $this->redis);
             $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
@@ -72,10 +74,6 @@ final class RulesEvaluationWorker extends AuditEventConsumer
     protected function handle(AuditEvent $event): void
     {
         $start = microtime(true);
-
-        if (!$this->isPolicyInputEvent($event)) {
-            return;
-        }
 
         if ($event->auditId === null || $event->documentId === null) {
             throw new RuntimeException("{$event->eventType} sin audit_id o document_id");
@@ -158,12 +156,94 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $this->persistenceQueue->enqueue($persistenceEvent);
     }
 
-    private function isPolicyInputEvent(AuditEvent $event): bool
+    protected function eventTypes(): array
     {
-        return in_array($event->eventType, [
+        return [
             AuditEvent::TYPE_DOCUMENT_NORMALIZED,
             AuditEvent::TYPE_DOCUMENT_REJECTED,
-        ], true);
+            AuditEvent::TYPE_SEMANTIC_RESOLVED,
+        ];
+    }
+
+    public function taskStage(): ?AuditTaskStage
+    {
+        return AuditTaskStage::POLICY;
+    }
+
+    public function prepareTask(AuditTask $task): array
+    {
+        $event = $task->event();
+        [$audit, $document] = $this->loadPolicyContext($event);
+        $effects = AuditTaskEffects::empty($task);
+        $effects['evaluation_base_revision'] = (int) ($audit['evaluation_revision'] ?? 0);
+        if (($document['status'] ?? '') === 'evaluated') {
+            return $effects;
+        }
+        $start = hrtime(true);
+        $facNro = (string) ($audit['dis_det_nro'] ?? '');
+        $store = new SemanticEvaluationStore($this->redis);
+        $plan = null;
+        if ($event->eventType === AuditEvent::TYPE_SEMANTIC_RESOLVED) {
+            $plan = $store->get((string) $event->auditId, (string) $event->documentId, (string) ($event->payload['plan_id'] ?? ''));
+            if ($plan['state'] !== SemanticPlanState::READY->value || $plan['generation'] !== ($event->payload['generation'] ?? null)
+                || $plan['source_fingerprint'] !== ($event->payload['source_fingerprint'] ?? null)) {
+                throw new RuntimeException('semantic_continuation_invalid');
+            }
+            $result = $this->policyEngine->evaluateResolved($plan['snapshot'], SemanticEvaluationStore::results($plan));
+            $metrics = array_values($plan['requests']);
+            $result['gemini_semantic_metrics'] = ['semantic' => $metrics, 'semantic_calls' => count($metrics),
+                'semantic_cache_hits' => count(array_filter($plan['pairs'], static fn(array $pair): bool => ($pair['result']['source'] ?? '') === 'cache')),
+                'execution_version' => 2];
+            $revision = $plan['revision'];
+            $plan['state'] = SemanticPlanState::CONSUMED->value;
+            $effects['source_fingerprint'] = $plan['source_fingerprint'];
+            $effects['semantic_changes'][] = ['op' => 'consume_plan', 'plan_id' => $plan['plan_id'],
+                'generation' => $plan['generation'], 'expected_revision' => $revision, 'data' => $plan];
+        } elseif ($event->eventType === AuditEvent::TYPE_DOCUMENT_REJECTED) {
+            $result = $this->buildRejectedPolicyResult($document, $event->payload, $facNro);
+        } else {
+            if (isset($document['semantic_plan_id'])) {
+                // La instantánea congelada ya tiene tareas o una continuación durable.
+                $store->get((string) $event->auditId, (string) $event->documentId, $document['semantic_plan_id']);
+                return $effects;
+            }
+            $planning = $this->policyEngine->plan($document, $event->payload, $facNro);
+            if ($planning['requires_semantics']) {
+                $snapshot = ['document_state' => $document, 'normalized_payload' => $event->payload, 'fac_nro' => $facNro,
+                    'source_event' => $event->toArray(), 'versions' => ['model' => (string) \Core\Env::get('GEMINI_MODEL', 'gemini-3.7-flash'),
+                        'prompt' => \App\Services\Audit\SemanticBatchContract::VERSION, 'rules' => $event->versionRules,
+                        'normalizer' => $event->versionNormalizer, 'extractor' => $event->versionExtractor]];
+                $plan = $store->buildPlan($snapshot, $planning['candidates']);
+                $plan['planned_at_ms'] = (new FairAuditTaskQueue($this->redis, AuditExecutionConfig::fromEnv()))->nowMs();
+                foreach (SemanticEvaluationStore::events($plan) as $next) {
+                    $effects['outbox'][] = AuditTaskEffects::event($task, $next, $next->eventId);
+                }
+                $effects['semantic_changes'][] = ['op' => 'create_plan', 'plan_id' => $plan['plan_id'],
+                    'generation' => $plan['generation'], 'expected_revision' => null, 'data' => $plan];
+                $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'patch_document', $event->documentId,
+                    ['semantic_plan_id' => $plan['plan_id'], 'policy_state' => $plan['state'], 'source_fingerprint' => $plan['source_fingerprint']]);
+                $effects['source_fingerprint'] = $plan['source_fingerprint'];
+                return $effects;
+            }
+            $result = $planning['provisional_result'];
+        }
+        $patch = $this->buildDocumentPatch($result, self::elapsedMs($start));
+        $patch['policy_state'] = 'evaluated';
+        if ($plan !== null) {
+            $patch['semantic_wait_ms'] = max(0, (new FairAuditTaskQueue($this->redis, AuditExecutionConfig::fromEnv()))->nowMs()
+                - (int) ($plan['planned_at_ms'] ?? 0));
+            $patch['semantic_pairs'] = count($plan['pairs']);
+        }
+        $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'mark_evaluated', $event->documentId, $patch);
+        $audit['documents'][$event->documentId] = array_merge($document, $patch);
+        $audit['docs_evaluated'] = (int) ($audit['docs_evaluated'] ?? 0) + 1;
+        if ($this->isAuditReadyForRulesEvaluation($audit) && !isset($audit['rules_evaluated_result'])) {
+            $rules = $this->aggregateRulesEvaluation($audit);
+            $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'store_rules_evaluation', null, $rules);
+            $next = AuditTaskEffects::followUp($task, AuditEvent::TYPE_RULES_EVALUATED, $rules, null, 'rules');
+            $effects['outbox'][] = AuditTaskEffects::event($task, $next, 'rules');
+        }
+        return $effects;
     }
 
     /**

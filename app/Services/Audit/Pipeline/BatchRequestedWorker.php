@@ -68,12 +68,13 @@ final class BatchRequestedWorker extends AuditEventConsumer
         return $this->consumerName;
     }
 
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_BATCH_REQUESTED];
+    }
+
     protected function handle(AuditEvent $event): void
     {
-        if ($event->eventType !== AuditEvent::TYPE_BATCH_REQUESTED) {
-            return;
-        }
-
         $this->handleBatchRequested($event);
     }
 

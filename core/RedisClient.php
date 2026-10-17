@@ -441,6 +441,59 @@ class RedisClient
         return $this->client->eval(...$evalArgs);
     }
 
+    /** Información del servidor usada por preflight y control de capacidad. */
+    /** SCAN paginado para mantenimiento; nunca se usa para reclamar turnos. */
+    public function scanKeys(string $pattern, string $cursor = '0', int $count = 100): array
+    {
+        if ($count < 1 || $count > 1000 || !ctype_digit($cursor)) {
+            throw new \InvalidArgumentException('redis_scan_invalid');
+        }
+        if (!$this->isAvailable()) {
+            throw new RedisUnavailableException('Redis no disponible');
+        }
+        $raw = $this->client->executeRaw(['SCAN', $cursor, 'MATCH', $this->prefix . $pattern, 'COUNT', $count]);
+        if (!is_array($raw) || count($raw) !== 2 || !is_array($raw[1])) {
+            throw new \RuntimeException('redis_scan_response_invalid');
+        }
+        return [(string) $raw[0], array_map(fn(string $key): string => substr($key, strlen($this->prefix)), $raw[1])];
+    }
+
+    public function serverInfo(string $section): array
+    {
+        if (!in_array($section, ['memory', 'persistence', 'stats'], true) || !$this->isAvailable()) {
+            throw new \RuntimeException('Redis INFO no disponible');
+        }
+        $raw = $this->client->executeRaw(['INFO', $section]);
+        if (!is_string($raw)) {
+            throw new \RuntimeException('Respuesta INFO Redis inválida');
+        }
+        $fields = [];
+        foreach (preg_split('/\r?\n/', $raw) as $line) {
+            if ($line !== '' && $line[0] !== '#' && str_contains($line, ':')) {
+                [$key, $value] = explode(':', $line, 2);
+                $fields[$key] = $value;
+            }
+        }
+        return $fields;
+    }
+
+    public function serverConfiguration(array $names): array
+    {
+        $allowed = ['appendonly', 'appendfsync', 'maxmemory-policy', 'maxmemory'];
+        if ($names === [] || array_diff($names, $allowed) !== [] || !$this->isAvailable()) {
+            throw new \RuntimeException('Redis CONFIG no disponible');
+        }
+        $raw = $this->client->executeRaw(array_merge(['CONFIG', 'GET'], $names));
+        if (!is_array($raw) || count($raw) !== count($names) * 2) {
+            throw new \RuntimeException('Respuesta CONFIG Redis inválida');
+        }
+        $fields = [];
+        for ($i = 0; $i < count($raw); $i += 2) {
+            $fields[(string) $raw[$i]] = (string) $raw[$i + 1];
+        }
+        return $fields;
+    }
+
     public function xAdd(string $stream, array $fields, ?int $maxLen = null): ?string
     {
         if (!$this->isAvailable()) {

@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 
 final class AttachmentsModelTest extends TestCase
 {
-    public function testGetAttachmentsByDisDetNroUsesCanonicalAttachmentAliases(): void
+    public function testGetPhysicalAttachmentsByDisDetNroUsesCanonicalAttachmentAliases(): void
     {
         $pdo = new AttachmentsFakePdo();
         $model = $this->makeModelWithReadDb($pdo);
@@ -23,7 +23,7 @@ final class AttachmentsModelTest extends TestCase
             ],
         ];
 
-        $result = $model->getAttachmentsByDisDetNro('T38250701547', '2426');
+        $result = $model->getPhysicalAttachmentsByDisDetNro('T38250701547', '2426');
 
         $this->assertSame($pdo->nextResult, $result);
         $this->assertStringContainsString('a.DisId AS [dispensacion_id]', $pdo->preparedSql);
@@ -34,6 +34,28 @@ final class AttachmentsModelTest extends TestCase
         $this->assertStringNotContainsString('AS [factura]', $pdo->preparedSql);
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':disDetNro']);
         $this->assertSame('2426', $pdo->statement->boundValues[':nitSec']);
+    }
+
+    public function testGetPhysicalAttachmentsByDisDetNroWithoutNitSecResolvesAutomatically(): void
+    {
+        $pdo = new AttachmentsFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [
+            [
+                'dispensacion_id' => 'DIS-ID',
+                'dis_det_nro'     => 'D12260900335',
+                'cliente'         => '2426',
+            ],
+        ];
+
+        $result = $model->getPhysicalAttachmentsByDisDetNro('D12260900335');
+
+        $this->assertSame($pdo->nextResult, $result);
+        $this->assertStringContainsString('INNER JOIN Dispensacion disp WITH (NOLOCK) ON disp.DisId = d.DisId', $pdo->preparedSql);
+        $this->assertStringContainsString('disp.DisNitSec AS [cliente]', $pdo->preparedSql);
+        $this->assertStringNotContainsString('AND disp.DisNitSec = :nitSec', $pdo->preparedSql);
+        $this->assertSame('D12260900335', $pdo->statement->boundValues[':disDetNro']);
+        $this->assertArrayNotHasKey(':nitSec', $pdo->statement->boundValues);
     }
 
     public function testGetPhysicalAttachmentsByDisDetNroReturnsPhysicalMappingFields(): void
@@ -47,13 +69,32 @@ final class AttachmentsModelTest extends TestCase
 
         // Assert:
         $this->assertStringContainsString('a.AdjDisId AS [attachment_id]', $pdo->preparedSql);
+        $this->assertStringContainsString('a.AdjDisId AS [id_adjunto_fisico]', $pdo->preparedSql);
         $this->assertStringContainsString('n.NitMedDocId AS [physical_catalog_id]', $pdo->preparedSql);
+        $this->assertStringContainsString('n.NitMedDocId AS [id_documento]', $pdo->preparedSql);
         $this->assertStringContainsString('n.NitMedDocNom AS [physical_document_name]', $pdo->preparedSql);
+        $this->assertStringContainsString('n.NitMedDocNom AS [nombre_documento]', $pdo->preparedSql);
         $this->assertStringNotContainsString("n.NitMedDocOpc = 'N'", $pdo->preparedSql);
-        $this->assertStringContainsString('LEFT JOIN NitDocumentos n', $pdo->preparedSql);
-        $this->assertStringContainsString('AND n.NitSec = :nitSec', $pdo->preparedSql);
-        $this->assertStringNotContainsString('WHERE d.DisDetNro = :disDetNro AND n.NitSec', $pdo->preparedSql);
+        $this->assertStringContainsString('INNER JOIN Dispensacion disp WITH (NOLOCK) ON disp.DisId = d.DisId', $pdo->preparedSql);
+        $this->assertStringContainsString('LEFT JOIN NitDocumentos n WITH (NOLOCK) ON n.NitMedDocId = a.AdjDisDocId AND n.NitSec = disp.DisNitSec', $pdo->preparedSql);
+        $this->assertStringContainsString('AND disp.DisNitSec = :nitSec', $pdo->preparedSql);
         $this->assertStringContainsString('WHERE d.DisDetNro = :disDetNro', $pdo->preparedSql);
+        $this->assertSame('T38250701547', $pdo->statement->boundValues[':disDetNro']);
+        $this->assertFalse(isset($pdo->statement->boundValues[':attachmentId']));
+    }
+
+    public function testGetPhysicalAttachmentsByDisDetNroWithAttachmentIdFiltersByAttachmentId(): void
+    {
+        // Arrange:
+        $pdo = new AttachmentsFakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        // Act:
+        $model->getPhysicalAttachmentsByDisDetNro('T38250701547', '2426', '14250781');
+
+        // Assert:
+        $this->assertStringContainsString('AND a.AdjDisId = :attachmentId', $pdo->preparedSql);
+        $this->assertSame('14250781', $pdo->statement->boundValues[':attachmentId']);
         $this->assertSame('T38250701547', $pdo->statement->boundValues[':disDetNro']);
         $this->assertSame('2426', $pdo->statement->boundValues[':nitSec']);
     }

@@ -9,13 +9,12 @@ use RuntimeException;
 
 final class AttachmentDownloadWorker extends AuditEventConsumer
 {
-    private const DEFAULT_BLOB_TTL_SECONDS = 3600;
     private const BLOB_KEY_PREFIX = 'audit:blob';
 
     private AttachmentDownloadService $downloader;
     private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
-    private int $blobTtl;
+    private AuditDocumentCache $documentCache;
 
     public function __construct(
         ?AuditStateStore           $stateStore         = null,
@@ -25,15 +24,19 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         ?string                    $consumerName       = null,
         ?TelemetryPublisher        $telemetryPublisher = null,
         ?int                       $blobTtl            = null,
-        string|AuditLane|null      $lane               = null
+        string|AuditLane|null      $lane               = null,
+        ?AuditDocumentCache        $documentCache      = null
     ) {
         parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->downloader         = $downloader         ?? new AttachmentDownloadService();
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName       = $consumerName       ?? self::defaultConsumerName('downloader', $this->laneEnum);
-        $resolvedBlobTtl          = $blobTtl ?? self::DEFAULT_BLOB_TTL_SECONDS;
-        $this->blobTtl            = $resolvedBlobTtl > 0 ? $resolvedBlobTtl : self::DEFAULT_BLOB_TTL_SECONDS;
+        $resolvedBlobTtl = $blobTtl ?? AuditDocumentCache::DEFAULT_TTL_SECONDS;
+        $this->documentCache = $documentCache ?? new AuditDocumentCache(
+            $this->redis,
+            ttlSeconds: $resolvedBlobTtl > 0 ? $resolvedBlobTtl : AuditDocumentCache::DEFAULT_TTL_SECONDS
+        );
     }
 
     protected function streams(): array
@@ -54,12 +57,13 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         return $this->consumerName;
     }
 
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_DOCUMENT_REGISTERED];
+    }
+
     protected function handle(AuditEvent $event): void
     {
-        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_REGISTERED) {
-            return;
-        }
-
         if ($event->auditId === null || $event->documentId === null) {
             throw new RuntimeException('document_registered sin audit_id o document_id');
         }
@@ -105,11 +109,12 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         try {
             $documentHash = $this->documentHash($document);
             $blobKey = $this->blobKey((string) $event->auditId, (string) $event->documentId, $documentHash);
-            $this->persistBlob($blobKey, $document);
+            $cached = $this->documentCache->put($blobKey, $document);
 
             $newPayload = array_merge($payload, [
                 'blob_reference_key' => $blobKey,
                 'document_hash'      => $documentHash,
+                'blob_cache_stored'  => $cached,
             ]);
 
             $this->publisher->publish($event->followUp(
@@ -124,7 +129,7 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
                 self::elapsedMs($downloadStartedAt),
                 $event->documentId,
                 $disDetNro,
-                array_merge($telemetryMeta, ['attachment_id' => $attachmentId]),
+                array_merge($telemetryMeta, ['attachment_id' => $attachmentId, 'blob_cache_stored' => $cached]),
                 $event->jobId
             );
         } catch (\Throwable $error) {
@@ -157,17 +162,6 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     private function blobKey(string $auditId, string $documentId, string $documentHash): string
     {
         return self::BLOB_KEY_PREFIX . ":{$auditId}:{$documentId}:{$documentHash}";
-    }
-
-    /**
-     * @param array<string,mixed> $document
-     */
-    private function persistBlob(string $blobKey, array $document): void
-    {
-        $encoded = json_encode($document, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!$this->redis->set($blobKey, $encoded, $this->blobTtl)) {
-            throw new RuntimeException('No se pudo persistir BLOB documental en Redis');
-        }
     }
 
     /**

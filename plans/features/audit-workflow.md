@@ -6,6 +6,13 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 ## Fuentes de Verdad
 
+- [Confiabilidad para alto volumen](../ajustes-alto-volumen-2026-10-08.md):
+  caché global acotada con recuperación verificada, retención segura de eventos,
+  consumidores selectivos y recuperación DLQ independiente.
+- [Ejecución justa v2](../sdd-homologacion-semantica-asincrona-ejecucion-justa.md):
+  implementación local de homologación asíncrona, cuotas, fencing y outbox.
+  Execution=1 permanece activo hasta verificar los requisitos del corte.
+
 - Rutas: `app/Routes/web.php`
 - Arquitectura técnica: `plans/architecture.md`
 - Flujo secuencial: `plans/data-flows.md`
@@ -40,7 +47,8 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `DocumentAuditOrchestrator` | Resuelve FDV/config/adjuntos, reconcilia documentos lógicos con adjuntos físicos y publica registros o rechazos controlados |
 | `DocumentAttachmentMatcher` | Aplica una reconciliación global 1:1 por nombre exacto, ID corroborado y alias único, sin I/O ni heurística de primer candidato |
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
-| `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, guarda el BLOB temporal en Redis y propaga fallos técnicos sin publicar rechazos funcionales |
+| `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, admite caché global si cabe y publica referencias/hash; propaga fallos técnicos |
+| `AuditDocumentCache` / `AuditDocumentInput` | Caché global acotada, recuperación desde origen durante extracción y verificación del mismo SHA256 de base64 |
 | `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
 | `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI) con Ghostscript y fallback Poppler; solo diagnósticos reconocidos de PDF sin páginas/corrupto generan rechazo documental tipado, mientras los fallos operativos siguen siendo técnicos |
@@ -57,6 +65,25 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `AuditStatusModel` | Lectura de resultados y timings persistidos |
 
 ## Flujo de Eventos
+
+En v1, la homologación remota corre dentro de policy. En v2, normalized →
+plan PHP → semantic_requested → ondas Gemini → semantic_resolved → evaluación
+PHP → rules_evaluated conserva todos los candidatos necesarios sin top-k.
+Los resultados provisionales nunca son hallazgos finales. Un error remoto no
+se convierte en un rechazo clínico; agotamiento produce fallo técnico/DLQ.
+Policy mantiene status documental normalized mientras espera y evalúa una vez
+cuando el plan está ready. El job no termina por sealed ni por ready solamente.
+
+Mantenimiento admite en Lua y ACK después de guardar la tarea. Los workers
+programados reclaman turnos por job, preparan efectos y confirman con fence;
+outbox publica una vez por efecto local. Las respuestas válidas se guardan
+antes del commit para reutilizarse en reentregas. La API continúa 202 y conserva
+IDs/contadores; pausa o backpressure retorna 503 antes de reservar identidad.
+
+La recuperación desde fuente conserva locator y SHA256; la caché de BLOB es
+acotada, recuperable y puede caducar. Raíces, snapshots y continuaciones v2
+activas no tienen TTL. Migración recupera PEL/unread y continuaciones ya ACKed,
+preserva terminales y slots; no reconstruye payload faltante con FDV nuevo.
 
 ```text
 batch_requested
@@ -145,8 +172,10 @@ Para una auditoría afectada:
    consumidor, idle, reintentos y logs; un evento abandonado se recupera por el
    mecanismo existente de reclaim. No reclamar uno que aún está ejecutándose.
 4. Si terminó en DLQ, corregir primero el fallo técnico y usar el reproceso
-   administrativo existente sobre el evento original. Sus metadatos se
-   conservan; un evento antiguo sin metadatos seguirá en batch. Si el evento no
+   administrativo sobre su entrada DLQ. Se crea una auditoría independiente,
+   idempotente por auditoría original; consultar su nuevo audit_id. El job histórico
+   conserva sus contadores. El carril explícito se conserva;
+   un evento antiguo sin metadatos seguirá en batch. Si el evento no
    existe, detener el reproceso automático y reconstruir su trazabilidad antes
    de cualquier intervención. No fabricar resultados ni duplicar publicaciones
    para adelantar la cola.

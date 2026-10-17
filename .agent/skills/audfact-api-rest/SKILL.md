@@ -8,6 +8,14 @@ description: Diseñar, crear o modificar endpoints REST del proyecto AudFact. Us
 ## Objetivo
 Implementar cambios de API REST sin romper el contrato JSON ni las validaciones existentes.
 
+## Contratos de ejecución v2
+
+- POST single/async verifican pausa/protocolo/heartbeat/cuota/capacidad antes de crear identidades; 503 con Retry-After:5 y mensaje público de capacidad, sin información interna.
+- GET metrics añade executionVersion, executionScheduler, geminiBudget y executionMaintenance; semanticPlans es objeto JSON, incluso vacío. queueDepth/backlogDepth incluyen tareas v2 ya ACKed; no son documentos únicos. Lectura inconsistente: 503 sin payload parcial.
+- Timings conserva versión 1 histórica; versión 2 separa espera/pares/generaciones exitosas e intentos HTTP/countTokens/fallidos/unknown. No sumar uso una vez por par.
+- DLQ reprocess respeta compuerta de admisión y conserva recuperación independiente del job histórico. No habilitar v2 automáticamente por agregar campos a la API.
+- Ver plans/api-endpoints.md y SDD de ejecución justa; pruebas del controlador y schema frontend deben concordar, también para mapas vacíos.
+
 > [!TIP]
 > Consulta la documentación completa de endpoints en [api-endpoints.md](file:///c:/Users/USER/Desktop/AudFact/plans/api-endpoints.md).
 
@@ -20,7 +28,7 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `app/Controllers/AttachmentsController.php` | 7.6 KB | Controlador de metadatos y stream/download de adjuntos |
 | `app/Controllers/AuditConfigController.php` | 8.9 KB | Configuración dinámica de auditoría por cliente |
 | `app/Controllers/AuditController.php` | ~25.1 KB | Auditoría async/single, resumen/detalle de resultados, stats, jobs y timings |
-| `app/Controllers/AuditDlqController.php` | 4.6 KB | Consulta y reproceso de DLQ; `rules_evaluated` se reencola mediante el scheduler de persistencia |
+| `app/Controllers/AuditDlqController.php` | Consulta/reproceso | Recuperación DLQ idempotente mediante `AuditStateStore::recoverFailedAudit`; nueva raíz, auditoría independiente y contadores históricos preservados |
 | `app/Controllers/AuditFlowController.php` | 3 KB | Stream SSE de telemetría live por `audit_id` UUID v4 |
 | `app/Controllers/ObservabilityController.php` | ~7.6 KB | Métricas async Redis por XINFO/eval, incluido el backlog de persistencia y legacy |
 | `app/Controllers/InvoicesController.php` | 2.5 KB | Búsqueda de facturas |
@@ -77,6 +85,14 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 - Ambas modalidades son asíncronas y están consumidas por el portal en `frontend/lib/api/audfact.ts`. Solicitar procesamiento de registros existentes no acredita una carga manual de archivos.
 
 Fuente: `AuditController::single()/async()/status()/jobStatus()`; contrato detallado en `plans/api-endpoints.md`.
+
+`POST /audit/dlq/reprocess` conserva `streamId` y HTTP 200, pero devuelve la nueva
+identidad de recuperación (`audit_id`, `reprocessed_event_id`, `event_type=audit_created`)
+y `original_audit_id` / `original_job_id`. Repetir eventos de una misma auditoría
+retorna el mismo intento durante su TTL. Solo admite estado `failed` con identidad
+disponible; activos, exitosos, estado expirado o eventos sin auditoría producen 409.
+Redis produce 503 registrado; evento original inválido o streamId malformado, 422;
+entrada DLQ inexistente, 404. No reabrir contadores ni republicar el event_id fallido.
 
 `GET /metrics/async` conserva PEL en queueDepth/streamDepths y agrega streamBacklogs (pending/lag/lagKnown), persistenceScheduler (active/pending/scopes) y backlogDepth (PEL + lag conocido + pendientes internos). No contar activos dos veces ni interpretar trabajo de grupos como documentos únicos. Un error Redis produce 503 registrado. Lista y detalle de jobs comparten throughput_per_sec basado en tiempo de pared desde created_at y elapsed_ms; los terminales se congelan en completed_at, con fallback updated_at legacy.
 

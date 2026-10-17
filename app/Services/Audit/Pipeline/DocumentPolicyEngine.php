@@ -11,20 +11,39 @@ use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\SemanticMatchJudge;
+use App\Services\Audit\SemanticMatchResolver;
+use App\Services\Audit\SemanticCandidateCollector;
+use App\Services\Audit\ResolvedSemanticResolver;
 use App\Services\Audit\TextNormalization;
+use App\Services\Audit\SemanticMatchPurpose;
 use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private ?SemanticMatchJudge $semanticJudge;
+    private ?SemanticMatchResolver $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
     private int $semanticCacheHits = 0;
 
     public function __construct(
-        ?SemanticMatchJudge $semanticJudge = null
+        ?SemanticMatchResolver $semanticJudge = null
     ) {
         $this->semanticJudge = $semanticJudge;
+    }
+
+    public function plan(array $documentState, array $normalizedPayload, string $facNro = ''): array
+    {
+        $collector = new SemanticCandidateCollector();
+        $result = (new self($collector))->evaluate($documentState, $normalizedPayload, $facNro);
+        $candidates = $collector->candidates();
+        return ['requires_semantics' => $candidates !== [], 'candidates' => $candidates, 'provisional_result' => $result];
+    }
+
+    public function evaluateResolved(array $snapshot, array $resolvedResults): array
+    {
+        return (new self(new ResolvedSemanticResolver($resolvedResults)))->evaluate(
+            $snapshot['document_state'], $snapshot['normalized_payload'], (string) ($snapshot['fac_nro'] ?? '')
+        );
     }
 
     /**
@@ -766,9 +785,9 @@ class DocumentPolicyEngine
     ): array {
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
-        // Normalizar ambos sets
-        $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $fdvArticles);
-        $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeText($a), $docArticles);
+        // Normalizar ambos sets con limpieza de sufijos farmac�uticos
+        $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $fdvArticles);
+        $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $docArticles);
 
         /** @var array<int,int> Mapa fdvIdx => docIdx emparejado */
         $matchedFdv = [];
@@ -786,12 +805,32 @@ class DocumentPolicyEngine
             }
         }
 
-        // Fase 2: Similitud léxica para los no emparejados
+        // Fase 1.5: Token-Sorted Jaccard para inversiones de principios activos compuestos
+        // Resuelve pares como TAMSULOSINA+DUTASTERIDA vs DUTASTERIDA+TAMSULOSINA sin LLM.
+        foreach ($fdvArticles as $fi => $fdvOriginal) {
+            if (isset($matchedFdv[$fi])) {
+                continue;
+            }
+            foreach ($docArticles as $di => $docOriginal) {
+                if (in_array($di, $matchedFdv, true)) {
+                    continue;
+                }
+                if (TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal) >= 0.5) {
+                    $matchedFdv[$fi] = $di;
+                    break;
+                }
+            }
+        }
+
+        // Fase 2: Similitud léxica para los no emparejados (con poda de docs ya asignados)
         foreach ($fdvNorm as $fi => $fNorm) {
             if (isset($matchedFdv[$fi])) {
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
+                if (in_array($di, $matchedFdv, true)) {
+                    continue;
+                }
                 if (TextNormalization::similarity($fNorm, $dNorm) >= $threshold) {
                     $matchedFdv[$fi] = $di;
                     break;
@@ -800,29 +839,71 @@ class DocumentPolicyEngine
         }
 
         // Fase 3: SemanticMatchJudge para los no emparejados
+        // Estrategia: para cada artículo FDV huérfano, elegir el mejor candidato doc
+        // por Jaccard y enviar TODOS los pares en un solo request batch al LLM.
+        // Si el batch falla o el resolver no soporta batch, degradar a evaluación individual.
         if ($this->semanticJudge !== null) {
             $docContextStr = $this->buildDocumentContextSummary($context, $field);
+
+            // Construir pares huérfanos: cada FDV → top-1 doc por Jaccard (excluir ya emparejados)
+            $orphanPairs = [];
             foreach ($fdvArticles as $fi => $fdvOriginal) {
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
-                foreach ($docArticles as $di => $docOriginal) {
-                    $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docOriginal, array_merge($context, [
-                        'field' => $field,
-                        'tipoCampo' => $tipoCampo,
-                        'tipoDato' => AuditFieldValueType::ARTICLE_NAME->value,
-                        'call_purpose' => SemanticMatchJudge::PURPOSE_PRODUCT_MATCH,
-                        'document_context' => $docContextStr,
-                    ]));
-                    if (is_array($judgeResult['gemini_metrics'] ?? null)) {
-                        $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
+                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $matchedFdv);
+                if ($candidates === []) {
+                    continue;
+                }
+                $bestDocIdx = array_key_first($candidates);
+                $orphanPairs[] = [
+                    'fi' => $fi,
+                    'di' => $bestDocIdx,
+                    'expected' => $fdvOriginal,
+                    'actual' => $docArticles[$bestDocIdx],
+                ];
+            }
+
+            // Intentar evaluación batch (1 sola llamada LLM para todos los pares)
+            $batchResolved = $this->tryBatchSemanticMatch($orphanPairs, $docContextStr, $context, $field, $tipoCampo);
+
+            if ($batchResolved !== null) {
+                // Batch exitoso: asignar resultados
+                foreach ($batchResolved as $pairResult) {
+                    if ($pairResult['is_match']) {
+                        $matchedFdv[$pairResult['fi']] = $pairResult['di'];
                     }
-                    if (($judgeResult['cache_hit'] ?? false) === true) {
-                        $this->semanticCacheHits++;
+                }
+                if (is_array($batchResolved['_gemini_metrics'] ?? null)) {
+                    $this->semanticMetrics[] = $batchResolved['_gemini_metrics'];
+                }
+            } else {
+                // Fallback: evaluación individual con Jaccard sort (comportamiento pre-batch)
+                foreach ($fdvArticles as $fi => $fdvOriginal) {
+                    if (isset($matchedFdv[$fi])) {
+                        continue;
                     }
-                    if ($judgeResult['is_match']) {
-                        $matchedFdv[$fi] = $di;
-                        break;
+                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $matchedFdv);
+
+                    foreach ($candidates as $di => $jaccardScore) {
+                        $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docArticles[$di], array_merge($context, [
+                            'semantic_row_index' => $fi,
+                            'field' => $field,
+                            'tipoCampo' => $tipoCampo,
+                            'tipoDato' => AuditFieldValueType::ARTICLE_NAME->value,
+                            'call_purpose' => SemanticMatchJudge::PURPOSE_PRODUCT_MATCH,
+                            'document_context' => $docContextStr,
+                        ]));
+                        if (is_array($judgeResult['gemini_metrics'] ?? null)) {
+                            $this->semanticMetrics[] = $judgeResult['gemini_metrics'];
+                        }
+                        if (($judgeResult['cache_hit'] ?? false) === true) {
+                            $this->semanticCacheHits++;
+                        }
+                        if ($judgeResult['is_match']) {
+                            $matchedFdv[$fi] = $di;
+                            break;
+                        }
                     }
                 }
             }
@@ -856,6 +937,117 @@ class DocumentPolicyEngine
         ];
     }
 
+    /**
+     * Evalúa pares de artículos huérfanos en un solo request batch al LLM.
+     *
+     * Delega a SemanticMatchJudge::evaluateBatch() que gestiona el contrato
+     * SemanticBatchContract, el routing V1/V2 y la validación de respuesta.
+     * Si el judge no soporta batch o la llamada falla, retorna null para
+     * activar el fallback individual.
+     *
+     * @param  array<int,array{fi:int,di:int,expected:string,actual:string}> $orphanPairs
+     * @return array<int,array{fi:int,di:int,is_match:bool}>|null  null = usar fallback individual
+     */
+    private function tryBatchSemanticMatch(
+        array $orphanPairs,
+        string $docContextStr,
+        array $context,
+        string $field,
+        string $tipoCampo
+    ): ?array {
+        if ($orphanPairs === [] || !($this->semanticJudge instanceof SemanticMatchJudge)) {
+            return null;
+        }
+
+        // Construir pares con formato SemanticBatchContract
+        $batchPairs = [];
+        $pairMap = []; // pair_id → orphanPair index
+        foreach ($orphanPairs as $idx => $pair) {
+            $pairId = hash('sha256', json_encode([
+                $field, $pair['fi'], $pair['di'], $pair['expected'], $pair['actual'],
+            ], JSON_THROW_ON_ERROR));
+            $batchPairs[] = [
+                'pair_id' => $pairId,
+                'expected' => $pair['expected'],
+                'actual' => $pair['actual'],
+                'purpose' => SemanticMatchPurpose::PRODUCT->value,
+                'context' => ['document_context' => $docContextStr],
+            ];
+            $pairMap[$pairId] = $idx;
+        }
+
+        if (count($batchPairs) > AuditExecutionConfig::MAX_PAIRS) {
+            return null;
+        }
+
+        try {
+            $requestContext = array_filter(
+                array_intersect_key($context, array_flip([
+                    'audit_id', 'document_id', 'dis_det_nro', 'document_type',
+                ])),
+                static fn(mixed $v): bool => $v !== null,
+            );
+            $requestContext['field'] = $field;
+            $requestContext['batch_size'] = count($batchPairs);
+            $requestContext['source'] = 'DocumentPolicyEngine::tryBatchSemanticMatch';
+
+            // evaluateBatch gestiona: SemanticBatchContract, size check, sendPrebuiltBody (V1/V2), validate
+            $batchResult = $this->semanticJudge->evaluateBatch($batchPairs, $requestContext);
+
+            // Mapear resultados (pair_id → fi/di) de vuelta a índices del motor
+            $output = [];
+            foreach ($batchResult['results'] as $pairId => $result) {
+                $idx = $pairMap[$pairId] ?? null;
+                if ($idx === null) {
+                    continue;
+                }
+                $output[] = [
+                    'fi' => $orphanPairs[$idx]['fi'],
+                    'di' => $orphanPairs[$idx]['di'],
+                    'is_match' => $result['is_match'],
+                ];
+            }
+
+            if (is_array($batchResult['request_metric'] ?? null)) {
+                $output['_gemini_metrics'] = $batchResult['request_metric'];
+            }
+
+            return $output;
+        } catch (\Throwable $e) {
+            \Core\Logger::warning('DocumentPolicyEngine: batch semantic match failed, degrading to individual', [
+                'error' => $e->getMessage(),
+                'pairs_count' => count($batchPairs),
+                'field' => $field,
+            ]);
+            return null;
+        }
+    }
+
+
+
+    /**
+     * Rankea documentos no emparejados por similitud Jaccard descendente.
+     *
+     * Excluye documentos ya asignados a otro artículo FDV en $matchedFdv.
+     * Resultado ordenado desc por score: el primer elemento es el mejor candidato.
+     *
+     * @param  string          $fdvOriginal  Artículo FDV a emparejar.
+     * @param  array<int,string> $docArticles  Todos los artículos del documento.
+     * @param  array<int,int>    $matchedFdv   Mapa fdvIdx→docIdx ya emparejado.
+     * @return array<int,float>  docIdx→jaccardScore, ordenado desc.
+     */
+    private function rankUnmatchedCandidates(string $fdvOriginal, array $docArticles, array $matchedFdv): array
+    {
+        $candidates = [];
+        foreach ($docArticles as $di => $docOriginal) {
+            if (in_array($di, $matchedFdv, true)) {
+                continue;
+            }
+            $candidates[$di] = TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal);
+        }
+        arsort($candidates);
+        return $candidates;
+    }
     /**
      * @return array{resultado:string,detalle?:string}
      */

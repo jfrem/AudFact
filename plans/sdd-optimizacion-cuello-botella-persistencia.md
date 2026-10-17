@@ -4,6 +4,14 @@ Fecha: 2026-10-07. Estrategia: **refactorización incremental**.
 Autorización: el usuario solicitó corregir el documento y aplicar los cambios al código.
 Estado: los tres hallazgos de auditoría están corregidos y validados localmente. Se conserva la sincronización remota registrada a nivel de repositorio. Sin despliegue ni medición SQL con imágenes nuevas.
 
+Actualización 2026-10-08: el diagnóstico productivo comprobó fallas masivas por
+BLOB expirado antes de extracción. Se aplicaron [defensas de alto volumen](ajustes-alto-volumen-2026-10-08.md)
+en una entrega incremental separada. `/audit/dlq/reprocess` ahora crea una raíz
+independiente idempotente y conserva el job histórico; no reutiliza el evento
+fallido ni reinicia sus contadores. Esta actualización sustituye el contrato
+administrativo de republicación descrito como consumidor de `reprocess` en esta
+línea base; `AuditPersistenceQueue::reprocess()` conserva su contrato interno.
+
 ## 0. Evidencia y contratos activos
 
 Fuentes locales: endpoint del job 9b539794-3c56-4138-a490-0baf88552597,

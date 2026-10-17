@@ -2,6 +2,15 @@
 
 ## Visión General
 
+Desde 2026-10-08, `AuditDocumentCache` acota globalmente bytes JSON/entradas
+de adjuntos y `AuditDocumentInput` recupera cache misses desde origen verificando
+hash. El downloader publica referencias incluso si no cabe el BLOB; el extractor
+lo libera después de publicar el efecto. Los consumers filtran tipos antes de
+lecturas/telemetría y omiten trabajo terminal después de recuperar cierres DLQ.
+Trabajo pendiente se conserva por todos los grupos/PEL; reproceso DLQ crea una
+raíz independiente idempotente, preservando el job original. Ver
+[contratos, límites y rollout](ajustes-alto-volumen-2026-10-08.md).
+
 AudFact sigue una arquitectura **desacoplada**. Cuenta con un **Frontend SPA moderno** construido en **Next.js (React)** que consume un **Backend REST API en PHP (custom MVC)**. El backend cuenta con un balanceador **Nginx (`least_conn`)** que reparte el tráfico sobre **múltiples réplicas Docker de PHP-FPM (static pool)** y se comunica con SQL Server para datos, Gemini API para IA, y Google Drive para almacenamiento documental. La arquitectura soporta **Alta Disponibilidad (HA)** aislando recursos compartidos (como logs multi-nodo) para evitar race-conditions en concurrencia.
 
 ### Frontend Next.js (`frontend/`)
@@ -95,7 +104,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | Archivo | Responsabilidad |
 |---|---|
 | `GeminiGateway.php` | Cliente HTTP (Guzzle) hacia la API de Gemini; implementa Circuit Breaker, retry/backoff y manejo de cuota |
-| `GeminiConfig.php` | Configuración determinista de Gemini: `temperature=0`, `topP=1`, `topK=1`, `seed=42`, `thinkingLevel=MINIMAL` |
+| `GeminiConfig.php` | Configuración por entorno; modelo actual/default gemini-3.7-flash, thinking opcional low/medium/high. MINIMAL se rechaza para ese modelo. Perfil agrupado v2 fija salida 8192 sin cambiar el perfil unitario v1. |
 | `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
 | `SemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver, integrando contexto documental |
 | `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |
@@ -174,10 +183,38 @@ terminalización técnica se publica desde `AuditEventConsumer`, incluyendo fall
 anteriores a SQL. Contrato, despliegue y recuperación de eventos antiguos:
 [flujo de auditoría](features/audit-workflow.md#continuidad-del-carril-de-auditoría).
 
-**Interfaz**: Invocados vía CLI (`php bin/audit-worker.php <worker_name>`). En `docker-compose.yml`, el launcher levanta servicios independientes: `batch=2`, `orchestrator=3`, `downloader=8`, `extraction=8`, `normalizer=2`, `policy=2`, `persistence=3`. La recuperación de mensajes `pending` se controla con `AUDIT_PENDING_RECLAIM_IDLE_MS` y `AUDIT_PENDING_RECLAIM_INTERVAL_MS`.
+**Interfaz**: CLI (`php bin/audit-worker.php <worker_name>`). Defaults Compose: batch=2, orchestrator=3, downloader=12, extraction VIP=2/batch=12, normalizer=4, policy=8 y persistence=6. V2 agrega semantic VIP=1/batch=2 y mantenimiento. Los valores productivos observados son otro inventario fechado. Reclaim v1 usa AUDIT_PENDING_RECLAIM_IDLE_MS/INTERVAL_MS; v2 recupera leases de tareas.
 
 > [!NOTE]
-> **Workers que requieren `GEMINI_API_KEY`**: `extraction` (extrae con Gemini multimodal) y `policy` (`RulesEvaluationWorker` invoca `SemanticMatchJudge` para homologación semántica de artículos/pacientes cuando el comparador determinísta no puede resolver). Un fallo de cuota o key expirada afecta ambos workers.
+> **Workers que usan Gemini**: v1 extraction y policy; v2 extraction y semantic. Policy v2 planifica y evalúa PHP sin HTTP. Las claves por carril comparten presupuesto por proyecto/modelo; no multiplican cuota.
+
+### Ejecución durable v2 — implementada, activación pendiente
+
+`AUDIT_PIPELINE_EXECUTION_VERSION=1` sigue siendo el default. V2 incorpora
+`AuditTaskStage`/`AuditTaskState`, `FairAuditTaskQueue`, `AuditTaskRunner` y
+`AuditTaskCommitter`: turno FIFO dentro del job, round-robin entre jobs y un
+lease por job/etapa/carril en orquestación, extracción, policy y semántica.
+Intake/repair/outbox/GC pertenecen a `AuditExecutionMaintenance`, independiente
+del HTTP de las tareas. Fences y receipts protegen confirmaciones tardías.
+
+`SemanticCandidateCollector` y `ResolvedSemanticResolver` separan planificación
+de evaluación. `SemanticEvaluationStore` conserva snapshot/filas/pares; el
+worker semántico procesa ondas de hasta 16 pares, 32768 bytes y 8192 tokens de
+entrada, con schema/validación estrictos. El perfil usa caché contextual v6 y
+single-flight con owner/fence; fallos de integración terminan técnicamente.
+
+`GeminiQuotaBudget` coordina countTokens y generateContent, incluyendo retries:
+RPM/TPM deslizantes, RPD por día de Los Ángeles e inflight compartido. Artifacts
+conservan respuestas antes del commit; un crash con resultado incierto mantiene
+cargos. La entrega de rules_evaluated continúa exclusivamente en el scheduler
+SQL con sus slots actuales. Estado/tareas/planes/outbox activos no expiran;
+bytes cacheados sí pueden expirar y se recuperan desde locator/hash original.
+
+Startup/admisión exigen protocolo coherente, Redis standalone/Sentinel con
+AOF/fsync always/noeviction, cuota positiva verificada y heartbeat saludable.
+El perfil Compose execution-v2 agrega semantic VIP/batch y mantenimiento;
+no se activa automáticamente por instalar la imagen. Cutover/rollback usan
+pausa, inventario/checksums y replays idempotentes. Ver [SDD y evidencia](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
 
 > [!NOTE]
 > `bin/schedule-daily-batches.php` es un script CLI independiente ubicado en `bin/` (no en `app/Services/Audit/Pipeline/`). Se ejecuta como cron dentro del contenedor PHP: `docker compose exec php php bin/schedule-daily-batches.php`.

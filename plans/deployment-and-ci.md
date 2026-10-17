@@ -2,6 +2,46 @@
 
 ## Deploy Automatizado (CD)
 
+### Corte explícito de ejecución v2
+
+El workflow agrega `execution_phase=steady|prepare|cutover|rollback`,
+`execution_run_id` y `execution_checks_passed` (false por defecto). Steady
+rechaza cambios de protocolo que requieren corte; instalar código no activa
+v2. Prepare conserva versión 1 y no recrea Redis saludable. Un Redis ausente
+puede iniciarse en steady/prepare; cutover/rollback fallan si no está vivo.
+
+Cutover exige evidencia previa de cuotas, corpus/replay, backup/restore y
+ensayo de migración. Pausa/drena PHP-FPM y workers, aplica durabilidad real,
+archiva/inventaría fuentes, importa PEL/unread/continuaciones ACKed y verifica
+identidades, terminales, contadores y slots. Arranca perfil execution-v2 en
+observe: la creación pública sigue cerrada. La ventana incluye indisponibilidad
+HTTP breve. Aceptación y reapertura requieren revisión del canary; un booleano
+del workflow es una declaración del operador, no un resultado de las pruebas.
+
+Rollback repara/publica efectos aceptados, reconstruye entradas originales
+idempotentemente y retira tareas/planes v2 mediante metadata. Conserva SQL,
+contadores/slots y AOF/noeviction. No activa imagen vieja con estado huérfano.
+Los manifiestos solo se retiran tras `accept` y horizonte terminal máximo.
+Ver [SDD y límites de verificación](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
+
+Las nueve variables nuevas están sincronizadas en Environment production;
+versión 1, scope UNCONFIGURED y cuotas 0 mantienen v2 desactivado. Para
+respetar las 100 variables, nueve valores existentes se heredan del repositorio
+sin cambiar sus valores. `scripts/sync-execution-v2-github.ps1` verifica/aplica
+ese contrato sin tocar secretos. Cuotas no se deducen del histórico ni del tier.
+
+CI agrega job Redis 7 de integración opt-in, independiente de la suite unitaria,
+con prefijos aislados, procesos concurrentes y transporte Gemini simulado.
+
+La entrega de 2026-10-08 introduce un paso previo al stack: verificar que la
+imagen tenga recuperación `AuditDocumentInput`, recrear extractores VIP/batch
+y confirmar que todas sus réplicas ejecuten la imagen destino. Solo entonces
+se habilitan downloaders con presupuesto global de caché. El workflow inyecta
+`AUDIT_DOCUMENT_CACHE_MAX_BYTES=268435456` y
+`AUDIT_DOCUMENT_CACHE_MAX_ENTRIES=1024`, sincronizadas en GitHub `production`.
+El downgrade anterior queda bloqueado; exige drenaje y operación manual aprobada.
+Ver [rollout, rollback y evidencia](ajustes-alto-volumen-2026-10-08.md).
+
 El despliegue a producción está automatizado mediante **GitHub Actions**.
 
 ### Flujo
@@ -28,7 +68,7 @@ flowchart LR
         SQL["🗄️ SQL preflight"]
         Up["🐳 docker compose up"]
         Health["💚 health check"]
-        
+
         Checkout --> GenEnv --> Pull --> SQL --> Up --> Health
     end
 

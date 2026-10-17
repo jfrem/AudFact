@@ -263,9 +263,7 @@ class DispensationModel extends Model
                 'Obligatorio' FirmaActaEntrega,
                 mip.DatMipDirNoEnt AS MipresNoEntrega
             FROM vw_discolnet_dispensas v
-            LEFT JOIN Factura f WITH (NOLOCK) ON f.DisId = v.facsec AND f.DisDetId = v.DisDetId AND f.FacEst = 'A'
-            LEFT JOIN FacturaKardex k WITH (NOLOCK) ON k.FacSec = f.FacSec
-            LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK) ON cr.ContDisCod = k.KarContDisCod AND cr.ConDisRefCod = k.KarConDisRefCod
+            LEFT JOIN ContratosDispensacionReferenci cr WITH (NOLOCK) ON cr.ContDisCod = v.KarContDisCod AND cr.ConDisRefCod = v.KarConDisRefCod
             LEFT JOIN DatosMipresDetalle mip WITH (NOLOCK) ON mip.DatMipId = v.IdPrincipal
             WHERE {$whereClause}
             ORDER BY Codigo, Lot, Cum, Producto, IdFact, Cie, Unidades_entr";

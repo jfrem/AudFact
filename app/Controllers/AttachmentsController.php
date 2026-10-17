@@ -13,15 +13,17 @@ class AttachmentsController extends Controller
         $this->model = new AttachmentsModel();
     }
 
-    public function showByDispensation(string $disDetNro, string $nitSec): void
+    public function showByDispensation(string $disDetNro, ?string $nitSec = null): void
     {
-        $this->validateArray(['disDetNro' => $disDetNro, 'nitSec' => $nitSec], [
-            'disDetNro' => 'required|string|max:255',
-            'nitSec' => 'required|string|max:255'
-        ]);
         $disDetNro = trim($disDetNro);
-        $nitSec = trim($nitSec);
-        $attachments = $this->model->getAttachmentsByDisDetNro($disDetNro, $nitSec);
+        if ($disDetNro === '') {
+            Response::error('El número de dispensación es requerido', 422);
+        }
+
+        $nitSec = $nitSec ?? ($_GET['nitSec'] ?? null);
+        $nitSec = ($nitSec !== null && trim((string) $nitSec) !== '') ? trim((string) $nitSec) : null;
+
+        $attachments = $this->model->getPhysicalAttachmentsByDisDetNro($disDetNro, $nitSec);
         Response::success($attachments);
     }
 
@@ -50,8 +52,8 @@ class AttachmentsController extends Controller
             return;
         }
 
-        // Descarga directa al navegador: obtiene metadatos y hace streaming HTTP
-        $attachment = $this->model->getAttachmentByIdForDisDetNro($attachmentId, $disDetNro);
+        $attachments = $this->model->getPhysicalAttachmentsByDisDetNro($disDetNro, attachmentId: $attachmentId);
+        $attachment  = $attachments[0] ?? null;
         if (!$attachment) {
             Response::error('Adjunto no encontrado', 404);
         }
@@ -171,52 +173,5 @@ class AttachmentsController extends Controller
         fpassthru($handle);
         fclose($handle);
         unlink($path);
-        return;
-    }
-
-    /**
-     * Detect MIME type from binary content using magic bytes.
-     * Used when filename has no extension.
-     */
-    private function detectMimeFromContent(string $data): ?string
-    {
-        if (strlen($data) < 4) {
-            return null;
-        }
-
-        $header = substr($data, 0, 16);
-
-        // PDF: %PDF
-        if (str_starts_with($header, '%PDF')) {
-            return 'application/pdf';
-        }
-        // JPEG: FF D8 FF
-        if (str_starts_with($header, "\xFF\xD8\xFF")) {
-            return 'image/jpeg';
-        }
-        // PNG: 89 50 4E 47
-        if (str_starts_with($header, "\x89PNG")) {
-            return 'image/png';
-        }
-        // GIF: GIF87a or GIF89a
-        if (str_starts_with($header, 'GIF87a') || str_starts_with($header, 'GIF89a')) {
-            return 'image/gif';
-        }
-        // WEBP: RIFF....WEBP
-        if (str_starts_with($header, 'RIFF') && substr($data, 8, 4) === 'WEBP') {
-            return 'image/webp';
-        }
-        // TIFF: 49 49 2A 00 (little-endian) or 4D 4D 00 2A (big-endian)
-        if (str_starts_with($header, "\x49\x49\x2A\x00") || str_starts_with($header, "\x4D\x4D\x00\x2A")) {
-            return 'image/tiff';
-        }
-        // ZIP: PK
-        if (str_starts_with($header, "PK")) {
-            return 'application/zip';
-        }
-
-        return null;
     }
 }
-
-

@@ -32,6 +32,81 @@ final class TextNormalization
     }
 
     /**
+     * Normaliza nombres de artículos farmacéuticos para comparación léxica.
+     *
+     * Extiende normalizeText() con limpieza previa de sufijos de embalaje
+     * comercial, tamaños de lote y duplicados de presentación que son
+     * exclusivos de la nomenclatura de bodega vs. prescripción médica.
+     *
+     * Ejemplos de transformación (antes → después de normalizeArticleName):
+     *   "ACETAMINOFEN 500MG C*100 TABLETA"          → "ACETAMINOFEN 500MG TABLETA"
+     *   "BETAMETASONA 0.05% CREMA TOPICA TUBO*40GR" → "BETAMETASONA 0 05 CREMA TOPICA"
+     *   "BISACODILO 5 MG (GRAGEA) // TABLETA"       → "BISACODILO 5 MG GRAGEA"
+     *   "CARVEDILOL 25 MG (TABLETA) (H)"            → "CARVEDILOL 25 MG TABLETA"
+     *   "DUTASTERIDA+TAMSULOSINA 0.5 MG - GENERICO" → "DUTASTERIDA TAMSULOSINA 0 5 MG"
+     *
+     * @see DocumentPolicyEngine::evaluateArticleSetField() — único consumidor.
+     */
+    public static function normalizeArticleName(string $value): string
+    {
+        $upper = mb_strtoupper(trim($value), 'UTF-8');
+        if ($upper === '') {
+            return '';
+        }
+
+        // 1. Eliminar sufijo de presentación duplicada: "// TABLETA", "// UNIDAD"
+        $upper = (string) preg_replace('/\s*\/\/\s*.+$/u', '', $upper);
+
+        // 2. Eliminar tamaños de lote/empaque: "C*100", "C*300", "C *900"
+        $upper = (string) preg_replace('/\bC\s*\*\s*\d+\b/u', '', $upper);
+
+        // 3. Eliminar envases con dimensión: "TUBO*40GR", "FCO*10ML", "FRASCO*60ML"
+        $upper = (string) preg_replace('/\b(?:TUBO|FCO|FRASCO)\s*\*?\s*\d+\s*(?:GR|ML|G|MG)?\b/u', '', $upper);
+
+        // 4. Eliminar marcador hospitalario: "(H)"
+        $upper = (string) preg_replace('/\s*\(H\)\s*/u', ' ', $upper);
+
+        // 5. Eliminar sufijo genérico: "- GENERICO" al final
+        $upper = (string) preg_replace('/\s*-\s*GENERICO\s*$/u', '', $upper);
+
+        // Aplicar pipeline estándar de normalización (acentos, alfanumérico, espacios)
+        return self::normalizeText($upper);
+    }
+    /**
+     * Calcula similitud Jaccard con tokens ordenados alfabéticamente.
+     *
+     * Normaliza ambos valores con normalizeArticleName(), tokeniza,
+     * ordena los tokens y calcula la intersección / unión.
+     * Resuelve inversiones de principios activos compuestos sin LLM
+     * (ej: TAMSULOSINA+DUTASTERIDA vs DUTASTERIDA+TAMSULOSINA).
+     *
+     * @return float Jaccard entre 0.0 y 1.0
+     */
+    public static function tokenSortedJaccard(string $left, string $right): float
+    {
+        $leftNorm = self::normalizeArticleName($left);
+        $rightNorm = self::normalizeArticleName($right);
+
+        if ($leftNorm === '' || $rightNorm === '') {
+            return 0.0;
+        }
+
+        $leftTokens  = self::tokenize($leftNorm);
+        $rightTokens = self::tokenize($rightNorm);
+        sort($leftTokens, SORT_STRING);
+        sort($rightTokens, SORT_STRING);
+
+        if ($leftTokens === $rightTokens) {
+            return 1.0;
+        }
+
+        $intersection = array_intersect($leftTokens, $rightTokens);
+        $union        = array_unique(array_merge($leftTokens, $rightTokens));
+
+        return $union === [] ? 0.0 : (count($intersection) / count($union));
+    }
+
+    /**
      * Normaliza un token de texto: elimina acentos, pasa a mayúsculas y
      * suprime caracteres no alfanuméricos.
      *

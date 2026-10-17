@@ -26,6 +26,10 @@ $registry = [
         'class' => \App\Services\Audit\Pipeline\DocumentExtractionWorker::class,
         'requiredEnv' => ['AUDIT_INTERNAL_API_BASE', 'GEMINI_API_KEY'],
     ],
+    'semantic' => [
+        'class' => \App\Services\Audit\Pipeline\SemanticEvaluationWorker::class,
+        'requiredEnv' => ['GEMINI_API_KEY'],
+    ],
     'downloader' => [
         'class' => \App\Services\Audit\Pipeline\AttachmentDownloadWorker::class,
         'requiredEnv' => ['AUDIT_INTERNAL_API_BASE'],
@@ -79,6 +83,19 @@ if ($laneEnum->isAll()) {
 $lane = $laneEnum->value;
 $config = $registry[$workerName];
 $label = "audit-{$workerName}-worker" . (!$laneEnum->isAll() ? "-{$lane}" : '');
+
+$execution = \App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv();
+if ($workerName === 'semantic' && $execution->version !== 2) {
+    fwrite(STDERR, "{$label}: requiere ejecucion v2\n");
+    exit(1);
+}
+if ($workerName === 'policy' && $execution->version === 2) {
+    $config['requiredEnv'] = [];
+}
+if ($execution->version === 2) {
+    // La cuota debe ser válida antes de procesar la primera tarea.
+    new \App\Services\Audit\Pipeline\GeminiQuotaBudget(\Core\RedisClient::getInstance());
+}
 
 // ─── Validate required env vars ──────────────────────────────────────────────
 
@@ -135,6 +152,13 @@ try {
         $persistenceLimits = (new \App\Services\Audit\Pipeline\AuditPersistenceQueue())->configuration();
         $startupContext['persistence_job_slots'] = $persistenceLimits['job_slots'];
         $startupContext['persistence_queue_ttl'] = $persistenceLimits['queue_ttl'];
+    }
+    if (in_array($workerName, ['downloader', 'extraction'], true)) {
+        $documentLimits = (new \App\Services\Audit\Pipeline\AuditDocumentCache())->configuration();
+        $startupContext['document_cache_max_bytes'] = $documentLimits['max_bytes'];
+        $startupContext['document_cache_max_entries'] = $documentLimits['max_entries'];
+        $startupContext['document_cache_ttl_seconds'] = $documentLimits['ttl_seconds'];
+        $startupContext['document_source_recovery'] = $workerName === 'extraction';
     }
     Logger::info("{$label}: iniciando", $startupContext);
     $processed = $consumer->run();

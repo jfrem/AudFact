@@ -22,11 +22,13 @@ class AuditController extends Controller
     public function single(): void
     {
         $data = $this->validate([
-            'disId' => 'string|max:255',
-            'disDetNro' => 'required|string|max:255',
+            'disId'        => 'string|max:255',
+            'disDetNro'    => 'required|string|max:255',
+            'attachmentId' => 'string|max:255',
         ]);
 
-        $disDetNro = trim((string) $data['disDetNro']);
+        $disDetNro    = trim((string) $data['disDetNro']);
+        $attachmentId = !empty($data['attachmentId']) ? trim((string) $data['attachmentId']) : null;
         try {
             $disId = !empty($data['disId'])
                 ? trim((string) $data['disId'])
@@ -59,6 +61,7 @@ class AuditController extends Controller
             Response::error('La FDV no contiene NumeroFactura (DisDetNro) para esta factura', 422);
         }
 
+        $this->assertAuditAdmission();
         $stateStore = $this->buildStateStore();
         $publisher  = $this->buildEventPublisher();
 
@@ -84,11 +87,12 @@ class AuditController extends Controller
                 jobId: null,
                 documentId: null,
                 payload: [
-                    'dis_det_nro'  => $disDetNro,
-                    'dis_id'       => $disId,
-                    'fac_nit_sec'  => $facNitSec,
-                    'source'       => 'single',
-                    'is_priority'  => true,
+                    'dis_det_nro'   => $disDetNro,
+                    'dis_id'        => $disId,
+                    'fac_nit_sec'   => $facNitSec,
+                    'source'        => 'single',
+                    'is_priority'   => true,
+                    'attachment_id' => $attachmentId,
                 ],
             );
 
@@ -106,10 +110,11 @@ class AuditController extends Controller
 
         Response::success(
             [
-                'audit_id'    => $auditId,
-                'status'      => AuditStateStore::AUDIT_STATUS_PENDING,
-                'dis_det_nro' => $disDetNro,
-                'dis_id'      => $disId,
+                'audit_id'      => $auditId,
+                'status'        => AuditStateStore::AUDIT_STATUS_PENDING,
+                'dis_det_nro'   => $disDetNro,
+                'dis_id'        => $disId,
+                'attachment_id' => $attachmentId,
             ],
             'Auditoría encolada',
             202,
@@ -394,7 +399,7 @@ class AuditController extends Controller
             'facNitSec' => 'required|integer|min_value:1',
             'date'      => 'required|date',
             'dateTo'    => 'optional|date',
-            'limit'     => 'nullable|integer|min_value:1|max_value:100',
+            'limit'     => 'nullable|integer|min_value:1|max_value:10000',
         ]);
 
         $dateFrom = (string) $data['date'];
@@ -416,6 +421,7 @@ class AuditController extends Controller
             Response::error('X-Idempotency-Key header is required', 400);
         }
 
+        $this->assertAuditAdmission();
         $jobStore = $this->buildBatchJobStore();
         $jobId = AuditEvent::uuidV4();
         $ttl = (int) \Core\Env::get('AUDIT_IDEMPOTENCY_KEY_TTL', 300);
@@ -625,6 +631,22 @@ class AuditController extends Controller
     protected function buildStateStore(): AuditStateStore
     {
         return new AuditStateStore();
+    }
+
+    protected function assertAuditAdmission(): void
+    {
+        $config = \App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv();
+        try {
+            (new \App\Services\Audit\Pipeline\AuditAdmissionGuard($this->buildAdmissionRedis(), $config))->assertAccepting();
+        } catch (\RuntimeException $error) {
+            header('Retry-After: 5');
+            Response::error('La auditoría está temporalmente al límite de capacidad', 503);
+        }
+    }
+
+    protected function buildAdmissionRedis(): \Core\RedisClient
+    {
+        return \Core\RedisClient::getInstance();
     }
 
     protected function buildEventPublisher(): AuditEventPublisher

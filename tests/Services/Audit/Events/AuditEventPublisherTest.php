@@ -38,8 +38,8 @@ final class AuditEventPublisherTest extends TestCase
             'payload' => $routing,
         ]);
         $stream = $priority ? AuditEventPublisher::STREAM_INBOX_PRIORITY : AuditEventPublisher::STREAM_INBOX_BATCH;
-        $this->redis->expects($this->once())->method('xAdd')
-            ->with($stream, $this->anything(), $this->anything())->willReturn('1-0');
+        $this->redis->expects($this->once())->method('eval')
+            ->with($this->stringContains("'XPENDING'"), [$stream], $this->anything())->willReturn('1-0');
 
         // Act:
         $id = $this->publisher->publish($event);
@@ -75,12 +75,12 @@ final class AuditEventPublisherTest extends TestCase
 
         $this->redis
             ->expects($this->once())
-            ->method('xAdd')
+            ->method('eval')
             ->with(
-                AuditEventPublisher::STREAM_INBOX_PRIORITY,
-                $this->callback(function (array $fields) {
-                    $this->assertArrayHasKey('event', $fields);
-                    $decoded = json_decode($fields['event'], true);
+                $this->stringContains("'XTRIM'"),
+                [AuditEventPublisher::STREAM_INBOX_PRIORITY],
+                $this->callback(function (array $args) {
+                    $decoded = json_decode($args[0], true);
                     $this->assertSame(AuditEvent::TYPE_AUDIT_CREATED, $decoded['event_type']);
                     return true;
                 })
@@ -102,9 +102,10 @@ final class AuditEventPublisherTest extends TestCase
 
         $this->redis
             ->expects($this->once())
-            ->method('xAdd')
+            ->method('eval')
             ->with(
-                AuditEventPublisher::STREAM_INBOX_BATCH,
+                $this->anything(),
+                [AuditEventPublisher::STREAM_INBOX_BATCH],
                 $this->anything()
             )
             ->willReturn('1700000000000-1');
@@ -124,8 +125,8 @@ final class AuditEventPublisherTest extends TestCase
 
         $this->redis
             ->expects($this->once())
-            ->method('xAdd')
-            ->with(AuditEventPublisher::STREAM_DOCUMENTS_BATCH, $this->anything())
+            ->method('eval')
+            ->with($this->anything(), [AuditEventPublisher::STREAM_DOCUMENTS_BATCH], $this->anything())
             ->willReturn('1700000000001-0');
 
         $this->publisher->publish($event);
@@ -142,8 +143,8 @@ final class AuditEventPublisherTest extends TestCase
 
         $this->redis
             ->expects($this->once())
-            ->method('xAdd')
-            ->with(AuditEventPublisher::STREAM_DOCUMENTS_BATCH, $this->anything())
+            ->method('eval')
+            ->with($this->anything(), [AuditEventPublisher::STREAM_DOCUMENTS_BATCH], $this->anything())
             ->willReturn('1700000000001-1');
 
         $this->publisher->publish($event);
@@ -170,7 +171,7 @@ final class AuditEventPublisherTest extends TestCase
         );
 
         $this->redis
-            ->method('xAdd')
+            ->method('eval')
             ->willThrowException(new RedisUnavailableException('Redis down'));
 
         $this->expectException(RuntimeException::class);
@@ -184,7 +185,7 @@ final class AuditEventPublisherTest extends TestCase
             auditId: AuditEvent::uuidV4(),
         );
 
-        $this->redis->method('xAdd')->willReturn(null);
+        $this->redis->method('eval')->willReturn(null);
 
         $this->expectException(RuntimeException::class);
         $this->publisher->publish($event);
@@ -220,7 +221,7 @@ final class AuditEventPublisherTest extends TestCase
             $this->stringContains("redis.call('SET', KEYS[2], id)"),
             [AuditEventPublisher::dlqStream(), AuditEventPublisher::deadLetterReceiptKey($parentEventId)],
             $this->callback(static function (array $args) use ($deadLetter): bool {
-                return $args[0] === $deadLetter->toJson() && is_int($args[1]);
+                return $args === [$deadLetter->toJson()];
             })
         )->willReturn('1730000000000-2');
         $this->redis->expects($this->never())->method('xAdd');

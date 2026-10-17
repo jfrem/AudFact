@@ -91,6 +91,13 @@ final class DocumentPdfRasterizerTest extends TestCase
         $this->assertNull($result->contentFailure());
     }
 
+    public function testPdftoppmExitCode99IdentifiesContentFailure(): void
+    {
+        $result = new RasterizationProcessResult(99, 'Wrong page range given: the first page (1) can not be after the last page (0).');
+
+        $this->assertSame(PdfContentFailure::NO_PAGES, $result->contentFailure());
+    }
+
     public function testIsAvailableDetectsExistingOrMissingBinary(): void
     {
         $missing = new DocumentPdfRasterizer('totally_fake_binary_xyz_999');

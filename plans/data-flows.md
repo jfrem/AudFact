@@ -86,6 +86,30 @@ sequenceDiagram
 
 ## 3. Pipeline de Auditoría Asíncrono (Event-Driven) 🚀
 
+El flujo descrito a continuación conserva el protocolo v1 por defecto.
+Con ejecución v2, orquestación/extracción/policy/semantic ingresan por
+`execution-maintenance` a tareas durables antes del ACK. Cada etapa alterna
+jobs elegibles y mantiene un lease por scope/carril; descarga, normalización
+y persistencia conservan sus contratos.
+
+```mermaid
+flowchart LR
+    N[document_normalized] --> P[Plan PHP congelado]
+    P --> S[semantic_requested]
+    S --> G[Ondas Gemini y cuota compartida]
+    G --> R[semantic_resolved]
+    R --> E[Evaluación PHP]
+    E --> O[Commit con fence y outbox]
+    O --> Q[AuditPersistenceQueue]
+    Q --> SQL[SQL Server]
+```
+
+Las llamadas countTokens/generateContent consumen el mismo presupuesto,
+incluso retries. Falta de cuota aplaza due_at sin mantener un worker dormido;
+un resultado incierto conserva cargo. Un artifact evita repetir respuestas
+conocidas por conflictos del commit. Métricas cuentan requests/intentos/pares
+por separado. [Contrato completo y activación](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
+
 ### Descripción
 Flujo desacoplado basado en Redis Streams. Permite procesamiento paralelo de documentos, reintentos granulares, observabilidad total por fase (Timings) y reserva idempotente por `DisId` para que batches concurrentes del mismo cliente no dupliquen auditorías.
 
@@ -129,7 +153,7 @@ sequenceDiagram
     R->>BW: Consume batch_requested
     BW->>DB: Consulta pesada de facturas que califican
     DB-->>BW: Lista de dispensaciones (DisId, DisDetNro)
-    
+
     loop Por cada Factura en el Lote
         BW->>R: SETNX audit:reservation:disid:{DisId} (Reserva de Idempotencia)
         alt Reserva Exitosa
@@ -149,7 +173,7 @@ sequenceDiagram
         AO->>R: Estado rejected + XADD audit.documents {document_rejected, category=DOCUMENT_MAPPING}
         R->>RW: Policy genera hallazgo MAP sin descarga ni Gemini
     end
-    
+
     par Paralelo por cada Documento
         R->>DW: xReadGroup (Consumer: downloaders)
         DW->>DB: Lectura BLOB con PDO db2 fresco y validación bytes = DATALENGTH
@@ -157,9 +181,14 @@ sequenceDiagram
             DW->>R: Telemetría failed + XADD audit.dlq + XACK
             Note over DW,R: Fallo técnico - no document_rejected ni hallazgo funcional
         else Descarga exitosa
-            DW->>R: Guarda BLOB temporal audit:blob:*
+            DW->>R: Admite BLOB en presupuesto global si cabe
             DW->>R: XADD audit.documents {document_downloaded}
             R->>EW: xReadGroup (Consumer: extractors)
+            EW->>R: Lee BLOB temporal audit:blob:*
+            opt Cache miss (expiración o presupuesto lleno)
+                EW->>DB: Recupera adjunto original en su turno
+                EW->>EW: Verifica SHA256 de base64 esperado
+            end
             EW->>IV: valida tamaño, MIME y magic bytes
             alt Documento no procesable
                 EW->>R: XADD audit.documents {document_rejected}
@@ -169,6 +198,7 @@ sequenceDiagram
                 EW->>G: generateContent (IA Extraction)
                 G-->>EW: JSON Result
                 EW->>R: XADD audit.documents {document_extracted}
+                EW->>R: Libera BLOB tras publicar efecto
                 R->>NW: xReadGroup (Consumer: normalizers)
                 NW->>NW: Estandarización de datos (ISO/UTC)
                 NW->>R: XADD audit.documents {document_normalized}
@@ -179,7 +209,7 @@ sequenceDiagram
     R->>RW: xReadGroup (Consumer: policy-engine)
     RW->>RW: Evaluación de Reglas vs FDV
     RW->>PQ: Encola rules_evaluated
-    PQ->>R: XADD audit.persistence:{queue} (un turno activo por job)
+    PQ->>R: XADD audit.persistence.* (un turno activo por slot del job)
 
     R->>PW: xReadGroup (Consumer: persistence)
     PW->>DB: PDO default fresco + transacción idempotente dual

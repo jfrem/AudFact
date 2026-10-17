@@ -359,6 +359,8 @@ const PHASE_TIPS: Record<string, string> = {
   extraction: "Tiempo de inferencia de Gemini para extraer datos estructurados del documento (OCR + Function Calling).",
   normalization: "Tiempo para estandarizar y formatear el payload JSON de salida de los datos extraídos.",
   policy: "Tiempo para evaluar las reglas de negocio y políticas documentales contra los datos normalizados.",
+  policy_v2: "Tiempo de evaluación local de reglas con la evidencia documental y las comparaciones semánticas ya resueltas.",
+  semantic_wait: "Tiempo transcurrido desde la solicitud de comparaciones semánticas hasta la reanudación de las reglas. Incluye espera en cola, cuota y procesamiento.",
 };
 
 function PhaseLabel({ phase, label }: { phase: string; label: string }) {
@@ -388,7 +390,10 @@ function buildPhaseRows(timings: AuditPhaseTimings): PhaseRow[] {
     { id: "download", label: "Descarga", timing: timings.download },
     { id: "extraction", label: "Extracción", timing: timings.extraction },
     { id: "normalization", label: "Normalización", timing: timings.normalization },
-    { id: "policy", label: "Reglas", timing: timings.policy },
+    { id: timings.timing_schema_version === 2 ? "policy_v2" : "policy", label: "Reglas", timing: timings.policy },
+    ...(timings.timing_schema_version === 2
+      ? [{ id: "semantic_wait", label: "Espera semántica", timing: timings.semantic_wait }]
+      : []),
   ];
 }
 

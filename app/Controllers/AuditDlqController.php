@@ -6,7 +6,8 @@ namespace App\Controllers;
 
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
-use App\Services\Audit\Pipeline\AuditPersistenceQueue;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use Core\Logger;
 use Core\RedisClient;
 use Core\Response;
 
@@ -67,7 +68,7 @@ class AuditDlqController extends Controller
     }
 
     /**
-     * Reprocesa un evento de DLQ republicando el evento original a su stream canónico.
+     * Crea una recuperación independiente e idempotente de la auditoría fallida.
      *
      * @return void
      */
@@ -78,11 +79,16 @@ class AuditDlqController extends Controller
         ]);
 
         $streamId = trim((string) $data['streamId']);
-        if ($streamId === '') {
-            Response::error('streamId es requerido', 422);
+        if (preg_match('/^\d+-\d+$/D', $streamId) !== 1) {
+            Response::error('streamId debe ser un identificador válido de Redis Streams', 422);
         }
 
-        $messages = $this->buildRedisClient()->xRange(AuditEventPublisher::dlqStream(), $streamId, $streamId, 1);
+        try {
+            $messages = $this->buildRedisClient()->xRange(AuditEventPublisher::dlqStream(), $streamId, $streamId, 1);
+        } catch (\Throwable $error) {
+            Logger::error('AuditDlqController: consulta de reproceso fallida', ['error_class' => get_class($error)]);
+            Response::error('No se pudo consultar el evento DLQ', 503);
+        }
         if ($messages === []) {
             Response::error('No se encontró el evento solicitado en DLQ', 404);
         }
@@ -105,21 +111,30 @@ class AuditDlqController extends Controller
 
         try {
             $event = AuditEvent::fromArray($original);
-            if ($event->eventType === AuditEvent::TYPE_RULES_EVALUATED) {
-                $this->buildPersistenceQueue()->reprocess($event);
-            } else {
-                $this->buildEventPublisher()->publish($event);
-            }
+        } catch (\Throwable) {
+            Response::error('El evento original no cumple el contrato de auditoría', 422);
+        }
+        if ($event->auditId === null) {
+            Response::error('El reproceso requiere un evento asociado a una auditoría', 409);
+        }
+        $recovery = AuditEvent::create(
+            AuditEvent::TYPE_AUDIT_CREATED, AuditEvent::uuidV4(), parentEventId: $event->eventId,
+            payload: ['source' => 'dlq_recovery', 'is_priority' => AuditEventPublisher::isPriorityEvent($event)]
+        );
+        try {
+            $result = $this->buildStateStore()->recoverFailedAudit($recovery, $event->auditId);
         } catch (\Throwable $e) {
+            if ($e->getCode() === 409) {
+                Response::error($e->getMessage(), 409);
+            }
+            Logger::error('AuditDlqController: reproceso fallido', [
+                'audit_id' => $event->auditId, 'error_class' => get_class($e),
+            ]);
+            header('Retry-After: 5');
             Response::error('No se pudo reprocesar el evento DLQ', 503);
         }
 
-        Response::success([
-            'stream_id' => $streamId,
-            'reprocessed_event_id' => $event->eventId,
-            'event_type' => $event->eventType,
-            'audit_id' => $event->auditId,
-        ], 'Evento DLQ reprocesado');
+        Response::success(['stream_id' => $streamId] + $result, 'Recuperación de auditoría encolada');
     }
 
     protected function buildRedisClient(): RedisClient
@@ -127,13 +142,8 @@ class AuditDlqController extends Controller
         return RedisClient::getInstance();
     }
 
-    protected function buildEventPublisher(): AuditEventPublisher
+    protected function buildStateStore(): AuditStateStore
     {
-        return new AuditEventPublisher($this->buildRedisClient());
-    }
-
-    protected function buildPersistenceQueue(): AuditPersistenceQueue
-    {
-        return new AuditPersistenceQueue($this->buildRedisClient());
+        return new AuditStateStore($this->buildRedisClient());
     }
 }

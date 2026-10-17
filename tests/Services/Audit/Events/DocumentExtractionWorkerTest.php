@@ -15,11 +15,67 @@ use App\Services\Audit\Pipeline\RasterizationFailureException;
 use App\Services\Audit\GeminiGateway;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 final class DocumentExtractionWorkerTest extends TestCase
 {
     private const BLOB_KEY = 'audit:blob:att-1:test-hash';
+
+    #[DataProvider('persistedExtractionStates')]
+    public function testPublicationRetryReusesPersistedExtractionAfterBlobIsUnavailable(string $storedStatus): void
+    {
+        // Arrange:
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $store = new ExtractionRecordingStateStore();
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(1);
+        $blobAvailable = true;
+        $redis->method('get')->willReturnCallback(function (string $key) use (&$blobAvailable): ?string {
+            if (!str_starts_with($key, 'audit:blob:')) return null;
+            if (!$blobAvailable) throw new RuntimeException('Bytes ya no disponibles');
+            return json_encode(['mime' => 'application/pdf', 'data' => $this->validPdfBase64()]);
+        });
+        $redis->method('set')->willReturn(true);
+        $gateway = new StubGeminiGateway($this->geminiStructuredOutputResponse());
+        $publisher = $this->createMock(AuditEventPublisher::class);
+        $calls = 0;
+        $published = null;
+        $publisher->method('publish')->willReturnCallback(static function (AuditEvent $event) use (&$calls, &$published): string {
+            if (++$calls === 1) throw new RuntimeException('Publicación interrumpida');
+            $published = $event;
+            return '1-0';
+        });
+        $worker = new DocumentExtractionWorker(stateStore: $store, gateway: $gateway, redis: $redis,
+            publisher: $publisher, pdfRasterizer: new PassthroughPdfRasterizer());
+        $event = $this->documentDownloadedEvent($auditId, $documentId);
+
+        // Act:
+        try {
+            $worker->processEvent($event);
+            self::fail('Se esperaba publicación interrumpida');
+        } catch (RuntimeException $error) {
+            self::assertSame('Publicación interrumpida', $error->getMessage());
+        }
+        $persisted = $store->lastPatch;
+        $store->auditState = ['documents' => [$documentId => array_replace($persisted, ['status' => $storedStatus])]];
+        $blobAvailable = false;
+        $worker->processEvent($event);
+
+        // Assert:
+        self::assertSame(1, $gateway->calls);
+        self::assertSame($persisted, $store->lastPatch);
+        self::assertSame($persisted['extraction_result'], $published->payload['extraction_result']);
+        self::assertSame($persisted['gemini_duration_ms'], $published->payload['gemini_duration_ms']);
+    }
+
+    public static function persistedExtractionStates(): iterable
+    {
+        foreach (['extracted', 'normalized', 'evaluated'] as $status) {
+            yield $status => [$status];
+        }
+    }
 
     public function testKnownRasterizationContentFailurePublishesTypedDocumentRejection(): void
     {
@@ -29,6 +85,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $publisher = new ExtractionPublisher();
         $store = new ExtractionRecordingStateStore();
         $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(1);
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
         $redis->method('get')->willReturnCallback(static function (string $key) use ($blobJson): ?string {
             return str_starts_with($key, 'audit:blob:') ? $blobJson : null;
@@ -70,6 +127,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -127,6 +185,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -176,6 +235,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $base64 = $this->validPdfBase64();
         $publisher = new ExtractionPublisher();
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')->willReturn(json_encode([
             'mime' => 'application/pdf',
             'data' => $base64,
@@ -215,6 +275,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -267,6 +328,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $publisher = new ExtractionPublisher();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -371,6 +433,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -422,6 +485,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -475,6 +539,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -520,6 +585,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -550,6 +616,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -584,6 +651,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -625,6 +693,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -670,6 +739,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $invalidBase64, 'duration_ms' => 0]);
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($blobJson) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -715,6 +785,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -776,6 +847,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -828,6 +900,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')
             ->willReturnCallback(function (string $key) use ($base64) {
                 if (str_starts_with($key, 'audit:blob:')) {
@@ -1000,6 +1073,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
             if (str_starts_with($key, 'audit:blob:')) {
                 return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
@@ -1038,6 +1112,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
             if (str_starts_with($key, 'audit:blob:')) {
                 return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
@@ -1076,6 +1151,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
             if (str_starts_with($key, 'audit:blob:')) {
                 return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
@@ -1111,6 +1187,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         $store = new ExtractionRecordingStateStore();
 
         $redisMock = $this->createMock(RedisClient::class);
+        $redisMock->method('eval')->willReturn(1);
         $redisMock->method('get')->willReturnCallback(function (string $key) use ($base64) {
             if (str_starts_with($key, 'audit:blob:')) {
                 return json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
@@ -1199,6 +1276,7 @@ final class StubGeminiGateway extends GeminiGateway
 
 final class ExtractionRecordingStateStore extends AuditStateStore
 {
+    public ?array $auditState = null;
     public array $lastPatch = [];
     public array $lastRejectedPatch = [];
     public ?bool $forcedResult = null;
@@ -1206,6 +1284,11 @@ final class ExtractionRecordingStateStore extends AuditStateStore
     public function __construct(?bool $forcedResult = null)
     {
         $this->forcedResult = $forcedResult;
+    }
+
+    public function getAudit(string $auditId): ?array
+    {
+        return $this->auditState;
     }
 
     public function markDocumentExtracted(string $auditId, string $documentId, array $extractionState): bool

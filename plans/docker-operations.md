@@ -1,6 +1,46 @@
 # Docker y Operaciones Runtime — AudFact
 
+## Cutover de caché documental recuperable (2026-10-08)
+
+El workflow actualiza y verifica primero todos los extractores VIP/batch y
+después el resto del stack. Los downloaders nuevos permiten caché llena;
+un extractor anterior no sabe recuperar ese bypass. La imagen destino debe
+incluir `AuditDocumentInput`; el workflow bloquea downgrade incompatible.
+
+El rollback anterior requiere una ventana aprobada: cortar cron/admisión,
+detener productores, drenar extracción, policy y persistencia con consumidores
+actuales; verificar lag/PEL cero antes de restaurar imágenes anteriores por SHA.
+Conservar estado, DLQ y resultados. No borrar Redis para acelerar el drenaje.
+Los límites documentales de bytes/entradas son globales; overhead, streams y
+BLOBs de productores anteriores quedan fuera de ese presupuesto. Vigilar
+memoria y backlog; MAXLEN es meta segura de retención, no límite de trabajo pendiente.
+Ver [procedimiento y evidencia](ajustes-alto-volumen-2026-10-08.md).
+
 ## Arquitectura de contenedores
+
+### Perfil de ejecución v2
+
+Execution=1 sigue activo por defecto. `--profile execution-v2` incorpora
+`worker-semantic-vip` (1), `worker-semantic-batch` (2) y `execution-maintenance`.
+Sus límites/reinicio siguen Compose; semantic usa la imagen PHP común. Las
+réplicas existentes y `AUDIT_PERSISTENCE_JOB_SLOTS` se conservan.
+
+V2 requiere cuotas reales positivas y proyecto identificado, Redis
+standalone/Sentinel, AOF appendfsync always, maxmemory-policy noeviction,
+volumen y marcador coherente. `durability-check` lee INFO/CONFIG reales.
+La marca persistente `/data/.audit-execution-v2-durable` conserva AOF/noeviction
+en recreaciones posteriores, incluido rollback funcional. No usar el cambio
+del comando Compose para recrear un Redis saludable durante prepare.
+
+El CLI `bin/audit-execution-maintenance.php` ofrece pause/observe/resume,
+outbox/reconcile/gc, migrate/rollback/verify/accept por run-id. Reconcile y
+migración exigen ambas pausas y procesos drenados. Observe ejecuta trabajo
+ya admitido, con nuevos POST cerrados; resume comprueba heartbeat/capacidad.
+GC respeta referencias activas y edad terminal máxima; no borra DLQ.
+
+La barrera de cutover detiene PHP-FPM (timeout 600 s) y todos los consumidores;
+hay indisponibilidad HTTP breve. Backup/restore del volumen productivo y
+canary siguen siendo requisitos operativos. [Procedimiento completo](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
 
 ```mermaid
 flowchart TD
@@ -9,22 +49,22 @@ flowchart TD
     Nginx["⚙️ Nginx<br/><i>:8080→:80</i>"]
     PHP["🐘 PHP-FPM (x5)<br/><i>:9000</i>"]
     SQL["🗄️ SQL Server<br/><i>(externo)</i>"]
-    
+
     %% Event Bus
     Redis(["🟥 Redis Streams"])
 
     %% Async Workers
-    subgraph Workers ["👷 Workers (27 réplicas)"]
+    subgraph Workers ["👷 Workers (49 réplicas por default Compose)"]
         direction LR
         Orchestrator["orchestrator (x3)"]
-        Downloader["downloader (x8)"]
-        Extraction["extraction (x8)"]
-        Normalizer["normalizer (x2)"]
-        Policy["policy (x2)"]
-        Persistence["persistence (x3)"]
+        Downloader["downloader (x12)"]
+        Extraction["extraction (VIP x2 + batch x12)"]
+        Normalizer["normalizer (x4)"]
+        Policy["policy (x8)"]
+        Persistence["persistence (x6)"]
         Batch["batch (x2)"]
     end
-    
+
     %% External API
     Gemini["✨ Gemini API"]
 
@@ -32,7 +72,7 @@ flowchart TD
     NextJS -- "SSR/API interna" --> Nginx
     Nginx -- "HTTP" --> PHP
     PHP -- "SQL" --> SQL
-    
+
     %% Connections - Async Pipeline
     PHP --> Redis
     Redis --> Orchestrator
@@ -42,7 +82,7 @@ flowchart TD
     Redis --> Policy
     Redis --> Persistence
     Redis --> Batch
-    
+
     %% Worker Dependencies
     Downloader -. "SQL" .-> SQL
     Extraction -. "Gemini API" .-> Gemini
@@ -67,7 +107,8 @@ flowchart TD
     style Workers fill:transparent,stroke:#64748b,stroke-width:2px,stroke-dasharray: 5 5,color:#94a3b8,rx:10px
 ```
 
-Total workers en producción: **27 réplicas** (3+8+8+2+2+3+2). Ver tabla de escalado más abajo.
+Defaults Compose: **49 réplicas** (3+12+14+4+8+6+2). Los valores de entorno
+determinan producción; comprobarlos con `docker compose ps`, sin deducirlos de defaults.
 
 ## Troubleshooting Docker
 
@@ -135,6 +176,8 @@ Redis se configura desde Compose mediante variables no sensibles:
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` durante 24h. |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia por job. |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados por job; cambios de configuración afectan jobs nuevos. |
+| `AUDIT_DOCUMENT_CACHE_MAX_BYTES` | `268435456` | Presupuesto global de bytes JSON BLOB nuevos. |
+| `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` | `1024` | Presupuesto global de entradas BLOB nuevas. |
 
 Validaciones operativas despues de deploy:
 

@@ -106,11 +106,12 @@ final class DownloadAttachmentsModel extends AttachmentsModel
     ) {
     }
 
-    public function getAttachmentByIdForDisDetNro(
-        string $attachmentId,
-        string $disDetNro
-    ): array|false {
-        return $this->metadata;
+    public function getPhysicalAttachmentsByDisDetNro(
+        string $disDetNro,
+        ?string $nitSec = null,
+        ?string $attachmentId = null
+    ): array {
+        return $this->metadata === false ? [] : [$this->metadata];
     }
 
     public function getAttachmentBlobBytesByIdForDisDetNro(

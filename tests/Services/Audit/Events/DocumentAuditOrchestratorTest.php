@@ -544,6 +544,52 @@ final class DocumentAuditOrchestratorTest extends TestCase
         )));
     }
 
+    public function testSelectiveReauditWithAttachmentIdAuditsOnlyTargetAttachment(): void
+    {
+        // Arrange
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $documents = [
+            'DISPENSA' => ['docId' => 1, 'fields' => [], 'visualChecks' => []],
+            'AUTORIZACION' => ['docId' => 6, 'fields' => [], 'visualChecks' => []],
+            'FORMULA MEDICA' => ['docId' => 3, 'fields' => [], 'visualChecks' => []],
+        ];
+        $dataService = new StubAuditDataService(
+            dispensation: ['header' => ['NitSec' => '2624', 'DisId' => '87723098', 'NumeroFactura' => 'T38250701547']],
+            clientDocuments: [
+                ['NitMedDocId' => 1, 'NitMedDocCodAlt' => 'ANE', 'NitMedDocNom' => 'DISPENSA'],
+                ['NitMedDocId' => 6, 'NitMedDocCodAlt' => 'AUT', 'NitMedDocNom' => 'AUTORIZACION'],
+                ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'OPF', 'NitMedDocNom' => 'FORMULA MEDICA'],
+            ],
+            auditConfig: ['nitSec' => '2624', 'activo' => true, 'documents' => $documents],
+            attachments: [
+                ['attachment_id' => '1', 'physical_catalog_id' => '1', 'physical_document_name' => 'DISPENSA', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '6', 'physical_catalog_id' => '6', 'physical_document_name' => 'AUTORIZACION', 'storage_type' => 'BLOB'],
+                ['attachment_id' => '3', 'physical_catalog_id' => '3', 'physical_document_name' => 'FORMULA MEDICA', 'storage_type' => 'BLOB'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            payload: [
+                'dis_det_nro'   => 'T38250701547',
+                'dis_id'        => '87723098',
+                'attachment_id' => '6',
+            ]
+        );
+
+        // Act
+        $orchestrator->processEvent($event);
+
+        // Assert: solo se procesa el documento objetivo y no se rechazan los otros como faltantes
+        $this->assertSame(1, $store->docsTotal);
+        $this->assertSame([], $store->rejectedDocuments);
+        $this->assertCount(1, $publisher->published);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REGISTERED, $publisher->published[0]->eventType);
+        $this->assertSame('6', $store->registeredDocuments[0]['state']['attachment_id']);
+    }
+
     public function testMissingDisIdThrowsRuntimeException(): void
     {
         $orchestrator = $this->makeOrchestrator($this->makeSingleDocumentDataService());
@@ -790,8 +836,14 @@ final class StubAuditDataService extends AuditDataService
         return $this->clientDocuments;
     }
 
-    public function getAttachments(string $disDetNro, string $nitSec): array
+    public function getAttachments(string $disDetNro, string $nitSec, ?string $attachmentId = null): array
     {
+        if ($attachmentId !== null) {
+            return array_values(array_filter(
+                $this->attachments,
+                static fn(array $a): bool => (string) ($a['attachment_id'] ?? '') === (string) $attachmentId
+            ));
+        }
         return $this->attachments;
     }
 }

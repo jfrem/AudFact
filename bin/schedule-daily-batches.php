@@ -25,9 +25,12 @@ use App\Models\ClientsModel;
 use App\Models\AuditConfigModel;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditAdmissionGuard;
+use App\Services\Audit\Pipeline\AuditExecutionConfig;
 use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\Env;
 use Core\Logger;
+use Core\RedisClient;
 
 Env::load();
 
@@ -80,6 +83,17 @@ Logger::info('schedule-daily-batches: iniciando', [
 ]);
 
 // ─── Load clients ────────────────────────────────────────────────────────────
+
+$admissionGuard = new AuditAdmissionGuard(RedisClient::getInstance(), AuditExecutionConfig::fromEnv());
+if (!$dryRun) {
+    try {
+        $admissionGuard->assertAccepting();
+    } catch (\Throwable $error) {
+        Logger::warning('schedule-daily-batches: admisión no disponible', ['error_class' => get_class($error)]);
+        fwrite(STDERR, "Admisión de lotes no disponible; no se crearon jobs.\n");
+        exit(1);
+    }
+}
 
 $clientsModel = new ClientsModel();
 $configModel  = new AuditConfigModel();
@@ -135,6 +149,15 @@ foreach ($clients as $client) {
     }
 
     // ── Idempotency check ────────────────────────────────────────────────
+    try {
+        $admissionGuard->assertAccepting();
+    } catch (\Throwable $error) {
+        Logger::warning('schedule-daily-batches: admisión interrumpida', ['error_class' => get_class($error)]);
+        fwrite(STDERR, "Admisión de lotes no disponible; se detuvo la creación de nuevos jobs.\n");
+        $summary['errors']++;
+        break;
+    }
+
     $jobId = AuditEvent::uuidV4();
     $idempotencyKey = 'cron-batch-' . date('Ymd-H') . '-' . $facNitSec;
 

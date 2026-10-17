@@ -52,13 +52,14 @@ final class DocumentNormalizer extends AuditEventConsumer
         return $this->consumerName;
     }
 
+    protected function eventTypes(): array
+    {
+        return [AuditEvent::TYPE_DOCUMENT_EXTRACTED];
+    }
+
     protected function handle(AuditEvent $event): void
     {
         $start = microtime(true);
-
-        if ($event->eventType !== AuditEvent::TYPE_DOCUMENT_EXTRACTED) {
-            return;
-        }
 
         if ($event->auditId === null || $event->documentId === null) {
             throw new RuntimeException('document_extracted sin audit_id o document_id');

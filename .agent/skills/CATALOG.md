@@ -82,6 +82,9 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatcher.php`, `app/Services/Audit/Pipeline/DocumentAttachmentMatchResult.php`, `app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/Pipeline/*.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/Pipeline/AuditExecution*.php`, `app/Services/Audit/Pipeline/AuditTask*.php`, `app/Services/Audit/Pipeline/FairAuditTaskQueue.php`, `app/Services/Audit/Pipeline/GeminiQuotaBudget.php`, `app/Services/Audit/Pipeline/Semantic*.php` | `audfact-audit-gemini` + `audfact-runtime-docker` (ejecución v2, cuotas, recuperación y corte) |
+| `app/Services/Audit/SemanticBatchContract.php`, `app/Services/Audit/SemanticCandidateCollector.php`, `app/Services/Audit/ResolvedSemanticResolver.php`, `app/Services/Audit/SemanticMatch*.php`, `app/Services/Audit/GeminiOperationException.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/Pipeline/AuditDocumentCache.php`, `app/Services/Audit/Pipeline/AuditDocumentInput.php` | `audfact-audit-gemini` + `audfact-runtime-docker` (caché global recuperable para alto volumen) |
 | `app/Services/Audit/Pipeline/AuditPersistenceQueue.php`, `app/Services/Audit/Pipeline/AuditPersistenceWorker.php` | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `app/Services/Audit/*.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/DeliveryValiditySource.php` | `audfact-audit-gemini` (origen interno de vigencia) |
@@ -91,6 +94,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |
 | `scripts/sync-github-production-env.sh` | `audfact-runtime-docker` + `audfact-production-ops` |
+| `scripts/sync-execution-v2-github.ps1`, `bin/audit-execution-maintenance.php` | `audfact-runtime-docker` + `audfact-production-ops` + `audfact-audit-gemini` |
 | `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
@@ -105,6 +109,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `frontend/**/*.{ts,tsx}`, `frontend/**/*.css` | `next-best-practices`, `impeccable` |
 | `frontend/scripts/*.test.cjs` | `next-best-practices` (pruebas Node de módulos frontend) |
 | `tests/**/*.php` | `phpunit-test-architect` + skill del dominio funcional probado |
+| `tests/Integration/AuditExecution*`, `tests/Integration/Gemini*`, `tests/Integration/Semantic*`, `tests/Support/reserve-gemini-quota.php`, `tests/Support/exercise-aof-recovery.php` | `audfact-audit-gemini` + `audfact-runtime-docker` (contratos Redis/concurrencia/AOF aislados; Gemini simulado) |
+| `tests/Integration/AuditDocumentCacheRedisTest.php`, `tests/Integration/AuditEventRetentionRedisTest.php`, `tests/Integration/AuditDlqRecoveryRedisTest.php`, `tests/Support/IsolatedAuditRedis.php`, `tests/Support/write-document-cache.php` | `phpunit-test-architect` + `audfact-audit-gemini` (Redis aislado, presupuesto, retención y recuperación) |
 | Especificaciones agnósticas en `opt/*` | `ddf-agnostic-spec` |
 | `opt/SPEC-SAAS-MASTER.md` (autoridad documental y cierre de gaps SaaS) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
 | `opt/tools/*.cjs` (comprobadores de contratos documentales) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |

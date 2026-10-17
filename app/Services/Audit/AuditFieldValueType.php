@@ -213,7 +213,7 @@ enum AuditFieldValueType: string
             self::AUTH_NUMBER         => 'Solo numero de autorizacion/radicado; transcribe cada digito individualmente en orden posicional estricto de izquierda a derecha sin tipo ni texto adicional; verifica con cuidado la distincion entre 8, 6, 5, 0 y 9.',
             self::NIT                 => 'Solo numero de NIT sin digito de verificacion a menos que se solicite; transcribe cada digito con exactitud posicional; verifica con cuidado la distincion entre 8, 6, 5 y 0.',
             self::TRACE_TOKEN         => 'Lista de lotes o seriales de trazabilidad visibles (ej: ["LOTE1", "LOTE2"] o ["LOTE1"]).',
-            self::ARTICLE_NAME        => 'Nombre o denominacion del producto o medicamento; incluye concentracion, dosis y forma farmaceutica si estan visibles en la prescripcion o renglon.',
+            self::ARTICLE_NAME        => 'Nombre o denominacion del producto o medicamento.',
             default                   => null,
         };
     }
