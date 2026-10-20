@@ -62,6 +62,69 @@ final class GeminiTaskExecutionRedisTest extends TestCase
         }
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('permanentProviderResponses')]
+    public function testPermanentResponseClosesTechnicallyOnceAndReleasesResources(array $response, string $reason): void
+    {
+        // Arrange:
+        $worker = $this->worker([new Response(200, [], '{"totalTokens":100}'),
+            new Response(200, [], json_encode($response, JSON_THROW_ON_ERROR))]);
+        $worker->validateResponse = true;
+        $runner = new AuditTaskRunner($this->redis, new AuditExecutionConfig(2));
+        $outbox = new AuditTaskOutbox($this->redis, new AuditPersistenceQueue($this->redis));
+
+        // Act:
+        $runner->tick($worker, AuditLane::BATCH, 'worker');
+        $runner->tick($worker, AuditLane::BATCH, 'worker');
+        $outbox->flush();
+        $outbox->flush();
+        $root = (new AuditStateStore($this->redis))->getAudit($this->event->auditId);
+        $entries = $this->redis->eval('return redis.call("XRANGE",KEYS[1],"-","+")', [AuditEventPublisher::dlqStream()]);
+        $dlq = json_decode($entries[0][1][1], true);
+
+        // Assert:
+        self::assertSame('failed', $root['status']);
+        self::assertSame('completed', $this->task()->record['state']);
+        self::assertCount(2, $this->history);
+        self::assertCount(1, $this->task()->record['stage_artifact']['responses']);
+        self::assertSame(1, $worker->committedCleanups);
+        self::assertSame(0, $worker->deferredCleanups);
+        self::assertSame($reason, $dlq['payload']['last_error_code']);
+        self::assertCount(1, $entries);
+        self::assertSame(1, $this->quota->metrics()['extraction_request_failures']);
+    }
+
+    public static function permanentProviderResponses(): iterable
+    {
+        yield 'blocked' => [['promptFeedback' => ['blockReason' => 'OTHER']], 'GEMINI_RESPONSE_PROVIDER_BLOCKED'];
+        yield 'truncated' => [['candidates' => [['finishReason' => 'MAX_TOKENS']]], 'GEMINI_RESPONSE_OUTPUT_TRUNCATED'];
+        yield 'unsafe' => [['candidates' => [['finishReason' => 'SAFETY']]], 'GEMINI_RESPONSE_UNSAFE_FINISH_REASON'];
+    }
+
+    public function testMissingCandidateUsesGenerationRetryBudgetAndReleasesResourcesAtExhaustion(): void
+    {
+        // Arrange:
+        $worker = $this->worker([new Response(200, [], '{"totalTokens":100}'),
+            new Response(200, [], '{}'), new Response(200, [], '{}'), new Response(200, [], '{}')]);
+        $worker->validateResponse = true;
+        $runner = new AuditTaskRunner($this->redis, new AuditExecutionConfig(2));
+
+        // Act:
+        for ($i = 0; $i < 3; $i++) {
+            $runner->tick($worker, AuditLane::BATCH, 'worker');
+            if ($this->task()->record['state'] === 'delayed') {
+                $this->makeDue($this->task());
+            }
+        }
+        $root = (new AuditStateStore($this->redis))->getAudit($this->event->auditId);
+
+        // Assert:
+        self::assertSame('failed', $root['status']);
+        self::assertCount(4, $this->history);
+        self::assertSame(1, $worker->committedCleanups);
+        self::assertSame(2, $worker->deferredCleanups);
+        self::assertSame(3, $this->quota->metrics()['extraction_request_failures']);
+    }
+
     public function testRetryAfterDefersAndReusesCountTokensWithoutInternalRetry(): void
     {
         // Arrange:
@@ -244,6 +307,9 @@ final class GeminiTaskExecutionRedisTest extends TestCase
 
 final class ScheduledGeminiFixtureWorker extends AuditEventConsumer
 {
+    public bool $validateResponse = false;
+    public int $committedCleanups = 0;
+    public int $deferredCleanups = 0;
     public function __construct(IsolatedAuditRedis $redis, private readonly GeminiGateway $gateway,
         private readonly GeminiQuotaBudget $quota, private readonly FairAuditTaskQueue $queue)
     {
@@ -259,11 +325,30 @@ final class ScheduledGeminiFixtureWorker extends AuditEventConsumer
 
     public function prepareTask(AuditTask $task): array
     {
-        $response = $this->gateway->withTask($task, $this->quota, $this->queue)->executeTaskRequest(
+        $gateway = $this->gateway->withTask($task, $this->quota, $this->queue);
+        $response = $gateway->executeTaskRequest(
             ['contents' => [['parts' => [['text' => 'Synthetic fixture']]]]], ['task_type' => GeminiGateway::TASK_EXTRACTION]);
+        if ($this->validateResponse) {
+            try {
+                \App\Services\Audit\GeminiResponseGuard::assertUsable($response, 'extraction');
+            } catch (\App\Services\Audit\GeminiResponseException $error) {
+                $gateway->invalidateTaskResponses($error->retryable());
+                throw $error;
+            }
+        }
         $effects = AuditTaskEffects::empty($task);
         $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'patch_audit_context', null,
             ['fixture_result' => $response['value']]);
         return $effects;
+    }
+
+    public function afterTaskCommitted(AuditTask $task): void
+    {
+        $this->committedCleanups++;
+    }
+
+    public function afterTaskDeferred(AuditTask $task): void
+    {
+        $this->deferredCleanups++;
     }
 }

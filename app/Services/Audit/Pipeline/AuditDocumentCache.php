@@ -89,6 +89,20 @@ final class AuditDocumentCache
         return ['max_bytes' => $this->maxBytes, 'max_entries' => $this->maxEntries, 'ttl_seconds' => $this->ttlSeconds];
     }
 
+    /** Lee capacidad y recupera reservas vencidas aun cuando las descargas estén pausadas. */
+    public function usage(): array
+    {
+        $raw = $this->redis->eval(self::USAGE_LUA, $this->keys('audit:blob:budget-inspection'), [self::PRUNE_LIMIT]);
+        if (!is_array($raw) || count($raw) !== 2
+            || !is_numeric($raw[0]) || !is_numeric($raw[1])
+            || (int) $raw[0] < 0 || (int) $raw[1] < 0) {
+            throw new RuntimeException('document_cache_usage_invalid');
+        }
+
+        return ['reserved_bytes' => (int) $raw[0], 'reserved_entries' => (int) $raw[1],
+            'max_bytes' => $this->maxBytes, 'max_entries' => $this->maxEntries];
+    }
+
     private function keys(string $key): array
     {
         return [$key, self::INDEX . ':expires', self::INDEX . ':sizes', self::INDEX . ':bytes'];
@@ -110,19 +124,33 @@ final class AuditDocumentCache
         return (int) $raw;
     }
 
-    private const PUT_LUA = <<<'LUA'
-        local time = redis.call('TIME')
-        local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
-        local expired = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', now, 'LIMIT', 0, tonumber(ARGV[6]))
-        local used = tonumber(redis.call('GET', KEYS[4]) or '0')
-        for _, key in ipairs(expired) do
-            used = used - tonumber(redis.call('HGET', KEYS[3], key) or '0')
-            redis.call('HDEL', KEYS[3], key)
-            redis.call('ZREM', KEYS[2], key)
-            redis.call('DEL', key)
+    private const PRUNE_LUA = <<<'LUA'
+        local function prune(limit)
+            local time = redis.call('TIME')
+            local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+            local expired = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', now, 'LIMIT', 0, tonumber(limit))
+            local used = tonumber(redis.call('GET', KEYS[4]) or '0')
+            for _, key in ipairs(expired) do
+                used = used - tonumber(redis.call('HGET', KEYS[3], key) or '0')
+                redis.call('HDEL', KEYS[3], key)
+                redis.call('ZREM', KEYS[2], key)
+                redis.call('DEL', key)
+            end
+            used = math.max(0, used)
+            redis.call('SET', KEYS[4], used)
+            return used, now
         end
-        used = math.max(0, used)
-        redis.call('SET', KEYS[4], used)
+    LUA;
+
+    private const USAGE_LUA = self::PRUNE_LUA . <<<'LUA'
+
+        local used = prune(ARGV[1])
+        return {used, redis.call('ZCARD', KEYS[2])}
+    LUA;
+
+    private const PUT_LUA = self::PRUNE_LUA . <<<'LUA'
+
+        local used, now = prune(ARGV[6])
         local previous = tonumber(redis.call('HGET', KEYS[3], KEYS[1]) or '0')
         local size = tonumber(ARGV[2])
         local entries = redis.call('ZCARD', KEYS[2])

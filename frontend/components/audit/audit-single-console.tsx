@@ -46,6 +46,16 @@ type FormValues = z.infer<typeof formSchema>;
 
 const POLL_INTERVAL_MS = 3_000;
 
+function getAttachmentKey(att: Attachment): string {
+  return String(
+    att.id_adjunto_fisico ??
+      att.AdjDisId ??
+      att.attachment_id ??
+      att.id_documento ??
+      "",
+  );
+}
+
 export function AuditSingleConsole() {
   const searchParams = useSearchParams();
   const prefillDisId = searchParams.get("disId") ?? "";
@@ -98,9 +108,7 @@ export function AuditSingleConsole() {
   React.useEffect(() => {
     if (selectedAttachmentId !== "ALL" && hasAttachments) {
       const exists = attachments.some(
-        (att: Attachment) =>
-          String(att.id_documento ?? att.id_adjunto_fisico) ===
-          selectedAttachmentId,
+        (att: Attachment) => getAttachmentKey(att) === selectedAttachmentId,
       );
       if (!exists) {
         form.setValue("attachmentId", "ALL");
@@ -147,15 +155,13 @@ export function AuditSingleConsole() {
         values.attachmentId && values.attachmentId !== "ALL";
       const targetAtt = isSelective
         ? attachments.find(
-            (a: Attachment) =>
-              String(a.id_documento ?? a.id_adjunto_fisico) ===
-              values.attachmentId,
+            (a: Attachment) => getAttachmentKey(a) === values.attachmentId,
           )
         : null;
 
       const toastId = toast.loading(
         isSelective
-          ? `Reauditando soporte: ${targetAtt?.nombre_documento || values.attachmentId}...`
+          ? `Reauditando soporte: ${targetAtt?.nombre_documento || targetAtt?.AdjDisNom || values.attachmentId}...`
           : "Ejecutando auditoría integral...",
         {
           description: `Factura: ${values.disDetNro} ${
@@ -230,10 +236,14 @@ export function AuditSingleConsole() {
   const isPolling = pollingAuditId !== null;
   const isSelectiveActive =
     selectedAttachmentId !== "ALL" && selectedAttachmentId !== "";
-  const selectedDocInfo = attachments.find(
-    (a: Attachment) =>
-      String(a.id_documento ?? a.id_adjunto_fisico) === selectedAttachmentId,
-  );
+  const selectedDocInfo = React.useMemo(() => {
+    if (!isSelectiveActive) return null;
+    return (
+      attachments.find(
+        (a: Attachment) => getAttachmentKey(a) === selectedAttachmentId,
+      ) ?? null
+    );
+  }, [attachments, isSelectiveActive, selectedAttachmentId]);
 
   return (
     <div className="space-y-6">
@@ -334,18 +344,18 @@ export function AuditSingleConsole() {
                       </SelectItem>
 
                       {attachments.map((att: Attachment) => {
-                        const val = String(
-                          att.id_documento ?? att.id_adjunto_fisico ?? "",
-                        );
+                        const val = getAttachmentKey(att);
                         if (!val) return null;
                         const storageLabel = att.TipoAlmacenamiento || "DOC";
+                        const docCode = att.id_documento ?? att.id_adjunto_fisico ?? "#";
+                        const docName = att.nombre_documento || att.AdjDisNom || "DOCUMENTO";
 
                         return (
                           <SelectItem key={val} value={val}>
                             <span className="flex items-center gap-2 font-mono">
                               <FileText className="h-3.5 w-3.5 text-sky-400" />
                               <span className="font-semibold text-foreground">
-                                [{att.id_documento ?? "#"}] {att.nombre_documento || "DOCUMENTO"}
+                                [{docCode}] {docName}
                               </span>
                               <span className="text-[10px] text-muted-foreground">
                                 ({storageLabel})
@@ -362,7 +372,7 @@ export function AuditSingleConsole() {
                 {isSelectiveActive && selectedDocInfo ? (
                   <span className="flex items-center gap-1.5 text-sky-400 font-mono text-xs">
                     <Zap className="h-3 w-3 shrink-0" />
-                    Reauditoría selectiva: solo [{selectedDocInfo.id_documento}] {selectedDocInfo.nombre_documento}
+                    Reauditoría selectiva: solo [{selectedDocInfo.id_documento ?? selectedDocInfo.id_adjunto_fisico ?? "#"}] {selectedDocInfo.nombre_documento || selectedDocInfo.AdjDisNom || "DOCUMENTO"}
                   </span>
                 ) : hasAttachments ? (
                   `${attachments.length} documento(s) indexado(s) en la dispensa.`

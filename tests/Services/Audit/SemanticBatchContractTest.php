@@ -28,16 +28,20 @@ final class SemanticBatchContractTest extends TestCase
     }
 
     #[DataProvider('invalidResponses')]
-    public function testInvalidOrClinicallyContradictoryResponseIsTechnicalFailure(array $response): void
+    public function testInvalidOrClinicallyContradictoryResponseIsTechnicalFailure(
+        array $response,
+        string $errorClass = GeminiOperationException::class,
+        string $message = 'gemini_operation_failed'
+    ): void
     {
         // Arrange:
         $contract = new SemanticBatchContract();
 
         // Act:
-        $this->expectException(GeminiOperationException::class);
+        $this->expectException($errorClass);
 
         // Assert:
-        $this->expectExceptionMessage('gemini_operation_failed');
+        $this->expectExceptionMessage($message);
         $contract->validate($response, self::pairs());
     }
 
@@ -64,7 +68,7 @@ final class SemanticBatchContractTest extends TestCase
         yield 'non scalar identity' => [self::response($invalid)];
         $truncated = self::response($results);
         $truncated['candidates'][0]['finishReason'] = 'MAX_TOKENS';
-        yield 'truncated' => [$truncated];
+        yield 'truncated' => [$truncated, \App\Services\Audit\GeminiResponseException::class, 'GEMINI_RESPONSE_OUTPUT_TRUNCATED'];
         yield 'invalid JSON' => [['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => '{bad']]]]]]];
         yield 'root additional property' => [['candidates' => [['finishReason' => 'STOP', 'content' => ['parts' => [['text' => json_encode(['results' => $results, 'approve' => true])]]]]]]];
     }

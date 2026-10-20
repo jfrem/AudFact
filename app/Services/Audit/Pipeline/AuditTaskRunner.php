@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\GeminiOperationException;
+use App\Services\Audit\GeminiResponseException;
 use Core\Logger;
 use Core\RedisClient;
 
@@ -40,8 +41,8 @@ final class AuditTaskRunner
         try {
             $audit = (new AuditStateStore($this->redis))->getAudit($task->record['audit_id']);
             if ($audit !== null && AuditStateStore::isTerminalStatus((string) ($audit['status'] ?? ''))) {
-                $this->committer->commit($task->record, AuditTaskEffects::empty($task));
-                $this->cleanup($worker, $task, true);
+                $result = $this->committer->commit($task->record, AuditTaskEffects::empty($task));
+                $this->finishCommit($worker, $task, $result);
                 return true;
             }
             if ($task->record['recovery_count'] > 3) {
@@ -55,10 +56,7 @@ final class AuditTaskRunner
                     $this->committer->repair();
                     continue;
                 }
-                if ($result === 'STALE') {
-                    $this->committer->commit($task->record, AuditTaskEffects::empty($task));
-                }
-                $this->cleanup($worker, $task, $result !== 'STALE');
+                $this->finishCommit($worker, $task, $result);
                 return true;
             }
             $this->queue->defer($task, $this->queue->nowMs() + 100, 'commit_contention');
@@ -67,15 +65,18 @@ final class AuditTaskRunner
             $this->queue->defer($task, $error->dueAtMs, $error->reason);
             $this->cleanup($worker, $task, false);
         } catch (\Throwable $error) {
-            $permanent = $error instanceof \DomainException || $error instanceof \InvalidArgumentException
+            $permanent = ($error instanceof GeminiResponseException && !$error->retryable())
+                || $error instanceof \DomainException || $error instanceof \InvalidArgumentException
                 || ($error instanceof GeminiOperationException && in_array($error->httpCode, [400, 401, 403, 404], true));
-            $operation = $error instanceof GeminiOperationException ? $error->operation : $task->record['operation'];
+            $operation = $error instanceof GeminiResponseException ? 'generate_content'
+                : ($error instanceof GeminiOperationException ? $error->operation : $task->record['operation']);
             $attempt = $operation === $task->record['operation'] ? (int) $task->record['operation_attempt'] : 0;
             if (!$permanent && $attempt < 2) {
                 $delay = $attempt === 0 ? 1000 : 5000;
                 $delay += (int) sprintf('%u', crc32($task->id() . ':' . $attempt)) % 251;
                 $delay = max($delay, $error instanceof GeminiOperationException ? $error->retryAfterMs : 0);
                 $this->queue->defer($task, $this->queue->nowMs() + $delay, 'task_operation_retry', true, $operation);
+                $this->cleanup($worker, $task, false);
             } else {
                 $effects = AuditTaskEffects::empty($task);
                 $effects['attempt_metrics'] = $this->attemptMetrics($task);
@@ -87,17 +88,29 @@ final class AuditTaskRunner
                 $effects['outbox'][] = AuditTaskEffects::event($task, $event, 'failed');
                 $dlq = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DEAD_LETTER, [
                     'failed_event_type' => $task->event()->eventType, 'failed_stage' => $stage->value,
-                    'attempts' => $attempt + 1, 'last_error_code' => 'AUDIT_TASK_FAILED',
-                    'last_error_message' => 'audit_task_failed', 'original_event' => $task->event()->toArray(),
+                    'attempts' => $attempt + 1,
+                    'last_error_code' => $error instanceof GeminiResponseException ? $error->reason->value : 'AUDIT_TASK_FAILED',
+                    'last_error_message' => $error instanceof GeminiResponseException ? $error->reason->value : 'audit_task_failed',
+                    'original_event' => $task->event()->toArray(),
                 ], $task->record['document_id'], 'dead-letter');
                 $effects['outbox'][] = AuditTaskEffects::event($task, $dlq, 'dead-letter');
-                $this->committer->commit($task->record, $effects);
+                $result = $this->committer->commit($task->record, $effects);
+                $this->finishCommit($worker, $task, $result);
             }
             Logger::warning('Audit task operation failed', ['task_id' => $task->id(), 'stage' => $stage->value,
-                'error_class' => get_class($error), 'operation_attempt' => $attempt + 1]);
-            $this->cleanup($worker, $task, false);
+                'error_class' => get_class($error), 'operation_attempt' => $attempt + 1,
+                'provider_context' => $error instanceof GeminiResponseException ? $error->context() : null]);
         }
         return true;
+    }
+
+    private function finishCommit(AuditEventConsumer $worker, AuditTask $task, string $result): void
+    {
+        if ($result === 'RETRY_PREPARE') {
+            $this->committer->repair();
+            $this->queue->defer($task, $this->queue->nowMs() + 100, 'commit_contention');
+        }
+        $this->cleanup($worker, $task, in_array($result, ['COMMITTED', 'ALREADY_COMMITTED'], true));
     }
 
     private function cleanup(AuditEventConsumer $worker, AuditTask $task, bool $committed): void

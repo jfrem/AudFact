@@ -197,6 +197,19 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->documentCache->release($this->requiredString($task->event()->payload, 'blob_reference_key'));
     }
 
+    protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void
+    {
+        $key = $event->payload['blob_reference_key'] ?? null;
+        if ($key === null) {
+            return;
+        }
+        if (!is_string($key) || !str_starts_with($key, 'audit:blob:') || strlen($key) > 512) {
+            Logger::warning('Document extraction: referencia BLOB terminal inválida', ['audit_id' => $event->auditId]);
+            return;
+        }
+        $this->documentCache->release($key);
+    }
+
     protected function handle(AuditEvent $event): void
     {
         $totalStartTime = microtime(true);
@@ -414,7 +427,10 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $systemPrompt,
             $responseSchema,
             GeminiGateway::TASK_EXTRACTION,
-            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', ['maxOutputTokens' => 4096]),
+            GeminiConfig::generationOverridesFromEnv('GEMINI_EXTRACTION', [
+                'maxOutputTokens' => 8192,
+                'thinkingLevel' => 'low',
+            ]),
             [
                 'dis_det_nro'   => $disDetNro,
                 'audit_id'      => $event->auditId,
@@ -430,7 +446,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         try {
             $extracted = $this->responseParser->parse($response, $contract);
         } catch (\Throwable $error) {
-            $gateway->invalidateTaskResponses();
+            $gateway->invalidateTaskResponses(!($error instanceof \App\Services\Audit\GeminiResponseException && !$error->retryable()));
             throw $error;
         }
         $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);

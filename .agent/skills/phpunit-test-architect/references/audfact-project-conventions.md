@@ -105,7 +105,7 @@ final class ExampleTest extends TestCase
 ### Pipeline
 
 - `App\Services\Audit\Pipeline\AuditEventConsumer` es la base abstracta de los workers.
-- Los workers implementan `stream()`, `group()`, `consumer()` y `handle()` como métodos protegidos.
+- Los workers implementan `streams()`, `group()`, `consumer()`, `eventTypes()` y `handle()` como métodos protegidos.
 - Probar el contrato público mediante `processEvent()`; probar `run()` solo cuando el comportamiento de consumo/retry sea el objetivo y Redis esté completamente doblado.
 
 ### Request, Response e interfaces
@@ -216,7 +216,7 @@ Tratar siempre como fronteras sustituibles en pruebas unitarias:
 - `Core\Router`, `Core\Response`, `Core\Validator`, `Logger`, `Env`, `Cache`, `RateLimit` y `Middleware`;
 - `app/wrap`, `public/index.php`, `bin/`, Docker y Nginx.
 
-Una prueba unitaria no debe conectarse a estas fronteras. La única integración real existente está aislada en `tests/Integration/AuditPersistenceQueueRedisTest.php` y exige `RUN_REDIS_INTEGRATION=1`; no copiar ese patrón a una suite unitaria.
+Una prueba unitaria no debe conectarse a estas fronteras. Las integraciones reales están aisladas en `tests/Integration/` y exigen `RUN_REDIS_INTEGRATION=1`; usan namespaces independientes. La suite v2 requiere Redis dedicado con AOF/fsync always/noeviction. No copiar ese patrón a una suite unitaria.
 
 ## Patrones de prueba por componente
 

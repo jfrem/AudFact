@@ -11,6 +11,32 @@ use PHPUnit\Framework\TestCase;
 
 final class DocumentPolicyEngineTest extends TestCase
 {
+    public function testPermanentBatchResponseCannotFallBackToMoreIndividualRequests(): void
+    {
+        // Arrange:
+        $gateway = $this->createMock(\App\Services\Audit\GeminiGateway::class);
+        $gateway->method('requestBody')->willReturn([]);
+        $gateway->expects(self::once())->method('sendPrebuiltBody')->willReturn([
+            'candidates' => [['finishReason' => 'MAX_TOKENS']],
+        ]);
+        $gateway->expects(self::once())->method('invalidateTaskResponses')->with(false);
+        $gateway->expects(self::never())->method('sendWithStructuredOutput');
+        $redis = $this->createStub(\Core\RedisClient::class);
+        $redis->method('isAvailable')->willReturn(false);
+        $engine = new DocumentPolicyEngine(new \App\Services\Audit\SemanticMatchJudge($gateway, $redis));
+        $state = self::baseState('DISPENSA', [self::field('NombreArticulo', 'S')], [
+            'header' => [], 'items' => [['NombreArticulo' => 'AAAAAA'], ['NombreArticulo' => 'BBBBBB']],
+        ]);
+        $payload = self::payload('DISPENSA', [], [['NombreArticulo' => 'XXXXXX']]);
+
+        // Assert:
+        self::expectException(\App\Services\Audit\GeminiResponseException::class);
+        self::expectExceptionMessage('GEMINI_RESPONSE_OUTPUT_TRUNCATED');
+
+        // Act:
+        $engine->evaluate($state, $payload);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private static function field(

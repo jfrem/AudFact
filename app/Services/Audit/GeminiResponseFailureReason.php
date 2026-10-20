@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Audit;
+
+enum GeminiResponseFailureReason: string
+{
+    case PROVIDER_BLOCKED = 'GEMINI_RESPONSE_PROVIDER_BLOCKED';
+    case MISSING_CANDIDATE = 'GEMINI_RESPONSE_MISSING_CANDIDATE';
+    case OUTPUT_TRUNCATED = 'GEMINI_RESPONSE_OUTPUT_TRUNCATED';
+    case UNSAFE_FINISH_REASON = 'GEMINI_RESPONSE_UNSAFE_FINISH_REASON';
+}

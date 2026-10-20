@@ -12,6 +12,33 @@ use RuntimeException;
 
 final class SemanticMatchJudgeTest extends TestCase
 {
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableProviderResponses')]
+    public function testProviderFailureCannotBecomeNegativeEvidenceOrEnterCache(array $response, string $reason): void
+    {
+        // Arrange:
+        $gateway = $this->createMock(GeminiGateway::class);
+        $gateway->expects(self::once())->method('sendWithStructuredOutput')->willReturn($response);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('get')->willReturn(null);
+        $redis->expects(self::never())->method('set');
+        $judge = new SemanticMatchJudge($gateway, $redis);
+
+        // Assert:
+        self::expectException(\App\Services\Audit\GeminiResponseException::class);
+        self::expectExceptionMessage($reason);
+
+        // Act:
+        $judge->evaluate('synthetic product A', 'synthetic product B');
+    }
+
+    public static function unusableProviderResponses(): iterable
+    {
+        yield 'blocked' => [['promptFeedback' => ['blockReason' => 'OTHER']], 'GEMINI_RESPONSE_PROVIDER_BLOCKED'];
+        yield 'absent' => [[], 'GEMINI_RESPONSE_MISSING_CANDIDATE'];
+        yield 'truncated' => [['candidates' => [['finishReason' => 'MAX_TOKENS']]], 'GEMINI_RESPONSE_OUTPUT_TRUNCATED'];
+    }
+
     public function testGeminiFailureReturnsCleanNonCacheableFallback(): void
     {
         $gateway = new ThrowingSemanticGeminiGateway();
@@ -33,7 +60,7 @@ final class SemanticMatchJudgeTest extends TestCase
         );
         $this->assertStringNotContainsString('Error de evaluación semántica', $result['reasoning']);
         $this->assertStringNotContainsString('Budget 0 is invalid', $result['reasoning']);
-        $this->assertSame(['maxOutputTokens' => 2048], $gateway->lastGenerationOverrides);
+        $this->assertSame(['maxOutputTokens' => 4096, 'thinkingLevel' => 'low'], $gateway->lastGenerationOverrides);
         $this->assertSame(GeminiGateway::TASK_SEMANTIC_MATCH, $gateway->lastTaskType);
     }
 
@@ -57,7 +84,7 @@ final class SemanticMatchJudgeTest extends TestCase
             $result['reasoning']
         );
         $this->assertSame(268, $result['gemini_metrics']['total_tokens'] ?? null);
-        $this->assertSame(['maxOutputTokens' => 2048], $gateway->lastGenerationOverrides);
+        $this->assertSame(['maxOutputTokens' => 4096, 'thinkingLevel' => 'low'], $gateway->lastGenerationOverrides);
         $this->assertSame(GeminiGateway::TASK_SEMANTIC_MATCH, $gateway->lastTaskType);
     }
 
@@ -104,12 +131,12 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->expects($this->once())
             ->method('get')
-            ->with($this->stringContains('audfact:semantic:match:v5:product:'))
+            ->with($this->stringContains('audfact:semantic:match:v6:product:'))
             ->willReturn(null);
         $redis->expects($this->once())
             ->method('set')
             ->with(
-                $this->stringContains('audfact:semantic:match:v5:product:'),
+                $this->stringContains('audfact:semantic:match:v6:product:'),
                 $this->isType('string'),
                 $this->equalTo(2592000)
             )
@@ -288,12 +315,12 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->expects($this->once())
             ->method('get')
-            ->with($this->stringContains('audfact:semantic:match:v2:person:'))
+            ->with($this->stringContains('audfact:semantic:match:v3:person:'))
             ->willReturn(null);
         $redis->expects($this->once())
             ->method('set')
             ->with(
-                $this->stringContains('audfact:semantic:match:v2:person:'),
+                $this->stringContains('audfact:semantic:match:v3:person:'),
                 $this->isType('string'),
                 $this->equalTo(2592000)
             )

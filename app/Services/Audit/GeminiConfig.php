@@ -42,7 +42,7 @@ final class GeminiConfig
             maxOutputTokens: (int) Env::get('GEMINI_MAX_OUTPUT_TOKENS', 8192),
             mediaResolution: self::nullableString(Env::get('GEMINI_MEDIA_RESOLUTION', null)),
             thinkingBudget: self::nullableInt(Env::get('GEMINI_THINKING_BUDGET', null)),
-            thinkingLevel: self::nullableString(Env::get('GEMINI_THINKING_LEVEL', null)),
+            thinkingLevel: self::nullableString(Env::get('GEMINI_THINKING_LEVEL', 'low')) ?? 'low',
             seed: self::nullableInt(Env::get('GEMINI_SEED', null)),
         );
     }

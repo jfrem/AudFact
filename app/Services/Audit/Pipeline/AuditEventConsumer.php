@@ -138,6 +138,16 @@ abstract class AuditEventConsumer
     {
     }
 
+    protected function canReadNewMessages(): bool
+    {
+        return true;
+    }
+
+    protected function startupContext(): array
+    {
+        return [];
+    }
+
     final public function processEvent(AuditEvent $event): void
     {
         if (in_array($event->eventType, $this->eventTypes(), true)) {
@@ -188,7 +198,7 @@ abstract class AuditEventConsumer
             return $processed;
         }
 
-        Logger::info('AuditEventConsumer: iniciando consumidor', [
+        Logger::info('AuditEventConsumer: iniciando consumidor', array_merge([
             'group'    => $this->group(),
             'consumer' => $this->consumer(),
             'lane'     => $this->lane,
@@ -198,7 +208,7 @@ abstract class AuditEventConsumer
             'max_retries' => $this->maxRetries,
             'pending_reclaim_idle_ms' => $this->pendingReclaimIdleMs,
             'pending_reclaim_interval_ms' => $this->pendingReclaimIntervalMs,
-        ]);
+        ], $this->startupContext()));
 
         $this->ensureGroup();
         $processed = $this->intakeBlocked($execution) ? 0 : $this->reclaimPending($maxEvents);
@@ -223,6 +233,11 @@ abstract class AuditEventConsumer
             $processed += $this->reclaimPendingIfDue($remaining);
             if ($maxEvents > 0 && $processed >= $maxEvents) {
                 break;
+            }
+
+            if (!$this->canReadNewMessages()) {
+                usleep(100000);
+                continue;
             }
 
             try {
@@ -609,9 +624,11 @@ abstract class AuditEventConsumer
             'error_file' => $error->getFile(),
             'error_line' => $error->getLine(),
             'error' => $error->getMessage(),
+            'provider_context' => $error instanceof \App\Services\Audit\GeminiResponseException ? $error->context() : null,
         ]);
 
-        $nonRetryable = $error instanceof \DomainException
+        $nonRetryable = ($error instanceof \App\Services\Audit\GeminiResponseException && !$error->retryable())
+            || $error instanceof \DomainException
             || $error instanceof \InvalidArgumentException
             || $error instanceof SqlServerOperationException
             || $error instanceof AttachmentDownloadException;
@@ -803,7 +820,9 @@ abstract class AuditEventConsumer
         try {
             $this->redis->hIncrBy('telemetry:async_metrics', 'retries', 1);
         } catch (\Throwable $e) {
-            // Telemetría no debe frenar el flujo base
+            Logger::warning('AuditEventConsumer: métrica de reintento no registrada', [
+                'event_id' => $eventId, 'error_class' => $e::class,
+            ]);
         }
 
         return $value ?? 1;
@@ -832,6 +851,9 @@ abstract class AuditEventConsumer
 
     private static function errorCode(Throwable $error): string
     {
+        if ($error instanceof \App\Services\Audit\GeminiResponseException) {
+            return $error->reason->value;
+        }
         $code = $error->getCode();
         if (is_int($code) && $code !== 0) {
             return (string) $code;

@@ -25,9 +25,9 @@ final class InvoicesModelTest extends TestCase
         ], 2, 50);
 
         $this->assertSame([['DisId' => '1']], $result);
-        $this->assertStringContainsString('INTO #Disp', $pdo->preparedSql);
-        $this->assertStringContainsString('group by f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol>=:dateFromD and d.DisFecSol<=:dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('INTO #DISP', $pdo->preparedSql);
+        $this->assertStringContainsString('GROUP BY f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
         
@@ -58,8 +58,8 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertSame(7, $total);
         $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol>=:dateFromD and d.DisFecSol<=:dateToD', $pdo->preparedSql);
-        $this->assertStringContainsString('group by f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('GROUP BY f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
         
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
@@ -112,9 +112,9 @@ final class InvoicesModelTest extends TestCase
             'dateTo' => '2026-02-28',
         ]);
 
-        $this->assertStringContainsString('select f.DisId,f.DisDetId,f.FacNro factura', $pdo->preparedSql);
-        $this->assertStringContainsString('CREATE CLUSTERED INDEX IX_TMP_FACT ON #FACT (DisId,DisDetId);', $pdo->preparedSql);
-        $this->assertStringContainsString('NOT EXISTS (SELECT 1 FROM #FACT AS f WHERE f.DisId = d.DisId AND f.DisDetId = d.DisDetId)', $pdo->preparedSql);
+        $this->assertStringContainsString('NOT EXISTS ( SELECT 1', $pdo->preparedSql);
+        $this->assertStringContainsString('fx.DisId = dd.DisId AND fx.DisDetId = dd.DisDetId', $pdo->preparedSql);
+        $this->assertStringContainsString('kx.FacSecRem = f.FacSec AND fx.FacEst = \'A\'AND tx.FueCod = \'FACT\'', $pdo->preparedSql);
     }
 
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel

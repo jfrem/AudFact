@@ -19,6 +19,83 @@ use RuntimeException;
 
 final class AuditEventConsumerTest extends TestCase
 {
+    #[DataProvider('providerFailureReasons')]
+    public function testTypedProviderFailureClosesImmediatelyOnlyWhenNonRetryable(
+        \App\Services\Audit\GeminiResponseFailureReason $reason,
+        bool $terminal
+    ): void {
+        // Arrange:
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, null);
+        $failure = new \App\Services\Audit\GeminiResponseException($reason, ['task_type' => 'extraction']);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('incr')->willReturn(1);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects($terminal ? self::once() : self::never())->method('eval')->willReturn(1);
+        $publisher = $this->createMock(AuditEventPublisher::class);
+        $publisher->expects($terminal ? self::once() : self::never())->method('publishDeadLetter')
+            ->with(self::callback(static fn(AuditEvent $dlq): bool => $dlq->payload['last_error_code'] === $reason->value))
+            ->willReturn('2-0');
+        $consumer = new class($redis, $publisher, $failure) extends AuditEventConsumer {
+            public int $terminalCleanups = 0;
+            public function __construct(RedisClient $redis, AuditEventPublisher $publisher, private readonly \Throwable $failure)
+            {
+                parent::__construct($redis, $publisher);
+            }
+            protected function streams(): array { return ['test.stream']; }
+            protected function group(): string { return 'test'; }
+            protected function consumer(): string { return 'test'; }
+            protected function eventTypes(): array { return [AuditEvent::TYPE_DOCUMENT_DOWNLOADED]; }
+            protected function handle(AuditEvent $event): void { throw $this->failure; }
+            protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void { $this->terminalCleanups++; }
+        };
+
+        // Act:
+        $processed = $consumer->run(1);
+
+        // Assert:
+        self::assertSame(1, $processed);
+        self::assertSame($terminal ? 1 : 0, $consumer->terminalCleanups);
+    }
+
+    public static function providerFailureReasons(): iterable
+    {
+        foreach (\App\Services\Audit\GeminiResponseFailureReason::cases() as $reason) {
+            yield $reason->name => [$reason, $reason !== \App\Services\Audit\GeminiResponseFailureReason::MISSING_CANDIDATE];
+        }
+    }
+
+    public function testReclaimRunsBeforeTheNewMessageGate(): void
+    {
+        // Arrange:
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, null);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('xAutoClaim')->willReturn(['next' => '0-0', 'messages' => [[
+            'id' => '1-0', 'fields' => ['event' => $event->toJson()],
+        ]]]);
+        $redis->expects(self::never())->method('xReadGroupMulti');
+        $redis->expects(self::once())->method('xAck')->willReturn(1);
+        $consumer = new class(redis: $redis) extends AuditEventConsumer {
+            public int $handled = 0;
+            protected function streams(): array { return ['test.stream']; }
+            protected function group(): string { return 'test'; }
+            protected function consumer(): string { return 'test'; }
+            protected function eventTypes(): array { return [AuditEvent::TYPE_DOCUMENT_REGISTERED]; }
+            protected function handle(AuditEvent $event): void { $this->handled++; }
+            protected function canReadNewMessages(): bool { return false; }
+        };
+
+        // Act:
+        $processed = $consumer->run(1);
+
+        // Assert:
+        self::assertSame(1, $processed);
+        self::assertSame(1, $consumer->handled);
+    }
+
     public function testUnrelatedEventIsAcknowledgedWithoutStateReadsOrTelemetryWrites(): void
     {
         // Arrange:

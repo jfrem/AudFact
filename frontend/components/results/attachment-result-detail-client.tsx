@@ -41,7 +41,15 @@ export function AttachmentResultDetailClient({
         <SectionCard>
           <AttachmentList
             items={attachments}
-            selectedId={selected?.id_documento ? String(selected.id_documento) : undefined}
+            selectedId={
+              selected?.id_adjunto_fisico
+                ? String(selected.id_adjunto_fisico)
+                : selected?.AdjDisId
+                  ? String(selected.AdjDisId)
+                  : selected?.id_documento
+                    ? String(selected.id_documento)
+                    : undefined
+            }
             onSelect={setSelected}
           />
         </SectionCard>

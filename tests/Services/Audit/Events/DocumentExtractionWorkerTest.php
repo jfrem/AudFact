@@ -604,7 +604,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_CANDIDATE');
+        $this->expectExceptionMessage('GEMINI_RESPONSE_MISSING_CANDIDATE');
 
         $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));
     }
@@ -636,7 +636,7 @@ final class DocumentExtractionWorkerTest extends TestCase
         );
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_UNSAFE_FINISH_REASON: MAX_TOKENS');
+        $this->expectExceptionMessage('GEMINI_RESPONSE_OUTPUT_TRUNCATED');
 
         try {
             $worker->processEvent($this->documentDownloadedEvent(AuditEvent::uuidV4(), AuditEvent::uuidV4()));

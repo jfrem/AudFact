@@ -261,8 +261,8 @@ class GeminiGateway
         return $artifact['responses'][$hash];
     }
 
-    /** Descarta únicamente respuestas que el parser del contrato haya rechazado. */
-    public function invalidateTaskResponses(): void
+    /** Marca el contrato fallido; conserva respuestas permanentes para reanudar sin repetir HTTP. */
+    public function invalidateTaskResponses(bool $discardResponses = true): void
     {
         if ($this->task === null || $this->taskQueue === null) {
             return;
@@ -274,7 +274,9 @@ class GeminiGateway
                 $this->quota?->failContract($id);
             }
         }
-        $artifact['responses'] = [];
+        if ($discardResponses) {
+            $artifact['responses'] = [];
+        }
         if (!$this->taskQueue->saveArtifact($this->task, $artifact)) {
             throw new \RuntimeException('gemini_task_stale');
         }

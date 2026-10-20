@@ -6,6 +6,21 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 ## Fuentes de Verdad
 
+- Implementación 2026-10-16: control de prefetch y errores tipados de la
+  [SDD de correcciones](../sdd-correccion-fallos-y-rendimiento-pipeline.md).
+  Descargas nuevas se pausan al 90% de bytes o entradas y reanudan al 70% de
+  ambos; la revisión cada 1000 ms poda reservas vencidas. La recuperación PEL
+  y extracción continúan. `documentCache.counters` agrega `prefetch_pauses`
+  y `prefetch_wait_ms` (suma de esperas por proceso, no duración de pared global).
+  Respuestas Gemini bloqueadas, truncadas o con terminación insegura cierran
+  como fallo técnico; candidato ausente conserva el retry existente. Ningún
+  fallo tipado se transforma en evidencia negativa ni entra en caché semántica.
+  Los namespaces unitarios pasan a producto v6/persona v3, TTL 30 días.
+  En v2, respuestas permanentes permanecen en el artifact para evitar otro HTTP
+  al reanudar un commit; los cargos se conservan. BLOB se libera tras commit
+  confirmado o cierre DLQ v1; STALE/RETRY_PREPARE no autorizan liberación.
+  Esta entrega conserva execution=1 y RR/cap1; no acredita activación ni benchmark.
+
 - [Confiabilidad para alto volumen](../ajustes-alto-volumen-2026-10-08.md):
   caché global acotada con recuperación verificada, retención segura de eventos,
   consumidores selectivos y recuperación DLQ independiente.
