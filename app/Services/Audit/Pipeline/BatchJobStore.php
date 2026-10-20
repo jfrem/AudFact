@@ -15,6 +15,7 @@ class BatchJobStore
     use JsonRedisStoreTrait;
 
     public const JOB_STATUS_PENDING             = 'pending';
+    public const JOB_STATUS_QUEUED              = 'queued';      // Auditorias registradas en stream, ninguna ha terminado aun
     public const JOB_STATUS_PROCESSING          = 'processing';
     public const JOB_STATUS_COMPLETED           = 'completed';
     public const JOB_STATUS_COMPLETED_WITH_ERR  = 'completed_with_errors';
@@ -219,7 +220,7 @@ class BatchJobStore
     ): bool {
         return $this->runScript(
             self::REGISTER_AUDIT_IN_JOB_LUA,
-            [self::jobKey($jobId)],
+            [self::jobKey($jobId), 'telemetry:async_metrics'],
             [
                 $auditId,
                 $disDetNro,
@@ -532,8 +533,19 @@ job['audits'][auditId] = {
     reservation_token = reservationToken,
     status = 'pending'
 }
-job['total'] = (tonumber(job['total']) or 0) + 1
+local newTotal = (tonumber(job['total']) or 0) + 1
+job['total'] = newTotal
 job['updated_at'] = now
+
+-- Transicion eager: pending -> queued en el primer registro.
+-- Expresa que ya hay auditorias en el stream esperando workers.
+if tostring(job['status'] or 'pending') == 'pending' then
+    job['status'] = 'queued'
+    redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
+    redis.call('HINCRBY', KEYS[2], 'jobs_active', 1)
+end
+-- Contador de auditorias unicas en vuelo (decrementado al completar cada una)
+redis.call('HINCRBY', KEYS[2], 'audits_in_flight', 1)
 
 storeState(KEYS[1], job, ttl)
 return 1
@@ -608,13 +620,24 @@ if newJobStatus == 'completed' or newJobStatus == 'completed_with_errors' then
     job['completed_at'] = now
 end
 
-if oldJobStatus == 'pending' then
-    redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
+-- Decrementar audits_in_flight por cada auditoria que completa
+redis.call('HINCRBY', KEYS[2], 'audits_in_flight', -1)
+
+-- Transiciones de estado del job con telemetria correcta:
+-- queued   -> processing: primera auditoria termino, job pasa a visible activo
+-- queued   -> completed*: job sellado con 1 auditoria, termino de inmediato
+-- pending  -> * : fallback (no deberia ocurrir con el nuevo flujo)
+-- processing -> completed* / failed
+if oldJobStatus == 'pending' or oldJobStatus == 'queued' then
+    -- jobs_queued ya fue decrementado y jobs_active incrementado en registerAuditInJob
     if newJobStatus == 'processing' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_active', -1)
         redis.call('HINCRBY', KEYS[2], 'jobs_running', 1)
     elseif newJobStatus == 'completed' or newJobStatus == 'completed_with_errors' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_active', -1)
         redis.call('HINCRBY', KEYS[2], 'jobs_completed', 1)
     elseif newJobStatus == 'failed' then
+        redis.call('HINCRBY', KEYS[2], 'jobs_active', -1)
         redis.call('HINCRBY', KEYS[2], 'jobs_failed', 1)
     end
 elseif oldJobStatus == 'processing' and (newJobStatus == 'completed' or newJobStatus == 'completed_with_errors') then

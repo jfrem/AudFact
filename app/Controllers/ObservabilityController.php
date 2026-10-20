@@ -105,7 +105,8 @@ class ObservabilityController extends Controller
             }
 
             $jobCounts = [
-                'queued'    => max(0, (int) ($metrics['jobs_queued'] ?? 0)),
+                'pending'   => max(0, (int) ($metrics['jobs_queued'] ?? 0)),   // Jobs creados sin auditorias aun
+                'queued'    => max(0, (int) ($metrics['jobs_active'] ?? 0)),   // Jobs con auditorias en stream (era 'pending')
                 'running'   => max(0, (int) ($metrics['jobs_running'] ?? 0)),
                 'completed' => max(0, (int) ($metrics['jobs_completed'] ?? 0)),
                 'failed'    => max(0, (int) ($metrics['jobs_failed'] ?? 0)),
@@ -122,6 +123,7 @@ class ObservabilityController extends Controller
                 'persistenceScheduler' => $scheduler,
                 'backlogDepth' => $totalDepth + $knownLag + $scheduler['pending'],
                 'deadLetterDepth'  => $deadLetterDepth,
+                'auditsInFlight'   => max(0, (int) ($metrics['audits_in_flight'] ?? 0)),
                 'jobs'             => $jobCounts,
                 'retries'          => $retries,
                 'terminalFailures' => $terminalFailures,

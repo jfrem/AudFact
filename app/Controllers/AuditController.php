@@ -563,8 +563,11 @@ class AuditController extends Controller
         }
 
         return [
-            'job_id'     => (string) ($state['job_id'] ?? ''),
-            'status'     => (string) ($state['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
+            'job_id'        => (string) ($state['job_id'] ?? ''),
+            'status'        => (string) ($state['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
+            // El estado individual de cada auditoria en 'audits' es un snapshot del job store.
+            // Para el estado en tiempo real de una auditoria especifica usar GET /audit/status/{auditId}.
+            'status_source'  => 'job_snapshot',
             'sealed'     => (bool) ($state['sealed'] ?? false),
             'limit'      => (int) ($state['limit'] ?? 0),
             'total'      => $total,

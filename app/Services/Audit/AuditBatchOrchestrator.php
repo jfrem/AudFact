@@ -420,7 +420,8 @@ final class AuditBatchOrchestrator
             ])) {
                 throw new RuntimeException('No se pudo sellar el job batch en Redis', 503);
             }
-            return BatchJobStore::JOB_STATUS_PENDING;
+            // El job ya tiene auditorias en stream: queued es el estado real post-sellado
+            return BatchJobStore::JOB_STATUS_QUEUED;
         }
 
         $this->jobStore->patchJob($jobId, [
@@ -430,7 +431,8 @@ final class AuditBatchOrchestrator
             'skipped_existing' => $newAccumulatedSkippedExisting,
         ]);
 
-        return BatchJobStore::JOB_STATUS_PENDING;
+        // Chunk parcial: auditorias ya en stream, el job esta queued
+        return BatchJobStore::JOB_STATUS_QUEUED;
     }
 
     /**

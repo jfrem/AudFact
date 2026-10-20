@@ -74,8 +74,10 @@ export const AsyncMetricsSchema = z.object({
     })
     .optional(),
   deadLetterDepth: z.number().int().nonnegative(),
+  auditsInFlight: z.number().int().nonnegative().optional(), // Auditorias unicas activas en el pipeline
   jobs: z.object({
-    queued: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative().optional(), // Jobs creados sin auditorias aun
+    queued: z.number().int().nonnegative(),             // Jobs con auditorias en stream (nuevo estado visible)
     running: z.number().int().nonnegative(),
     completed: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
