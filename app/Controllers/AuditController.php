@@ -540,6 +540,13 @@ class AuditController extends Controller
         Response::success(self::formatJobStatus($state, $this->currentTime()), 'Estado del job');
     }
 
+    /**
+     * Construye el payload de respuesta para /audit/jobs/{id}.
+     *
+     * NOTA: el campo 'audits' es un snapshot del job store; sus estados individuales
+     * pueden quedar atrasados respecto al estado en tiempo real de cada auditoria.
+     * Para el estado en tiempo real usar GET /audit/status/{auditId}.
+     */
     private static function formatJobStatus(array $state, \DateTimeImmutable $now): array
     {
         $total = (int) ($state['total'] ?? 0);
@@ -565,9 +572,7 @@ class AuditController extends Controller
         return [
             'job_id'        => (string) ($state['job_id'] ?? ''),
             'status'        => (string) ($state['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
-            // El estado individual de cada auditoria en 'audits' es un snapshot del job store.
-            // Para el estado en tiempo real de una auditoria especifica usar GET /audit/status/{auditId}.
-            'status_source'  => 'job_snapshot',
+            'status_source' => 'job_snapshot',
             'sealed'     => (bool) ($state['sealed'] ?? false),
             'limit'      => (int) ($state['limit'] ?? 0),
             'total'      => $total,

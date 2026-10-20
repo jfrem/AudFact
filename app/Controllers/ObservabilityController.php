@@ -104,12 +104,15 @@ class ObservabilityController extends Controller
                 $metrics[(string) $counters[1][$i]] = $counters[1][$i + 1];
             }
 
+            // pending  = job creado sin auditorias (vacio); aun no disparo trabajo al stream.
+            // queued   = auditorias en stream, workers no han completado ninguna aun.
+            // running  = al menos una auditoria completo; el pipeline esta activo.
             $jobCounts = [
-                'pending'   => max(0, (int) ($metrics['jobs_queued'] ?? 0)),   // Jobs creados sin auditorias aun
-                'queued'    => max(0, (int) ($metrics['jobs_active'] ?? 0)),   // Jobs con auditorias en stream (era 'pending')
-                'running'   => max(0, (int) ($metrics['jobs_running'] ?? 0)),
+                'pending'   => max(0, (int) ($metrics['jobs_queued']    ?? 0)),
+                'queued'    => max(0, (int) ($metrics['jobs_active']    ?? 0)),
+                'running'   => max(0, (int) ($metrics['jobs_running']   ?? 0)),
                 'completed' => max(0, (int) ($metrics['jobs_completed'] ?? 0)),
-                'failed'    => max(0, (int) ($metrics['jobs_failed'] ?? 0)),
+                'failed'    => max(0, (int) ($metrics['jobs_failed']    ?? 0)),
             ];
 
             $retries = max(0, (int) ($metrics['retries'] ?? 0));

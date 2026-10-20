@@ -420,7 +420,8 @@ final class AuditBatchOrchestrator
             ])) {
                 throw new RuntimeException('No se pudo sellar el job batch en Redis', 503);
             }
-            // El job ya tiene auditorias en stream: queued es el estado real post-sellado
+            // Sellado significa que no se registraran mas auditorias, pero los workers
+            // pueden no haber completado ninguna aun: el estado observable correcto es queued.
             return BatchJobStore::JOB_STATUS_QUEUED;
         }
 
@@ -431,7 +432,8 @@ final class AuditBatchOrchestrator
             'skipped_existing' => $newAccumulatedSkippedExisting,
         ]);
 
-        // Chunk parcial: auditorias ya en stream, el job esta queued
+        // Hay mas chunks por venir: las auditorias ya registradas estan en stream pero
+        // el job no esta sellado todavia. Para el llamador, el job esta queued.
         return BatchJobStore::JOB_STATUS_QUEUED;
     }
 

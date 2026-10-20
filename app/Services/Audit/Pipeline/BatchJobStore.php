@@ -24,6 +24,9 @@ class BatchJobStore
     private const DEFAULT_JOB_TTL_SECONDS = 604800;
     private const DEFAULT_RESERVATION_TTL_SECONDS = 86400;
 
+    /** Clave del hash Redis donde se acumulan contadores operativos del pipeline. */
+    public const TELEMETRY_KEY = self::TELEMETRY_KEY;
+
     private RedisClient $redis;
 
     public function __construct(?RedisClient $redis = null)
@@ -96,7 +99,7 @@ class BatchJobStore
 
         if ($success) {
             try {
-                $this->redis->hIncrBy('telemetry:async_metrics', 'jobs_queued', 1);
+                $this->redis->hIncrBy(self::TELEMETRY_KEY, 'jobs_queued', 1);
                 $this->redis->eval(
                     "redis.call('ZADD', KEYS[1], tonumber(ARGV[1]), ARGV[2])",
                     ['jobs:index'],
@@ -220,7 +223,7 @@ class BatchJobStore
     ): bool {
         return $this->runScript(
             self::REGISTER_AUDIT_IN_JOB_LUA,
-            [self::jobKey($jobId), 'telemetry:async_metrics'],
+            [self::jobKey($jobId), self::TELEMETRY_KEY],
             [
                 $auditId,
                 $disDetNro,
@@ -285,7 +288,7 @@ class BatchJobStore
     ): bool {
         return $this->runScript(
             self::MARK_AUDIT_COMPLETED_IN_JOB_LUA,
-            [self::jobKey($jobId), 'telemetry:async_metrics'],
+            [self::jobKey($jobId), self::TELEMETRY_KEY],
             [$auditId, $status, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds(), max(0, $durationMs), $failedStage ?? ''],
             'No se pudo actualizar el progreso del job en Redis',
             ['job_id' => $jobId, 'audit_id' => $auditId]
@@ -533,18 +536,19 @@ job['audits'][auditId] = {
     reservation_token = reservationToken,
     status = 'pending'
 }
-local newTotal = (tonumber(job['total']) or 0) + 1
-job['total'] = newTotal
+job['total'] = (tonumber(job['total']) or 0) + 1
 job['updated_at'] = now
 
--- Transicion eager: pending -> queued en el primer registro.
--- Expresa que ya hay auditorias en el stream esperando workers.
+-- El job existe y acaba de recibir su primera auditoria: ya no esta vacio.
+-- Usamos 'queued' para que la API distinga 'creado pero sin trabajo' (pending)
+-- de 'trabajo en stream, workers aun no completan nada' (queued).
 if tostring(job['status'] or 'pending') == 'pending' then
     job['status'] = 'queued'
     redis.call('HINCRBY', KEYS[2], 'jobs_queued', -1)
     redis.call('HINCRBY', KEYS[2], 'jobs_active', 1)
 end
--- Contador de auditorias unicas en vuelo (decrementado al completar cada una)
+-- audits_in_flight rastrea auditorias unicas activas (marcador de presion real):
+-- sube aqui, baja en markAuditCompletedInJob sin importar el estado final.
 redis.call('HINCRBY', KEYS[2], 'audits_in_flight', 1)
 
 storeState(KEYS[1], job, ttl)
@@ -620,16 +624,15 @@ if newJobStatus == 'completed' or newJobStatus == 'completed_with_errors' then
     job['completed_at'] = now
 end
 
--- Decrementar audits_in_flight por cada auditoria que completa
+-- Cada auditoria que finaliza (exito o fallo) reduce la presion en vuelo.
 redis.call('HINCRBY', KEYS[2], 'audits_in_flight', -1)
 
--- Transiciones de estado del job con telemetria correcta:
--- queued   -> processing: primera auditoria termino, job pasa a visible activo
--- queued   -> completed*: job sellado con 1 auditoria, termino de inmediato
--- pending  -> * : fallback (no deberia ocurrir con el nuevo flujo)
--- processing -> completed* / failed
-if oldJobStatus == 'pending' or oldJobStatus == 'queued' then
-    -- jobs_queued ya fue decrementado y jobs_active incrementado en registerAuditInJob
+-- Sincroniza los counters agregados de jobs segun la transicion de estado.
+-- El flujo normal es queued->processing->completed*. El caso pending->* solo
+-- puede ocurrir en jobs creados antes del commit que introdujo 'queued':
+-- se mantiene como fallback para compatibilidad con jobs historicos en Redis.
+if oldJobStatus == 'queued' or oldJobStatus == 'pending' then
+    -- jobs_active fue incrementado en registerAuditInJob; aqui lo consumimos.
     if newJobStatus == 'processing' then
         redis.call('HINCRBY', KEYS[2], 'jobs_active', -1)
         redis.call('HINCRBY', KEYS[2], 'jobs_running', 1)
