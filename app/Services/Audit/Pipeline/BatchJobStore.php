@@ -25,7 +25,7 @@ class BatchJobStore
     private const DEFAULT_RESERVATION_TTL_SECONDS = 86400;
 
     /** Clave del hash Redis donde se acumulan contadores operativos del pipeline. */
-    public const TELEMETRY_KEY = self::TELEMETRY_KEY;
+    public const TELEMETRY_KEY = 'telemetry:async_metrics';
 
     private RedisClient $redis;
 
