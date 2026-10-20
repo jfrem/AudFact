@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\DocumentQuality;
+use App\Services\Audit\GeminiResponseGuard;
 use RuntimeException;
 
 /**
@@ -20,10 +21,6 @@ use RuntimeException;
  */
 final class GeminiResponseParser
 {
-    private const ACCEPTED_FINISH_REASON = 'STOP';
-
-    private const ERROR_MISSING_CANDIDATE     = 'GEMINI_EXTRACTION_MISSING_CANDIDATE';
-    private const ERROR_UNSAFE_FINISH_REASON  = 'GEMINI_EXTRACTION_UNSAFE_FINISH_REASON';
     private const ERROR_MISSING_TEXT_RESPONSE = 'GEMINI_EXTRACTION_MISSING_TEXT_RESPONSE';
     private const ERROR_INVALID_JSON          = 'GEMINI_EXTRACTION_INVALID_JSON';
 
@@ -40,8 +37,7 @@ final class GeminiResponseParser
         array $response,
         array $contract = []
     ): array {
-        $candidate = $this->extractPrimaryCandidate($response);
-        $this->assertSuccessfulFinishReason($candidate);
+        $candidate = GeminiResponseGuard::assertUsable($response, 'extraction');
 
         $textPart = $candidate['content']['parts'][0]['text'] ?? null;
         if (!is_string($textPart) || trim($textPart) === '') {
@@ -57,26 +53,6 @@ final class GeminiResponseParser
     }
 
     // ─── Helpers de parsing y rehidratación ──────────────────────────────────
-
-    /** @return array<string,mixed> */
-    private function extractPrimaryCandidate(array $response): array
-    {
-        $candidate = $response['candidates'][0] ?? null;
-        if (!is_array($candidate)) {
-            throw new RuntimeException(self::ERROR_MISSING_CANDIDATE);
-        }
-
-        return $candidate;
-    }
-
-    private function assertSuccessfulFinishReason(array $candidate): void
-    {
-        $finishReason = trim((string) ($candidate['finishReason'] ?? ''));
-        if ($finishReason !== self::ACCEPTED_FINISH_REASON) {
-            $reportedReason = $finishReason !== '' ? $finishReason : 'UNKNOWN';
-            throw new RuntimeException(self::ERROR_UNSAFE_FINISH_REASON . ": {$reportedReason}");
-        }
-    }
 
     /**
      * Valida la estructura del JSON decodificado, asegura completitud del contrato

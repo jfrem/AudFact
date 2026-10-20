@@ -293,9 +293,13 @@ export function AuditSingleWorkspace({
               <AttachmentList
                 items={attachmentsState.data ?? []}
                 selectedId={
-                  selectedAttachment?.id_documento
-                    ? String(selectedAttachment.id_documento)
-                    : undefined
+                  selectedAttachment?.id_adjunto_fisico
+                    ? String(selectedAttachment.id_adjunto_fisico)
+                    : selectedAttachment?.AdjDisId
+                      ? String(selectedAttachment.AdjDisId)
+                      : selectedAttachment?.id_documento
+                        ? String(selectedAttachment.id_documento)
+                        : undefined
                 }
                 onSelect={setSelectedAttachment}
               />

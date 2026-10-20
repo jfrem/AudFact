@@ -86,7 +86,7 @@ final class GeminiResponseParserTest extends TestCase
     public function testMissingCandidateThrows(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_MISSING_CANDIDATE');
+        $this->expectExceptionMessage('GEMINI_RESPONSE_MISSING_CANDIDATE');
 
         $this->parser->parse(['candidates' => []], []);
     }
@@ -94,7 +94,7 @@ final class GeminiResponseParserTest extends TestCase
     public function testUnsafeFinishReasonThrows(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('GEMINI_EXTRACTION_UNSAFE_FINISH_REASON: SAFETY');
+        $this->expectExceptionMessage('GEMINI_RESPONSE_UNSAFE_FINISH_REASON');
 
         $response = [
             'candidates' => [[

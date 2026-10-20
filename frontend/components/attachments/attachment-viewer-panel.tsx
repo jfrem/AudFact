@@ -17,13 +17,15 @@ export function AttachmentViewerPanel({
   disDetNro: string;
   attachment?: AttachmentRecord;
 }) {
-  const attachmentId = attachment?.id_adjunto_fisico;
-  const attachmentName = attachment?.nombre_documento ?? "Adjunto";
-  const attachmentAlias = attachment?.nombre_alternativo ?? "Sin alias";
+  const attachmentId = attachment?.id_adjunto_fisico ?? attachment?.AdjDisId ?? attachment?.attachment_id;
+  const attachmentName = attachment?.nombre_documento || attachment?.AdjDisNom || "Adjunto";
+  const attachmentAlias = attachment?.nombre_alternativo || attachment?.physical_stored_alias || "Sin alias";
   const storageType = attachment?.TipoAlmacenamiento ?? "N/D";
+  const isSinDocumentos = storageType === "SIN_DOCUMENTOS";
+
   const { data, isLoading, isError, error } = useQuery({
     ...attachmentPreviewQuery(disDetNro, attachmentId ?? ""),
-    enabled: Boolean(disDetNro) && Boolean(attachmentId),
+    enabled: Boolean(disDetNro) && Boolean(attachmentId) && !isSinDocumentos,
   });
 
   if (!attachment) {
@@ -52,22 +54,34 @@ export function AttachmentViewerPanel({
             <span className="rounded border border-border bg-muted px-2.5 py-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">
               {storageType}
             </span>
-            <Button asChild variant="secondary" size="sm">
-              <a
-                href={getAttachmentDownloadUrl(disDetNro, attachmentId ?? "")}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Download className="h-4 w-4" />
-                Descargar
-              </a>
-            </Button>
+            {!isSinDocumentos && attachmentId ? (
+              <Button asChild variant="secondary" size="sm">
+                <a
+                  href={getAttachmentDownloadUrl(disDetNro, attachmentId)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download className="h-4 w-4" />
+                  Descargar
+                </a>
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
 
       <div className="pt-3 sm:pt-4">
-        {isLoading ? (
+        {isSinDocumentos ? (
+          <div className="flex h-[65vh] min-h-[500px] flex-col items-center justify-center space-y-3 rounded-lg border border-dashed border-border bg-muted/40 px-6 text-center">
+            <FileText className="h-8 w-8 text-slate-500/50" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-slate-300">Documento sin archivo físico</p>
+              <p className="max-w-md text-xs text-slate-500">
+                Este registro no cuenta con archivo binario (BLOB) ni enlace remoto en la fuente de datos.
+              </p>
+            </div>
+          </div>
+        ) : isLoading ? (
           <BackendRequestSkeleton
             className="min-h-[500px]"
             description="El backend está preparando el preview del documento."

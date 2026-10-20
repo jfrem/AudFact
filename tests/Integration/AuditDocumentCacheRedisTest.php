@@ -138,4 +138,24 @@ final class AuditDocumentCacheRedisTest extends TestCase
         self::assertSame($actualBytes, (int) $this->redis->get(self::BUDGET . ':bytes'));
         self::assertLessThanOrEqual(4096, (int) $this->redis->get(self::BUDGET . ':bytes'));
     }
+
+    public function testUsageReclaimsExpiredReservationsWithoutRequiringAnotherDownload(): void
+    {
+        // Arrange:
+        $cache = new AuditDocumentCache($this->redis, 1000, 2);
+        $document = ['mime' => 'application/pdf', 'data' => 'fixture'];
+        $cache->put('audit:blob:expired', $document);
+        $cache->put('audit:blob:live', $document);
+        $this->redis->eval('return redis.call("ZADD",KEYS[1],0,KEYS[2])',
+            [self::BUDGET . ':expires', 'audit:blob:expired']);
+
+        // Act:
+        $usage = $cache->usage();
+
+        // Assert:
+        self::assertSame(1, $usage['reserved_entries']);
+        self::assertSame(strlen(json_encode($document, JSON_UNESCAPED_SLASHES)), $usage['reserved_bytes']);
+        self::assertNull($cache->read('audit:blob:expired'));
+        self::assertSame($document, $cache->read('audit:blob:live'));
+    }
 }

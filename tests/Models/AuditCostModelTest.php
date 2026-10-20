@@ -65,9 +65,27 @@ final class AuditCostModelTest extends TestCase
         $this->assertSame(1838, $insertStmt->boundValues[':tokensPensamiento']);
         $this->assertSame(10036, $insertStmt->boundValues[':totalTokens']);
         $this->assertSame(0.016716, $insertStmt->boundValues[':costoUsd']);
-        $this->assertSame(3194.44, $insertStmt->boundValues[':trmAplicada']);
+        $this->assertStringContainsString('COALESCE(:fechaAuditoria, GETDATE())', $pdo->preparedSql[1]);
+        $this->assertNull($insertStmt->boundValues[':fechaAuditoria']);
         // 0.016716 * 3194.44 = 53.40
         $this->assertSame(round(0.016716 * 3194.44, 4), $insertStmt->boundValues[':costoCop']);
+    }
+
+    public function testRecordCostRespectsExplicitFechaAuditoriaWhenProvided(): void
+    {
+        $pdo = new AuditCostFakePdo();
+        $pdo->nextIntentoValue = 1;
+        $model = new AuditCostModel();
+
+        $costData = [
+            'FacNro' => 'D01260811080',
+            'FacNitSec' => '2624',
+            'FechaAuditoria' => '2026-10-19 13:59:51',
+        ];
+
+        $model->recordCost($pdo, $costData);
+        $insertStmt = $pdo->statements[1];
+        $this->assertSame('2026-10-19 13:59:51', $insertStmt->boundValues[':fechaAuditoria']);
     }
 
     public function testRecordCostSecondAttemptIncrementsConsecutive(): void

@@ -192,15 +192,27 @@ export const DispensationDetailSchema = z.object({
 
 export const AttachmentSchema = z
   .object({
-    dispensacion_id: ScalarSchema.optional(),
-    dis_det_nro: z.string().optional(),
-    cliente: ScalarSchema.optional(),
-    id_adjunto_fisico: ScalarSchema.optional(),
-    id_documento: ScalarSchema.optional(),
-    nombre_documento: z.string().optional(),
-    nombre_alternativo: z.string().optional(),
-    almacenamiento_remoto: z.string().nullable().optional(),
-    TipoAlmacenamiento: z.string().optional(),
+    dispensacion_id: ScalarSchema.nullish(),
+    dis_det_nro: z.string().nullish(),
+    cliente: ScalarSchema.nullish(),
+    attachment_id: ScalarSchema.nullish(),
+    id_adjunto_fisico: ScalarSchema.nullish(),
+    AdjDisId: ScalarSchema.nullish(),
+    dis_det_id: ScalarSchema.nullish(),
+    physical_catalog_id: ScalarSchema.nullish(),
+    id_documento: ScalarSchema.nullish(),
+    physical_document_name: z.string().nullish(),
+    nombre_documento: z.string().nullish(),
+    physical_catalog_alias: z.string().nullish(),
+    nombre_alternativo: z.string().nullish(),
+    physical_stored_alias: z.string().nullish(),
+    remote_storage: z.string().nullish(),
+    almacenamiento_remoto: z.string().nullish(),
+    AdjDisDocUrl: z.string().nullish(),
+    AdjDisNom: z.string().nullish(),
+    BlobSize: ScalarSchema.nullish(),
+    storage_type: z.string().nullish(),
+    TipoAlmacenamiento: z.string().nullish(),
   })
   .passthrough();
 

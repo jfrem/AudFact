@@ -370,7 +370,7 @@ Documentación completa disponible en `plans/`:
 - [Domain Glossary](plans/domain-glossary.md) — Glosario de dominio.
 - [Architecture Decisions](plans/architecture-decisions.md) — Decisiones de arquitectura.
 - [SDD de homologación semántica asíncrona y ejecución justa](plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md) — Implementación local v2, contratos, evidencia y requisitos pendientes de activación.
-- [SDD de corrección de fallos y rendimiento](plans/sdd-correccion-fallos-y-rendimiento-pipeline.md) — Especificación propuesta: PDF, errores Gemini, SQL, polling y prefetch; pruebas, gates y rollback.
+- [SDD de corrección de fallos y rendimiento](plans/sdd-correccion-fallos-y-rendimiento-pipeline.md) — Prefetch y errores Gemini implementados localmente; SQL/pooling, polling y perfiles candidatos conservan sus gates de validación. Ver avances en el changelog.
 - [SDD de saturación, arbitraje y costos LLM](plans/sdd-correccion-saturacion-arbitraje-costos-llm.md) — Diseño desde código/runtime: N:1, candidatos, caché contextual, ownership y ledger financiero; DDL, pruebas, migración y rollback. Nivel C: aprobación integral pendiente de evidencia externa.
 - [Changelog](plans/changelog.md) — Historial de cambios.
 

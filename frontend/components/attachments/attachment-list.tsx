@@ -46,7 +46,13 @@ export function AttachmentList({
         )}
       >
         {items.map((attachment, index) => {
-          const id = String(attachment.id_adjunto_fisico ?? attachment.id_documento ?? attachment.nombre_documento ?? "");
+          const id = String(
+            attachment.id_adjunto_fisico ??
+              attachment.AdjDisId ??
+              attachment.id_documento ??
+              attachment.nombre_documento ??
+              index,
+          );
           const keyId = `${id}-${index}`;
           const active = selectedId === id;
 
@@ -81,10 +87,10 @@ export function AttachmentList({
                 </ItemMedia>
                 <ItemContent>
                   <ItemTitle className="text-[13px] leading-tight">
-                    {attachment.nombre_documento ?? "Adjunto sin nombre"}
+                    {attachment.nombre_documento || attachment.AdjDisNom || "Adjunto sin nombre"}
                   </ItemTitle>
                   <p className="mt-0.5 truncate text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                    {attachment.nombre_alternativo ?? "Sin alias"} · {attachment.TipoAlmacenamiento ?? "N/D"}
+                    {attachment.nombre_alternativo || attachment.physical_stored_alias || "Sin alias"} · {attachment.TipoAlmacenamiento ?? "N/D"}
                   </p>
                 </ItemContent>
                 {active ? (

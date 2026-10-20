@@ -82,6 +82,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatcher.php`, `app/Services/Audit/Pipeline/DocumentAttachmentMatchResult.php`, `app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/Pipeline/*.php` | `audfact-audit-gemini` |
+| `app/Services/Audit/GeminiResponseFailureReason.php`, `GeminiResponseException.php`, `GeminiResponseGuard.php` | `audfact-audit-gemini` (clasificación y diagnóstico sanitario de respuesta) |
+| `app/Services/Audit/Pipeline/AuditDocumentPrefetchGate.php`, `AuditDocumentPrefetchEvent.php` | `audfact-audit-gemini` (control de nuevas descargas, histéresis y métricas) |
 | `app/Services/Audit/Pipeline/AuditExecution*.php`, `app/Services/Audit/Pipeline/AuditTask*.php`, `app/Services/Audit/Pipeline/FairAuditTaskQueue.php`, `app/Services/Audit/Pipeline/GeminiQuotaBudget.php`, `app/Services/Audit/Pipeline/Semantic*.php` | `audfact-audit-gemini` + `audfact-runtime-docker` (ejecución v2, cuotas, recuperación y corte) |
 | `app/Services/Audit/SemanticBatchContract.php`, `app/Services/Audit/SemanticCandidateCollector.php`, `app/Services/Audit/ResolvedSemanticResolver.php`, `app/Services/Audit/SemanticMatch*.php`, `app/Services/Audit/GeminiOperationException.php` | `audfact-audit-gemini` |
 | `app/Services/Audit/Pipeline/AuditDocumentCache.php`, `app/Services/Audit/Pipeline/AuditDocumentInput.php` | `audfact-audit-gemini` + `audfact-runtime-docker` (caché global recuperable para alto volumen) |

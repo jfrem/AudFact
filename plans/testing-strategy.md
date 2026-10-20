@@ -2,6 +2,17 @@
 
 ## Estado actual
 
+- Correcciones 2026-10-16: pruebas de histéresis 90/70, reloj controlado,
+  clasificación/prioridad de errores Gemini, redacción de contexto, propagación
+  sin caché clínica, recuperación previa a prefetch y cierre técnico v1/v2.
+  Integraciones Redis comprueban poda sin nuevas descargas, conservación de
+  respuesta/cargos, agotamiento de generación y limpieza tras commit terminal.
+  Usar Redis dedicado con AOF/fsync always/noeviction para toda la suite opt-in;
+  no modificar Redis de trabajos activos para satisfacer precondiciones del test.
+  Resultado de esta entrega: 989 casos/3476 aserciones/87 omisiones en Windows;
+  las 86 integraciones opt-in pasan aparte en Linux con 24900 aserciones.
+  La omisión restante corresponde al motor PDF no disponible en Windows.
+
 - PHPUnit está configurado en el proyecto (`phpunit/phpunit` en `require-dev`).
 - Configuración activa en `phpunit.xml` con bootstrap de Composer.
 - Ejecución v2 2026-10-08: 860 pruebas, 3120 aserciones y 67 omisiones en PHP 8.2.12;

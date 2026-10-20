@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Audit;
 
-use App\Services\Audit\GeminiCallMetrics;
 use Core\Logger;
 use Core\RedisClient;
 
@@ -17,8 +16,8 @@ final class SemanticMatchJudge implements SemanticMatchResolver
     public const PURPOSE_PERSON_MATCH  = 'person_name_match';
 
     private const CACHE_TTL = 2592000; // 30 dias
-    private const CACHE_NAMESPACE_PRODUCT = 'audfact:semantic:match:v5:product';
-    private const CACHE_NAMESPACE_PERSON  = 'audfact:semantic:match:v2:person';
+    private const CACHE_NAMESPACE_PRODUCT = 'audfact:semantic:match:v6:product';
+    private const CACHE_NAMESPACE_PERSON  = 'audfact:semantic:match:v3:person';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
     private GeminiGateway $gateway;
@@ -82,8 +81,8 @@ final class SemanticMatchJudge implements SemanticMatchResolver
         $response = $this->gateway->sendPrebuiltBody($body, $requestContext + ['task_type' => GeminiGateway::TASK_SEMANTIC_MATCH]);
         try {
             $results = $contract->validate($response, $pairs);
-        } catch (GeminiOperationException $error) {
-            $this->gateway->invalidateTaskResponses();
+        } catch (GeminiOperationException|GeminiResponseException $error) {
+            $this->gateway->invalidateTaskResponses(!($error instanceof GeminiResponseException && !$error->retryable()));
             throw $error;
         }
         return ['results' => $results, 'request_metric' => $response['X-Audit-Metrics'] ?? []];
@@ -156,7 +155,6 @@ final class SemanticMatchJudge implements SemanticMatchResolver
     private function callGemini(string $expected, string $actual, array $context): array
     {
         $callPurpose = (string) ($context['call_purpose'] ?? self::PURPOSE_PRODUCT_MATCH);
-        $isPersonName = $callPurpose === self::PURPOSE_PERSON_MATCH;
         [$prompt, $systemInstruction, $schema] = $this->promptBuilder->buildContract(
             $callPurpose,
             $expected,
@@ -186,7 +184,8 @@ final class SemanticMatchJudge implements SemanticMatchResolver
                 $schema,
                 GeminiGateway::TASK_SEMANTIC_MATCH,
                 GeminiConfig::generationOverridesFromEnv('GEMINI_SEMANTIC', [
-                    'maxOutputTokens' => 2048,
+                    'maxOutputTokens' => 4096,
+                    'thinkingLevel' => 'low',
                 ]),
                 $debugContext
             );
@@ -199,7 +198,8 @@ final class SemanticMatchJudge implements SemanticMatchResolver
                 ]);
             $metrics = $this->enrichMetrics($metrics, $context);
 
-            $parts = $response['candidates'][0]['content']['parts'] ?? null;
+            $candidate = GeminiResponseGuard::assertUsable($response, 'semantic');
+            $parts = $candidate['content']['parts'] ?? null;
             $rawText = $parts[0]['text'] ?? null;
             $args = (is_string($rawText) && trim($rawText) !== '')
                 ? json_decode($rawText, true)
@@ -207,11 +207,8 @@ final class SemanticMatchJudge implements SemanticMatchResolver
 
             if (!is_array($args)) {
                 Logger::warning('SemanticMatchJudge: respuesta Gemini sin JSON estructurado válido', [
-                    'finishReason' => (string) ($response['candidates'][0]['finishReason'] ?? ''),
-                    'finishMessage' => (string) ($response['candidates'][0]['finishMessage'] ?? ''),
-                    'call_purpose' => $callPurpose,
-                    'expected' => $isPersonName ? '[REDACTED_PERSON_NAME]' : $expected,
-                    'actual' => $isPersonName ? '[REDACTED_PERSON_NAME]' : $actual,
+                    'finish_reason' => 'STOP',
+                    'call_purpose' => SemanticMatchPurpose::tryFrom($callPurpose)?->value ?? 'UNKNOWN',
                 ]);
 
                 return $this->buildFailedResult($metrics);
@@ -224,13 +221,12 @@ final class SemanticMatchJudge implements SemanticMatchResolver
                 'cache_hit' => false,
             ];
 
+        } catch (GeminiResponseException $error) {
+            throw $error;
         } catch (\Throwable $e) {
             Logger::error('SemanticMatchJudge: falla al llamar a Gemini', [
-                'error' => $e->getMessage(),
-                'call_purpose' => $callPurpose,
-                'document_type' => (string) ($context['document_type'] ?? ''),
-                'expected' => $isPersonName ? '[REDACTED_PERSON_NAME]' : $expected,
-                'actual' => $isPersonName ? '[REDACTED_PERSON_NAME]' : $actual,
+                'error_class' => $e::class,
+                'call_purpose' => SemanticMatchPurpose::tryFrom($callPurpose)?->value ?? 'UNKNOWN',
             ]);
             return $this->buildFailedResult($this->enrichMetrics(GeminiCallMetrics::failed([
                 'task_type' => GeminiGateway::TASK_SEMANTIC_MATCH,

@@ -8,6 +8,14 @@ description: Trabajar en el pipeline de auditoría IA event-driven de AudFact so
 ## Objetivo
 Mantener confiable el pipeline event-driven de auditoría documental con Redis Streams, extracción Gemini por Structured Outputs nativos (`responseSchema`), normalización y policy en PHP puro, y persistencia final en SQL Server.
 
+## Prefetch y respuestas Gemini — 2026-10-16
+
+- `AuditDocumentPrefetchGate`/`AuditDocumentPrefetchEvent`: histéresis 90/70 por bytes/entradas, revisión monotónica cada1000ms. `AuditDocumentCache::usage()` poda64 reservas vencidas aun con intake detenido. Hook `canReadNewMessages()` después de reclaim, antes de XREADGROUP; downloader sigue usando el loop no programado también en v2.
+- `GeminiResponseFailureReason`/`GeminiResponseException`/`GeminiResponseGuard`: bloqueo, ausencia, truncamiento y non-STOP. Solo ausencia admite retry. Contexto cerrado sin contenido; guard antes de parsers, propagación tipada en judge y fallback batch de policy. Semántica unitaria producto v6/persona v3; TTL actual.
+- `invalidateTaskResponses(false)` marca contrato fallido conservando respuesta permanente y cargos para reanudar commit sin HTTP. Runner usa operación generate_content para el retry de respuesta y solo cleanup(true) después de COMMITTED/ALREADY_COMMITTED, incluyendo cierre técnico. STALE/RETRY_PREPARE conservan BLOB; extractor libera en hook DLQ v1.
+- Métricas agregan prefetch_pauses/prefetch_wait_ms (suma por proceso); startup downloader incluye límites/umbrales/intervalo. No confundir esa suma con elapsed global.
+- Este bloque no activa v2, no cambia RR/cap1, cuota, modelo, perfiles de generación ni SQL. La SDD de correcciones sigue pendiente para sus demás requisitos y benchmark.
+
 ## Ejecución durable v2 (activación explícita)
 
 - Fuente contractual/evidencia: `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md`, §19. Código local implementado; versión 1 sigue por defecto y en GitHub. Los cortes productivos previos no miden el diff.

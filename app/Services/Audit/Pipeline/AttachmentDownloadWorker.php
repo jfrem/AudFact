@@ -15,6 +15,7 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
     private AuditDocumentCache $documentCache;
+    private AuditDocumentPrefetchGate $prefetchGate;
 
     public function __construct(
         ?AuditStateStore           $stateStore         = null,
@@ -25,7 +26,8 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         ?TelemetryPublisher        $telemetryPublisher = null,
         ?int                       $blobTtl            = null,
         string|AuditLane|null      $lane               = null,
-        ?AuditDocumentCache        $documentCache      = null
+        ?AuditDocumentCache        $documentCache      = null,
+        ?AuditDocumentPrefetchGate $prefetchGate       = null
     ) {
         parent::__construct($redis, $publisher, $stateStore, $lane);
 
@@ -37,6 +39,29 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             $this->redis,
             ttlSeconds: $resolvedBlobTtl > 0 ? $resolvedBlobTtl : AuditDocumentCache::DEFAULT_TTL_SECONDS
         );
+        $metrics = new AuditDocumentMetrics($this->redis);
+        $this->prefetchGate = $prefetchGate ?? new AuditDocumentPrefetchGate(
+            $this->documentCache,
+            static function (AuditDocumentPrefetchEvent $event, int $durationMs) use ($metrics): void {
+                match ($event) {
+                    AuditDocumentPrefetchEvent::PAUSED => $metrics->record($event->value),
+                    AuditDocumentPrefetchEvent::WAITED => $metrics->recordPrefetchWait($durationMs),
+                };
+            }
+        );
+    }
+
+    protected function canReadNewMessages(): bool
+    {
+        return $this->prefetchGate->canRead();
+    }
+
+    protected function startupContext(): array
+    {
+        return ['document_cache_limits' => $this->documentCache->configuration(),
+            'prefetch_high_percent' => AuditDocumentPrefetchGate::HIGH_PERCENT,
+            'prefetch_low_percent' => AuditDocumentPrefetchGate::LOW_PERCENT,
+            'prefetch_check_ms' => AuditDocumentPrefetchGate::CHECK_INTERVAL_MS];
     }
 
     protected function streams(): array

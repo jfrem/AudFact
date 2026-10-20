@@ -6,6 +6,15 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 ## Fuentes de Verdad
 
+- Control de carga 2026-10-16: nuevas descargas se pausan al 90% de bytes o
+  entradas de caché y reanudan al 70% de ambos límites; revisión cada1000ms con
+  poda de reservas vencidas. La recuperación pendiente y extracción continúan.
+  Métricas agregadas: `prefetch_pauses` y `prefetch_wait_ms` (suma por proceso).
+  Respuestas Gemini bloqueadas, truncadas o con terminación insegura cierran
+  técnicamente sin dictamen clínico; candidato ausente conserva retry.
+  La caché semántica unitaria usa producto v6/persona v3. Execution=1 y RR/cap1
+  conservan sus contratos; este bloque no acredita activación ni benchmark v2.
+
 - [Confiabilidad para alto volumen](../ajustes-alto-volumen-2026-10-08.md):
   caché global acotada con recuperación verificada, retención segura de eventos,
   consumidores selectivos y recuperación DLQ independiente.

@@ -99,7 +99,9 @@ class AuditCostModel extends Model
             ? ((bool) $costData['EsCacheHitTotal'] ? 1 : 0)
             : (($docsProcesados > 0 && $docsProcesados === $docsCacheHit) ? 1 : 0);
 
-        $fechaAuditoria = (string) ($costData['FechaAuditoria'] ?? date('Y-m-d H:i:s'));
+        $fechaAuditoria = isset($costData['FechaAuditoria']) && trim((string) $costData['FechaAuditoria']) !== ''
+            ? trim((string) $costData['FechaAuditoria'])
+            : null;
 
         // 4. Inserción atómica
         $insertSql = "INSERT INTO Discolnet.dbo.AudDispCosto (
@@ -113,7 +115,8 @@ class AuditCostModel extends Model
             :tokensEntrada, :tokensSalida, :tokensPensamiento, :totalTokens,
             :modeloIa, :tarifaEntrada1M, :tarifaSalida1M, :costoUsd,
             :trmAplicada, :costoCop,
-            :docsProcesados, :docsCacheHit, :esCacheHitTotal, :fechaAuditoria
+            :docsProcesados, :docsCacheHit, :esCacheHitTotal,
+            COALESCE(:fechaAuditoria, GETDATE())
         )";
 
         $stmt = $connection->prepare($insertSql);
@@ -134,7 +137,7 @@ class AuditCostModel extends Model
         $stmt->bindValue(':docsProcesados', $docsProcesados, PDO::PARAM_INT);
         $stmt->bindValue(':docsCacheHit', $docsCacheHit, PDO::PARAM_INT);
         $stmt->bindValue(':esCacheHitTotal', $esCacheHitTotal, PDO::PARAM_INT);
-        $stmt->bindValue(':fechaAuditoria', $fechaAuditoria, PDO::PARAM_STR);
+        $stmt->bindValue(':fechaAuditoria', $fechaAuditoria, $fechaAuditoria !== null ? PDO::PARAM_STR : PDO::PARAM_NULL);
 
         $stmt->execute();
         $stmt->closeCursor();

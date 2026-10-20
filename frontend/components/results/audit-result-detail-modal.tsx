@@ -430,7 +430,13 @@ function AttachmentsTab({
     <div className="space-y-4">
       <AttachmentList
         items={attachments}
-        selectedId={String(selected?.id_adjunto_fisico ?? selected?.id_documento ?? selected?.nombre_documento ?? "")}
+        selectedId={String(
+          selected?.id_adjunto_fisico ??
+            selected?.AdjDisId ??
+            selected?.id_documento ??
+            selected?.nombre_documento ??
+            "",
+        )}
         onSelect={onSelect}
         orientation="horizontal"
       />

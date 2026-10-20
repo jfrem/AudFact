@@ -16,6 +16,24 @@ use RuntimeException;
 
 final class AttachmentDownloadWorkerTest extends TestCase
 {
+    public function testStoppedWorkerDoesNotReadOrDownloadWork(): void
+    {
+        // Arrange:
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->expects(self::never())->method('xReadGroupMulti');
+        $downloader = $this->createMock(AttachmentDownloadService::class);
+        $downloader->expects(self::never())->method('download');
+        $worker = new AttachmentDownloadWorker(redis: $redis, downloader: $downloader,
+            publisher: new DownloadPublisher(), consumerName: 'prefetch-startup-fixture');
+        $worker->requestStop();
+        // Act:
+        $processed = $worker->run();
+
+        // Assert:
+        self::assertSame(0, $processed);
+    }
+
     public function testPublishesDocumentDownloadedAfterPersistingBlob(): void
     {
         // Arrange:

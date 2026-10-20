@@ -1013,9 +1013,11 @@ class DocumentPolicyEngine
             }
 
             return $output;
+        } catch (\App\Services\Audit\GeminiResponseException $error) {
+            throw $error;
         } catch (\Throwable $e) {
             \Core\Logger::warning('DocumentPolicyEngine: batch semantic match failed, degrading to individual', [
-                'error' => $e->getMessage(),
+                'error_class' => $e::class,
                 'pairs_count' => count($batchPairs),
                 'field' => $field,
             ]);

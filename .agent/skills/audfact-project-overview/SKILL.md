@@ -13,6 +13,11 @@ Sistema de auditoría documental automatizada que compara documentos escaneados 
 
 ## Ejecución v1/v2
 
+Desde 2026-10-16, prefetch limita descargas nuevas con histéresis 90/70 y poda
+de reservas vencidas; reclaim y extracción siguen drenando. Un guard tipado
+común clasifica respuestas Gemini y evita convertir bloqueo/truncamiento en
+evidencia clínica. Se conservan los contratos de ejecución/migración v1/v2.
+
 V1 conserva siete roles de worker y homologación HTTP en policy. V2 local
 agrega semantic y mantenimiento independiente: cuatro etapas con tareas
 durables/fences/receipts, RR por job, ondas agrupadas y cuota Gemini compartida.
@@ -42,10 +47,10 @@ gemini-3.7-flash; cuotas reales por proyecto se verifican en AI Studio.
 AudFact/
 ├── frontend/           # Aplicación Next.js (Dashboard + Gestión)
 ├── app/
-│   ├── Controllers/     # 12 controladores HTTP (incluye base)
-│   ├── Models/          # 8 modelos SQL Server (incluye base Model.php)
-│   ├── Services/        # 63 archivos PHP; 62 bajo Audit/ (incluye enums y value objects)
-│   ├── Routes/web.php   # 31 rutas registradas
+│   ├── Controllers/     # 13 controladores HTTP (incluye base)
+│   ├── Models/          # 9 modelos SQL Server (incluye base Model.php)
+│   ├── Services/        # 97 archivos PHP; 95 bajo Audit/ (incluye enums y value objects)
+│   ├── Routes/web.php   # 36 rutas registradas
 │   └── wrap/            # Integración MCP (4 tools)
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
@@ -56,7 +61,7 @@ AudFact/
 └── logs/                # Logs rotativos en desarrollo; Core\Logger usa stderr en producción; `logs/responseIA` solo dev
 ```
 
-## Endpoints REST (31)
+## Endpoints REST (36)
 
 > Fuente canónica: `app/Routes/web.php`. Tabla detallada: skill `audfact-api-rest`.
 
@@ -93,6 +98,11 @@ AudFact/
 | GET | `/audit/dlq` | AuditDlqController::index |
 | POST | `/audit/dlq/reprocess` | AuditDlqController::reprocess |
 | GET | `/audit/{auditId}/flow-stream` | AuditFlowController::stream |
+| GET | `/dispensation/{disDetNro}/attachments` | AttachmentsController::showByDispensation |
+| GET | `/audit/costs` | AuditCostController::index |
+| GET | `/audit/costs/clients` | AuditCostController::byClients |
+| GET | `/audit/costs/trm` | AuditCostController::currentTrm |
+| GET | `/audit/costs/{facNro}` | AuditCostController::byInvoice |
 
 ## Flujo principal — Auditoría IA (event-driven)
 

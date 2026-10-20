@@ -2,6 +2,16 @@
 
 ## Visión General
 
+Desde 2026-10-16, `AuditDocumentPrefetchGate` regula nuevas descargas con
+histéresis global por bytes/entradas: pausa al 90% y reanuda al 70% de ambos
+límites, revisando cada 1000 ms. `AuditDocumentCache::usage()` poda reservas
+vencidas aun con prefetch pausado. El control ocurre después de recuperar
+pendientes y antes de leer mensajes nuevos; los extractores siguen drenando.
+`GeminiResponseGuard` clasifica bloqueo, candidato ausente, truncamiento y
+terminación insegura mediante tipos cerrados. Solo candidato ausente admite
+reintento; los demás cierran técnicamente sin producir evidencia clínica.
+El protocolo y la concurrencia RR/cap1 v2 conservan su contrato vigente.
+
 Desde 2026-10-08, `AuditDocumentCache` acota globalmente bytes JSON/entradas
 de adjuntos y `AuditDocumentInput` recupera cache misses desde origen verificando
 hash. El downloader publica referencias incluso si no cabe el BLOB; el extractor

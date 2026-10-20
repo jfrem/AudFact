@@ -11,6 +11,36 @@ use PHPUnit\Framework\TestCase;
 
 final class AuditDocumentCacheTest extends TestCase
 {
+    public function testUsageIncludesCurrentReservationsAndConfiguredLimits(): void
+    {
+        // Arrange:
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturn([900, 90]);
+        $cache = new AuditDocumentCache($redis, 1000, 100);
+
+        // Act:
+        $usage = $cache->usage();
+
+        // Assert:
+        self::assertSame(['reserved_bytes' => 900, 'reserved_entries' => 90,
+            'max_bytes' => 1000, 'max_entries' => 100], $usage);
+    }
+
+    public function testInvalidUsageCannotOpenTheDownloadGate(): void
+    {
+        // Arrange:
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturn([-1, 0]);
+        $cache = new AuditDocumentCache($redis, 1000, 100);
+
+        // Assert:
+        self::expectException(\RuntimeException::class);
+        self::expectExceptionMessage('document_cache_usage_invalid');
+
+        // Act:
+        $cache->usage();
+    }
+
     public function testOversizedDocumentBypassesRedisWithoutLosingSourceReference(): void
     {
         // Arrange:
