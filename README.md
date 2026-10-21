@@ -102,7 +102,7 @@ npm run dev
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`                                 | Réplicas de extractores Gemini VIP (default: `2`)                                             |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS`                                     | Réplicas de normalizador documental (default: `4`)                                             |
 | `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `8`)                                                |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `6`)                                           |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `12`)                                          |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`                                          | TTL de turnos, pendientes y deduplicación de persistencia por job (default: `604800`)          |
 | `AUDIT_PERSISTENCE_JOB_SLOTS`                                          | Turnos por job (1..16, default `2`); Redis fija el valor al primer uso y conserva jobs existentes |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
