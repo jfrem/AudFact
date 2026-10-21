@@ -153,13 +153,14 @@ class InvoicesModel extends Model
                     )
 
                 GROUP BY f.FacNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
-                HAVING SUM(k.KarUniCp - k.KarUni) = 0
+                --HAVING SUM(k.KarUniCp - k.KarUni) = 0
                 OPTION (RECOMPILE);
 
-                SELECT d.FacNitSec AS Nitsec,d.DisId,d.DisDetId,d.Tercero,d.Fecha,d.Dispensa,d.Auditoria,d.DisTip,d.Pend,d.Aut
+                SELECT d.FacNitSec AS Nitsec,d.DisId,d.DisDetId,d.Tercero,d.Fecha,d.Dispensa,d.Auditoria,d.DisTip,sum(d.Pend)Pend,d.Aut
                 INTO #CRUZE
                 FROM #DISP d
-                GROUP BY d.FacNitSec,d.DisId,d.DisDetId,d.Tercero,d.Fecha,d.Dispensa,d.Est,d.Auditoria,d.DisTip,d.Pend,d.Aut;
+                GROUP BY d.FacNitSec,d.DisId,d.DisDetId,d.Tercero,d.Fecha,d.Dispensa,d.Est,d.Auditoria,d.DisTip,d.Aut
+                having sum(d.Pend)=0
                 CREATE CLUSTERED INDEX IX_TMP_CRUZE ON #CRUZE (DisId, DisDetId);
 
                 DROP TABLE IF EXISTS #ADJ;
