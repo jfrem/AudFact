@@ -265,7 +265,7 @@ class InvoicesModel extends Model
                 s.SopOk, case when sum(d.Pend)>0 then 'S' else 'N' end Pend
                 FROM #CRUZE AS d
                 left join #Sopo s on s.DisId=d.DisId and s.DisDetId=d.DisDetId
-                where s.SopOk='1'
+                where s.SopOk='1' and s.estSop = 'P'
                 group by d.Nitsec, d.DisId, d.DisDetId, d.Tercero, d.fecha, d.Dispensa, isnull(s.estSop,'S'), s.SopOk
             ) s
             WHERE s.Pend='N'

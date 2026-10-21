@@ -29,6 +29,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('GROUP BY f.FacNitSec,dd.DisDetNro', $pdo->preparedSql);
         $this->assertStringContainsString('d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString("where s.SopOk='1' and s.estSop='P'", $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
         
         $this->assertArrayHasKey(':dateFromD', $pdo->statement->boundValues);
@@ -81,6 +82,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('SELECT TOP (50)', $pdo->preparedSql);
         $this->assertStringContainsString('s.fecha > :cursorDate1', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
+        $this->assertStringContainsString("where s.SopOk='1' and s.estSop = 'P'", $pdo->preparedSql);
         $this->assertSame('2025-07-10', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate1']);
         $this->assertSame('2025-07-10T00:00:00', $pdo->statement->boundValues[':cursorDate2']);
