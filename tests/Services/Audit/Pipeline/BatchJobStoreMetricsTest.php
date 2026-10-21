@@ -32,7 +32,7 @@ final class BatchJobStoreMetricsTest extends TestCase
                         $script
                     );
                     $this->assertStringContainsString(
-                        "if oldJobStatus == 'pending' then",
+                        "if oldJobStatus == 'queued' or oldJobStatus == 'pending' then",
                         $script
                     );
                     $this->assertStringContainsString(

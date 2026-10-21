@@ -64,7 +64,7 @@ final class AuditBatchOrchestratorTest extends TestCase
 
         $result = $orchestrator->enqueueBatch(2426, '2026-06-12', '2026-06-12', 1);
 
-        $this->assertSame(BatchJobStore::JOB_STATUS_PENDING, $result['status']);
+        $this->assertSame(BatchJobStore::JOB_STATUS_QUEUED, $result['status']);
         $this->assertSame(1, $result['total']);
         $this->assertSame(1, $result['accepted']);
         $this->assertSame(1, $jobStore->claimAuditReservationCalls);
