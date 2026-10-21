@@ -23,6 +23,12 @@ on:
         description: "Cuotas verificadas en AI Studio, corpus clínico aprobado y backup/restore ensayado"
         type: boolean
         default: false
+      target_node:
+        description: "Nodo de despliegue (all, nodo1, nodo2)"
+        type: choice
+        required: true
+        default: "all"
+        options: [all, nodo1, nodo2]
 
 permissions:
   contents: read
@@ -46,11 +52,17 @@ env:
 
 jobs:
   deploy:
-    name: Deploy to LAN runner
-    runs-on: [self-hosted, audfact-prod-lan]
-    timeout-minutes: 30
+    name: Deploy to ${{ matrix.node }}
+    strategy:
+      matrix:
+        node: [nodo1, nodo2]
+      fail-fast: false
+    runs-on: [self-hosted, audfact-prod-lan, "${{ matrix.node }}"]
     environment: production
-    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    timeout-minutes: 30
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) &&
+      (github.event_name != 'workflow_dispatch' || inputs.target_node == 'all' || inputs.target_node == matrix.node)
 
     steps:
       - name: Checkout deployment files
@@ -102,6 +114,7 @@ jobs:
 
       - name: Create production environment file
         env:
+          TARGET_NODE: ${{ matrix.node }}
           APP_ENV: ${{ vars.APP_ENV }}
           WRAP_API_BASE: ${{ vars.WRAP_API_BASE }}
           WWWUSER_ID: ${{ vars.WWWUSER_ID }}
@@ -278,18 +291,22 @@ jobs:
           EFFECTIVE_DB2_HOST="$(normalize_sql_host DB2_HOST "$DB2_HOST")"
 
           FRONTEND_HOST_PORT="${AUDFACT_FRONTEND_HOST_PORT:-3100}"
-          FRONTEND_PUBLIC_URL="${AUDFACT_FRONTEND_PUBLIC_URL:-http://172.16.0.3:${FRONTEND_HOST_PORT}}"
-          API_PUBLIC_URL="${AUDFACT_API_PUBLIC_URL:-http://172.16.0.3:8080}"
+          if [ "${TARGET_NODE:-nodo1}" = "nodo2" ]; then
+            NODE_HOST="172.16.10.50"
+          else
+            NODE_HOST="172.16.0.3"
+          fi
+
+          FRONTEND_PUBLIC_URL="http://${NODE_HOST}:${FRONTEND_HOST_PORT}"
+          API_PUBLIC_URL="http://${NODE_HOST}:8080"
           WEBHOOK_URL="${WEBHOOK_URL:-${API_PUBLIC_URL}/app/wrap/webhook.php}"
           CAPABILITIES_URL="${CAPABILITIES_URL:-${API_PUBLIC_URL}/app/wrap/capabilities.php}"
 
-          if [ -n "${ALLOWED_ORIGINS}" ]; then
-            case ",${ALLOWED_ORIGINS}," in
-              *",${FRONTEND_PUBLIC_URL},"*) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS}" ;;
-              *) EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS},${FRONTEND_PUBLIC_URL}" ;;
-            esac
+          ALL_ORIGINS="http://localhost:3000,http://172.16.0.3:${FRONTEND_HOST_PORT},http://172.16.10.50:${FRONTEND_HOST_PORT}"
+          if [ -n "${ALLOWED_ORIGINS:-}" ]; then
+            EFFECTIVE_ALLOWED_ORIGINS="${ALLOWED_ORIGINS},${ALL_ORIGINS}"
           else
-            EFFECTIVE_ALLOWED_ORIGINS="${FRONTEND_PUBLIC_URL}"
+            EFFECTIVE_ALLOWED_ORIGINS="${ALL_ORIGINS}"
           fi
 
           escape_env_value() {
