@@ -405,7 +405,7 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 | `AUDIT_JOB_TTL`                          | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                              |
 | `AUDIT_STATE_TTL`                        | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                                      |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`            | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job                       |
-| `AUDIT_PERSISTENCE_JOB_SLOTS`            | `2`                         | ❌         | `AuditPersistenceQueue` — turnos por job (1..16), fijados en Redis al primer uso; cambios afectan jobs nuevos |
+| `AUDIT_PERSISTENCE_JOB_SLOTS`            | `6`                         | ❌         | `AuditPersistenceQueue` — turnos por job (1..16), fijados en Redis al primer uso; cambios afectan jobs nuevos |
 | `AUDIT_RESERVATION_TTL`                  | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                                     |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`          | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados               |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`      | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`                       |
