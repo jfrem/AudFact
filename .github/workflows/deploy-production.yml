@@ -23,12 +23,6 @@ on:
         description: "Cuotas verificadas en AI Studio, corpus clínico aprobado y backup/restore ensayado"
         type: boolean
         default: false
-      target_node:
-        description: "Nodo de despliegue (all, nodo1, nodo2)"
-        type: choice
-        required: true
-        default: "all"
-        options: [all, nodo1, nodo2]
 
 permissions:
   contents: read
@@ -60,9 +54,7 @@ jobs:
     runs-on: [self-hosted, audfact-prod-lan, "${{ matrix.node }}"]
     environment: production
     timeout-minutes: 30
-    if: |
-      (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) &&
-      (github.event_name != 'workflow_dispatch' || inputs.target_node == 'all' || inputs.target_node == matrix.node)
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
 
     steps:
       - name: Checkout deployment files
