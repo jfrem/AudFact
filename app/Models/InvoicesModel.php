@@ -131,7 +131,7 @@ class InvoicesModel extends Model
                 LEFT JOIN Clientes c WITH(NOLOCK) ON c.NitSec = f.FacNitSec AND c.CliSec = f.FacCliSec
                 LEFT JOIN PerfilDeClientes pc WITH(NOLOCK) ON pc.PerCliCod = c.PerCliCod
                 WHERE t.FueCod = 'DISP' AND dd.DisDetEst = 'A'
-                AND d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD AND dd.DisTip <> 'A' AND k.KarUni > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
+                AND d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD AND dd.DisTip <> 'A' AND k.KarUnicp > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
 
                     AND NOT EXISTS ( SELECT 1
                         FROM Factura fx WITH(NOLOCK)
