@@ -1,5 +1,18 @@
 # Changelog AudFact
 
+## [2026-10-22] - Normalización de fechas con milisegundos y sufijo AM/PM pegado
+
+- **Normalizador de Fechas (`AuditFindingRules::normalizeDateToIso`)**:
+  - Ampliada la expresión regular de eliminación de sufijos horarios en el paso 1b para admitir marcas de tiempo con fracciones/milisegundos delimitadas por espacio, dos puntos o punto (`2026/07/15 04:51:16 000PM`, `04:51:16:000PM`, `04:51:16.000PM`, `04:51:16 000 PM`) y sufijo AM/PM adjunto.
+  - Agregados casos de prueba automatizados en `tests/Services/Audit/AuditFindingRulesNormalizationTest.php`.
+  - Validación completa: 994 tests ejecutados con 0 errores y 0 fallos.
+
+## [2026-10-22] - Auditoría de aplicación efectiva del .env local
+
+- Reporte `plans/auditoria-env-2026-10-22.md`, matriz CSV y evidencia JSON sanitizada: cobertura de 134 líneas y 118 variables, con referencias de archivo/línea y 15 hallazgos sobre consumo, transporte y precedencia.
+- Verificadas 27 comprobaciones locales sin HTTP, la carga de entorno del frontend y la configuración resuelta de Compose. No se modificaron variables, secretos ni comportamiento de aplicación.
+- Corregido contexto preexistente en las skills `audfact-runtime-docker` y `audfact-project-overview`: PHP 8.2.35, defaults vigentes de réplicas y estado implementado de v2 bajo activación explícita.
+
 ## [2026-10-22] - Actualización de seguridad PHP 8.2.35 y mitigación PHP2Shell
 
 - **Mitigación de vulnerabilidad crítica PHP2Shell (`CVE-2026-109618` y `CVE-2026-109619`, CVSS 9.2)**:

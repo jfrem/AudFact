@@ -1,0 +1,1548 @@
+{
+  "date": "2026-10-22",
+  "commit": "5b5ac926e745c7d16e2b05c5d21deb09c595b1bc",
+  "physical_lines": 134,
+  "variables": 118,
+  "blank_lines": 16,
+  "status_counts": {
+    "ACTIVA": 76,
+    "CONDICIONAL": 16,
+    "SOBRESCRITA": 4,
+    "DESCONECTADA": 7,
+    "SIN_EFECTO": 7,
+    "VACÍA": 4,
+    "PARCIAL": 2,
+    "SOLO_VALIDACIÓN": 1,
+    "SOLO_PRUEBAS": 1
+  },
+  "missing_example": [
+    "AUDIT_BLOB_TTL_SECONDS",
+    "AUDIT_CONSUMER_LEASE_TTL_SECONDS"
+  ],
+  "duplicates": {},
+  "source_sha256": {
+    ".dockerignore": "8495b58bc43b5414659c9ff1311d1bc76033573c52cabc46801e9879e3177a14",
+    ".github/workflows/ci.yml": "e75019abd61ec859133f7dafc343773345f4c21b2485fdaac0612bc40fa11a3f",
+    ".github/workflows/deploy-production.yml": "4ca19fac675ed81daa9f6507839a0c87f9e81d61c55e26ca607849d45fe67a67",
+    ".github/workflows/publish-images.yml": "4c7df831cdf4e35f81a63c9a45a2ec173710564e52725fe9cd6630f0a690b017",
+    "app/Controllers/AuditController.php": "f7cfdf99f1bed2bb8b5891720160b86392004e19e53a4a94d0e60aa98586cc79",
+    "app/Controllers/ConfigController.php": "4f02ce7994fb1e444c30a1d61f3902ca987c97df1264488138fb1190e3bb5330",
+    "app/Controllers/Controller.php": "c2ea448f6af99b9115b0afa28290b9271dfa1523e10ed37ddbecf48905dff83f",
+    "app/Services/Audit/AuditBatchOrchestrator.php": "9e24c27dff2559d069885977e6af43c82189c2df2138be5b84bfa823242fe5e2",
+    "app/Services/Audit/GeminiConfig.php": "27f92b33d63e53a22ca98aec75c5f4649f0c8854dca990243f21b571749497ac",
+    "app/Services/Audit/GeminiGateway.php": "c10d879627fc5c33bd9392eb0b0219ff1b23f7978d833ca5464bcf01de36437a",
+    "app/Services/Audit/Pipeline/AttachmentDownloadWorker.php": "c753db21062ddeb69d724ec1ffea31a4a7fe3b6bf7e6c8784f9d165fb78b64ac",
+    "app/Services/Audit/Pipeline/AuditDocumentCache.php": "72886434e0944e8d5a2e8a1b8a309d323d7f44c16c59868a06407f9927cc67da",
+    "app/Services/Audit/Pipeline/AuditEvent.php": "d07f3d7a1b3ba7b065376742c5921a121d1f4a0206cc0aa861abe52703121fdc",
+    "app/Services/Audit/Pipeline/AuditEventConsumer.php": "2d7547f83183520f09c1ba05b5143193d9ad967a5d1fe9353e6becc62e788bf0",
+    "app/Services/Audit/Pipeline/AuditEventPublisher.php": "0ad3784fdd81f5f872675c10c577b1e1d45975f50d44bcf06e455c07d46d8200",
+    "app/Services/Audit/Pipeline/AuditExecutionConfig.php": "7e4266715ffd53e36939af2b284f1f4a332a95cd0ea11a911eda15cb5a1faec1",
+    "app/Services/Audit/Pipeline/AuditExecutionMaintenance.php": "6256d2456a34b4695806c8ef12c303cfd14f01b53849141e9236fcc65006551e",
+    "app/Services/Audit/Pipeline/AuditPersistenceQueue.php": "fccbcaa0de260bac9e0fb678dacb9db0c13105d7526b5022a5ab0cdda9e6a573",
+    "app/Services/Audit/Pipeline/AuditStateStore.php": "bb284be515f59488599b8968df80bed6fe048e2f1c1e517ef5372458f686ba3a",
+    "app/Services/Audit/Pipeline/BatchJobStore.php": "53ce025d947975105a3780923922fde0aad3a5048e784e4219404cd8f4a31aef",
+    "app/Services/Audit/Pipeline/BatchRequestedWorker.php": "08efa6e499c7d44bb3c1a3bf1abad7ed1cd2b49c61f5cfd057d0169ee5f89cf5",
+    "app/Services/Audit/Pipeline/DocumentExtractionWorker.php": "9a5b73b86ae35a04460ebef2459606717caaed034761bf7eba0476b75613f58d",
+    "app/Services/Audit/Pipeline/ExtractionCacheManager.php": "c34f0a9c6ce949fb415322fd60e0118fe0c73d69dbede5531c92be3cc1b802a1",
+    "app/Services/Audit/ResponseIADiskStore.php": "871846b85cf9c18121be41b0ccea6a33d27ce6da4305804738124f8c79d8e94f",
+    "app/Services/Audit/SemanticBatchContract.php": "de1f1ecc5c2f0227b0927df8743e5d2bde765052102321529d2eec5c95d53916",
+    "app/Services/Audit/SemanticMatchJudge.php": "8923c21f946347c67d71c8f88c12faab4a874eee17b5d404719e2ad5ab5ddb83",
+    "app/Services/GoogleDriveAuthService.php": "7fce833a126f804d3ad66392452cb9372fd293c4e57e0db3fda52724843ae7f6",
+    "app/wrap/capabilities.php": "d26fd9d2539d601e35bf2c5c703030f7b91efbedd28b95c19e08f7f62769106b",
+    "app/wrap/core/ApiClient.php": "8dbff9f0145b23870956431b36abc487abbe09c5a97c1334b59990fce6abdbc7",
+    "app/wrap/webhook.php": "319ef025be25cf3162e3095564e81c8b42c5ce534528f308da20eb5e20b9c897",
+    "bin/audit-worker.php": "c394fae95ebf569505722b75456f409697cf7157c92ac1052b7ad9de5c0940f7",
+    "bin/schedule-daily-batches.php": "1cb19e72b6459b2b5bc6298e3bb500f0b505ad14a3f93baa2822c843957803ed",
+    "core/Cache.php": "fd0100762714ab3b0cf784da88e281361783ba2280add933c3b24e56899c8e06",
+    "core/Database.php": "c2b8c418fc8ce4acb40fe7715255ae232909bb4c46234edff86deeb2eccea286",
+    "core/Env.php": "07177b80471fcecd167e0bf32adf1020fe27661f3755e7da3cfc258944668ec5",
+    "core/Logger.php": "5bbad9dcf6fbb0a18bde301b56994e3a65f31449556757a4668f3bd22478a202",
+    "core/RedisClient.php": "d45c510def35d95a0f73ef0d74d3ee4ecfbdd521d4220662380c8901454623a2",
+    "docker-compose.yml": "8ca0c20b346e5dca7deb5a82766b7aa47b6465b4f5a94fd45ecc4ec614faccf3",
+    "docker/Dockerfile": "cc5bf6f450d49fbde2a9becb58e5bfba65501e0bca51f9dca622e2bc8846f8a6",
+    "docker/docker-entrypoint.sh": "a3c39365f23642a587fbf0c03439089c7bcc35791883695802fc857047f5b868",
+    "docker/frontend.Dockerfile": "9d4ea7d4f9bf882b3843b5df4b7b4f1ac0f1cf1dfe7ccceee7c329f37f031a9c",
+    "docker/nginx-ha.conf.template": "32cc74ce1653e18fcc6b5077df317f4b0b34d13f4e59aa4d37ec49ea23b0eb92",
+    "docker/php-fpm-pool.conf.template": "10b6e0dd031739faab7333b8ace4844e9212809edd7c4955cd33c583c78f715c",
+    "frontend/.dockerignore": "d154828da873216c8231dfb270c35d0ff9927676ead1b1e6deb2bff65e56d5aa",
+    "frontend/components/audit/audit-batch-console.tsx": "cb17dbfc97a72ce81bb053006253a22a5837a69724faa0179d6a38cc20239df6",
+    "frontend/components/jobs/jobs-list-live.tsx": "ebfae819ccea95df8e82bb01e1102217fd59e38bf5491921f901ebe649655884",
+    "frontend/components/layout/app-sidebar.tsx": "de0a719f11cd30e6a06cc18f06e949fa79bc2586601d7ece205b5556c12c0883",
+    "frontend/lib/api/client.ts": "fb648354d65426cf17e33c9c10c881f9501c3d2af38cd0119c0ee106e75ac579",
+    "frontend/lib/api/config.ts": "3f45521a9d86d62c8d6d524bbba9afc6312775b4f0679236aad6f1b6dc9388d5",
+    "frontend/lib/api/server-config.ts": "01e136ec76def51fdea63729d8b2be5057e6336c052762ff092f170df67a08f1",
+    "frontend/lib/formatters/index.ts": "ba6a8d30974f355c3181e159c162b14ee00e39f03c8836d12da51a0e4788629b",
+    "frontend/lib/query/audit.ts": "e19b75a883431873bab9964ffb669144f9eeaf5d1301174fc21070cd7087249e",
+    "frontend/lib/query/system.ts": "f9757c7a546ded8d86ff31fdcb939b2692c703d57ed6d9ade68c6a283a598c36",
+    "frontend/providers/theme-provider.tsx": "dc64e73995f6a017d993ede382c0815357d893d11f922404c2469da7a4f05cd6",
+    "phpunit.xml": "2d756e415d7726222d06b3c659e49c9f1be65bf9c1e47333361ee210543b3427",
+    "public/index.php": "81396e9b2fac91f43b2e91a45e240e98c2b1e845df670954e1bfbcf34db94942",
+    "scripts/sync-github-production-env.sh": "0a7142bc570e2cdd4f3a02e05fd330e8c23fd57ad0928571c2e99b41e47f87b3",
+    "tests/Integration/AuditDocumentCacheRedisTest.php": "7ce949af24721351dc2934377947e999343b63520a9f5e50923f428e1bda345e"
+  },
+  "php_probes": {
+    "network_calls": 0,
+    "checks": {
+      "DB_HOST_dynamic_read": true,
+      "DB_PORT_dynamic_read": true,
+      "DB_NAME_dynamic_read": true,
+      "DB_USER_dynamic_read": true,
+      "DB_PASS_dynamic_read": true,
+      "DB_POOLING_dynamic_read": true,
+      "DB_ENCRYPT_dynamic_read": true,
+      "DB_TRUST_SERVER_CERT_dynamic_read": true,
+      "DB2_HOST_dynamic_read": true,
+      "DB2_PORT_dynamic_read": true,
+      "DB2_NAME_dynamic_read": true,
+      "DB2_USER_dynamic_read": true,
+      "DB2_PASS_dynamic_read": true,
+      "DB2_POOLING_dynamic_read": true,
+      "DB2_ENCRYPT_dynamic_read": true,
+      "DB2_TRUST_SERVER_CERT_dynamic_read": true,
+      "GEMINI_EXTRACTION_token_override": true,
+      "GEMINI_EXTRACTION_level_override": true,
+      "GEMINI_EXTRACTION_budget_omitted": true,
+      "GEMINI_SEMANTIC_token_override": true,
+      "GEMINI_SEMANTIC_level_override": true,
+      "GEMINI_SEMANTIC_budget_omitted": true,
+      "empty_global_budget_is_null": true,
+      "empty_seed_is_null": true,
+      "nonempty_budget_loses_to_level": true,
+      "mcp_timeout_applied": true,
+      "mcp_connect_timeout_applied": true
+    },
+    "passed": 27,
+    "failed": 0
+  },
+  "next_env_probe": {
+    "frontend_env_file_count": 0,
+    "inherited_present": {
+      "NEXT_PUBLIC_APP_NAME": false,
+      "NEXT_PUBLIC_DEFAULT_THEME": false,
+      "NEXT_PUBLIC_POLLING_JOBS_MS": false,
+      "NEXT_PUBLIC_POLLING_HEALTH_MS": false,
+      "NEXT_PUBLIC_LOCALE": false,
+      "NEXT_PUBLIC_TIMEZONE": false,
+      "INTERNAL_API_URL": false
+    },
+    "loaded_present": {
+      "NEXT_PUBLIC_APP_NAME": false,
+      "NEXT_PUBLIC_DEFAULT_THEME": false,
+      "NEXT_PUBLIC_POLLING_JOBS_MS": false,
+      "NEXT_PUBLIC_POLLING_HEALTH_MS": false,
+      "NEXT_PUBLIC_LOCALE": false,
+      "NEXT_PUBLIC_TIMEZONE": false,
+      "INTERNAL_API_URL": false
+    }
+  },
+  "compose_probe": {
+    "compose_rendered": true,
+    "frontend_public_keys_present": {
+      "NEXT_PUBLIC_APP_NAME": false,
+      "NEXT_PUBLIC_DEFAULT_THEME": false,
+      "NEXT_PUBLIC_POLLING_JOBS_MS": false,
+      "NEXT_PUBLIC_POLLING_HEALTH_MS": false,
+      "NEXT_PUBLIC_LOCALE": false,
+      "NEXT_PUBLIC_TIMEZONE": false
+    },
+    "frontend_env_file_present": false,
+    "internal_api_is_literal_compose_value": true,
+    "php_receives_env_file_app_env": true
+  },
+  "rows": [
+    {
+      "line": 1,
+      "key": "APP_ENV",
+      "status": "ACTIVA",
+      "effect": "Selecciona errores, CORS y logging. El archivo local selecciona desarrollo; el deploy fuerza producción.",
+      "refs": [
+        "public/index.php:27",
+        "public/index.php:35",
+        "core/Logger.php:72",
+        ".github/workflows/deploy-production.yml:241"
+      ]
+    },
+    {
+      "line": 2,
+      "key": "WRAP_API_BASE",
+      "status": "CONDICIONAL",
+      "effect": "Base HTTP efectiva del cliente MCP; aplica al invocar sus herramientas.",
+      "refs": [
+        "app/wrap/core/ApiClient.php:18",
+        "app/wrap/core/ApiClient.php:32"
+      ]
+    },
+    {
+      "line": 3,
+      "key": "WWWUSER_ID",
+      "status": "CONDICIONAL",
+      "effect": "Argumento de build local que cambia www-data. El publish GHCR fija 33; editar el .env no cambia una imagen ya publicada.",
+      "refs": [
+        "docker-compose.yml:35",
+        "docker/Dockerfile:13",
+        "docker/Dockerfile:14",
+        ".github/workflows/publish-images.yml:52"
+      ]
+    },
+    {
+      "line": 4,
+      "key": "WWWGROUP_ID",
+      "status": "CONDICIONAL",
+      "effect": "Argumento de build local que cambia www-data. El publish GHCR fija 33; editar el .env no cambia una imagen ya publicada.",
+      "refs": [
+        "docker-compose.yml:36",
+        "docker/Dockerfile:12",
+        "docker/Dockerfile:14",
+        ".github/workflows/publish-images.yml:52"
+      ]
+    },
+    {
+      "line": 5,
+      "key": "AUDFACT_API_PUBLIC_URL",
+      "status": "SOBRESCRITA",
+      "effect": "Se valida en el script de sincronización, pero el deploy calcula otra URL desde el nodo y la escribe; no configura endpoints. F06.",
+      "refs": [
+        "scripts/sync-github-production-env.sh:416",
+        ".github/workflows/deploy-production.yml:293",
+        ".github/workflows/deploy-production.yml:322"
+      ]
+    },
+    {
+      "line": 6,
+      "key": "INTERNAL_API_URL",
+      "status": "DESCONECTADA",
+      "effect": "Sí existe lector Next.js, pero este .env no se carga en frontend y Compose fija una URL literal distinta del valor local. F05.",
+      "refs": [
+        "frontend/lib/api/server-config.ts:19",
+        "frontend/lib/api/client.ts:29",
+        "docker-compose.yml:18"
+      ]
+    },
+    {
+      "line": 7,
+      "key": "AUDFACT_FRONTEND_PUBLIC_URL",
+      "status": "SOBRESCRITA",
+      "effect": "Se valida en sincronización; deploy la calcula desde nodo/puerto. CORS se arma con lista de nodos y ALLOWED_ORIGINS. F06.",
+      "refs": [
+        "scripts/sync-github-production-env.sh:416",
+        ".github/workflows/deploy-production.yml:292",
+        ".github/workflows/deploy-production.yml:297",
+        ".github/workflows/deploy-production.yml:324"
+      ]
+    },
+    {
+      "line": 8,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 9,
+      "key": "AUDFACT_PHP_IMAGE",
+      "status": "ACTIVA",
+      "effect": "Selecciona la imagen PHP de API y workers.",
+      "refs": [
+        "docker-compose.yml:29"
+      ]
+    },
+    {
+      "line": 10,
+      "key": "AUDFACT_NGINX_IMAGE",
+      "status": "ACTIVA",
+      "effect": "Selecciona la imagen del proxy Nginx.",
+      "refs": [
+        "docker-compose.yml:97"
+      ]
+    },
+    {
+      "line": 11,
+      "key": "AUDFACT_FRONTEND_IMAGE",
+      "status": "CONDICIONAL",
+      "effect": "Selecciona la imagen Next.js al usar el perfil frontend.",
+      "refs": [
+        "docker-compose.yml:6"
+      ]
+    },
+    {
+      "line": 12,
+      "key": "AUDFACT_DOCS_IMAGE",
+      "status": "CONDICIONAL",
+      "effect": "Selecciona la imagen documental al usar el perfil docs.",
+      "refs": [
+        "docker-compose.yml:319"
+      ]
+    },
+    {
+      "line": 13,
+      "key": "AUDFACT_IMAGE_TAG",
+      "status": "ACTIVA",
+      "effect": "Selecciona la etiqueta de las imágenes en Compose; el deploy genera el tag de la release.",
+      "refs": [
+        "docker-compose.yml:29"
+      ]
+    },
+    {
+      "line": 14,
+      "key": "AUDFACT_FRONTEND_HOST_PORT",
+      "status": "CONDICIONAL",
+      "effect": "Publica el puerto del frontend al habilitar ese perfil.",
+      "refs": [
+        "docker-compose.yml:13"
+      ]
+    },
+    {
+      "line": 15,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 16,
+      "key": "NEXT_PUBLIC_APP_NAME",
+      "status": "DESCONECTADA",
+      "effect": "Nombre de aplicación, título y sidebar. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:8",
+        "frontend/components/layout/app-sidebar.tsx:49",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 17,
+      "key": "NEXT_PUBLIC_DEFAULT_THEME",
+      "status": "DESCONECTADA",
+      "effect": "Tema inicial del proveedor de temas. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:9",
+        "frontend/providers/theme-provider.tsx:12",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 18,
+      "key": "NEXT_PUBLIC_POLLING_JOBS_MS",
+      "status": "DESCONECTADA",
+      "effect": "Intervalo de actualización de jobs. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:10",
+        "frontend/lib/query/audit.ts:48",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 19,
+      "key": "NEXT_PUBLIC_POLLING_HEALTH_MS",
+      "status": "DESCONECTADA",
+      "effect": "Intervalo de health y métricas. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:11",
+        "frontend/lib/query/system.ts:11",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 20,
+      "key": "NEXT_PUBLIC_LOCALE",
+      "status": "DESCONECTADA",
+      "effect": "Locale de fechas en la lista de jobs; otros formatters tienen formatos propios. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:12",
+        "frontend/components/jobs/jobs-list-live.tsx:108",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 21,
+      "key": "NEXT_PUBLIC_TIMEZONE",
+      "status": "DESCONECTADA",
+      "effect": "Zona horaria de jobs y formatos de instantes. El lector existe, pero el valor del .env raíz no llega al build ni al contenedor frontend; hoy coincide con el fallback. F05.",
+      "refs": [
+        "frontend/lib/api/config.ts:13",
+        "frontend/lib/formatters/index.ts:93",
+        ".github/workflows/publish-images.yml:71",
+        "docker/frontend.Dockerfile:18",
+        "docker-compose.yml:14"
+      ]
+    },
+    {
+      "line": 22,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 23,
+      "key": "WEBHOOK_URL",
+      "status": "SIN_EFECTO",
+      "effect": "El workflow genera/preserva este metadato; no hay lector funcional en aplicación, frontend ni puente MCP del repositorio. Posible consumidor externo no verificable. F07.",
+      "refs": [
+        ".github/workflows/deploy-production.yml:340",
+        "app/wrap/capabilities.php:4",
+        "app/wrap/webhook.php:34"
+      ]
+    },
+    {
+      "line": 24,
+      "key": "CAPABILITIES_URL",
+      "status": "SIN_EFECTO",
+      "effect": "El workflow genera/preserva este metadato; no hay lector funcional en aplicación, frontend ni puente MCP del repositorio. Posible consumidor externo no verificable. F07.",
+      "refs": [
+        ".github/workflows/deploy-production.yml:341",
+        "app/wrap/capabilities.php:4",
+        "app/wrap/webhook.php:34"
+      ]
+    },
+    {
+      "line": 25,
+      "key": "MCP_WEBHOOK_SECRET",
+      "status": "CONDICIONAL",
+      "effect": "Se compara con X-API-KEY para admitir/rechazar peticiones MCP.",
+      "refs": [
+        "app/wrap/webhook.php:16",
+        "app/wrap/webhook.php:19"
+      ]
+    },
+    {
+      "line": 26,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 27,
+      "key": "DB_TYPE",
+      "status": "SIN_EFECTO",
+      "effect": "No se lee para seleccionar driver. El DSN está fijado a sqlsrv; cambiar la clave no cambia el motor. F03.",
+      "refs": [
+        "core/Database.php:107",
+        "core/Database.php:234",
+        ".github/workflows/deploy-production.yml:344"
+      ]
+    },
+    {
+      "line": 28,
+      "key": "DB_HOST",
+      "status": "ACTIVA",
+      "effect": "Host del servidor SQL. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:238",
+        "core/Database.php:282",
+        "core/Database.php:85"
+      ]
+    },
+    {
+      "line": 29,
+      "key": "DB_PORT",
+      "status": "ACTIVA",
+      "effect": "Puerto del DSN SQL. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:239",
+        "core/Database.php:282",
+        "core/Database.php:85"
+      ]
+    },
+    {
+      "line": 30,
+      "key": "DB_NAME",
+      "status": "ACTIVA",
+      "effect": "Nombre de base de datos del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:240",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 31,
+      "key": "DB_USER",
+      "status": "ACTIVA",
+      "effect": "Usuario pasado a PDO. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:241",
+        "core/Database.php:282",
+        "core/Database.php:112"
+      ]
+    },
+    {
+      "line": 32,
+      "key": "DB_PASS",
+      "status": "ACTIVA",
+      "effect": "Credencial pasada a PDO; valor omitido. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:242",
+        "core/Database.php:282",
+        "core/Database.php:112"
+      ]
+    },
+    {
+      "line": 33,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 34,
+      "key": "DB2_HOST",
+      "status": "ACTIVA",
+      "effect": "Host del servidor SQL. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:238",
+        "core/Database.php:282",
+        "core/Database.php:85"
+      ]
+    },
+    {
+      "line": 35,
+      "key": "DB2_PORT",
+      "status": "ACTIVA",
+      "effect": "Puerto del DSN SQL. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:239",
+        "core/Database.php:282",
+        "core/Database.php:85"
+      ]
+    },
+    {
+      "line": 36,
+      "key": "DB2_NAME",
+      "status": "ACTIVA",
+      "effect": "Nombre de base de datos del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:240",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 37,
+      "key": "DB2_USER",
+      "status": "ACTIVA",
+      "effect": "Usuario pasado a PDO. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:241",
+        "core/Database.php:282",
+        "core/Database.php:112"
+      ]
+    },
+    {
+      "line": 38,
+      "key": "DB2_PASS",
+      "status": "ACTIVA",
+      "effect": "Credencial pasada a PDO; valor omitido. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:242",
+        "core/Database.php:282",
+        "core/Database.php:112"
+      ]
+    },
+    {
+      "line": 39,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 40,
+      "key": "DB_POOLING",
+      "status": "ACTIVA",
+      "effect": "Activa/desactiva ConnectionPooling del driver. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:244",
+        "core/Database.php:282",
+        "core/Database.php:108"
+      ]
+    },
+    {
+      "line": 41,
+      "key": "DB2_POOLING",
+      "status": "ACTIVA",
+      "effect": "Activa/desactiva ConnectionPooling del driver. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:244",
+        "core/Database.php:282",
+        "core/Database.php:108"
+      ]
+    },
+    {
+      "line": 42,
+      "key": "DB_ENCRYPT",
+      "status": "ACTIVA",
+      "effect": "Opción Encrypt del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:246",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 43,
+      "key": "DB_TRUST_SERVER_CERT",
+      "status": "ACTIVA",
+      "effect": "Opción TrustServerCertificate del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:247",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 44,
+      "key": "DB2_ENCRYPT",
+      "status": "ACTIVA",
+      "effect": "Opción Encrypt del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:246",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 45,
+      "key": "DB2_TRUST_SERVER_CERT",
+      "status": "ACTIVA",
+      "effect": "Opción TrustServerCertificate del DSN. Lectura dinámica por prefijo verificada sin abrir conexión.",
+      "refs": [
+        "core/Database.php:247",
+        "core/Database.php:282",
+        "core/Database.php:107"
+      ]
+    },
+    {
+      "line": 46,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 47,
+      "key": "GOOGLE_DRIVE_CLIENT_EMAIL",
+      "status": "CONDICIONAL",
+      "effect": "Credencial de autenticación del servicio Drive; interviene al usar ese servicio.",
+      "refs": [
+        "app/Services/GoogleDriveAuthService.php:39",
+        "app/Services/GoogleDriveAuthService.php:97"
+      ]
+    },
+    {
+      "line": 48,
+      "key": "GOOGLE_DRIVE_PRIVATE_KEY",
+      "status": "CONDICIONAL",
+      "effect": "Clave de firma Drive; convierte \\n a saltos de línea y valida presencia. Valor omitido.",
+      "refs": [
+        "app/Services/GoogleDriveAuthService.php:40",
+        "app/Services/GoogleDriveAuthService.php:101"
+      ]
+    },
+    {
+      "line": 49,
+      "key": "GOOGLE_DRIVE_TLS_VERIFY",
+      "status": "CONDICIONAL",
+      "effect": "Configura verify del cliente HTTP de autenticación Drive.",
+      "refs": [
+        "app/Services/GoogleDriveAuthService.php:45",
+        "app/Services/GoogleDriveAuthService.php:50"
+      ]
+    },
+    {
+      "line": 50,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 51,
+      "key": "REQUEST_TIMEOUT_MS",
+      "status": "CONDICIONAL",
+      "effect": "Configura timeout y connect_timeout del cliente MCP, convertido de ms a segundos. No es el timeout Gemini.",
+      "refs": [
+        "app/wrap/core/ApiClient.php:19",
+        "app/wrap/core/ApiClient.php:23",
+        "app/wrap/core/ApiClient.php:24"
+      ]
+    },
+    {
+      "line": 52,
+      "key": "LOG_LEVEL",
+      "status": "ACTIVA",
+      "effect": "Selecciona el umbral de mensajes del logger.",
+      "refs": [
+        "core/Logger.php:26",
+        "core/Logger.php:40",
+        "core/Logger.php:84"
+      ]
+    },
+    {
+      "line": 53,
+      "key": "LOG_RETENTION_DAYS",
+      "status": "ACTIVA",
+      "effect": "Retención de archivos del logger en desarrollo; producción usa stderr y omite esa limpieza.",
+      "refs": [
+        "core/Logger.php:16",
+        "core/Logger.php:79",
+        "core/Logger.php:197"
+      ]
+    },
+    {
+      "line": 54,
+      "key": "LOG_MAX_SIZE_MB",
+      "status": "ACTIVA",
+      "effect": "Límite de rotación de archivos en desarrollo; no configura retención del driver Docker de logs.",
+      "refs": [
+        "core/Logger.php:21",
+        "core/Logger.php:173"
+      ]
+    },
+    {
+      "line": 55,
+      "key": "AUDIT_RESPONSE_IA_ENABLED",
+      "status": "ACTIVA",
+      "effect": "Permite snapshots Gemini en desarrollo; producción impide escribirlos aunque se habilite.",
+      "refs": [
+        "app/Services/Audit/ResponseIADiskStore.php:19",
+        "app/Services/Audit/ResponseIADiskStore.php:143",
+        "app/Services/Audit/ResponseIADiskStore.php:147"
+      ]
+    },
+    {
+      "line": 56,
+      "key": "AUDIT_RESPONSE_IA_DIR",
+      "status": "ACTIVA",
+      "effect": "Directorio de snapshots cuando el guard de entorno y habilitación permite persistir.",
+      "refs": [
+        "app/Services/Audit/ResponseIADiskStore.php:20",
+        "app/Services/Audit/ResponseIADiskStore.php:137",
+        "app/Services/Audit/ResponseIADiskStore.php:43"
+      ]
+    },
+    {
+      "line": 57,
+      "key": "ALLOWED_ORIGINS",
+      "status": "CONDICIONAL",
+      "effect": "En este APP_ENV=development no restringe CORS: se responde *. En otros entornos sí se usa la lista. F14.",
+      "refs": [
+        "public/index.php:35",
+        "public/index.php:38",
+        "public/index.php:41"
+      ]
+    },
+    {
+      "line": 58,
+      "key": "MAX_JSON_SIZE",
+      "status": "ACTIVA",
+      "effect": "Limita bytes del JSON recibido por el controlador base.",
+      "refs": [
+        "app/Controllers/Controller.php:33",
+        "app/Controllers/Controller.php:35"
+      ]
+    },
+    {
+      "line": 59,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 60,
+      "key": "GEMINI_API_KEY",
+      "status": "ACTIVA",
+      "effect": "Clave común que usa el gateway si no hay clave específica por carril.",
+      "refs": [
+        "app/Services/Audit/GeminiGateway.php:77",
+        "app/Services/Audit/GeminiGateway.php:83",
+        "app/Services/Audit/GeminiGateway.php:96"
+      ]
+    },
+    {
+      "line": 61,
+      "key": "GEMINI_MODEL",
+      "status": "ACTIVA",
+      "effect": "Modelo asignado al config del gateway; auditoría local no confirma disponibilidad en proveedor.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:38",
+        "app/Services/Audit/GeminiGateway.php:97"
+      ]
+    },
+    {
+      "line": 62,
+      "key": "GEMINI_TEMPERATURE",
+      "status": "ACTIVA",
+      "effect": "Llega al campo temperature de generationConfig.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:39",
+        "app/Services/Audit/GeminiConfig.php:60",
+        "app/Services/Audit/GeminiGateway.php:570"
+      ]
+    },
+    {
+      "line": 63,
+      "key": "GEMINI_TIMEOUT",
+      "status": "ACTIVA",
+      "effect": "Timeout Guzzle del gateway; en ejecución durable además se acota por deadline.",
+      "refs": [
+        "app/Services/Audit/GeminiGateway.php:92",
+        "app/Services/Audit/GeminiGateway.php:95",
+        "app/Services/Audit/GeminiGateway.php:293"
+      ]
+    },
+    {
+      "line": 64,
+      "key": "GEMINI_TOP_P",
+      "status": "ACTIVA",
+      "effect": "Llega al campo topP de generationConfig.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:40",
+        "app/Services/Audit/GeminiConfig.php:61",
+        "app/Services/Audit/GeminiGateway.php:570"
+      ]
+    },
+    {
+      "line": 65,
+      "key": "GEMINI_TOP_K",
+      "status": "ACTIVA",
+      "effect": "Llega al campo topK de generationConfig.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:41",
+        "app/Services/Audit/GeminiConfig.php:62",
+        "app/Services/Audit/GeminiGateway.php:570"
+      ]
+    },
+    {
+      "line": 66,
+      "key": "GEMINI_MAX_OUTPUT_TOKENS",
+      "status": "SOBRESCRITA",
+      "effect": "Se lee como base, pero extracción y semántica actuales siempre asignan límites por tarea/default. No gobierna esas llamadas. F09.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:42",
+        "app/Services/Audit/GeminiConfig.php:80",
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:430",
+        "app/Services/Audit/SemanticMatchJudge.php:186",
+        "app/Services/Audit/SemanticBatchContract.php:44"
+      ]
+    },
+    {
+      "line": 67,
+      "key": "GEMINI_MEDIA_RESOLUTION",
+      "status": "CONDICIONAL",
+      "effect": "Se incorpora al payload únicamente en tareas de extracción multimodal.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:43",
+        "app/Services/Audit/GeminiConfig.php:67",
+        "app/Services/Audit/GeminiGateway.php:572"
+      ]
+    },
+    {
+      "line": 68,
+      "key": "GEMINI_THINKING_BUDGET",
+      "status": "VACÍA",
+      "effect": "Vacía se normaliza a null. Incluso al asignarla, thinkingLevel tiene prioridad y nunca queda null en fromEnv. F10.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:44",
+        "app/Services/Audit/GeminiConfig.php:45",
+        "app/Services/Audit/GeminiConfig.php:82",
+        "app/Services/Audit/GeminiConfig.php:146"
+      ]
+    },
+    {
+      "line": 69,
+      "key": "GEMINI_THINKING_LEVEL",
+      "status": "SOBRESCRITA",
+      "effect": "Se lee como base, pero las rutas actuales siempre agregan thinkingLevel por tarea o default low. F09.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:45",
+        "app/Services/Audit/GeminiConfig.php:73",
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:432",
+        "app/Services/Audit/SemanticMatchJudge.php:188",
+        "app/Services/Audit/SemanticBatchContract.php:41"
+      ]
+    },
+    {
+      "line": 70,
+      "key": "GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS",
+      "status": "ACTIVA",
+      "effect": "Límite por tarea leído con prefijo dinámico. Se usa en extracción.",
+      "refs": [
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:430",
+        "app/Services/Audit/GeminiConfig.php:125",
+        "app/Services/Audit/GeminiConfig.php:80"
+      ]
+    },
+    {
+      "line": 71,
+      "key": "GEMINI_EXTRACTION_THINKING_BUDGET",
+      "status": "VACÍA",
+      "effect": "Vacía se omite. Darle un valor tampoco vence thinkingLevel del perfil o su default; no llega como budget al payload actual. F10.",
+      "refs": [
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:430",
+        "app/Services/Audit/GeminiConfig.php:129",
+        "app/Services/Audit/GeminiConfig.php:82"
+      ]
+    },
+    {
+      "line": 72,
+      "key": "GEMINI_EXTRACTION_THINKING_LEVEL",
+      "status": "ACTIVA",
+      "effect": "thinkingLevel por perfil leído con prefijo dinámico; prevalece sobre el global y sobre budget.",
+      "refs": [
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:430",
+        "app/Services/Audit/GeminiConfig.php:133",
+        "app/Services/Audit/GeminiConfig.php:83"
+      ]
+    },
+    {
+      "line": 73,
+      "key": "GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS",
+      "status": "CONDICIONAL",
+      "effect": "Límite por tarea leído con prefijo dinámico. Aplica en semántica v1; v2 agrupada lo reemplaza por 8192. F13.",
+      "refs": [
+        "app/Services/Audit/SemanticMatchJudge.php:186",
+        "app/Services/Audit/GeminiConfig.php:125",
+        "app/Services/Audit/GeminiConfig.php:80",
+        "app/Services/Audit/SemanticBatchContract.php:44"
+      ]
+    },
+    {
+      "line": 74,
+      "key": "GEMINI_SEMANTIC_THINKING_LEVEL",
+      "status": "CONDICIONAL",
+      "effect": "thinkingLevel por perfil leído con prefijo dinámico; prevalece sobre el global y sobre budget.",
+      "refs": [
+        "app/Services/Audit/SemanticMatchJudge.php:186",
+        "app/Services/Audit/GeminiConfig.php:133",
+        "app/Services/Audit/GeminiConfig.php:83"
+      ]
+    },
+    {
+      "line": 75,
+      "key": "GEMINI_SEMANTIC_THINKING_BUDGET",
+      "status": "VACÍA",
+      "effect": "Vacía se omite. Darle un valor tampoco vence thinkingLevel del perfil o su default; no llega como budget al payload actual. F10.",
+      "refs": [
+        "app/Services/Audit/SemanticMatchJudge.php:186",
+        "app/Services/Audit/GeminiConfig.php:129",
+        "app/Services/Audit/GeminiConfig.php:82"
+      ]
+    },
+    {
+      "line": 76,
+      "key": "GEMINI_SEED",
+      "status": "VACÍA",
+      "effect": "Vacía se convierte en null y se filtra; si se asigna un entero sí entra al payload. Opcional conectada, no huérfana.",
+      "refs": [
+        "app/Services/Audit/GeminiConfig.php:46",
+        "app/Services/Audit/GeminiConfig.php:64",
+        "app/Services/Audit/GeminiConfig.php:146"
+      ]
+    },
+    {
+      "line": 77,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 78,
+      "key": "AUDIT_BATCH_MAX_LIMIT",
+      "status": "PARCIAL",
+      "effect": "Solo valor inicial/etiqueta en UI. Zod limita a 100 y backend a 10000 sin leer esta variable. F11.",
+      "refs": [
+        "app/Controllers/ConfigController.php:19",
+        "frontend/components/audit/audit-batch-console.tsx:70",
+        "frontend/components/audit/audit-batch-console.tsx:29",
+        "app/Controllers/AuditController.php:402"
+      ]
+    },
+    {
+      "line": 79,
+      "key": "AUDIT_BATCH_CRON_LIMIT",
+      "status": "CONDICIONAL",
+      "effect": "Límite del scheduler CLI cuando no se pasa --limit; no prueba que exista un cron instalado.",
+      "refs": [
+        "bin/schedule-daily-batches.php:54",
+        "bin/schedule-daily-batches.php:55"
+      ]
+    },
+    {
+      "line": 80,
+      "key": "AUDIT_BATCH_TIMEOUT",
+      "status": "PARCIAL",
+      "effect": "Solo se convierte a ms en config pública y se muestra como Timeout. No cancela fetch ni fija un deadline del job. F12.",
+      "refs": [
+        "app/Controllers/ConfigController.php:20",
+        "frontend/components/audit/audit-batch-console.tsx:77",
+        "frontend/components/audit/audit-batch-console.tsx:254",
+        "frontend/lib/api/client.ts:49"
+      ]
+    },
+    {
+      "line": 81,
+      "key": "AUDIT_NGINX_READ_TIMEOUT",
+      "status": "ACTIVA",
+      "effect": "Compose lo inyecta en Nginx y la plantilla lo usa como timeout FastCGI.",
+      "refs": [
+        "docker-compose.yml:109",
+        "docker/nginx-ha.conf.template:39"
+      ]
+    },
+    {
+      "line": 82,
+      "key": "AUDIT_FPM_TERMINATE_TIMEOUT",
+      "status": "ACTIVA",
+      "effect": "Entrypoint sustituye la variable en request_terminate_timeout de FPM.",
+      "refs": [
+        "docker/docker-entrypoint.sh:10",
+        "docker/docker-entrypoint.sh:12",
+        "docker/php-fpm-pool.conf.template:14"
+      ]
+    },
+    {
+      "line": 83,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 84,
+      "key": "REDIS_HOST",
+      "status": "ACTIVA",
+      "effect": "Host de la conexión standalone, modo seleccionado en este .env.",
+      "refs": [
+        "core/RedisClient.php:50",
+        "core/RedisClient.php:86",
+        "core/RedisClient.php:91"
+      ]
+    },
+    {
+      "line": 85,
+      "key": "REDIS_PORT",
+      "status": "ACTIVA",
+      "effect": "Puerto de la conexión standalone.",
+      "refs": [
+        "core/RedisClient.php:87",
+        "core/RedisClient.php:92"
+      ]
+    },
+    {
+      "line": 86,
+      "key": "REDIS_PREFIX",
+      "status": "ACTIVA",
+      "effect": "Namespace de las claves operadas por RedisClient.",
+      "refs": [
+        "core/RedisClient.php:27",
+        "core/RedisClient.php:197"
+      ]
+    },
+    {
+      "line": 87,
+      "key": "REDIS_PASSWORD",
+      "status": "ACTIVA",
+      "effect": "Se usa tanto para requirepass del servidor como para autenticación del cliente. Valor omitido.",
+      "refs": [
+        "docker-compose.yml:65",
+        "docker-compose.yml:79",
+        "core/RedisClient.php:51",
+        "core/RedisClient.php:98"
+      ]
+    },
+    {
+      "line": 88,
+      "key": "REDIS_MAXMEMORY",
+      "status": "ACTIVA",
+      "effect": "Límite --maxmemory de redis-server.",
+      "refs": [
+        "docker-compose.yml:66",
+        "docker-compose.yml:79"
+      ]
+    },
+    {
+      "line": 89,
+      "key": "REDIS_MAXMEMORY_POLICY",
+      "status": "ACTIVA",
+      "effect": "Política Redis en v1. V2 o marcador durable existente fuerza noeviction, aunque cambie la variable.",
+      "refs": [
+        "docker-compose.yml:67",
+        "docker-compose.yml:73",
+        "docker-compose.yml:76"
+      ]
+    },
+    {
+      "line": 90,
+      "key": "REDIS_CONTAINER_MEMORY",
+      "status": "ACTIVA",
+      "effect": "Límite de memoria del contenedor Redis en Compose.",
+      "refs": [
+        "docker-compose.yml:93"
+      ]
+    },
+    {
+      "line": 91,
+      "key": "REDIS_MODE",
+      "status": "ACTIVA",
+      "effect": "Selecciona standalone, sentinel o cluster en el cliente.",
+      "refs": [
+        "core/RedisClient.php:50",
+        "core/RedisClient.php:55"
+      ]
+    },
+    {
+      "line": 92,
+      "key": "REDIS_PERSISTENT",
+      "status": "ACTIVA",
+      "effect": "Selecciona conexión persistente en el cliente; el valor local 0 desactiva la opción.",
+      "refs": [
+        "core/RedisClient.php:52",
+        "core/RedisClient.php:100"
+      ]
+    },
+    {
+      "line": 93,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 94,
+      "key": "CB_GEMINI_THRESHOLD",
+      "status": "ACTIVA",
+      "effect": "Umbral de fallas del circuit breaker Gemini.",
+      "refs": [
+        "app/Services/Audit/GeminiGateway.php:488"
+      ]
+    },
+    {
+      "line": 95,
+      "key": "CB_GEMINI_COOLDOWN",
+      "status": "ACTIVA",
+      "effect": "Espera de recuperación del circuit breaker Gemini.",
+      "refs": [
+        "app/Services/Audit/GeminiGateway.php:489"
+      ]
+    },
+    {
+      "line": 96,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 97,
+      "key": "AUDIT_INTERNAL_API_BASE",
+      "status": "SOLO_VALIDACIÓN",
+      "effect": "El launcher exige que no esté vacía, pero ningún servicio la usa para construir solicitudes. No selecciona el backend de workers. F08.",
+      "refs": [
+        "bin/audit-worker.php:23",
+        "bin/audit-worker.php:27",
+        "bin/audit-worker.php:35",
+        "bin/audit-worker.php:117"
+      ]
+    },
+    {
+      "line": 98,
+      "key": "AUDIT_WORKER_ORCHESTRATOR_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:136"
+      ]
+    },
+    {
+      "line": 99,
+      "key": "AUDIT_WORKER_DOWNLOADER_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:240"
+      ]
+    },
+    {
+      "line": 100,
+      "key": "AUDIT_WORKER_EXTRACTION_VIP_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:188"
+      ]
+    },
+    {
+      "line": 101,
+      "key": "AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:215"
+      ]
+    },
+    {
+      "line": 102,
+      "key": "AUDIT_WORKER_EXTRACTION_REPLICAS",
+      "status": "SIN_EFECTO",
+      "effect": "Clave legacy escrita en deploy pero no referenciada por ningún servicio. La escala real depende de VIP y BATCH. F02.",
+      "refs": [
+        ".github/workflows/deploy-production.yml:437",
+        "docker-compose.yml:188",
+        "docker-compose.yml:215"
+      ]
+    },
+    {
+      "line": 103,
+      "key": "AUDIT_WORKER_NORMALIZER_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:264"
+      ]
+    },
+    {
+      "line": 104,
+      "key": "AUDIT_WORKER_POLICY_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:288"
+      ]
+    },
+    {
+      "line": 105,
+      "key": "AUDIT_WORKER_PERSISTENCE_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:312"
+      ]
+    },
+    {
+      "line": 106,
+      "key": "AUDIT_WORKER_BATCH_REPLICAS",
+      "status": "ACTIVA",
+      "effect": "Controla deploy.replicas del servicio correspondiente al aplicar Compose; no prueba las réplicas actualmente desplegadas.",
+      "refs": [
+        "docker-compose.yml:161"
+      ]
+    },
+    {
+      "line": 107,
+      "key": "AUDIT_IDEMPOTENCY_KEY_TTL",
+      "status": "ACTIVA",
+      "effect": "TTL pasado al reclamar la clave de idempotencia en POST /audit/async.",
+      "refs": [
+        "app/Controllers/AuditController.php:427",
+        "app/Controllers/AuditController.php:430"
+      ]
+    },
+    {
+      "line": 108,
+      "key": "AUDIT_JOB_TTL",
+      "status": "ACTIVA",
+      "effect": "TTL del estado de jobs v1; v2 preserva estados activos y usa la retención en mantenimiento.",
+      "refs": [
+        "app/Services/Audit/Pipeline/BatchJobStore.php:39",
+        "app/Services/Audit/Pipeline/BatchJobStore.php:98",
+        "app/Services/Audit/Pipeline/AuditExecutionMaintenance.php:165"
+      ]
+    },
+    {
+      "line": 109,
+      "key": "AUDIT_STATE_TTL",
+      "status": "ACTIVA",
+      "effect": "TTL del estado de auditoría v1; v2 conserva activos y aplica retención terminal en mantenimiento.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditStateStore.php:41",
+        "app/Services/Audit/Pipeline/AuditStateStore.php:77",
+        "app/Services/Audit/Pipeline/AuditExecutionMaintenance.php:164"
+      ]
+    },
+    {
+      "line": 110,
+      "key": "AUDIT_PERSISTENCE_QUEUE_TTL",
+      "status": "ACTIVA",
+      "effect": "Retención de estructuras auxiliares de la cola de persistencia.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditPersistenceQueue.php:312",
+        "app/Services/Audit/Pipeline/AuditPersistenceQueue.php:163"
+      ]
+    },
+    {
+      "line": 111,
+      "key": "AUDIT_PERSISTENCE_JOB_SLOTS",
+      "status": "ACTIVA",
+      "effect": "Slots de persistencia fijados para jobs nuevos; no reparticiona jobs ya fijados.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditPersistenceQueue.php:32",
+        "app/Services/Audit/Pipeline/AuditPersistenceQueue.php:260"
+      ]
+    },
+    {
+      "line": 112,
+      "key": "AUDIT_RESERVATION_TTL",
+      "status": "ACTIVA",
+      "effect": "TTL de reservas por DisId cuando no se pasa un TTL explícito.",
+      "refs": [
+        "app/Services/Audit/Pipeline/BatchJobStore.php:44",
+        "app/Services/Audit/Pipeline/BatchJobStore.php:376"
+      ]
+    },
+    {
+      "line": 113,
+      "key": "AUDIT_PENDING_RECLAIM_IDLE_MS",
+      "status": "ACTIVA",
+      "effect": "Umbral de inactividad antes de reclamar mensajes pendientes; batch tiene override propio.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:61",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:318"
+      ]
+    },
+    {
+      "line": 114,
+      "key": "AUDIT_PENDING_RECLAIM_INTERVAL_MS",
+      "status": "ACTIVA",
+      "effect": "Intervalo de barrido de pendientes; batch tiene override propio.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:66",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:288"
+      ]
+    },
+    {
+      "line": 115,
+      "key": "AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS",
+      "status": "ACTIVA",
+      "effect": "Override del umbral de reclamación exclusivo del worker batch.",
+      "refs": [
+        "app/Services/Audit/Pipeline/BatchRequestedWorker.php:52",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:318"
+      ]
+    },
+    {
+      "line": 116,
+      "key": "AUDIT_BATCH_PENDING_RECLAIM_INTERVAL_MS",
+      "status": "ACTIVA",
+      "effect": "Override del intervalo de reclamación exclusivo del worker batch.",
+      "refs": [
+        "app/Services/Audit/Pipeline/BatchRequestedWorker.php:53",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:288"
+      ]
+    },
+    {
+      "line": 117,
+      "key": "AUDIT_BATCH_CHUNK_SIZE",
+      "status": "ACTIVA",
+      "effect": "Tamaño del chunk salvo override explícito en el estado de ejecución.",
+      "refs": [
+        "app/Services/Audit/AuditBatchOrchestrator.php:274",
+        "app/Services/Audit/AuditBatchOrchestrator.php:275"
+      ]
+    },
+    {
+      "line": 118,
+      "key": "AUDIT_BATCH_LOCK_TTL_SECONDS",
+      "status": "ACTIVA",
+      "effect": "TTL enviado al lock distribuido de generación de jobs.",
+      "refs": [
+        "app/Services/Audit/AuditBatchOrchestrator.php:108",
+        "app/Services/Audit/AuditBatchOrchestrator.php:109"
+      ]
+    },
+    {
+      "line": 119,
+      "key": "AUDIT_EVENT_MAX_RETRIES",
+      "status": "ACTIVA",
+      "effect": "Presupuesto de intentos antes de DLQ; valores menores a uno se corrigen a uno.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:50",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:636"
+      ]
+    },
+    {
+      "line": 120,
+      "key": "AUDIT_STREAM_BLOCK_MS",
+      "status": "ACTIVA",
+      "effect": "Tiempo de bloqueo al leer streams; se acota a un mínimo de 100 ms.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:51",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:249"
+      ]
+    },
+    {
+      "line": 121,
+      "key": "AUDIT_CONSUMER_LEASE_TTL_SECONDS",
+      "status": "SIN_EFECTO",
+      "effect": "Sin coincidencias en código/configuración operativa ni en .env.example. La lease durable usa una constante. F01.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditExecutionConfig.php:12",
+        "app/Services/Audit/Pipeline/AuditEventConsumer.php:184"
+      ]
+    },
+    {
+      "line": 122,
+      "key": "AUDIT_DLQ_STREAM",
+      "status": "ACTIVA",
+      "effect": "Nombre del stream usado por el publicador de dead letters.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventPublisher.php:242",
+        "app/Services/Audit/Pipeline/AuditEventPublisher.php:73"
+      ]
+    },
+    {
+      "line": 123,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 124,
+      "key": "AUDIT_CACHE_TTL",
+      "status": "SIN_EFECTO",
+      "effect": "Solo se lee en storeDispensationHash(), método sin callers del runtime actual; no afecta caché de queries. F04.",
+      "refs": [
+        "core/Cache.php:216",
+        "core/Cache.php:218",
+        "app/Controllers/AuditController.php:178",
+        "app/Controllers/AuditController.php:300"
+      ]
+    },
+    {
+      "line": 125,
+      "key": "AUDIT_EXTRACTION_CACHE_TTL",
+      "status": "ACTIVA",
+      "effect": "TTL pasado al gestor de resultados de extracción y a la escritura Redis.",
+      "refs": [
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:71",
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:81",
+        "app/Services/Audit/Pipeline/ExtractionCacheManager.php:99"
+      ]
+    },
+    {
+      "line": 126,
+      "key": "AUDIT_BLOB_TTL_SECONDS",
+      "status": "SIN_EFECTO",
+      "effect": "Sin lector ni registro en .env.example. La caché BLOB usa DEFAULT_TTL_SECONDS salvo inyección por constructor. F01.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AttachmentDownloadWorker.php:37",
+        "app/Services/Audit/Pipeline/AttachmentDownloadWorker.php:40",
+        "app/Services/Audit/Pipeline/AuditDocumentCache.php:14"
+      ]
+    },
+    {
+      "line": 127,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 128,
+      "key": "RUN_REDIS_INTEGRATION",
+      "status": "SOLO_PRUEBAS",
+      "effect": "Gate de suites Redis, no del backend. PHPUnit no carga automáticamente el .env raíz; CI establece esta clave aparte. F14.",
+      "refs": [
+        "tests/Integration/AuditDocumentCacheRedisTest.php:20",
+        "phpunit.xml:4",
+        ".github/workflows/ci.yml:146"
+      ]
+    },
+    {
+      "line": 129,
+      "key": "",
+      "status": "ESTRUCTURAL",
+      "effect": "Separador vacío. No requiere consumidor.",
+      "refs": []
+    },
+    {
+      "line": 130,
+      "key": "AUDIT_VERSION_EXTRACTOR",
+      "status": "ACTIVA",
+      "effect": "Metadato de eventos y componente de la versión usada por caché de extracción.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEvent.php:110",
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:74",
+        "app/Services/Audit/Pipeline/DocumentExtractionWorker.php:81"
+      ]
+    },
+    {
+      "line": 131,
+      "key": "AUDIT_VERSION_NORMALIZER",
+      "status": "ACTIVA",
+      "effect": "Etiqueta de trazabilidad serializada en eventos; no cambia la implementación del normalizador.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEvent.php:111",
+        "app/Services/Audit/Pipeline/AuditEvent.php:202"
+      ]
+    },
+    {
+      "line": 132,
+      "key": "AUDIT_VERSION_RULES",
+      "status": "ACTIVA",
+      "effect": "Etiqueta de trazabilidad serializada en eventos; no selecciona otro motor de reglas.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEvent.php:112",
+        "app/Services/Audit/Pipeline/AuditEvent.php:203"
+      ]
+    },
+    {
+      "line": 133,
+      "key": "AUDIT_STREAM_MAXLEN",
+      "status": "ACTIVA",
+      "effect": "Meta de retención de streams; trabajo respeta consumidores/PEL y DLQ no se poda con ese valor.",
+      "refs": [
+        "app/Services/Audit/Pipeline/AuditEventPublisher.php:53",
+        "app/Services/Audit/Pipeline/AuditEventPublisher.php:102",
+        "app/Services/Audit/Pipeline/AuditEventPublisher.php:73"
+      ]
+    },
+    {
+      "line": 134,
+      "key": "PHP_CLI_MEMORY_LIMIT",
+      "status": "ACTIVA",
+      "effect": "Fija memoria del launcher CLI y también del INI global de la imagen, incluido FPM. El nombre no limita su alcance al CLI. F15.",
+      "refs": [
+        "bin/audit-worker.php:13",
+        "bin/audit-worker.php:15",
+        "docker/docker-entrypoint.sh:7"
+      ]
+    }
+  ],
+  "final_validation": {
+    "report_checks": {
+      "physical_lines_verified": 134,
+      "variables_verified": 118,
+      "unique_source_references_verified": 251,
+      "source_file_hashes_verified": 58,
+      "sensitive_value_leaks": 0,
+      "findings": 15,
+      "status": "PASS"
+    },
+    "skills_validation": {
+      "passed": true,
+      "skills": 22,
+      "bundles": 9
+    },
+    "docusaurus_build": {
+      "passed": true,
+      "report_included": true,
+      "runtime_services_started": false
+    },
+    "git_diff_check_passed": true
+  }
+}

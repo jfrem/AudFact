@@ -35,7 +35,7 @@ backup/restore productivo, retiro E01 y rollback.
 | Archivo | Rol |
 |---|---|
 | `docker-compose.yml` | Fuente única universal: build local cuando se trabaja en desarrollo, imágenes GHCR en producción, perfil `frontend` y workers `batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence` |
-| `docker/Dockerfile` | PHP 8.2.33-fpm-bookworm + ODBC SQL Server + APCu + Xdebug condicional + healthcheck interno |
+| `docker/Dockerfile` | PHP 8.2.35-fpm-bookworm + ODBC SQL Server + APCu + Xdebug condicional + healthcheck interno |
 | `docker/frontend.Dockerfile` | Next.js standalone productivo, publicado como `audfact-frontend` |
 | `frontend/next.config.ts` | Config Next.js (debe tener `output: standalone`) |
 | `docker/nginx.Dockerfile` | Nginx 1.25 Alpine con assets estáticos baked-in |
@@ -109,15 +109,15 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
 | `AUDIT_RESPONSE_IA_ENABLED` | `1` dev / `0` prod | Habilita snapshots Gemini solo en `APP_ENV=development` |
 | `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | Directorio configurable de snapshots locales |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Réplicas del worker que consume `audit_created` |
-| `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Réplicas del worker que consume `batch_requested` |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `8` | Default Compose del worker que consume `audit_created` |
+| `AUDIT_WORKER_BATCH_REPLICAS` | `4` | Default Compose del worker que consume `batch_requested` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | Default Compose; consume `document_registered` |
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | Default Compose del carril prioritario Gemini |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | Default Compose del carril batch; verificar cuotas antes de escalar |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Clave legacy presente en plantilla/deploy; no escala los servicios actuales VIP/batch de Compose |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | Default Compose; consume `document_extracted` y publica `document_normalized` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `8` | Default Compose del worker de reglas |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | Réplicas SQL globales; un turno activo por slot |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `12` | Default Compose de réplicas SQL globales; un turno activo por slot |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados en Redis por job; cambiar configuración afecta jobs nuevos |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
@@ -188,4 +188,4 @@ Después de implementar cualquier cambio en Docker o configuración de runtime, 
 
 ## Referencias
 1. Ver `plans/docker-operations.md` para troubleshooting detallado.
-2. `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md` define un cambio propuesto; worker semantic, presupuesto y AOF descritos allí todavía no son contratos del runtime vigente.
+2. `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md` documenta la implementación local v2, sus cuotas, AOF y requisitos de activación explícita; no implica que v2 esté activo en producción.

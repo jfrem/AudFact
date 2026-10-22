@@ -55,7 +55,7 @@ AudFact/
 ├── core/                # Framework: Router, Database, Validator, Response, Logger, RateLimit, Middleware, Env, Route, RedisClient
 ├── public/index.php     # Bootstrap: CORS, rate limit, exception handler, dispatch
 ├── docker/              # Dockerfile (PHP + Nginx), nginx.conf, xdebug.ini
-├── docker-compose.yml   # Defaults: php×5, batch×2, orchestrator×3, downloader×12, extraction VIP×2/batch×12, normalizer×4, policy×8, persistence×6
+├── docker-compose.yml   # Defaults: php×5, batch×4, orchestrator×8, downloader×12, extraction VIP×2/batch×12, normalizer×4, policy×8, persistence×12
 ├── bin/                 # bin/audit-worker.php (launcher único de workers, AUDIT-015)
 ├── tests/               # PHPUnit (Controllers, Models, Services)
 └── logs/                # Logs rotativos en desarrollo; Core\Logger usa stderr en producción; `logs/responseIA` solo dev
@@ -147,7 +147,7 @@ Pipeline event-driven sobre Redis Streams (post AUDIT-013/014/015). Cada etapa e
    ├─ SemanticMatchJudge como fallback de homologación semántica contextual (productos y personas)
    └─ cuando docs_done + docs_rejected >= docs_total y docs_evaluated >= docs_total, encola `rules_evaluated` mediante `AuditPersistenceQueue`
 
-7. AuditPersistenceWorker (group: persistence, ×6 réplicas)
+7. AuditPersistenceWorker (group: persistence, default Compose ×12 réplicas)
    ├─ AuditResultData + documentDecisions
    ├─ un turno por slot; default 2 slots fijados en Redis por job
    ├─ recupera metadata de slots desde scopes sin reparticionar pendientes

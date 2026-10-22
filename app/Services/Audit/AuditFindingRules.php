@@ -225,10 +225,11 @@ final class AuditFindingRules
         $candidate = (string) preg_replace('/T\d{2}:\d{2}(:\d{2})?(\.\d+)?([+-]\d{2}:\d{2}|Z)?$/i', '', $candidate);
 
         // 1b. Strip single or multiple consecutive datetime/time suffixes:
+        //     "2026/07/15 04:51:16 000PM"   → "2026/07/15"
         //     "25/08/2026 0:00:00 05:31:18" → "25/08/2026"
         //     "2026-05-04 14:30:00"         → "2026-05-04"
         //     "2026-05-04 2:30 PM"          → "2026-05-04"
-        $dateOnly = (string) preg_replace('/(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:a\.?\s*m\.?|p\.?\s*m\.?|[a-z.]+))?)+$/i', '', $candidate);
+        $dateOnly = (string) preg_replace('/(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:[.:\s]\d{1,6})?(?:\s*(?:a\.?\s*m\.?|p\.?\s*m\.?|[a-z.]+))?(?:\s*[+-]\d{2}:?\d{2}|\s*Z)?)+$/i', '', $candidate);
         $dateOnly = trim($dateOnly);
         if ($dateOnly === '') {
             return null;

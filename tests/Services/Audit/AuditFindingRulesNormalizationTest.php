@@ -180,6 +180,10 @@ final class AuditFindingRulesNormalizationTest extends TestCase
             'ISO 8601 solo hora sin timezone'    => ['2026-01-09T08:51:04', '2026-01-09'],
             'Múltiples horas concatenadas (SQL Server medianoche + hora)' => ['25/08/2026 0:00:00 05:31:18', '2026-08-25'],
             'Múltiples horas con AM PM'          => ['25/08/2026 0:00:00 a. m. 05:31:18 p. m.', '2026-08-25'],
+            'SQL Server milisegundos y PM pegado (Y/m/d)' => ['2026/07/15 04:51:16 000PM', '2026-07-15'],
+            'SQL Server milisegundos con dos puntos y PM' => ['2026/07/15 04:51:16:000PM', '2026-07-15'],
+            'SQL Server milisegundos con espacio y PM'    => ['2026/07/15 04:51:16 000 PM', '2026-07-15'],
+            'SQL Server milisegundos y AM pegado (d/m/Y)' => ['15/07/2026 04:51:16 000AM', '2026-07-15'],
         ];
     }
 
