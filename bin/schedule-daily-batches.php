@@ -5,12 +5,13 @@
  * schedule-daily-batches.php — Encola auditorías batch para todos los clientes configurados.
  *
  * Uso:
- *   php bin/schedule-daily-batches.php [--date-from=YYYY-MM-DD] [--date-to=YYYY-MM-DD] [--limit=N] [--dry-run]
+ *   php bin/schedule-daily-batches.php [--date-from=YYYY-MM-DD] [--date-to=YYYY-MM-DD] [--limit=N] [--client=NITSEC] [--dry-run]
  *
  * Defaults:
  *   --date-from  Primer día del año en curso
  *   --date-to    Fecha actual
  *   --limit      AUDIT_BATCH_CRON_LIMIT (default: 5000)
+ *   --client     NitSec de cliente específico (ej: 2624 para Nueva EPS, alias --nit)
  *   --dry-run    Solo muestra qué haría, sin publicar eventos
  *
  * Variables de entorno:
@@ -36,7 +37,11 @@ Env::load();
 
 // ─── Parse CLI arguments ─────────────────────────────────────────────────────
 
-$options = getopt('', ['date-from:', 'date-to:', 'limit:', 'dry-run']);
+$options = getopt('', ['date-from:', 'date-to:', 'limit:', 'client:', 'nit:', 'dry-run']);
+
+$filterClient = isset($options['client']) && is_numeric($options['client'])
+    ? (int) $options['client']
+    : (isset($options['nit']) && is_numeric($options['nit']) ? (int) $options['nit'] : null);
 
 $dateFrom = isset($options['date-from']) && is_string($options['date-from']) && $options['date-from'] !== ''
     ? $options['date-from']
@@ -126,6 +131,10 @@ $summary = [
 
 foreach ($clients as $client) {
     $facNitSec = (int) $client['NitSec'];
+    if ($filterClient !== null && $facNitSec !== $filterClient) {
+        continue;
+    }
+
     $clientName = trim((string) ($client['NitCom'] ?? ''));
     $label = "NitSec={$facNitSec}";
 
