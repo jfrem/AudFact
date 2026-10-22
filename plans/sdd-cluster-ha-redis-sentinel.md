@@ -213,7 +213,7 @@
 
 | ID | Decisión | Alternativas Rechazadas | Justificación |
 | --- | --- | --- | --- |
-| ADR-HA-01 | Utilizar **Redis Sentinel** con quórum 2/3 para la capa de colas | 1. Redis Cluster (Sharding)<br>2. Redis único central en una sola máquina | Sentinel provee failover automático sin SPOF (Punto Único de Falla) y `core/RedisClient.php` ya cuenta con el soporte nativo probado en código. |
+| ADR-HA-01 | Utilizar **Redis Sentinel** con quórum 2/3 para la capa de colas | 1. Redis Cluster (Sharding)<br />2. Redis único central en una sola máquina | Sentinel provee failover automático sin SPOF (Punto Único de Falla) y `core/RedisClient.php` ya cuenta con el soporte nativo probado en código. |
 | ADR-HA-02 | Modelo de **Consumidores Competidores** en Consumer Group único | Particionamiento manual por cliente EPS | Garantiza balanceo dinámico perfecto al 100% de la capacidad de cómputo y tolerancia a la caída de cualquier nodo. |
 | ADR-HA-03 | Virtual IP (VIP) mediante **Keepalived** con VRRP | Balanceador físico externo F5 / Cloud LB | Solución de cero costo de licencias, nativa para entornos on-premise LAN, con conmutación en capa 3 en menos de 1 segundo. |
 | ADR-HA-04 | Persistencia AOF con política `appendfsync everysec` | Snapshot RDB exclusivo | Evita pérdida de eventos encolados en caso de corte eléctrico intempestivo en el nodo Master. |
@@ -452,7 +452,7 @@ Si se presenta inconsistencia durante la migración:
 | Dimensión | Valor |
 | --- | --- |
 | Estrategia de despliegue | Gradual por fases (Staged Rollout) |
-| Orden de despliegue | 1. Configurar red LAN y puertos.<br>2. Desplegar Réplicas en Nodos 2 y 3.<br>3. Desplegar Sentinels.<br>4. Conmutar `.env` en workers. |
+| Orden de despliegue | 1. Configurar red LAN y puertos.<br />2. Desplegar Réplicas en Nodos 2 y 3.<br />3. Desplegar Sentinels.<br />4. Conmutar `.env` en workers. |
 | Coexistencia entre versiones | Sí (la cola standalone actual se drena antes de activar Sentinel). |
 | Condición de rollback | Fallo de conexión de Predis en los primeros 60 segundos de prueba. |
 | Acción de rollback | Restaurar `REDIS_MODE=standalone` en `.env` y reiniciar contenedores. |
