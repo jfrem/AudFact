@@ -1,5 +1,12 @@
 # Changelog AudFact
 
+## [2026-10-22] - Actualización de seguridad PHP 8.2.35 y mitigación PHP2Shell
+
+- **Mitigación de vulnerabilidad crítica PHP2Shell (`CVE-2026-109618` y `CVE-2026-109619`, CVSS 9.2)**:
+  - Actualizada la imagen base de PHP en `docker/Dockerfile` de `php:8.2.33-fpm-bookworm` a `php:8.2.35-fpm-bookworm`.
+  - Agregado endurecimiento en `/usr/local/etc/php/conf.d/security.ini` con `session.upload_progress.enabled = Off` para cerrar el vector de inicialización incompleta de memoria durante subidas de archivos multipart.
+  - Validación completa: suite de 990 pruebas unitarias con 3,483 aserciones y linter de 236 archivos superados con 0 errores y 0 fallos.
+
 ## [2026-10-19] - Alineación de arquitectura SaaS agnóstica al dominio y tracking de opt/
 
 - **Desbloqueo de Git Tracking para `opt/`**: Removida la regla de exclusión `/opt/` en `.gitignore` (línea 14), resolviendo `RISK-06` y `AC-07` de `SPEC-SAAS-MASTER`. Los 8 documentos de especificación técnica ahora son versionados y auditables en el repositorio Git.

@@ -7,7 +7,7 @@ RUN composer install \
     --prefer-dist --no-dev --optimize-autoloader
 
 # ── Stage 2: Runtime PHP-FPM ────────────────────────────────────
-FROM php:8.2.33-fpm-bookworm
+FROM php:8.2.35-fpm-bookworm
 
 ARG WWWGROUP_ID=33
 ARG WWWUSER_ID=33
@@ -39,6 +39,7 @@ COPY docker/php-fpm-pool.conf.template /usr/local/etc/php-fpm.d/www.conf.templat
 COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint-custom.sh
 COPY docker/healthcheck.php /usr/local/bin/audfact-healthcheck.php
 RUN echo "memory_limit = 768M" > /usr/local/etc/php/conf.d/memory-limit.ini \
+    && echo "session.upload_progress.enabled = Off" > /usr/local/etc/php/conf.d/security.ini \
     && sed -i 's/\r$//' /usr/local/bin/docker-entrypoint-custom.sh \
     && sed -i 's/\r$//' /usr/local/bin/audfact-healthcheck.php \
     && chmod +x /usr/local/bin/docker-entrypoint-custom.sh \
