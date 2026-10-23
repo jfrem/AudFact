@@ -71,8 +71,8 @@ final class SemanticExecutionRedisTest extends TestCase
             ]);
             $stack = HandlerStack::create($mock);
             $stack->push(Middleware::history($history));
-            $gateway = new GeminiGateway(new Client(['handler' => $stack]), 'synthetic-key', new GeminiConfig(model: 'gemini-3.7-flash'), cbRedis: $redis);
-            $quota = new GeminiQuotaBudget($redis, ['scope' => 'synthetic', 'model' => 'gemini-3.7-flash', 'rpm' => 100,
+            $gateway = new GeminiGateway(new Client(['handler' => $stack]), 'synthetic-key', new GeminiConfig(model: 'gemini-3.8-flash'), cbRedis: $redis);
+            $quota = new GeminiQuotaBudget($redis, ['scope' => 'synthetic', 'model' => 'gemini-3.8-flash', 'rpm' => 100,
                 'tpm' => 10000, 'rpd' => 1000, 'inflight' => 4]);
             $policy = new RulesEvaluationWorker(redis: $redis, policyEngine: new DocumentPolicyEngine());
             $semantic = new SemanticEvaluationWorker($redis, $gateway, quota: $quota);
