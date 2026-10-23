@@ -123,7 +123,7 @@ final class ObservabilityControllerTest extends TestCase
         // Arrange:
         $env = ['AUDIT_PIPELINE_EXECUTION_VERSION' => '2', 'GEMINI_QUOTA_SCOPE' => 'synthetic',
             'GEMINI_QUOTA_RPM' => '100', 'GEMINI_QUOTA_TPM' => '10000', 'GEMINI_QUOTA_RPD' => '1000',
-            'GEMINI_MODEL' => 'gemini-3.7-flash', 'REDIS_MODE' => 'standalone', 'GEMINI_QUOTA_MAX_INFLIGHT' => '4'];
+            'GEMINI_MODEL' => 'gemini-3.8-flash', 'REDIS_MODE' => 'standalone', 'GEMINI_QUOTA_MAX_INFLIGHT' => '4'];
         $previous = [];
         foreach ($env as $key => $value) {
             $previous[$key] = \Core\Env::get($key, null);

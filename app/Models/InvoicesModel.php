@@ -180,7 +180,8 @@ class InvoicesModel extends Model
 
                 SELECT t.DisId,t.DisDetId,
                 CASE WHEN SUM(case when t.Dispensa<>t.Aut or len(t.aut)>0 and dc.NitMedDocTip='A' THEN 1 ELSE 0 END) = SUM(s.c) THEN 1 ELSE 0 END AS SopOk,
-                CASE MIN(case when s.au<>'Z-IA' then s.EstSop end) WHEN 0 THEN 'P' WHEN 5 THEN 'R' ELSE 'C' END AS estSop
+                CASE WHEN MIN(case when isnull(s.au,'')<>'Z-IA' then s.EstSop end)=0 THEN 'P' when MIN(case when isnull(s.au,'')='' then s.EstSop end)=0 then 'P'
+	            WHEN MIN(case when s.au='Z-IA' then s.EstSop end)=0  then 'A' when min(s.EstSop)=5 THEN 'R'  ELSE 'C' END AS estSop
                 INTO #Sopo
                 FROM #CRUZE t
                 LEFT JOIN (
@@ -233,7 +234,7 @@ class InvoicesModel extends Model
      * @param  string  $dateFrom  Fecha inicial en formato YYYY-MM-DD.
      * @param  string  $dateTo  Fecha final en formato YYYY-MM-DD.
      * @param  int  $limit  Máximo de candidatos por página (1-1000).
-     * @param  array{date?:string,facSec?:string,dispensa?:string}|null  $cursor  Cursor keyset de la última fila leída.
+     * @param  array{date?:string,disId?:string,dispensa?:string}|null  $cursor  Cursor keyset de la última fila leída.
      * @return array<int,array<string,mixed>>
      */
     public function getInvoicesForAuditBatch(

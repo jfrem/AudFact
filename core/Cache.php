@@ -189,37 +189,6 @@ class Cache
     }
 
     /**
-     * Verifica si los datos de una factura cambiaron desde la última auditoría.
-     *
-     * @param string $facSec           Identificador de factura
-     * @param string $currentHash      Hash actual de los datos
-     * @return bool true si los datos cambiaron o no hay hash previo
-     */
-    public static function hasDispensationChanged(string $facSec, string $currentHash): bool
-    {
-        try {
-            $storedHash = self::redis()->get("audit:hash:{$facSec}");
-        } catch (RedisUnavailableException $e) {
-            // Redis caído: asumir que los datos cambiaron (conservador, fuerza re-auditoría)
-            Logger::warning('Cache::hasDispensationChanged degradado — asumiendo cambio', [
-                'facSec' => $facSec,
-                'error'  => $e->getMessage(),
-            ]);
-            return true;
-        }
-        return $storedHash !== $currentHash;
-    }
-
-    /**
-     * Almacena el hash de dispensación para futuras comparaciones.
-     */
-    public static function storeDispensationHash(string $facSec, string $hash, ?int $ttl = null): bool
-    {
-        $cacheTtl = $ttl ?? (int) Env::get('AUDIT_CACHE_TTL', 86400);
-        return self::redis()->set("audit:hash:{$facSec}", $hash, $cacheTtl);
-    }
-
-    /**
      * Invalida caché de resultados de consulta (para cuando se persisten nuevos resultados).
      *
      * Borra las keys que matcheen el patrón query:results:* para un NIT dado.

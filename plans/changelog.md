@@ -1,5 +1,20 @@
 # Changelog AudFact
 
+## [2026-10-23] - Limpieza Clean Code, actualización a Gemini 3.8 Flash e higiene de contratos
+
+- **Actualización de Modelo IA (`gemini-3.8-flash`)**:
+  - Actualizado el modelo de Gemini por defecto de `gemini-3.7-flash` (deprecado y enrutado automáticamente por Google) a **`gemini-3.8-flash`** (estable, 1M contexto, inferencia rápida multimodal y razonamiento híbrido).
+  - Sincronizado en `.env`, `.env.example`, `GeminiConfig.php`, `AuditCostModel.php`, `RulesEvaluationWorker.php`, `.github/workflows/deploy-production.yml` y catálogo `AGENTS.md`.
+  - Ampliada la validación de `thinkingLevel` en `GeminiConfig` para admitir formalmente `gemini-3.8-flash` conservando compatibilidad retroactiva.
+- **Higiene de Residuos y Código Muerto (Clean Decommission)**:
+  - Eliminados de `core/Cache.php` los métodos obsoletos sin callers `storeDispensationHash()` y `hasDispensationChanged()`.
+  - Depuradas de `.env` y `.env.example` las variables zombi identificadas en la auditoría sin consumidor: `AUDIT_CONSUMER_LEASE_TTL_SECONDS`, `AUDIT_BLOB_TTL_SECONDS`, `AUDIT_WORKER_EXTRACTION_REPLICAS` y `AUDIT_CACHE_TTL`.
+  - Retirada la validación de arranque ficticia de `AUDIT_INTERNAL_API_BASE` en `bin/audit-worker.php`.
+  - Retirada la escritura de réplicas legacy `AUDIT_WORKER_EXTRACTION_REPLICAS` en el workflow de despliegue.
+- **Claridad de Contratos de Dominio**:
+  - Corregida la especificación de tipos PHPDoc en `InvoicesModel::getInvoicesForAuditBatch` para reflejar el campo keyset real (`disId` en vez del anacrónico `facSec`).
+  - Validación completa: 992 tests ejecutados con 0 errores y 0 fallos; 100% de variables PHP verificadas presentes en `.env.example`.
+
 ## [2026-10-22] - Normalización de fechas con milisegundos y sufijo AM/PM pegado
 
 - **Normalizador de Fechas (`AuditFindingRules::normalizeDateToIso`)**:

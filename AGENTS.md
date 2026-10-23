@@ -336,7 +336,7 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 | `GEMINI_API_KEY`                      | _(vacío)_                 | ✅        | `DocumentExtractionWorker` / `GeminiGateway` — API key de Google AI                                                                  |
 | `GEMINI_API_KEY_PRIORITY`             | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril prioritario/VIP (fallback a `GEMINI_API_KEY`)                                |
 | `GEMINI_API_KEY_BATCH`                | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril batch/masivo (fallback a `GEMINI_API_KEY`)                                   |
-| `GEMINI_MODEL`                        | `gemini-3.7-flash`        | ❌        | Modelo de Gemini a usar                                                                                                              |
+| `GEMINI_MODEL`                        | `gemini-3.8-flash`        | ❌        | Modelo de Gemini a usar                                                                                                              |
 | `GEMINI_TEMPERATURE`                  | `0.0`                     | ❌        | Temperatura (0 = determinístico)                                                                                                     |
 | `GEMINI_TIMEOUT`                      | `300`                     | ❌        | Timeout de la API en segundos                                                                                                        |
 | `GEMINI_TOP_P`                        | `1.0`                     | ❌        | Nucleus sampling para determinismo                                                                                                   |
@@ -388,7 +388,6 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 | `AUDIT_BATCH_CRON_LIMIT`                 | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
 | `AUDIT_INTERNAL_API_BASE`                | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                                   |
 | `AUDIT_WORKER_LANE`                      | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                              |
-| `AUDIT_CACHE_TTL`                        | `604800`                    | ❌         | Idempotencia — TTL en segundos del cache Redis de resultados de auditoría                         |
 | `AUDIT_EXTRACTION_CACHE_TTL`             | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`                      |
 | `AUDIT_DOCUMENT_CACHE_MAX_BYTES`         | `268435456`                 | ❌         | `AuditDocumentCache` — presupuesto global de bytes JSON de BLOB cacheados entre todas las réplicas; una entrada que no cabe se recupera desde origen durante extracción |
 | `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES`       | `1024`                      | ❌         | `AuditDocumentCache` — límite global de entradas; evita crecimiento de metadata con documentos pequeños |
@@ -397,7 +396,6 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS`       | `12`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                                           |
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`   | `2`                         | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`)           |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12`                        | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)                 |
-| `AUDIT_WORKER_EXTRACTION_REPLICAS`       | `8`                         | ❌         | `docker-compose.yml` — réplicas legacy de extractores Gemini                                      |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS`       | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                                       |
 | `AUDIT_WORKER_POLICY_REPLICAS`           | `8`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                                           |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS`      | `12`                        | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                                      |

@@ -210,7 +210,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             $planning = $this->policyEngine->plan($document, $event->payload, $facNro);
             if ($planning['requires_semantics']) {
                 $snapshot = ['document_state' => $document, 'normalized_payload' => $event->payload, 'fac_nro' => $facNro,
-                    'source_event' => $event->toArray(), 'versions' => ['model' => (string) \Core\Env::get('GEMINI_MODEL', 'gemini-3.7-flash'),
+                    'source_event' => $event->toArray(), 'versions' => ['model' => (string) \Core\Env::get('GEMINI_MODEL', 'gemini-3.8-flash'),
                         'prompt' => \App\Services\Audit\SemanticBatchContract::VERSION, 'rules' => $event->versionRules,
                         'normalizer' => $event->versionNormalizer, 'extractor' => $event->versionExtractor]];
                 $plan = $store->buildPlan($snapshot, $planning['candidates']);

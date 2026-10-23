@@ -14,7 +14,7 @@ class AuditCostModel extends Model
 {
     public const DEFAULT_INPUT_RATE_1M = 0.7500;
     public const DEFAULT_OUTPUT_RATE_1M = 3.7500;
-    public const DEFAULT_MODEL_IA = 'gemini-3.7-flash';
+    public const DEFAULT_MODEL_IA = 'gemini-3.8-flash';
     public const TOKENS_PER_UNIT = 1000000.0;
 
     protected string $readConnectionName = 'default';

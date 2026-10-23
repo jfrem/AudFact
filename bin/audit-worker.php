@@ -20,11 +20,11 @@ if ($cliMemoryLimit !== '') {
 $registry = [
     'orchestrator' => [
         'class' => \App\Services\Audit\Pipeline\DocumentAuditOrchestrator::class,
-        'requiredEnv' => ['AUDIT_INTERNAL_API_BASE'],
+        'requiredEnv' => [],
     ],
     'extraction' => [
         'class' => \App\Services\Audit\Pipeline\DocumentExtractionWorker::class,
-        'requiredEnv' => ['AUDIT_INTERNAL_API_BASE', 'GEMINI_API_KEY'],
+        'requiredEnv' => ['GEMINI_API_KEY'],
     ],
     'semantic' => [
         'class' => \App\Services\Audit\Pipeline\SemanticEvaluationWorker::class,
@@ -32,7 +32,7 @@ $registry = [
     ],
     'downloader' => [
         'class' => \App\Services\Audit\Pipeline\AttachmentDownloadWorker::class,
-        'requiredEnv' => ['AUDIT_INTERNAL_API_BASE'],
+        'requiredEnv' => [],
     ],
     'normalizer' => [
         'class' => \App\Services\Audit\Pipeline\DocumentNormalizer::class,

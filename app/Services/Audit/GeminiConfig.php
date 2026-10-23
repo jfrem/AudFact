@@ -35,7 +35,7 @@ final class GeminiConfig
         Env::load();
 
         return new self(
-            model: (string) Env::get('GEMINI_MODEL', 'gemini-3.7-flash'),
+            model: (string) Env::get('GEMINI_MODEL', 'gemini-3.8-flash'),
             temperature: self::nullableFloat(Env::get('GEMINI_TEMPERATURE', null)),
             topP: self::nullableFloat(Env::get('GEMINI_TOP_P', null)),
             topK: self::nullableInt(Env::get('GEMINI_TOP_K', null)),
@@ -71,7 +71,7 @@ final class GeminiConfig
         // Gemini 3 usa thinkingLevel; Gemini 2.5 usa thinkingBudget.
         $thinkingBudget = $overrides['thinkingBudget'] ?? $this->thinkingBudget;
         $thinkingLevel  = $overrides['thinkingLevel']  ?? $this->thinkingLevel;
-        if ($this->model === 'gemini-3.7-flash' && $thinkingLevel !== null
+        if (in_array($this->model, ['gemini-3.7-flash', 'gemini-3.8-flash'], true) && $thinkingLevel !== null
             && !in_array(strtolower($thinkingLevel), ['low', 'medium', 'high'], true)) {
             throw new \InvalidArgumentException('gemini_3_7_thinking_level_invalid');
         }

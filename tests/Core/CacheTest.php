@@ -160,29 +160,4 @@ class CacheTest extends TestCase
 
         $this->assertSame($freshData, $result, 'Debe ejecutar callback como último recurso si reintentos fallan');
     }
-
-    // ── hasDispensationChanged degrada conservadoramente ──
-
-    public function testHasDispensationChangedReturnsTrueWhenRedisDown(): void
-    {
-        $this->mockRedis
-            ->method('get')
-            ->willThrowException(new RedisUnavailableException('down'));
-
-        $result = Cache::hasDispensationChanged('FAC-001', 'somehash');
-        $this->assertTrue($result, 'Debe asumir cambio (conservador) cuando Redis está caído');
-    }
-
-    public function testHasDispensationChangedReturnsFalseWhenHashMatches(): void
-    {
-        $hash = 'abc123';
-
-        $this->mockRedis
-            ->method('get')
-            ->with('audit:hash:FAC-001')
-            ->willReturn($hash);
-
-        $result = Cache::hasDispensationChanged('FAC-001', $hash);
-        $this->assertFalse($result, 'Debe retornar false si el hash no cambió');
-    }
 }
