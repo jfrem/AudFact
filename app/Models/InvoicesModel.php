@@ -177,11 +177,11 @@ class InvoicesModel extends Model
 
 
                 DROP TABLE IF EXISTS #Sopo;
-
-                SELECT t.DisId,t.DisDetId,
-                CASE WHEN SUM(case when t.Dispensa<>t.Aut or len(t.aut)>0 and dc.NitMedDocTip='A' THEN 1 ELSE 0 END) = SUM(s.c) THEN 1 ELSE 0 END AS SopOk,
+                SELECT t.DisId,t.DisDetId,t.Tercero,
+                CASE WHEN SUM(case when t.Dispensa=t.Aut or len(t.aut)=0 and dc.NitMedDocTip='A' THEN 0 ELSE 1 END) <= SUM(case when (t.Dispensa=t.Aut or len(t.aut)=0)and dc.NitMedDocTip<>'A' then 0 else s.c end) THEN 1 ELSE 0 END AS SopOk,
                 CASE WHEN MIN(case when isnull(s.au,'')<>'Z-IA' then s.EstSop end)=0 THEN 'P' when MIN(case when isnull(s.au,'')='' then s.EstSop end)=0 then 'P'
-	            WHEN MIN(case when s.au='Z-IA' then s.EstSop end)=0  then 'A' when min(s.EstSop)=5 THEN 'R'  ELSE 'C' END AS estSop
+                WHEN MIN(case when s.au='Z-IA' then s.EstSop end)=0  then 'A'
+                when min(s.EstSop)=5 THEN 'R'  ELSE 'C' END AS estSop
                 INTO #Sopo
                 FROM #CRUZE t
                 LEFT JOIN (
@@ -191,9 +191,8 @@ class InvoicesModel extends Model
                         SELECT Nitsec FROM #CRUZE GROUP BY Nitsec
                     ) c ON c.Nitsec = n.NitSec
                 ) dc ON dc.NitSec = t.Nitsec and ((dc.NitMedDocTipSer=t.DisTip and dc.NitMedDocTip='A') OR (dc.NitMedDocTipSer = '' and dc.opc='N'))
-                LEFT JOIN #ADJ s ON s.DisId = t.DisId AND s.DisDetId = t.DisDetId AND s.AdjDisDocId = dc.NitMedDocId
-                GROUP BY t.DisId,t.DisDetId;
-
+                LEFT JOIN #ADJ s ON s.DisId = t.DisId AND s.DisDetId = t.DisDetId AND s.AdjDisDocId = dc.NitMedDocId 
+                GROUP BY t.DisId,t.DisDetId,t.Tercero;
                 CREATE CLUSTERED INDEX IX_TMP_SOPO ON #Sopo (DisId, DisDetId);
 
                 {$finalSelect}
