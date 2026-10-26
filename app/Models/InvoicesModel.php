@@ -178,7 +178,7 @@ class InvoicesModel extends Model
 
                 DROP TABLE IF EXISTS #Sopo;
                 SELECT t.DisId,t.DisDetId,t.Tercero,
-                CASE WHEN SUM(case when t.Dispensa=t.Aut or len(t.aut)=0 and dc.NitMedDocTip='A' THEN 0 ELSE 1 END) <= SUM(case when (t.Dispensa=t.Aut or len(t.aut)=0)and dc.NitMedDocTip<>'A' then 0 else s.c end) THEN 1 ELSE 0 END AS SopOk,
+                CASE WHEN SUM(case when (t.Dispensa=t.Aut or len(t.aut)=0) and dc.NitMedDocTip='A' THEN 0 ELSE 1 END) <= SUM(case when (t.Dispensa=t.Aut or len(t.aut)=0)and dc.NitMedDocTip='A' then 0 else s.c end) THEN 1 ELSE 0 END AS SopOk,
                 CASE WHEN MIN(case when isnull(s.au,'')<>'Z-IA' then s.EstSop end)=0 THEN 'P' when MIN(case when isnull(s.au,'')='' then s.EstSop end)=0 then 'P'
                 WHEN MIN(case when s.au='Z-IA' then s.EstSop end)=0  then 'A'
                 when min(s.EstSop)=5 THEN 'R'  ELSE 'C' END AS estSop
