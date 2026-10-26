@@ -192,7 +192,7 @@ class InvoicesModel extends Model
                     ) c ON c.Nitsec = n.NitSec
                 ) dc ON dc.NitSec = t.Nitsec and ((dc.NitMedDocTipSer=t.DisTip and dc.NitMedDocTip='A') OR (dc.NitMedDocTipSer = '' and dc.opc='N'))
                 LEFT JOIN #ADJ s ON s.DisId = t.DisId AND s.DisDetId = t.DisDetId AND s.AdjDisDocId = dc.NitMedDocId 
-                where (t.Dispensa=t.Aut or len(t.aut)=0) and dc.NitMedDocTip<>'A'
+                where ((t.Dispensa<>t.Aut or len(t.aut)>0) and len(t.aut)>0) or ((t.Dispensa=t.Aut or len(t.aut)=0) and len(t.aut)=0 and dc.NitMedDocTip<>'A')
                 GROUP BY t.DisId,t.DisDetId,t.Tercero;
                 CREATE CLUSTERED INDEX IX_TMP_SOPO ON #Sopo (DisId, DisDetId);
 
