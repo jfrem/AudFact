@@ -149,7 +149,7 @@ class InvoicesModel extends Model
                         FROM FacturaKardex kx WITH(NOLOCK)
                         INNER JOIN Factura fx WITH(NOLOCK) ON fx.FacSec = kx.FacSec
                         INNER JOIN Tipos tx WITH(NOLOCK) ON tx.TipCod = fx.FacTipCod
-                        WHERE kx.FacSecRem = f.FacSec AND fx.FacEst = 'A'AND tx.FueCod = 'FACT'
+                        WHERE kx.FacSecRem = f.FacSec AND fx.FacEst = 'A'AND tx.FueCod = 'FACT' AND fx.facobs2='5'
                     )
 
                 GROUP BY f.FacNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
