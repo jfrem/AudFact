@@ -41,7 +41,7 @@ final class AuditExecutionMaintenance
 
     public function tick(): int
     {
-        if ($this->config->version !== 2 || $this->redis->get('audit:execution:version') !== '2') {
+        if ($this->config->version !== AuditExecutionConfig::VERSION || ($this->redis->get('audit:execution:version') ?? '2') !== '2') {
             throw new \RuntimeException('execution_protocol_mismatch');
         }
         $this->ensureGroups();
@@ -113,51 +113,6 @@ final class AuditExecutionMaintenance
         return $count;
     }
 
-    /** Importa PEL/unread con sus envelopes originales; se usa con workers detenidos. */
-    public function importPending(): int
-    {
-        if ($this->redis->get('audit:execution:paused') !== '1') {
-            throw new \RuntimeException('execution_pause_required');
-        }
-        $this->ensureGroups();
-        $count = 0;
-        foreach (self::stages() as $name => $transport) {
-            $stage = AuditTaskStage::from($name);
-            foreach ($transport['streams'] as $stream) {
-                $cursor = '0-0';
-                do {
-                    $raw = $this->redis->eval('return redis.call("XAUTOCLAIM",KEYS[1],ARGV[1],"execution-migration",0,ARGV[2],"COUNT",100)', [$stream], [$transport['group'], $cursor]);
-                    if (($raw[2] ?? []) !== []) {
-                        throw new \RuntimeException('migration_source_message_missing');
-                    }
-                    foreach ($raw[1] as $entry) {
-                        if (!$this->intake($stage, $stream, $transport['group'], $entry)) {
-                            $metrics = $this->queue->metrics()[$name];
-                            if (array_sum(array_map(static fn(array $lane): int => $lane['queued'] + $lane['delayed'], $metrics)) >= $this->config->maxQueued) {
-                                throw new \RuntimeException('migration_stage_capacity_exceeded');
-                            }
-                        }
-                        $count++;
-                    }
-                    $cursor = $raw[0];
-                } while ($cursor !== '0-0');
-                do {
-                    $raw = $this->redis->eval('return redis.call("XREADGROUP","GROUP",ARGV[1],"execution-migration","COUNT",100,"STREAMS",KEYS[1],">")', [$stream], [$transport['group']]);
-                    foreach (($raw[0][1] ?? []) as $entry) {
-                        if (!$this->intake($stage, $stream, $transport['group'], $entry)) {
-                            $metrics = $this->queue->metrics()[$name];
-                            if (array_sum(array_map(static fn(array $lane): int => $lane['queued'] + $lane['delayed'], $metrics)) >= $this->config->maxQueued) {
-                                throw new \RuntimeException('migration_stage_capacity_exceeded');
-                            }
-                        }
-                        $count++;
-                    }
-                } while ($raw !== null && $raw !== []);
-            }
-        }
-        return $count;
-    }
-
     /** Páginas de 100 registros; ninguna dependencia activa recibe TTL. */
     public function gc(): int
     {
@@ -174,9 +129,8 @@ final class AuditExecutionMaintenance
                 continue;
             }
             $task = new AuditTask(json_decode($raw, true, 512, JSON_THROW_ON_ERROR));
-            $rolledBack = ($task->record['migration_disposition'] ?? '') === 'rolled_back';
-            if ((!in_array($task->record['state'], ['completed', 'failed'], true) && !$rolledBack)
-                || $now - (int) ($task->record['completed_at_ms'] ?? $task->record['retired_at_ms'] ?? $now) < $retention * 1000) {
+            if (!in_array($task->record['state'], ['completed', 'failed'], true)
+                || $now - (int) ($task->record['completed_at_ms'] ?? $now) < $retention * 1000) {
                 continue;
             }
             $root = (new AuditStateStore($this->redis))->getAudit($task->record['audit_id']);
@@ -205,10 +159,10 @@ final class AuditExecutionMaintenance
             if (($audit['status'] ?? '') === 'failed' && in_array($plan['state'], ['planned', 'waiting', 'ready'], true)) {
                 $this->redis->eval('local a=cjson.decode(redis.call("GET",KEYS[2])); local p=cjson.decode(redis.call("HGET",KEYS[1],"record")); if a.status~="failed" or p.revision~=tonumber(ARGV[1]) then return 0 end; redis.call("HINCRBY",KEYS[3],p.state,-1); redis.call("HINCRBY",KEYS[3],"failed",1); p.state="failed"; p.revision=p.revision+1; p.updated_at_ms=tonumber(ARGV[2]); redis.call("HSET",KEYS[1],"record",cjson.encode(p)); redis.call("SREM",KEYS[4],"plan:"..p.plan_id); return 1',
                     [$key, $rootKey, 'audit:semantic:v2:counts', 'audit:execution:refs:' . $plan['audit_id']], [$plan['revision'], $now]);
-            } elseif ((in_array($plan['state'], ['consumed', 'failed'], true) || ($plan['migration_disposition'] ?? '') === 'rolled_back')
+            } elseif (in_array($plan['state'], ['consumed', 'failed'], true)
                 && ($audit === null || AuditStateStore::isTerminalStatus($audit['status']))
-                && $now - (int) ($plan['retired_at_ms'] ?? $plan['updated_at_ms'] ?? $now) >= $retention * 1000) {
-                $count += (int) $this->redis->eval('local p=cjson.decode(redis.call("HGET",KEYS[1],"record")); if p.state~="consumed" and p.state~="failed" and p.migration_disposition~="rolled_back" then return 0 end; redis.call("SREM",KEYS[2],ARGV[1]); redis.call("HINCRBY",KEYS[3],p.state,-1); return redis.call("DEL",KEYS[1])', [$key, SemanticEvaluationStore::PLANS, 'audit:semantic:v2:counts'], [$key]);
+                && $now - (int) ($plan['updated_at_ms'] ?? $now) >= $retention * 1000) {
+                $count += (int) $this->redis->eval('local p=cjson.decode(redis.call("HGET",KEYS[1],"record")); if p.state~="consumed" and p.state~="failed" then return 0 end; redis.call("SREM",KEYS[2],ARGV[1]); redis.call("HINCRBY",KEYS[3],p.state,-1); return redis.call("DEL",KEYS[1])', [$key, SemanticEvaluationStore::PLANS, 'audit:semantic:v2:counts'], [$key]);
             }
         }
         [$cursor, $keys] = $this->redis->scanKeys('audit:*:state', $this->gcCursors['audits'] ?? '0', 100);
@@ -219,8 +173,8 @@ final class AuditExecutionMaintenance
                 continue;
             }
             $audit = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-            $completed = strtotime((string) ($audit['completed_at'] ?? ''));
-            if (($audit['execution_version'] ?? 1) !== 2 || !AuditStateStore::isTerminalStatus($audit['status'])
+            $completed = strtotime((string) ($audit['completed_at'] ?? $audit['updated_at'] ?? ''));
+            if (!AuditStateStore::isTerminalStatus((string) ($audit['status'] ?? ''))
                 || $completed === false || $now < ($completed + $retention) * 1000) {
                 continue;
             }
@@ -277,13 +231,29 @@ final class AuditExecutionMaintenance
                 continue;
             }
             $job = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-            $completed = strtotime((string) ($job['completed_at'] ?? ''));
-            if (($job['execution_version'] ?? 1) !== 2 || !in_array($job['status'], ['completed', 'completed_with_errors', 'failed'], true)
+            $completed = strtotime((string) ($job['completed_at'] ?? $job['updated_at'] ?? ''));
+            if (!in_array($job['status'] ?? '', ['completed', 'completed_with_errors', 'failed'], true)
                 || $completed === false || $now < ($completed + $retention) * 1000) {
                 continue;
             }
             $refs = array_map(static fn(string $id): string => 'audit:execution:refs:' . $id, array_keys($job['audits'] ?? []));
-            $count += (int) $this->redis->eval('if redis.call("GET",KEYS[1])~=ARGV[1] then return 0 end; for i=2,#KEYS do if redis.call("SCARD",KEYS[i])>0 then return 0 end end; return redis.call("DEL",KEYS[1])', array_merge([$key], $refs), [$raw]);
+            $count += (int) $this->redis->eval('if redis.call("GET",KEYS[1])~=ARGV[1] then return 0 end; for i=3,#KEYS do if redis.call("SCARD",KEYS[i])>0 then return 0 end end; redis.call("ZREM",KEYS[2],ARGV[2]); return redis.call("DEL",KEYS[1])', array_merge([$key, 'jobs:index'], $refs), [$raw, (string) ($job['job_id'] ?? '')]);
+        }
+        [$cursor, $keys] = $this->redis->scanKeys('audit:reservation:disid:*', $this->gcCursors['reservations'] ?? '0', 100);
+        $this->gcCursors['reservations'] = $cursor;
+        foreach ($keys as $key) {
+            $raw = $this->redis->get($key);
+            if (!is_string($raw) || !str_starts_with($raw, '{')) {
+                continue;
+            }
+            $reservation = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            $auditId = (string) ($reservation['audit_id'] ?? '');
+            $claimed = strtotime((string) ($reservation['claimed_at'] ?? ''));
+            $root = $auditId !== '' ? (new AuditStateStore($this->redis))->getAudit($auditId) : null;
+            if (($root !== null && AuditStateStore::isTerminalStatus((string) ($root['status'] ?? '')))
+                || ($root === null && ($claimed === false || $now - ($claimed * 1000) >= 60000))) {
+                $count += (int) $this->redis->eval('if redis.call("GET",KEYS[1])~=ARGV[1] then return 0 end; return redis.call("DEL",KEYS[1])', [$key], [$raw]);
+            }
         }
         [$cursor, $keys] = $this->redis->scanKeys('batch:idem:*', $this->gcCursors['idempotency'] ?? '0', 100);
         $this->gcCursors['idempotency'] = $cursor;
@@ -292,64 +262,6 @@ final class AuditExecutionMaintenance
             if ($jobId !== null) {
                 // Conservar mientras viva el job; al retirarlo comienza retención adicional.
                 $this->redis->eval('if redis.call("EXISTS",KEYS[2])==0 and redis.call("TTL",KEYS[1])==-1 then return redis.call("EXPIRE",KEYS[1],ARGV[1]) end; return 0', [$key, BatchJobStore::jobKey($jobId)], [$retention]);
-            }
-        }
-        return $count + $this->gcMigrations($now, $retention);
-    }
-
-    private function gcMigrations(int $now, int $retention): int
-    {
-        [$cursor, $keys] = $this->redis->eval('return redis.call("SSCAN",KEYS[1],ARGV[1],"COUNT",100)',
-            ['audit:migrations:v2:all'], [$this->gcCursors['migrations'] ?? '0']);
-        $this->gcCursors['migrations'] = (string) $cursor;
-        $count = 0;
-        foreach ($keys as $key) {
-            if (!preg_match('/^audit:migration:v2:[a-zA-Z0-9_-]{1,80}$/D', $key)) {
-                throw new \RuntimeException('migration_gc_key_invalid');
-            }
-            $raw = $this->redis->get($key);
-            if ($raw === null) {
-                throw new \RuntimeException('migration_manifest_missing');
-            }
-            $manifest = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-            if (!isset($manifest['accepted_at_ms']) || $now - $manifest['accepted_at_ms'] < $retention * 1000) {
-                continue;
-            }
-            foreach ([$manifest['baseline'], $manifest['rollback_inventory'] ?? []] as $inventory) {
-                foreach (array_merge(array_column($inventory['audits'] ?? [], 'key'), array_column($inventory['jobs'] ?? [], 'key')) as $rootKey) {
-                    $rootRaw = $this->redis->get($rootKey);
-                    if ($rootRaw === null) { continue; }
-                    $root = json_decode($rootRaw, true, 512, JSON_THROW_ON_ERROR);
-                    $terminal = str_starts_with($rootKey, 'job:')
-                        ? in_array($root['status'], ['completed', 'completed_with_errors', 'failed'], true)
-                        : AuditStateStore::isTerminalStatus($root['status']);
-                    $completed = strtotime((string) ($root['completed_at'] ?? ''));
-                    if (!$terminal || $completed === false || $now < ($completed + $retention) * 1000) {
-                        continue 3;
-                    }
-                }
-                foreach (array_keys($inventory['audits'] ?? []) as $auditId) {
-                    if ($this->redis->eval('return redis.call("SCARD",KEYS[1])', ['audit:execution:refs:' . $auditId]) > 0) {
-                        continue 3;
-                    }
-                }
-            }
-            [$next, $archives] = $this->redis->eval('return redis.call("SSCAN",KEYS[1],ARGV[1],"COUNT",100)',
-                [$key . ':objects'], [$this->gcCursors[$key] ?? '0']);
-            $this->gcCursors[$key] = (string) $next;
-            foreach ($archives as $archiveKey) {
-                if (!str_starts_with($archiveKey, $key . ':') || $archiveKey === $key . ':objects') {
-                    throw new \RuntimeException('migration_gc_object_invalid');
-                }
-            }
-            if ($archives !== []) {
-                $count += (int) $this->redis->eval('local ids=cjson.decode(ARGV[1]); for i=2,#KEYS do redis.call("DEL",KEYS[i]); redis.call("SREM",KEYS[1],ids[i-1]) end; return #KEYS-1',
-                    array_merge([$key . ':objects'], $archives), [json_encode($archives, JSON_THROW_ON_ERROR)]);
-            }
-            if ($this->redis->eval('return redis.call("SCARD",KEYS[1])', [$key . ':objects']) === 0) {
-                $count += (int) $this->redis->eval('redis.call("SREM",KEYS[2],ARGV[1]); return redis.call("DEL",KEYS[1],KEYS[3])',
-                    [$key, 'audit:migrations:v2:all', $key . ':objects'], [$key]);
-                unset($this->gcCursors[$key]);
             }
         }
         return $count;

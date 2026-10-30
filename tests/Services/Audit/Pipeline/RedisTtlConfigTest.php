@@ -20,7 +20,6 @@ final class RedisTtlConfigTest extends TestCase
     private array $keys = [
         'AUDIT_JOB_TTL',
         'AUDIT_STATE_TTL',
-        'AUDIT_RESERVATION_TTL',
     ];
 
     protected function setUp(): void
@@ -52,17 +51,17 @@ final class RedisTtlConfigTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->once())
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                BatchJobStore::jobKey('job-default'),
-                $this->isType('string'),
-                604800
+                $this->stringContains('storeState'),
+                [BatchJobStore::jobKey('job-default')],
+                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 604800)
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $store = new BatchJobStore($redis);
 
-        $this->assertTrue($store->initJob('job-default', 2426, '2026-06-01', '2026-06-02', 100));
+        $this->assertTrue($store->patchJob('job-default', ['status' => 'completed']));
     }
 
     public function testBatchJobTtlHonorsValidEnvValue(): void
@@ -72,17 +71,17 @@ final class RedisTtlConfigTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->once())
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                BatchJobStore::jobKey('job-override'),
-                $this->isType('string'),
-                1209600
+                $this->stringContains('storeState'),
+                [BatchJobStore::jobKey('job-override')],
+                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 1209600)
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $store = new BatchJobStore($redis);
 
-        $this->assertTrue($store->initJob('job-override', 2426, '2026-06-01', '2026-06-02', 100));
+        $this->assertTrue($store->patchJob('job-override', ['status' => 'completed']));
     }
 
     public function testBatchJobTtlRejectsInvalidValues(): void
@@ -91,22 +90,22 @@ final class RedisTtlConfigTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->exactly(3))
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                $this->isType('string'),
-                $this->isType('string'),
-                $this->callback(function (int $ttl) use (&$ttls): bool {
-                    $ttls[] = $ttl;
+                $this->stringContains('storeState'),
+                $this->isType('array'),
+                $this->callback(function (array $args) use (&$ttls): bool {
+                    $ttls[] = $args[1];
                     return true;
                 })
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $store = new BatchJobStore($redis);
 
         foreach (['0', '-1', 'abc'] as $index => $value) {
             $this->setEnv('AUDIT_JOB_TTL', $value);
-            $this->assertTrue($store->initJob("job-invalid-{$index}", 2426, '2026-06-01', '2026-06-02', 100));
+            $this->assertTrue($store->patchJob("job-invalid-{$index}", ['status' => 'completed']));
         }
 
         $this->assertSame([604800, 604800, 604800], $ttls);
@@ -117,31 +116,31 @@ final class RedisTtlConfigTest extends TestCase
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->once())
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                AuditStateStore::auditKey('audit-default'),
-                $this->isType('string'),
-                604800
+                $this->stringContains('storeState'),
+                [AuditStateStore::auditKey('audit-default')],
+                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 604800)
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $store = new AuditStateStore($redis);
 
-        $this->assertTrue($store->initAudit('audit-default', 'T38250701547'));
+        $this->assertTrue($store->patchAudit('audit-default', ['status' => 'completed']));
     }
 
-    public function testReservationTtlDefaultStaysOneDay(): void
+    public function testReservationClaimUsesDurableAtomicSetNx(): void
     {
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->once())
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                BatchJobStore::auditReservationKey('877'),
-                $this->isType('string'),
-                86400
+                'local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
+                [BatchJobStore::auditReservationKey('877')],
+                $this->callback(static fn (array $args): bool => is_string($args[0] ?? null))
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $store = new BatchJobStore($redis);
 

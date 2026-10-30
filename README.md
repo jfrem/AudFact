@@ -9,7 +9,7 @@ Sistema de auditoría documental automatizada para el sector salud colombiano. C
 | Backend        | PHP 8.2-FPM — Framework MVC custom                                           |
 | Base de datos  | SQL Server (PDO `sqlsrv`) — dual: escritura (`default`) + lectura (`db2`)    |
 | IA             | Google Gemini API (multimodal, configurable vía `GEMINI_MODEL`)              |
-| Pipeline       | Redis Streams: 7 roles v1; v2 agrega semantic y mantenimiento independiente |
+| Pipeline       | Redis Streams + `FairAuditTaskQueue` (ejecución durable v2): 8 roles + mantenimiento independiente |
 | Almacenamiento | Google Drive (JWT) + BLOB en BD                                              |
 | Web Server     | Nginx 1.25 → PHP-FPM                                                         |
 | Contenedores   | Docker Compose único: build local en desarrollo, imágenes GHCR en producción |
@@ -105,6 +105,10 @@ npm run dev
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `12`)                                          |
 | `AUDIT_PERSISTENCE_QUEUE_TTL`                                          | TTL de turnos, pendientes y deduplicación de persistencia por job (default: `604800`)          |
 | `AUDIT_PERSISTENCE_JOB_SLOTS`                                          | Turnos por job (1..16, default `6`); Redis fija el valor al primer uso y conserva jobs existentes |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS`                                          | Tareas simultáneas por job en orquestación (1..16, default `1` = contrato RR/cap1) |
+| `AUDIT_EXTRACTION_JOB_SLOTS`                                             | Tareas simultáneas por job en extracción (1..16, default `1`); comparten `GEMINI_QUOTA_MAX_INFLIGHT` |
+| `AUDIT_POLICY_JOB_SLOTS`                                                 | Tareas simultáneas por job en policy (1..16, default `1`) |
+| `AUDIT_SEMANTIC_JOB_SLOTS`                                               | Tareas simultáneas por job en semántica (1..16, default `1`) |
 | `AUDIT_IDEMPOTENCY_KEY_TTL`                                            | TTL en segundos de la barrera `X-Idempotency-Key` (default: `300`)                             |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS`                                        | Idle mínimo antes de reclamar eventos pending abandonados (default: `600000`)                  |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS`                                    | Intervalo de escaneo de pending por worker (default: `30000`)                                  |
@@ -203,9 +207,7 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 ## Pipeline de Auditoría IA
 
-El protocolo predeterminado v1 utiliza siete roles de worker. V2 agrega el
-rol semantic y un proceso de mantenimiento independiente, activados solamente
-con el perfil Compose `execution-v2` y un corte verificado:
+El pipeline opera exclusivamente bajo el protocolo durable v2 (`AuditExecutionConfig::VERSION = 2`) con ocho roles de worker registrados en `bin/audit-worker.php` más un servicio de mantenimiento independiente (`worker-execution-maintenance` / `bin/audit-execution-maintenance.php`):
 
 ```
 BatchRequestedWorker → DocumentAuditOrchestrator → AttachmentDownloadWorker → DocumentExtractionWorker → DocumentNormalizer → RulesEvaluationWorker → AuditPersistenceWorker

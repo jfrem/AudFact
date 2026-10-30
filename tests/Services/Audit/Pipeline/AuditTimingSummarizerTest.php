@@ -113,11 +113,12 @@ final class AuditTimingSummarizerTest extends TestCase
 
         // Act:
         $summary = AuditTimingSummarizer::buildPhaseTimings($audit);
-        $historical = AuditTimingSummarizer::buildPhaseTimings([]);
+        $empty = AuditTimingSummarizer::buildPhaseTimings([]);
 
         // Assert:
         self::assertSame(2, $summary['timing_schema_version']);
-        self::assertSame(1, $historical['timing_schema_version']);
+        self::assertSame(2, $empty['timing_schema_version']);
+        self::assertSame(0, $empty['semantic_pairs']);
         self::assertSame(16, $summary['semantic_pairs']);
         self::assertSame(1, $summary['semantic_calls']);
         self::assertSame(120, $summary['gemini_semantic']['total_tokens']);

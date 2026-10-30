@@ -134,13 +134,9 @@ final class AuditPersistenceWorker extends AuditEventConsumer
                     'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
                 ]),
             );
-            if (($audit['execution_version'] ?? 1) === 2) {
-                $record = $completionEvent->toArray();
-                $record['event_id'] = AuditTaskEffects::uuid($event->auditId . ':' . AuditEvent::TYPE_AUDIT_COMPLETED);
-                $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
-            } else {
-                $this->publisher->publish($completionEvent);
-            }
+            $record = $completionEvent->toArray();
+            $record['event_id'] = AuditTaskEffects::uuid($event->auditId . ':' . AuditEvent::TYPE_AUDIT_COMPLETED);
+            $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
 
             if ($event->jobId !== null) {
                 $this->publishBatchTerminalEventIfNeeded(

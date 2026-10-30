@@ -52,6 +52,22 @@ export function formatNumber(value?: number | string | null): string {
   return decPart !== undefined ? `${formattedInt},${decPart}` : formattedInt;
 }
 
+export function formatCurrencyCop(value?: number | null): string {
+  if (value === null || value === undefined) {
+    return "N/D";
+  }
+
+  const num = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(num)) {
+    return String(value);
+  }
+
+  const decimals = num > 0 && num < 0.01 ? 4 : 2;
+  const parts = num.toFixed(decimals).split(".");
+  const formattedInt = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `$${formattedInt},${parts[1]} COP`;
+}
+
 export function formatDurationMs(value?: number | null) {
   if (!value) {
     return "0 ms";

@@ -40,7 +40,7 @@ $registry = [
     ],
     'policy' => [
         'class' => \App\Services\Audit\Pipeline\RulesEvaluationWorker::class,
-        'requiredEnv' => ['GEMINI_API_KEY'],
+        'requiredEnv' => [],
     ],
     'persistence' => [
         'class' => \App\Services\Audit\Pipeline\AuditPersistenceWorker::class,
@@ -84,18 +84,9 @@ $lane = $laneEnum->value;
 $config = $registry[$workerName];
 $label = "audit-{$workerName}-worker" . (!$laneEnum->isAll() ? "-{$lane}" : '');
 
-$execution = \App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv();
-if ($workerName === 'semantic' && $execution->version !== 2) {
-    fwrite(STDERR, "{$label}: requiere ejecucion v2\n");
-    exit(1);
-}
-if ($workerName === 'policy' && $execution->version === 2) {
-    $config['requiredEnv'] = [];
-}
-if ($execution->version === 2) {
-    // La cuota debe ser válida antes de procesar la primera tarea.
-    new \App\Services\Audit\Pipeline\GeminiQuotaBudget(\Core\RedisClient::getInstance());
-}
+\App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv();
+// La cuota debe ser válida antes de procesar la primera tarea.
+new \App\Services\Audit\Pipeline\GeminiQuotaBudget(\Core\RedisClient::getInstance());
 
 // ─── Validate required env vars ──────────────────────────────────────────────
 

@@ -21,6 +21,8 @@ final class AttachmentDownloadWorkerTest extends TestCase
         // Arrange:
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
+        $redis->method('serverConfiguration')->willReturn(['appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction']);
+        $redis->method('serverInfo')->willReturn(['aof_last_write_status' => 'ok']);
         $redis->expects(self::never())->method('xReadGroupMulti');
         $downloader = $this->createMock(AttachmentDownloadService::class);
         $downloader->expects(self::never())->method('download');

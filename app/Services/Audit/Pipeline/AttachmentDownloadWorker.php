@@ -58,10 +58,12 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
 
     protected function startupContext(): array
     {
-        return ['document_cache_limits' => $this->documentCache->configuration(),
+        return [
+            'document_cache_limits' => $this->documentCache->configuration(),
             'prefetch_high_percent' => AuditDocumentPrefetchGate::HIGH_PERCENT,
             'prefetch_low_percent' => AuditDocumentPrefetchGate::LOW_PERCENT,
-            'prefetch_check_ms' => AuditDocumentPrefetchGate::CHECK_INTERVAL_MS];
+            'prefetch_check_ms' => AuditDocumentPrefetchGate::CHECK_INTERVAL_MS
+        ];
     }
 
     protected function streams(): array

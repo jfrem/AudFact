@@ -565,7 +565,7 @@ Campos de latencia:
 
 ### `GET /audit/dlq`
 
-Lista eventos recientes de la Dead Letter Queue del pipeline async.
+Lista eventos recientes de la Dead Letter Queue del pipeline async. Requiere autenticación administrativa mediante cabecera `X-API-KEY: <MCP_WEBHOOK_SECRET>` o `Authorization: Bearer <MCP_WEBHOOK_SECRET>` (`Core\AuthMiddleware`).
 
 Parámetros opcionales:
 - `limit`: entero `1..100`, default `20`
@@ -573,7 +573,7 @@ Parámetros opcionales:
 ### `POST /audit/dlq/reprocess`
 
 Recupera una auditoría fallida mediante una nueva raíz `audit_created`,
-independiente e idempotente por auditoría original durante `AUDIT_STATE_TTL`.
+independiente e idempotente por auditoría original durante `AUDIT_STATE_TTL` (requiere cabecera `X-API-KEY` o `Authorization: Bearer` validada contra `MCP_WEBHOOK_SECRET`).
 También reconstruye desde raíz los fallos de persistencia; al terminar policy,
 usa el scheduler SQL habitual. No reutiliza event_id ni modifica el job histórico.
 Repetir distintas entradas DLQ de una misma auditoría devuelve el mismo intento.

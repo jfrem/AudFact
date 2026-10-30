@@ -143,12 +143,21 @@ final class SemanticEvaluationStore
         return 'semantic:match:v6:' . hash('sha256', $plan['versions']['model']) . ':' . $pair['purpose'] . ':' . $pair['cache_hash'];
     }
 
+    /**
+     * @param array<string, mixed> $plan
+     * @return array<string, array<string, mixed>>
+     */
     public static function results(array $plan): array
     {
         $out = [];
         foreach ($plan['pairs'] as $pair) {
             if ($pair['state'] === 'resolved') {
-                $out[$pair['pair_id']] = $pair['result'];
+                $out[$pair['pair_id']] = $pair['result'] + [
+                    'expected' => $pair['expected'],
+                    'actual' => $pair['actual'],
+                    'purpose' => $pair['purpose'],
+                    'field' => (string) ($pair['context']['field'] ?? ''),
+                ];
             }
         }
         return $out;

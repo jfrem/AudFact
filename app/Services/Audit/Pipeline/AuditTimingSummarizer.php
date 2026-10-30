@@ -35,7 +35,7 @@ final class AuditTimingSummarizer
         );
 
         $result = [
-            'timing_schema_version' => 1,
+            'timing_schema_version' => 2,
             'docs_total'     => $samples['total'],
             'cache_hit_rate' => $samples['total'] > 0 ? round($samples['cache_hits'] / $samples['total'], 2) : 0.0,
             'download'       => self::summarizeTimings($samples['downloads']),
@@ -55,29 +55,29 @@ final class AuditTimingSummarizer
             'event_telemetry'        => self::summarizeEventTelemetry($audit['event_timings'] ?? []),
             'aggregation'            => self::normalizeAggregationTimings($audit['aggregation_timings'] ?? []),
         ];
-        if (($audit['execution_version'] ?? 1) === 2) {
-            $waits = [];
-            $pairs = 0;
-            foreach (($audit['documents'] ?? []) as $document) {
-                if (isset($document['semantic_wait_ms'])) {
-                    $waits[] = (int) $document['semantic_wait_ms'];
-                }
-                $pairs += (int) ($document['semantic_pairs'] ?? 0);
+        $waits = [];
+        $pairs = 0;
+        foreach (($audit['documents'] ?? []) as $document) {
+            if (!is_array($document)) {
+                continue;
             }
-            $result['timing_schema_version'] = 2;
-            $result['semantic_wait'] = self::summarizeTimings($waits);
-            $result['semantic_pairs'] = $pairs;
-            $result['semantic_http_attempts'] = 0;
-            $result['semantic_count_tokens_attempts'] = 0;
-            $result['semantic_request_failures'] = 0;
-            $result['semantic_unknown_attempts'] = 0;
-            foreach (($audit['gemini_attempts'] ?? []) as $attempt) {
-                if (($attempt['stage'] ?? '') !== 'semantic') { continue; }
-                $field = $attempt['operation'] === 'count_tokens' ? 'semantic_count_tokens_attempts' : 'semantic_http_attempts';
-                $result[$field]++;
-                $result['semantic_request_failures'] += (int) ($attempt['state'] === 'failed');
-                $result['semantic_unknown_attempts'] += (int) ($attempt['state'] === 'unknown' || $attempt['state'] === 'inflight');
+            if (isset($document['semantic_wait_ms'])) {
+                $waits[] = (int) $document['semantic_wait_ms'];
             }
+            $pairs += (int) ($document['semantic_pairs'] ?? 0);
+        }
+        $result['semantic_wait'] = self::summarizeTimings($waits);
+        $result['semantic_pairs'] = $pairs;
+        $result['semantic_http_attempts'] = 0;
+        $result['semantic_count_tokens_attempts'] = 0;
+        $result['semantic_request_failures'] = 0;
+        $result['semantic_unknown_attempts'] = 0;
+        foreach (($audit['gemini_attempts'] ?? []) as $attempt) {
+            if (!is_array($attempt) || ($attempt['stage'] ?? '') !== 'semantic') { continue; }
+            $field = ($attempt['operation'] ?? '') === 'count_tokens' ? 'semantic_count_tokens_attempts' : 'semantic_http_attempts';
+            $result[$field]++;
+            $result['semantic_request_failures'] += (int) (($attempt['state'] ?? '') === 'failed');
+            $result['semantic_unknown_attempts'] += (int) (($attempt['state'] ?? '') === 'unknown' || ($attempt['state'] ?? '') === 'inflight');
         }
         return $result;
     }

@@ -56,50 +56,57 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 **Antes de modificar un archivo**, consultar la skill correspondiente según la tabla en `CATALOG.md`.
 Después de modificar una skill o sus registros, ejecutar `node .agent/skills/_shared/scripts/validate-skills.mjs`.
 
+### Lifecycle Hooks de Antigravity (`.agent/hooks.json`)
+
+El workspace cuenta con hooks automáticos de ciclo de vida configurados en `.agent/hooks.json`:
+- **`sdd-flow-reminder` (`PreInvocation`)**: Inyecta en el prompt del agente un recordatorio efímero del ciclo de 8 fases obligatorias de desarrollo (SDD + TDD + Rebuild + Docs + Reporte).
+- **`ensure-tests-baseline` (`PreToolUse` en `edit_file|write_file`)**: Intercepta intentos de modificar código de producción (`app/`, `core/`, `database/`, `frontend/src/`, `frontend/app/`). Deniega la edición con `{"decision": "deny"}` si: 1) la suite unitaria PHPUnit no ha sido certificada en verde (código 0) en la conversación o en los últimos 15 minutos en caché (`.phpunit.cache/test-results`), o 2) no existe una especificación técnica en `plans/sdd-*.md` o artefacto de plan (/write-sdd-spec).
+- **`enforce-docs-sync` (`Stop`)**: Se ejecuta automáticamente cuando el agente de IA intenta concluir su turno (`NO_TOOL_CALL`). Ejecuta `node scripts/check-docs-updated.mjs` para auditar las 3 evidencias de cierre si hubo cambios de código: 1) Re-ejecución de pruebas unitarias posterior al último cambio de código, 2) Actualización de `plans/changelog.md` y planes afectados, y 3) Generación del artefacto Markdown con el reporte de implementación. Si falta alguna evidencia, rechaza la detención con `{"decision": "continue"}`.
+
 ---
 
 ## Mapa de Endpoints REST
 
 > El router gestiona estas rutas en `app/Routes/web.php`. Los parámetros entre `{}` son dinámicos.
 
-| Método | Endpoint                                                        | Controlador               | Acción                   | Descripción                                                                  |
-| ------ | --------------------------------------------------------------- | ------------------------- | ------------------------ | ---------------------------------------------------------------------------- |
-| `GET`  | `/`                                                             | `Controller`              | `index`                  | Bienvenida / Status API                                                      |
-| `GET`  | `/health`                                                       | `HealthController`        | `status`                 | Health check (Docker/System)                                                 |
-| `GET`  | `/metrics/async`                                                | `ObservabilityController` | `asyncMetrics`           | Métricas operativas del pipeline async                                       |
-| `GET`  | `/config/public`                                                | `ConfigController`        | `publicConfig`           | Configuración pública del frontend                                           |
-| `GET`  | `/clients`                                                      | `ClientsController`       | `index`                  | Listar todos los clientes/EPS                                                |
-| `GET`  | `/clients/{clientId}`                                           | `ClientsController`       | `show`                   | Detalle de un cliente específico                                             |
-| `GET`  | `/clients/{clientId}/documents`                                 | `ClientsController`       | `documents`              | Catálogo documental requerido por cliente                                    |
-| `POST` | `/clients`                                                      | `ClientsController`       | `lookup`                 | Buscar cliente por filtros                                                   |
-| `GET`  | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `show`                   | Configuración dinámica de auditoría por cliente                              |
-| `POST` | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `save`                   | Guardar/reemplazar configuración dinámica de auditoría                       |
-| `GET`  | `/audit/field-catalog`                                          | `AuditConfigController`   | `catalog`                | Catálogo de campos disponibles para configurar auditorías                    |
-| `GET`  | `/invoices`                                                     | `InvoicesController`      | `index`                  | Buscar facturas pendientes con paginación `page`/`pageSize`                  |
-| `POST` | `/invoices`                                                     | `InvoicesController`      | `search`                 | Buscar facturas por fecha/nit con contrato paginado                          |
-| `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | `DispensationController`  | `show`                   | Detalle técnico de una dispensa                                              |
-| `POST` | `/dispensation`                                                 | `DispensationController`  | `lookup`                 | Buscar dispensa por llave compuesta `DisId` + `DisDetNro`                    |
-| `GET`  | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController`   | `downloadByDispensation` | Descargar/previsualizar adjunto                                              |
-| `GET`  | `/dispensation/{disDetNro}/attachments`                         | `AttachmentsController`   | `showByDispensation`     | Listar metadatos de adjuntos (con resolución automática de NitSec)           |
-| `GET`  | `/dispensation/{disDetNro}/attachments/{nitSec}`                | `AttachmentsController`   | `showByDispensation`     | Listar metadatos de adjuntos por cliente explícito                           |
-| `GET`  | `/audit/results`                                                | `AuditController`         | `results`                | Resumen paginado de auditorías persistidas                                   |
-| `GET`  | `/audit/results/{facNro}`                                       | `AuditController`         | `resultDetail`           | Detalle persistido de una auditoría por FacNro                               |
-| `GET`  | `/audit/stats`                                                  | `AuditController`         | `stats`                  | Conteos agregados para dashboard                                             |
-| `GET`  | `/audit/stats/monthly`                                          | `AuditController`         | `monthlyPerformance`     | Estadísticas agregadas de rendimiento mensual por cliente (`year` opcional)  |
-| `GET`  | `/audit/documents-history`                                      | `AuditController`         | `documentsHistory`       | Historial de documentos auditados por IA                                     |
+| Método | Endpoint                                                        | Controlador               | Acción                   | Descripción                                                                                     |
+| ------ | --------------------------------------------------------------- | ------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `GET`  | `/`                                                             | `Controller`              | `index`                  | Bienvenida / Status API                                                                         |
+| `GET`  | `/health`                                                       | `HealthController`        | `status`                 | Health check (Docker/System)                                                                    |
+| `GET`  | `/metrics/async`                                                | `ObservabilityController` | `asyncMetrics`           | Métricas operativas del pipeline async                                                          |
+| `GET`  | `/config/public`                                                | `ConfigController`        | `publicConfig`           | Configuración pública del frontend                                                              |
+| `GET`  | `/clients`                                                      | `ClientsController`       | `index`                  | Listar todos los clientes/EPS                                                                   |
+| `GET`  | `/clients/{clientId}`                                           | `ClientsController`       | `show`                   | Detalle de un cliente específico                                                                |
+| `GET`  | `/clients/{clientId}/documents`                                 | `ClientsController`       | `documents`              | Catálogo documental requerido por cliente                                                       |
+| `POST` | `/clients`                                                      | `ClientsController`       | `lookup`                 | Buscar cliente por filtros                                                                      |
+| `GET`  | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `show`                   | Configuración dinámica de auditoría por cliente                                                 |
+| `POST` | `/clients/{clientId}/audit-config`                              | `AuditConfigController`   | `save`                   | Guardar/reemplazar configuración dinámica de auditoría                                          |
+| `GET`  | `/audit/field-catalog`                                          | `AuditConfigController`   | `catalog`                | Catálogo de campos disponibles para configurar auditorías                                       |
+| `GET`  | `/invoices`                                                     | `InvoicesController`      | `index`                  | Buscar facturas pendientes con paginación `page`/`pageSize`                                     |
+| `POST` | `/invoices`                                                     | `InvoicesController`      | `search`                 | Buscar facturas por fecha/nit con contrato paginado                                             |
+| `GET`  | `/dispensation/{DisId}/{DisDetNro}`                             | `DispensationController`  | `show`                   | Detalle técnico de una dispensa                                                                 |
+| `POST` | `/dispensation`                                                 | `DispensationController`  | `lookup`                 | Buscar dispensa por llave compuesta `DisId` + `DisDetNro`                                       |
+| `GET`  | `/dispensation/{disDetNro}/attachments/download/{attachmentId}` | `AttachmentsController`   | `downloadByDispensation` | Descargar/previsualizar adjunto                                                                 |
+| `GET`  | `/dispensation/{disDetNro}/attachments`                         | `AttachmentsController`   | `showByDispensation`     | Listar metadatos de adjuntos (con resolución automática de NitSec)                              |
+| `GET`  | `/dispensation/{disDetNro}/attachments/{nitSec}`                | `AttachmentsController`   | `showByDispensation`     | Listar metadatos de adjuntos por cliente explícito                                              |
+| `GET`  | `/audit/results`                                                | `AuditController`         | `results`                | Resumen paginado de auditorías persistidas                                                      |
+| `GET`  | `/audit/results/{facNro}`                                       | `AuditController`         | `resultDetail`           | Detalle persistido de una auditoría por FacNro                                                  |
+| `GET`  | `/audit/stats`                                                  | `AuditController`         | `stats`                  | Conteos agregados para dashboard                                                                |
+| `GET`  | `/audit/stats/monthly`                                          | `AuditController`         | `monthlyPerformance`     | Estadísticas agregadas de rendimiento mensual por cliente (`year` opcional)                     |
+| `GET`  | `/audit/documents-history`                                      | `AuditController`         | `documentsHistory`       | Historial de documentos auditados por IA                                                        |
 | `POST` | `/audit/single`                                                 | `AuditController`         | `single`                 | **Pipeline IA**: Auditoría individual por `disDetNro` (con `disId` y `attachmentId` opcionales) |
-| `POST` | `/audit/async`                                                  | `AuditController`         | `async`                  | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202             |
-| `GET`  | `/audit/jobs`                                                   | `AuditController`         | `jobsList`               | Listado y resumen de jobs batch recientes con enriquecimiento de clientes    |
-| `GET`  | `/audit/jobs/{jobId}`                                           | `AuditController`         | `jobStatus`              | Estado y progreso de job asíncrono                                           |
-| `GET`  | `/audit/status/{auditId}`                                       | `AuditController`         | `status`                 | Estado Redis de auditoría individual                                         |
-| `GET`  | `/audit/dlq`                                                    | `AuditDlqController`      | `index`                  | Listado administrativo de eventos `dead_letter`                              |
-| `POST` | `/audit/dlq/reprocess`                                          | `AuditDlqController`      | `reprocess`              | Reproceso administrativo de un evento DLQ                                    |
-| `GET`  | `/audit/costs`                                                  | `AuditCostController`     | `index`                  | Reporte paginado de costos IA por intento con TRM                             |
-| `GET`  | `/audit/costs/clients`                                          | `AuditCostController`     | `byClients`              | Consolidado de costos IA acumulados por EPS/Cliente                          |
-| `GET`  | `/audit/costs/trm`                                              | `AuditCostController`     | `currentTrm`             | Inspección en vivo de TRM vigente y origen activo                            |
-| `GET`  | `/audit/costs/{facNro}`                                         | `AuditCostController`     | `byInvoice`              | Historial cronológico de intentos de costo por factura                        |
-| `GET`  | `/audit/{facNro}/timings`                                       | `AuditController`         | `timings`                | Timings persistidos por factura                                              |
-| `GET`  | `/audit/{auditId}/flow-stream`                                  | `AuditFlowController`     | `stream`                 | Telemetría SSE en vivo por auditoría                                         |
+| `POST` | `/audit/async`                                                  | `AuditController`         | `async`                  | **Pipeline IA**: Auditoría en lote asíncrona (Redis Queue) → 202                                |
+| `GET`  | `/audit/jobs`                                                   | `AuditController`         | `jobsList`               | Listado y resumen de jobs batch recientes con enriquecimiento de clientes                       |
+| `GET`  | `/audit/jobs/{jobId}`                                           | `AuditController`         | `jobStatus`              | Estado y progreso de job asíncrono                                                              |
+| `GET`  | `/audit/status/{auditId}`                                       | `AuditController`         | `status`                 | Estado Redis de auditoría individual                                                            |
+| `GET`  | `/audit/dlq`                                                    | `AuditDlqController`      | `index`                  | Listado administrativo de eventos `dead_letter` (requiere `X-API-KEY` / `Bearer`)               |
+| `POST` | `/audit/dlq/reprocess`                                          | `AuditDlqController`      | `reprocess`              | Reproceso administrativo de un evento DLQ (requiere `X-API-KEY` / `Bearer`)                     |
+| `GET`  | `/audit/costs`                                                  | `AuditCostController`     | `index`                  | Reporte paginado de costos IA por intento con TRM                                               |
+| `GET`  | `/audit/costs/clients`                                          | `AuditCostController`     | `byClients`              | Consolidado de costos IA acumulados por EPS/Cliente                                             |
+| `GET`  | `/audit/costs/trm`                                              | `AuditCostController`     | `currentTrm`             | Inspección en vivo de TRM vigente y origen activo                                               |
+| `GET`  | `/audit/costs/{facNro}`                                         | `AuditCostController`     | `byInvoice`              | Historial cronológico de intentos de costo por factura                                          |
+| `GET`  | `/audit/{facNro}/timings`                                       | `AuditController`         | `timings`                | Timings persistidos por factura                                                                 |
+| `GET`  | `/audit/{auditId}/flow-stream`                                  | `AuditFlowController`     | `stream`                 | Telemetría SSE en vivo por auditoría                                                            |
 
 ---
 
@@ -148,16 +155,16 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Mapeo de Modelos
 
-| Modelo                        | Tabla / Vista                                                             | Propósito                                                                  | PK / Identificador                                       |
-| ----------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `InvoicesModel`               | `vw_discolnet_dispensas`                                                  | Facturas con datos de dispensación                                         | `DisId`                                                  |
-| `ClientsModel`                | `NIT` / `Clientes`                                                        | Gestión de EPS/Clientes                                                    | `NitSec`                                                 |
-| `DispensationModel`           | `vw_discolnet_dispensas`                                                  | Datos detallados de entrega                                                | `DisDetNro`                                              |
-| `AttachmentsModel`            | `AdjuntosDispensacion`                                                    | Archivos binarios (BLOB/URL)                                               | `AdjDisId`                                               |
-| `AuditStatusModel`            | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle`                          | Lectura de resultados de auditoría IA + observaciones                      | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
-| `AuditResultPersistenceModel` | `dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Escritura transaccional del resumen, hallazgos documentales y trazabilidad | `FacNro` (PK operativa); `DisId` se almacena en `FacSec` |
-| `AuditConfigModel`            | `dbo.AudDisp` + `AudDispCampo` + `AudDispCampoCatalogo`                   | Configuración dinámica de auditoría por cliente                           | `FacNitSec`                                              |
-| `AuditCostModel`              | `dbo.AudDispCosto`                                                        | Control de costos IA por intento con TRM aplicada en USD y COP            | `[AudCostoId]` (Identity); `[FacNro] + [Intento]` (Unique) |
+| Modelo                        | Tabla / Vista                                                             | Propósito                                                                  | PK / Identificador                                         |
+| ----------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| `InvoicesModel`               | `vw_discolnet_dispensas`                                                  | Facturas con datos de dispensación                                         | `DisId`                                                    |
+| `ClientsModel`                | `NIT` / `Clientes`                                                        | Gestión de EPS/Clientes                                                    | `NitSec`                                                   |
+| `DispensationModel`           | `vw_discolnet_dispensas`                                                  | Datos detallados de entrega                                                | `DisDetNro`                                                |
+| `AttachmentsModel`            | `AdjuntosDispensacion`                                                    | Archivos binarios (BLOB/URL)                                               | `AdjDisId`                                                 |
+| `AuditStatusModel`            | `dbo.AudDispEst` + `AdjuntosDispensacionDetalle`                          | Lectura de resultados de auditoría IA + observaciones                      | `FacNro` (PK operativa); `DisId` se almacena en `FacSec`   |
+| `AuditResultPersistenceModel` | `dbo.AudDispEst` + `AdjuntosDispensacion` + `DispensacionDetalleServicio` | Escritura transaccional del resumen, hallazgos documentales y trazabilidad | `FacNro` (PK operativa); `DisId` se almacena en `FacSec`   |
+| `AuditConfigModel`            | `dbo.AudDisp` + `AudDispCampo` + `AudDispCampoCatalogo`                   | Configuración dinámica de auditoría por cliente                            | `FacNitSec`                                                |
+| `AuditCostModel`              | `dbo.AudDispCosto`                                                        | Control de costos IA por intento con TRM aplicada en USD y COP             | `[AudCostoId]` (Identity); `[FacNro] + [Intento]` (Unique) |
 
 ### Relaciones Clave
 
@@ -217,18 +224,18 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 
 ### Aplicación
 
-| Variable                      | Default                                           | Requerida         | Módulo / Uso                                                                                                         |
-| ----------------------------- | ------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `APP_ENV`                     | `development`                                     | ✅                | `Core\Env` — controla CORS, logs, mensajes de error                                                                  |
-| `WRAP_API_BASE`               | `http://nginx`                                    | ⚠️ Solo MCP       | `app/wrap/core/ApiClient.php` — base URL interna                                                                     |
-| `WWWUSER_ID`                  | `1000`                                            | ❌                | UID de usuario host para builds/contenedores de desarrollo                                                           |
-| `WWWGROUP_ID`                 | `1000`                                            | ❌                | GID de grupo host para builds/contenedores de desarrollo                                                             |
-| `AUDFACT_API_PUBLIC_URL`      | `http://localhost:8080`                           | ⚠️ Deploy/MCP     | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend |
-| `INTERNAL_API_URL`            | `http://127.0.0.1:8080`                           | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx`         |
-| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100`                           | ⚠️ Deploy/CORS    | Origen público del frontend usado por el deploy para completar `ALLOWED_ORIGINS`                                     |
-| `WEBHOOK_URL`                 | `http://localhost:8080/app/wrap/webhook.php`      | ⚠️ Solo MCP       | URL pública del webhook MCP                                                                                          |
-| `MCP_WEBHOOK_SECRET`          | _(vacío)_                                         | ⚠️ Solo MCP       | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP                               |
-| `CAPABILITIES_URL`            | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP       | URL de capabilities MCP                                                                                              |
+| Variable                      | Default                                           | Requerida         | Módulo / Uso                                                                                                                        |
+| ----------------------------- | ------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                     | `development`                                     | ✅                | `Core\Env` — controla CORS, logs, mensajes de error                                                                                 |
+| `WRAP_API_BASE`               | `http://nginx`                                    | ⚠️ Solo MCP       | `app/wrap/core/ApiClient.php` — base URL interna                                                                                    |
+| `WWWUSER_ID`                  | `1000`                                            | ❌                | UID de usuario host para builds/contenedores de desarrollo                                                                          |
+| `WWWGROUP_ID`                 | `1000`                                            | ❌                | GID de grupo host para builds/contenedores de desarrollo                                                                            |
+| `AUDFACT_API_PUBLIC_URL`      | `http://localhost:8080`                           | ⚠️ Deploy/MCP     | URL pública del backend usada para generar `WEBHOOK_URL` y `CAPABILITIES_URL` en deploy; no se hornea en el frontend                |
+| `INTERNAL_API_URL`            | `http://127.0.0.1:8080`                           | ⚠️ Frontend Proxy | URL interna usada por el proxy Next.js `/api/backend/*`; en producción Docker se inyecta como `http://nginx`                        |
+| `AUDFACT_FRONTEND_PUBLIC_URL` | `http://localhost:3100`                           | ⚠️ Deploy/CORS    | Origen público del frontend usado por el deploy para completar `ALLOWED_ORIGINS`                                                    |
+| `WEBHOOK_URL`                 | `http://localhost:8080/app/wrap/webhook.php`      | ⚠️ Solo MCP       | URL pública del webhook MCP                                                                                                         |
+| `MCP_WEBHOOK_SECRET`          | _(vacío)_                                         | ⚠️ Solo MCP       | Secreto utilizado para validar la autenticación (cabecera `X-API-KEY`) del Webhook MCP                                              |
+| `CAPABILITIES_URL`            | `http://localhost:8080/app/wrap/capabilities.php` | ⚠️ Solo MCP       | URL de capabilities MCP                                                                                                             |
 | `AUDIT_STREAM_MAXLEN`         | `100000`                                          | ❌                | Meta de retención: trabajo preserva lag/PEL de todos los grupos; resultados usan MAXLEN aproximado y DLQ no se poda automáticamente |
 
 ### Despliegue Docker/GHCR
@@ -253,33 +260,26 @@ El proyecto consume una base de datos SQL Server (`sqlsrv`). La mayoría son vis
 | `NEXT_PUBLIC_LOCALE`            | `es-CO`          | ❌        | `frontend/lib/api/config.ts` / formatters — locale                      |
 | `NEXT_PUBLIC_TIMEZONE`          | `America/Bogota` | ❌        | `frontend/lib/api/config.ts` / formatters — zona horaria                |
 
-### Ejecución durable v2 (activación explícita)
+### Ejecución durable v2 (protocolo canónico activo)
 
-| Variable | Default | Uso |
-| --- | --- | --- |
-| `AUDIT_PIPELINE_EXECUTION_VERSION` | `1` | Protocolo deseado; debe coincidir con `audit:execution:version` en Redis. |
-| `AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE` | `20000` | Capacidad conjunta de tareas pendientes y aplazadas por etapa. |
-| `AUDIT_WORKER_SEMANTIC_VIP_REPLICAS` | `1` | Réplicas semánticas del perfil Docker `execution-v2`, carril prioritario. |
-| `AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS` | `2` | Réplicas semánticas del perfil Docker `execution-v2`, carril batch. |
-| `GEMINI_QUOTA_SCOPE` | `UNCONFIGURED` | Identificador no secreto del proyecto que comparte cuota; obligatorio en v2. |
-| `GEMINI_QUOTA_RPM` | `0` | Cuota real de solicitudes/minuto; `0` bloquea v2. |
-| `GEMINI_QUOTA_TPM` | `0` | Cuota real de tokens de entrada/minuto; `0` bloquea v2. |
-| `GEMINI_QUOTA_RPD` | `0` | Cuota real de solicitudes/día; `0` bloquea v2. |
-| `GEMINI_QUOTA_MAX_INFLIGHT` | `4` | Máximo compartido de intentos HTTP concurrentes, entre 1 y 32. |
+| Variable                               | Default           | Uso                                                                                                                |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE` | `20000`           | Capacidad conjunta de tareas pendientes y aplazadas por etapa.                                                     |
+| `AUDIT_WORKER_SEMANTIC_VIP_REPLICAS`   | `1`               | Réplicas semánticas dedicadas al carril prioritario (`worker-semantic-vip`).                                       |
+| `AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS` | `2`               | Réplicas semánticas dedicadas al carril batch (`worker-semantic-batch`).                                           |
+| `GEMINI_QUOTA_SCOPE`                   | `audfact-default` | Identificador no secreto del proyecto que comparte cuota (`UNCONFIGURED` o vacío es rechazado si se sobreescribe). |
+| `GEMINI_QUOTA_RPM`                     | `2000`            | Cuota de solicitudes/minuto del proyecto Gemini (`<= 0` es rechazado si se sobreescribe).                          |
+| `GEMINI_QUOTA_TPM`                     | `4000000`         | Cuota de tokens de entrada/minuto del proyecto Gemini (`<= 0` es rechazado si se sobreescribe).                    |
+| `GEMINI_QUOTA_RPD`                     | `1000000`         | Cuota de solicitudes/día del proyecto Gemini (`<= 0` es rechazado si se sobreescribe).                             |
+| `GEMINI_QUOTA_MAX_INFLIGHT`            | `32` (`1..32`)    | Máximo compartido de intentos HTTP concurrentes hacia Gemini (entre 1 y 32).                                       |
 
-Las cuotas no se deducen del histórico ni del tier. Antes de habilitar v2 deben verificarse en el proyecto de Gemini.
+Las cuotas no se deducen del histórico ni del tier y deben verificarse en el proyecto de Google AI Studio.
 Por el límite de 100 variables de Environment, `WWWUSER_ID`, `WWWGROUP_ID`, `RUN_REDIS_INTEGRATION`,
 `AUDIT_EVENT_MAX_RETRIES`, `AUDIT_JOB_TTL`, `AUDIT_PENDING_RECLAIM_IDLE_MS`,
 `AUDIT_PENDING_RECLAIM_INTERVAL_MS`, `AUDIT_STREAM_BLOCK_MS` y `AUDIT_STREAM_MAXLEN`
 se heredan de GitHub Variables del repositorio, conservando sus valores de producción.
 
-V2 requiere marcador Redis coherente, AOF/fsync always/noeviction y heartbeat
-de mantenimiento. El perfil `execution-v2` es explícito. Cutover drena PHP-FPM
-y todos los consumidores; esa barrera implica indisponibilidad HTTP breve.
-La cuota real se verifica en AI Studio; el límite de contexto del modelo no
-es una cuota del proyecto. Snapshot, tareas y outbox activos no expiran;
-la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
-`plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md`.
+La ejecución durable v2 (`AuditExecutionConfig::VERSION = 2`) es el único protocolo activo y exige marcador Redis coherente (`${REDIS_PREFIX}audit:execution:version=2`), AOF/`appendfsync always`/`noeviction`, cuotas Gemini explícitas y heartbeat de mantenimiento (`worker-execution-maintenance`). `worker-semantic-vip`, `worker-semantic-batch` y `worker-execution-maintenance` operan como servicios core en `docker-compose.yml` sin perfiles opcionales ni fases de transición v1. Snapshot, tareas y outbox activos no expiran; la caché BLOB sigue siendo recuperable y acotada, y `AuditExecutionMaintenance::gc()` retira estados terminales y reservas huérfanas tras la ventana de retención. Procedimiento/evidencia: `plans/sdd-remediacion-hallazgos-auditoria-v2.md`.
 
 ### Base de datos (SQL Server)
 
@@ -355,20 +355,20 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 
 ### Redis
 
-| Variable                 | Default        | Requerida      | Módulo / Uso                                                                         |
-| ------------------------ | -------------- | -------------- | ------------------------------------------------------------------------------------ |
-| `REDIS_HOST`             | `redis`        | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                             |
-| `REDIS_PORT`             | `6379`         | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                    |
-| `REDIS_PASSWORD`         | _(vacío)_      | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto |
-| `REDIS_PREFIX`           | `audfact:`     | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                   |
-| `REDIS_MAXMEMORY`        | `4gb`          | ❌             | `docker-compose.yml` — límite interno de memoria Redis (`--maxmemory`)               |
-| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | ❌             | `docker-compose.yml` — política de evicción Redis para llaves con TTL                |
-| `REDIS_CONTAINER_MEMORY` | `5G`           | ❌             | `docker-compose.yml` — límite de memoria del contenedor Redis                        |
-| `REDIS_MODE`             | `standalone`   | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                       |
-| `REDIS_SENTINELS`        | _(comentado)_  | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                              |
-| `REDIS_SENTINEL_SERVICE` | _(comentado)_  | ⚠️ Sentinel    | Nombre del master Sentinel                                                           |
-| `REDIS_CLUSTER_NODES`    | _(comentado)_  | ⚠️ Cluster     | Lista de nodos `host:port` para modo cluster                                         |
-| `REDIS_PERSISTENT`       | `0`            | ❌             | Habilita conexiones persistentes Redis en PHP-FPM                                    |
+| Variable                 | Default       | Requerida      | Módulo / Uso                                                                              |
+| ------------------------ | ------------- | -------------- | ----------------------------------------------------------------------------------------- |
+| `REDIS_HOST`             | `redis`       | ⚠️ Async/Cache | `Core\RedisClient` — host servidor Redis                                                  |
+| `REDIS_PORT`             | `6379`        | ⚠️ Async/Cache | `Core\RedisClient` — puerto Redis                                                         |
+| `REDIS_PASSWORD`         | _(vacío)_     | ❌             | `Core\RedisClient` — contraseña Redis; coincide con `docker-compose.yml` por defecto      |
+| `REDIS_PREFIX`           | `audfact:`    | ❌             | `Core\RedisClient` — prefijo para keys (namespace)                                        |
+| `REDIS_MAXMEMORY`        | `4gb`         | ❌             | `docker-compose.yml` — límite interno de memoria Redis (`--maxmemory`)                    |
+| `REDIS_MAXMEMORY_POLICY` | `noeviction`  | ❌             | `docker-compose.yml` — política de memoria obligatoria para durabilidad v2 (`noeviction`) |
+| `REDIS_CONTAINER_MEMORY` | `5G`          | ❌             | `docker-compose.yml` — límite de memoria del contenedor Redis                             |
+| `REDIS_MODE`             | `standalone`  | ❌             | `Core\RedisClient` — modo `standalone`, `sentinel` o `cluster`                            |
+| `REDIS_SENTINELS`        | _(comentado)_ | ⚠️ Sentinel    | Lista `host:port` separada por comas para modo sentinel                                   |
+| `REDIS_SENTINEL_SERVICE` | _(comentado)_ | ⚠️ Sentinel    | Nombre del master Sentinel                                                                |
+| `REDIS_CLUSTER_NODES`    | _(comentado)_ | ⚠️ Cluster     | Lista de nodos `host:port` para modo cluster                                              |
+| `REDIS_PERSISTENT`       | `0`           | ❌             | Habilita conexiones persistentes Redis en PHP-FPM                                         |
 
 ### Circuit Breaker Gemini
 
@@ -379,43 +379,46 @@ la caché BLOB sigue siendo recuperable y acotada. Procedimiento/evidencia:
 
 ### Auditoría Async
 
-| Variable                                 | Default                     | Requerida  | Módulo / Uso                                                                                      |
-| ---------------------------------------- | --------------------------- | ---------- | ------------------------------------------------------------------------------------------------- |
-| `AUDIT_BATCH_TIMEOUT`                    | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers                 |
-| `AUDIT_BATCH_MAX_LIMIT`                  | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                                           |
-| `AUDIT_BATCH_CHUNK_SIZE`                 | `500`                       | ❌         | `AuditBatchOrchestrator` — tamaño de chunk para ingesta fair-queuing de lotes masivos             |
-| `AUDIT_BATCH_LOCK_TTL_SECONDS`           | `300`                       | ❌         | `AuditBatchOrchestrator` — TTL del lock atómico de generación distribuida por chunk               |
-| `AUDIT_BATCH_CRON_LIMIT`                 | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron |
-| `AUDIT_INTERNAL_API_BASE`                | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                                   |
-| `AUDIT_WORKER_LANE`                      | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                              |
-| `AUDIT_EXTRACTION_CACHE_TTL`             | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`                      |
-| `AUDIT_DOCUMENT_CACHE_MAX_BYTES`         | `268435456`                 | ❌         | `AuditDocumentCache` — presupuesto global de bytes JSON de BLOB cacheados entre todas las réplicas; una entrada que no cabe se recupera desde origen durante extracción |
-| `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES`       | `1024`                      | ❌         | `AuditDocumentCache` — límite global de entradas; evita crecimiento de metadata con documentos pequeños |
-| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`     | `8`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                                  |
-| `AUDIT_WORKER_BATCH_REPLICAS`            | `4`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                                      |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`       | `12`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                                           |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`   | `2`                         | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`)           |
-| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12`                        | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)                 |
-| `AUDIT_WORKER_NORMALIZER_REPLICAS`       | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                                       |
-| `AUDIT_WORKER_POLICY_REPLICAS`           | `8`                         | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                                           |
-| `AUDIT_WORKER_PERSISTENCE_REPLICAS`      | `12`                        | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                                      |
-| `AUDIT_IDEMPOTENCY_KEY_TTL`              | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                              |
-| `AUDIT_JOB_TTL`                          | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                              |
-| `AUDIT_STATE_TTL`                        | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                                      |
-| `AUDIT_PERSISTENCE_QUEUE_TTL`            | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job                       |
-| `AUDIT_PERSISTENCE_JOB_SLOTS`            | `6`                         | ❌         | `AuditPersistenceQueue` — turnos por job (1..16), fijados en Redis al primer uso; cambios afectan jobs nuevos |
-| `AUDIT_RESERVATION_TTL`                  | `86400`                     | ❌         | `BatchJobStore` — TTL de reservas por `DisId`                                                     |
-| `AUDIT_PENDING_RECLAIM_IDLE_MS`          | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados               |
-| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`      | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`                       |
-| `AUDIT_EVENT_MAX_RETRIES`                | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                                    |
-| `AUDIT_STREAM_BLOCK_MS`                  | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                                   |
-| `AUDIT_DLQ_STREAM`                       | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                                             |
-| `AUDIT_VERSION_EXTRACTOR`                | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                                             |
-| `AUDIT_VERSION_NORMALIZER`               | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                                          |
-| `AUDIT_VERSION_RULES`                    | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                                 |
-| `AUDIT_NGINX_READ_TIMEOUT`               | `3600`                      | ❌         | Timeout de lectura Nginx para endpoints de auditoría                                              |
-| `AUDIT_FPM_TERMINATE_TIMEOUT`            | `3600`                      | ❌         | Timeout de terminación PHP-FPM para procesos de auditoría                                         |
-| `PHP_CLI_MEMORY_LIMIT`                   | `768M`                      | ❌         | `bin/audit-worker.php` / Docker — memoria máxima para workers CLI evitando OOM en PDFs multipágina |
+| Variable                                 | Default                     | Requerida  | Módulo / Uso                                                                                                                                                                     |
+| ---------------------------------------- | --------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUDIT_BATCH_TIMEOUT`                    | `3600`                      | ❌         | Timeout legacy/compat de batch; el flujo actual responde 202 y procesa en workers                                                                                                |
+| `AUDIT_BATCH_MAX_LIMIT`                  | `100`                       | ❌         | `AuditController::async` — máximo de facturas por batch                                                                                                                          |
+| `AUDIT_BATCH_CHUNK_SIZE`                 | `500`                       | ❌         | `AuditBatchOrchestrator` — tamaño de chunk para ingesta fair-queuing de lotes masivos                                                                                            |
+| `AUDIT_BATCH_LOCK_TTL_SECONDS`           | `300`                       | ❌         | `AuditBatchOrchestrator` — TTL del lock atómico de generación distribuida por chunk                                                                                              |
+| `AUDIT_BATCH_CRON_LIMIT`                 | `5000`                      | ❌         | `bin/schedule-daily-batches.php` — límite configurable de facturas por cliente por ejecución cron                                                                                |
+| `AUDIT_INTERNAL_API_BASE`                | `http://nginx`              | ⚠️ Workers | URL interna usada por workers cuando requieren API HTTP interna                                                                                                                  |
+| `AUDIT_WORKER_LANE`                      | `all`                       | ❌         | `AuditEventConsumer` — filtro de carril (`all`, `priority`, `batch`)                                                                                                             |
+| `AUDIT_EXTRACTION_CACHE_TTL`             | `604800`                    | ❌         | `ExtractionCache` — TTL en segundos del cache documental por `document_hash`                                                                                                     |
+| `AUDIT_DOCUMENT_CACHE_MAX_BYTES`         | `1610612736`                | ❌         | `AuditDocumentCache` — presupuesto global de bytes JSON de BLOB cacheados entre todas las réplicas (1.5 GB); una entrada que no cabe se recupera desde origen durante extracción |
+| `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES`       | `4096`                      | ❌         | `AuditDocumentCache` — límite global de entradas; evita crecimiento de metadata y previene pausas de prefetch gate                                                               |
+| `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`     | `8`                         | ❌         | `docker-compose.yml` — réplicas de orquestadores `audit_created`                                                                                                                 |
+| `AUDIT_WORKER_BATCH_REPLICAS`            | `4`                         | ❌         | `docker-compose.yml` — réplicas del worker `batch_requested`                                                                                                                     |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`       | `16`                        | ❌         | `docker-compose.yml` — réplicas de descarga de adjuntos                                                                                                                          |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`   | `2`                         | ❌         | `docker-compose.yml` — réplicas dedicadas al carril prioritario/VIP (`--priority-only`)                                                                                          |
+| `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `24`                        | ❌         | `docker-compose.yml` — réplicas dedicadas al carril batch masivo (`--batch-only`)                                                                                                |
+| `AUDIT_WORKER_NORMALIZER_REPLICAS`       | `4`                         | ❌         | `docker-compose.yml` — réplicas del normalizador documental                                                                                                                      |
+| `AUDIT_WORKER_POLICY_REPLICAS`           | `12`                        | ❌         | `docker-compose.yml` — réplicas de evaluación de reglas                                                                                                                          |
+| `AUDIT_WORKER_PERSISTENCE_REPLICAS`      | `16`                        | ❌         | `docker-compose.yml` — réplicas globales de persistencia SQL                                                                                                                     |
+| `AUDIT_IDEMPOTENCY_KEY_TTL`              | `300`                       | ❌         | `BatchJobStore` — TTL de barrera `X-Idempotency-Key`                                                                                                                             |
+| `AUDIT_JOB_TTL`                          | `604800`                    | ❌         | `BatchJobStore` — TTL del estado de jobs batch async                                                                                                                             |
+| `AUDIT_STATE_TTL`                        | `604800`                    | ❌         | `AuditStateStore` — TTL del estado transitorio de auditorías                                                                                                                     |
+| `AUDIT_PERSISTENCE_QUEUE_TTL`            | `604800`                    | ❌         | `AuditPersistenceQueue` — TTL de turnos, pendientes y deduplicación por job                                                                                                      |
+| `AUDIT_PERSISTENCE_JOB_SLOTS`            | `8`                         | ❌         | `AuditPersistenceQueue` — turnos por job (1..16), fijados en Redis al primer uso; cambios afectan jobs nuevos                                                                    |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS`          | `4`                         | ❌         | `FairAuditTaskQueue` — tareas simultáneas por job en orquestación (1..16)                                                                                                        |
+| `AUDIT_EXTRACTION_JOB_SLOTS`             | `16`                        | ❌         | `FairAuditTaskQueue` — tareas simultáneas por job en extracción (1..16); comparten `GEMINI_QUOTA_MAX_INFLIGHT`                                                                   |
+| `AUDIT_POLICY_JOB_SLOTS`                 | `8`                         | ❌         | `FairAuditTaskQueue` — tareas simultáneas por job en policy (1..16)                                                                                                              |
+| `AUDIT_SEMANTIC_JOB_SLOTS`               | `4`                         | ❌         | `FairAuditTaskQueue` — tareas simultáneas por job en semántica (1..16)                                                                                                           |
+| `AUDIT_PENDING_RECLAIM_IDLE_MS`          | `600000`                    | ❌         | `AuditEventConsumer` — idle mínimo antes de reclamar mensajes `pending` abandonados                                                                                              |
+| `AUDIT_PENDING_RECLAIM_INTERVAL_MS`      | `30000`                     | ❌         | `AuditEventConsumer` — frecuencia de escaneo para recuperación de `pending`                                                                                                      |
+| `AUDIT_EVENT_MAX_RETRIES`                | `3`                         | ❌         | `AuditEventConsumer` — reintentos antes de DLQ                                                                                                                                   |
+| `AUDIT_STREAM_BLOCK_MS`                  | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                                                                                                                  |
+| `AUDIT_DLQ_STREAM`                       | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                                                                                                                            |
+| `AUDIT_VERSION_EXTRACTOR`                | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                                                                                                                            |
+| `AUDIT_VERSION_NORMALIZER`               | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                                                                                                                         |
+| `AUDIT_VERSION_RULES`                    | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                                                                                                                |
+| `AUDIT_NGINX_READ_TIMEOUT`               | `3600`                      | ❌         | Timeout de lectura Nginx para endpoints de auditoría                                                                                                                             |
+| `AUDIT_FPM_TERMINATE_TIMEOUT`            | `3600`                      | ❌         | Timeout de terminación PHP-FPM para procesos de auditoría                                                                                                                        |
+| `PHP_CLI_MEMORY_LIMIT`                   | `768M`                      | ❌         | `bin/audit-worker.php` / Docker — memoria máxima para workers CLI evitando OOM en PDFs multipágina                                                                               |
 
 ### Leyenda
 

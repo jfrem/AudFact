@@ -78,24 +78,31 @@ final class FairAuditTaskQueue
                 throw new \RuntimeException('task_index_invalid');
             }
             foreach ($scopes as $scope) {
-                $ids = $this->redis->eval('return redis.call("ZRANGE",KEYS[1],0,0)', [$base . ':job:' . $scope . ':pending']);
-                if (!is_array($ids)) {
-                    throw new \RuntimeException('task_index_invalid');
-                }
-                if ($ids === []) {
-                    continue;
-                }
-                $task = $this->get((string) $ids[0]);
-                if ($task === null) {
-                    throw new \RuntimeException('task_record_missing');
-                }
-                $raw = $this->redis->eval(self::CLAIM, array_merge(self::keys($task->record),
-                    ['audit:tasks:v2:' . $stage->value . ':lane_turn', $base . ':waiting']), [$owner, AuditExecutionConfig::LEASE_MS, $lane->isAll() ? 1 : 0]);
-                if (is_string($raw)) {
-                    return new AuditTask(json_decode($raw, true, 512, JSON_THROW_ON_ERROR));
-                }
-                if ($raw !== 0) {
-                    throw new \RuntimeException('task_claim_invalid');
+                // Con varios turnos por job, otro worker puede tomar la cabeza entre la lectura y el claim:
+                // se relee la cabeza una vez; si no cambió, el job está en su cupo y se pasa al siguiente.
+                $contended = null;
+                for ($attempt = 0; $attempt < 3; $attempt++) {
+                    $ids = $this->redis->eval('return redis.call("ZRANGE",KEYS[1],0,0)', [$base . ':job:' . $scope . ':pending']);
+                    if (!is_array($ids)) {
+                        throw new \RuntimeException('task_index_invalid');
+                    }
+                    if ($ids === [] || (string) $ids[0] === $contended) {
+                        break;
+                    }
+                    $task = $this->get((string) $ids[0]);
+                    if ($task === null) {
+                        throw new \RuntimeException('task_record_missing');
+                    }
+                    $raw = $this->redis->eval(self::CLAIM, array_merge(self::keys($task->record),
+                        ['audit:tasks:v2:' . $stage->value . ':lane_turn', $base . ':waiting']),
+                        [$owner, AuditExecutionConfig::LEASE_MS, $lane->isAll() ? 1 : 0, $this->config->jobSlots($stage)]);
+                    if (is_string($raw)) {
+                        return new AuditTask(json_decode($raw, true, 512, JSON_THROW_ON_ERROR));
+                    }
+                    if ($raw !== 0) {
+                        throw new \RuntimeException('task_claim_invalid');
+                    }
+                    $contended = (string) $ids[0];
                 }
             }
             }
@@ -142,12 +149,24 @@ final class FairAuditTaskQueue
         }
     }
 
+    /**
+     * Contadores e índices de espera se leen en una única operación Lua: los mutadores son atómicos, así que
+     * una lectura en dos pasos puede observar un contador adelantado respecto del índice `:waiting`.
+     */
     public function metrics(): array
     {
-        $raw = $this->redis->eval('if redis.call("SCARD",KEYS[2])>0 and redis.call("EXISTS",KEYS[1])==0 then return redis.error_reply("task_metrics_missing") end; return redis.call("HGETALL",KEYS[1])', [self::COUNTS, self::ALL]);
-        if (!is_array($raw) || count($raw) % 2 !== 0) {
+        $keys = [self::COUNTS, self::ALL];
+        foreach (AuditTaskStage::cases() as $stage) {
+            foreach ([AuditLane::PRIORITY, AuditLane::BATCH] as $lane) {
+                $keys[] = self::base($stage->value, $lane->value) . ':waiting';
+            }
+        }
+        $snapshot = $this->redis->eval(self::METRICS, $keys);
+        if (!is_array($snapshot) || count($snapshot) !== 2 || !is_array($snapshot[0]) || !is_array($snapshot[1])
+            || count($snapshot[0]) % 2 !== 0) {
             throw new \RuntimeException('task_metrics_invalid');
         }
+        [$raw, $waitingHeads] = $snapshot;
         $flat = [];
         for ($i = 0; $i < count($raw); $i += 2) {
             if (!is_numeric($raw[$i + 1]) || (int) $raw[$i + 1] < 0) {
@@ -157,10 +176,11 @@ final class FairAuditTaskQueue
         }
         $out = [];
         $now = $this->nowMs();
+        $index = 0;
         foreach (AuditTaskStage::cases() as $stage) {
             foreach ([AuditLane::PRIORITY, AuditLane::BATCH] as $lane) {
                 $prefix = $stage->value . ':' . $lane->value . ':';
-                $oldest = $this->redis->eval('return redis.call("ZRANGE",KEYS[1],0,0,"WITHSCORES")', [self::base($stage->value, $lane->value) . ':waiting']);
+                $oldest = $waitingHeads[$index++] ?? null;
                 $waiting = ($flat[$prefix . 'pending'] ?? 0) + ($flat[$prefix . 'delayed'] ?? 0);
                 if (!is_array($oldest) || ($waiting > 0 && count($oldest) !== 2)) {
                     throw new \RuntimeException('task_waiting_index_missing');
@@ -174,6 +194,13 @@ final class FairAuditTaskQueue
         }
         return $out;
     }
+
+    private const METRICS = <<<'LUA'
+        if redis.call('SCARD',KEYS[2])>0 and redis.call('EXISTS',KEYS[1])==0 then return redis.error_reply('task_metrics_missing') end
+        local heads={}
+        for i=3,#KEYS do heads[#heads+1]=redis.call('ZRANGE',KEYS[i],0,0,'WITHSCORES') end
+        return {redis.call('HGETALL',KEYS[1]),heads}
+    LUA;
 
     private const ADMIT = <<<'LUA'
         local r=cjson.decode(ARGV[1]); local cp=r.stage..':'..r.lane..':'
@@ -209,13 +236,16 @@ final class FairAuditTaskQueue
         local types={'hash','zset','list','set','hash','zset','zset','hash','set','string','string','hash','string','zset'}
         for i,k in ipairs(KEYS) do local ty=redis.call('TYPE',k).ok; if ty~='none' and ty~=types[i] then return redis.error_reply('task_key_type_invalid') end end
         local raw=redis.call('HGET',KEYS[1],'record'); if not raw then return redis.error_reply('task_record_missing') end
-        local r=cjson.decode(raw); if r.state~='pending' or redis.call('HEXISTS',KEYS[5],r.scope)==1 then return 0 end
+        -- KEYS[5] guarda por scope el número de turnos activos; un valor legado (task_id) cuenta como un turno.
+        local r=cjson.decode(raw); local held=redis.call('HGET',KEYS[5],r.scope); local used=0
+        if held then if string.match(held,'^%d+$') and #held<4 then used=tonumber(held) else used=1 end end
+        if r.state~='pending' or used>=tonumber(ARGV[4]) then return 0 end
         local head=redis.call('ZRANGE',KEYS[2],0,0); if head[1]~=r.task_id then return 0 end
         local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
         r.fence=tonumber(redis.call('HINCRBY',KEYS[1],'fence',1)); r.state='active'; r.lease_owner=ARGV[1]; r.lease_until_ms=now+tonumber(ARGV[2])
         redis.call('HSET',KEYS[1],'record',cjson.encode(r)); redis.call('ZREM',KEYS[2],r.task_id)
         redis.call('ZREM',KEYS[14],r.task_id)
-        redis.call('HSET',KEYS[5],r.scope,r.task_id); redis.call('ZADD',KEYS[6],r.lease_until_ms,r.task_id)
+        redis.call('HSET',KEYS[5],r.scope,used+1); redis.call('ZADD',KEYS[6],r.lease_until_ms,r.task_id)
         redis.call('LREM',KEYS[3],0,r.scope); redis.call('RPUSH',KEYS[3],r.scope)
         local cp=r.stage..':'..r.lane..':'
         redis.call('HINCRBY',KEYS[8],cp..'pending',-1); redis.call('HINCRBY',KEYS[8],cp..'active',1)
@@ -235,7 +265,7 @@ final class FairAuditTaskQueue
             r.operation_attempt=r.operation_attempt+1
         end
         r.lease_owner=cjson.null; r.lease_until_ms=cjson.null
-        redis.call('HSET',KEYS[1],'record',cjson.encode(r)); redis.call('HDEL',KEYS[5],r.scope); redis.call('ZREM',KEYS[6],r.task_id); redis.call('ZADD',KEYS[7],r.due_at_ms,r.task_id)
+        redis.call('HSET',KEYS[1],'record',cjson.encode(r)); do local held=redis.call('HGET',KEYS[5],r.scope); local n=(held and string.match(held,'^%d+$') and #held<4) and tonumber(held) or 1; if n<=1 then redis.call('HDEL',KEYS[5],r.scope) else redis.call('HSET',KEYS[5],r.scope,n-1) end end; redis.call('ZREM',KEYS[6],r.task_id); redis.call('ZADD',KEYS[7],r.due_at_ms,r.task_id)
         redis.call('ZADD',KEYS[13],r.enqueued_at_ms,r.task_id)
         local cp=r.stage..':'..r.lane..':'
         redis.call('HINCRBY',KEYS[8],cp..'active',-1); redis.call('HINCRBY',KEYS[8],cp..'delayed',1); return 1
@@ -257,7 +287,7 @@ final class FairAuditTaskQueue
         if ARGV[1]=='delayed' then if r.state~='delayed' or r.due_at_ms>now then return 0 end; redis.call('ZREM',KEYS[7],r.task_id)
         else
             if r.state~='active' or r.lease_until_ms>now then return 0 end
-            redis.call('ZREM',KEYS[6],r.task_id); redis.call('HDEL',KEYS[5],r.scope)
+            redis.call('ZREM',KEYS[6],r.task_id); do local held=redis.call('HGET',KEYS[5],r.scope); local n=(held and string.match(held,'^%d+$') and #held<4) and tonumber(held) or 1; if n<=1 then redis.call('HDEL',KEYS[5],r.scope) else redis.call('HSET',KEYS[5],r.scope,n-1) end end
             r.recovery_count=r.recovery_count+1; r.lease_owner=cjson.null; r.lease_until_ms=cjson.null
             if r.recovery_count>3 then r.last_error='task_recovery_exhausted' end
         end

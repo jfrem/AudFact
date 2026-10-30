@@ -72,6 +72,16 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     {
         $event = $task->event();
         $identity = $this->assertAuditCreated($event);
+        $startedAt = hrtime(true);
+        $meta = ['worker' => $this->consumer()];
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'orchestration',
+            null,
+            $identity['dis_det_nro'],
+            $meta,
+            $event->jobId
+        );
         $attachmentId = $this->extractAttachmentId($event);
         $context = $this->buildAuditContext($identity['dis_id'], $identity['dis_det_nro'], $attachmentId);
         $this->assertIdentityContract($event, $identity, $context);
@@ -129,12 +139,35 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             $next = AuditTaskEffects::followUp($task, $type, $state, $documentId, $name);
             $effects['outbox'][] = AuditTaskEffects::event($task, $next, $name);
         }
+        $this->telemetryPublisher->completed(
+            $event->auditId,
+            'orchestration',
+            self::elapsedMs($startedAt),
+            null,
+            $identity['dis_det_nro'],
+            array_merge(
+                $meta,
+                ['documents_total' => $totalDocuments],
+                $this->matchTelemetry($matchResult)
+            ),
+            $event->jobId
+        );
         return $effects;
     }
 
     protected function handle(AuditEvent $event): void
     {
         $identity = $this->assertAuditCreated($event);
+        $startedAt = hrtime(true);
+        $meta = ['worker' => $this->consumer()];
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'orchestration',
+            null,
+            $identity['dis_det_nro'],
+            $meta,
+            $event->jobId
+        );
         $startedAt = hrtime(true);
         $meta = ['worker' => $this->consumer()];
         $this->telemetryPublisher->started(

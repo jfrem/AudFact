@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 
 import { useQuery } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { AuditFlowGraph } from "@/components/audit-flow/audit-flow-graph";
 import { useAuditTelemetry } from "@/hooks/use-audit-telemetry";
+import { useAuditFlowStore } from "@/store/use-audit-flow-store";
 
 export function JobDetailClient({ jobId }: { jobId: string }) {
   const { data, isLoading, isError, error } = useQuery(auditJobQuery(jobId));
@@ -21,6 +22,16 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
     Number(data?.performance.accumulatedDurationMs ?? 0) > 0;
 
   useAuditTelemetry(jobId, undefined, "job");
+  const { setJobTerminal } = useAuditFlowStore();
+
+  const status = data?.status ?? "queued";
+  const isTerminal = status === "completed" || status === "completed_with_errors" || status === "failed";
+
+  useEffect(() => {
+    if (isTerminal && status) {
+      setJobTerminal(status);
+    }
+  }, [isTerminal, status, setJobTerminal]);
 
   if (isLoading) {
     return (
@@ -48,8 +59,6 @@ export function JobDetailClient({ jobId }: { jobId: string }) {
   const progressPct = data?.progress ?? 0;
   const processed = data?.processed ?? 0;
   const total = data?.total ?? 0;
-  const status = data?.status ?? "queued";
-  const isTerminal = status === "completed" || status === "completed_with_errors" || status === "failed";
   const result = data?.result;
 
   return (

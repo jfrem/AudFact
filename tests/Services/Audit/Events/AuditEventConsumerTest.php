@@ -19,6 +19,19 @@ use RuntimeException;
 
 final class AuditEventConsumerTest extends TestCase
 {
+    private function createAvailableRedisMock(): RedisClient&\PHPUnit\Framework\MockObject\MockObject
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('serverConfiguration')->willReturn([
+            'appendonly' => 'yes',
+            'appendfsync' => 'always',
+            'maxmemory-policy' => 'noeviction',
+        ]);
+        $redis->method('serverInfo')->willReturn(['aof_last_write_status' => 'ok']);
+        return $redis;
+    }
+
     #[DataProvider('providerFailureReasons')]
     public function testTypedProviderFailureClosesImmediatelyOnlyWhenNonRetryable(
         \App\Services\Audit\GeminiResponseFailureReason $reason,
@@ -27,8 +40,7 @@ final class AuditEventConsumerTest extends TestCase
         // Arrange:
         $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, null);
         $failure = new \App\Services\Audit\GeminiResponseException($reason, ['task_type' => 'extraction']);
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('incr')->willReturn(1);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
@@ -71,8 +83,7 @@ final class AuditEventConsumerTest extends TestCase
     {
         // Arrange:
         $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, null);
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xAutoClaim')->willReturn(['next' => '0-0', 'messages' => [[
             'id' => '1-0', 'fields' => ['event' => $event->toJson()],
         ]]]);
@@ -100,8 +111,7 @@ final class AuditEventConsumerTest extends TestCase
     {
         // Arrange:
         $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_NORMALIZED, AuditEvent::uuidV4());
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1700000000000-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
@@ -130,8 +140,7 @@ final class AuditEventConsumerTest extends TestCase
     {
         // Arrange:
         $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, AuditEvent::uuidV4());
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1700000000000-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
@@ -172,8 +181,7 @@ final class AuditEventConsumerTest extends TestCase
             'timestamp' => '2026-09-23T12:00:00Z',
             'payload' => $routing,
         ]);
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('get')->willReturnCallback(static function (string $key) use ($event): ?string {
             return $key === AuditStateStore::auditKey($event->auditId)
@@ -223,8 +231,7 @@ final class AuditEventConsumerTest extends TestCase
 
     public function testEnsureGroupCreatesFromStreamOrigin(): void
     {
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->expects($this->once())
             ->method('xGroupCreate')
             ->with('test.stream', 'test-group', '0')
@@ -237,8 +244,7 @@ final class AuditEventConsumerTest extends TestCase
 
     public function testEnsureGroupFailurePropagatesOriginalError(): void
     {
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')
             ->willThrowException(
                 new RedisUnavailableException("Redis XGROUP CREATE falló para stream 'test.stream': ACL error")
@@ -253,8 +259,7 @@ final class AuditEventConsumerTest extends TestCase
 
     public function testNogroupInRuntimeThrowsRatherThanSilentLoop(): void
     {
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willThrowException(
             new RuntimeException("NOGROUP No such consumer group 'test-group' for key name 'audfact:test.stream'")
@@ -275,8 +280,7 @@ final class AuditEventConsumerTest extends TestCase
             payload: ['dis_det_nro' => 'T00000001']
         );
 
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id'     => '1700000000000-0',
@@ -304,8 +308,7 @@ final class AuditEventConsumerTest extends TestCase
             payload: ['document_id' => AuditEvent::uuidV4()]
         );
 
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->expects($this->once())
             ->method('xAutoClaim')
@@ -345,8 +348,7 @@ final class AuditEventConsumerTest extends TestCase
         );
         $telemetryStore = new RecordingTelemetryStateStore();
 
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id'     => '1700000000000-0',
@@ -388,8 +390,7 @@ final class AuditEventConsumerTest extends TestCase
             eventType: AuditEvent::TYPE_AUDIT_CREATED,
             auditId: AuditEvent::uuidV4(),
         );
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('xReadGroupMulti')->willReturn([[
             'id' => '1700000000003-0',
@@ -411,8 +412,7 @@ final class AuditEventConsumerTest extends TestCase
             eventType: AuditEvent::TYPE_RULES_EVALUATED,
             auditId: AuditEvent::uuidV4()
         );
-        $redis = $this->createMock(RedisClient::class);
-        $redis->method('isAvailable')->willReturn(true);
+        $redis = $this->createAvailableRedisMock();
         $redis->method('xGroupCreate')->willReturn(true);
         $redis->method('incr')->willReturn(1);
         $redis->method('xReadGroupMulti')->willReturn([[

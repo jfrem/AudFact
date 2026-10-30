@@ -139,15 +139,34 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $effects = AuditTaskEffects::empty($task);
         $effects['source_fingerprint'] = hash('sha256', SemanticEvaluationStore::canonical([$hash, $contractHash, $promptHash]));
         $start = hrtime(true);
+        $disDetNro = trim((string) ($payload['dis_det_nro'] ?? '')) ?: null;
+        $telemetryMeta = ['worker' => $this->consumer(), 'document_type' => $type];
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'extraction',
+            $event->documentId,
+            $disDetNro,
+            $telemetryMeta,
+            $event->jobId
+        );
         if (in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
             && ($stored['document_hash'] ?? '') === $hash && ($stored['contract_hash'] ?? '') === $contractHash
             && ($stored['prompt_context_hash'] ?? '') === $promptHash && is_array($stored['extraction_result'] ?? null)) {
             $state = $stored;
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'extraction',
+                self::elapsedMs($start),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, ['replayed_stored_result' => true]),
+                $event->jobId
+            );
         } else {
             $document = $this->documentInput->resolve($event);
             $integrity = DocumentIntegrityValidator::validate($document);
             if (!$integrity['valid']) {
-                return $this->prepareRejection($task, $document, $integrity);
+                return $this->prepareRejection($task, $document, $integrity, $start);
             }
             $queue = new FairAuditTaskQueue($this->redis, AuditExecutionConfig::fromEnv());
             $gateway = $this->gateway->withTask($task, new GeminiQuotaBudget($this->redis), $queue);
@@ -167,6 +186,18 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             }
             $state = $this->buildDocumentState($hash, $document, $extraction, self::elapsedMs($start), $contractHash, $promptHash);
             $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'mark_extracted', $event->documentId, $state);
+            $this->telemetryPublisher->completed(
+                $event->auditId,
+                'extraction',
+                self::elapsedMs($start),
+                $event->documentId,
+                $disDetNro,
+                array_merge($telemetryMeta, [
+                    'cache_hit'          => (bool) ($state['cache_hit'] ?? false),
+                    'gemini_duration_ms' => (int) ($state['gemini_duration_ms'] ?? 0),
+                ]),
+                $event->jobId
+            );
         }
         $next = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DOCUMENT_EXTRACTED, array_merge($payload, $state),
             $event->documentId, 'extracted');
@@ -174,10 +205,22 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         return $effects;
     }
 
-    private function prepareRejection(AuditTask $task, array $document, array $integrity): array
+    private function prepareRejection(AuditTask $task, array $document, array $integrity, ?int $startedAt = null): array
     {
         $event = $task->event();
         $reason = (string) ($integrity['reason'] ?? '');
+        $disDetNro = trim((string) ($event->payload['dis_det_nro'] ?? '')) ?: null;
+        $telemetryMeta = ['worker' => $this->consumer(), 'document_type' => $this->resolveDocumentType($event->payload)];
+        $durationMs = $startedAt !== null ? self::elapsedMs($startedAt) : 0;
+        $this->telemetryPublisher->rejected(
+            $event->auditId,
+            'extraction',
+            $durationMs,
+            $event->documentId,
+            $disDetNro,
+            array_merge($telemetryMeta, ['reason' => $reason]),
+            $event->jobId
+        );
         if (!DocumentRejectionReason::isAllowed($reason)) {
             throw new \DomainException('document_rejection_reason_invalid');
         }

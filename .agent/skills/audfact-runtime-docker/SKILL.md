@@ -8,24 +8,22 @@ description: Operar y depurar el runtime Docker de AudFact. Usar cuando se cambi
 ## Objetivo
 Asegurar que el entorno de ejecución local sea reproducible y diagnosticar fallas rápido.
 
-## Protocolo v2 y corte
+## Ejecución durable v2
 
-Execution=1 sigue por defecto. Perfil `execution-v2`: worker-semantic-vip/batch
-y execution-maintenance; registry incluye semantic, mantenimiento tiene CLI
-propia `bin/audit-execution-maintenance.php`. No activar perfil al instalar
-código sin protocolo/cuotas/Redis verificados.
-Workflow execution_phase steady/prepare/cutover/rollback, run_id y attestation
-checks_passed=false por defecto. Prepare no recrea Redis saludable. Cutover
-pausa/drena PHP-FPM (600 s) y todos los consumidores: indisponibilidad HTTP
-breve. INFO/CONFIG reales deben probar AOF/fsync always/noeviction; marca
-durable en volumen conserva esa política en rollback/recreación.
-Slots de persistencia y réplicas existentes se preservan. Observe deja POST
-cerrados y ejecuta lo importado; aceptación/canary preceden resume. Antes de
-mutar producción aplicar audfact-production-ops y autorización de la sesión.
-Nueve variables nuevas se sincronizan por `scripts/sync-execution-v2-github.ps1`;
-nueve valores existentes se heredan del repo por límite Environment=100.
-Cuotas UNCONFIGURED/0 bloquean v2. Ver SDD y deployment-and-ci para evidencia,
-backup/restore productivo, retiro E01 y rollback.
+`AUDIT_PIPELINE_EXECUTION_VERSION=2` es el único protocolo soportado y activo.
+`worker-semantic-vip`, `worker-semantic-batch` y `worker-execution-maintenance`
+son servicios core en `docker-compose.yml` (sin perfiles opcionales ni fases
+`steady/prepare/cutover/rollback`); el registro de workers incluye `semantic`
+y mantenimiento opera con CLI propia `bin/audit-execution-maintenance.php`.
+Redis exige `appendonly yes`, `appendfsync always`, `maxmemory-policy noeviction`
+y recibe `REDIS_PREFIX` tanto en `docker-compose.yml` como en `docker compose exec`
+durante el despliegue para mantener el marcador `${REDIS_PREFIX}audit:execution:version=2`
+alineado con PHP. Las cuotas `GEMINI_QUOTA_SCOPE`, `GEMINI_QUOTA_RPM`,
+`GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT` deben
+configurarse explícitamente con los límites reales del proyecto en AI Studio
+(valores ausentes, `UNCONFIGURED` o `<= 0` son rechazados en preflight y en
+`GeminiQuotaBudget`). Slots de persistencia y réplicas existentes se preservan.
+Antes de mutar producción aplicar `audfact-production-ops` y autorización de la sesión.
 
 > [!TIP]
 > Consulta la guía de inicio rápido y configuración del entorno en [overview.md](file:///c:/Users/USER/Desktop/AudFact/plans/overview.md#guía-de-inicio-rápido).
@@ -119,6 +117,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_WORKER_POLICY_REPLICAS` | `8` | Default Compose del worker de reglas |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `12` | Default Compose de réplicas SQL globales; un turno activo por slot |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados en Redis por job; cambiar configuración afecta jobs nuevos |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS`, `AUDIT_SEMANTIC_JOB_SLOTS` | `1` | Tareas simultáneas por job y etapa (1..16); aplican al reiniciar workers, sin migración de Redis |
 | `AUDIT_PENDING_RECLAIM_IDLE_MS` | `600000` | Idle mínimo antes de reclamar eventos pending abandonados |
 | `AUDIT_PENDING_RECLAIM_INTERVAL_MS` | `30000` | Intervalo de escaneo de pending por worker |
 | `AUDIT_JOB_TTL` | `604800` | Retencion de estado de jobs batch async en Redis |

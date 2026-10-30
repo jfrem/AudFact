@@ -10,7 +10,7 @@ pendientes y antes de leer mensajes nuevos; los extractores siguen drenando.
 `GeminiResponseGuard` clasifica bloqueo, candidato ausente, truncamiento y
 terminación insegura mediante tipos cerrados. Solo candidato ausente admite
 reintento; los demás cierran técnicamente sin producir evidencia clínica.
-El protocolo y la concurrencia RR/cap1 v2 conservan su contrato vigente.
+El protocolo v2 y la rotación RR entre jobs conservan su contrato vigente; el cupo de tareas simultáneas por job y etapa es configurable (`AUDIT_<ETAPA>_JOB_SLOTS`, default `1` = cap1).
 
 Desde 2026-10-08, `AuditDocumentCache` acota globalmente bytes JSON/entradas
 de adjuntos y `AuditDocumentInput` recupera cache misses desde origen verificando
@@ -114,7 +114,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | Archivo | Responsabilidad |
 |---|---|
 | `GeminiGateway.php` | Cliente HTTP (Guzzle) hacia la API de Gemini; implementa Circuit Breaker, retry/backoff y manejo de cuota |
-| `GeminiConfig.php` | Configuración por entorno; modelo actual/default gemini-3.7-flash, thinking opcional low/medium/high. MINIMAL se rechaza para ese modelo. Perfil agrupado v2 fija salida 8192 sin cambiar el perfil unitario v1. |
+| `GeminiConfig.php` | Configuración por entorno; modelo actual/default gemini-3.7-flash, thinking opcional low/medium/high. MINIMAL se rechaza para ese modelo. El perfil semántico agrupado fija salida de 8192 tokens. |
 | `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
 | `SemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver, integrando contexto documental |
 | `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |
@@ -193,14 +193,14 @@ terminalización técnica se publica desde `AuditEventConsumer`, incluyendo fall
 anteriores a SQL. Contrato, despliegue y recuperación de eventos antiguos:
 [flujo de auditoría](features/audit-workflow.md#continuidad-del-carril-de-auditoría).
 
-**Interfaz**: CLI (`php bin/audit-worker.php <worker_name>`). Defaults Compose: batch=2, orchestrator=3, downloader=12, extraction VIP=2/batch=12, normalizer=4, policy=8 y persistence=6. V2 agrega semantic VIP=1/batch=2 y mantenimiento. Los valores productivos observados son otro inventario fechado. Reclaim v1 usa AUDIT_PENDING_RECLAIM_IDLE_MS/INTERVAL_MS; v2 recupera leases de tareas.
+**Interfaz**: CLI (`php bin/audit-worker.php <worker_name>`). Defaults Compose: batch=2, orchestrator=3, downloader=12, extraction VIP=2/batch=12, normalizer=4, policy=8, semantic VIP=1/batch=2, persistence=6 y mantenimiento independiente (`worker-execution-maintenance`). Consumidores de stream usan reclaim PEL (`AUDIT_PENDING_RECLAIM_IDLE_MS`/`INTERVAL_MS`) y etapas planificadas recuperan leases de tareas.
 
 > [!NOTE]
-> **Workers que usan Gemini**: v1 extraction y policy; v2 extraction y semantic. Policy v2 planifica y evalúa PHP sin HTTP. Las claves por carril comparten presupuesto por proyecto/modelo; no multiplican cuota.
+> **Workers que usan Gemini**: `extraction` y `semantic`. `policy` planifica y evalúa reglas en PHP sin HTTP. Las claves por carril comparten presupuesto por proyecto/modelo; no multiplican cuota.
 
-### Ejecución durable v2 — implementada, activación pendiente
+### Ejecución durable v2 — protocolo único activo
 
-`AUDIT_PIPELINE_EXECUTION_VERSION=1` sigue siendo el default. V2 incorpora
+`AUDIT_PIPELINE_EXECUTION_VERSION=2` es el único protocolo soportado y activo (v1 erradicada). Incorpora
 `AuditTaskStage`/`AuditTaskState`, `FairAuditTaskQueue`, `AuditTaskRunner` y
 `AuditTaskCommitter`: turno FIFO dentro del job, round-robin entre jobs y un
 lease por job/etapa/carril en orquestación, extracción, policy y semántica.
@@ -220,11 +220,14 @@ cargos. La entrega de rules_evaluated continúa exclusivamente en el scheduler
 SQL con sus slots actuales. Estado/tareas/planes/outbox activos no expiran;
 bytes cacheados sí pueden expirar y se recuperan desde locator/hash original.
 
-Startup/admisión exigen protocolo coherente, Redis standalone/Sentinel con
-AOF/fsync always/noeviction, cuota positiva verificada y heartbeat saludable.
-El perfil Compose execution-v2 agrega semantic VIP/batch y mantenimiento;
-no se activa automáticamente por instalar la imagen. Cutover/rollback usan
-pausa, inventario/checksums y replays idempotentes. Ver [SDD y evidencia](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
+Startup y admisión exigen protocolo coherente (`AUDIT_PIPELINE_EXECUTION_VERSION=2`),
+Redis standalone/Sentinel con `appendonly yes`, `appendfsync always`,
+`maxmemory-policy noeviction` y `REDIS_PREFIX` propagado al contenedor Redis,
+cuotas explícitas verificadas (`GEMINI_QUOTA_SCOPE`, `GEMINI_QUOTA_RPM`,
+`GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD`, `GEMINI_QUOTA_MAX_INFLIGHT`) y heartbeat
+saludable. Los servicios `worker-semantic-vip`, `worker-semantic-batch` y
+`worker-execution-maintenance` son servicios core en `docker-compose.yml` sin
+perfiles opcionales ni código puente v1. Ver [SDD de remediación v2](sdd-remediacion-hallazgos-auditoria-v2.md).
 
 > [!NOTE]
 > `bin/schedule-daily-batches.php` es un script CLI independiente ubicado en `bin/` (no en `app/Services/Audit/Pipeline/`). Se ejecuta como cron dentro del contenedor PHP: `docker compose exec php php bin/schedule-daily-batches.php`.

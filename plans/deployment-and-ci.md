@@ -2,33 +2,32 @@
 
 ## Deploy Automatizado (CD)
 
-### Corte explícito de ejecución v2
+### Ejecución durable v2
 
-El workflow agrega `execution_phase=steady|prepare|cutover|rollback`,
-`execution_run_id` y `execution_checks_passed` (false por defecto). Steady
-rechaza cambios de protocolo que requieren corte; instalar código no activa
-v2. Prepare conserva versión 1 y no recrea Redis saludable. Un Redis ausente
-puede iniciarse en steady/prepare; cutover/rollback fallan si no está vivo.
+El workflow `.github/workflows/deploy-production.yml` despliega directamente el
+protocolo durable v2 (`AUDIT_PIPELINE_EXECUTION_VERSION=2`) sobre el host de
+producción LAN (`nodo1` en `172.16.0.3`), habiéndose consolidado en un solo nodo
+y desmantelado la matriz multi-nodo (`nodo2`), sin fases de transición v1 (`steady/prepare/cutover/rollback`)
+ni scripts puente.
 
-Cutover exige evidencia previa de cuotas, corpus/replay, backup/restore y
-ensayo de migración. Pausa/drena PHP-FPM y workers, aplica durabilidad real,
-archiva/inventaría fuentes, importa PEL/unread/continuaciones ACKed y verifica
-identidades, terminales, contadores y slots. Arranca perfil execution-v2 en
-observe: la creación pública sigue cerrada. La ventana incluye indisponibilidad
-HTTP breve. Aceptación y reapertura requieren revisión del canary; un booleano
-del workflow es una declaración del operador, no un resultado de las pruebas.
+En el paso `Validate required secrets`, el workflow exige que `GEMINI_QUOTA_SCOPE`
+(distinto de `UNCONFIGURED`), `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`,
+`GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT` (`1..32`) estén explícitamente
+definidos como enteros positivos en GitHub Variables antes de generar `.env`.
+Las cuotas no se deducen del histórico ni del tier y deben corresponder al
+proyecto activo en Google AI Studio. Para respetar el límite de 100 variables
+de Environment, nueve valores existentes (`WWWUSER_ID`, `WWWGROUP_ID`,
+`RUN_REDIS_INTEGRATION`, `AUDIT_EVENT_MAX_RETRIES`, `AUDIT_JOB_TTL`,
+`AUDIT_PENDING_RECLAIM_IDLE_MS`, `AUDIT_PENDING_RECLAIM_INTERVAL_MS`,
+`AUDIT_STREAM_BLOCK_MS`, `AUDIT_STREAM_MAXLEN`) se heredan de las variables del
+repositorio sin alterar sus valores.
 
-Rollback repara/publica efectos aceptados, reconstruye entradas originales
-idempotentemente y retira tareas/planes v2 mediante metadata. Conserva SQL,
-contadores/slots y AOF/noeviction. No activa imagen vieja con estado huérfano.
-Los manifiestos solo se retiran tras `accept` y horizonte terminal máximo.
-Ver [SDD y límites de verificación](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
-
-Las nueve variables nuevas están sincronizadas en Environment production;
-versión 1, scope UNCONFIGURED y cuotas 0 mantienen v2 desactivado. Para
-respetar las 100 variables, nueve valores existentes se heredan del repositorio
-sin cambiar sus valores. `scripts/sync-execution-v2-github.ps1` verifica/aplica
-ese contrato sin tocar secretos. Cuotas no se deducen del histórico ni del tier.
+El paso `Ensure Redis is running without recreating a healthy instance` preserva
+un contenedor Redis saludable, propaga `REDIS_PREFIX` tanto desde `docker-compose.yml`
+como en `docker compose exec -T -e REDIS_PREFIX=...`, configura `appendonly yes`,
+`appendfsync always` y `maxmemory-policy noeviction`, y escribe el marcador
+`${REDIS_PREFIX:-audfact:}audit:execution:version=2` en el mismo namespace que
+consume PHP. Ver [SDD de remediación v2](sdd-remediacion-hallazgos-auditoria-v2.md).
 
 CI agrega job Redis 7 de integración opt-in, independiente de la suite unitaria,
 con prefijos aislados, procesos concurrentes y transporte Gemini simulado.
@@ -134,6 +133,7 @@ flowchart LR
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | — | Réplicas globales de `worker-persistence` (`6` por defecto) |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | — | Retención del scheduler justo por job (`604800` por defecto) |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | — | Turnos por job (`2` por defecto, 1..16); fijados en Redis al primer uso |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS`, `AUDIT_SEMANTIC_JOB_SLOTS` | — | Tareas simultáneas por job y etapa (`1` por defecto, 1..16); el workflow las inyecta desde `vars` y genera el `.env` |
 
 El workflow inyecta y genera `AUDIT_PERSISTENCE_JOB_SLOTS`. El primer despliegue requiere drenar jobs y colas con productores/consumidores actuales antes de recrearlos coordinadamente. Para rollback a una imagen sin slots, drenar primero; reducir réplicas con la imagen nueva limita concurrencia sin abandonar pendientes. [Especificación de migración](sdd-optimizacion-cuello-botella-persistencia.md).
 

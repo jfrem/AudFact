@@ -1,0 +1,38 @@
+{
+  "sdd-flow-reminder": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node .agent/scripts/inject-sdd-reminder.mjs",
+        "timeout": 5
+      }
+    ]
+  },
+  "ensure-tests-baseline": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .agent/scripts/check-tests-baseline.mjs",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  },
+  "enforce-docs-sync": {
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node .agent/scripts/check-docs-updated.mjs",
+        "timeout": 15
+      }
+    ]
+  }
+}
+

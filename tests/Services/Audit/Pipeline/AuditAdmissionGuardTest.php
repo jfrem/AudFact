@@ -55,17 +55,17 @@ final class AuditAdmissionGuardTest extends TestCase
             if ($keys === []) {
                 return 1000000;
             }
-            if ($keys[0] === FairAuditTaskQueue::COUNTS) {
-                $flat = [];
-                foreach ($counts as $field => $count) {
-                    array_push($flat, $field, (string) $count);
-                }
-                return $flat;
+            $flat = [];
+            foreach ($counts as $field => $count) {
+                array_push($flat, $field, (string) $count);
             }
-            $parts = explode(':', $keys[0]);
-            $prefix = $parts[3] . ':' . $parts[4] . ':';
-            return ($counts[$prefix . 'pending'] ?? 0) + ($counts[$prefix . 'delayed'] ?? 0) > 0
-                ? ['synthetic-task', '1000'] : [];
+            $heads = array_map(static function (string $waiting) use ($counts): array {
+                $parts = explode(':', $waiting);
+                $prefix = $parts[3] . ':' . $parts[4] . ':';
+                return ($counts[$prefix . 'pending'] ?? 0) + ($counts[$prefix . 'delayed'] ?? 0) > 0
+                    ? ['synthetic-task', '1000'] : [];
+            }, array_slice($keys, 2));
+            return [$flat, $heads];
         });
         return $redis;
     }

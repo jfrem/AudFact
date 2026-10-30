@@ -18,29 +18,30 @@ Ver [procedimiento y evidencia](ajustes-alto-volumen-2026-10-08.md).
 
 ## Arquitectura de contenedores
 
-### Perfil de ejecución v2
+### Ejecución durable v2
 
-Execution=1 sigue activo por defecto. `--profile execution-v2` incorpora
-`worker-semantic-vip` (1), `worker-semantic-batch` (2) y `execution-maintenance`.
-Sus límites/reinicio siguen Compose; semantic usa la imagen PHP común. Las
-réplicas existentes y `AUDIT_PERSISTENCE_JOB_SLOTS` se conservan.
+`AUDIT_PIPELINE_EXECUTION_VERSION=2` es el único protocolo soportado y activo.
+`worker-semantic-vip` (1), `worker-semantic-batch` (2) y `worker-execution-maintenance`
+son servicios core en `docker-compose.yml` (sin perfiles opcionales). Sus
+límites y políticas de reinicio siguen Compose; `semantic` usa la imagen PHP
+común. Las réplicas existentes y `AUDIT_PERSISTENCE_JOB_SLOTS` se conservan.
 
-V2 requiere cuotas reales positivas y proyecto identificado, Redis
-standalone/Sentinel, AOF appendfsync always, maxmemory-policy noeviction,
-volumen y marcador coherente. `durability-check` lee INFO/CONFIG reales.
-La marca persistente `/data/.audit-execution-v2-durable` conserva AOF/noeviction
-en recreaciones posteriores, incluido rollback funcional. No usar el cambio
-del comando Compose para recrear un Redis saludable durante prepare.
+La ejecución exige cuotas reales positivas configuradas explícitamente y proyecto
+identificado (`GEMINI_QUOTA_SCOPE`, `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`,
+`GEMINI_QUOTA_RPD`, `GEMINI_QUOTA_MAX_INFLIGHT`), Redis standalone/Sentinel,
+AOF `appendfsync always`, `maxmemory-policy noeviction`, `REDIS_PREFIX`
+transmitido al contenedor Redis y marcador coherente `${REDIS_PREFIX}audit:execution:version=2`.
+`durability-check` lee `INFO` y `CONFIG GET` reales.
 
-El CLI `bin/audit-execution-maintenance.php` ofrece pause/observe/resume,
-outbox/reconcile/gc, migrate/rollback/verify/accept por run-id. Reconcile y
-migración exigen ambas pausas y procesos drenados. Observe ejecuta trabajo
-ya admitido, con nuevos POST cerrados; resume comprueba heartbeat/capacidad.
-GC respeta referencias activas y edad terminal máxima; no borra DLQ.
-
-La barrera de cutover detiene PHP-FPM (timeout 600 s) y todos los consumidores;
-hay indisponibilidad HTTP breve. Backup/restore del volumen productivo y
-canary siguen siendo requisitos operativos. [Procedimiento completo](sdd-homologacion-semantica-asincrona-ejecucion-justa.md).
+El CLI `bin/audit-execution-maintenance.php` ofrece `run`, `tick`, `protocol`,
+`durability-check`, `pause`, `observe`, `resume`, `outbox`, `reconcile` y `gc`.
+`reconcile` exige ambas pausas (`audit:admission:paused=1` y `audit:execution:paused=1`).
+`observe` ejecuta trabajo ya admitido con nuevos `POST` cerrados; `resume`
+comprueba heartbeat y capacidad. `gc` respeta referencias activas y edad
+terminal máxima (`max(AUDIT_STATE_TTL, AUDIT_JOB_TTL, AUDIT_PERSISTENCE_QUEUE_TTL)`),
+retirando estados terminales (`audit:*:state`, `job:*:state` + `jobs:index`) y
+liberando reservas `audit:reservation:disid:*` huérfanas o terminales; no borra DLQ.
+Ver [SDD de remediación v2](sdd-remediacion-hallazgos-auditoria-v2.md).
 
 ```mermaid
 flowchart TD
@@ -176,6 +177,7 @@ Redis se configura desde Compose mediante variables no sensibles:
 | `AUDIT_RESERVATION_TTL` | `86400` | Retencion de reservas por `DisId` durante 24h. |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia por job. |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | `2` | Slots 1..16 fijados por job; cambios de configuración afectan jobs nuevos. |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS`, `AUDIT_SEMANTIC_JOB_SLOTS` | `1` | Tareas simultáneas por job y etapa (1..16). Se aplican al reiniciar los workers; `1` conserva RR/cap1. |
 | `AUDIT_DOCUMENT_CACHE_MAX_BYTES` | `268435456` | Presupuesto global de bytes JSON BLOB nuevos. |
 | `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` | `1024` | Presupuesto global de entradas BLOB nuevas. |
 

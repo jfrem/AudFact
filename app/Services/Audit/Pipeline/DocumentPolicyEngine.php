@@ -785,7 +785,7 @@ class DocumentPolicyEngine
     ): array {
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
 
-        // Normalizar ambos sets con limpieza de sufijos farmac�uticos
+        // Normalizar ambos sets con limpieza de sufijos farmac�uticos
         $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $fdvArticles);
         $docNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $docArticles);
 
@@ -941,7 +941,7 @@ class DocumentPolicyEngine
      * Evalúa pares de artículos huérfanos en un solo request batch al LLM.
      *
      * Delega a SemanticMatchJudge::evaluateBatch() que gestiona el contrato
-     * SemanticBatchContract, el routing V1/V2 y la validación de respuesta.
+     * SemanticBatchContract, el despacho vía GeminiGateway y la validación de respuesta.
      * Si el judge no soporta batch o la llamada falla, retorna null para
      * activar el fallback individual.
      *
@@ -991,7 +991,7 @@ class DocumentPolicyEngine
             $requestContext['batch_size'] = count($batchPairs);
             $requestContext['source'] = 'DocumentPolicyEngine::tryBatchSemanticMatch';
 
-            // evaluateBatch gestiona: SemanticBatchContract, size check, sendPrebuiltBody (V1/V2), validate
+            // evaluateBatch gestiona: SemanticBatchContract, size check, sendPrebuiltBody, validate
             $batchResult = $this->semanticJudge->evaluateBatch($batchPairs, $requestContext);
 
             // Mapear resultados (pair_id → fi/di) de vuelta a índices del motor
@@ -1144,13 +1144,20 @@ class DocumentPolicyEngine
     }
 
     /**
+     * Construye un resumen determinista del contexto documental para comparación semántica.
+     *
+     * Ordena las claves alfabéticamente (ksort) para asegurar identidad canónica invariable
+     * ante serialización/deserialización en almacenes distribuidos (Redis/Lua).
+     *
      * @param array<string,mixed> $context
      */
     private function buildDocumentContextSummary(array $context, string $excludeField = ''): string
     {
         $parts = [];
         if (!empty($context['document_fields']) && is_array($context['document_fields'])) {
-            foreach ($context['document_fields'] as $k => $v) {
+            $fields = $context['document_fields'];
+            ksort($fields, SORT_STRING);
+            foreach ($fields as $k => $v) {
                 if ($k === $excludeField) {
                     continue;
                 }

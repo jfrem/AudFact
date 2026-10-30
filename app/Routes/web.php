@@ -41,8 +41,8 @@ $router->post('/audit/async', 'AuditController', 'async');
 $router->get('/audit/jobs', 'AuditController', 'jobsList');
 $router->get('/audit/jobs/{jobId}', 'AuditController', 'jobStatus');
 $router->get('/audit/status/{auditId}', 'AuditController', 'status');
-$router->get('/audit/dlq', 'AuditDlqController', 'index');
-$router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess');
+$router->get('/audit/dlq', 'AuditDlqController', 'index')->middleware('auth');
+$router->post('/audit/dlq/reprocess', 'AuditDlqController', 'reprocess')->middleware('auth');
 
 // Costos de Auditoría IA y TRM (registrados antes de wildcards de auditoría)
 $router->get('/audit/costs', 'AuditCostController', 'index');

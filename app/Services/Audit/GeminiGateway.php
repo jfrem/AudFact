@@ -142,7 +142,7 @@ class GeminiGateway
         return $this->config->model;
     }
 
-    /** Ciclo de vida por tarea; los gateways legacy conservan su contrato. */
+    /** Ciclo de vida por tarea planificada con presupuesto de cuota. */
     public function withTask(AuditTask $task, GeminiQuotaBudget $quota, FairAuditTaskQueue $queue): self
     {
         $gateway = clone $this;
@@ -158,10 +158,7 @@ class GeminiGateway
     }
 
     /**
-     * Envía un body pre-construido (vía requestBody()) con routing automático V1/V2.
-     *
-     * V1 (sin task): HTTP POST directo vía executePost().
-     * V2 (con task): routing a través del task queue vía executeTaskRequest().
+     * Envía un body pre-construido (vía requestBody()) a través del contexto activo del gateway.
      *
      * @param  array<string, mixed> $body     Payload completo listo para la API.
      * @param  array<string, mixed> $context  Metadata de trazabilidad y task_type.

@@ -1,5 +1,152 @@
 # Changelog AudFact
 
+## [2026-10-30] - Rediseño Forense del Tab de Adjuntos (Mesa Forense Documental)
+
+- **Priorización y Elevación de la Evidencia Documental (`impeccable`)**:
+  - **Mesa Forense Split-View en `AuditResultDetailModal`**:
+    - Reemplazado el apilamiento vertical anterior (lista horizontal sobre visor recortado) por una arquitectura Split-View de pantalla completa (`h-[calc(96vh-140px)] overflow-hidden p-0`).
+    - **Riel lateral de expedientes** (`w-64 lg:w-72 xl:w-80`): despliega la lista vertical de documentos adjuntos con indicación de formato (BLOB, URL, PDF, Imagen), alias y selección activa de alto contraste sin robar altura de visualización.
+    - **Stage principal de evidencia** (`flex-1 h-full`): maximiza el 100% del alto y ancho disponible para el lienzo del documento.
+  - **Barra de Herramientas Forense en `AttachmentViewerPanel`**:
+    - Controles de zoom interactivo (50% a 250% con botón de reset a 100%).
+    - Control de rotación continua a 90° (`RotateCw`) para corregir fórmulas y actas escaneadas horizontalmente o invertidas.
+    - Botón de maximizado / modo inmersivo a pantalla completa (`Maximize2` / `Minimize2`).
+    - Acciones directas de descarga y apertura en pestaña independiente (`ExternalLink`, `Download`).
+  - **Transformaciones Fluidas en `AttachmentIframeViewer`**:
+    - Renderizado de imágenes sobre fondo de alto contraste con transformaciones CSS fluidas (`scale` y `rotate`).
+    - Iframe al 100% para visualización nativa de archivos PDF sin scroll-jacking.
+
+## [2026-10-30] - Refinamiento Impeccable del Modal de Rendimiento (Erradicación de Redundancias)
+
+- **Optimización Forense de Interfaz bajo Guías de Diseño (`impeccable`)**:
+  - **Eliminación de Elementos Redundantes**:
+    - Suprimida la métrica duplicada de `Costo IA` en la barra superior de `frontend/components/audit/audit-timings-panel.tsx`.
+    - Eliminada la métrica redundante `Documentos` en el panel superior (ya presente en el encabezado general del modal y en las columnas de las tablas de fase).
+    - Removida la tarjeta de `Fase dominante` del bloque superior; ahora se resalta contextualmente con una insignia `Mayor tiempo` directamente sobre la fila correspondiente en la tabla "Fases del pipeline".
+    - Unificada la duración en una única métrica forense `Ejecución`, integrando la espera en cola (`+ Xms en cola`) de forma no invasiva.
+  - **Estructura Forense Cuádruple Simétrica**:
+    - Reorganizada la cabecera en un grid equilibrado de 4 métricas esenciales: `Ejecución`, `Costo IA` (COP/USD), `Tokens Gemini` y `Caché`.
+  - **Limpieza de Pie de Tabla en Consumo Gemini**:
+    - Reemplazada la tarjeta de resumen financiero repetitivo por una línea sutil de metadatos técnicos (Modelo, TRM aplicada y Liquidación total) alineada con la doctrina *No-Nesting*.
+
+## [2026-10-30] - Visualización de Costos en Pesos Colombianos (COP) en el Modal de Rendimiento
+
+- **Visualización Financiera de Auditoría IA en la UI**:
+  - Incorporado el esquema `AuditCostInvoiceSchema` y `AuditCostAttemptSchema` en `frontend/lib/schemas/domain.ts` mapeando el contrato de `GET /audit/costs/{facNro}`.
+  - Añadido el endpoint y cliente `getAuditCostByInvoice` en `frontend/lib/api/endpoints.ts` y `frontend/lib/api/audfact.ts`.
+  - Creado el formateador de moneda colombiana `formatCurrencyCop` en `frontend/lib/formatters/index.ts` con manejo de decimales adaptativos y formato con separadores de miles estándar.
+  - Integrada la consulta automática de costos en `AuditResultDetailModal` y reflejada en `AuditTimingsPanel` con:
+    1. Tarjeta métrica superior `Costo IA` en COP (destacada en verde esmeralda con icono `Coins`), desglose en USD y tooltip explicativo con TRM y tokens acumulados.
+    2. Bloque de resumen financiero al pie de la tabla de "Consumo Gemini" con TRM aplicada del día y modelo utilizado.
+
+## [2026-10-30] - Remediación de Hallazgos Consolidados de Auditoría (GOV-001, ARCH-001, QUAL-001)
+
+- **Gobernanza de Propietarios de Código (`GOV-001`)**:
+  - Incorporada la directiva comodín raíz `* @jfrem` en `.github/CODEOWNERS` junto con el mapeo explícito de `/app/Controllers/`, `/app/Routes/`, `/frontend/`, `/.env.example` y `/public/index.php`.
+  - Garantiza que cualquier Pull Request sobre la capa HTTP, controladores, variables de entorno o interfaz de usuario requiera revisión obligatoria automática por parte del arquitecto líder (`@jfrem`).
+- **Homologación de Excepción en CLI de Durabilidad (`ARCH-001`)**:
+  - Modificado `bin/audit-execution-maintenance.php:77` para lanzar la excepción uniforme `execution_durability_required` en lugar de la variante obsoleta `migration_durability_required`, unificando el identificador con `AuditExecutionConfig::assertProtocol()`.
+- **Armonización de Especificación SDD de Cuotas Gemini (`QUAL-001`)**:
+  - Actualizado `plans/sdd-remediacion-hallazgos-auditoria-v2.md` para reconocer y formalizar los fallbacks controlados de desarrollo local y testing en `GeminiQuotaBudget` (`2000` RPM, `4000000` TPM, `1000000` RPD, `audfact-default`, `gemini-3.8-flash`) cuando `$limits === null`, mientras se mantiene la obligatoriedad estricta de variables en despliegues productivos (`deploy-production.yml`).
+
+## [2026-10-30] - Sistema Integral de Gobernanza Agéntica por Lifecycle Hooks (PreInvocation, PreToolUse y Stop)
+
+- **Arquitectura de 3 niveles de compuertas físicas (*Lifecycle Governance*) en `.agent/hooks.json`**:
+  - `sdd-flow-reminder` (`PreInvocation`): Inyecta un mensaje efímero con el protocolo canónico de 8 fases (Tests iniciales -> Spec SDD -> Supuestos -> TDD -> Clean Rebuild -> Tests finales -> Documentación -> Reporte de implementación).
+  - `ensure-tests-baseline` (`PreToolUse` en `edit_file|write_file`): Bloquea modificaciones a código de producción (`app/`, `core/`, `database/`, `frontend/`) si no se cuenta con: 1) Pruebas en verde y 2) Especificación técnica en `plans/sdd-*.md` o plan activo.
+  - `enforce-docs-sync` (`Stop`): Inspecciona el cierre tras modificar código y cancela la finalización (`continue`) si falta alguna de las 3 evidencias: 1) Re-ejecución de pruebas unitarias posterior a la edición de código (`mtime` en `.phpunit.cache/test-results`), 2) Registro en `plans/changelog.md` y documentación, o 3) Artefacto de reporte final de implementación en la carpeta de artefactos.
+- **Implementación de scripts de auditoría**:
+  - Añadidos `.agent/scripts/inject-sdd-reminder.mjs` y `.ps1`.
+  - Actualizados `.agent/scripts/check-tests-baseline.mjs` y `.ps1` con la compuerta SDD.
+  - Actualizados `.agent/scripts/check-docs-updated.mjs` y `.ps1` con la verificación de pruebas finales y reporte de artefacto.
+
+## [2026-10-30] - Implementación de Lifecycle Hook de Antigravity para Línea Base de Pruebas en Verde (`PreToolUse` Hook)
+
+- **Creación de Hook de línea base previa de pruebas (`.agent/hooks.json`)**:
+  - Implementado el hook `"ensure-tests-baseline"` bajo el evento `PreToolUse` con matcher `"edit_file|write_file"` ejecutando `node scripts/check-tests-baseline.mjs` con timeout de 15 segundos.
+  - Puerta de calidad previa a la implementación: intercepta cualquier intento de modificar código de producción (`app/`, `core/`, `database/`, `frontend/src/`, `frontend/app/`).
+  - Bloquea la modificación retornando `{"decision": "deny", "reason": "..."}` si la suite unitaria PHPUnit no ha sido ejecutada y certificada en verde (código 0) en la conversación actual (`transcriptPath`) o en los últimos 15 minutos en el caché de resultados (`.phpunit.cache/test-results`).
+  - Exenciones y salvaguardas: permite libremente la creación y edición de pruebas (`tests/`), planes de documentación (`plans/`, `docs/`, `*.md`), skills (`.agent/`), configuraciones, o cuando el usuario especifica explícitamente `[skip-tests]`.
+- **Scripts de verificación dual**:
+  - Implementado `.agent/scripts/check-tests-baseline.mjs` (Node.js ESM cross-platform nativo).
+  - Implementado `.agent/scripts/check-tests-baseline.ps1` (PowerShell nativo para entornos Windows locales).
+
+## [2026-10-30] - Implementación de Lifecycle Hook de Antigravity para Sincronización Obligatoria de Documentación (`Stop` Hook)
+
+- **Creación de Hook de ciclo de vida en Antigravity (`.agent/hooks.json`)**:
+  - Implementado el hook `"enforce-docs-sync"` bajo el evento de terminación `Stop`, ejecutando `node scripts/check-docs-updated.mjs` con timeout de 15 segundos.
+  - Actúa como candado de calidad (*hard gatekeeper*): cuando el agente de IA intenta finalizar la respuesta (`NO_TOOL_CALL`), inspecciona si existen cambios en código fuente (`app/`, `core/`, `frontend/`, `docker/`, `database/`, `bin/`, `.github/`).
+  - Si detecta cambios en código sin la respectiva actualización en `plans/changelog.md` o en la documentación de `plans/` / `.agent/skills/`, cancela la terminación retornando `{"decision": "continue", "reason": "..."}` forzando al modelo a documentar los cambios mediante el protocolo de `audfact-docs-sync`.
+  - Salvaguardas integradas: no bloquea si la conversación no usó herramientas de modificación de archivos (`transcriptPath`), evita bucles infinitos cortando al superar `executionNum >= 3`, y permite la parada inmediata si el agente fue cancelado o finalizó por error.
+- **Scripts de verificación dual**:
+  - Implementado `.agent/scripts/check-docs-updated.mjs` (Node.js ESM cross-platform nativo).
+  - Implementado `.agent/scripts/check-docs-updated.ps1` (PowerShell nativo para entornos Windows locales).
+
+## [2026-10-30] - Consolidación en Nodo Único (nodo1) y Desmantelamiento de Matriz Multi-Nodo (nodo2)
+
+- **Desmantelamiento de arquitectura multi-nodo y retiro de `nodo2`**:
+  - Eliminada la estrategia matricial `matrix.node: [nodo1, nodo2]` en `.github/workflows/deploy-production.yml`, fijando el despliegue directo sobre el runner `[self-hosted, audfact-prod-lan, nodo1]` en `172.16.0.3`.
+  - Eliminada la variable de despliegue `TARGET_NODE` y la bifurcación condicional de `NODE_HOST="172.16.10.50"`.
+  - Simplificado el origen de CORS `ALL_ORIGINS` para remover la IP de la máquina secundaria `172.16.10.50`.
+  - Deprecada formalmente la propuesta `plans/sdd-cluster-ha-redis-sentinel.md` al comprobarse empíricamente que la lentitud histórica se debía a cuellos de botella lógicos de software (caché de 256 MB, slots de 1 tarea y límite de 16 inflight) ya resueltos, y que un solo servidor físico cubre la carga con más de 13 GB de RAM disponibles.
+
+## [2026-10-30] - Remediación de variables de entorno, alineación 1:1 (.env / .env.example) y eliminación de cuellos de botella
+
+- **Alineación 1:1 simétrica y estricta entre `.env` y `.env.example`**:
+  - Incorporadas 16 claves ausentes en `.env` que forzaban caídas a defaults en código: `AUDIT_DOCUMENT_CACHE_MAX_BYTES`, `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES`, `GEMINI_QUOTA_SCOPE`, `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD`, `GEMINI_QUOTA_MAX_INFLIGHT`, `AUDIT_WORKER_SEMANTIC_VIP_REPLICAS`, `AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS`, `AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE`, `AUDIT_INTERNAL_API_BASE`, `AUDIT_WORKER_LANE`, `GEMINI_API_KEY_PRIORITY`, `GEMINI_API_KEY_BATCH`, `REDIS_SENTINELS`, `REDIS_CLUSTER_NODES`.
+  - Agregada `REDIS_MAXMEMORY_POLICY=noeviction` a `.env.example` y corregido en `.env` (donde estaba indebidamente en `volatile-lru`, violando la durabilidad v2).
+  - Eliminada la clave zombi deprecada `AUDIT_RESERVATION_TTL=86400` tanto de `.env` como de GitHub Environment `production`.
+  - Ambos archivos (`.env` y `.env.example`) cuentan exactamente con 133 variables ordenadas idénticamente.
+- **Desbloqueo de cuellos de botella de throughput en pipeline asíncrono**:
+  - `AUDIT_DOCUMENT_CACHE_MAX_BYTES` elevado a 1.5 GB (`1610612736`) y `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` a `4096` en código (`AuditDocumentCache`), `.env`, `.env.example` y GitHub `production`. Erradica las 82 pausas y más de 111 minutos acumulados de retención del `AuditDocumentPrefetchGate`.
+  - `GEMINI_QUOTA_MAX_INFLIGHT` ajustado a `32` (límite máximo permitido), permitiendo saturar concurrentemente los 24 workers de extracción sin diferir solicitudes por cuota.
+  - Turnos simultáneos (`FairAuditTaskQueue` slots) incrementados a valores óptimos: `AUDIT_EXTRACTION_JOB_SLOTS=16`, `AUDIT_POLICY_JOB_SLOTS=8`, `AUDIT_PERSISTENCE_JOB_SLOTS=8`, `AUDIT_ORCHESTRATION_JOB_SLOTS=4`, `AUDIT_SEMANTIC_JOB_SLOTS=4`.
+  - Escalado y persistencia en Compose y Deploy Workflow: `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS=24`, `AUDIT_WORKER_DOWNLOADER_REPLICAS=16`, `AUDIT_WORKER_POLICY_REPLICAS=12`, `AUDIT_WORKER_PERSISTENCE_REPLICAS=16`.
+  - Sincronización remota en GitHub (`gh variable set`) para las 12 variables modificadas/agregadas bajo el límite de 100 variables del entorno.
+
+## [2026-10-30] - Determinismo en contexto semántico y observabilidad de errores en tareas
+
+- **Determinismo en `DocumentPolicyEngine::buildDocumentContextSummary`**:
+  - `buildDocumentContextSummary()` ordena alfabéticamente las claves de `$context['document_fields']` mediante `ksort($fields, SORT_STRING)` antes de construir el resumen de contexto textual.
+  - Erradica el fallo `DomainException: semantic_result_missing` (16 de 17 incidencias en DLQ), que se originaba al diferir el orden de las claves JSON tras el roundtrip en Redis/Lua (`cjson.decode` → `cjson.encode`) entre la etapa de planificación (`plan()`) y la evaluación resuelta (`evaluateResolved()`), cambiando el hash del par (`$pair`).
+- **Resiliencia defensiva en `ResolvedSemanticResolver` y `SemanticEvaluationStore::results`**:
+  - `SemanticEvaluationStore::results()` adjunta metadatos canónicos (`expected`, `actual`, `purpose`, `field`) a los resultados resueltos.
+  - `ResolvedSemanticResolver::evaluate()` incorpora búsqueda por signatura canónica si la coincidencia directa por hash de par no existe (p. ej. planes legados en vuelo), antes de lanzar `DomainException`.
+- **Observabilidad de errores en `AuditTaskRunner`**:
+  - `Logger::warning('Audit task operation failed')` ahora registra el mensaje de error saneado (`error_message`, hasta 240 caracteres) además de la clase de excepción.
+  - El evento DLQ (`dead_letter`) guarda el mensaje de error real saneado en `last_error_message` (hasta 500 caracteres) en vez del valor estático `'audit_task_failed'`.
+- **Pruebas unitarias**:
+  - Añadidas a `DocumentPolicyEngineTest`: `testBuildDocumentContextSummaryIsDeterministicRegardlessOfKeyOrder`, `testResolvedSemanticResolverFallbackMatchesByCanonicalSignatureWhenPairIdDiffers` y `testResolvedSemanticResolverThrowsWhenCandidateNotFound`. Total de la suite: 1017 tests pasando con 0 errores y 0 fallos.
+
+## [2026-10-29] - Turnos simultáneos por job y etapa (`FairAuditTaskQueue`)
+
+- **Contexto**: con el contrato RR/cap1 solo una tarea por `job:<id>` podía estar activa por etapa. Con 12 workers de extracción y 3 jobs activos había 3 en uso (metrics: `extraction:batch:active = 3` con 593 en cola), y el throughput de un job quedaba limitado a un worker.
+- **Cambio**: `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS` y `AUDIT_SEMANTIC_JOB_SLOTS` (1..16, default `1`) fijan cuántas tareas de un mismo job pueden estar activas a la vez en cada etapa. `AuditExecutionConfig::jobSlots()` las expone y `FairAuditTaskQueue::claim()` las aplica en Lua.
+  - `:active` pasa de `scope → task_id` a `scope → número de turnos activos`. Un valor legado (`task_id`) cuenta como un turno y se normaliza al liberar, por lo que no requiere migración ni pausa.
+  - `DEFER`, `MAINTAIN` (expiración de lease) y `COMMIT` liberan exactamente un turno; `reconcile()` reconstruye el contador.
+  - `claim()` relee la cabeza del job una vez si otro worker la tomó entre la lectura y el claim, para no perder el turno por la carrera.
+- **Se conserva**: rotación RR entre jobs (el scope pasa al final en cada claim), lease/fence, receipts, outbox, `evaluation_base_revision` y `RETRY_PREPARE` como protección de concurrencia sobre la misma auditoría. Con `1` el comportamiento es idéntico al anterior.
+- **Compartido**: extracción y semántica siguen limitadas por `GEMINI_QUOTA_MAX_INFLIGHT`; el exceso se difiere por cuota, no falla.
+- **Pruebas**: `AuditExecutionConfigTest` (9) y dos pruebas de integración Redis (`testJobSlotsAllowConcurrentTurnsUpToTheCapAndFreeThemOnCommit`, `testJobSlotsCountLegacyActiveEntryAsOneTurnAndReleaseIt`).
+- **`metrics()` atómico**: contadores e índices `:waiting` se leen en una sola evaluación Lua (`FairAuditTaskQueue::METRICS`). La lectura en dos pasos podía ver un contador adelantado respecto del índice y lanzar `task_waiting_index_missing`; con más concurrencia eso dejó a 3 orquestadores en crash-loop (`AuditAdmissionGuard::orchestrationAtCapacity()` llama a `metrics()` en cada tick). La corrupción real del índice se sigue detectando.
+- **Validación operativa** (job NUEVA EPS, 1.270 facturas, con `ORCHESTRATION=2`, `EXTRACTION=4`, `POLICY=2`, `SEMANTIC=2`): con cap `1` el job avanzaba a ~2,5 facturas/min (87 en 55 min); con los cupos, ~9,9 facturas/min (1.066 facturas en 108 min). `extraction:batch:active` pasó de 3 a 8 con 12 workers. No se observó aumento de `GeminiOperationException`/circuit breaker tras el cambio. Medición observacional sobre un job real, no un benchmark controlado.
+- **Observado y no atribuible al cambio**: fallos de policy por `DomainException` (≈10 por job, con la misma cadencia antes y después) y una auditoría con fallo de extracción por `RuntimeException` sin mensaje en el log. Pendiente registrar el mensaje saneado en `Audit task operation failed`.
+
+## [2026-10-29] - Activación exclusiva de Execution v2, erradicación de v1 y remediación de auditoría
+
+- **Erradicación total de v1 y de la maquinaria de transición v1↔v2 (`ARCH-001`)**:
+  - Eliminados `app/Services/Audit/Pipeline/AuditExecutionMigration.php` y `scripts/sync-execution-v2-github.ps1`, y retirados los subcomandos `migrate`, `rollback`, `verify` y `accept` de `bin/audit-execution-maintenance.php`.
+  - Eliminados `importPending()`, `gcMigrations()` y las ramas `migration_disposition === 'rolled_back'` de `AuditExecutionMaintenance.php` y `AuditExecutionInspector.php`.
+  - Ampliado `AuditExecutionMaintenance::gc()` para recolectar estados terminales (`audit:*:state`, `job:*:state` + `jobs:index`) sin importar la versión de protocolo histórica tras la ventana de retención, y liberar reservas `audit:reservation:disid:*` cuyo `audit_id` es terminal o inexistente.
+- **Higiene de contratos en `BatchJobStore` (`QUAL-001`)**:
+  - Eliminados `DEFAULT_RESERVATION_TTL_SECONDS`, `reservationTtlSeconds()` y el cuarto parámetro `?int $ttl = null` de `BatchJobStore::claimAuditReservation()`.
+- **Cuotas Gemini explícitas, propagación de `REDIS_PREFIX` y despliegue CD (`ARCH-002`)**:
+  - `GeminiQuotaBudget` rechaza variables ausentes, `UNCONFIGURED` o `<= 0` para `GEMINI_QUOTA_SCOPE`, `GEMINI_MODEL`, `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT`.
+  - `.github/workflows/deploy-production.yml` valida las cuotas como variables obligatorias en `Validate required secrets` sin defaults silenciosos, propaga `REDIS_PREFIX` al contenedor `redis` (junto con `docker-compose.yml`), retira `execution_phase`, `execution_run_id` y `execution_checks_passed`, e incluye `worker-semantic-vip`, `worker-semantic-batch` y `worker-execution-maintenance` en el diagnóstico de fallos sobre la matriz activa `[nodo1, nodo2]`.
+- **Autenticación de endpoints administrativos DLQ y gobernanza (`SEC-002`, `GOV-001`)**:
+  - Creado `core/AuthMiddleware.php` (`Core\AuthMiddleware::handle`) validando `X-API-KEY` o `Authorization: Bearer` contra `MCP_WEBHOOK_SECRET` en tiempo constante (`hash_equals`), y aplicado `->middleware('auth')` a `GET /audit/dlq` y `POST /audit/dlq/reprocess` con pruebas de despacho real en `Core\Router`.
+  - Creado `.github/CODEOWNERS` y sincronizadas las skills y la documentación operativa.
+
 ## [2026-10-23] - Limpieza Clean Code, actualización a Gemini 3.8 Flash e higiene de contratos
 
 - **Actualización de Modelo IA (`gemini-3.8-flash`)**:

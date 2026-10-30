@@ -11,22 +11,10 @@ Usar esta skill para operaciones remotas sobre el servidor de produccion LAN `ad
 
 ## Datos Base
 
-### Activación v2
+### Ejecución durable v2 en producción
 
-El diff implementa v2, pero no está desplegado; GitHub mantiene versión 1 y
-scope/cuotas sin configurar. Diagnósticos anteriores pertenecen a la versión
-previa. El procedimiento completo está en la SDD de ejecución justa y
-plans/deployment-and-ci.md. No deducir cuota de keys/tier/histórico; verificar
-proyecto y límites activos en AI Studio, incluyendo otras aplicaciones.
-Phases prepare/cutover/rollback son explícitas; corte drena PHP-FPM/workers y
-requiere ventana breve de indisponibilidad. Backup/restore del volumen,
-replay clínico y canary son requisitos externos. Observe mantiene admisión
-cerrada; accept no sustituye esas pruebas. Rollback conserva AOF/noeviction,
-terminales/SQL/slots; nunca FLUSH ni restaurar snapshot sobre SQL nuevo.
-`scripts/sync-execution-v2-github.ps1` sincroniza nueve claves y reubica nueve
-valores existentes al repo, sin secretos, por límite de 100 variables production.
-Los comandos CLI informan fallo sanitizado por STDERR y correlación al Logger;
-conservar pausa y consultar registro, sin publicar prompts ni datos clínicos.
+La plataforma opera exclusivamente bajo el protocolo durable v2 (`AUDIT_PIPELINE_EXECUTION_VERSION=2`, sin compatibilidad ni transición v1). El workflow `.github/workflows/deploy-production.yml` valida en preflight que `GEMINI_QUOTA_SCOPE` (distinto de `UNCONFIGURED`), `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT` estén configurados explícitamente con enteros positivos verificados en Google AI Studio para el proyecto activo, y propaga `REDIS_PREFIX` al contenedor Redis para mantener coherente `${REDIS_PREFIX}audit:execution:version=2`.
+`bin/audit-execution-maintenance.php` ofrece los comandos operativos v2 (`run`, `tick`, `protocol`, `durability-check`, `pause`, `observe`, `resume`, `outbox`, `reconcile`, `gc`), informando fallos sanitizados por STDERR y correlación al Logger sin publicar prompts ni datos clínicos.
 
 - Host SSH: `172.16.0.3`
 - Usuario: `admon`

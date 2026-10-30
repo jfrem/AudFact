@@ -12,9 +12,40 @@ use PHPUnit\Framework\TestCase;
 
 final class ObservabilityControllerTest extends TestCase
 {
-    public function testAsyncMetricsUsesPendingEntriesNotXLen(): void
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \Core\Env::set('GEMINI_QUOTA_SCOPE', 'audfact-test');
+        \Core\Env::set('GEMINI_MODEL', 'gemini-3.8-flash');
+        \Core\Env::set('GEMINI_QUOTA_RPM', '2000');
+        \Core\Env::set('GEMINI_QUOTA_TPM', '4000000');
+        \Core\Env::set('GEMINI_QUOTA_RPD', '1000000');
+        \Core\Env::set('GEMINI_QUOTA_MAX_INFLIGHT', '16');
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (['GEMINI_QUOTA_SCOPE', 'GEMINI_MODEL', 'GEMINI_QUOTA_RPM', 'GEMINI_QUOTA_TPM', 'GEMINI_QUOTA_RPD', 'GEMINI_QUOTA_MAX_INFLIGHT'] as $key) {
+            \Core\Env::set($key, null);
+        }
+        parent::tearDown();
+    }
+
+    private function createDurableRedisMock(): RedisClient&\PHPUnit\Framework\MockObject\MockObject
     {
         $redis = $this->createMock(RedisClient::class);
+        $redis->method('serverConfiguration')->willReturn([
+            'appendonly' => 'yes',
+            'appendfsync' => 'always',
+            'maxmemory-policy' => 'noeviction',
+        ]);
+        $redis->method('serverInfo')->willReturn(['aof_last_write_status' => 'ok']);
+        return $redis;
+    }
+
+    public function testAsyncMetricsUsesPendingEntriesNotXLen(): void
+    {
+        $redis = $this->createDurableRedisMock();
 
         $pendingByGroup = [
             [AuditEventPublisher::STREAM_INBOX_PRIORITY, 'orchestrator', 1],
@@ -35,19 +66,35 @@ final class ObservabilityControllerTest extends TestCase
         $redis->expects($this->never())->method('xLen');
         $redis->expects($this->never())->method('hGetAll');
         $redis->method('eval')->willReturnCallback(
-            static function (string $script, array $keys) use ($pendingByGroup): array {
-                if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+            static function (string $script, array $keys) use ($pendingByGroup): mixed {
+                $key = $keys[0] ?? '';
+                if ($keys === []) {
+                    return 1000000;
+                }
+                if ($key === 'audit:document-cache:{budget}:bytes') {
                     return [0, 0, []];
+                }
+                if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
+                    return [[], array_fill(0, count($keys) - 2, [])];
+                }
+                if (str_ends_with($key, ':waiting')) {
+                    return [];
+                }
+                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
+                    return [0, 0, [], '999999'];
+                }
+                if (str_starts_with($key, 'gemini:quota:v2:')) {
+                    return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];
                 }
                 if (str_contains($script, 'ZRANGEBYSCORE')) {
                     return [1, 22, 1, 1];
                 }
-                if (str_contains($script, 'HGETALL')) {
+                if ($key === AuditEventPublisher::dlqStream()) {
                     return [6, []];
                 }
                 $groups = [];
                 foreach ($pendingByGroup as [$stream, $group, $pending]) {
-                    if ($stream === $keys[0]) {
+                    if ($stream === $key) {
                         $groups[] = ['name', $group, 'pending', $pending];
                     }
                 }
@@ -74,19 +121,35 @@ final class ObservabilityControllerTest extends TestCase
     public function testReportsUnreadLagSeparatelyFromPendingEntries(): void
     {
         // Arrange:
-        $redis = $this->createMock(RedisClient::class);
+        $redis = $this->createDurableRedisMock();
         $redis->expects($this->never())->method('xPending');
-        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): array {
-            if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): mixed {
+            $key = $keys[0] ?? '';
+            if ($keys === []) {
+                return 1000000;
+            }
+            if ($key === 'audit:document-cache:{budget}:bytes') {
                 return [0, 0, []];
+            }
+            if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
+                return [[], array_fill(0, count($keys) - 2, [])];
+            }
+            if (str_ends_with($key, ':waiting')) {
+                return [];
+            }
+            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
+                return [0, 0, [], '999999'];
+            }
+            if (str_starts_with($key, 'gemini:quota:v2:')) {
+                return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];
             }
             if (str_contains($script, 'ZRANGEBYSCORE')) {
                 return [1, 2, 1, 1];
             }
-            if (str_contains($script, 'HGETALL')) {
+            if ($key === AuditEventPublisher::dlqStream()) {
                 return [0, []];
             }
-            return $keys[0] === AuditEventPublisher::STREAM_DOCUMENTS_BATCH
+            return $key === AuditEventPublisher::STREAM_DOCUMENTS_BATCH
                 ? [['name', 'extractors', 'pending', 0, 'lag', 11]] : [];
         });
         $controller = new TestableObservabilityController($redis);
@@ -140,10 +203,13 @@ final class ObservabilityControllerTest extends TestCase
                 if ($key === 'audit.persistence:{queue}:scopes') { return [0, 0, 0, 1]; }
                 if ($key === 'audit:document-cache:{budget}:bytes') { return [0, 0, []]; }
                 if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
-                    return ['policy:batch:pending', 2, 'extraction:batch:active', 1, 'semantic:batch:delayed', 3];
-                }
-                if (str_ends_with($key, ':waiting')) {
-                    return str_contains($key, ':policy:batch:') || str_contains($key, ':semantic:batch:') ? ['fixture', '999000'] : [];
+                    return [
+                        ['policy:batch:pending', 2, 'extraction:batch:active', 1, 'semantic:batch:delayed', 3],
+                        array_map(
+                            static fn(string $waiting): array => str_contains($waiting, ':policy:batch:') || str_contains($waiting, ':semantic:batch:') ? ['fixture', '999000'] : [],
+                            array_slice($keys, 2)
+                        ),
+                    ];
                 }
                 if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) { return [0, 0, [], '999999']; }
                 if (str_starts_with($key, 'gemini:quota:v2:')) { return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []]; }
@@ -173,19 +239,35 @@ final class ObservabilityControllerTest extends TestCase
     public function testReadsPendingFromXinfoWithoutTheZeroFallback(): void
     {
         // Arrange:
-        $redis = $this->createMock(RedisClient::class);
+        $redis = $this->createDurableRedisMock();
         $redis->expects($this->never())->method('xPending');
-        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): array {
-            if (($keys[0] ?? '') === 'audit:document-cache:{budget}:bytes') {
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys): mixed {
+            $key = $keys[0] ?? '';
+            if ($keys === []) {
+                return 1000000;
+            }
+            if ($key === 'audit:document-cache:{budget}:bytes') {
                 return [0, 0, []];
+            }
+            if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
+                return [[], array_fill(0, count($keys) - 2, [])];
+            }
+            if (str_ends_with($key, ':waiting')) {
+                return [];
+            }
+            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
+                return [0, 0, [], '999999'];
+            }
+            if (str_starts_with($key, 'gemini:quota:v2:')) {
+                return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];
             }
             if (str_contains($script, 'ZRANGEBYSCORE')) {
                 return [0, 0, 0, 1];
             }
-            if (str_contains($script, 'HGETALL')) {
+            if ($key === AuditEventPublisher::dlqStream()) {
                 return [0, []];
             }
-            return $keys[0] === AuditEventPublisher::STREAM_PERSISTENCE_BATCH
+            return $key === AuditEventPublisher::STREAM_PERSISTENCE_BATCH
                 ? [['name', 'persistence', 'pending', 7, 'lag', 0]] : [];
         });
         $controller = new TestableObservabilityController($redis);

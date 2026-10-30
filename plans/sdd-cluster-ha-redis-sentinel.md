@@ -1,3 +1,7 @@
+> [!WARNING]
+> **ESTADO: DEPRECADO / DESCARTADO (2026-10-30)**
+> Esta propuesta de clúster multi-nodo y Redis Sentinel fue descartada tras demostrarse empíricamente que la lentitud del procesamiento se debía a cuellos de botella lógicos de software (prefetch gate en 256MB, cuota RR/cap1 en slots de tareas y concurrencia Gemini) y no a saturación física de hardware. Con la optimización a 1.5 GB de caché y la configuración de 24 workers locales, un solo nodo (`172.16.0.3`) demostró capacidad probada para procesar >3.800 facturas en 3 horas manteniendo >13 GB de RAM libres. Se desmanteló la matriz multi-nodo (`nodo2`) para evitar complejidad operacional y riesgos de split-brain en LAN.
+
 # Especificación SDD: Clúster de Alta Disponibilidad con Redis Sentinel y Cola Unificada
 
 ## Clasificación del Cambio (Triage)

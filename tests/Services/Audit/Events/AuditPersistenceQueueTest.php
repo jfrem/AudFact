@@ -20,6 +20,7 @@ final class AuditPersistenceQueueTest extends TestCase
         // Arrange:
         $event = self::persistenceEvent($routing);
         $redis = $this->expectDispatch($event, $stream, resetDeduplication: false);
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         // Act:
@@ -35,6 +36,7 @@ final class AuditPersistenceQueueTest extends TestCase
         // Arrange:
         $event = self::persistenceEvent($routing);
         $redis = $this->expectDispatch($event, $stream, resetDeduplication: true);
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         // Act:
@@ -62,6 +64,7 @@ final class AuditPersistenceQueueTest extends TestCase
                 return true;
             })
         )->willReturn(1);
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         // Act:
@@ -143,6 +146,7 @@ final class AuditPersistenceQueueTest extends TestCase
             }
         );
 
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         $this->assertSame(AuditPersistenceQueue::ENQUEUE_PENDING, $queue->enqueue($event));
@@ -167,6 +171,7 @@ final class AuditPersistenceQueueTest extends TestCase
             )
             ->willReturn(AuditPersistenceQueue::ENQUEUE_DISPATCHED);
 
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         $this->assertSame(
@@ -195,6 +200,7 @@ final class AuditPersistenceQueueTest extends TestCase
             }
         );
 
+        \Core\Env::set('AUDIT_PERSISTENCE_JOB_SLOTS', null);
         $queue = new AuditPersistenceQueue($redis);
 
         $this->assertTrue($queue->advance($event));

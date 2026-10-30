@@ -1,3 +1,46 @@
+## [2026-10-30]
+
+### feat / ui
+- **Rediseño Forense del Tab de Adjuntos (Mesa Forense Documental)**:
+  - Arquitectura Split-View a pantalla completa en `AuditResultDetailModal`: riel lateral para selección de expedientes y stage principal al 100% de altura para el documento.
+  - Supresión de paddings externos y erradicación de barras de desplazamiento anidadas (scroll-jacking) en el visor.
+  - Barra de herramientas forense en `AttachmentViewerPanel`: zoom interactivo (50%-250%), rotación de 90° (`RotateCw`) para recetas escaneadas, modo inmersivo a pantalla completa (`Maximize2`) y acceso directo de descarga y nueva pestaña.
+  - Transformaciones fluidas de escala y rotación en `AttachmentIframeViewer` para inspección de imágenes de alta resolución y PDFs a pantalla completa.
+
+### polish / ui
+- **Refinamiento Impeccable del Modal de Rendimiento (`AuditTimingsPanel`)**:
+  - Erradicada la duplicación accidental del indicador de `Costo IA` en la barra métrica superior.
+  - Eliminada la métrica redundante `Documentos` (ya presente en el encabezado del modal y en el desglose de fases).
+  - Sustituida la tarjeta de `Fase dominante` por el distintivo contextual `Mayor tiempo` dentro de la tabla de "Fases del pipeline".
+  - Fusión de duración activa y espera en cola en una única métrica forense `Ejecución`.
+  - Reemplazo de la tarjeta repetitiva de pie de página por una franja tipográfica ligera de liquidación técnica (Modelo, TRM y Totales).
+
+### feat / ui
+- **Visualización de Costos en Pesos Colombianos (COP) en el Modal de Rendimiento**:
+  - Incorporados esquemas Zod `AuditCostInvoiceSchema` y `AuditCostAttemptSchema` en `frontend/lib/schemas/domain.ts` conectando con `GET /audit/costs/{facNro}`.
+  - Implementado formateador `formatCurrencyCop` en `frontend/lib/formatters/index.ts` con soporte de decimales adaptativos y formato colombiano.
+  - Integrada la tarjeta métrica superior `Costo IA` y el desglose de inferencia con TRM del día dentro de `AuditTimingsPanel` y `AuditResultDetailModal`.
+
+### gov / arch / quality
+- **Remediación de Hallazgos Consolidados de Auditoría (`GOV-001`, `ARCH-001`, `QUAL-001`)**:
+  - **Gobernanza de Propietarios de Código (`GOV-001`)**: Incorporada directiva comodín raíz `* @jfrem` en `.github/CODEOWNERS` junto al mapeo explícito de `/app/Controllers/`, `/app/Routes/`, `/frontend/`, `/.env.example` y `/public/index.php`.
+  - **Homologación de Excepción en CLI de Durabilidad (`ARCH-001`)**: Unificado `bin/audit-execution-maintenance.php:77` a `execution_durability_required` (alineado con `AuditExecutionConfig::assertProtocol()`).
+  - **Armonización de Especificación SDD de Cuotas Gemini (`QUAL-001`)**: Actualizado `plans/sdd-remediacion-hallazgos-auditoria-v2.md` reconociendo los fallbacks controlados de desarrollo local y testing en `GeminiQuotaBudget` (`2000` RPM, `4000000` TPM, `1000000` RPD, `audfact-default`, `gemini-3.8-flash`).
+
+## [2026-10-29]
+
+### feat / arch
+- **Activación Canónica y Endurecimiento de Ejecución v2 + Erradicación de v1 (`FairAuditTaskQueue`, `SemanticEvaluationWorker`, `AuditTaskRunner`)**:
+  - **Bloqueo Exclusivo en `AuditExecutionConfig::VERSION = 2`**: Eliminado el soporte dual v1/v2. Todas las etapas planificadas (`orchestration`, `extraction`, `normalization`, `policy`, `semantic`) ejecutan exclusivamente sobre `FairAuditTaskQueue` (Round-Robin por Job con `cap=1` por etapa/carril) mediante `AuditTaskRunner`.
+  - **Desacoplamiento Total de `RulesEvaluationWorker` (`policy`)**: Eliminado el fallback síncrono v1 hacia `GeminiGateway` y `SemanticMatchJudge` dentro del worker `policy`. `policy` evalúa reglas deterministas en sub-segundos sin requerir `GEMINI_API_KEY` y delega el arbitraje semántico por ondas de hasta 16 pares a `SemanticEvaluationWorker`.
+  - **Persistencia Durable en Redis y Servicios Core en Docker**: `initAudit`, `initJob`, `claimIdempotencyKey` y `claimAuditReservation` operan con `SET ... NX` durable sin TTL volátil en vuelo (`EXPIRE` aplicado únicamente al alcanzar estado terminal). `redis` inicia con `--appendonly yes --appendfsync always --maxmemory-policy noeviction`, y `worker-execution-maintenance`, `worker-semantic-vip` y `worker-semantic-batch` se ejecutan como servicios core sin requerir perfil opcional.
+  - **Verificación Visual de `NumeroSiniestro` (`SIN`)**: Habilitado `ALLOWS_VISUAL_CHECK_EVALUATION` en `VisualCheckEvaluator` para `NumeroSiniestro` cuando el campo está configurado como `VISUAL` (`V`).
+- **Remediación Integral de Hallazgos de Auditoría y Erradicación de Transición v1↔v2 (`ARCH-001`, `QUAL-001`, `SEC-002`, `ARCH-002`, `GOV-001`)**:
+  - **Eliminación de `AuditExecutionMigration` y scripts puente v1 (`ARCH-001`)**: Suprimidos `app/Services/Audit/Pipeline/AuditExecutionMigration.php` (455 líneas) y `scripts/sync-execution-v2-github.ps1`, eliminados los subcomandos puente `migrate`, `rollback`, `verify` y `accept` en `bin/audit-execution-maintenance.php`, y eliminados `importPending()`, `gcMigrations()` y las ramas `migration_disposition === 'rolled_back'` en `AuditExecutionMaintenance` y `AuditExecutionInspector`.
+  - **Retención y Limpieza de Estado Redis Anterior (`ARCH-001`, `QUAL-001`)**: `AuditExecutionMaintenance::gc()` ahora recolecta estados terminales (`audit:*:state`, `job:*:state` + `jobs:index`) sin importar la versión de protocolo histórica tras la ventana de retención, y libera reservas huérfanas o terminales `audit:reservation:disid:*` preservando reservas en vuelo. Eliminados `DEFAULT_RESERVATION_TTL_SECONDS`, `reservationTtlSeconds()` y el parámetro obsoleto `?int $ttl = null` de `BatchJobStore::claimAuditReservation()`.
+  - **Exigencia de Cuotas Gemini Explícitas y Prefijo Redis Coherente (`ARCH-002`)**: `GeminiQuotaBudget` rechaza variables ausentes, `UNCONFIGURED` o `<= 0` para `GEMINI_QUOTA_SCOPE`, `GEMINI_MODEL`, `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT`. `.github/workflows/deploy-production.yml` valida las cuotas como variables obligatorias sin defaults silenciosos, propaga `REDIS_PREFIX` al contenedor `redis` (junto con `docker-compose.yml`), elimina `execution_phase`, `execution_run_id` y `execution_checks_passed`, e incorpora logs de `worker-semantic-vip`, `worker-semantic-batch` y `worker-execution-maintenance`.
+  - **Guardia de Autenticación Administrativa `Core\AuthMiddleware` (`SEC-002`) y Gobernanza (`GOV-001`)**: Implementado `core/AuthMiddleware.php` validando `X-API-KEY` o `Authorization: Bearer` contra `MCP_WEBHOOK_SECRET` mediante `hash_equals()`, protegiendo `GET /audit/dlq` y `POST /audit/dlq/reprocess` (`app/Routes/web.php`) con pruebas HTTP de despacho real en `Router`, y creado `.github/CODEOWNERS`.
+
 ## [2026-10-19]
 
 ### docs / arch

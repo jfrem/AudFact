@@ -4,7 +4,7 @@
 
 - Correcciones 2026-10-16: pruebas de histéresis 90/70, reloj controlado,
   clasificación/prioridad de errores Gemini, redacción de contexto, propagación
-  sin caché clínica, recuperación previa a prefetch y cierre técnico v1/v2.
+  sin caché clínica, recuperación previa a prefetch y cierre técnico durable.
   Integraciones Redis comprueban poda sin nuevas descargas, conservación de
   respuesta/cargos, agotamiento de generación y limpieza tras commit terminal.
   Usar Redis dedicado con AOF/fsync always/noeviction para toda la suite opt-in;
@@ -32,7 +32,7 @@
 - CI ejecuta pruebas unitarias con `vendor/bin/phpunit --configuration phpunit.xml --testdox --colors=always`.
 - CI también ejecuta `tests/Integration` con Redis 7 y RUN_REDIS_INTEGRATION=1.
   V2 cubre carga 3000+3000+69 en cuatro etapas y llegada tardía, fences/commit/
-  outbox, migración/rollback/continuaciones ACKed/slots, respuesta reutilizada,
+  outbox, recolección de estados terminales y reservas huérfanas, respuesta reutilizada,
   429 Retry-After, agotamiento técnico/DLQ e intentos unknown. Cuota incluye
   cuatro procesos y 100 reservas, reparto 3:1/alternancia y días DST de 23/25 h.
   Policy→semantic→policy verifica cero HTTP desde policy y salida 8192 del lote.

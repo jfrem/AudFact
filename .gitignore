@@ -32,7 +32,10 @@ composer.lock
 Thumbs.db
 
 # Agentes de IA
-/.agent/
+/.agent/*
+!/.agent/skills/
+!/.agent/hooks.json
+!/.agent/scripts/
 /.agent/tmp-impeccable/
 /.agent/skills/ui-ux-pro-max/
 /.agent/skills/ui-ux-pro-max-skill/

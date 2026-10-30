@@ -27,6 +27,7 @@ interface AuditFlowState {
   setMode: (mode: AuditFlowState["mode"]) => void;
   setGraph: (nodes: AuditNode[], edges: Edge[]) => void;
   processTelemetryEvent: (event: AuditTelemetryEvent) => void;
+  setJobTerminal: (status: string) => void;
 }
 
 const X_START = 100;
@@ -116,11 +117,16 @@ export const useAuditFlowStore = create<AuditFlowState>((set, get) => ({
 
         newMetrics = { total, completed, failed, rejected };
 
-        const processed = completed + failed + rejected;
-        if (total > 0 && processed >= total) {
-          newNodeState = failed > 0 ? "failed" : rejected > 0 ? "rejected" : "completed";
-        } else if (total > 0) {
-          newNodeState = "running";
+        const hasFailures = failed > 0;
+        if (state.status === "live" || state.status === "connecting") {
+          newNodeState = hasFailures && completed === 0 ? "failed" : "running";
+        } else {
+          const processed = completed + failed + rejected;
+          if (total > 0 && processed >= total) {
+            newNodeState = failed > 0 ? "failed" : rejected > 0 ? "rejected" : "completed";
+          } else if (total > 0) {
+            newNodeState = "running";
+          }
         }
       }
 
@@ -140,9 +146,39 @@ export const useAuditFlowStore = create<AuditFlowState>((set, get) => ({
       return {
         nodes,
         edges: newNodeState === "running"
-          ? edges
+          ? edges.map((edge) => (edge.target === nodeId || edge.source === nodeId ? { ...edge, animated: true } : edge))
           : edges.map((edge) => (edge.target === nodeId ? { ...edge, animated: false } : edge)),
       };
+    });
+  },
+
+  setJobTerminal: (status) => {
+    set((state) => {
+      if (state.mode !== "job") {
+        return state;
+      }
+      const isFailed = status === "failed";
+      const nodes = state.nodes.map((node) => {
+        const metrics = node.data.metrics;
+        if (!metrics || metrics.total === 0) {
+          return node;
+        }
+        let finalState: AuditNodeState = "completed";
+        if (metrics.failed > 0 || isFailed) {
+          finalState = "failed";
+        } else if ((metrics.rejected ?? 0) > 0) {
+          finalState = "rejected";
+        }
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            state: finalState,
+          },
+        };
+      });
+      const edges = state.edges.map((edge) => ({ ...edge, animated: false }));
+      return { nodes, edges };
     });
   },
 }));

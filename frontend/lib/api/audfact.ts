@@ -20,6 +20,7 @@ import {
   AuditMonthlyPerformanceDataSchema,
   AuditLiveStatusSchema,
   FieldCatalogSchema,
+  AuditCostInvoiceSchema,
 } from "@/lib/schemas/domain";
 import type { AuditResultDetail } from "@/lib/schemas/domain";
 import { endpoints } from "@/lib/api/endpoints";
@@ -232,4 +233,8 @@ export function getAuditMonthlyPerformance(params: { year?: number } = {}) {
     endpoints.auditStatsMonthly(params),
     AuditMonthlyPerformanceDataSchema,
   );
+}
+
+export function getAuditCostByInvoice(facNro: string | number) {
+  return requestJson(endpoints.auditCostByInvoice(facNro), AuditCostInvoiceSchema);
 }

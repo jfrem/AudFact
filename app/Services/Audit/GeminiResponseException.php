@@ -34,6 +34,11 @@ final class GeminiResponseException extends \RuntimeException
         return $this->reason === GeminiResponseFailureReason::MISSING_CANDIDATE;
     }
 
+    public function reasonCode(): string
+    {
+        return $this->reason->value;
+    }
+
     public function context(): array
     {
         return $this->safeContext;

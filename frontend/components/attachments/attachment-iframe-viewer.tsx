@@ -1,18 +1,23 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
-import { Eye, FileImage, FileText } from "lucide-react";
+import { Eye, FileText } from "lucide-react";
 
 import type { AttachmentPreview } from "@/lib/schemas/domain";
-import { base64ToBlob } from "@/lib/utils";
+import { base64ToBlob, cn } from "@/lib/utils";
 
 export function AttachmentIframeViewer({
   preview,
   title,
+  zoom = 1,
+  rotation = 0,
+  className,
 }: {
   preview?: AttachmentPreview | null;
   title: string;
+  zoom?: number;
+  rotation?: number;
+  className?: string;
 }) {
   const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
 
@@ -33,10 +38,15 @@ export function AttachmentIframeViewer({
 
   if (!preview) {
     return (
-      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
+      <div
+        className={cn(
+          "flex h-full min-h-[400px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center",
+          className,
+        )}
+      >
         <Eye className="h-10 w-10 text-slate-500/45" />
         <p className="mt-3 text-sm font-medium text-slate-300">Selecciona un adjunto</p>
-        <p className="mt-1 max-w-sm text-sm text-slate-400">
+        <p className="mt-1 max-w-sm text-xs text-slate-500">
           El visor mostrará aquí la evidencia embebida cuando el documento seleccionado tenga una
           vista previa disponible.
         </p>
@@ -50,12 +60,16 @@ export function AttachmentIframeViewer({
 
   if (!canEmbed || !objectUrl) {
     return (
-      <div className="flex h-[65vh] min-h-[600px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
+      <div
+        className={cn(
+          "flex h-full min-h-[400px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center",
+          className,
+        )}
+      >
         <FileText className="h-10 w-10 text-slate-500/45" />
         <p className="mt-3 text-sm font-medium text-slate-300">Vista previa no disponible</p>
-        <p className="mt-1 max-w-sm text-sm text-slate-400">
-          Este tipo de archivo no puede renderizarse dentro del visor embebido. Usa la descarga
-          directa para revisarlo fuera de la aplicación.
+        <p className="mt-1 max-w-sm text-xs text-slate-500">
+          Este formato de archivo no puede renderizarse de manera embebida. Descarga el archivo para revisarlo externamente.
         </p>
       </div>
     );
@@ -63,29 +77,41 @@ export function AttachmentIframeViewer({
 
   if (isImage) {
     return (
-      <div className="relative h-[65vh] min-h-[600px] overflow-hidden rounded-lg border border-border bg-muted/30 p-4">
-        <Image
-          src={objectUrl}
-          alt={title}
-          fill
-          sizes="(max-width: 1024px) 100vw, 68vw"
-          unoptimized
-          className="object-contain p-4"
-        />
+      <div
+        className={cn(
+          "relative flex h-full min-h-[400px] w-full items-center justify-center overflow-auto rounded-lg border border-border bg-slate-950/80 p-4 select-none scrollbar-thin",
+          className,
+        )}
+      >
+        <div
+          className="relative flex items-center justify-center transition-transform duration-200 ease-out"
+          style={{
+            transform: `scale(${zoom}) rotate(${rotation}deg)`,
+            transformOrigin: "center center",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={objectUrl}
+            alt={title}
+            className="max-h-[calc(90vh-180px)] max-w-full rounded object-contain shadow-2xl"
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-        <FileImage className="h-3.5 w-3.5" />
-        <span>{isPdf ? "Documento PDF" : "Vista embebida"}</span>
-      </div>
+    <div
+      className={cn(
+        "relative h-full min-h-[450px] w-full overflow-hidden rounded-lg border border-border bg-card",
+        className,
+      )}
+    >
       <iframe
         title={title}
         src={objectUrl}
-        className="h-[65vh] min-h-[600px] w-full bg-white"
+        className="h-full w-full border-0 bg-white"
       />
     </div>
   );

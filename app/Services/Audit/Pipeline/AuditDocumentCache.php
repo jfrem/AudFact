@@ -26,8 +26,8 @@ final class AuditDocumentCache
         private readonly int $ttlSeconds = self::DEFAULT_TTL_SECONDS
     ) {
         $this->redis = $redis ?? RedisClient::getInstance();
-        $this->maxBytes = $maxBytes ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_BYTES', 268435456);
-        $this->maxEntries = $maxEntries ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_ENTRIES', 1024);
+        $this->maxBytes = $maxBytes ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_BYTES', 1610612736);
+        $this->maxEntries = $maxEntries ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_ENTRIES', 4096);
         if ($this->maxBytes < 1 || $this->maxEntries < 1 || $ttlSeconds < 1) {
             throw new \InvalidArgumentException('Los límites de caché documental deben ser positivos');
         }
@@ -48,7 +48,12 @@ final class AuditDocumentCache
             return false;
         }
         $result = $this->redis->eval(self::PUT_LUA, $this->keys($key), [
-            $encoded, strlen($encoded), $this->maxBytes, $this->maxEntries, $this->ttlSeconds, self::PRUNE_LIMIT,
+            $encoded,
+            strlen($encoded),
+            $this->maxBytes,
+            $this->maxEntries,
+            $this->ttlSeconds,
+            self::PRUNE_LIMIT,
         ]);
         if ($result !== 0 && $result !== 1) {
             throw new RuntimeException('Redis no confirmó la admisión de caché documental');
@@ -93,14 +98,20 @@ final class AuditDocumentCache
     public function usage(): array
     {
         $raw = $this->redis->eval(self::USAGE_LUA, $this->keys('audit:blob:budget-inspection'), [self::PRUNE_LIMIT]);
-        if (!is_array($raw) || count($raw) !== 2
+        if (
+            !is_array($raw) || count($raw) !== 2
             || !is_numeric($raw[0]) || !is_numeric($raw[1])
-            || (int) $raw[0] < 0 || (int) $raw[1] < 0) {
+            || (int) $raw[0] < 0 || (int) $raw[1] < 0
+        ) {
             throw new RuntimeException('document_cache_usage_invalid');
         }
 
-        return ['reserved_bytes' => (int) $raw[0], 'reserved_entries' => (int) $raw[1],
-            'max_bytes' => $this->maxBytes, 'max_entries' => $this->maxEntries];
+        return [
+            'reserved_bytes' => (int) $raw[0],
+            'reserved_entries' => (int) $raw[1],
+            'max_bytes' => $this->maxBytes,
+            'max_entries' => $this->maxEntries
+        ];
     }
 
     private function keys(string $key): array

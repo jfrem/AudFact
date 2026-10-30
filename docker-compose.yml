@@ -63,18 +63,14 @@ services:
       - redis_data:/data
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PREFIX: ${REDIS_PREFIX:-audfact:}
       REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-4gb}
-      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
-      AUDIT_PIPELINE_EXECUTION_VERSION: ${AUDIT_PIPELINE_EXECUTION_VERSION:-1}
+      REDIS_MAXMEMORY_POLICY: ${REDIS_MAXMEMORY_POLICY:-noeviction}
     command:
       - sh
       - -c
       - |
-        if [ "$${AUDIT_PIPELINE_EXECUTION_VERSION:-1}" = "2" ] || [ -f /data/execution-durable-v2 ]; then
-          set -- --appendonly yes --appendfsync always --maxmemory-policy noeviction
-        else
-          set -- --maxmemory-policy "$${REDIS_MAXMEMORY_POLICY:-volatile-lru}"
-        fi
+        set -- --appendonly yes --appendfsync always --maxmemory-policy $${REDIS_MAXMEMORY_POLICY:-noeviction}
         if [ -n "$$REDIS_PASSWORD" ]; then
           exec redis-server --maxmemory "$${REDIS_MAXMEMORY:-4gb}" "$$@" --save 60 1000 --requirepass "$$REDIS_PASSWORD"
         fi
@@ -212,7 +208,7 @@ services:
     command: php bin/audit-worker.php extraction --batch-only
     restart: on-failure
     deploy:
-      replicas: ${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-12}
+      replicas: ${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-24}
       resources:
         limits:
           memory: 1G
@@ -237,7 +233,7 @@ services:
     command: php bin/audit-worker.php downloader
     restart: on-failure
     deploy:
-      replicas: ${AUDIT_WORKER_DOWNLOADER_REPLICAS:-12}
+      replicas: ${AUDIT_WORKER_DOWNLOADER_REPLICAS:-16}
       resources:
         limits:
           memory: 512M
@@ -285,7 +281,7 @@ services:
     command: php bin/audit-worker.php policy
     restart: on-failure
     deploy:
-      replicas: ${AUDIT_WORKER_POLICY_REPLICAS:-8}
+      replicas: ${AUDIT_WORKER_POLICY_REPLICAS:-12}
       resources:
         limits:
           memory: 512M
@@ -309,7 +305,7 @@ services:
     command: php bin/audit-worker.php persistence
     restart: on-failure
     deploy:
-      replicas: ${AUDIT_WORKER_PERSISTENCE_REPLICAS:-12}
+      replicas: ${AUDIT_WORKER_PERSISTENCE_REPLICAS:-16}
       resources:
         limits:
           memory: 512M
@@ -330,7 +326,6 @@ services:
 
   worker-execution-maintenance:
     image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
-    profiles: [execution-v2]
     env_file: [.env]
     volumes: [./logs:/var/www/html/logs]
     depends_on: [redis]
@@ -345,7 +340,6 @@ services:
 
   worker-semantic-vip: &semantic-worker
     image: ${AUDFACT_PHP_IMAGE:-ghcr.io/jfrem/audfact-php}:${AUDFACT_IMAGE_TAG:-latest}
-    profiles: [execution-v2]
     env_file: [.env]
     volumes: [./logs:/var/www/html/logs]
     depends_on: [redis]

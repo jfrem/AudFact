@@ -22,12 +22,21 @@ final class AuditPersistenceQueueRedisTest extends TestCase
         if (getenv('RUN_REDIS_INTEGRATION') !== '1') {
             self::markTestSkipped('Requiere RUN_REDIS_INTEGRATION=1 y Redis.');
         }
+        \Core\Env::set('GEMINI_QUOTA_SCOPE', 'audfact-test');
+        \Core\Env::set('GEMINI_MODEL', 'gemini-3.8-flash');
+        \Core\Env::set('GEMINI_QUOTA_RPM', '2000');
+        \Core\Env::set('GEMINI_QUOTA_TPM', '4000000');
+        \Core\Env::set('GEMINI_QUOTA_RPD', '1000000');
+        \Core\Env::set('GEMINI_QUOTA_MAX_INFLIGHT', '16');
         $this->redis = new IsolatedPersistenceRedis(RedisClient::getInstance(),
             'integration:queue:' . AuditEvent::uuidV4() . ':');
     }
 
     protected function tearDown(): void
     {
+        foreach (['GEMINI_QUOTA_SCOPE', 'GEMINI_MODEL', 'GEMINI_QUOTA_RPM', 'GEMINI_QUOTA_TPM', 'GEMINI_QUOTA_RPD', 'GEMINI_QUOTA_MAX_INFLIGHT'] as $key) {
+            \Core\Env::set($key, null);
+        }
         if (isset($this->redis)) {
             $this->redis->cleanup();
         }
@@ -430,6 +439,21 @@ final class IsolatedPersistenceRedis extends RedisClient
             ($this->beforeEval)($script, $keys, $this->inner);
         }
         return $this->inner->eval($script, $keys, $argv);
+    }
+
+    public function get(string $key): ?string
+    {
+        return $this->inner->get($this->namespace . $key);
+    }
+
+    public function serverInfo(?string $section = null): array
+    {
+        return $this->inner->serverInfo($section);
+    }
+
+    public function serverConfiguration(array $patterns): array
+    {
+        return $this->inner->serverConfiguration($patterns);
     }
 
     public function cleanup(): void

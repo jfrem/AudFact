@@ -11,21 +11,20 @@ description: >
 ## ¿Qué es AudFact?
 Sistema de auditoría documental automatizada que compara documentos escaneados (Actas de Entrega) contra datos de dispensación en SQL Server, usando **Google Gemini API** como motor de análisis multimodal.
 
-## Ejecución v1/v2
+## Ejecución durable v2
 
 Desde 2026-10-16, prefetch limita descargas nuevas con histéresis 90/70 y poda
 de reservas vencidas; reclaim y extracción siguen drenando. Un guard tipado
 común clasifica respuestas Gemini y evita convertir bloqueo/truncamiento en
-evidencia clínica. Se conservan los contratos de ejecución/migración v1/v2.
+evidencia clínica. Protocolo único activo: ejecución durable v2 (v1 erradicada).
 
-V1 conserva siete roles de worker y homologación HTTP en policy. V2 local
-agrega semantic y mantenimiento independiente: cuatro etapas con tareas
-durables/fences/receipts, RR por job, ondas agrupadas y cuota Gemini compartida.
-Policy planifica/evalúa PHP sin HTTP; persistencia/slots mantienen contrato.
-V2 requiere corte explícito y sigue apagado; ver SDD de homologación y §19.
-No presentar datos históricos productivos como medición del diff ni prometer
-throughput por haber añadido réplicas. Modelo configurado/default actual:
-gemini-3.7-flash; cuotas reales por proyecto se verifican en AI Studio.
+El runtime opera exclusivamente bajo ejecución durable v2 (`AuditExecutionConfig::VERSION = 2`),
+con ocho roles de worker más mantenimiento independiente (`bin/audit-execution-maintenance.php`):
+cuatro etapas con tareas durables/fences/receipts, Round-Robin por job (`cap=1`),
+ondas semánticas agrupadas y presupuesto Gemini compartido (`GeminiQuotaBudget`) con
+cuotas explícitas obligatorias verificadas en AI Studio. `RulesEvaluationWorker` (`policy`)
+planifica y evalúa reglas en PHP puro sin HTTP; persistencia y slots mantienen contrato.
+Modelo configurado/default actual: `gemini-3.8-flash`.
 
 > [!NOTE]
 > Para una visión más profunda, consulta [overview.md](/plans/overview.md) y [architecture.md](/plans/architecture.md).
@@ -174,9 +173,9 @@ telemetría. Trabajo terminal se omite después de recuperar cierres DLQ; persis
 conserva liberación de slots. Retención de trabajo respeta todos los grupos/PEL.
 Reprocesar DLQ crea un intento independiente e idempotente con referencia a la
 auditoría/job fallidos, sin reabrir historia. La ejecución durable v2 y la
-homologación semántica agrupada están implementadas en el workspace bajo
-activación explícita. El flujo anterior describe v1, que sigue siendo el
-protocolo predeterminado; estas defensas también operan en v1.
+homologación semántica agrupada constituyen el protocolo único y predeterminado.
+
+
 
 ## Skills disponibles
 

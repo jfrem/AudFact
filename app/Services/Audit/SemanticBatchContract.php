@@ -40,7 +40,7 @@ final class SemanticBatchContract
         $overrides = GeminiConfig::generationOverridesFromEnv('GEMINI_SEMANTIC', [
             'thinkingLevel' => 'low',
         ]);
-        // El perfil agrupado tiene un límite propio; el override unitario v1 no lo reduce.
+        // El perfil agrupado fija un límite propio de salida de 8192 tokens.
         $overrides['maxOutputTokens'] = 8192;
         return $gateway->requestBody($prompt, [], $system, $schema, GeminiGateway::TASK_SEMANTIC_MATCH, $overrides);
     }

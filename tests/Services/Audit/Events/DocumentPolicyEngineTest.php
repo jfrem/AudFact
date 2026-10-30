@@ -1652,4 +1652,109 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertSame('presence', $finding['tipo_auditoria']);
         $this->assertFalse($result['document_decision']['approved']);
     }
+
+    public function testBuildDocumentContextSummaryIsDeterministicRegardlessOfKeyOrder(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S', 'alta', 'article_name')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'LOSARTAN 50MG TABLETA']]]
+        );
+
+        $orderedFields = [
+            'TipoDocumentoPaciente' => 'CC',
+            'Mipres' => '20260918180002483741',
+            'DocumentoPaciente' => '86088752',
+            'NITDiscolmets' => '828002423',
+            'NumeroAutorizacion' => '360385156',
+        ];
+
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            $orderedFields,
+            [['NombreArticulo' => 'LOSARTAN POTASICO 50 MG']]
+        );
+
+        // 1. Plan stage
+        $plan = $engine->plan($state, $payload, 'FAC-SEM-01');
+        $this->assertTrue($plan['requires_semantics']);
+        $this->assertCount(1, $plan['candidates']);
+        $pairId = $plan['candidates'][0]['pair_id'];
+
+        // 2. Simulate Redis cjson table roundtrip where keys in fields_normalized are shuffled
+        $shuffledFields = [
+            'NumeroAutorizacion' => '360385156',
+            'DocumentoPaciente' => '86088752',
+            'TipoDocumentoPaciente' => 'CC',
+            'NITDiscolmets' => '828002423',
+            'Mipres' => '20260918180002483741',
+        ];
+        $shuffledPayload = self::payload(
+            'FORMULA MEDICA',
+            $shuffledFields,
+            [['NombreArticulo' => 'LOSARTAN POTASICO 50 MG']]
+        );
+
+        $snapshot = [
+            'document_state' => $state,
+            'normalized_payload' => $shuffledPayload,
+            'fac_nro' => 'FAC-SEM-01',
+        ];
+
+        $resolvedResults = [
+            $pairId => [
+                'is_match' => true,
+                'reasoning' => 'Principio activo y dosificación idénticos.',
+                'source' => 'llm',
+            ],
+        ];
+
+        // 3. Evaluate resolved stage must succeed without DomainException: semantic_result_missing
+        $resolved = $engine->evaluateResolved($snapshot, $resolvedResults);
+        $this->assertTrue($resolved['document_decision']['approved']);
+        $this->assertSame('COINCIDE', $resolved['hallazgos']['items'][0]['resultado']);
+    }
+
+    public function testResolvedSemanticResolverFallbackMatchesByCanonicalSignatureWhenPairIdDiffers(): void
+    {
+        $resolvedResults = [
+            'legacy_hash_abc' => [
+                'is_match' => true,
+                'reasoning' => 'Coincidencia semántica verificada por fallback.',
+                'source' => 'cache',
+                'expected' => 'LOSARTAN 50MG',
+                'actual' => 'LOSARTAN POTASICO 50MG',
+                'purpose' => \App\Services\Audit\SemanticMatchPurpose::PRODUCT->value,
+                'field' => 'NombreArticulo',
+            ],
+        ];
+
+        $resolver = new \App\Services\Audit\ResolvedSemanticResolver($resolvedResults);
+
+        // Context with a completely different document_context string (would compute a different pair hash)
+        $evalResult = $resolver->evaluate('LOSARTAN 50MG', 'LOSARTAN POTASICO 50MG', [
+            'call_purpose' => \App\Services\Audit\SemanticMatchPurpose::PRODUCT->value,
+            'field' => 'NombreArticulo',
+            'document_context' => 'DifferentContext: 999',
+        ]);
+
+        $this->assertTrue($evalResult['is_match']);
+        $this->assertSame('Coincidencia semántica verificada por fallback.', $evalResult['reasoning']);
+        $this->assertTrue($evalResult['cache_hit']);
+    }
+
+    public function testResolvedSemanticResolverThrowsWhenCandidateNotFound(): void
+    {
+        $this->expectException(\DomainException::class);
+        $this->expectExceptionMessage('semantic_result_missing');
+
+        $resolver = new \App\Services\Audit\ResolvedSemanticResolver([]);
+        $resolver->evaluate('AMOXICILINA 500MG', 'AMPICILINA 500MG', [
+            'call_purpose' => \App\Services\Audit\SemanticMatchPurpose::PRODUCT->value,
+            'field' => 'NombreArticulo',
+        ]);
+    }
 }
+

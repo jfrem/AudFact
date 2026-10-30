@@ -178,10 +178,10 @@ abstract class AuditEventConsumer
 
         $execution = AuditExecutionConfig::fromEnv();
         $execution->assertProtocol($this->redis);
-        if ($execution->version === 2 && $this->taskStage() !== null) {
+        if ($this->taskStage() !== null) {
             Logger::info('Audit scheduled worker started', ['consumer' => $this->consumer(),
                 'stage' => $this->taskStage()->value, 'lane' => $this->laneEnum->value,
-                'execution_version' => 2, 'lease_ms' => AuditExecutionConfig::LEASE_MS,
+                'execution_version' => AuditExecutionConfig::VERSION, 'lease_ms' => AuditExecutionConfig::LEASE_MS,
                 'deadline_ms' => AuditExecutionConfig::DEADLINE_MS, 'max_queued_per_stage' => $execution->maxQueued]);
             $runner = new AuditTaskRunner($this->redis, $execution);
             $processed = 0;
@@ -277,7 +277,7 @@ abstract class AuditEventConsumer
         return $this->redis->get('audit:execution:paused') === '1'
             || ($this->group() === AuditEventPublisher::GROUP_BATCH
                 && ($this->redis->get('audit:admission:paused') === '1'
-                    || ($execution->version === 2 && (new AuditAdmissionGuard($this->redis, $execution))->atCapacity())));
+                    || (new AuditAdmissionGuard($this->redis, $execution))->atCapacity()));
     }
 
     private function reclaimPendingIfDue(int $maxMessages = 0): int
@@ -771,14 +771,10 @@ abstract class AuditEventConsumer
             ],
             parentEventId: $parentEventId,
         );
-        if (($job['execution_version'] ?? 1) === 2) {
-            $record = $event->toArray();
-            $record['event_id'] = AuditTaskEffects::uuid($jobId . ':' . $eventType);
-            $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
-            $jobStore->claimBatchTerminalEvent($jobId, $eventType);
-        } elseif ($jobStore->claimBatchTerminalEvent($jobId, $eventType)) {
-            $this->publisher->publish($event);
-        }
+        $record = $event->toArray();
+        $record['event_id'] = AuditTaskEffects::uuid($jobId . ':' . $eventType);
+        $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
+        $jobStore->claimBatchTerminalEvent($jobId, $eventType);
     }
 
     private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error): void

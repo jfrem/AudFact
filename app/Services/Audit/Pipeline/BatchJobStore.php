@@ -22,7 +22,6 @@ class BatchJobStore
     public const JOB_STATUS_FAILED              = 'failed';
 
     private const DEFAULT_JOB_TTL_SECONDS = 604800;
-    private const DEFAULT_RESERVATION_TTL_SECONDS = 86400;
 
     /** Clave del hash Redis donde se acumulan contadores operativos del pipeline. */
     public const TELEMETRY_KEY = 'telemetry:async_metrics';
@@ -37,11 +36,6 @@ class BatchJobStore
     private static function jobTtlSeconds(): int
     {
         return self::positiveIntEnv('AUDIT_JOB_TTL', self::DEFAULT_JOB_TTL_SECONDS);
-    }
-
-    private static function reservationTtlSeconds(): int
-    {
-        return self::positiveIntEnv('AUDIT_RESERVATION_TTL', self::DEFAULT_RESERVATION_TTL_SECONDS);
     }
 
     private static function positiveIntEnv(string $key, int $default): int
@@ -73,7 +67,7 @@ class BatchJobStore
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $state = [
             'job_id'      => $jobId,
-            'execution_version' => AuditExecutionConfig::fromEnv()->version,
+            'execution_version' => AuditExecutionConfig::VERSION,
             'status'      => self::JOB_STATUS_PENDING,
             'fac_nit_sec' => $facNitSec,
             'date_from'   => $dateFrom,
@@ -93,9 +87,7 @@ class BatchJobStore
             'audits'      => new \stdClass(),
         ];
 
-        $success = $state['execution_version'] === 2
-            ? $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::jobKey($jobId)], [self::encodeJson($state, 'BatchJobStore')]) === 1
-            : $this->redis->setnx(self::jobKey($jobId), self::encodeJson($state, 'BatchJobStore'), self::jobTtlSeconds());
+        $success = $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::jobKey($jobId)], [self::encodeJson($state, 'BatchJobStore')]) === 1;
 
         if ($success) {
             try {
@@ -331,29 +323,12 @@ class BatchJobStore
     {
         $redisKey = self::idempotencyKey($key);
 
-        if (AuditExecutionConfig::fromEnv()->version === 2) {
+        try {
             $claimed = $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [$redisKey], [$jobId]);
             return $claimed === 1 ? null : $this->redis->get($redisKey);
-        }
-
-        try {
-            $claimed = $this->redis->setnx($redisKey, $jobId, $ttl);
         } catch (RedisUnavailableException $e) {
             throw new RuntimeException('Redis no disponible al reclamar llave de idempotencia', 0, $e);
         }
-
-        if ($claimed) {
-            return null; // primera solicitud
-        }
-
-        // Duplicado: leer el job_id del primer reclamante
-        try {
-            $existingJobId = $this->redis->get($redisKey);
-        } catch (RedisUnavailableException $e) {
-            throw new RuntimeException('Redis no disponible al leer llave de idempotencia', 0, $e);
-        }
-
-        return $existingJobId;
     }
 
     /**
@@ -368,23 +343,17 @@ class BatchJobStore
      *
      * @param  array<string,mixed>  $reservation
      */
-    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation, ?int $ttl = null): bool
+    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation): bool
     {
         $reservation['dis_id'] = $disId;
         $reservation['token'] = $ownerToken;
         $reservation['claimed_at'] = $reservation['claimed_at'] ?? gmdate('Y-m-d\TH:i:s\Z');
-        $ttlSeconds = ($ttl !== null && $ttl > 0) ? $ttl : self::reservationTtlSeconds();
 
-        if (AuditExecutionConfig::fromEnv()->version === 2) {
-            return $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
-                [self::auditReservationKey($disId)], [self::encodeJson($reservation, 'BatchJobStore')]) === 1;
-        }
-
-        return $this->redis->setnx(
-            self::auditReservationKey($disId),
-            self::encodeJson($reservation, 'BatchJobStore::claimAuditReservation'),
-            $ttlSeconds
-        );
+        return $this->redis->eval(
+            'local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
+            [self::auditReservationKey($disId)],
+            [self::encodeJson($reservation, 'BatchJobStore')]
+        ) === 1;
     }
 
     /**

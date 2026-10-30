@@ -12,15 +12,15 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
   Métricas agregadas: `prefetch_pauses` y `prefetch_wait_ms` (suma por proceso).
   Respuestas Gemini bloqueadas, truncadas o con terminación insegura cierran
   técnicamente sin dictamen clínico; candidato ausente conserva retry.
-  La caché semántica unitaria usa producto v6/persona v3. Execution=1 y RR/cap1
-  conservan sus contratos; este bloque no acredita activación ni benchmark v2.
+  La caché semántica unitaria usa producto v6/persona v3. Execution=2 (ejecución durable v2) es el protocolo único y activo de la plataforma.
+
 
 - [Confiabilidad para alto volumen](../ajustes-alto-volumen-2026-10-08.md):
   caché global acotada con recuperación verificada, retención segura de eventos,
   consumidores selectivos y recuperación DLQ independiente.
 - [Ejecución justa v2](../sdd-homologacion-semantica-asincrona-ejecucion-justa.md):
-  implementación local de homologación asíncrona, cuotas, fencing y outbox.
-  Execution=1 permanece activo hasta verificar los requisitos del corte.
+  protocolo único activo de homologación asíncrona, cuotas, fencing y outbox (`AUDIT_PIPELINE_EXECUTION_VERSION=2`).
+
 
 - Rutas: `app/Routes/web.php`
 - Arquitectura técnica: `plans/architecture.md`
@@ -75,7 +75,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 ## Flujo de Eventos
 
-En v1, la homologación remota corre dentro de policy. En v2, normalized →
+La homologación remota corre desacoplada de policy (protocolo único v2): normalized →
 plan PHP → semantic_requested → ondas Gemini → semantic_resolved → evaluación
 PHP → rules_evaluated conserva todos los candidatos necesarios sin top-k.
 Los resultados provisionales nunca son hallazgos finales. Un error remoto no
@@ -91,8 +91,8 @@ IDs/contadores; pausa o backpressure retorna 503 antes de reservar identidad.
 
 La recuperación desde fuente conserva locator y SHA256; la caché de BLOB es
 acotada, recuperable y puede caducar. Raíces, snapshots y continuaciones v2
-activas no tienen TTL. Migración recupera PEL/unread y continuaciones ya ACKed,
-preserva terminales y slots; no reconstruye payload faltante con FDV nuevo.
+activas no tienen TTL, y `AuditExecutionMaintenance::gc()` recolecta estados terminales y reservas huérfanas tras la ventana de retención.
+
 
 ```text
 batch_requested

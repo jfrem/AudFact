@@ -17,6 +17,25 @@ use RuntimeException;
 
 final class AuditControllerTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \Core\Env::set('GEMINI_QUOTA_SCOPE', 'audfact-test');
+        \Core\Env::set('GEMINI_MODEL', 'gemini-3.8-flash');
+        \Core\Env::set('GEMINI_QUOTA_RPM', '2000');
+        \Core\Env::set('GEMINI_QUOTA_TPM', '4000000');
+        \Core\Env::set('GEMINI_QUOTA_RPD', '1000000');
+        \Core\Env::set('GEMINI_QUOTA_MAX_INFLIGHT', '16');
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (['GEMINI_QUOTA_SCOPE', 'GEMINI_MODEL', 'GEMINI_QUOTA_RPM', 'GEMINI_QUOTA_TPM', 'GEMINI_QUOTA_RPD', 'GEMINI_QUOTA_MAX_INFLIGHT'] as $key) {
+            \Core\Env::set($key, null);
+        }
+        parent::tearDown();
+    }
+
     public function testSingleReturns202WithAuditIdAndPublishesAuditCreated(): void
     {
         $publisher = new InMemoryAuditEventPublisher();
@@ -461,6 +480,7 @@ final class AuditControllerTest extends TestCase
         ];
 
         $_GET['year'] = '2026';
+        \Core\Cache::forget('audit:stats:monthly:2026');
         $controller = new TestableAuditController(auditStatusModel: $model);
 
         $response = self::captureResponse(fn () => $controller->monthlyPerformance());
@@ -492,7 +512,8 @@ final class AuditControllerTest extends TestCase
         $model = new StubAuditStatusModel();
         $model->monthlyStatsThrows = true;
 
-        $_GET['year'] = '2026';
+        $_GET['year'] = '2025';
+        \Core\Cache::forget('audit:stats:monthly:2025');
         $controller = new TestableAuditController(auditStatusModel: $model);
 
         $response = self::captureResponse(fn () => $controller->monthlyPerformance());
@@ -536,7 +557,24 @@ final class TestableAuditController extends AuditController
     {
         return $this->admissionRedis ?? new class extends \Core\RedisClient {
             public function __construct() {}
-            public function get(string $key): ?string { return null; }
+            public function get(string $key): ?string { return $key === 'audit:execution:heartbeat' ? '1000000' : null; }
+            public function serverConfiguration(array $patterns): array
+            {
+                return ['appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction'];
+            }
+            public function serverInfo(?string $section = null): array
+            {
+                return ['aof_last_write_status' => 'ok', 'used_memory' => '100', 'maxmemory' => '1000'];
+            }
+            public function eval(string $script, array $keys = [], array $args = []): mixed
+            {
+                if ($keys === []) {
+                    return 1000000;
+                }
+                return ($keys[0] ?? '') === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS
+                    ? [[], array_fill(0, count($keys) - 2, [])]
+                    : [];
+            }
         };
     }
 
@@ -727,7 +765,7 @@ class StubBatchJobStore extends BatchJobStore
         return $this->claimIdempotencyKeyReturns;
     }
 
-    public function claimAuditReservation(string $facSec, string $ownerToken, array $reservation, ?int $ttl = null): bool
+    public function claimAuditReservation(string $facSec, string $ownerToken, array $reservation): bool
     {
         return $this->claimReturns;
     }

@@ -29,12 +29,14 @@ final class AuditStateStoreTest extends TestCase
 
         $this->redis
             ->expects($this->once())
-            ->method('setnx')
+            ->method('eval')
             ->with(
-                AuditStateStore::auditKey($auditId),
-                $this->callback(function (string $json) use ($auditId): bool {
-                    $decoded = json_decode($json, true);
+                'local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
+                [AuditStateStore::auditKey($auditId)],
+                $this->callback(function (array $args) use ($auditId): bool {
+                    $decoded = json_decode($args[0], true);
                     $this->assertSame($auditId, $decoded['audit_id']);
+                    $this->assertSame(2, $decoded['execution_version']);
                     $this->assertSame('pending', $decoded['status']);
                     $this->assertSame('T38250701547', $decoded['dis_det_nro']);
                     $this->assertSame(0, $decoded['docs_done']);
@@ -42,17 +44,16 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertSame(0, $decoded['docs_evaluated']);
                     $this->assertSame(0, $decoded['docs_rejected']);
                     return true;
-                }),
-                604800
+                })
             )
-            ->willReturn(true);
+            ->willReturn(1);
 
         $this->assertTrue($this->store->initAudit($auditId, 'T38250701547'));
     }
 
     public function testInitAuditReturnsFalseWhenDuplicate(): void
     {
-        $this->redis->method('setnx')->willReturn(false);
+        $this->redis->method('eval')->willReturn(0);
         $this->assertFalse($this->store->initAudit(AuditEvent::uuidV4(), 'T1'));
     }
 

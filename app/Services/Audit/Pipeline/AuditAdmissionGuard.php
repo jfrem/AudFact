@@ -19,9 +19,6 @@ final class AuditAdmissionGuard
         if ($this->redis->get('audit:admission:paused') === '1' || $this->redis->get('audit:execution:paused') === '1') {
             throw new \RuntimeException('audit_capacity_unavailable', 503);
         }
-        if ($this->config->version === 1) {
-            return;
-        }
         new GeminiQuotaBudget($this->redis);
         $now = (new FairAuditTaskQueue($this->redis, $this->config))->nowMs();
         $heartbeat = $this->redis->get('audit:execution:heartbeat');

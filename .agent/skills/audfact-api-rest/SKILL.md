@@ -71,8 +71,8 @@ Implementar cambios de API REST sin romper el contrato JSON ni las validaciones 
 | `GET` | `/audit/jobs` | `AuditController::jobsList` |
 | `GET` | `/audit/jobs/{jobId}` | `AuditController::jobStatus` |
 | `GET` | `/audit/status/{auditId}` | `AuditController::status` |
-| `GET` | `/audit/dlq` | `AuditDlqController::index` |
-| `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` |
+| `GET` | `/audit/dlq` | `AuditDlqController::index` (`middleware('auth')`) |
+| `POST` | `/audit/dlq/reprocess` | `AuditDlqController::reprocess` (`middleware('auth')`) |
 | `GET` | `/audit/{facNro}/timings` | `AuditController::timings` |
 | `GET` | `/audit/{auditId}/flow-stream` | `AuditFlowController::stream` |
 

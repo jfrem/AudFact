@@ -627,6 +627,39 @@ export type AuditMonthlyPerformanceItem = z.infer<
 export type AuditMonthlyPerformanceSummary = z.infer<
   typeof AuditMonthlyPerformanceSummarySchema
 >;
+export const AuditCostAttemptSchema = z.object({
+  aud_costo_id: z.number().int().optional(),
+  fac_nro: z.string(),
+  fac_nit_sec: z.string().nullish(),
+  cliente: z.string().nullish(),
+  fac_sec: z.string().nullish(),
+  intento: z.number().int(),
+  tokens_entrada: z.number().int(),
+  tokens_salida: z.number().int(),
+  tokens_pensamiento: z.number().int().nullish().default(0),
+  total_tokens: z.number().int(),
+  costo_usd: z.number(),
+  trm_aplicada: z.number(),
+  costo_cop: z.number(),
+  docs_procesados: z.number().int().optional(),
+  docs_cache_hit: z.number().int().optional(),
+  es_cache_hit_total: z.boolean().optional(),
+  modelo_ia: z.string().nullish(),
+  fecha_auditoria: z.string().nullish(),
+});
+
+export const AuditCostInvoiceSchema = z.object({
+  fac_nro: z.string(),
+  total_intentos: z.number().int(),
+  gran_total_tokens: z.number().int(),
+  costo_total_acumulado_usd: z.number(),
+  costo_total_acumulado_cop: z.number(),
+  intentos: z.array(AuditCostAttemptSchema).default([]),
+});
+
+export type AuditCostAttempt = z.infer<typeof AuditCostAttemptSchema>;
+export type AuditCostInvoice = z.infer<typeof AuditCostInvoiceSchema>;
+
 export type AuditMonthlyPerformanceData = z.infer<
   typeof AuditMonthlyPerformanceDataSchema
 >;

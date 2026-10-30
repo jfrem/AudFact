@@ -70,7 +70,7 @@ final class AuditExecutionInspector
         foreach ($this->records('audit:task:v2:*', true) as $record) {
             $task = new AuditTask($record['value']);
             $out['tasks'][$task->id()] = ['stage' => $task->record['stage'], 'state' => $task->record['state'],
-                'audit_id' => $task->record['audit_id'], 'migration_disposition' => $task->record['migration_disposition'] ?? null];
+                'audit_id' => $task->record['audit_id']];
         }
         ksort($out['terminal_hashes']);
         return $out;
@@ -95,9 +95,6 @@ final class AuditExecutionInspector
             $record = (new AuditTask($stored['value']))->record;
             $id = $record['task_id'];
             $admitted[] = $taskKey;
-            if (($record['migration_disposition'] ?? '') === 'rolled_back') {
-                continue;
-            }
             $base = FairAuditTaskQueue::base($record['stage'], $record['lane']);
             $scope = $record['scope'];
             $state = $record['state'];
@@ -126,10 +123,7 @@ final class AuditExecutionInspector
                 $derived[$base . ':delayed'][1][$id] = $record['due_at_ms'];
             } elseif (in_array($state, ['active', 'committing'], true)) {
                 $derived[$base . ':active'] ??= ['hash', []];
-                if (isset($derived[$base . ':active'][1][$scope])) {
-                    throw new \RuntimeException('multiple_active_scope_tasks');
-                }
-                $derived[$base . ':active'][1][$scope] = $id;
+                $derived[$base . ':active'][1][$scope] = ($derived[$base . ':active'][1][$scope] ?? 0) + 1;
                 $derived[$base . ':leases'] ??= ['zset', []];
                 $derived[$base . ':leases'][1][$id] = $record['lease_until_ms'];
             }
@@ -143,7 +137,7 @@ final class AuditExecutionInspector
             $derived[SemanticEvaluationStore::PLANS][1][] = $key;
             $state = $plan['state'];
             $derived['audit:semantic:v2:counts'][1][$state] = ($derived['audit:semantic:v2:counts'][1][$state] ?? 0) + 1;
-            if (in_array($state, ['planned', 'waiting', 'ready'], true) && ($plan['migration_disposition'] ?? '') !== 'rolled_back') {
+            if (in_array($state, ['planned', 'waiting', 'ready'], true)) {
                 $refKey = 'audit:execution:refs:' . $plan['audit_id'];
                 $derived[$refKey] ??= ['set', []];
                 $derived[$refKey][1][] = 'plan:' . $plan['plan_id'];

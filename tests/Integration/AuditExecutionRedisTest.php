@@ -125,6 +125,65 @@ final class AuditExecutionRedisTest extends TestCase
         self::assertSame(2, $this->queue->metrics()['orchestration']['batch']['queued']);
     }
 
+    public function testJobSlotsAllowConcurrentTurnsUpToTheCapAndFreeThemOnCommit(): void
+    {
+        // Arrange:
+        $queue = new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2, 20000, ['orchestration' => 3]));
+        $jobA = AuditEvent::uuidV4();
+        $jobB = AuditEvent::uuidV4();
+        foreach ([$jobA, $jobA, $jobA, $jobA, $jobA, $jobB] as $job) {
+            $this->admit($this->event(AuditTaskStage::ORCHESTRATION, $job));
+        }
+
+        // Act:
+        $grants = [];
+        for ($i = 0; $i < 5; $i++) {
+            $grants[] = $queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'worker-' . $i);
+        }
+        $activeAtCap = $queue->metrics()['orchestration']['batch']['active'];
+        (new AuditTaskCommitter($this->redis))->commit($grants[0]->record, AuditTaskEffects::empty($grants[0]));
+        $next = $queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'worker-5');
+        $blocked = $queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'worker-6');
+
+        // Assert:
+        self::assertSame([$jobA, $jobB, $jobA, $jobA], array_map(
+            static fn(AuditTask $task): string => $task->record['job_id'],
+            array_slice($grants, 0, 4)
+        ));
+        self::assertNull($grants[4], 'El job A ya ocupa sus 3 turnos y B no tiene más tareas.');
+        self::assertSame(4, $activeAtCap);
+        self::assertSame($jobA, $next?->record['job_id']);
+        self::assertNull($blocked);
+    }
+
+    public function testJobSlotsCountLegacyActiveEntryAsOneTurnAndReleaseIt(): void
+    {
+        // Arrange:
+        $job = AuditEvent::uuidV4();
+        $this->admit($this->event(AuditTaskStage::ORCHESTRATION, $job));
+        $this->admit($this->event(AuditTaskStage::ORCHESTRATION, $job));
+        $legacy = $this->queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'legacy');
+        $active = FairAuditTaskQueue::base('orchestration', 'batch') . ':active';
+        $scope = $legacy->record['scope'];
+        $this->redis->eval('return redis.call("HSET",KEYS[1],ARGV[1],ARGV[2])', [$active], [$scope, $legacy->id()]);
+        $widened = new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2, 20000, ['orchestration' => 2]));
+
+        // Act:
+        $second = $widened->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'current');
+        $held = $this->redis->eval('return redis.call("HGET",KEYS[1],ARGV[1])', [$active], [$scope]);
+        $committer = new AuditTaskCommitter($this->redis);
+        $committer->commit($legacy->record, AuditTaskEffects::empty($legacy));
+        $afterLegacy = $this->redis->eval('return redis.call("HGET",KEYS[1],ARGV[1])', [$active], [$scope]);
+        $committer->commit($second->record, AuditTaskEffects::empty($second));
+        $afterAll = $this->redis->eval('return redis.call("HEXISTS",KEYS[1],ARGV[1])', [$active], [$scope]);
+
+        // Assert:
+        self::assertSame($job, $second->record['job_id']);
+        self::assertSame('2', $held);
+        self::assertSame('1', $afterLegacy);
+        self::assertSame(0, $afterAll);
+    }
+
     public function testCommitIsIdempotentAndStaleFenceCannotMutateAudit(): void
     {
         // Arrange:

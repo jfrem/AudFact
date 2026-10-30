@@ -12,21 +12,20 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 
 - `AuditDocumentPrefetchGate`/`AuditDocumentPrefetchEvent`: histéresis 90/70 por bytes/entradas, revisión monotónica cada1000ms. `AuditDocumentCache::usage()` poda64 reservas vencidas aun con intake detenido. Hook `canReadNewMessages()` después de reclaim, antes de XREADGROUP; downloader sigue usando el loop no programado también en v2.
 - `GeminiResponseFailureReason`/`GeminiResponseException`/`GeminiResponseGuard`: bloqueo, ausencia, truncamiento y non-STOP. Solo ausencia admite retry. Contexto cerrado sin contenido; guard antes de parsers, propagación tipada en judge y fallback batch de policy. Semántica unitaria producto v6/persona v3; TTL actual.
-- `invalidateTaskResponses(false)` marca contrato fallido conservando respuesta permanente y cargos para reanudar commit sin HTTP. Runner usa operación generate_content para el retry de respuesta y solo cleanup(true) después de COMMITTED/ALREADY_COMMITTED, incluyendo cierre técnico. STALE/RETRY_PREPARE conservan BLOB; extractor libera en hook DLQ v1.
+- `invalidateTaskResponses(false)` marca contrato fallido conservando respuesta permanente y cargos para reanudar commit sin HTTP. Runner usa operación generate_content para el retry de respuesta y solo cleanup(true) después de COMMITTED/ALREADY_COMMITTED, incluyendo cierre técnico. STALE/RETRY_PREPARE conservan BLOB; extractor libera en hook DLQ.
 - Métricas agregan prefetch_pauses/prefetch_wait_ms (suma por proceso); startup downloader incluye límites/umbrales/intervalo. No confundir esa suma con elapsed global.
 - Este bloque no activa v2, no cambia RR/cap1, cuota, modelo, perfiles de generación ni SQL. La SDD de correcciones sigue pendiente para sus demás requisitos y benchmark.
 
-## Ejecución durable v2 (activación explícita)
+## Ejecución durable v2 (protocolo canónico activo — v1 erradicada)
 
-- Fuente contractual/evidencia: `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md`, §19. Código local implementado; versión 1 sigue por defecto y en GitHub. Los cortes productivos previos no miden el diff.
-- Nuevos componentes: enums de tarea/plan/purpose, FairAuditTaskQueue, AuditTaskRunner/Effects/Committer/Outbox, AuditExecutionConfig/AdmissionGuard/Inspector/Maintenance/Migration, GeminiQuotaBudget, SemanticEvaluationStore/Worker/FlightStore y SemanticBatchContract/CandidateCollector/ResolvedSemanticResolver. Verificarlos antes de tocar ejecución/corte.
-- Policy v2 prepara plan/evaluación sin HTTP. Snapshot y todos los candidatos necesarios permanecen congelados; nunca publicar evaluación provisional. Ondas hasta 16 pares/32768 bytes/8192 input tokens; salida agrupada 8192 independiente de los 2048 de v1. Cache v6 incluye modelo/versiones/contexto/dirección, con validación cerrada y single-flight owner/fence.
-- Mantenimiento hace intake independiente, guarda tarea antes del ACK, repara commits/publica outbox y protege referencias activas. RR por job y cap1 por etapa/carril; extraction/semantic comparten cuota y turnos de proveedor. Un intento realiza un HTTP; retries con due_at/Retry-After, máximo tres por operación. Respuestas se guardan antes de commit; unknown conserva cargo.
+- Fuente contractual/evidencia: `plans/sdd-homologacion-semantica-asincrona-ejecucion-justa.md`, §19. **El protocolo v2 (`AuditExecutionConfig::VERSION = 2`) es el único modelo de ejecución activo y canónico**; las rutas de código v1 (ejecución directa FIFO por streams en etapas planificadas, llamadas síncronas a Gemini dentro de `RulesEvaluationWorker`, bifurcaciones `version === 1` y TTLs volátiles sobre estados raíz activos) fueron erradicadas.
+- Componentes centrales v2: `FairAuditTaskQueue` (Round-Robin por Job con `cap=1` por etapa/carril), `AuditTaskRunner`/`Effects`/`Committer`/`Outbox`, `AuditExecutionConfig`/`AdmissionGuard`/`Inspector`/`Maintenance`, `GeminiQuotaBudget`, `SemanticEvaluationStore`/`Worker`/`FlightStore` y `SemanticBatchContract`/`CandidateCollector`/`ResolvedSemanticResolver`.
+- `RulesEvaluationWorker` (`policy`) es 100% libre de llamadas HTTP y de `GEMINI_API_KEY`: evalúa reglas deterministas en PHP puro y, cuando existen pares de homologación semántica pendientes, registra un plan en `SemanticEvaluationStore` y publica `semantic_requested` hacia `SemanticEvaluationWorker` (`worker-semantic-vip` y `worker-semantic-batch`, servicios core en `docker-compose.yml`).
+- `worker-execution-maintenance` (`bin/audit-execution-maintenance.php`) corre como servicio core por defecto, emitiendo el heartbeat `audit:execution:heartbeat`, drenando streams hacia `FairAuditTaskQueue`, recuperando leases vencidos y reparando commits/outbox.
 - State/tareas/planes/receipts/outbox activos no expiran; la caché BLOB sí tiene TTL/bypass. Locator/hash originales permiten recuperación; fuente ausente/modificada es técnica, nunca hallazgo clínico inventado. Retención de streams protege lag/PEL de todos los grupos; DLQ no se poda automáticamente.
-- Protocolos Redis multillave exigen standalone/Sentinel, AOF/fsync always/noeviction reales. No habilitar v2 con scope UNCONFIGURED o cuotas 0; RPM/TPM/RPD son del proyecto, no de cada key. Documentación oficial no revela cuotas de la cuenta.
-- Migración: pause y drenar todos los procesos, inventario/checksums, import PEL/unread y continuaciones ACKed. Preservar document_id/terminales/contadores/slots SQL; payload ausente bloquea, no consultar FDV nuevo. Reconcile solo bajo pausa, nunca retirar claves ajenas a v2. Rollback replay idempotente conserva SQL/AOF; accept habilita GC después del horizonte terminal, no certifica corpus/cuota.
+- Protocolos Redis multillave exigen standalone/Sentinel, AOF/fsync always/noeviction reales y `REDIS_PREFIX` coherente entre contenedores. `GeminiQuotaBudget` exige configuración explícita de `GEMINI_QUOTA_SCOPE`, `GEMINI_MODEL`, `GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD` y `GEMINI_QUOTA_MAX_INFLIGHT` (rechaza variables ausentes, `UNCONFIGURED` o `<= 0`).
+- Reconciliación y GC (`AuditExecutionInspector::reconcile()` y `AuditExecutionMaintenance::gc()`): `reconcile` opera bajo pausa (`audit:admission:paused=1` y `audit:execution:paused=1`) reconstruyendo índices de `FairAuditTaskQueue` y planes semánticos sin tocar slots SQL. `gc` retira estados terminales (`audit:*:state`, `job:*:state` + `jobs:index`) de cualquier versión tras la ventana de retención y libera reservas `audit:reservation:disid:*` cuyo `audit_id` ya es terminal o inexistente.
 - Timings v2 distinguen pares, generaciones exitosas, countTokens, intentos fallidos/unknown y espera. `/metrics/async` usa executionVersion/executionScheduler/geminiBudget/executionMaintenance; backlog incluye tareas ACKed durables.
-- E01: conservar ejecución/homologación v1 hasta cero consumidores/trabajo v1 y horizonte máximo desde su último terminal. Responsable autor del PR; retiro con búsquedas y pruebas de migración/rollback, no compatibilidad indefinida.
 
 ## Archivos clave
 
@@ -105,7 +104,7 @@ El launcher carga `.env`, instancia el consumer correspondiente, registra SIGTER
 | Archivo | Endpoints |
 |---|---|
 | `app/Controllers/AuditController.php` | `POST /audit/single` (202), `POST /audit/async` (202), `GET /audit/jobs/{job_id}` |
-| `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess`: nueva raíz independiente idempotente mediante `audit_created`; conserva el job histórico |
+| `app/Controllers/AuditDlqController.php` | `GET /audit/dlq`, `POST /audit/dlq/reprocess` (protegidos por `Core\AuthMiddleware` con `X-API-KEY` / `Bearer`): nueva raíz independiente idempotente mediante `audit_created`; conserva el job histórico |
 
 ## Streams y eventos
 
@@ -187,6 +186,7 @@ lectura o si se pierde el índice; el miembro `__ready` no cuenta como scope.
 | `AUDIT_RESERVATION_TTL` | TTL de reservas por `DisId` en Redis (default 86400) |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | Réplicas SQL globales (default 6); la cola limita a un activo por slot |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | Slots 1..16 (default 2), fijados en Redis al primer uso; cambios afectan jobs nuevos |
+| `AUDIT_ORCHESTRATION_JOB_SLOTS` / `AUDIT_EXTRACTION_JOB_SLOTS` / `AUDIT_POLICY_JOB_SLOTS` / `AUDIT_SEMANTIC_JOB_SLOTS` | Tareas simultáneas por job y etapa en `FairAuditTaskQueue` (1..16, default 1 = RR/cap1); `:active` guarda el contador de turnos por scope |
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | TTL de turnos, pendientes y deduplicación de persistencia (default 604800) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
@@ -369,7 +369,7 @@ php bin/audit-worker.php persistence &
 
 ### Listar DLQ
 ```bash
-curl http://localhost:8080/audit/dlq?limit=20
+curl -H "X-API-KEY: $MCP_WEBHOOK_SECRET" "http://localhost:8080/audit/dlq?limit=20"
 ```
 
 ## Checklist rápido

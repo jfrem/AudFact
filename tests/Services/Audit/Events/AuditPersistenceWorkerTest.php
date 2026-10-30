@@ -28,17 +28,21 @@ final class AuditPersistenceWorkerTest extends TestCase
         $model = new RecordingAuditResultPersistenceModel();
         $queue = new RecordingAuditPersistenceQueue();
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())->method('xAdd')->with(
-            $stream,
-            $this->callback(function (array $fields) use ($routing, $store, $model): bool {
-                $child = AuditEvent::fromArray(json_decode($fields['event'], true, flags: JSON_THROW_ON_ERROR));
+        $redis->expects($this->once())->method('eval')->with(
+            $this->stringContains('terminal_key_type_invalid'),
+            $this->callback(function (array $keys) use ($stream): bool {
+                $this->assertSame($stream, $keys[0]);
+                $this->assertStringStartsWith('audit:terminal:v2:sent:', $keys[1]);
+                return true;
+            }),
+            $this->callback(function (array $args) use ($routing, $store, $model): bool {
+                $child = AuditEvent::fromArray(json_decode($args[0], true, flags: JSON_THROW_ON_ERROR));
                 $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $child->eventType);
                 $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
                 $this->assertSame('completed', $store->lastCompletion['status']);
                 $this->assertSame('87723098', $model->lastAuditResultData['DisId']);
                 return true;
-            }),
-            $this->anything()
+            })
         )->willReturn('1-0');
         $worker = new AuditPersistenceWorker(
             stateStore: $store,
@@ -568,6 +572,11 @@ final class PersistencePublisher extends AuditEventPublisher
     {
         $this->published[] = $event;
         return 'stream-' . count($this->published);
+    }
+
+    public function publishTerminalOnce(AuditEvent $event): string
+    {
+        return $this->publish($event);
     }
 }
 

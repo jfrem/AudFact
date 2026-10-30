@@ -215,7 +215,7 @@ final class AuditTaskCommitter
             end
         end
         current.state='completed'; current.completed_at_ms=now; current.lease_owner=cjson.null; current.lease_until_ms=cjson.null
-        redis.call('HDEL',KEYS[5],current.scope); redis.call('ZREM',KEYS[6],current.task_id)
+        do local held=redis.call('HGET',KEYS[5],current.scope); local n=(held and string.match(held,'^%d+$') and #held<4) and tonumber(held) or 1; if n<=1 then redis.call('HDEL',KEYS[5],current.scope) else redis.call('HSET',KEYS[5],current.scope,n-1) end end; redis.call('ZREM',KEYS[6],current.task_id)
         redis.call('ZREM',KEYS[17],current.task_id)
         redis.call('SREM',KEYS[18],'task:'..current.task_id)
         redis.call('HINCRBY',KEYS[8],cp..'committing',-1); redis.call('HINCRBY',KEYS[8],cp..'completed',1)

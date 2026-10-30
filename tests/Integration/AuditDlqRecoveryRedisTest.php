@@ -27,13 +27,16 @@ final class AuditDlqRecoveryRedisTest extends TestCase
             self::markTestSkipped('Requiere RUN_REDIS_INTEGRATION=1 y Redis standalone.');
         }
         $this->redis = new IsolatedAuditRedis('integration:audit:' . AuditEvent::uuidV4() . ':');
-        foreach (['AUDIT_PIPELINE_EXECUTION_VERSION' => '1', 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' => '20000',
+        foreach (['AUDIT_PIPELINE_EXECUTION_VERSION' => '2', 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' => '20000',
             'REDIS_MODE' => 'standalone', 'GEMINI_QUOTA_SCOPE' => 'integration-test',
             'GEMINI_MODEL' => 'fixture', 'GEMINI_QUOTA_RPM' => '100', 'GEMINI_QUOTA_TPM' => '10000',
             'GEMINI_QUOTA_RPD' => '1000', 'GEMINI_QUOTA_MAX_INFLIGHT' => '4'] as $key => $value) {
             $this->previousEnvironment[$key] = Env::get($key, null);
             Env::set($key, $value);
         }
+        $now = (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->nowMs();
+        $this->redis->eval('redis.call("SET",KEYS[1],"2"); return redis.call("SET",KEYS[2],ARGV[1])',
+            ['audit:execution:version', 'audit:execution:heartbeat'], [$now]);
     }
 
     protected function tearDown(): void
@@ -131,12 +134,12 @@ final class AuditDlqRecoveryRedisTest extends TestCase
         if (in_array($barrier, ['audit:admission:paused', 'audit:execution:paused'], true)) {
             $this->redis->eval('return redis.call("SET",KEYS[1],"1")', [$barrier]);
         } elseif ($barrier === 'protocol') {
-            $this->redis->eval('return redis.call("SET",KEYS[1],"2")', ['audit:execution:version']);
+            $this->redis->eval('return redis.call("SET",KEYS[1],"99")', ['audit:execution:version']);
         } else {
-            Env::set('AUDIT_PIPELINE_EXECUTION_VERSION', '2');
-            $this->redis->eval('return redis.call("SET",KEYS[1],"2")', ['audit:execution:version']);
             $now = (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->nowMs();
-            if ($barrier !== 'missing_heartbeat') {
+            if ($barrier === 'missing_heartbeat') {
+                $this->redis->eval('return redis.call("DEL",KEYS[1])', ['audit:execution:heartbeat']);
+            } else {
                 $heartbeat = $barrier === 'stale_heartbeat' ? $now - 60000
                     : ($barrier === 'future_heartbeat' ? $now + 60000 : $now);
                 $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', ['audit:execution:heartbeat'], [$heartbeat]);
@@ -229,7 +232,7 @@ final class AuditDlqRecoveryRedisTest extends TestCase
     {
         yield 'admission paused during request' => ['audit:admission:paused', '1'];
         yield 'execution paused during request' => ['audit:execution:paused', '1'];
-        yield 'protocol changed during request' => ['audit:execution:version', '2'];
+        yield 'protocol changed during request' => ['audit:execution:version', '99'];
     }
 
     private function seed(string $status): string

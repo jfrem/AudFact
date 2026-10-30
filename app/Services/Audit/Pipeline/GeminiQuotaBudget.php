@@ -15,12 +15,15 @@ final class GeminiQuotaBudget
 
     public function __construct(private readonly RedisClient $redis, ?array $limits = null)
     {
+        $scope = (string) Env::get('GEMINI_QUOTA_SCOPE', 'audfact-default');
+        $model = (string) Env::get('GEMINI_MODEL', 'gemini-3.8-flash');
         $this->limits = $limits ?? [
-            'scope' => (string) Env::get('GEMINI_QUOTA_SCOPE', ''), 'model' => (string) Env::get('GEMINI_MODEL', ''),
-            'rpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPM', null, 1),
-            'tpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_TPM', null, 1),
-            'rpd' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPD', null, 1),
-            'inflight' => AuditExecutionConfig::integer('GEMINI_QUOTA_MAX_INFLIGHT', 4, 1, 32),
+            'scope' => $scope !== '' ? $scope : 'audfact-default',
+            'model' => $model !== '' ? $model : 'gemini-3.8-flash',
+            'rpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPM', 2000, 1),
+            'tpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_TPM', 4000000, 1),
+            'rpd' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPD', 1000000, 1),
+            'inflight' => AuditExecutionConfig::integer('GEMINI_QUOTA_MAX_INFLIGHT', 16, 1, 32),
         ];
         if (strlen($this->limits['scope'] ?? '') < 1 || strlen($this->limits['scope']) > 128
             || $this->limits['scope'] === 'UNCONFIGURED' || !is_string($this->limits['model'] ?? null) || $this->limits['model'] === '') {

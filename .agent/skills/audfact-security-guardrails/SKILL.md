@@ -19,7 +19,8 @@ Mantener un baseline de seguridad consistente en todo el backend.
 | `core/RateLimit.php` | — | Redis distribuido, APCu y archivo como fallbacks (100/min por IP) |
 | `core/Validator.php` | 4 KB | Validación de entrada: required, integer, date, min_value |
 | `core/Logger.php` | 4.5 KB | Logging rotacional con redacción de secretos |
-| `core/Middleware.php` | 1.6 KB | Sistema de middlewares (auth registrado) |
+| `core/Middleware.php` | 1.6 KB | Sistema de ejecución de middlewares por ruta |
+| `core/AuthMiddleware.php` | 1.0 KB | Guardia `auth` con validación `hash_equals` de `X-API-KEY` / `Bearer` contra `MCP_WEBHOOK_SECRET` |
 | `core/Router.php` | 3.6 KB | Sanitización de params (FILTER_SANITIZE_SPECIAL_CHARS, max 255) |
 | `app/Controllers/Controller.php` | 2.3 KB | validate(), validateArray(), getJsonBody() |
 | `app/Controllers/AttachmentsController.php` | 6.7 KB | Stream/download seguro de archivos |
@@ -45,9 +46,9 @@ Mantener un baseline de seguridad consistente en todo el backend.
 - **Producción**: `"Internal server error"` sin detalles
 - **Desarrollo**: Mensaje completo de la excepción
 
-### 4. JWT Middleware
-- **Estado**: Registrado como `'auth'` en `Middleware::register()` pero **ninguna ruta lo aplica actualmente**
-- Disponible para activar vía `$router->post('/ruta', 'Ctrl', 'action')->middleware('auth')`
+### 4. Auth Middleware (`core/AuthMiddleware.php`)
+- **Estado**: Registrado como `'auth'` en `Middleware::register('auth', 'Core\AuthMiddleware::handle')` y activo en `GET /audit/dlq` y `POST /audit/dlq/reprocess`.
+- Valida `X-API-KEY` o `Authorization: Bearer <token>` contra `MCP_WEBHOOK_SECRET` usando `hash_equals()` (*fail-closed* con HTTP 401 si falta o es inválido).
 
 ### 5. Sanitización de parámetros (en `core/Router.php`)
 - **Filtro**: `FILTER_SANITIZE_SPECIAL_CHARS` en params de ruta

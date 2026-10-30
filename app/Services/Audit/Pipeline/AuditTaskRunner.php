@@ -61,8 +61,8 @@ final class AuditTaskRunner
             }
             $this->queue->defer($task, $this->queue->nowMs() + 100, 'commit_contention');
             $this->cleanup($worker, $task, false);
-        } catch (QuotaDeferredException $error) {
-            $this->queue->defer($task, $error->dueAtMs, $error->reason);
+        } catch (QuotaDeferredException $quotaDeferred) {
+            $this->queue->defer($task, $quotaDeferred->dueAtMs, $quotaDeferred->reason);
             $this->cleanup($worker, $task, false);
         } catch (\Throwable $error) {
             $permanent = ($error instanceof GeminiResponseException && !$error->retryable())
@@ -80,6 +80,9 @@ final class AuditTaskRunner
             } else {
                 $effects = AuditTaskEffects::empty($task);
                 $effects['attempt_metrics'] = $this->attemptMetrics($task);
+                $sanitizedMessage = $this->sanitizeErrorMessage($error, 500);
+                $lastErrorCode = $error instanceof GeminiResponseException ? $error->reasonCode() : 'AUDIT_TASK_FAILED';
+                $lastErrorMessage = $error instanceof GeminiResponseException ? $error->reasonCode() : $sanitizedMessage;
                 $payload = ['status' => 'failed', 'requires_manual_review' => true, 'detail_error' => 'audit_task_failed',
                     'completed_at' => gmdate('Y-m-d\TH:i:s\Z', intdiv($this->queue->nowMs(), 1000)),
                     'failed_stage' => $stage->value, 'failed_event_type' => $task->event()->eventType, 'error_class' => get_class($error)];
@@ -89,8 +92,8 @@ final class AuditTaskRunner
                 $dlq = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DEAD_LETTER, [
                     'failed_event_type' => $task->event()->eventType, 'failed_stage' => $stage->value,
                     'attempts' => $attempt + 1,
-                    'last_error_code' => $error instanceof GeminiResponseException ? $error->reason->value : 'AUDIT_TASK_FAILED',
-                    'last_error_message' => $error instanceof GeminiResponseException ? $error->reason->value : 'audit_task_failed',
+                    'last_error_code' => $lastErrorCode,
+                    'last_error_message' => $lastErrorMessage,
                     'original_event' => $task->event()->toArray(),
                 ], $task->record['document_id'], 'dead-letter');
                 $effects['outbox'][] = AuditTaskEffects::event($task, $dlq, 'dead-letter');
@@ -98,7 +101,8 @@ final class AuditTaskRunner
                 $this->finishCommit($worker, $task, $result);
             }
             Logger::warning('Audit task operation failed', ['task_id' => $task->id(), 'stage' => $stage->value,
-                'error_class' => get_class($error), 'operation_attempt' => $attempt + 1,
+                'error_class' => get_class($error), 'error_message' => $this->sanitizeErrorMessage($error, 240),
+                'operation_attempt' => $attempt + 1,
                 'provider_context' => $error instanceof GeminiResponseException ? $error->context() : null]);
         }
         return true;
@@ -150,5 +154,11 @@ final class AuditTaskRunner
             }
         } while ($cursor !== '0');
         return array_values($out);
+    }
+
+    private function sanitizeErrorMessage(\Throwable $error, int $maxLength = 500): string
+    {
+        $raw = trim($error->getMessage());
+        return $raw !== '' ? mb_substr($raw, 0, $maxLength) : 'audit_task_failed';
     }
 }

@@ -8,7 +8,11 @@ import {
   FileWarning,
   AlertTriangle,
   Activity,
+  FileText,
+  Link2,
+  Paperclip,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -19,7 +23,7 @@ import type {
   AuditResultDetail,
   AuditResultRecord,
 } from "@/lib/schemas/domain";
-import { getAttachments, getAuditResultDetail, getDispensationDetail } from "@/lib/api/audfact";
+import { getAttachments, getAuditCostByInvoice, getAuditResultDetail, getDispensationDetail } from "@/lib/api/audfact";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +77,12 @@ export function AuditResultDetailModal({
   const detailQ = useQuery<AuditResultDetail>({
     queryKey: ["audit-result-detail", facNro],
     queryFn: () => getAuditResultDetail(facNro),
+    enabled: open && Boolean(facNro),
+  });
+
+  const costQ = useQuery({
+    queryKey: ["audit-cost-detail", facNro],
+    queryFn: () => getAuditCostByInvoice(facNro),
     enabled: open && Boolean(facNro),
   });
 
@@ -197,7 +207,7 @@ export function AuditResultDetailModal({
             <TabsTrigger value="adjuntos">Adjuntos ({attachments.length})</TabsTrigger>
           </TabsList>
 
-          <div className="max-h-[calc(96vh-160px)] flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-5">
+          <div className={cn("flex-1", tab === "adjuntos" ? "h-[calc(96vh-140px)] overflow-hidden p-0" : "max-h-[calc(96vh-160px)] overflow-y-auto p-4 scrollbar-thin sm:p-5")}>
             {detailQ.isError ? (
               <Alert variant="destructive" className="mb-4">
                 <AlertTriangle />
@@ -215,11 +225,12 @@ export function AuditResultDetailModal({
             <TabsContent value="rendimiento" className="mt-0">
               <AuditTimingsPanel
                 timings={detail?.timings ?? null}
+                cost={costQ.data ?? null}
                 totalDurationMs={Number((detail ?? record).DuracionProcesamientoMs ?? 0)}
                 documentsProcessed={documentCount}
               />
             </TabsContent>
-            <TabsContent value="adjuntos" className="mt-0">
+            <TabsContent value="adjuntos" className="mt-0 h-full">
               <AttachmentsTab
                 disDetNro={facNro}
                 attachments={attachments}
@@ -396,51 +407,137 @@ function AttachmentsTab({
 }) {
   if (isLoading) {
     return (
-      <BackendRequestSkeleton
-        description="El backend está consultando metadatos de adjuntos."
-        rows={3}
-        title="Cargando adjuntos"
-        variant="detail"
-      />
+      <div className="p-6">
+        <BackendRequestSkeleton
+          description="El backend está consultando metadatos de adjuntos."
+          rows={3}
+          title="Cargando adjuntos"
+          variant="detail"
+        />
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Alert variant="destructive">
-        <AlertTriangle />
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
+      <div className="p-6">
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      </div>
     );
   }
 
   if (attachments.length === 0) {
     return (
-      <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
-        <Eye className="h-10 w-10 text-slate-500/40" />
-        <p className="mt-3 font-medium text-slate-300">Sin adjuntos</p>
-        <p className="mt-1 text-sm text-slate-400">
-          No se encontraron documentos adjuntos para esta dispensación.
-        </p>
+      <div className="flex h-full min-h-[400px] flex-col items-center justify-center p-6 text-center">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-8 py-12">
+          <Eye className="h-10 w-10 text-slate-500/40" />
+          <p className="mt-3 font-medium text-slate-300">Sin adjuntos</p>
+          <p className="mt-1 max-w-sm text-xs text-slate-500">
+            No se encontraron documentos adjuntos para esta dispensación.
+          </p>
+        </div>
       </div>
     );
   }
 
+  const selectedId = String(
+    selected?.id_adjunto_fisico ??
+      selected?.AdjDisId ??
+      selected?.id_documento ??
+      selected?.nombre_documento ??
+      "",
+  );
+
   return (
-    <div className="space-y-4">
-      <AttachmentList
-        items={attachments}
-        selectedId={String(
-          selected?.id_adjunto_fisico ??
-            selected?.AdjDisId ??
-            selected?.id_documento ??
-            selected?.nombre_documento ??
-            "",
-        )}
-        onSelect={onSelect}
-        orientation="horizontal"
-      />
-      <AttachmentViewerPanel disDetNro={disDetNro} attachment={selected} />
+    <div className="flex h-full flex-col md:flex-row overflow-hidden">
+      {/* Riel lateral de documentos (compacto, forense) */}
+      <div className="flex w-full md:w-64 lg:w-72 xl:w-80 shrink-0 flex-col border-b md:border-b-0 md:border-r border-border bg-muted/20 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3.5 py-2.5">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <Paperclip className="h-3.5 w-3.5 text-sky-400" />
+            <span>Documentos ({attachments.length})</span>
+          </div>
+          <span className="rounded bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-300 ring-1 ring-inset ring-sky-500/20">
+            Evidencia
+          </span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-thin">
+          {attachments.map((item, index) => {
+            const id = String(
+              item.id_adjunto_fisico ??
+                item.AdjDisId ??
+                item.id_documento ??
+                item.nombre_documento ??
+                index,
+            );
+            const active = selectedId === id;
+            const isBlob = item.TipoAlmacenamiento === "BLOB";
+            const isUrl = item.TipoAlmacenamiento === "URL";
+
+            return (
+              <button
+                key={`${id}-${index}`}
+                type="button"
+                onClick={() => onSelect(item)}
+                aria-pressed={active}
+                className={cn(
+                  "group flex w-full items-start gap-2.5 rounded-lg p-2.5 text-left transition-all",
+                  active
+                    ? "bg-sky-500/10 text-sky-200 ring-1 ring-inset ring-sky-500/30 font-medium"
+                    : "text-slate-400 hover:bg-muted/60 hover:text-slate-200",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-xs",
+                    active
+                      ? "border-sky-500/30 bg-sky-500/20 text-sky-300"
+                      : "border-border bg-muted text-muted-foreground group-hover:border-slate-600",
+                  )}
+                >
+                  {isUrl ? (
+                    <Link2 className="h-4 w-4" />
+                  ) : isBlob ? (
+                    <Paperclip className="h-4 w-4" />
+                  ) : (
+                    <FileText className="h-4 w-4" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold leading-tight text-foreground">
+                    {item.nombre_documento || item.AdjDisNom || "Adjunto sin nombre"}
+                  </p>
+                  <p className="mt-1 truncate text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                    {item.nombre_alternativo || item.physical_stored_alias || "Sin alias"}
+                  </p>
+                  <div className="mt-1 flex items-center gap-1.5 text-[10px] text-slate-500">
+                    <span className="rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[9px] text-slate-400">
+                      {item.TipoAlmacenamiento ?? "N/D"}
+                    </span>
+                    {item.id_adjunto_fisico ? (
+                      <span className="font-mono text-[9px] text-slate-500">
+                        #{item.id_adjunto_fisico}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                {active ? (
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Stage: Visor de documentos con 100% de alto y ancho */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-background">
+        <AttachmentViewerPanel disDetNro={disDetNro} attachment={selected} />
+      </div>
     </div>
   );
 }

@@ -71,10 +71,7 @@ class AuditStateStore
     ): bool {
         $state = self::initialAuditState($auditId, $disDetNro, $jobId, $facNitSec, $disId);
         $encoded = self::encodeJson($state, 'AuditStateStore');
-        if (($state['execution_version'] ?? 1) === 2) {
-            return $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::auditKey($auditId)], [$encoded]) === 1;
-        }
-        return $this->redis->setnx(self::auditKey($auditId), $encoded, self::auditTtlSeconds());
+        return $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::auditKey($auditId)], [$encoded]) === 1;
     }
 
     private static function initialAuditState(
@@ -83,7 +80,7 @@ class AuditStateStore
         $now = self::nowUtc();
         return [
             'audit_id'    => $auditId,
-            'execution_version' => AuditExecutionConfig::fromEnv()->version,
+            'execution_version' => AuditExecutionConfig::VERSION,
             'status'      => self::AUDIT_STATUS_PENDING,
             'dis_det_nro' => $disDetNro,
             'job_id'      => $jobId,
@@ -133,25 +130,23 @@ class AuditStateStore
 
     private const RECOVER_FAILED_AUDIT_LUA = <<<'LUA'
         -- Revalidar la barrera en la misma operación que crea/publica la raíz.
-        if (redis.call('GET',KEYS[5]) or '1')~=ARGV[4]
+        if (redis.call('GET',KEYS[5]) or '2')~=ARGV[4]
         or redis.call('GET',KEYS[6])=='1' or redis.call('GET',KEYS[7])=='1' then
             return redis.error_reply('audit_capacity_unavailable')
         end
-        if ARGV[4]=='2' then
-            local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
-            local heartbeat=tonumber(redis.call('GET',KEYS[8]) or '')
-            if not heartbeat or heartbeat>now or now-heartbeat>10000 then return redis.error_reply('audit_capacity_unavailable') end
-            for _,stage in ipairs(cjson.decode(ARGV[6])) do
-                local waiting=0
-                for _,lane in ipairs({'priority','batch'}) do
-                    for _,status in ipairs({'pending','delayed'}) do
-                        local n=tonumber(redis.call('HGET',KEYS[9],stage..':'..lane..':'..status) or '0')
-                        if not n or n<0 then return redis.error_reply('task_metrics_invalid') end
-                        waiting=waiting+n
-                    end
+        local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
+        local heartbeat=tonumber(redis.call('GET',KEYS[8]) or '')
+        if not heartbeat or heartbeat>now or now-heartbeat>10000 then return redis.error_reply('audit_capacity_unavailable') end
+        for _,stage in ipairs(cjson.decode(ARGV[6])) do
+            local waiting=0
+            for _,lane in ipairs({'priority','batch'}) do
+                for _,status in ipairs({'pending','delayed'}) do
+                    local n=tonumber(redis.call('HGET',KEYS[9],stage..':'..lane..':'..status) or '0')
+                    if not n or n<0 then return redis.error_reply('task_metrics_invalid') end
+                    waiting=waiting+n
                 end
-                if waiting>=tonumber(ARGV[5]) then return redis.error_reply('audit_capacity_unavailable') end
             end
+            if waiting>=tonumber(ARGV[5]) then return redis.error_reply('audit_capacity_unavailable') end
         end
         local receipt = redis.call('GET', KEYS[3])
         if receipt then return receipt end
@@ -174,9 +169,7 @@ class AuditStateStore
         event.payload.recovery_of_job_id = original.job_id
         local response = cjson.encode({audit_id=state.audit_id, original_audit_id=original.audit_id,
             original_job_id=original.job_id, reprocessed_event_id=event.event_id, event_type=event.event_type})
-        local created
-        if state.execution_version==2 then created=redis.call('SET',KEYS[2],cjson.encode(state),'NX')
-        else created=redis.call('SET',KEYS[2],cjson.encode(state),'EX',tonumber(ARGV[3]),'NX') end
+        local created = redis.call('SET',KEYS[2],cjson.encode(state),'NX')
         if not created then return cjson.encode({conflict='audit_id_exists'}) end
         local saved = redis.pcall('SET', KEYS[3], response, 'EX', tonumber(ARGV[3]), 'NX')
         if not saved or (type(saved) == 'table' and saved.err) then

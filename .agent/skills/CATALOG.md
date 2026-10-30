@@ -13,7 +13,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml`, `.github/workflows/*.yml`, `scripts/sync-github-production-env.sh` | Entorno Docker, CI/CD, Environment GitHub y conectividad DB. |
 | `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, `scripts/sync-github-production-env.sh`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, GitHub Secrets/Variables y despliegues. |
-| `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php` | Rate limit (100/min), CORS y logs. |
+| `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php`, `core/AuthMiddleware.php`, `core/Middleware.php` | Rate limit (100/min), autenticación operativa, CORS y logs. |
 | `audfact-docs-sync` | Documentación | `README.md`, `plans/*`, `.agent/skills/*` | Sincronización obligatoria de documentación y skills después de cambios de código o drift documental. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
 | `architecture-assessment` | Auditoría Técnica | Repositorio completo | Evaluación de arquitectura, acoplamiento, límites de módulos y escalabilidad. |
@@ -96,14 +96,14 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `app/wrap/**` | `audfact-mcp-wrap` |
 | `docker-compose.yml`, `docker/*`, `.github/workflows/*.yml` | `audfact-runtime-docker` |
 | `scripts/sync-github-production-env.sh` | `audfact-runtime-docker` + `audfact-production-ops` |
-| `scripts/sync-execution-v2-github.ps1`, `bin/audit-execution-maintenance.php` | `audfact-runtime-docker` + `audfact-production-ops` + `audfact-audit-gemini` |
+| `bin/audit-execution-maintenance.php` | `audfact-runtime-docker` + `audfact-production-ops` + `audfact-audit-gemini` |
 | `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `bin/audit-import.php`, `scripts/audit-import.test.mjs` | `audfact-audit-gemini` + `audfact-runtime-docker` (cliente CLI de `/audit/single`) |
 | `public/index.php` | `audfact-runtime-docker` + `audfact-security-guardrails` |
 | `core/RateLimit.php`, `core/RedisClient.php` | `audfact-security-guardrails` |
-| `core/Logger.php` | `audfact-security-guardrails` |
+| `core/Logger.php`, `core/AuthMiddleware.php`, `core/Middleware.php` | `audfact-security-guardrails` |
 | `core/Validator.php` | `audfact-api-rest` + `audfact-security-guardrails` |
 | `AGENTS.md`, `CLAUDE.md` | `audit-skill-router` |
 | Módulos nuevos, reconstrucciones o refactorizaciones profundas explícitas | `clean-rebuild-policy` |
@@ -116,6 +116,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | Especificaciones agnósticas en `opt/*` | `ddf-agnostic-spec` |
 | `opt/SPEC-SAAS-MASTER.md` (autoridad documental y cierre de gaps SaaS) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
 | `opt/tools/*.cjs` (comprobadores de contratos documentales) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
+| `.agent/hooks.json`, `.agent/scripts/*` | `audfact-docs-sync` + `phpunit-test-architect` (Lifecycle hooks de línea base en verde y prevención de drift) |
 
 ---
 

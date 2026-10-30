@@ -456,7 +456,7 @@ final class BatchOrchestratorJobStore extends BatchJobStore
         return true;
     }
 
-    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation, ?int $ttl = null): bool
+    public function claimAuditReservation(string $disId, string $ownerToken, array $reservation): bool
     {
         $this->claimAuditReservationCalls++;
 

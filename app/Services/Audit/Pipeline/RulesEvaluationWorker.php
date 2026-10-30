@@ -9,8 +9,6 @@ use App\Services\Audit\AuditFindingRules;
 use App\Services\Audit\AuditSeverity;
 use App\Services\Audit\DocumentDuplicationEvaluator;
 use App\Services\Audit\DeliveryValidityEvaluator;
-use App\Services\Audit\GeminiGateway;
-use App\Services\Audit\SemanticMatchJudge;
 use Core\Logger;
 use RuntimeException;
 use App\Services\Audit\Telemetry\TelemetryPublisher;
@@ -37,16 +35,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         parent::__construct($redis, $publisher, $stateStore, $lane);
 
         $this->stateStore = $stateStore ?? new AuditStateStore($this->redis);
-
-        if ($policyEngine === null && AuditExecutionConfig::fromEnv()->version === 2) {
-            $this->policyEngine = new DocumentPolicyEngine();
-        } elseif ($policyEngine === null) {
-            $gateway = GeminiGateway::create(lane: $this->laneEnum);
-            $semanticJudge = new SemanticMatchJudge($gateway, $this->redis);
-            $this->policyEngine = new DocumentPolicyEngine(semanticJudge: $semanticJudge);
-        } else {
-            $this->policyEngine = $policyEngine;
-        }
+        $this->policyEngine = $policyEngine ?? new DocumentPolicyEngine();
 
         $this->consumerName = $consumerName ?? self::defaultConsumerName(AuditEventPublisher::GROUP_POLICY, $this->laneEnum);
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
@@ -181,6 +170,15 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         }
         $start = hrtime(true);
         $facNro = (string) ($audit['dis_det_nro'] ?? '');
+        $telemetryMeta = ['worker' => $this->consumer()];
+        $this->telemetryPublisher->started(
+            $event->auditId,
+            'policy',
+            $event->documentId,
+            $facNro,
+            $telemetryMeta,
+            $event->jobId
+        );
         $store = new SemanticEvaluationStore($this->redis);
         $plan = null;
         if ($event->eventType === AuditEvent::TYPE_SEMANTIC_RESOLVED) {
@@ -227,6 +225,17 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
             $result = $planning['provisional_result'];
         }
+        $isRejected = ($result['document_decision']['approved'] ?? true) === false;
+        $telemetryAction = $isRejected ? 'rejected' : 'completed';
+        $this->telemetryPublisher->$telemetryAction(
+            $event->auditId,
+            'policy',
+            self::elapsedMs($start),
+            $event->documentId,
+            $facNro,
+            $telemetryMeta,
+            $event->jobId
+        );
         $patch = $this->buildDocumentPatch($result, self::elapsedMs($start));
         $patch['policy_state'] = 'evaluated';
         if ($plan !== null) {

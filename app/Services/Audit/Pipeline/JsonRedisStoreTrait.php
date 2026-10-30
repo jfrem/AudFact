@@ -78,8 +78,7 @@ trait JsonRedisStoreTrait
     private const STATE_WRITE_LUA = <<<'LUA'
         local function storeState(key,state,ttl)
             if state.audit_id then state.evaluation_revision=tonumber(state.evaluation_revision or 0)+1 end
-            if state.execution_version==2 then redis.call('SET',key,cjson.encode(state))
-            else redis.call('SET',key,cjson.encode(state),'EX',ttl) end
+            redis.call('SET',key,cjson.encode(state))
         end
     LUA;
 }
