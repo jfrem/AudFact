@@ -91,8 +91,6 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 | `audit_completed` | `TYPE_AUDIT_COMPLETED` | PersistenceWorker | WebhookDispatcher / ResultConsumer | `[CONFIRMADO]` |
 | `audit_failed` | `TYPE_AUDIT_FAILED` | Consumer (DLQ) | WebhookDispatcher / ResultConsumer | `[CONFIRMADO]` |
 | `webhook_dispatched` | `TYPE_WEBHOOK_DISPATCHED` | WebhookDispatcherWorker | Observabilidad / Trazabilidad | `[CONFIRMADO]` |
-| `batch_completed` | `TYPE_BATCH_COMPLETED` | Consumer (terminal) | ResultConsumer / WebhookDispatcher | `[CONFIRMADO]` |
-| `batch_completed_with_errors` | `TYPE_BATCH_COMPLETED_ERR` | Consumer (terminal) | ResultConsumer / WebhookDispatcher | `[CONFIRMADO]` |
 | `dead_letter` | `TYPE_DEAD_LETTER` | Consumer (retry exhausted) | Admin DLQ controller | `[CONFIRMADO]` |
 
 ### 3.2 Workers (Nodos del Pipeline)
@@ -133,7 +131,7 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 
 2. **Worker muere entre XADD DLQ y XACK**: El mensaje queda en la PEL. `XAUTOCLAIM` lo reclama después de `pendingReclaimIdleMs` (10min). El handler detecta que ya existe recibo DLQ y ejecuta Terminal ACK directamente. [AuditEventConsumer.php:580-588](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588). `[CONFIRMADO]`
 
-3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. `claimBatchTerminalEvent()` usa operación atómica Redis (SETNX); solo 1 worker gana y publica `batch_completed`. [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687). `[CONFIRMADO]`
+3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. `claimBatchTerminalEvent()` usa operación atómica Redis (SETNX); solo 1 worker gana y sella el job. [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687). `[CONFIRMADO]`
 
 4. **registerDocument en auditoría terminal**: Lua guard clause verifica status antes de registrar. Si la auditoría ya completó/falló, retorna éxito sin modificar estado. [AuditStateStore.php:288-294](../app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294). `[CONFIRMADO]`
 
@@ -165,8 +163,6 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
     "rules_evaluated",
     "audit_completed",
     "audit_failed",
-    "batch_completed",
-    "batch_completed_with_errors",
     "webhook_dispatched",
     "dead_letter"
   ]
@@ -654,7 +650,7 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 
 | ID | Descripción | Input | Output Esperado | Tipo |
 |---|---|---|---|---|
-| TC-10 | Batch terminal: se publica 1 sola vez | 2 workers intentan claimBatchTerminal | Solo 1 batch_completed publicado | Unitario |
+| TC-10 | Batch terminal: job se sella 1 sola vez | 2 workers intentan claimBatchTerminal | Solo 1 patchJob ejecutado, 0 eventos publicados | Unitario |
 
 ---
 

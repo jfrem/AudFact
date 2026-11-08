@@ -1,5 +1,30 @@
 # Changelog AudFact
 
+## [2026-11-08] — Corrección Bug N:1 Semántico y Purga `batch_completed` Zombie (`SDD-SEMANTIC-MATCH-001`)
+
+- **Bug 1 (`semantic_result_missing`) — Corregir semántica N:1 en `DocumentPolicyEngine` (`app/Services/Audit/Pipeline/DocumentPolicyEngine.php`)**:
+  - Eliminadas las exclusiones `if (in_array($di, $matchedFdv, true)) { continue; }` en Fase 1.5 (Token-Sorted Jaccard) y Fase 2 (similitud léxica) de `evaluateArticleSetField()`.
+  - Eliminada la misma exclusión en `rankUnmatchedCandidates()` y el parámetro `$matchedFdv` ahora inutilizado removido de su firma.
+  - El motor ahora permite que múltiples artículos FDV compartan la misma línea documental (semántica N:1 surjective), consistente con el contrato del docstring (líneas 763–773). La restricción 1:1 que se aplicaba anteriormente causaba `DomainException: semantic_result_missing` cuando 2+ FDV con plan evaluado como `semantic_match` sobre el mismo `docIdx` llegaban a la fase de resolución.
+
+- **Bug 2 (`event_type sin stream asignado: batch_completed`) — Eliminar publicación zombie en `AuditBatchOrchestrator` (`app/Services/Audit/AuditBatchOrchestrator.php`)**:
+  - Eliminada la llamada `$this->publisher->publish(AuditEvent::create(TYPE_BATCH_COMPLETED, ...))` de `publishEmptyBatch()`. El stream consumidor de este evento fue retirado en `SDD-OPS-025` pero la llamada quedó activa, lanzando `InvalidArgumentException` y enviando lotes vacíos a la DLQ.
+  - El job vacío ya quedaba correctamente sellado por `patchJob()` antes de la llamada fallida; el bloque eliminado era completamente redundante.
+
+- **Limpieza de constantes huérfanas (`app/Services/Audit/Pipeline/AuditEvent.php`)**:
+  - Eliminadas `TYPE_BATCH_COMPLETED = 'batch_completed'` y `TYPE_BATCH_COMPLETED_ERR = 'batch_completed_with_errors'`. Ningún consumidor en el repositorio las referenciaba (verificado con `git grep`).
+
+- **Documentación sincronizada**:
+  - `plans/data-flows.md`: eliminadas filas `batch_completed` y `batch_completed_with_errors` de la tabla de eventos.
+  - `opt/DOC-05-SPEC-PIPELINE-STATE-MACHINE.md`: eliminadas filas de la tabla de tipos de eventos, actualizado enum JSON del schema `EventTypeCatalog`, reemplazado pseudocódigo `BatchCompletion` y actualizado TC-10.
+
+- **Certificación de Pruebas Unitarias**:
+  - Suite PHPUnit post-fix: **1023 pruebas, 3591 aserciones, 0 fallos/errores (100% verde)** (baseline: 1022/3590).
+  - Nuevo test `testEvaluateArticleSetAllowsMultipleFdvToShareOneDocLine` en `DocumentPolicyEngineTest.php` cubre el escenario N:1 que antes causaba excepción.
+  - Test `testEnqueueBatchPublishesCompletedEventWhenNoCandidates` corregido: ahora verifica `assertCount(0, $publisher->published)`.
+
+---
+
 ## [2026-11-08] - Remediación Post-Despliegue: Nivel de Pensamiento `gemini-3.8-flash`, Desbloqueo de GC de Huérfanos Pre-Deploy y Reconciliación de Persistencia (`SDD-OPS-026`)
 
 - **Corrección y Homologación de Enlaces Relativos en Hooks PreInvocation (`.agent/scripts/inject-sdd-reminder.*`)**:

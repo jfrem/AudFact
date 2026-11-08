@@ -234,8 +234,6 @@ sequenceDiagram
 | `rules_evaluated` | `audit.persistence:{queue}` | Rule Engine / Scheduler | Persistence Worker | Transporta el veredicto respetando un turno activo por job |
 | `audit_completed` | `audit.results` | Persistence Worker | Bus Global / Job Store | Confirma la transacción SQL y notifica fin del proceso |
 | `audit_failed` | `audit.results` | Persistence Worker | Bus Global / Job Store | Notifica fallo irrecuperable de la auditoría (no se pudo persistir) |
-| `batch_completed` | `audit.results` | Batch Worker / Job Store | Bus Global | Notifica que el lote terminó sin errores |
-| `batch_completed_with_errors` | `audit.results` | Batch Worker / Job Store | Bus Global | Notifica que el lote terminó pero con auditorías fallidas |
 | `dead_letter` | `audit.dlq` | Cualquier Worker | DLQ Controller | Registra fallos fatales para reintento manual administrativamente |
 
 Las operaciones SQL de lectura y escritura se ejecutan con un PDO fresco por
