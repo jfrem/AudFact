@@ -2,6 +2,12 @@
 
 ## [2026-11-08] - Remediación Post-Despliegue: Nivel de Pensamiento `gemini-3.8-flash`, Desbloqueo de GC de Huérfanos Pre-Deploy y Reconciliación de Persistencia (`SDD-OPS-026`)
 
+- **Corrección y Homologación de Enlaces Relativos en Hooks PreInvocation (`.agent/scripts/inject-sdd-reminder.*`)**:
+  - Se corrigieron y homologaron las rutas relativas hacia los archivos `.md` de especificaciones y políticas en la directiva inyectada por el hook `sdd-flow-reminder` (tanto en `inject-sdd-reminder.mjs` como en su par PowerShell `inject-sdd-reminder.ps1`).
+  - **Paso 2 (SDD)**: Enlace relativo `[../skills/write-sdd-spec/SKILL.md](../skills/write-sdd-spec/SKILL.md)` preservando `/write-sdd-spec`.
+  - **Paso 5 (Clean Rebuild)**: Enlace relativo `[../skills/clean-rebuild-policy/SKILL.md](../skills/clean-rebuild-policy/SKILL.md)` preservando `/clean-rebuild-policy`.
+  - **Paso 7 (Docs Sync)**: Enlace relativo `[../skills/audfact-docs-sync/SKILL.md](../skills/audfact-docs-sync/SKILL.md)` preservando `(audfact-docs-sync)`.
+
 - **Estandarización de `gemini-3.8-flash` (`thinkingLevel=low`) y Desbloqueo Definitivo de `AuditExecutionMaintenance::gc()` y `/metrics/async` (`SDD-OPS-026`)**:
   - **Causa Raíz 1 — Rechazo de `thinkingLevel=minimal` en `gemini-3.8-flash` (`GeminiConfig.php`, `.github/workflows/deploy-production.yml`, GitHub Variables)**:
     - Las auditorías post-despliegue en producción fallaban con `InvalidArgumentException: gemini_3_7_thinking_level_invalid` en la etapa `extraction` porque las variables de repositorio en GitHub conservaban `GEMINI_THINKING_LEVEL=minimal`, `GEMINI_EXTRACTION_THINKING_LEVEL=minimal` y `GEMINI_SEMANTIC_THINKING_LEVEL=minimal`, mientras que `gemini-3.8-flash` únicamente soporta `low`, `medium` y `high` según la documentación oficial de Google Gemini API (`ai.google.dev/gemini-api/docs/models/gemini-3.8-flash.md`).
