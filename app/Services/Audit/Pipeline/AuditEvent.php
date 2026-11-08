@@ -19,8 +19,6 @@ final class AuditEvent
     public const TYPE_RULES_EVALUATED      = 'rules_evaluated';
     public const TYPE_AUDIT_COMPLETED      = 'audit_completed';
     public const TYPE_AUDIT_FAILED         = 'audit_failed';
-    public const TYPE_BATCH_COMPLETED      = 'batch_completed';
-    public const TYPE_BATCH_COMPLETED_ERR  = 'batch_completed_with_errors';
     public const TYPE_DEAD_LETTER          = 'dead_letter';
     public const TYPE_BATCH_REQUESTED      = 'batch_requested';
     public const TYPE_SEMANTIC_REQUESTED   = 'semantic_evaluation_requested';

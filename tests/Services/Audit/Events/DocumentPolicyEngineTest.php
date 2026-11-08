@@ -1745,6 +1745,42 @@ final class DocumentPolicyEngineTest extends TestCase
         $this->assertTrue($evalResult['cache_hit']);
     }
 
+    /**
+     * Regresion Bug: semantic_result_missing
+     * Escenario N:1 — dos articulos FDV (tab vs comprimido) apuntan a la misma
+     * linea documental. La Fase 1 lexica empareja ambos FDV a doc0.
+     * Con la restriccion 1:1 anterior esto causaba DomainException al resolver.
+     * Con la correccion N:1, ambos deben resolverse como COINCIDE sin excepcion.
+     */
+    public function testEvaluateArticleSetAllowsMultipleFdvToShareOneDocLine(): void
+    {
+        $engine = new DocumentPolicyEngine();
+
+        // FDV: 2 articulos donde ambos matchean lexicamente al unico articulo del doc
+        $result = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('NombreArticulo', 'S')],
+                ['header' => [], 'items' => [
+                    ['NombreArticulo' => 'METFORMINA 850 MG TAB'],
+                    ['NombreArticulo' => 'METFORMINA 850 MG TABLETA'],
+                ]]
+            ),
+            self::payload(
+                'FORMULA MEDICA',
+                [],
+                [
+                    ['NombreArticulo' => 'METFORMINA 850 MG TABLETA'],
+                ]
+            )
+        );
+
+        $campos = array_column($result['hallazgos']['items'], 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+        self::assertNotFalse($nomIdx, 'Se espera hallazgo de NombreArticulo');
+        self::assertSame('COINCIDE', $result['hallazgos']['items'][$nomIdx]['resultado'],
+            'Ambos articulos FDV deben coincidir con la unica linea documental (N:1 surjective)');
+    }
     public function testResolvedSemanticResolverThrowsWhenCandidateNotFound(): void
     {
         $this->expectException(\DomainException::class);

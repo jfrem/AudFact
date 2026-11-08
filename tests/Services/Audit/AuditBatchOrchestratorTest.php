@@ -37,8 +37,7 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertSame(0, $result['accepted']);
         $this->assertSame(0, $jobStore->claimAuditReservationCalls);
         $this->assertSame(1, $jobStore->patchJobCalls);
-        $this->assertCount(1, $publisher->published);
-        $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED, $publisher->published[0]->eventType);
+        $this->assertCount(0, $publisher->published);
     }
 
     public function testEnqueueBatchClaimsReservationAndPublishesAuditCreated(): void

@@ -588,20 +588,6 @@ final class AuditBatchOrchestrator
             throw new RuntimeException('No se pudo cerrar el job batch vacío en Redis', 503);
         }
 
-        $this->publisher->publish(AuditEvent::create(
-            eventType: AuditEvent::TYPE_BATCH_COMPLETED,
-            auditId: null,
-            jobId: $jobId,
-            payload: [
-                'status' => BatchJobStore::JOB_STATUS_COMPLETED,
-                'total' => 0,
-                'done' => 0,
-                'failed' => 0,
-                'accepted' => 0,
-                'skipped_locked' => $skippedLocked,
-                'skipped_existing' => $skippedExisting,
-            ],
-        ));
     }
 
     /**

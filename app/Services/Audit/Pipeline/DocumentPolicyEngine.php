@@ -812,9 +812,6 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docArticles as $di => $docOriginal) {
-                if (in_array($di, $matchedFdv, true)) {
-                    continue;
-                }
                 if (TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal) >= 0.5) {
                     $matchedFdv[$fi] = $di;
                     break;
@@ -828,9 +825,6 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
-                if (in_array($di, $matchedFdv, true)) {
-                    continue;
-                }
                 if (TextNormalization::similarity($fNorm, $dNorm) >= $threshold) {
                     $matchedFdv[$fi] = $di;
                     break;
@@ -851,7 +845,7 @@ class DocumentPolicyEngine
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
-                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $matchedFdv);
+                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles);
                 if ($candidates === []) {
                     continue;
                 }
@@ -883,7 +877,7 @@ class DocumentPolicyEngine
                     if (isset($matchedFdv[$fi])) {
                         continue;
                     }
-                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $matchedFdv);
+                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles);
 
                     foreach ($candidates as $di => $jaccardScore) {
                         $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docArticles[$di], array_merge($context, [
@@ -1038,13 +1032,10 @@ class DocumentPolicyEngine
      * @param  array<int,int>    $matchedFdv   Mapa fdvIdx→docIdx ya emparejado.
      * @return array<int,float>  docIdx→jaccardScore, ordenado desc.
      */
-    private function rankUnmatchedCandidates(string $fdvOriginal, array $docArticles, array $matchedFdv): array
+    private function rankUnmatchedCandidates(string $fdvOriginal, array $docArticles): array
     {
         $candidates = [];
         foreach ($docArticles as $di => $docOriginal) {
-            if (in_array($di, $matchedFdv, true)) {
-                continue;
-            }
             $candidates[$di] = TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal);
         }
         arsort($candidates);
