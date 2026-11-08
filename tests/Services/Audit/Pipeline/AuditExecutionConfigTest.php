@@ -98,7 +98,7 @@ final class AuditExecutionConfigTest extends TestCase
     public static function invalidSlotValues(): iterable
     {
         yield 'zero' => ['0'];
-        yield 'above maximum' => ['17'];
+        yield 'above maximum' => [(string) (AuditExecutionConfig::MAX_JOB_SLOTS + 1)];
         yield 'negative' => ['-1'];
         yield 'decimal' => ['2.5'];
         yield 'text' => ['abc'];
@@ -110,7 +110,7 @@ final class AuditExecutionConfigTest extends TestCase
         $invalid = [
             ['unknown' => 2],
             ['extraction' => 0],
-            ['extraction' => 17],
+            ['extraction' => AuditExecutionConfig::MAX_JOB_SLOTS + 1],
             ['extraction' => '4'],
         ];
 

@@ -32,7 +32,33 @@ use RuntimeException;
 final class DocumentExtractionWorker extends AuditEventConsumer
 {
     private const DEFAULT_CACHE_TTL         = 86400;
-    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.6-flash';
+    private const DEFAULT_EXTRACTOR_VERSION = 'gemini-3.8-flash';
+
+    /**
+     * Claves del payload de entrada (`document_downloaded`) que solo son requeridas
+     * durante la etapa de extracción y no deben propagarse en `document_extracted`.
+     *
+     * @var array<string, true>
+     */
+    private const TRANSIENT_EXTRACTION_PAYLOAD_KEYS = [
+        'fuente_verdad'       => true,
+        'extraction_contract' => true,
+        'system_prompt'       => true,
+    ];
+
+    /**
+     * Claves del payload de entrada (`document_downloaded`) que no son requeridas
+     * cuando un documento es rechazado por validación de integridad (`document_rejected`).
+     *
+     * @var array<string, true>
+     */
+    private const TRANSIENT_REJECTION_PAYLOAD_KEYS = [
+        'fuente_verdad'       => true,
+        'extraction_contract' => true,
+        'fields_config'       => true,
+        'visual_checks'       => true,
+        'system_prompt'       => true,
+    ];
 
     private AuditStateStore $stateStore;
     private GeminiGateway $gateway;
@@ -149,9 +175,11 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $telemetryMeta,
             $event->jobId
         );
-        if (in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
+        if (
+            in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
             && ($stored['document_hash'] ?? '') === $hash && ($stored['contract_hash'] ?? '') === $contractHash
-            && ($stored['prompt_context_hash'] ?? '') === $promptHash && is_array($stored['extraction_result'] ?? null)) {
+            && ($stored['prompt_context_hash'] ?? '') === $promptHash && is_array($stored['extraction_result'] ?? null)
+        ) {
             $state = $stored;
             $this->telemetryPublisher->completed(
                 $event->auditId,
@@ -171,18 +199,33 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $queue = new FairAuditTaskQueue($this->redis, AuditExecutionConfig::fromEnv());
             $gateway = $this->gateway->withTask($task, new GeminiQuotaBudget($this->redis), $queue);
             try {
-                $extraction = $this->resolveExtraction($this->cacheManager->computeCacheKey($hash, $contractHash, $promptHash),
-                    $document, $type, $payload, $contract, $user, $system,
-                    $this->requiredString($payload, 'dis_det_nro'), $event, $gateway);
+                $extraction = $this->resolveExtraction(
+                    $this->cacheManager->computeCacheKey($hash, $contractHash, $promptHash),
+                    $document,
+                    $type,
+                    $payload,
+                    $contract,
+                    $user,
+                    $system,
+                    $this->requiredString($payload, 'dis_det_nro'),
+                    $event,
+                    $gateway
+                );
             } catch (RasterizationFailureException $error) {
-                return $this->prepareRejection($task, $document, ['reason' => $error->reason->value,
-                    'declared_mime' => $document['mime'], 'size_bytes' => strlen(base64_decode($document['data'], true) ?: '')]);
+                return $this->prepareRejection($task, $document, [
+                    'reason' => $error->reason->value,
+                    'declared_mime' => $document['mime'],
+                    'size_bytes' => strlen(base64_decode($document['data'], true) ?: '')
+                ]);
             } catch (\App\Services\Audit\GeminiOperationException $error) {
                 if ($error->documentRejectionReason === null) {
                     throw $error;
                 }
-                return $this->prepareRejection($task, $document, ['reason' => $error->documentRejectionReason,
-                    'declared_mime' => $document['mime'], 'size_bytes' => strlen(base64_decode($document['data'], true) ?: '')]);
+                return $this->prepareRejection($task, $document, [
+                    'reason' => $error->documentRejectionReason,
+                    'declared_mime' => $document['mime'],
+                    'size_bytes' => strlen(base64_decode($document['data'], true) ?: '')
+                ]);
             }
             $state = $this->buildDocumentState($hash, $document, $extraction, self::elapsedMs($start), $contractHash, $promptHash);
             $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'mark_extracted', $event->documentId, $state);
@@ -199,8 +242,13 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                 $event->jobId
             );
         }
-        $next = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DOCUMENT_EXTRACTED, array_merge($payload, $state),
-            $event->documentId, 'extracted');
+        $next = AuditTaskEffects::followUp(
+            $task,
+            AuditEvent::TYPE_DOCUMENT_EXTRACTED,
+            self::compactExtractedPayload($payload, $state),
+            $event->documentId,
+            'extracted'
+        );
         $effects['outbox'][] = AuditTaskEffects::event($task, $next, 'extracted');
         return $effects;
     }
@@ -224,13 +272,25 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         if (!DocumentRejectionReason::isAllowed($reason)) {
             throw new \DomainException('document_rejection_reason_invalid');
         }
-        $patch = ['rejection_class' => DocumentRejectionReason::REJECTION_CLASS, 'rejection_reason' => $reason,
-            'rejection_origin' => static::class, 'document_type' => $this->resolveDocumentType($event->payload),
-            'mime' => $integrity['declared_mime'] ?? $document['mime'] ?? '', 'detected_mime' => $integrity['detected_mime'] ?? null,
-            'size_bytes' => (int) ($integrity['size_bytes'] ?? 0), 'rejected_at' => $event->timestamp];
+        $patch = [
+            'rejection_class' => DocumentRejectionReason::REJECTION_CLASS,
+            'rejection_reason' => $reason,
+            'rejection_origin' => static::class,
+            'document_type' => $this->resolveDocumentType($event->payload),
+            'mime' => $integrity['declared_mime'] ?? $document['mime'] ?? '',
+            'detected_mime' => $integrity['detected_mime'] ?? null,
+            'size_bytes' => (int) ($integrity['size_bytes'] ?? 0),
+            'rejected_at' => $event->timestamp
+        ];
         $effects = AuditTaskEffects::empty($task);
         $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'mark_rejected', $event->documentId, $patch);
-        $next = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DOCUMENT_REJECTED, array_merge($event->payload, $patch), $event->documentId, 'rejected');
+        $next = AuditTaskEffects::followUp(
+            $task,
+            AuditEvent::TYPE_DOCUMENT_REJECTED,
+            self::compactRejectedPayload($event->payload, $patch),
+            $event->documentId,
+            'rejected'
+        );
         $effects['outbox'][] = AuditTaskEffects::event($task, $next, 'rejected');
         return $effects;
     }
@@ -286,16 +346,24 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $systemPrompt = $this->promptBuilder->buildSystemPrompt($payload, $contract);
             $promptContextHash = $this->promptBuilder->promptContextHash($userPrompt, $systemPrompt);
             $stored = $this->stateStore->getAudit($event->auditId)['documents'][$event->documentId] ?? null;
-            if (is_array($stored) && in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
+            if (
+                is_array($stored) && in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
                 && ($stored['document_hash'] ?? '') === $documentHash
                 && ($stored['contract_hash'] ?? '') === $contractHash
                 && ($stored['prompt_context_hash'] ?? '') === $promptContextHash
-                && is_array($stored['extraction_result'] ?? null)) {
+                && is_array($stored['extraction_result'] ?? null)
+            ) {
                 $this->publishDocumentExtracted($event, $payload, $stored);
                 $this->documentCache->release($blobKey);
-                $this->telemetryPublisher->completed($event->auditId, 'extraction',
-                    self::elapsedMs($extractionStartedAt), $event->documentId, $disDetNro,
-                    array_merge($telemetryMeta, ['replayed_stored_result' => true]), $event->jobId);
+                $this->telemetryPublisher->completed(
+                    $event->auditId,
+                    'extraction',
+                    self::elapsedMs($extractionStartedAt),
+                    $event->documentId,
+                    $disDetNro,
+                    array_merge($telemetryMeta, ['replayed_stored_result' => true]),
+                    $event->jobId
+                );
                 return;
             }
             $document  = $this->documentInput->resolve($event);
@@ -577,7 +645,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->publisher->publish($event->followUp(
             eventType: AuditEvent::TYPE_DOCUMENT_EXTRACTED,
             documentId: $event->documentId,
-            payload: array_merge($payload, $documentState),
+            payload: self::compactExtractedPayload($payload, $documentState),
         ));
     }
 
@@ -639,7 +707,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->publisher->publish($event->followUp(
             eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
             documentId: $event->documentId,
-            payload: array_merge($payload, $patch),
+            payload: self::compactRejectedPayload($payload, $patch),
         ));
 
         Logger::info('Document rejected by integrity validation', [
@@ -725,6 +793,32 @@ final class DocumentExtractionWorker extends AuditEventConsumer
     private function resolveDocumentType(array $payload): string
     {
         return trim((string) ($payload['tipo_documento'] ?? 'DOCUMENTO'));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $documentState
+     * @return array<string, mixed>
+     */
+    private static function compactExtractedPayload(array $payload, array $documentState): array
+    {
+        return array_merge(
+            array_diff_key($payload, self::TRANSIENT_EXTRACTION_PAYLOAD_KEYS),
+            $documentState
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $rejectionPatch
+     * @return array<string, mixed>
+     */
+    private static function compactRejectedPayload(array $payload, array $rejectionPatch): array
+    {
+        return array_merge(
+            array_diff_key($payload, self::TRANSIENT_REJECTION_PAYLOAD_KEYS),
+            $rejectionPatch
+        );
     }
 
     private static function elapsedMs(int $startedAt): int

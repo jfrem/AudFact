@@ -15,6 +15,20 @@ use App\Services\Audit\Telemetry\TelemetryPublisher;
 
 final class RulesEvaluationWorker extends AuditEventConsumer
 {
+    /**
+     * Claves pesadas del estado documental que no son consumidas por
+     * `DocumentPolicyEngine::evaluateResolved` o `buildDocumentPatch` y se excluyen
+     * de la instantánea del plan semántico en Redis.
+     *
+     * @var array<string, true>
+     */
+    private const SEMANTIC_SNAPSHOT_EXCLUDED_DOCUMENT_KEYS = [
+        'extraction_contract' => true,
+        'extraction_result'   => true,
+        'normalized_result'   => true,
+        'system_prompt'       => true,
+    ];
+
     private AuditStateStore $stateStore;
     private DocumentPolicyEngine $policyEngine;
     private TelemetryPublisher $telemetryPublisher;
@@ -207,10 +221,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             }
             $planning = $this->policyEngine->plan($document, $event->payload, $facNro);
             if ($planning['requires_semantics']) {
-                $snapshot = ['document_state' => $document, 'normalized_payload' => $event->payload, 'fac_nro' => $facNro,
-                    'source_event' => $event->toArray(), 'versions' => ['model' => (string) \Core\Env::get('GEMINI_MODEL', 'gemini-3.8-flash'),
-                        'prompt' => \App\Services\Audit\SemanticBatchContract::VERSION, 'rules' => $event->versionRules,
-                        'normalizer' => $event->versionNormalizer, 'extractor' => $event->versionExtractor]];
+                $snapshot = $this->buildSemanticSnapshot($document, $event, $facNro);
                 $plan = $store->buildPlan($snapshot, $planning['candidates']);
                 $plan['planned_at_ms'] = (new FairAuditTaskQueue($this->redis, AuditExecutionConfig::fromEnv()))->nowMs();
                 foreach (SemanticEvaluationStore::events($plan) as $next) {
@@ -967,6 +978,27 @@ final class RulesEvaluationWorker extends AuditEventConsumer
         $decision['payload']['hallazgos'][] = [
             'Codigo' => $codigo,
             'Descripcion' => $detail !== '' ? $detail : 'Hallazgo calculado sin detalle adicional.',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $document
+     * @return array<string, mixed>
+     */
+    private function buildSemanticSnapshot(array $document, AuditEvent $event, string $facNro): array
+    {
+        return [
+            'document_state'     => array_diff_key($document, self::SEMANTIC_SNAPSHOT_EXCLUDED_DOCUMENT_KEYS),
+            'normalized_payload' => $event->payload,
+            'fac_nro'            => $facNro,
+            'source_event'       => $event->toArray(),
+            'versions'           => [
+                'model'      => (string) \Core\Env::get('GEMINI_MODEL', 'gemini-3.8-flash'),
+                'prompt'     => \App\Services\Audit\SemanticBatchContract::VERSION,
+                'rules'      => $event->versionRules,
+                'normalizer' => $event->versionNormalizer,
+                'extractor'  => $event->versionExtractor,
+            ],
         ];
     }
 }

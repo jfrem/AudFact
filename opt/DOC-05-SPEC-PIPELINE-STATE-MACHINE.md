@@ -5,19 +5,19 @@
 ```yaml
 document_id: "DOC-05"
 document_name: "SPEC-PIPELINE-STATE-MACHINE"
-version: "v0.2.0-draft"
-status: "DRAFT"
-completeness_level: "B"
-last_updated: "2026-10-19"
+version: "v0.3.0-review"
+status: "REVIEW"
+completeness_level: "C"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
 assumptions_count:
   S1: 2
   S2: 2
-  S3: 0
+  S3: 1
   S4: 0
-unknowns_critical: 0
+unknowns_critical: 1
 unknowns_non_critical: 2
 ```
 
@@ -99,43 +99,43 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 
 | Worker | Clase | Grupo de Consumer | Streams de Entrada | Evento de Salida |
 |---|---|---|---|---|
-| Orchestrator | [DocumentAuditOrchestrator](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php) | `orchestrator` | inbox.{priority,batch} | `document_registered` × N |
-| Downloader | [AttachmentDownloadWorker](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AttachmentDownloadWorker.php) | `downloaders` | documents.{priority,batch} | `document_downloaded` |
-| Extractor | [DocumentExtractionWorker](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionWorker.php) | `extractors` | documents.{priority,batch} | `document_extracted` / `document_rejected` |
-| Normalizer | [DocumentNormalizer](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentNormalizer.php) | `normalizers` | documents.{priority,batch} | `document_normalized` |
-| PolicyEngine | [RulesEvaluationWorker](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php) | `policy` | documents.{priority,batch} | `rules_evaluated` |
-| Persistence | [AuditPersistenceWorker](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditPersistenceWorker.php) | `persistence` | persistence.{priority,batch} | `audit_completed` / `audit_failed` |
+| Orchestrator | [DocumentAuditOrchestrator](../app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php) | `orchestrator` | inbox.{priority,batch} | `document_registered` × N |
+| Downloader | [AttachmentDownloadWorker](../app/Services/Audit/Pipeline/AttachmentDownloadWorker.php) | `downloaders` | documents.{priority,batch} | `document_downloaded` |
+| Extractor | [DocumentExtractionWorker](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php) | `extractors` | documents.{priority,batch} | `document_extracted` / `document_rejected` |
+| Normalizer | [DocumentNormalizer](../app/Services/Audit/Pipeline/DocumentNormalizer.php) | `normalizers` | documents.{priority,batch} | `document_normalized` |
+| PolicyEngine | [RulesEvaluationWorker](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php) | `policy` | documents.{priority,batch} | `rules_evaluated` |
+| Persistence | [AuditPersistenceWorker](../app/Services/Audit/Pipeline/AuditPersistenceWorker.php) | `persistence` | persistence.{priority,batch} | `audit_completed` / `audit_failed` |
 | WebhookDispatcher | `WebhookDispatcherWorker` | `webhook-dispatchers` | results.{priority,batch} | `webhook_dispatched` |
-| BatchRequested | [BatchRequestedWorker](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/BatchRequestedWorker.php) | `batch-workers` | batch.inbox | `audit_created` × N |
+| BatchRequested | [BatchRequestedWorker](../app/Services/Audit/Pipeline/BatchRequestedWorker.php) | `batch-workers` | batch.inbox | `audit_created` × N |
 
 ### 3.3 Reglas de Negocio Actuales
 
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
-| R-01 | Consumer loop: XREADGROUP bloqueante con `blockMs` configurable (default 5000ms). 1 mensaje por read. | [AuditEventConsumer.php:179-185](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L179-L185) | `[CONFIRMADO]` |
-| R-02 | Retry: max 3 intentos por evento. Contador en Redis key `event:{eventId}:attempts`. | [AuditEventConsumer.php:50, 524-526](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L50) | `[CONFIRMADO]` |
-| R-03 | Non-retryable exceptions: DomainException, InvalidArgumentException, SqlServerOperationException, AttachmentDownloadException → DLQ directamente. | [AuditEventConsumer.php:543-546](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L543-L546) | `[CONFIRMADO]` |
-| R-04 | DLQ: evento `dead_letter` creado con metadata (failed_event_type, failed_stream, failed_stage, attempts, error). Publicación idempotente vía Lua. | [AuditEventConsumer.php:689-713](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L689-L700) | `[CONFIRMADO]` |
-| R-05 | Al enviar a DLQ, se finaliza la auditoría: status=`failed`, requires_manual_review=true. Si tiene jobId, se marca en el batch. | [AuditEventConsumer.php:603-647](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L603-L647) | `[CONFIRMADO]` |
-| R-06 | XAUTOCLAIM: reclaim periódico de mensajes idle > `pendingReclaimIdleMs` (default 10min). Intervalo configurable. | [AuditEventConsumer.php:60-69, 223-266](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L69) | `[CONFIRMADO]` |
-| R-07 | Terminal ACK: Lua script atómico que verifica recibo DLQ, ejecuta XACK, aplica EXPIRE al recibo y elimina attempts key. | [AuditEventConsumer.php:580-588](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588) | `[CONFIRMADO]` |
-| R-08 | Consumer group: creado con `XGROUP CREATE` y cursor `0` al iniciar. Si ya existe, se ignora el error. | [AuditEventConsumer.php:268-275](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275) | `[CONFIRMADO]` |
-| R-09 | AuditState transitions: pending → processing (markAuditStarted) → completed/manual_review/error/failed (completeAudit). | [AuditStateStore.php:17-28, 138-146, 247-255](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L17-L28) | `[CONFIRMADO]` |
-| R-10 | DocumentState transitions: registered → downloaded → extracted → normalized → evaluated. Rejected es terminal desde downloaded o extracted. | [AuditStateStore.php:149-214](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L149-L214) | `[CONFIRMADO]` |
-| R-11 | Lua scripts validan que auditoría no esté en estado terminal antes de registrar documentos (guard clause). | [AuditStateStore.php:288-294](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294) | `[CONFIRMADO]` |
-| R-12 | Batch terminal event: se publica solo 1 vez, protegido por `claimBatchTerminalEvent()` atómico. | [AuditEventConsumer.php:653-687](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687) | `[CONFIRMADO]` |
-| R-13 | Consumer name: `{role}[-{lane}]-{hostname}-{pid}` para identificación única. | [AuditEventConsumer.php:125-133](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L125-L133) | `[CONFIRMADO]` |
-| R-14 | Signal handling: `pcntl_signal_dispatch()` en cada iteración del loop para graceful shutdown. | [AuditEventConsumer.php:164-166](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166) | `[CONFIRMADO]` |
+| R-01 | Consumer loop: XREADGROUP bloqueante con `blockMs` configurable (default 5000ms). 1 mensaje por read. | [AuditEventConsumer.php:179-185](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L179-L185) | `[CONFIRMADO]` |
+| R-02 | Retry: max 3 intentos por evento. Contador en Redis key `event:{eventId}:attempts`. | [AuditEventConsumer.php:50, 524-526](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L50) | `[CONFIRMADO]` |
+| R-03 | Non-retryable exceptions: DomainException, InvalidArgumentException, SqlServerOperationException, AttachmentDownloadException → DLQ directamente. | [AuditEventConsumer.php:543-546](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L543-L546) | `[CONFIRMADO]` |
+| R-04 | DLQ: evento `dead_letter` creado con metadata (failed_event_type, failed_stream, failed_stage, attempts, error). Publicación idempotente vía Lua. | [AuditEventConsumer.php:689-713](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L689-L700) | `[CONFIRMADO]` |
+| R-05 | Al enviar a DLQ, se finaliza la auditoría: status=`failed`, requires_manual_review=true. Si tiene jobId, se marca en el batch. | [AuditEventConsumer.php:603-647](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L603-L647) | `[CONFIRMADO]` |
+| R-06 | XAUTOCLAIM: reclaim periódico de mensajes idle > `pendingReclaimIdleMs` (default 10min). Intervalo configurable. | [AuditEventConsumer.php:60-69, 223-266](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L69) | `[CONFIRMADO]` |
+| R-07 | Terminal ACK: Lua script atómico que verifica recibo DLQ, ejecuta XACK, aplica EXPIRE al recibo y elimina attempts key. | [AuditEventConsumer.php:580-588](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588) | `[CONFIRMADO]` |
+| R-08 | Consumer group: creado con `XGROUP CREATE` y cursor `0` al iniciar. Si ya existe, se ignora el error. | [AuditEventConsumer.php:268-275](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275) | `[CONFIRMADO]` |
+| R-09 | AuditState transitions: pending → processing (markAuditStarted) → completed/manual_review/error/failed (completeAudit). | [AuditStateStore.php:17-28, 138-146, 247-255](../app/Services/Audit/Pipeline/AuditStateStore.php#L17-L28) | `[CONFIRMADO]` |
+| R-10 | DocumentState transitions: registered → downloaded → extracted → normalized → evaluated. Rejected es terminal desde downloaded o extracted. | [AuditStateStore.php:149-214](../app/Services/Audit/Pipeline/AuditStateStore.php#L149-L214) | `[CONFIRMADO]` |
+| R-11 | Lua scripts validan que auditoría no esté en estado terminal antes de registrar documentos (guard clause). | [AuditStateStore.php:288-294](../app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294) | `[CONFIRMADO]` |
+| R-12 | Batch terminal event: se publica solo 1 vez, protegido por `claimBatchTerminalEvent()` atómico. | [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687) | `[CONFIRMADO]` |
+| R-13 | Consumer name: `{role}[-{lane}]-{hostname}-{pid}` para identificación única. | [AuditEventConsumer.php:125-133](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L125-L133) | `[CONFIRMADO]` |
+| R-14 | Signal handling: `pcntl_signal_dispatch()` en cada iteración del loop para graceful shutdown. | [AuditEventConsumer.php:164-166](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **NOGROUP error en XREADGROUP**: Si el consumer group no existe (ej: `FLUSHDB`), Redis retorna `NOGROUP`. El worker detecta esta respuesta y lanza `RuntimeException` para reiniciar el grupo. [AuditEventConsumer.php:268-275](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275). `[CONFIRMADO]`
+1. **NOGROUP error en XREADGROUP**: Si el consumer group no existe (ej: `FLUSHDB`), Redis retorna `NOGROUP`. El worker detecta esta respuesta y lanza `RuntimeException` para reiniciar el grupo. [AuditEventConsumer.php:268-275](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275). `[CONFIRMADO]`
 
-2. **Worker muere entre XADD DLQ y XACK**: El mensaje queda en la PEL. `XAUTOCLAIM` lo reclama después de `pendingReclaimIdleMs` (10min). El handler detecta que ya existe recibo DLQ y ejecuta Terminal ACK directamente. [AuditEventConsumer.php:580-588](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588). `[CONFIRMADO]`
+2. **Worker muere entre XADD DLQ y XACK**: El mensaje queda en la PEL. `XAUTOCLAIM` lo reclama después de `pendingReclaimIdleMs` (10min). El handler detecta que ya existe recibo DLQ y ejecuta Terminal ACK directamente. [AuditEventConsumer.php:580-588](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588). `[CONFIRMADO]`
 
-3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. `claimBatchTerminalEvent()` usa operación atómica Redis (SETNX); solo 1 worker gana y publica `batch_completed`. [AuditEventConsumer.php:653-687](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687). `[CONFIRMADO]`
+3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. `claimBatchTerminalEvent()` usa operación atómica Redis (SETNX); solo 1 worker gana y publica `batch_completed`. [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687). `[CONFIRMADO]`
 
-4. **registerDocument en auditoría terminal**: Lua guard clause verifica status antes de registrar. Si la auditoría ya completó/falló, retorna éxito sin modificar estado. [AuditStateStore.php:288-294](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294). `[CONFIRMADO]`
+4. **registerDocument en auditoría terminal**: Lua guard clause verifica status antes de registrar. Si la auditoría ya completó/falló, retorna éxito sin modificar estado. [AuditStateStore.php:288-294](../app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294). `[CONFIRMADO]`
 
 5. **Signal dispatch en handler largo**: Si el handler tarda más que `pendingReclaimIdleMs`, otro worker puede reclamar el mismo mensaje vía XAUTOCLAIM. El handler original falla en XACK (ya reclamado) y loguea warning sin propagarle error al pipeline. `[CONFIRMADO]`
 
@@ -150,7 +150,7 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.invalid/audit-platform/doc-05/v0.1/event-type-catalog.schema.json",
+  "$id": "https://schemas.invalid/audit-platform/doc-05/v0.3/event-type-catalog.schema.json",
   "title": "EventTypeCatalog",
   "type": "string",
   "enum": [
@@ -167,6 +167,7 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
     "audit_failed",
     "batch_completed",
     "batch_completed_with_errors",
+    "webhook_dispatched",
     "dead_letter"
   ]
 }
@@ -177,17 +178,44 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.invalid/audit-platform/doc-05/v0.1/worker-config.schema.json",
+  "$id": "https://schemas.invalid/audit-platform/doc-05/v0.3/worker-config.schema.json",
   "title": "WorkerConfig",
   "type": "object",
   "properties": {
-    "max_retries": { "type": "integer", "minimum": 1, "default": 3 },
-    "block_ms": { "type": "integer", "minimum": 100, "default": 5000 },
-    "pending_reclaim_idle_ms": { "type": "integer", "minimum": 30000, "default": 600000 },
-    "pending_reclaim_interval_ms": { "type": "integer", "minimum": 5000, "default": 30000 },
-    "lane": { "type": "string", "enum": ["all", "priority", "batch"], "default": "all" }
+    "max_retries": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "block_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "default": 5000
+    },
+    "pending_reclaim_idle_ms": {
+      "type": "integer",
+      "minimum": 30000,
+      "default": 600000
+    },
+    "pending_reclaim_interval_ms": {
+      "type": "integer",
+      "minimum": 5000,
+      "default": 30000
+    },
+    "lane": {
+      "type": "string",
+      "enum": [
+        "all",
+        "priority",
+        "batch"
+      ],
+      "default": "all"
+    }
   },
-  "required": ["max_retries", "block_ms"]
+  "required": [
+    "max_retries",
+    "block_ms"
+  ]
 }
 ```
 
@@ -218,7 +246,9 @@ stateDiagram-v2
     rules_evaluated --> audit_completed: all docs processed (persistence)
     rules_evaluated --> audit_failed: terminal error (persistence)
     
-    audit_completed --> [*]
+    audit_completed --> webhook_dispatched: callback configurado y entrega confirmada
+    webhook_dispatched --> [*]
+    audit_completed --> [*]: sin callback
     audit_failed --> [*]
     
     note right of document_rejected: Rejected = documento no válido para extracción.
@@ -396,30 +426,36 @@ SALIDA: processedCount: int
 5. RETORNAR processed
 ```
 
-#### ALG-02: DispatchMessage — Procesamiento de un mensaje
+#### ALG-02: DispatchMessage — Lease, efecto durable y ACK
 
+[CONFIRMADO — diseño futuro] Revisión de DEC-T-019 / VER-07. La presencia de una clave de recepción no prueba éxito.
+
+```text
+ENTRADA: mensaje, consumidor, contexto de servicio autorizado
+CLAVE: (tenant_id, consumer_group, event_id)
+RECIBO: PROCESSING(owner, fencing_token, lease_until) | COMPLETED(effect_digest)
+
+1. Validar schema de evento, contexto de tenant y tipo consumido.
+   Mensaje inválido: cuarentena durable con identificador de transporte; ACK solo tras confirmarla.
+2. Leer/crear el recibo durable dentro de una transacción:
+   a. COMPLETED: verificar efecto y outbox confirmados; ACK sin repetir trabajo.
+   b. PROCESSING con lease vigente de otro owner: conservar pendiente; no ACK.
+   c. Ausente o lease vencido: adquirir/reclamar, incrementar fencing_token.
+3. Ejecutar trabajo usando execution_id y snapshots fijados.
+   Renovar lease mientras exista trabajo activo; perderlo impide commit.
+   Una llamada externa usa provider_attempt_id; si queda incierta, registrar UNKNOWN
+   y conciliar su estado/consumo antes de decidir una nueva llamada.
+4. Confirmar en UNA transacción durable:
+   verificar owner + fencing_token + lease vigente;
+   persistir resultado, consumo conocido y eventos de salida en outbox;
+   marcar el recibo COMPLETED con el digest de esos efectos.
+5. Hacer ACK después del commit. El relay publica la outbox con event_id estable.
+   Un fallo después del commit se recupera por el recibo y la outbox.
+6. Un fallo antes del commit deja trabajo recuperable por expiración del lease.
+   Un fallo terminal confirma cuarentena/DLQ y el estado terminal antes de ACK.
 ```
-ALGORITMO: DispatchMessage
-ENTRADA: message: {id, fields, stream}
-SALIDA: void (side effects: ACK, DLQ, state transitions)
 
-1. event ← parseEventPayload(message)
-   SI event = null → ACK y retornar (mensaje corrupto)
-
-2. // Guard: ¿ya fue enviado a DLQ?
-   receipt ← stateStore.get(deadLetterReceiptKey(event.event_id))
-   SI receipt existe → finishTerminalMessage() y retornar
-
-3. INTENTAR:
-   3.1. worker.handle(event)
-   3.2. ACK message en stream
-   3.3. clearAttempts(event.event_id)
-   3.4. recordSuccessfulTelemetry()
-   
-4. CAPTURAR error:
-   4.1. recordFailedTelemetry()
-   4.2. handleFailure(event, error)
-```
+[CONFIRMADO — diseño futuro] El recibo durable usa la misma frontera transaccional que los efectos de plataforma (PostgreSQL y outbox). Redis proyecta estado y transporte. No se garantiza una única invocación externa ante una caída de resultado incierto; cada intento real conserva identidad y conciliación. El tamaño del lease, renovación y retención de recibos requiere contrato operativo y pruebas de fallos antes de aprobar este módulo (U-RECOVERY-01, S3).
 
 #### ALG-03: HandleFailure — Retry o DLQ
 
@@ -428,17 +464,18 @@ ALGORITMO: HandleFailure
 ENTRADA: event, stream, streamId, error
 SALIDA: void (DLQ o NACK implícito)
 
-1. attempts ← incrementAttempts(event.event_id)
+1. attempts ← incrementar contador durable por (tenant_id, consumer_group, event.event_id)
 2. nonRetryable ← error IS DomainException | InvalidArgumentException | StorageOpException | DownloadException
 
 3. SI attempts ≥ maxRetries ∨ nonRetryable:
-   3.1. finalizeDeadLetterAudit(event, error):
-        - Leer estado de auditoría
-        - Marcar status=failed, requires_manual_review=true
-        - Si tiene jobId → markAuditCompletedInJob(failed)
-        - Publicar audit_failed event
-   3.2. sendToDeadLetter(event, metadata_del_fallo)
-   3.3. finishTerminalMessage(): Lua {verify_receipt, XACK, EXPIRE_receipt, DEL_attempts}
+   3.1. Dentro de una transacción durable, verificar lease y fencing token:
+        - Persistir el fallo terminal y la necesidad de revisión.
+        - Registrar una vez la finalización del caso en el lote.
+        - Insertar audit_failed y dead_letter en outbox con IDs estables.
+        - Marcar recibo COMPLETED para este procesamiento terminal.
+   3.2. Tras commit, ACK del mensaje original; si falla, la reentrega consulta el recibo.
+   3.3. El relay entrega la outbox y actualiza las proyecciones. No borrar el recibo
+        hasta cumplir la retención de replay; un contador Redis no reemplaza este commit.
    
 4. SI NO (attempts < maxRetries ∧ retryable):
    // No ACK → el mensaje permanece en PEL
@@ -481,19 +518,19 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 
 4. SI eventType = null → RETORNAR  // Job no ha terminado aún
 
-5. SI !jobStore.claimBatchTerminalEvent(jobId, eventType) → RETORNAR
-   // Otro worker ya publicó el evento terminal
-
-6. publisher.publish(create(eventType, auditId, jobId, payload={status, total, done, failed}))
+5. En una transacción durable, insertar evento en outbox con clave única
+   (tenant_id, jobId, eventType); duplicado → retornar el evento existente.
+6. Relay publica el evento estable y registra entrega; un fallo se reintenta.
+   No separar un claim irreversible de la creación durable del evento.
 ```
 
 ### 4.8 Invariantes del Módulo
 
 - **INV-01**: Cada event type tiene exactamente un stream de destino para una prioridad dada. El routing es determinista y exhaustivo.
 - **INV-02**: Un evento no-ACK permanece en el PEL (Pending Entries List) hasta ser reclamado vía XAUTOCLAIM o ACK explícito.
-- **INV-03**: Tras agotar reintentos, la secuencia es: finalizeAudit → publishDeadLetter → finishTerminalMessage (atómico).
-- **INV-04**: `finishTerminalMessage()` es un Lua script atómico: solo ejecuta ACK si existe recibo DLQ.
-- **INV-05**: El batch terminal event se publica exactamente 1 vez, protegido por `claimBatchTerminalEvent()` atómico.
+- **INV-03**: Tras agotar reintentos (o ante fallo irrecuperable), el estado terminal, el evento DLQ en outbox y el recibo durable se confirman de forma atómica en una única transacción antes de realizar ACK en el transporte de entrada.
+- **INV-04**: El ACK en el transporte de mensajería solo se emite tras certificar la persistencia transaccional del recibo terminal/DLQ; la publicación hacia streams o colas DLQ externas se desacopla mediante el outbox relay idempotente (la implementación de referencia AudFact PHP utiliza el script Lua `finishTerminalMessage` como puente operativo transitorio).
+- **INV-05**: El batch terminal tiene una sola identidad durable en outbox; su transporte admite reentrega y cada consumidor deduplica tras commit.
 - **INV-06**: Las transiciones de estado de documento no retroceden: registered→downloaded→extracted→normalized→evaluated.
 - **INV-07**: El Lua script de `registerDocument()` rechaza registros si la auditoría ya está en estado terminal.
 - **INV-08**: Consumer name es único por instancia: `{role}-{lane}-{hostname}-{pid}`.
@@ -513,7 +550,7 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 | R-04 DLQ con Lua idempotente | ALG-03 paso 3.2, DOC-04 ALG-04 | ✅ |
 | R-05 Finalización pre-DLQ | ALG-03 paso 3.1 | ✅ |
 | R-06 XAUTOCLAIM periódico | ALG-04 | ✅ |
-| R-07 Terminal ACK atómico Lua | ALG-03 paso 3.3 + INV-04 | ✅ |
+| R-07 Terminal ACK tras commit | ALG-03 + INV-04 (recibo durable y outbox antes de ACK) | ✅ |
 | R-08 XGROUP CREATE al inicio | ALG-01 paso 2 | ✅ |
 | R-09 Audit state transitions | §4.3 máquina de estados | ✅ |
 | R-10 Document state transitions | §4.4 máquina de estados | ✅ |
@@ -522,7 +559,7 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 | R-13 Consumer name unique | INV-08 | ✅ |
 | R-14 Signal dispatch | ALG-01 paso 4.1 | ✅ |
 
-**Cobertura: 14/14 = 100%.**
+**Trazabilidad declarada: 14/14 filas de esta tabla.** Es cobertura del inventario descrito, no evidencia de ejecución o de inventario exhaustivo del sistema.
 
 ### 5.2 Prueba de Dominio Dual
 
@@ -556,7 +593,7 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 | Consumer loop con ACK | ALG-01 ConsumerLoop | TC-01, TC-02 |
 | Reclaim de mensajes idle | ALG-02 ReclaimPending | TC-03 |
 | Retry con contador + DLQ | ALG-03 RetryPolicy | TC-04, TC-05 |
-| Terminal ACK atómico | ALG-03 paso 3.2, Lua script | TC-06 |
+| Terminal ACK tras commit | ALG-03 + INV-04 (commit durable y outbox) | TC-06 |
 | Transiciones de estado de auditoría | StateMachine Auditoría (§4.4) | TC-07 |
 | Transiciones de estado de documento | StateMachine Documento (§4.4) | TC-08, TC-09 |
 | Batch terminal idempotente | ALG-04 BatchTerminal | TC-10 |
@@ -573,10 +610,10 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
-| A-01 | El idle timeout de XAUTOCLAIM (default 10min) es suficiente para que un worker legítimo termine su procesamiento. | S2 | [AuditEventConsumer.php:60-63](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L63). Configurable. | Monitoreo de duración de handlers |
-| A-02 | Leer 1 mensaje por XREADGROUP es suficiente para evitar starvation entre streams priority/batch. | S1 | [AuditEventConsumer.php:183](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L183). | Benchmark de throughput |
+| A-01 | El idle timeout de XAUTOCLAIM (default 10min) es suficiente para que un worker legítimo termine su procesamiento. | S2 | [AuditEventConsumer.php:60-63](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L63). Configurable. | Monitoreo de duración de handlers |
+| A-02 | Leer 1 mensaje por XREADGROUP es suficiente para evitar starvation entre streams priority/batch. | S1 | [AuditEventConsumer.php:183](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L183). | Benchmark de throughput |
 | A-03 | El modelo de consumer groups (competing consumers) provee distribución equitativa entre workers del mismo grupo. | S1 | Comportamiento nativo de Redis Streams. | N/A |
-| A-04 | `pcntl_signal_dispatch()` es suficiente para graceful shutdown en un contexto PHP-FPM + CLI. | S2 | [AuditEventConsumer.php:164-166](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166). Solo aplica en CLI; FPM usa shutdown handlers. | Verificación operacional |
+| A-04 | `pcntl_signal_dispatch()` es suficiente para graceful shutdown en un contexto PHP-FPM + CLI. | S2 | [AuditEventConsumer.php:164-166](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166). Solo aplica en CLI; FPM usa shutdown handlers. | Verificación operacional |
 
 ### 6.3 Desconocidos No Críticos
 
@@ -603,7 +640,7 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 |---|---|---|---|---|
 | TC-04 | 3 fallos → DLQ + audit_failed | 3 RuntimeExceptions | dead_letter publicado, status=failed | Unitario |
 | TC-05 | DomainException → DLQ inmediato sin retry | 1 DomainException | dead_letter publicado en attempt 1 | Unitario |
-| TC-06 | Terminal ACK atómico: sin recibo → error | Falta recibo DLQ | Lua error, mensaje no ACK'd | Unitario |
+| TC-06 | Terminal ACK condicionado: sin commit durable → no ACK | Fallo en commit de estado terminal o outbox | Mensaje no ACK'd en transporte (recuperable vía lease/reclaim) | Unitario |
 
 ### State Transitions
 
@@ -621,58 +658,29 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 
 ---
 
-## §8 — Puerta de Calidad (Auto-Auditoría Adversarial)
+## §8 — Puerta de Calidad — Revisión del 2026-11-03
 
-### 8.1 Auditoría de Consistencia
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | PENDIENTE DE EJECUCIÓN | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-05. |
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| C-01 | ¿Toda afirmación sobre AudFact tiene clasificación epistémica? | PASS | 14 reglas `[CONFIRMADO]` |
-| C-02 | ¿Existen contradicciones entre §3 y §4? | PASS | Cobertura 14/14 |
-| C-03 | ¿Toda entrada de la tabla de cobertura (5.1) está resuelta? | PASS | 14/14 con ✅ |
-| C-04 | ¿Los esquemas JSON Schema son válidos según draft-2020-12? | PASS | PipelineEvent schema referencia DOC-04; stateDiagram usa Mermaid |
-| C-05 | ¿Cada interfaz tiene pre/post-condiciones y modos de fallo? | PASS | ConsumerLoop, RetryPolicy con pre/post explícitos |
+[DESCONOCIDO] U-DOC-05 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-### 8.2 Auditoría de Fugas
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| A-01 | ¿La Sección 4 pasa el filtrado léxico (5.3)? | PASS | 7/7 términos ausentes |
-| A-02 | ¿Cada contrato pasa la Prueba de Dominio Dual (5.2)? | PASS | Salud + Legal |
-| A-03 | ¿Algún esquema hardcodea valores específicos de un solo dominio? | PASS | event_types son strings genéricos; estados son universales |
-
-### 8.3 Auditoría de Completitud
-
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| D-01 | ¿Existen `[DESCONOCIDO]` críticos sin convertir a supuesto? | PASS | 0 críticos, 2 no-críticos documentados en §6.3 |
-| D-02 | ¿Existen supuestos S3 o S4 sin resolver? | PASS | 0 S3, 0 S4 |
-| D-03 | ¿Toda funcionalidad tiene al menos un criterio de aceptación? | PASS | 10 test cases cubriendo los 4 bloques funcionales |
-| D-04 | ¿El nivel de completitud asignado es consistente con conteos? | PASS | Nivel B: 2 S1 + 2 S2, 0 S3/S4, 0 desconocidos críticos |
-
-### 8.4 Preguntas Adversariales
-
-| # | Pregunta | Respuesta | Evidencia |
-|---|---|:---:|---|
-| ADV-01 | ¿Un desarrollador que no conozca AudFact puede implementar este pipeline solo con §4? | SÍ | 4 algoritmos deterministas, 3 state machines con Mermaid, catálogo de eventos |
-| ADV-02 | ¿Si se cambia la base de datos de SQL Server a PostgreSQL, este contrato sigue válido? | SÍ | No hay SQL en §4; persistencia se delega a DOC-04 AuditStoragePort y la ingestión a CaseIngestionPort |
-| ADV-03 | ¿Si se cambia el proveedor de IA de Gemini a OpenAI, este contrato sigue válido? | SÍ | Pipeline no conoce al proveedor; extracción es un evento genérico |
-| ADV-04 | ¿Si se auditan contratos legales en lugar de documentos de salud, este contrato sigue válido? | SÍ | Event types y estados son agnósticos; el dominio se configura vía DOC-06 |
-
----
-
-### Clasificación Final
+### Clasificación vigente
 
 ```yaml
-completeness_level: "B"
-justification: >
-  4 supuestos menores (2 S1 + 2 S2). 0 desconocidos críticos.
-  2 desconocidos no-críticos sobre monitoring/back-pressure.
-  Cobertura 14/14. Filtrado léxico limpio.
-  3 máquinas de estado completas (auditoría, documento, batch).
-blockers: []
+completeness_level: C
+implementation_ready: false
+blockers:
+  - U-DOC-05
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "DOC-06 PROFILE-HEALTH-DISPENSATION — perfil de referencia AudFact"
-  - "Resolver U-01: diseñar alerta de PEL growth"
-  - "Resolver U-02: evaluar back-pressure entre orchestrator y extractors"
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```

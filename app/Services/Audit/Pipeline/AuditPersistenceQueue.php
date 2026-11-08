@@ -17,7 +17,7 @@ class AuditPersistenceQueue
     public const ENQUEUE_DISPATCHED = 1;
     public const ENQUEUE_PENDING = 2;
 
-    private const DEFAULT_TTL_SECONDS = 604800;
+    private const DEFAULT_TTL_SECONDS = 86400;
     private const DEFAULT_JOB_SLOTS = 2;
     private const MAX_JOB_SLOTS = 16;
     private const MAX_RECONCILIATION_PAGES = 1000;
@@ -508,6 +508,9 @@ class AuditPersistenceQueue
                     redis.call('DEL', KEYS[3])
                 end
                 redis.call('ZREM', KEYS[7], ARGV[4])
+                if tonumber(ARGV[5]) == 0 then
+                    redis.call('DEL', KEYS[4], KEYS[6])
+                end
                 return 1
             end
 

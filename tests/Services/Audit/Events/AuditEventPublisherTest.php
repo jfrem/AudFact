@@ -228,4 +228,20 @@ final class AuditEventPublisherTest extends TestCase
 
         $this->assertSame('1730000000000-2', $this->publisher->publishDeadLetter($deadLetter));
     }
+
+    public function testTrimWorkStreamsIncludesPersistenceStreams(): void
+    {
+        $evaluatedStreams = [];
+        $this->redis->expects($this->atLeastOnce())->method('eval')->willReturnCallback(
+            function ($script, $keys) use (&$evaluatedStreams) {
+                $evaluatedStreams[] = $keys[0];
+                return 1;
+            }
+        );
+
+        $this->publisher->trimWorkStreams();
+
+        $this->assertContains(AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY, $evaluatedStreams);
+        $this->assertContains(AuditEventPublisher::STREAM_PERSISTENCE_BATCH, $evaluatedStreams);
+    }
 }

@@ -39,7 +39,7 @@ Variable opcional de GitHub Environment:
 | `AUDFACT_DEPLOY_DIR` | Sobrescribe el directorio persistente del servidor. Si no existe, usa `$HOME/audfact-prod`. |
 | `AUDFACT_FRONTEND_HOST_PORT` | Puerto LAN dedicado para publicar el frontend AudFact. Default: `3100`. |
 | `AUDFACT_FRONTEND_PUBLIC_URL` | Origen publico del frontend para CORS. Default: `http://172.16.0.3:${AUDFACT_FRONTEND_HOST_PORT}`. |
-| `AUDFACT_API_PUBLIC_URL` | URL publica del backend para generar `WEBHOOK_URL` y `CAPABILITIES_URL`. Default: `http://172.16.0.3:8080`. |
+| `AUDFACT_API_PUBLIC_URL` | URL publica del backend para orquestación y despliegue. Default: `http://172.16.0.3:8080`. |
 
 ## GitHub Environment
 
@@ -108,14 +108,14 @@ flowchart TD
     Push["🚀 push main"]
     CI["✔️ CI"]
     GHCR["📦 publish GHCR images"]
-    
+
     %% Deploy Phase
     Deploy["🖥️ deploy-production en runner LAN"]
     Env["🔐 generar .env con hosts SQL normalizados"]
     Pull["⬇️ docker compose pull"]
     Preflight["🗄️ preflight SQL con la imagen PHP publicada"]
     Up["🐳 docker compose up -d"]
-    
+
     %% Validation Phase
     subgraph HealthChecks ["💚 Health Checks Post-Deploy"]
         direction TB

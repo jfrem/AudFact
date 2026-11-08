@@ -10,6 +10,12 @@ use Core\RedisClient;
 /** Presupuesto común de todos los intentos; nunca devuelve cargos inciertos. */
 final class GeminiQuotaBudget
 {
+    public const DEFAULT_RPM = 20000;
+    public const DEFAULT_TPM = 20000000;
+    public const DEFAULT_RPD = 100000000;
+    public const DEFAULT_MAX_INFLIGHT = 64;
+    public const MAX_INFLIGHT_LIMIT = 128;
+
     private array $limits;
     private string $base;
 
@@ -20,10 +26,10 @@ final class GeminiQuotaBudget
         $this->limits = $limits ?? [
             'scope' => $scope !== '' ? $scope : 'audfact-default',
             'model' => $model !== '' ? $model : 'gemini-3.8-flash',
-            'rpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPM', 2000, 1),
-            'tpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_TPM', 4000000, 1),
-            'rpd' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPD', 1000000, 1),
-            'inflight' => AuditExecutionConfig::integer('GEMINI_QUOTA_MAX_INFLIGHT', 16, 1, 32),
+            'rpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPM', self::DEFAULT_RPM, 1),
+            'tpm' => AuditExecutionConfig::integer('GEMINI_QUOTA_TPM', self::DEFAULT_TPM, 1),
+            'rpd' => AuditExecutionConfig::integer('GEMINI_QUOTA_RPD', self::DEFAULT_RPD, 1),
+            'inflight' => AuditExecutionConfig::integer('GEMINI_QUOTA_MAX_INFLIGHT', self::DEFAULT_MAX_INFLIGHT, 1, self::MAX_INFLIGHT_LIMIT),
         ];
         if (strlen($this->limits['scope'] ?? '') < 1 || strlen($this->limits['scope']) > 128
             || $this->limits['scope'] === 'UNCONFIGURED' || !is_string($this->limits['model'] ?? null) || $this->limits['model'] === '') {
@@ -34,7 +40,7 @@ final class GeminiQuotaBudget
                 throw new \InvalidArgumentException('gemini_quota_limits_invalid');
             }
         }
-        if ($this->limits['inflight'] > 32) {
+        if ($this->limits['inflight'] > self::MAX_INFLIGHT_LIMIT) {
             throw new \InvalidArgumentException('gemini_quota_limits_invalid');
         }
         $this->base = 'gemini:quota:v2:' . hash('sha256', $this->limits['scope']) . ':' . hash('sha256', $this->limits['model']);

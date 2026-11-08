@@ -5,19 +5,19 @@
 ```yaml
 document_id: "DOC-07"
 document_name: "SPEC-GOLDEN-BENCHMARK"
-version: "v0.1.0-draft"
-status: "DRAFT"
-completeness_level: "B"
-last_updated: "2026-10-05T22:47:00Z"
+version: "v0.3.0-review"
+status: "REVIEW"
+completeness_level: "C"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
 assumptions_count:
   S1: 2
   S2: 1
-  S3: 0
+  S3: 1
   S4: 0
-unknowns_critical: 0
+unknowns_critical: 1
 unknowns_non_critical: 2
 ```
 
@@ -63,7 +63,7 @@ Este documento especifica una **suite de calibración de paridad** basada en:
 
 | Este Documento Requiere | Documento Fuente | Estado |
 |---|---|---|
-| FindingVerdict values | DOC-02 | DRAFT |
+| FindingOutcome | DOC-02 | REVIEW |
 | ValueType enum | DOC-01 | DRAFT |
 | DocumentType catalog | DOC-06 | DRAFT v0.1.0 |
 | ComparisonStrategy codes | DOC-02 | DRAFT |
@@ -76,20 +76,20 @@ Este documento especifica una **suite de calibración de paridad** basada en:
 
 | Componente | Ruta | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|
-| GoldenSetReplayTest | [GoldenSetReplayTest.php](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php) | L1-271 | Framework de replay con 3 test methods, dataProvider de fixtures, helpers | `[CONFIRMADO]` |
-| Fixture: D65260408592 | [golden_D65260408592.json](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/Fixtures/golden_D65260408592.json) | — | Caso: Fórmula Médica — Acetaminofén, CIE10 en lista | `[CONFIRMADO]` |
+| GoldenSetReplayTest | [GoldenSetReplayTest.php](../tests/Services/Audit/GoldenSetReplayTest.php) | L1-271 | Framework de replay con 3 test methods, dataProvider de fixtures, helpers | `[CONFIRMADO]` |
+| Fixture: D65260408592 | [golden_D65260408592.json](../tests/Services/Audit/Fixtures/golden_D65260408592.json) | — | Caso: Fórmula Médica — Acetaminofén, CIE10 en lista | `[CONFIRMADO]` |
 
 ### 3.2 Tres Dimensiones de Verificación
 
 | Dimensión | Test Method | Propósito | Evidencia |
 |---|---|---|---|
-| **Determinismo** | `testGoldenCaseIsReproducible()` | 2 corridas del engine → SHA-256 idéntico | [GoldenSetReplayTest.php:74-98](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L74-L98) |
-| **Veredicto** | `testGoldenCaseMatchesExpectedDecision()` | Cada campo produce el resultado canónico esperado | [GoldenSetReplayTest.php:103-138](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L103-L138) |
-| **Forma** | `testGoldenCaseHallazgosHaveCanonicalShape()` | Cada hallazgo tiene todas las claves requeridas | [GoldenSetReplayTest.php:143-163](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L143-L163) |
+| **Determinismo** | `testGoldenCaseIsReproducible()` | 2 corridas del engine → SHA-256 idéntico | [GoldenSetReplayTest.php:74-98](../tests/Services/Audit/GoldenSetReplayTest.php#L74-L98) |
+| **Veredicto** | `testGoldenCaseMatchesExpectedDecision()` | Cada campo produce el resultado canónico esperado | [GoldenSetReplayTest.php:103-138](../tests/Services/Audit/GoldenSetReplayTest.php#L103-L138) |
+| **Forma** | `testGoldenCaseHallazgosHaveCanonicalShape()` | Cada hallazgo tiene todas las claves requeridas | [GoldenSetReplayTest.php:143-163](../tests/Services/Audit/GoldenSetReplayTest.php#L143-L163) |
 
 ### 3.3 Hashing Canónico
 
-Algoritmo de hash para verificación de determinismo ([GoldenSetReplayTest.php:254-269](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L254-L269)):
+Algoritmo de hash para verificación de determinismo ([GoldenSetReplayTest.php:254-269](../tests/Services/Audit/GoldenSetReplayTest.php#L254-L269)):
 
 1. Extraer `hallazgos.items` de cada resultado.
 2. Ordenar items por `campo` (sort léxico ascendente).
@@ -101,7 +101,7 @@ Algoritmo de hash para verificación de determinismo ([GoldenSetReplayTest.php:2
 
 ### 3.4 Shape Canónica de un Hallazgo
 
-Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L152-L161)):
+Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](../tests/Services/Audit/GoldenSetReplayTest.php#L152-L161)):
 
 | Clave | Tipo | Descripción |
 |---|---|---|
@@ -129,54 +129,74 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:
 | Documento corrupto (sin EOF) | `CORRUPTED_DOCUMENT` | Integridad | `[CONFIRMADO]` |
 | Fallo de rasterización | `RASTERIZATION_FAILURE` | Pre-extracción | `[CONFIRMADO]` |
 
-**Fuente**: [DocumentRejectionReason.php:10-19](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentRejectionReason.php#L10-L19). `[CONFIRMADO]`
+**Fuente**: [DocumentRejectionReason.php:10-19](../app/Services/Audit/Pipeline/DocumentRejectionReason.php#L10-L19). `[CONFIRMADO]`
 
 ### 3.6 Validaciones de Integridad Documental
 
 | Validación | Orden | Criterio | Evidencia |
 |---|---|---|---|
-| Contenido no vacío | 1 | `base64_decode` no produce cadena vacía | [DocumentIntegrityValidator.php:54-61](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L54-L61) |
-| Tamaño mínimo | 2 | ≥ 4 bytes (mínimo para magic bytes) | [DocumentIntegrityValidator.php:64-66](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L64-L66) |
-| MIME soportado | 3 | In `[pdf, jpeg, png, webp, tiff, gif]` | [DocumentIntegrityValidator.php:68-70](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L68-L70) |
-| Magic bytes match | 4 | Firma binaria corresponde al MIME declarado | [DocumentIntegrityValidator.php:72-79](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L72-L79) |
-| PDF no cifrado | 5 | No contiene `/Encrypt` en raw | [DocumentIntegrityValidator.php:81-83](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83) |
-| PDF tiene páginas | 6 | Contiene `/Page` object | [DocumentIntegrityValidator.php:85-87](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L85-L87) |
-| PDF tiene EOF | 7 | Contiene `%%EOF` marker | [DocumentIntegrityValidator.php:89-91](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L89-L91) |
+| Contenido no vacío | 1 | `base64_decode` no produce cadena vacía | [DocumentIntegrityValidator.php:54-61](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L54-L61) |
+| Tamaño mínimo | 2 | ≥ 4 bytes (mínimo para magic bytes) | [DocumentIntegrityValidator.php:64-66](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L64-L66) |
+| MIME soportado | 3 | In `[pdf, jpeg, png, webp, tiff, gif]` | [DocumentIntegrityValidator.php:68-70](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L68-L70) |
+| Magic bytes match | 4 | Firma binaria corresponde al MIME declarado | [DocumentIntegrityValidator.php:72-79](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L72-L79) |
+| PDF no cifrado | 5 | No contiene `/Encrypt` en raw | [DocumentIntegrityValidator.php:81-83](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83) |
+| PDF tiene páginas | 6 | Contiene `/Page` object | [DocumentIntegrityValidator.php:85-87](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L85-L87) |
+| PDF tiene EOF | 7 | Contiene `%%EOF` marker | [DocumentIntegrityValidator.php:89-91](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L89-L91) |
 
 ### 3.7 Casos Borde y Excepciones Documentados
 
-1. **Fixture missing**: Si el archivo JSON del fixture no existe en disco, el data provider retorna un array marcado con `_missing=true` y el test falla con mensaje claro indicando qué fixture falta. [GoldenSetReplayTest.php:175-178](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L175-L178). `[CONFIRMADO]`
+1. **Fixture missing**: Si el archivo JSON del fixture no existe en disco, el data provider retorna un array marcado con `_missing=true` y el test falla con mensaje claro indicando qué fixture falta. [GoldenSetReplayTest.php:175-178](../tests/Services/Audit/GoldenSetReplayTest.php#L175-L178). `[CONFIRMADO]`
 
-2. **Campo no presente en hallazgos**: Si `expected.campo_results` contiene un campo que el engine no produjo, `assertArrayHasKey` falla con mensaje que incluye el fixture ID y el nombre del campo faltante. [GoldenSetReplayTest.php:127-131](file:///c:/Users/USER/Desktop/AudFact/tests/Services/Audit/GoldenSetReplayTest.php#L127-L131). `[CONFIRMADO]`
+2. **Campo no presente en hallazgos**: Si `expected.campo_results` contiene un campo que el engine no produjo, `assertArrayHasKey` falla con mensaje que incluye el fixture ID y el nombre del campo faltante. [GoldenSetReplayTest.php:127-131](../tests/Services/Audit/GoldenSetReplayTest.php#L127-L131). `[CONFIRMADO]`
 
-3. **PDF con `/Encrypt` parcial**: La detección busca `str_contains($raw, '/Encrypt')`. Un PDF legítimo con un objeto que contiene la subcadena `/Encrypt` en otro contexto sería rechazado (falso positivo). [DocumentIntegrityValidator.php:81-83](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83). `[CONFIRMADO]`
+3. **PDF con `/Encrypt` parcial**: La detección busca `str_contains($raw, '/Encrypt')`. Un PDF legítimo con un objeto que contiene la subcadena `/Encrypt` en otro contexto sería rechazado (falso positivo). [DocumentIntegrityValidator.php:81-83](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83). `[CONFIRMADO]`
 
-4. **WebP sin magic bytes en tabla**: La tabla `MAGIC_SIGNATURES` no incluye WebP (`RIFF...WEBP`), pero `SUPPORTED_MIMES` sí incluye `image/webp`. Un WebP válido sería rechazado con `UNKNOWN_FILE_SIGNATURE`. [DocumentIntegrityValidator.php:33-41 vs 19-26](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L33-L41). `[CONFIRMADO]`
+4. **WebP sin magic bytes en tabla**: La tabla `MAGIC_SIGNATURES` no incluye WebP (`RIFF...WEBP`), pero `SUPPORTED_MIMES` sí incluye `image/webp`. Un WebP válido sería rechazado con `UNKNOWN_FILE_SIGNATURE`. [DocumentIntegrityValidator.php:33-41 vs 19-26](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L33-L41). `[CONFIRMADO]`
 
 ---
 
 ## §4 — Diseño del Contrato Agnóstico (Especificación Técnica)
 
-### 4.1 Esquema del Golden Fixture
+### 4.1 Esquema de importación del Golden Fixture legacy
+
+[CONFIRMADO — diseño futuro] GoldenFixture conserva el formato del importador legacy (source_truth.header e items). No es AuditCase. El adaptador de DOC-06 traduce campos, severidades y resultados antes de validar Finding. Para replay SaaS completo se requieren la versión de ProcessDefinition, los snapshots de entrada/extracción y el oráculo revisado del maestro. El catálogo actual no acredita haber completado ese paquete.
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.invalid/audit-platform/doc-07/v0.1/golden-fixture.schema.json",
   "title": "GoldenFixture",
-  "description": "Caso canónico para la suite de calibración de paridad.",
+  "description": "Formato de importación del benchmark legacy; no es AuditCase ni acredita replay SaaS.",
   "type": "object",
   "properties": {
-    "id": { "type": "string", "description": "Identificador único del caso." },
-    "description": { "type": "string", "description": "Descripción del escenario (redactada)." },
+    "id": {
+      "type": "string",
+      "description": "Identificador único del caso."
+    },
+    "description": {
+      "type": "string",
+      "description": "Descripción del escenario (redactada)."
+    },
     "source_truth": {
       "type": "object",
       "description": "Datos de referencia del sistema (Fuente de Verdad).",
       "properties": {
-        "header": { "type": "object", "additionalProperties": true },
-        "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        "header": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
       },
-      "required": ["header"]
+      "required": [
+        "header"
+      ],
+      "additionalProperties": false
     },
     "documents": {
       "type": "array",
@@ -184,17 +204,38 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:
       "items": {
         "type": "object",
         "properties": {
-          "document_type": { "type": "string" },
+          "document_type": {
+            "type": "string"
+          },
           "fields_config": {
             "type": "array",
             "description": "Configuración de campos del audit-config para este documento.",
-            "items": { "$ref": "#/$defs/FieldConfig" }
+            "items": {
+              "$ref": "#/$defs/FieldConfig"
+            }
           },
-          "fields": { "type": "object", "additionalProperties": true },
-          "items": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-          "document_quality": { "type": "string", "default": "legible" }
+          "fields": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "document_quality": {
+            "type": "string",
+            "default": "legible"
+          }
         },
-        "required": ["document_type", "fields_config", "fields"]
+        "required": [
+          "document_type",
+          "fields_config",
+          "fields"
+        ],
+        "additionalProperties": false
       },
       "minItems": 1
     },
@@ -202,34 +243,79 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:
       "type": "object",
       "description": "Resultado canónico esperado.",
       "properties": {
-        "approved": { "type": "boolean" },
+        "approved": {
+          "type": "boolean"
+        },
         "campo_results": {
           "type": "object",
-          "description": "Mapa campo → veredicto esperado (DOC-02 FindingVerdict values).",
-          "additionalProperties": { "type": "string" }
+          "description": "Mapa campo → veredicto esperado (DOC-02 FindingOutcome values).",
+          "additionalProperties": {
+            "$ref": "https://schemas.invalid/audit-platform/doc-02/v0.2/finding-outcome.schema.json"
+          }
         }
       },
-      "required": ["campo_results"]
+      "required": [
+        "campo_results"
+      ],
+      "additionalProperties": false
     }
   },
-  "required": ["id", "description", "source_truth", "documents", "expected"],
+  "required": [
+    "id",
+    "description",
+    "source_truth",
+    "documents",
+    "expected"
+  ],
   "$defs": {
     "FieldConfig": {
       "type": "object",
       "properties": {
-        "campoNombre": { "type": "string" },
-        "tipoCampo": { "type": "string", "description": "Código de comparación: E/S/B/V/I/P" },
-        "tipoDato": { "type": "string", "description": "DOC-01 ValueType" },
-        "orden": { "type": "integer" },
-        "severity": { "type": "string" },
-        "codigoCampo": { "type": ["string", "null"] },
-        "description": { "type": "string" },
-        "aplicaServicio": { "type": ["string", "null"] },
-        "esMultiItem": { "type": "boolean" }
+        "campoNombre": {
+          "type": "string"
+        },
+        "tipoCampo": {
+          "type": "string",
+          "description": "Código de comparación: E/S/B/V/I/P"
+        },
+        "tipoDato": {
+          "type": "string",
+          "description": "DOC-01 ValueType"
+        },
+        "orden": {
+          "type": "integer"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "codigoCampo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "aplicaServicio": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "esMultiItem": {
+          "type": "boolean"
+        }
       },
-      "required": ["campoNombre", "tipoCampo", "tipoDato"]
+      "required": [
+        "campoNombre",
+        "tipoCampo",
+        "tipoDato"
+      ],
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -240,18 +326,7 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.invalid/audit-platform/doc-07/v0.1/canonical-finding.schema.json",
   "title": "CanonicalFinding",
-  "type": "object",
-  "properties": {
-    "campo": { "type": "string" },
-    "resultado": { "type": "string", "description": "DOC-02 FindingVerdict value" },
-    "valorFuenteVerdad": { "description": "Valor de referencia del sistema" },
-    "valorDocumento": { "description": "Valor extraído del documento" },
-    "valueType": { "type": "string", "description": "DOC-01 ValueType value" },
-    "tipo_auditoria": { "type": "string", "description": "DOC-02 ComparisonStrategy code" },
-    "severidad": { "type": "string", "description": "DOC-01 Severity value" },
-    "documento": { "type": "string", "description": "Nombre del tipo documental" }
-  },
-  "required": ["campo", "resultado", "valorFuenteVerdad", "valorDocumento", "valueType", "tipo_auditoria", "severidad", "documento"]
+  "$ref": "https://schemas.invalid/audit-platform/doc-02/v0.2/finding.schema.json"
 }
 ```
 
@@ -264,17 +339,43 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](file:///c:
   "title": "IntegrityValidationResult",
   "type": "object",
   "properties": {
-    "valid": { "type": "boolean" },
-    "reason": { "type": ["string", "null"], "description": "Razón de rechazo del catálogo (§3.5)" },
-    "declared_mime": { "type": "string" },
-    "detected_mime": { "type": ["string", "null"] },
-    "size_bytes": { "type": "integer", "minimum": 0 }
+    "valid": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Razón de rechazo del catálogo (§3.5)"
+    },
+    "declared_mime": {
+      "type": "string"
+    },
+    "detected_mime": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0
+    }
   },
-  "required": ["valid", "reason", "declared_mime", "detected_mime", "size_bytes"]
+  "required": [
+    "valid",
+    "reason",
+    "declared_mime",
+    "detected_mime",
+    "size_bytes"
+  ]
 }
 ```
 
 ### 4.4 Interfaces
+
+[CONFIRMADO — diseño futuro] GoldenFixture conserva la forma de entrada del replay legacy como contrato de importación. Un adaptador del perfil DOC-06 convierte FieldConfig E/S/B/V/I/P y los nombres legacy a ProcessDefinition/Finding. No es el contrato HTTP AuditCase ni un segundo vocabulario del core. El replay futuro exige extracción y decisiones semánticas fijadas, configuración versionada y datos anonimizados.
 
 #### Interfaz: ParityBenchmark
 
@@ -353,15 +454,16 @@ ALGORITMO: CanonicalHash
 ENTRADA: results: PolicyResult[]
 SALIDA: hash: string (SHA-256)
 
-1. normalized ← []
-2. PARA CADA result EN results:
-   2.1. items ← result.hallazgos.items
-   2.2. SORT items BY campo ASC (léxico)
-   2.3. projected ← MAP items → {campo, resultado, valueType}
-   2.4. APPEND projected TO normalized
+1. findings ← concatenar adapter.toCanonicalFindings(result) para cada result.
+2. Validar cada Finding contra DOC-02.
+3. projected ← MAP findings → [document, field_key, result, value_type].
+4. SORT projected por las cuatro posiciones, comparando strings por puntos de código Unicode;
+   null precede a cualquier string. Conservar duplicados y no normalizar Unicode.
+5. Serializar projected como JSON compacto UTF-8 sin BOM, sin espacios y sin escapar
+   caracteres no ASCII; escapar comillas, barra inversa y controles según JSON.
+   Cada fila es un array ordenado; no depende del orden de propiedades de un objeto.
+6. RETORNAR SHA256(bytes JSON).
 
-3. json ← JSON.stringify(normalized, UTF-8, no-escape-unicode)
-4. RETORNAR SHA256(json)
 ```
 
 #### ALG-02: DeterminismReplay — Replay doble para estabilidad
@@ -434,8 +536,8 @@ SALIDA: fixture_file: JSON
      source_truth: {header, items} CON DATOS REDACTADOS,
      documents: [{document_type, fields_config, fields, items}],
      expected: {
-       approved: CALCULAR desde reglas,
-       campo_results: {campo → veredicto EJECUTADO Y VERIFICADO}
+       approved: REVISAR resultado contra el oráculo; no usar el motor bajo prueba como única autoridad,
+       campo_results: {campo → resultado revisado por el oráculo, con evidencia y versión}
      }
    }
 4. GUARDAR en fixtures/golden_{id}.json
@@ -446,7 +548,7 @@ SALIDA: fixture_file: JSON
 ### 4.6 Invariantes del Módulo
 
 - **INV-01**: El hash canónico es determinista: mismos datos → mismo hash, independientemente del lenguaje de implementación.
-- **INV-02**: Solo `{campo, resultado, valueType}` participan en el hash. Metadata operacional se excluye.
+- **INV-02**: Solo `{document, field_key, result, value_type}` participan en el hash de determinismo. La verificación de corrección compara además el veredicto y los hallazgos completos; igualdad de hash no prueba igualdad de valores o severidad.
 - **INV-03**: Los fixtures contienen datos redactados (sintéticos). No hay datos reales de pacientes.
 - **INV-04**: Las validaciones de integridad son secuenciales: la primera falla determina el motivo de rechazo.
 - **INV-05**: Los MIME soportados están definidos como un conjunto cerrado. Nuevos formatos requieren actualización explícita.
@@ -456,7 +558,7 @@ SALIDA: fixture_file: JSON
 
 | Dimensión | Criterio | Umbral Mínimo |
 |---|---|---|
-| **Determinismo** | Hash de 2 corridas idéntico para 100% de fixtures | 100% |
+| **Determinismo** | Hash de 2 corridas idéntico para 100% de fixtures ejecutados | 100% |
 | **Veredicto** | Cada campo produce el veredicto canónico esperado | 100% |
 | **Forma** | Cada hallazgo contiene las 8 claves requeridas | 100% |
 | **Integridad** | Las 7 validaciones de integridad producen los mismos rechazos/aprobaciones | 100% |
@@ -481,7 +583,7 @@ SALIDA: fixture_file: JSON
 | 7 validaciones secuenciales | ALG-03 pasos 1-7 | ✅ |
 | Proceso de adición de caso | ALG-04 FixtureExpansion | ✅ |
 
-**Cobertura: 9/9 = 100%.**
+**Trazabilidad declarada: 9/9 filas de esta tabla.** Es cobertura del inventario descrito, no evidencia de ejecución o de inventario exhaustivo del sistema.
 
 ### 5.2 Prueba de Dominio Dual
 
@@ -570,60 +672,29 @@ SALIDA: fixture_file: JSON
 
 ---
 
-## §8 — Puerta de Calidad (Auto-Auditoría Adversarial)
+## §8 — Puerta de Calidad — Revisión del 2026-11-03
 
-### 8.1 Auditoría de Consistencia
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | PENDIENTE DE EJECUCIÓN | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-07. |
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| C-01 | ¿Toda afirmación sobre AudFact tiene clasificación epistémica? | PASS | 10+ evidencias `[CONFIRMADO]` en §3 |
-| C-02 | ¿Existen contradicciones entre §3 y §4? | PASS | Cobertura 9/9 en §5.1 |
-| C-03 | ¿Toda entrada de la tabla de cobertura (5.1) está resuelta? | PASS | 9/9 con ✅ |
-| C-04 | ¿Los esquemas JSON Schema son válidos según draft-2020-12? | PASS | 3 schemas con `$schema` correcto |
-| C-05 | ¿Cada interfaz tiene pre/post-condiciones y modos de fallo? | PASS | ParityBenchmark e IntegrityValidator con contratos completos |
+[DESCONOCIDO] U-DOC-07 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-### 8.2 Auditoría de Fugas
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| A-01 | ¿La Sección 4 pasa el filtrado léxico (5.3)? | PASS | 7/7 términos ausentes |
-| A-02 | ¿Cada contrato pasa la Prueba de Dominio Dual (5.2)? | PASS | Salud + Seguros |
-| A-03 | ¿Algún esquema hardcodea valores específicos de un solo dominio? | PASS | Schemas usan strings genéricos para campo, resultado y valueType |
-
-### 8.3 Auditoría de Completitud
-
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| D-01 | ¿Existen `[DESCONOCIDO]` críticos sin convertir a supuesto? | PASS | 0 críticos, 2 no-críticos en §6.3 |
-| D-02 | ¿Existen supuestos S3 o S4 sin resolver? | PASS | 0 S3, 0 S4 |
-| D-03 | ¿Toda funcionalidad tiene al menos un criterio de aceptación? | PASS | 9 test cases cubriendo 3 bloques |
-| D-04 | ¿El nivel de completitud asignado es consistente con conteos? | PASS | Nivel B: 2 S1 + 1 S2, 0 S3/S4, 0 desconocidos críticos |
-
-### 8.4 Preguntas Adversariales
-
-| # | Pregunta | Respuesta | Evidencia |
-|---|---|:---:|---|
-| ADV-01 | ¿Un equipo en otro lenguaje puede implementar el benchmark sin ver código PHP? | SÍ | Schemas JSON + ALG-01/02/03/04 son suficientes |
-| ADV-02 | ¿Si se cambia la base de datos de SQL Server a PostgreSQL, este contrato sigue válido? | SÍ | Benchmark no accede a BD; fixtures son auto-contenidos |
-| ADV-03 | ¿Si se cambia el proveedor de IA de Gemini a OpenAI, este contrato sigue válido? | SÍ | Benchmark evalúa PolicyEngine, no el proveedor de IA |
-| ADV-04 | ¿Si se auditan contratos legales en lugar de documentos de salud, este contrato sigue válido? | SÍ | Fixture format es agnóstico; campos y tipos se configuran vía fields_config |
-
----
-
-### Clasificación Final
+### Clasificación vigente
 
 ```yaml
-completeness_level: "B"
-justification: >
-  3 supuestos menores (2 S1 + 1 S2). 0 desconocidos críticos.
-  2 desconocidos no-críticos sobre sizing del golden set.
-  Cobertura 9/9. Filtrado léxico limpio.
-  RISK-01 es el riesgo más relevante: solo 1 fixture activo.
-  Plan de expansión progresiva documentado en ALG-04.
+completeness_level: C
+implementation_ready: false
 blockers:
-  - "Expandir Golden Set a ≥1 fixture por tipo documental (DOC-06)"
+  - U-DOC-07
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "Crear golden fixtures para Acta de Entrega, Autorización y Factura"
-  - "Resolver U-02: definir política de versionado del Golden Set"
-  - "Ejecutar suite de paridad tras cualquier re-plataformado"
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```

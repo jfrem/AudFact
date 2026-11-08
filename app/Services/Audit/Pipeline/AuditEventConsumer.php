@@ -670,7 +670,8 @@ abstract class AuditEventConsumer
             return redis.error_reply('Falta recibo DLQ para ACK terminal')
         end
         local ack = redis.call('XACK', KEYS[1], ARGV[1], ARGV[2])
-        redis.call('EXPIRE', KEYS[2], 604800)
+        -- Alinear retención del recibo DLQ a 24h (86400s) tras confirmar XACK terminal.
+        redis.call('EXPIRE', KEYS[2], 86400)
         redis.call('DEL', KEYS[3])
         return ack
     LUA;
@@ -720,61 +721,12 @@ abstract class AuditEventConsumer
                     0,
                     $failedPayload['failed_stage']
                 );
-                $this->publishBatchTerminalEventIfNeeded($jobStore, $event->jobId, $event->auditId, $event->eventId);
             }
 
             $jobStore->releaseAuditReservationFromAudit($audit);
-
-            $this->publisher->publish($event->followUp(
-                eventType: AuditEvent::TYPE_AUDIT_FAILED,
-                documentId: $event->documentId,
-                payload: array_merge($failedPayload, ['failed_at' => gmdate('Y-m-d\TH:i:s\Z')]),
-            ));
         } catch (Throwable $finalizeError) {
             throw new RuntimeException('No se pudo cerrar auditoría antes de DLQ', 0, $finalizeError);
         }
-    }
-
-    /**
-     * Publica el evento terminal del batch si el job ya llegó a estado terminal.
-     */
-    protected function publishBatchTerminalEventIfNeeded(
-        BatchJobStore $jobStore,
-        string $jobId,
-        string $auditId,
-        string $parentEventId
-    ): void {
-        $job = $jobStore->getJob($jobId);
-        if ($job === null) {
-            return;
-        }
-
-        $jobStatus = (string) ($job['status'] ?? '');
-        $eventType = match ($jobStatus) {
-            BatchJobStore::JOB_STATUS_COMPLETED => AuditEvent::TYPE_BATCH_COMPLETED,
-            BatchJobStore::JOB_STATUS_COMPLETED_WITH_ERR => AuditEvent::TYPE_BATCH_COMPLETED_ERR,
-            default => null,
-        };
-
-        if ($eventType === null) {
-            return;
-        }
-        $event = AuditEvent::create(
-            eventType: $eventType,
-            auditId: $auditId,
-            jobId: $jobId,
-            payload: [
-                'status' => $jobStatus,
-                'total' => (int) ($job['total'] ?? 0),
-                'done' => (int) ($job['done'] ?? 0),
-                'failed' => (int) ($job['failed'] ?? 0),
-            ],
-            parentEventId: $parentEventId,
-        );
-        $record = $event->toArray();
-        $record['event_id'] = AuditTaskEffects::uuid($jobId . ':' . $eventType);
-        $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
-        $jobStore->claimBatchTerminalEvent($jobId, $eventType);
     }
 
     private function sendToDeadLetter(AuditEvent $event, string $streamName, string $streamId, int $attempts, Throwable $error): void

@@ -195,18 +195,11 @@ final class AuditEventConsumerTest extends TestCase
             'fields' => ['event' => $event->toJson()],
         ]]);
         $publisher = $this->createMock(AuditEventPublisher::class);
-        $publisher->expects($this->once())->method('publish')->with(
-            $this->callback(function (AuditEvent $failed) use ($routing, $stream, $event): bool {
-                $this->assertSame(AuditEvent::TYPE_AUDIT_FAILED, $failed->eventType);
-                $this->assertSame($stream, AuditEventPublisher::streamForEvent($failed));
-                $this->assertSame($event->eventId, $failed->parentEventId);
-                $this->assertSame($routing, array_intersect_key($failed->payload, ['source' => true, 'is_priority' => true]));
-                return true;
-            })
-        )->willReturn('2-0');
+        $publisher->expects($this->never())->method('publish');
         $publisher->expects($this->once())->method('publishDeadLetter')->with(
-            $this->callback(function (AuditEvent $dlq) use ($event): bool {
+            $this->callback(function (AuditEvent $dlq) use ($event, $routing): bool {
                 $this->assertSame($event->toArray(), $dlq->payload['original_event']);
+                $this->assertSame($routing, array_intersect_key($dlq->payload['original_event']['payload'] ?? [], ['source' => true, 'is_priority' => true]));
                 return true;
             })
         )->willReturn('3-0');
@@ -223,10 +216,10 @@ final class AuditEventConsumerTest extends TestCase
 
     public static function failureRoutingCases(): iterable
     {
-        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
-        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
-        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_RESULTS_BATCH];
-        yield 'absent' => [[], AuditEventPublisher::STREAM_RESULTS_BATCH];
+        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_DOCUMENTS_PRIORITY];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_DOCUMENTS_BATCH];
+        yield 'absent' => [[], AuditEventPublisher::STREAM_DOCUMENTS_BATCH];
     }
 
     public function testEnsureGroupCreatesFromStreamOrigin(): void

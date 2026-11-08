@@ -85,7 +85,7 @@ final class GeminiTaskExecutionRedisTest extends TestCase
         self::assertSame('failed', $root['status']);
         self::assertSame('completed', $this->task()->record['state']);
         self::assertCount(2, $this->history);
-        self::assertCount(1, $this->task()->record['stage_artifact']['responses']);
+        self::assertNull($this->task()->record['stage_artifact']);
         self::assertSame(1, $worker->committedCleanups);
         self::assertSame(0, $worker->deferredCleanups);
         self::assertSame($reason, $dlq['payload']['last_error_code']);
@@ -188,7 +188,7 @@ final class GeminiTaskExecutionRedisTest extends TestCase
         self::assertSame('audit_task_failed', $root['detail_error']);
         self::assertSame('completed', $this->task()->record['state']);
         self::assertSame(1, $this->redis->eval('return redis.call("XLEN",KEYS[1])', [AuditEventPublisher::dlqStream()]));
-        self::assertSame(1, $this->redis->eval('return redis.call("XLEN",KEYS[1])', [AuditEventPublisher::STREAM_RESULTS_BATCH]));
+        self::assertSame(1, $this->redis->eval('return redis.call("XLEN",KEYS[1])', [AuditEventPublisher::dlqStream()]));
         self::assertSame('1', $this->redis->eval('return redis.call("HGET",KEYS[1],"terminal_failures")', ['telemetry:async_metrics']));
         self::assertSame(3, $this->quota->metrics()['extraction_request_failures']);
         self::assertCount(4, $root['gemini_attempts']);

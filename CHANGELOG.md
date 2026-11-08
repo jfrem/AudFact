@@ -1,4 +1,85 @@
+## [2026-11-06]
+
+### fix / ops / perf / arch
+- **Erradicación Estructural y Definitiva del Bloqueo por Umbral de Memoria Redis (80%) (SDD-OPS-025)**:
+  - **Pilar 1 — Eliminación Total de `audit:commit:v2:*`, `AuditTaskCommitter::PENDING`, `repair()` y `AuditTaskState::COMMITTING`, más `DEL` Inmediato de Planes Semánticos Consumidos (`AuditTaskCommitter.php`, `AuditTaskRunner.php`, `AuditExecutionInspector.php`, `AuditTaskState.php`, `AuditTaskEffects.php`, `FairAuditTaskQueue.php`, `ObservabilityController.php`)**: Se suprimieron `AuditTaskCommitter::PENDING`, el `GET audit:commit:v2:*` previo en cada commit, `repair()`, `receiptEffects()`, `reconcileCommitReceipts()`, `AuditTaskState::COMMITTING` y `'protect_active_ttl'`; además, cuando un plan semántico pasa a `consumed`, se elimina de inmediato con `DEL`.
+  - **Pilar 2 — Eliminación Inmediata (`DEL`) de Efectos de Outbox al Publicar o Confirmar y Supresión del Campo `'state'` (`AuditTaskOutbox.php`)**: En `PUBLISH` y `CONFIRM`, tras publicar en el stream (`XADD`) o confirmar el envío a la cola de persistencia/DLQ, el script ejecuta `redis.call('DEL', KEYS[1])` junto con `ZREM` y `SREM`, eliminando la retención de hashes `sent`, el campo `'state'` y el namespace redundante `audit:outbox:v2:sent:*`.
+  - **Pilar 3 — Retiro en Un Solo Paso del Andamiaje `v2` de Auditorías Terminales, Caché Local de `getAudit()`, Escaneo Multi-Paso (`scanPattern`) y Auto-Curación (`AuditExecutionMaintenance.php`)**: En `gc()`, las llaves auxiliares internas (`audit:task:v2:*`, `audit:semantic:v2:*`, `gemini:attempt:v2:*`) se retiran en un solo paso en cuanto su auditoría padre (`audit:{id}:state`, cacheada por ciclo) es terminal y `SCARD(audit:execution:refs:{auditId}) == 0`. Incluye `scanPattern()` (`GC_PAGE_SIZE = 1000`, `GC_SCAN_STEPS = 10`) y disparo inmediato de `gc()` + `trimWorkStreams()` en `tick()` cuando `orchestrationAtCapacity()` es `true`.
+  - **Pilar 4 — Unificación de Retención a 24 horas (`86400s`), Compactación Post-Persistencia y Purga de Llaves Huérfanas (`AuditStateStore.php`, `AuditFailureFinalizer.php`, `AuditPersistenceQueue.php`, `BatchJobStore.php`, `SemanticFlightStore.php`, `SemanticMatchJudge.php`)**: Se alinearon `DEFAULT_*_TTL_SECONDS = 86400` y el TTL de caché semántica (de 30 días a 24h), se compactó `audit:{id}:state` al cerrar en estado terminal retirando `documents`, `rules_evaluated_result`, `audit_result`, `operation_receipts`, `event_timings`, `synthetic_rejections` y `reservation_token`, se eliminaron `:seen` y `:slots` huérfanos en `AuditPersistenceQueue::ADVANCE_LUA` para auditorías individuales, y se compactó `job['audits'][auditId]` en `BatchJobStore`.
+  - **Pilar 5 — Purga de Streams Terminales Huérfanos (`audit.results.*`), Compactación de Payloads en Transición, Depuración de Código sin Valor y Clean Code (`AuditEventPublisher.php`, `AuditPersistenceWorker.php`, `AuditFailureFinalizer.php`, `AuditEventConsumer.php`, `DocumentExtractionWorker.php`, `RulesEvaluationWorker.php`, `SemanticEvaluationStore.php`, `AuditTaskCommitter.php`, `AuditExecutionMaintenance.php`, `GeminiGateway.php`, `DocumentAuditOrchestrator.php`, `InvoicesModel.php`)**: Eliminación de `STREAM_RESULTS_PRIORITY`/`STREAM_RESULTS_BATCH`, `publishTerminalOnce()`, `publishBatchTerminalEventIfNeeded()`, `claimBatchTerminalEvent()` y `audit:terminal:v2:sent:*`; compactación de `fuente_verdad`, `extraction_contract`, `fields_config`, `system_prompt`, `stage_artifact` y `original_event.payload` mediante constantes autodocumentadas y helpers reutilizables (`TRANSIENT_EXTRACTION_PAYLOAD_KEYS`, `TRANSIENT_REJECTION_PAYLOAD_KEYS`, `SEMANTIC_SNAPSHOT_EXCLUDED_DOCUMENT_KEYS`, `SOURCE_EVENT_ROUTING_KEYS`); extracción de scripts Lua legibles (`FINALIZE_FAILED_AUDIT_LUA`, `GC_DELETE_*_LUA`); reducción de `DEFAULT_STREAM_MAXLEN` a `3000`, ampliación de `WORK_STREAM_LUA` a `LIMIT 5000`, alineación del recibo DLQ a `86400s` en `TERMINAL_ACK_LUA`, y depuración en `GeminiGateway.php`, `DocumentAuditOrchestrator.php` e `InvoicesModel.php`.
+  - **Validación Empírica en Producción (`172.16.0.3`) y Pruebas Unitarias**: En producción, la eliminación de `220,136` recibos `audit:commit:v2:*`, `444,010` llaves `audit:outbox:v2:*`/`sent:*` y artefactos redundantes redujo `used_memory` desde **`19.31 GiB (80.47%)`** hasta **`8.22 GiB (34.24%)`** (**11.09 GiB liberados** y `dbsize` reducido de `1,387,623` a `686,277`) y drenó a `0` las `553` auditorías retenidas en `orchestration.batch.queued`. Suite PHPUnit certificada al 100% en verde.
+
+### ops / sec / arch
+- **Auditoría, Depuración y Normalización Integral de Variables de Entorno y Secretos (SDD-CFG-001 / PLAN-CFG-001)**:
+  - Eliminación del muro de secretos: se purgaron 64 secretos duplicados, no sensibles y huérfanos de GitHub Environment `production` (`gh secret delete`).
+  - Preservación estricta de 8 secretos genuinos: `DB_PASS`, `DB_USER`, `DB2_PASS`, `DB2_USER`, `GEMINI_API_KEY`, `GOOGLE_DRIVE_PRIVATE_KEY`, `MCP_WEBHOOK_SECRET`, `REDIS_PASSWORD`.
+  - Retiro definitivo de variables obsoletas: `WEBHOOK_URL` y `CAPABILITIES_URL` eliminadas de `.env.example`, `.github/workflows/deploy-production.yml`, `AGENTS.md` y GitHub Variables (runtime utiliza `WRAP_API_BASE` e `INTERNAL_API_URL`).
+  - Resolución del límite de GitHub Environment (cap de 100 variables): 13 configuraciones de runtime migradas a variables de repositorio (`gh variable set`), desacoplándolas del tope de 100 del entorno y disponibles transparentemente para el pipeline CI/CD en `${{ vars.* }}`.
+  - Sincronización de `.env.example` en 131 variables activas; verificación del contrato CI (`Validate env contract completeness`) con 0 faltantes.
+  - Certificación de suite PHPUnit: 1020 pruebas, 3579 aserciones, 0 fallos (100% verde).
+
+## [2026-11-05]
+
+### fix / ops / perf / arch
+- **Remediación Integral de Hallazgos de Auditoría Diff (SDD-OPS-024)**:
+  - Clarificación de retención: se explicita que `AuditExecutionMaintenance::gc()` opera bajo `max()` de los tres TTLs; la descompresión efectiva de memoria se sustentó en el barrido asistido y poda determinista.
+  - Procedimiento de rollback corregido: condicionado al aumento previo del cgroup de contenedor a >36 GiB antes de elevar Redis a 32 GiB; fallback en `docker-compose.yml:89` alineado a `${REDIS_CONTAINER_MEMORY:-28G}`.
+  - Sincronización de defaults en `.github/workflows/deploy-production.yml` y variables de repositorio (`AUDIT_STREAM_MAXLEN=10000`, slots `16/24/8/12`, réplicas `12/6`, `AUDIT_STATE_TTL=86400`).
+  - Corrección de honestidad técnica en DOC-01: reglas semánticas y barrido léxico marcados en desarrollo en `validate-ddf.cjs`.
+  - Reconciliación de invariantes INV-03/04 en DOC-05 con la arquitectura de commit durable antes de ACK.
+  - Mapeo estricto de `AuditVerdict` en `opt/DICCIONARIO-DATOS-MAPEO.md` (`approved`, `outcome`).
+  - Matiz de evidencia sobre poda histórica de streams (distinción entre PEL y lag).
+  - Normalización de finales de línea CRLF/LF en archivos PHP.
+
+### fix / ops / perf / arch
+- **Alineación de Memoria Redis vs Docker cgroups y Poda Segura de Streams (Opción A - SDD-OPS-023)**:
+  - Calibración de `REDIS_MAXMEMORY` a 24 GiB (`24gb`) dentro del contenedor con límite de cgroup de 28G (`REDIS_CONTAINER_MEMORY=28G`), mitigando sustancialmente el riesgo de `OOMKilled` al proveer un margen de 4 GiB frente al contenedor.
+  - Inclusión de `STREAM_PERSISTENCE_PRIORITY` y `STREAM_PERSISTENCE_BATCH` en `AuditEventPublisher::WORK_GROUPS`, garantizando la poda periódica segura de streams de persistencia vía `XTRIM MINID` condicionada al progreso del grupo consumidor.
+  - Calibración de `DEFAULT_STREAM_MAXLEN` a 10,000 en código y variables de entorno.
+  - Alineación de `AUDIT_STATE_TTL` a 86,400s (24h) en variables de producción; se precisa que la retención efectiva del GC opera bajo el máximo de los tres TTLs (conservando 7 días para recuperación de lotes) y que la descompresión inmediata provino del barrido asistido y poda determinista.
+  - Sincronización mandatoria en GitHub Environment `production` y actualización de `.env` en producción.
+  - Certificación completa de suite PHPUnit: 1020 pruebas, 3576 aserciones, 0 fallos (100% verde).
+
+### fix / ops / perf
+- **Resolución Forense de Bloqueo por Límite de Memoria Redis en Producción**:
+  - Diagnóstico profundo del estrangulamiento de orquestación: `AuditAdmissionGuard::memoryAtCapacity()` bloqueaba por salvaguarda al 80% de `REDIS_MAXMEMORY` (`24gb`), al alcanzar 19.23 GiB debido a streams de trabajo sin podar con entradas con PEL vacía (`pending=0`, sin medición previa de lag de consumidores).
+  - Poda inmediata de streams con `XTRIM ... MAXLEN 5000`, liberando 4.93 GiB de memoria en caliente (`used_memory` descendió a 14.30 GiB, ocupación al 59.57%; la garantía completa requirió la posterior implementación de `XTRIM MINID` en SDD-OPS-023).
+  - Elevación de `REDIS_MAXMEMORY` a `32gb` y calibración de `AUDIT_STREAM_MAXLEN=10000` en caliente y persistido en `.env`, reduciendo el ratio de uso al 44.68% (15,351,094,544 bytes / 34,359,738,368 bytes).
+  - Reanudación de admisión y ejecución vía `bin/audit-execution-maintenance.php resume`, acelerando el procesamiento a régimen pleno.
+
+### perf / ops
+- **Escalado de Concurrencia de Slots por Job y Réplicas de Workers**:
+  - Elevación de slots de orquestación (`AUDIT_ORCHESTRATION_JOB_SLOTS=16`), extracción (`AUDIT_EXTRACTION_JOB_SLOTS=24`), arbitraje semántico (`AUDIT_SEMANTIC_JOB_SLOTS=8`) y persistencia (`AUDIT_PERSISTENCE_JOB_SLOTS=12`).
+  - Escalado de réplicas en Docker Compose: `worker-orchestrator` a 12 réplicas y `worker-semantic-batch` a 6 réplicas.
+  - Aplicación en caliente sin downtime en el servidor de producción (`admon@172.16.0.3`) y sincronización inmediata de las 6 variables en GitHub Environment `production`.
+  - Certificación completa de 1019 pruebas unitarias PHPUnit en verde.
+
+## [2026-11-04]
+
+### docs
+- Corregida la documentación de reingeniería en `opt/`: contratos, catálogo de referencia, trazabilidad, planes y 16 módulos derivados.
+- Restaurado el comprobador documental con Ajv; las pruebas del futuro SaaS permanecen explícitamente pendientes.
+- Sincronizados skill DDF y catálogo. Detalles y validaciones: [reporte](plans/reporte-reconciliacion-documentacion-opt.md).
+
+## [2026-11-03]
+
+### feat / dev / ops
+- **Reconexión de Persistencia de Snapshots IA (`ResponseIADiskStore` / `GeminiGateway`)**:
+  - Reconexión de `saveDebugLog` dentro de `executeSingleOperation` para registrar snapshots de depuración (`logs/responseIA/*.json`) durante la ejecución de tareas de extracción y arbitraje en el pipeline event-driven v2 (`executeTaskRequest`).
+  - Soporte de `audit_id` en `ResponseIADiskStore` para tareas semánticas sin `dis_det_nro` directo y resolución de directorio para entornos de desarrollo en Windows.
+  - Salvaguarda inmutable: persistencia restringida estrictamente a `APP_ENV === 'development'`.
+  - Clarificación de compuerta limpia para `executePost` y Circuit Breaker local como fallback para pruebas unitarias directas sin `Task`.
+  - Incorporadas pruebas unitarias en `ResponseIADiskStoreTest` y `GeminiGatewayTest`, certificando 1019 pruebas en verde en la suite global.
+
 ## [2026-10-30]
+
+### perf / ops / arch
+- **Calibración de Cuotas y Desbloqueo de Concurrencia Gemini Tier 3**:
+  - Calibración de cuotas oficiales de Google AI Studio Tier 3 en `GeminiQuotaBudget`: `GEMINI_QUOTA_RPM=20000`, `GEMINI_QUOTA_TPM=20000000` y `GEMINI_QUOTA_RPD=100000000`.
+  - Elevación del techo de solicitudes concurrentes en vuelo (`GEMINI_QUOTA_MAX_INFLIGHT`) de 32 a 128 (default 64) en código y preflight de despliegue `.github/workflows/deploy-production.yml`.
+  - Ampliación de slots por lote (`AuditExecutionConfig::MAX_JOB_SLOTS`) de 16 a 32, configurando `AUDIT_EXTRACTION_JOB_SLOTS=24` para saturar las 24 réplicas de `worker-extraction-batch` con un solo job masivo.
+  - Sincronización mandatoria inmediata de las 5 variables de entorno en GitHub Environment `production`.
+  - Actualización de pruebas unitarias (`GeminiQuotaBudgetTest`, `AuditExecutionConfigTest`) certificando 1017 tests en verde.
 
 ### feat / ui
 - **Rediseño Forense del Tab de Adjuntos (Mesa Forense Documental)**:

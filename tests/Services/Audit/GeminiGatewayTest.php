@@ -237,6 +237,67 @@ final class GeminiGatewayTest extends TestCase
         }
     }
 
+    public function testSendSingleAttemptPersistsSnapshotInDevelopment(): void
+    {
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'gemini-gateway-test-' . bin2hex(random_bytes(4));
+        \Core\Env::set('APP_ENV', 'development');
+        \Core\Env::set('AUDIT_RESPONSE_IA_ENABLED', '1');
+        \Core\Env::set('AUDIT_RESPONSE_IA_DIR', $tempDir);
+
+        try {
+            $mockHandler = new MockHandler([
+                new Response(200, ['content-type' => 'application/json'], (string) json_encode([
+                    'candidates' => [[
+                        'finishReason' => 'STOP',
+                        'content' => ['parts' => [['text' => '{"ok":true}']]],
+                    ]],
+                ])),
+            ]);
+            $client = new Client(['handler' => HandlerStack::create($mockHandler)]);
+
+            $gateway = new GeminiGateway(
+                $client,
+                'test-key',
+                new GeminiConfig(model: 'gemini-3.7-flash')
+            );
+
+            $now = (int) floor(microtime(true) * 1000);
+            $hash = 'fake-body-hash';
+            $result = $gateway->sendSingleAttempt(
+                ['contents' => []],
+                [
+                    'audit_id' => 'AUD-TEST-SNAPSHOT',
+                    'operation' => 'generate_content',
+                    'deadline_ms' => $now + 5000,
+                    'body_hash' => $hash,
+                    'grant' => [
+                        'status' => 'GRANTED',
+                        'request_id' => 'req-1',
+                        'attempt_id' => 'att-1',
+                        'body_hash' => $hash,
+                        'expires_at_ms' => $now + 5000,
+                    ],
+                ]
+            );
+
+            $this->assertArrayHasKey('candidates', $result);
+
+            $files = glob($tempDir . DIRECTORY_SEPARATOR . '*.json');
+            $this->assertNotEmpty($files);
+            $content = json_decode((string) file_get_contents($files[0]), true);
+            $this->assertSame('AUD-TEST-SNAPSHOT', $content['meta']['dis_det_nro']);
+            $this->assertSame('success', $content['meta']['status']);
+        } finally {
+            \Core\Env::set('APP_ENV', null);
+            \Core\Env::set('AUDIT_RESPONSE_IA_ENABLED', null);
+            \Core\Env::set('AUDIT_RESPONSE_IA_DIR', null);
+            if (is_dir($tempDir)) {
+                array_map('unlink', glob($tempDir . DIRECTORY_SEPARATOR . '*') ?: []);
+                @rmdir($tempDir);
+            }
+        }
+    }
+
     public function testFactoryResolvesDedicatedApiKeyAndLane(): void
     {
         \Core\Env::set('GEMINI_API_KEY', 'key-common');

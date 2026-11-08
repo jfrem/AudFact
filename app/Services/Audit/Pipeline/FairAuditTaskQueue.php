@@ -12,9 +12,7 @@ final class FairAuditTaskQueue
     public const COUNTS = 'audit:tasks:v2:counts';
     public const ALL = 'audit:tasks:v2:all';
 
-    public function __construct(private readonly RedisClient $redis, private readonly AuditExecutionConfig $config)
-    {
-    }
+    public function __construct(private readonly RedisClient $redis, private readonly AuditExecutionConfig $config) {}
 
     public static function base(string $stage, string $lane): string
     {
@@ -36,16 +34,32 @@ final class FairAuditTaskQueue
     public static function keys(array $record): array
     {
         $base = self::base($record['stage'], $record['lane']);
-        return [self::taskKey($record['task_id']), $base . ':job:' . $record['scope'] . ':pending',
-            $base . ':jobs', $base . ':members', $base . ':active', $base . ':leases', $base . ':delayed',
-            self::COUNTS, self::ALL, 'audit:tasks:v2:sequence', AuditStateStore::auditKey($record['audit_id']), $base . ':scope_counts'];
+        return [
+            self::taskKey($record['task_id']),
+            $base . ':job:' . $record['scope'] . ':pending',
+            $base . ':jobs',
+            $base . ':members',
+            $base . ':active',
+            $base . ':leases',
+            $base . ':delayed',
+            self::COUNTS,
+            self::ALL,
+            'audit:tasks:v2:sequence',
+            AuditStateStore::auditKey($record['audit_id']),
+            $base . ':scope_counts'
+        ];
     }
 
     public function admit(AuditTask $task, string $stream, string $group, string $streamId): bool
     {
-        $result = $this->redis->eval(self::ADMIT, array_merge(self::keys($task->record),
-            [$stream, 'audit:execution:version', $task->record['job_id'] === null ? 'audit:execution:none' : BatchJobStore::jobKey($task->record['job_id']), self::base($task->record['stage'], $task->record['lane']) . ':waiting', 'audit:execution:refs:' . $task->record['audit_id']]),
-            [json_encode($task->record, JSON_THROW_ON_ERROR), $this->config->maxQueued, $group, $streamId]);
+        $result = $this->redis->eval(
+            self::ADMIT,
+            array_merge(
+                self::keys($task->record),
+                [$stream, 'audit:execution:version', $task->record['job_id'] === null ? 'audit:execution:none' : BatchJobStore::jobKey($task->record['job_id']), self::base($task->record['stage'], $task->record['lane']) . ':waiting', 'audit:execution:refs:' . $task->record['audit_id']]
+            ),
+            [json_encode($task->record, JSON_THROW_ON_ERROR), $this->config->maxQueued, $group, $streamId]
+        );
         if (!in_array($result, [0, 1, 2], true)) {
             throw new \RuntimeException('task_admission_invalid');
         }
@@ -73,38 +87,43 @@ final class FairAuditTaskQueue
             $base = self::base($stage->value, $selected->value);
             $length = $this->redis->eval('return redis.call("LLEN",KEYS[1])', [$base . ':jobs']);
             for ($offset = 0; $offset < $length; $offset += 100) {
-            $scopes = $this->redis->eval('return redis.call("LRANGE",KEYS[1],ARGV[1],ARGV[1]+99)', [$base . ':jobs'], [$offset]);
-            if (!is_array($scopes)) {
-                throw new \RuntimeException('task_index_invalid');
-            }
-            foreach ($scopes as $scope) {
-                // Con varios turnos por job, otro worker puede tomar la cabeza entre la lectura y el claim:
-                // se relee la cabeza una vez; si no cambió, el job está en su cupo y se pasa al siguiente.
-                $contended = null;
-                for ($attempt = 0; $attempt < 3; $attempt++) {
-                    $ids = $this->redis->eval('return redis.call("ZRANGE",KEYS[1],0,0)', [$base . ':job:' . $scope . ':pending']);
-                    if (!is_array($ids)) {
-                        throw new \RuntimeException('task_index_invalid');
-                    }
-                    if ($ids === [] || (string) $ids[0] === $contended) {
-                        break;
-                    }
-                    $task = $this->get((string) $ids[0]);
-                    if ($task === null) {
-                        throw new \RuntimeException('task_record_missing');
-                    }
-                    $raw = $this->redis->eval(self::CLAIM, array_merge(self::keys($task->record),
-                        ['audit:tasks:v2:' . $stage->value . ':lane_turn', $base . ':waiting']),
-                        [$owner, AuditExecutionConfig::LEASE_MS, $lane->isAll() ? 1 : 0, $this->config->jobSlots($stage)]);
-                    if (is_string($raw)) {
-                        return new AuditTask(json_decode($raw, true, 512, JSON_THROW_ON_ERROR));
-                    }
-                    if ($raw !== 0) {
-                        throw new \RuntimeException('task_claim_invalid');
-                    }
-                    $contended = (string) $ids[0];
+                $scopes = $this->redis->eval('return redis.call("LRANGE",KEYS[1],ARGV[1],ARGV[1]+99)', [$base . ':jobs'], [$offset]);
+                if (!is_array($scopes)) {
+                    throw new \RuntimeException('task_index_invalid');
                 }
-            }
+                foreach ($scopes as $scope) {
+                    // Con varios turnos por job, otro worker puede tomar la cabeza entre la lectura y el claim:
+                    // se relee la cabeza una vez; si no cambió, el job está en su cupo y se pasa al siguiente.
+                    $contended = null;
+                    for ($attempt = 0; $attempt < 3; $attempt++) {
+                        $ids = $this->redis->eval('return redis.call("ZRANGE",KEYS[1],0,0)', [$base . ':job:' . $scope . ':pending']);
+                        if (!is_array($ids)) {
+                            throw new \RuntimeException('task_index_invalid');
+                        }
+                        if ($ids === [] || (string) $ids[0] === $contended) {
+                            break;
+                        }
+                        $task = $this->get((string) $ids[0]);
+                        if ($task === null) {
+                            throw new \RuntimeException('task_record_missing');
+                        }
+                        $raw = $this->redis->eval(
+                            self::CLAIM,
+                            array_merge(
+                                self::keys($task->record),
+                                ['audit:tasks:v2:' . $stage->value . ':lane_turn', $base . ':waiting']
+                            ),
+                            [$owner, AuditExecutionConfig::LEASE_MS, $lane->isAll() ? 1 : 0, $this->config->jobSlots($stage)]
+                        );
+                        if (is_string($raw)) {
+                            return new AuditTask(json_decode($raw, true, 512, JSON_THROW_ON_ERROR));
+                        }
+                        if ($raw !== 0) {
+                            throw new \RuntimeException('task_claim_invalid');
+                        }
+                        $contended = (string) $ids[0];
+                    }
+                }
             }
         }
         return null;
@@ -112,14 +131,20 @@ final class FairAuditTaskQueue
 
     public function defer(AuditTask $task, int $dueAtMs, string $reason, bool $attempted = false, ?string $operation = null): bool
     {
-        return $this->redis->eval(self::DEFER, array_merge(self::keys($task->record), [self::base($task->record['stage'], $task->record['lane']) . ':waiting']),
-            [$task->record['lease_owner'], $task->record['fence'], $dueAtMs, $reason, $attempted ? 1 : 0, $operation ?? $task->record['operation']]) === 1;
+        return $this->redis->eval(
+            self::DEFER,
+            array_merge(self::keys($task->record), [self::base($task->record['stage'], $task->record['lane']) . ':waiting']),
+            [$task->record['lease_owner'], $task->record['fence'], $dueAtMs, $reason, $attempted ? 1 : 0, $operation ?? $task->record['operation']]
+        ) === 1;
     }
 
     public function saveArtifact(AuditTask $task, array $artifact): bool
     {
-        return $this->redis->eval(self::ARTIFACT, [self::taskKey($task->id())],
-            [$task->record['lease_owner'], $task->record['fence'], json_encode($artifact, JSON_THROW_ON_ERROR)]) === 1;
+        return $this->redis->eval(
+            self::ARTIFACT,
+            [self::taskKey($task->id())],
+            [$task->record['lease_owner'], $task->record['fence'], json_encode($artifact, JSON_THROW_ON_ERROR)]
+        ) === 1;
     }
 
     public function nowMs(): int
@@ -162,8 +187,10 @@ final class FairAuditTaskQueue
             }
         }
         $snapshot = $this->redis->eval(self::METRICS, $keys);
-        if (!is_array($snapshot) || count($snapshot) !== 2 || !is_array($snapshot[0]) || !is_array($snapshot[1])
-            || count($snapshot[0]) % 2 !== 0) {
+        if (
+            !is_array($snapshot) || count($snapshot) !== 2 || !is_array($snapshot[0]) || !is_array($snapshot[1])
+            || count($snapshot[0]) % 2 !== 0
+        ) {
             throw new \RuntimeException('task_metrics_invalid');
         }
         [$raw, $waitingHeads] = $snapshot;
@@ -186,7 +213,8 @@ final class FairAuditTaskQueue
                     throw new \RuntimeException('task_waiting_index_missing');
                 }
                 $out[$stage->value][$lane->value] = [
-                    'queued' => $flat[$prefix . 'pending'] ?? 0, 'active' => ($flat[$prefix . 'active'] ?? 0) + ($flat[$prefix . 'committing'] ?? 0),
+                    'queued' => $flat[$prefix . 'pending'] ?? 0,
+                    'active' => $flat[$prefix . 'active'] ?? 0,
                     'delayed' => $flat[$prefix . 'delayed'] ?? 0,
                     'oldest_wait_ms' => $oldest === [] ? 0 : max(0, $now - (int) $oldest[1]),
                 ];

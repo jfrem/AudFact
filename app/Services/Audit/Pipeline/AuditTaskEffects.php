@@ -55,7 +55,7 @@ final class AuditTaskEffects
             throw new \InvalidArgumentException('task_effects_invalid');
         }
         $ops = ['start_audit', 'patch_audit_context', 'set_documents_total', 'register_document', 'mark_extracted',
-            'mark_rejected', 'mark_evaluated', 'patch_document', 'store_rules_evaluation', 'fail_audit', 'protect_active_ttl'];
+            'mark_rejected', 'mark_evaluated', 'patch_document', 'store_rules_evaluation', 'fail_audit'];
         foreach ($effects['state_transitions'] as $transition) {
             if (!in_array($transition['op'] ?? '', $ops, true) || !is_array($transition['data'] ?? null)
                 || preg_match('/^[a-f0-9]{64}$/D', (string) ($transition['operation_id'] ?? '')) !== 1

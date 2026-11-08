@@ -34,7 +34,7 @@ final class ResponseIADiskStore
     public function persist(array $requestPayload, array $responseBody, array $context): bool
     {
         $appEnv = strtolower(trim((string) Env::get('APP_ENV', 'development')));
-        $disDetNro = trim((string) ($context['dis_det_nro'] ?? ''));
+        $disDetNro = trim((string) ($context['dis_det_nro'] ?? $context['audit_id'] ?? ''));
 
         if (!$this->isEnabledForEnvironment($appEnv) || $disDetNro === '') {
             return false;
@@ -135,6 +135,11 @@ final class ResponseIADiskStore
     private static function configuredBaseDir(): string
     {
         $baseDir = trim((string) Env::get(self::ENV_DIR, self::DEFAULT_BASE_DIR));
+        if ($baseDir === '' || str_starts_with($baseDir, '/var/www/html')) {
+            if (!is_dir('/var/www/html') && DIRECTORY_SEPARATOR === '\\') {
+                return dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'responseIA';
+            }
+        }
         return $baseDir !== '' ? $baseDir : self::DEFAULT_BASE_DIR;
     }
 

@@ -138,7 +138,7 @@ final class SemanticMatchJudgeTest extends TestCase
             ->with(
                 $this->stringContains('audfact:semantic:match:v6:product:'),
                 $this->isType('string'),
-                $this->equalTo(2592000)
+                $this->equalTo(86400)
             )
             ->willReturn(true);
 
@@ -322,7 +322,7 @@ final class SemanticMatchJudgeTest extends TestCase
             ->with(
                 $this->stringContains('audfact:semantic:match:v3:person:'),
                 $this->isType('string'),
-                $this->equalTo(2592000)
+                $this->equalTo(86400)
             )
             ->willReturn(true);
 

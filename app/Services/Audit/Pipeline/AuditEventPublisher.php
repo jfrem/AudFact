@@ -18,8 +18,6 @@ class AuditEventPublisher
     public const STREAM_DOCUMENTS_BATCH      = 'audit.documents.batch';
     public const STREAM_PERSISTENCE_PRIORITY = 'audit.persistence.priority';
     public const STREAM_PERSISTENCE_BATCH    = 'audit.persistence.batch';
-    public const STREAM_RESULTS_PRIORITY     = 'audit.results.priority';
-    public const STREAM_RESULTS_BATCH        = 'audit.results.batch';
     public const STREAM_BATCH_INBOX          = 'audit.batch.inbox';
     public const STREAM_SEMANTIC_PRIORITY    = 'audit.semantic.priority';
     public const STREAM_SEMANTIC_BATCH       = 'audit.semantic.batch';
@@ -33,12 +31,14 @@ class AuditEventPublisher
     public const GROUP_BATCH        = 'batch-workers';
     public const GROUP_SEMANTIC     = 'semantic';
 
-    private const DEFAULT_STREAM_MAXLEN = 100000;
+    private const DEFAULT_STREAM_MAXLEN = 3000;
     private const WORK_GROUPS = [
         self::STREAM_INBOX_PRIORITY => [self::GROUP_ORCHESTRATOR],
         self::STREAM_INBOX_BATCH => [self::GROUP_ORCHESTRATOR],
         self::STREAM_DOCUMENTS_PRIORITY => [self::GROUP_DOWNLOADERS, self::GROUP_EXTRACTORS, self::GROUP_NORMALIZERS, self::GROUP_POLICY],
         self::STREAM_DOCUMENTS_BATCH => [self::GROUP_DOWNLOADERS, self::GROUP_EXTRACTORS, self::GROUP_NORMALIZERS, self::GROUP_POLICY],
+        self::STREAM_PERSISTENCE_PRIORITY => [self::GROUP_PERSISTENCE],
+        self::STREAM_PERSISTENCE_BATCH => [self::GROUP_PERSISTENCE],
         self::STREAM_BATCH_INBOX => [self::GROUP_BATCH],
         self::STREAM_SEMANTIC_PRIORITY => [self::GROUP_SEMANTIC],
         self::STREAM_SEMANTIC_BATCH => [self::GROUP_SEMANTIC],
@@ -133,29 +133,13 @@ class AuditEventPublisher
     }
 
     // MAXLEN es una meta: ningún grupo puede perder entradas no entregadas o en PEL.
-    // Cada publicación poda como máximo 1000 entradas ya consumidas por todos los grupos.
+    // Cada publicación poda como máximo 5000 entradas ya consumidas por todos los grupos.
     public function trimWorkStreams(): void
     {
         foreach (self::WORK_GROUPS as $stream => $groups) {
             $this->redis->eval(self::WORK_STREAM_LUA, [$stream], ['', $this->streamMaxLen ?? 0,
                 json_encode($groups, JSON_THROW_ON_ERROR), 'trim_only']);
         }
-    }
-
-    /** Evento terminal con recibo atómico; los reintentos del finalizador no duplican XADD. */
-    public function publishTerminalOnce(AuditEvent $event): string
-    {
-        if (!in_array($event->eventType, [AuditEvent::TYPE_AUDIT_FAILED, AuditEvent::TYPE_AUDIT_COMPLETED,
-            AuditEvent::TYPE_BATCH_COMPLETED, AuditEvent::TYPE_BATCH_COMPLETED_ERR], true)) {
-            throw new \InvalidArgumentException('terminal_event_required');
-        }
-        $value = $this->redis->eval('local types={"stream","string","hash"}; for i,k in ipairs(KEYS) do local ty=redis.call("TYPE",k).ok; if ty~="none" and ty~=types[i] then return redis.error_reply("terminal_key_type_invalid") end end; local old=redis.call("GET",KEYS[2]); if old then return cjson.decode(old).stream_id end; local event=cjson.decode(ARGV[1]); local id=redis.call("XADD",KEYS[1],"MAXLEN","~",ARGV[2],"*","event",ARGV[1]); local t=redis.call("TIME"); redis.call("SET",KEYS[2],cjson.encode({stream_id=id,audit_id=event.audit_id,job_id=event.job_id,published_at_ms=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)})); if ARGV[3]=="1" then redis.call("HINCRBY",KEYS[3],"terminal_failures",1) end; return id',
-            [self::streamForEvent($event), 'audit:terminal:v2:sent:' . $event->eventId, 'telemetry:async_metrics'],
-            [$event->toJson(), $this->streamMaxLen ?? 100000, $event->eventType === AuditEvent::TYPE_AUDIT_FAILED ? 1 : 0]);
-        if (!is_string($value)) {
-            throw new \RuntimeException('terminal_publication_invalid');
-        }
-        return $value;
     }
 
     private const WORK_STREAM_LUA = <<<'LUA'
@@ -188,7 +172,7 @@ class AuditEventPublisher
                 if not found[required] then frontier = nil; break end
             end
             if frontier and frontier ~= '0-0' then
-                redis.call('XTRIM', KEYS[1], 'MINID', '~', frontier, 'LIMIT', 1000)
+                redis.call('XTRIM', KEYS[1], 'MINID', '~', frontier, 'LIMIT', 5000)
             end
         end
         if ARGV[4]=='trim_only' then return 1 end
@@ -228,10 +212,6 @@ class AuditEventPublisher
             AuditEvent::TYPE_SEMANTIC_RESOLVED,
             AuditEvent::TYPE_DOCUMENT_NORMALIZED => $isPriority ? self::STREAM_DOCUMENTS_PRIORITY : self::STREAM_DOCUMENTS_BATCH,
             AuditEvent::TYPE_SEMANTIC_REQUESTED => $isPriority ? self::STREAM_SEMANTIC_PRIORITY : self::STREAM_SEMANTIC_BATCH,
-            AuditEvent::TYPE_AUDIT_COMPLETED,
-            AuditEvent::TYPE_AUDIT_FAILED,
-            AuditEvent::TYPE_BATCH_COMPLETED,
-            AuditEvent::TYPE_BATCH_COMPLETED_ERR => $isPriority ? self::STREAM_RESULTS_PRIORITY : self::STREAM_RESULTS_BATCH,
             AuditEvent::TYPE_BATCH_REQUESTED     => self::STREAM_BATCH_INBOX,
             default => throw new \InvalidArgumentException("event_type sin stream asignado: {$eventType}"),
         };

@@ -140,7 +140,7 @@ class InvoicesModel extends Model
                         AND EXISTS (
                             SELECT 1
                             FROM DispensacionDetalleServicio dx WITH(NOLOCK)
-                            WHERE dx.DisId = fx.DisId AND dx.DisDetId = fx.DisDetId 
+                            WHERE dx.DisId = fx.DisId AND dx.DisDetId = fx.DisDetId
                         )
                     )
 
@@ -153,7 +153,7 @@ class InvoicesModel extends Model
                     )
 
                 GROUP BY f.FacNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
-                
+
                 OPTION (RECOMPILE);
 
                 SELECT d.FacNitSec AS Nitsec,d.DisId,d.DisDetId,d.Tercero,d.Fecha,d.Dispensa,d.Auditoria,d.DisTip,sum(d.Pend)Pend,d.Aut
@@ -191,7 +191,7 @@ class InvoicesModel extends Model
                         SELECT Nitsec FROM #CRUZE GROUP BY Nitsec
                     ) c ON c.Nitsec = n.NitSec
                 ) dc ON dc.NitSec = t.Nitsec and ((dc.NitMedDocTipSer=t.DisTip and dc.NitMedDocTip='A') OR (dc.NitMedDocTipSer = '' and dc.opc='N'))
-                LEFT JOIN #ADJ s ON s.DisId = t.DisId AND s.DisDetId = t.DisDetId AND s.AdjDisDocId = dc.NitMedDocId 
+                LEFT JOIN #ADJ s ON s.DisId = t.DisId AND s.DisDetId = t.DisDetId AND s.AdjDisDocId = dc.NitMedDocId
                 where ((t.Dispensa<>t.Aut or len(t.aut)>0) and len(t.aut)>0) or ((t.Dispensa=t.Aut or len(t.aut)=0) and len(t.aut)=0 and dc.NitMedDocTip<>'A')
                 GROUP BY t.DisId,t.DisDetId,t.Tercero;
                 CREATE CLUSTERED INDEX IX_TMP_SOPO ON #Sopo (DisId, DisDetId);
@@ -199,8 +199,7 @@ class InvoicesModel extends Model
                 {$finalSelect}
 
             IF OBJECT_ID('tempdb..#DISP') IS NOT NULL DROP TABLE #DISP;
-            IF OBJECT_ID('tempdb..#FACT') IS NOT NULL DROP TABLE #FACT;
-            IF OBJECT_ID('tempdb..#FACT1') IS NOT NULL DROP TABLE #FACT1;
+            IF OBJECT_ID('tempdb..#ADJ') IS NOT NULL DROP TABLE #ADJ;
             IF OBJECT_ID('tempdb..#CRUZE') IS NOT NULL DROP TABLE #CRUZE;
             IF OBJECT_ID('tempdb..#Sopo') IS NOT NULL DROP TABLE #Sopo;
         ";
@@ -257,7 +256,7 @@ class InvoicesModel extends Model
         }
 
         $finalSelect = "
-            SELECT TOP ({$safeLimit}) 
+            SELECT TOP ({$safeLimit})
                 s.Nitsec AS NitSec,
                 s.DisId,
                 s.Dispensa,

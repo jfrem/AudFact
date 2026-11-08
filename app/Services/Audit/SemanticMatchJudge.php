@@ -15,7 +15,7 @@ final class SemanticMatchJudge implements SemanticMatchResolver
     /** Propósito de arbitraje semántico para nombres de personas (médicos, pacientes). */
     public const PURPOSE_PERSON_MATCH  = 'person_name_match';
 
-    private const CACHE_TTL = 2592000; // 30 dias
+    private const CACHE_TTL = 86400; // 24 horas
     private const CACHE_NAMESPACE_PRODUCT = 'audfact:semantic:match:v6:product';
     private const CACHE_NAMESPACE_PERSON  = 'audfact:semantic:match:v3:person';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';

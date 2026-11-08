@@ -106,6 +106,23 @@ final class ResponseIADiskStoreTest extends TestCase
         $this->assertDirectoryDoesNotExist($this->baseDir);
     }
 
+    public function testPersistUsesAuditIdWhenDisDetNroIsMissing(): void
+    {
+        $this->setEnv('APP_ENV', 'development');
+        $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '1');
+        $this->setEnv('AUDIT_RESPONSE_IA_DIR', $this->baseDir);
+
+        $store = new ResponseIADiskStore();
+        $persisted = $store->persist([], ['candidates' => []], ['audit_id' => 'AUD-TASK-9988']);
+
+        $this->assertTrue($persisted);
+        $files = glob($this->baseDir . DIRECTORY_SEPARATOR . '*.json');
+        $this->assertCount(1, $files);
+
+        $payload = json_decode((string) file_get_contents($files[0]), true);
+        $this->assertSame('AUD-TASK-9988', $payload['meta']['dis_det_nro']);
+    }
+
     private function setEnv(string $key, string $value): void
     {
         Env::set($key, $value);

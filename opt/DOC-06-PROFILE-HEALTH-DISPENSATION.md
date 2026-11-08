@@ -5,19 +5,19 @@
 ```yaml
 document_id: "DOC-06"
 document_name: "PROFILE-HEALTH-DISPENSATION"
-version: "v0.2.0-draft"
-status: "DRAFT"
-completeness_level: "B"
-last_updated: "2026-10-19"
+version: "v0.3.0-review"
+status: "REVIEW"
+completeness_level: "C"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
 assumptions_count:
   S1: 3
   S2: 1
-  S3: 0
+  S3: 1
   S4: 0
-unknowns_critical: 0
+unknowns_critical: 1
 unknowns_non_critical: 2
 ```
 
@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.0-draft | 2026-11-03 | Formalización de Conectores RESTful JSON de Tenant (DEC-P-019 / DEC-T-026) y decomisionamiento programado del repositorio PHP de AudFact. El nuevo SaaS operará en repo independiente consumiendo únicamente APIs RESTful JSON expuestas por Discolnets. |
 | v0.2.0-draft | 2026-10-19 | Reclasificación de AudFact como Conector Periférico de Ingestión (DEC-T-016 y DOC-04). Aislamiento de consultas SQL Server (`vw_discolnet_dispensas`, `InvoicesModel`, `AudDispEst`) en la frontera del conector sin acoplar el núcleo SaaS. |
 | v0.1.1-draft | 2026-10-06 | Mapeo a vocabularios canónicos DOC-01 v0.3/DOC-02 v0.2 y separación de cobertura/tolerancia. No acredita migración ejecutada. |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Perfil de referencia del dominio salud-dispensación. |
@@ -41,7 +42,7 @@ Los documentos DOC-01 a DOC-05 definen una plataforma de auditoría documental *
 
 Este documento (DOC-06) cumple un doble propósito:
 1. **Perfil de Dominio**: Materializa las reglas de negocio, tipos documentales y estrategias de comparación para la auditoría de dispensación farmacéutica en Colombia.
-2. **Conector de Ingestión de Referencia (Tenant #1 — Discolnets)**: Discolnets (Discolnet S.A.S.) es formalmente el **Primer Tenant** de la plataforma SaaS multi-tenant. Este documento especifica cómo su sistema transaccional externo basado en SQL Server (ERP `Discolnet`) extrae expedientes, los serializa al contrato canónico `AuditCase` para enviarlos a `CaseIngestionPort` autenticado mediante API Keys B2B (DEC-P-012), y recibe el veredicto vía `WebhookDeliveryPort` para actualizar las tablas locales (`AudDispEst`).
+2. **Conector RESTful JSON de Referencia (Tenant #1 — Discolnets)**: Discolnets (Discolnet S.A.S.) es formalmente el **Primer Tenant** de la plataforma SaaS multi-tenant. Conforme a DEC-P-019 y DEC-T-026, el repositorio actual monolítico PHP de AudFact tiene carácter transitorio y **será formalmente decomisionado**. La integración de Discolnets se realiza mediante una API RESTful JSON limpia provista por el tenant (`GET /dispensation/...`, catálogo y streaming de adjuntos). El nuevo SaaS en TypeScript (en su propio repositorio independiente) consume exclusivamente estos endpoints RESTful JSON y entrega los resultados mediante `WebhookDeliveryPort`, garantizando que el SaaS opere con desacoplamiento total de bases de datos externas (SQL Server).
 
 DOC-06 contiene deliberadamente terminología y reglas de dominio — es el **único documento** que referencia conceptos como paciente, medicamento, fórmula médica, dispensación, EPS, NIT, o tablas de SQL Server.
 
@@ -78,7 +79,7 @@ DOC-06 contiene deliberadamente terminología y reglas de dominio — es el **ú
 
 | ValueType (DOC-01) | Instancia AudFact | Enum | Evidencia |
 |---|---|---|---|
-| `TEXT` | Texto libre genérico | `AuditFieldValueType::TEXT` | [AuditFieldValueType.php:17](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L17) |
+| `TEXT` | Texto libre genérico | `AuditFieldValueType::TEXT` | [AuditFieldValueType.php:17](../app/Services/Audit/AuditFieldValueType.php#L17) |
 | `DATE` | Fecha documental | `::DATE` | L18 |
 | `QUANTITY` | Cantidad dispensada | `::QUANTITY` | L19 |
 | `MONEY` | Valor monetario | `::MONEY` | L20 |
@@ -96,7 +97,7 @@ DOC-06 contiene deliberadamente terminología y reglas de dominio — es el **ú
 
 | ComparisonStrategy (DOC-02) | Código BD | Instancia AudFact | Evidencia |
 |---|---|---|---|
-| `EXACT` | `E` | Comparación léxica normalizada 1:1 | [AuditComparisonType.php:33](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditComparisonType.php#L33) |
+| `EXACT` | `E` | Comparación léxica normalizada 1:1 | [AuditComparisonType.php:33](../app/Services/Audit/AuditComparisonType.php#L33) |
 | `SEMANTIC` | `S` | Cascada léxica + substring + Gemini arbiter | L28 |
 | QUANTITY_COVERAGE / TOLERANCE | `B` | Seleccionar cobertura si usa_factor_conv es falso; tolerancia si es verdadero. Resolver factor declarado max(1,sum(FactorConv)); no existe BUSINESS en el núcleo. | BASE-10; DocumentPolicyEngine::evaluateBusinessField()/isQuantityWithinTolerance() |
 | `VISUAL` | `V` | Presencia visual (sello, firma, logo) | L30 |
@@ -109,7 +110,7 @@ El perfil traduce FactorConv a un campo interno numérico declarado, por ejemplo
 
 | Severity (DOC-02) | Instancia AudFact | String | Evidencia |
 |---|---|---|---|
-| `HIGH` | Severidad alta | `"alta"` | [AuditSeverity.php:15](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditSeverity.php#L15) |
+| `HIGH` | Severidad alta | `"alta"` | [AuditSeverity.php:15](../app/Services/Audit/AuditSeverity.php#L15) |
 | `MEDIUM` | Severidad media (default) | `"media"` | L16 |
 | `LOW` | Severidad baja | `"baja"` | L17 |
 
@@ -137,14 +138,14 @@ El perfil traduce FactorConv a un campo interno numérico declarado, por ejemplo
 
 | Tipo | Comportamiento | DOC-02 Ref | Evidencia |
 |---|---|---|---|
-| `code` | Mapeo propuesto: SUBSET, REFERENCE_SUBSET_DOCUMENT y proper_subset_result = MATCH. Validar el ejemplo S202 ∈ {S202, S273} y casos multivalor contra el oráculo. | ALG-05; GAP-11/12 | [AuditFieldValueType.php:82-85](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L82-L85) |
-| `person_name` | token_order_insensitive = true; "GARCIA ABSALON" = "ABSALON GARCIA" | ALG-02/03/10 | [AuditFieldValueType.php:95-98](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L95-L98) |
-| `article_name` | COVERAGE_SET y semantic_arbiter_allowed según contrato admitido | ALG-06 | [AuditFieldValueType.php:163-166](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L163-L166) |
-| `trace_token` | Mapeo a EQUAL_SET o a SUBSET/DOCUMENT_SUBSET_REFERENCE con cobertura parcial INCONCLUSIVE, según regla observada. La elección final exige oráculo; no asumir equivalencia. | ALG-05; GAP-11/12 | [AuditFieldValueType.php:148-151](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L148-L151) |
-| `quantity` | Cobertura mínima o tolerancia con fuente de factor explícita | ALG-04 | [AuditFieldValueType.php:135-138](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L135-L138) |
-| `article_name`, `person_name` | Permite fallback semántico a Gemini | — | [AuditFieldValueType.php:103-107](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L103-L107) |
-| `identity_doc_type/number`, `person_name` | Activa directiva de identidad en prompt de extracción | — | [AuditFieldValueType.php:112-119](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L112-L119) |
-| `quantity`, `money` | Se serializa como `number` en schema de Gemini | — | [AuditFieldValueType.php:124-127](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L124-L127) |
+| `code` | Mapeo propuesto: SUBSET, REFERENCE_SUBSET_DOCUMENT y proper_subset_result = MATCH. Validar el ejemplo S202 ∈ {S202, S273} y casos multivalor contra el oráculo. | ALG-05; GAP-11/12 | [AuditFieldValueType.php:82-85](../app/Services/Audit/AuditFieldValueType.php#L82-L85) |
+| `person_name` | token_order_insensitive = true; "GARCIA ABSALON" = "ABSALON GARCIA" | ALG-02/03/10 | [AuditFieldValueType.php:95-98](../app/Services/Audit/AuditFieldValueType.php#L95-L98) |
+| `article_name` | COVERAGE_SET y semantic_arbiter_allowed según contrato admitido | ALG-06 | [AuditFieldValueType.php:163-166](../app/Services/Audit/AuditFieldValueType.php#L163-L166) |
+| `trace_token` | Mapeo a EQUAL_SET o a SUBSET/DOCUMENT_SUBSET_REFERENCE con cobertura parcial INCONCLUSIVE, según regla observada. La elección final exige oráculo; no asumir equivalencia. | ALG-05; GAP-11/12 | [AuditFieldValueType.php:148-151](../app/Services/Audit/AuditFieldValueType.php#L148-L151) |
+| `quantity` | Cobertura mínima o tolerancia con fuente de factor explícita | ALG-04 | [AuditFieldValueType.php:135-138](../app/Services/Audit/AuditFieldValueType.php#L135-L138) |
+| `article_name`, `person_name` | Permite fallback semántico a Gemini | — | [AuditFieldValueType.php:103-107](../app/Services/Audit/AuditFieldValueType.php#L103-L107) |
+| `identity_doc_type/number`, `person_name` | Activa directiva de identidad en prompt de extracción | — | [AuditFieldValueType.php:112-119](../app/Services/Audit/AuditFieldValueType.php#L112-L119) |
+| `quantity`, `money` | Se serializa como `number` en schema de Gemini | — | [AuditFieldValueType.php:124-127](../app/Services/Audit/AuditFieldValueType.php#L124-L127) |
 
 ---
 
@@ -154,11 +155,11 @@ El perfil traduce FactorConv a un campo interno numérico declarado, por ejemplo
 
 | Parámetro DOC-03 | Valor AudFact | Evidencia |
 |---|---|---|
-| Endpoint | `POST v1beta/models/{model}:generateContent` | [GeminiGateway.php:123](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L123) |
-| Auth | Header `x-goog-api-key` | [GeminiGateway.php:122](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L122) |
-| Model | `gemini-3.7-flash` (default, configurable) | [GeminiConfig.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiConfig.php) |
+| Endpoint | `POST v1beta/models/{model}:generateContent` | [GeminiGateway.php:123](../app/Services/Audit/GeminiGateway.php#L123) |
+| Auth | Header `x-goog-api-key` | [GeminiGateway.php:122](../app/Services/Audit/GeminiGateway.php#L122) |
+| Model | `gemini-3.7-flash` (default, configurable) | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) |
 | Temperature | `0.0` (determinismo máximo) | GeminiConfig default |
-| Safety Settings | `BLOCK_NONE` (documentos médicos/legales) | [GeminiGateway.php:487-495](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L487-L495) |
+| Safety Settings | `BLOCK_NONE` (documentos médicos/legales) | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495) |
 | HTTP Client | Guzzle 7.x | GeminiGateway constructor |
 
 ### 4.2 Adaptador de Ingestión y Retorno: Conector SQL Server AudFact → DOC-04
@@ -220,13 +221,13 @@ Si el documento está rotado o invertido, orienta mentalmente la lectura en sent
 Para fechas, transcribe el año exacto tal como está impreso.
 ```
 
-**Fuente**: [ExtractionPromptBuilder.php:24-36](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L24-L36). `[CONFIRMADO]`
+**Fuente**: [ExtractionPromptBuilder.php:24-36](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L24-L36). `[CONFIRMADO]`
 
 ### 5.2 Directivas por Tipo de Valor (fieldDescriptionFallback)
 
 | ValueType | Prompt de Extracción | Evidencia |
 |---|---|---|
-| `identity_doc_number` | "Solo numero del documento; transcribe cada digito individualmente de izquierda a derecha sin tipo ni nombre; verifica con cuidado la distincion entre 8, 6, 5 y 0." | [AuditFieldValueType.php:209](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L209) |
+| `identity_doc_number` | "Solo numero del documento; transcribe cada digito individualmente de izquierda a derecha sin tipo ni nombre; verifica con cuidado la distincion entre 8, 6, 5 y 0." | [AuditFieldValueType.php:209](../app/Services/Audit/AuditFieldValueType.php#L209) |
 | `person_name` | "Solo nombres y apellidos completos; sin tipo ni numero de documento." | L210 |
 | `identity_doc_type` | "Solo tipo de documento: CC, CE, TI, RC, PA, PE, PPT, MS, AS, NUIP o SC." | L211 |
 | `date` | "Fecha visible; transcribe exactamente el año y fecha impresa." | L212 |
@@ -237,7 +238,7 @@ Para fechas, transcribe el año exacto tal como está impreso.
 
 ### 5.3 Directiva de Conformidad Documental
 
-Cada extracción incluye una regla de tipología que verifica que el archivo corresponda al tipo documental esperado antes de extraer datos. Si no corresponde, se marca `document_conformity.matches_expected_type = false` y se omite la extracción. [ExtractionPromptBuilder.php:68-81](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L68-L81). `[CONFIRMADO]`
+Cada extracción incluye una regla de tipología que verifica que el archivo corresponda al tipo documental esperado antes de extraer datos. Si no corresponde, se marca `document_conformity.matches_expected_type = false` y se omite la extracción. [ExtractionPromptBuilder.php:68-81](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L68-L81). `[CONFIRMADO]`
 
 ---
 
@@ -247,10 +248,10 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 
 | Regla | Descripción | Evidencia |
 |---|---|---|
-| Usuario IA | Todas las escrituras usan usuario `Z-IA` | [AuditResultPersistenceModel.php:19](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L19) |
-| Transacción atómica | UPSERT del resultado global + decisiones por adjunto en una sola transacción | [AuditResultPersistenceModel.php:55-86](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L55-L86) |
-| Status de adjuntos | `C` = Conforme/Aprobado, `R` = Rechazado | [AuditResultPersistenceModel.php:20-21](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L20-L21) |
-| Invalidación de caché | Post-commit se invalida el caché de resultados por NitSec | [AuditResultPersistenceModel.php:88-90](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L88-L90) |
+| Usuario IA | Todas las escrituras usan usuario `Z-IA` | [AuditResultPersistenceModel.php:19](../app/Models/AuditResultPersistenceModel.php#L19) |
+| Transacción atómica | UPSERT del resultado global + decisiones por adjunto en una sola transacción | [AuditResultPersistenceModel.php:55-86](../app/Models/AuditResultPersistenceModel.php#L55-L86) |
+| Status de adjuntos | `C` = Conforme/Aprobado, `R` = Rechazado | [AuditResultPersistenceModel.php:20-21](../app/Models/AuditResultPersistenceModel.php#L20-L21) |
+| Invalidación de caché | Post-commit se invalida el caché de resultados por NitSec | [AuditResultPersistenceModel.php:88-90](../app/Models/AuditResultPersistenceModel.php#L88-L90) |
 
 ### 6.2 Configuración Dinámica por Cliente (EPS)
 
@@ -267,7 +268,7 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 | `AplicaServicio` | `AudDispCampo` | Filtro: campo aplica solo a ciertos servicios |
 | `EsMultiItem` | `AudDispCampo` | Campo requiere extracción a nivel de ítem |
 
-**Fuente**: [AuditConfigModel.php:35-50](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditConfigModel.php#L35-L50). `[CONFIRMADO]`
+**Fuente**: [AuditConfigModel.php:35-50](../app/Models/AuditConfigModel.php#L35-L50). `[CONFIRMADO]`
 
 ### 6.3 Reglas Específicas de Dominio
 
@@ -302,6 +303,10 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 
 ### 7.2 Política de Conexión
 
+> [!IMPORTANT]
+> **Aislamiento Perimétrico y Decomisionamiento (DEC-P-019 / DEC-T-026)**:
+> Estas tablas y políticas de conexión pertenecen exclusivamente a la infraestructura interna del ERP de Discolnets / AudFact. En la arquitectura objetivo, **el nuevo SaaS jamás se conecta a SQL Server**. El tenant expone los conectores RESTful JSON (`GET /dispensation/...`, catálogo de adjuntos y streaming de descarga), y el repositorio actual monolítico PHP de AudFact se decomisiona tras la migración.
+
 | Operación | Conexión | Prefijo ENV |
 |---|---|---|
 | SELECT (consultas) | `db2` | `DB2_*` |
@@ -335,7 +340,7 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 | DOC-05 EventTypeCatalog (14 types) | AuditEvent::TYPE_* (14 constantes) | ✅ |
 | DOC-05 RetryPolicy | AuditEventConsumer::handleFailure() | ✅ |
 
-**Instanciación: 18/18 = 100%.**
+**Mapeo propuesto: 18/18 contratos de esta tabla.** No constituye una prueba de instanciación ejecutada.
 
 ---
 
@@ -376,45 +381,39 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 
 ---
 
-## §10 — Puerta de Calidad (Auto-Auditoría Adversarial)
+## §10 — Puerta de Calidad — Revisión del 2026-11-03
 
-### 10.1 Auditoría de Consistencia
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | NO APLICA AL PERFIL; GATE EN DOC-07 | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-06. |
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| C-01 | ¿Toda instanciación referencia el contrato agnóstico correspondiente? | PASS | 18/18 con DOC-xx explícito |
-| C-02 | ¿La tabla de instanciación cruzada (§8.1) cubre 100% de los contratos? | PASS | 18/18 |
-| C-03 | ¿Los prompts de dominio (§5) son reproducibles sin conocer el código? | PASS | System prompt y 8 directivas completas |
-| C-04 | ¿Las tablas SQL Server (§7) del conector periférico mapean a los puertos de DOC-04? | PASS | Ingestión (CaseIngestionPort), binarios (DocumentStorage) y retorno (WebhookDeliveryPort) cubiertos |
-| C-05 | ¿Los tipos de valor (§3.1) mapean 1:1 con DOC-01? | PASS | 13/13 |
+[DESCONOCIDO] U-DOC-06 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-### 10.2 Auditoría de Completitud
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| D-01 | ¿Existen `[DESCONOCIDO]` críticos sin convertir a supuesto? | PASS | 0 críticos, 2 no-críticos |
-| D-02 | ¿Existen supuestos S3 o S4 sin resolver? | PASS | 0 S3, 0 S4 |
-| D-03 | ¿Toda funcionalidad tiene al menos un criterio de aceptación? | PASS | 10 test cases en §9.3 |
-| D-04 | ¿El nivel de completitud asignado es consistente con conteos? | PASS | Nivel B: 3 S1 + 1 S2, 0 S3/S4, 0 desconocidos críticos |
-
-### 10.3 Nota sobre Filtrado Léxico y Dominio Dual
-
-> DOC-06 es el **perfil de referencia de dominio**. Por definición contiene terminología específica de salud (paciente, medicamento, EPS, dispensación, fórmula médica). Las auditorías de filtrado léxico y dominio dual **no aplican** a este documento — aplican exclusivamente a DOC-01 a DOC-05 y DOC-07.
-
----
-
-### Clasificación Final
+### Clasificación vigente
 
 ```yaml
-completeness_level: "B"
-justification: >
-  4 supuestos menores (3 S1 + 1 S2). 0 desconocidos críticos.
-  Instanciación cruzada 15/15 (100%) de contratos agnósticos.
-  13 tipos de valor, 6 estrategias de comparación, 6 veredictos,
-  5 adaptadores concretos, 11 tablas SQL Server, 8 directivas de prompt.
-  10 test cases formales en §9.3.
-  Este es el ÚNICO documento que contiene terminología de dominio.
-blockers: []
+completeness_level: C
+implementation_ready: false
+blockers:
+  - U-DOC-06
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "DOC-07 SPEC-GOLDEN-BENCHMARK — suite de calibración de paridad"
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```
+
+## §11 — Caracterización verificada y adaptación canónica
+
+[CONFIRMADO] Las cuatro consultas GET del 2026-11-03 corroboran el caso de referencia: 4 documentos, 38 evaluaciones, 35 COINCIDE, 2 OMITIDO y 1 NO_CONCLUYENTE; estado manual_review. Acta y fórmula son BLOB; validador y autorización URL; testigo SIN_DOCUMENTOS. Configuración actual: factorConv=false y diasVigencia=30. El [catálogo de referencia](CATALOGO-PRUEBAS-REFERENCIA.md) contiene la forma sintética completa y límites de esta evidencia.
+
+[DESCONOCIDO] El snapshot de configuración usado por el resultado persistido no fue recuperado. El GET actual contiene 44 campos y 3 checks; no prueba por sí solo la razón de las 38 evaluaciones guardadas.
+
+[CONFIRMADO — diseño futuro] Adaptador de hallazgos: campo→field_key, resultado→result, valorFuenteVerdad→source_value, valorDocumento→document_value, valueType→value_type, tipo_auditoria→strategy_applied, severidad→severity, documento→document. Traducir resultados COINCIDE/VALOR_DISTINTO/NO_ENCONTRADO/OMITIDO/NO_CONCLUYENTE/RECHAZADO mediante la tabla del diccionario; no copiar textos de resultado sin conversión. El tipo business se resuelve a QUANTITY_COVERAGE o TOLERANCE según el flag efectivo y su factor; no por el nombre del campo. Resolver exact/semantic/visual/presence/internal a EXACT/SEMANTIC/VISUAL/PRESENCE/INTERNAL.
+
+[CONFIRMADO — diseño futuro] El perfil conserva datos específicos en root_attributes y collections.items[].attributes (DOC-01). Los IDs de paciente, profesional y archivos remotos nunca aparecen en fixtures compartidos sin sustitución sintética consistente.

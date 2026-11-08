@@ -1,5 +1,225 @@
 # Changelog AudFact
 
+## [2026-11-06] - Erradicación Estructural y Definitiva del Bloqueo por Umbral de Memoria Redis (80%) (SDD-OPS-025)
+
+- **Reingeniería en 5 Pilares y Depuración Integral de Almacenamiento Redundante en Redis (`SDD-OPS-025`)**:
+  - **Pilar 1 — Eliminación Total de `audit:commit:v2:*`, `AuditTaskCommitter::PENDING`, `repair()` y `AuditTaskState::COMMITTING`, más `DEL` Inmediato de Planes Semánticos Consumidos (`AuditTaskCommitter.php`, `AuditTaskRunner.php`, `AuditExecutionInspector.php`, `AuditTaskState.php`, `AuditTaskEffects.php`, `FairAuditTaskQueue.php`, `ObservabilityController.php`)**:
+    - Dado que `AuditTaskCommitter::COMMIT` ejecuta un único script Lua atómico tras simular todas las transiciones en seco, se eliminaron por completo `AuditTaskCommitter::PENDING` (`audit:commits:v2:pending`), el round-trip previo `GET audit:commit:v2:*` en cada commit, `repair()`, `receiptEffects()`, `AuditExecutionInspector::reconcileCommitReceipts()`, `AuditTaskState::COMMITTING` y la operación muerta `'protect_active_ttl'`.
+    - Cuando un cambio semántico alcanza `plan.state = 'consumed'`, `COMMIT` elimina de inmediato `KEYS[change.key_index]` (`DEL`), lo retira de `SemanticEvaluationStore::PLANS` y de `audit:execution:refs:{auditId}` (`SREM`), y decrementa `previous.state` en `audit:semantic:v2:counts`.
+  - **Pilar 2 — Eliminación Inmediata (`DEL`) de Efectos de Outbox al Publicar o Confirmar y Supresión del Campo `'state'` (`AuditTaskOutbox.php`)**:
+    - En `PUBLISH` y `CONFIRM`, una vez publicado el evento en el stream (`XADD`) o confirmado en la cola de persistencia/DLQ, el script elimina atómicamente `KEYS[1]` (`DEL audit:outbox:v2:{effectId}`) junto con `ZREM` y `SREM`, suprimiendo por completo la retención de hashes `sent`, el campo `'state'` en `audit:outbox:v2:*` y el namespace redundante `audit:outbox:v2:sent:*`.
+  - **Pilar 3 — Retiro en Un Solo Paso del Andamiaje `v2` de Auditorías Terminales, Caché Local de `getAudit()`, Escaneo Multi-Paso (`scanPattern`) y Auto-Curación (`AuditExecutionMaintenance.php`)**:
+    - En `gc()`, las llaves auxiliares internas (`audit:task:v2:*`, `audit:semantic:v2:*`, `gemini:attempt:v2:*`) se eliminan en un solo paso en cuanto su auditoría padre (`audit:{id}:state`, cacheada por ciclo en memoria) está en estado terminal y `SCARD(audit:execution:refs:{auditId}) == 0`, sin retenerlas durante 24h ni escanear patrones redundantes (`audit:commit:v2:*` / `audit:outbox:v2:*`).
+    - Se introdujo `scanPattern(string $pattern, string $cursorKey): array` (`GC_PAGE_SIZE = 1000`, `GC_SCAN_STEPS = 10`) y el disparo inmediato de `gc()` + `trimWorkStreams()` en `tick()` cuando `AuditAdmissionGuard::orchestrationAtCapacity()` es `true`.
+  - **Pilar 4 — Unificación de Retención de Estado Consultable (`audit:*:state` / `job:*:state` / Caché Semántica) a 24 Horas (`86400s`), Compactación Post-Persistencia y Purga de Llaves Huérfanas (`AuditStateStore.php`, `AuditFailureFinalizer.php`, `AuditPersistenceQueue.php`, `BatchJobStore.php`, `SemanticFlightStore.php`, `SemanticMatchJudge.php`)**:
+    - Se recalibraron coordinadamente `AUDIT_STATE_TTL=86400`, `AUDIT_JOB_TTL=86400` y `AUDIT_PERSISTENCE_QUEUE_TTL=86400` (incluyendo las constantes `DEFAULT_*_TTL_SECONDS = 86400` en `AuditStateStore`, `BatchJobStore` y `AuditPersistenceQueue`, y el TTL de caché semántica de 30 días a `86400s` en `SemanticFlightStore` y `SemanticMatchJudge`).
+    - En `AuditStateStore::COMPLETE_AUDIT_LUA` y `AuditFailureFinalizer::finalize()`, al cerrar una auditoría en estado terminal se compacta `audit:{id}:state` eliminando (`nil`) `documents`, `rules_evaluated_result`, `audit_result`, `operation_receipts`, `event_timings`, `synthetic_rejections` y `reservation_token` (conservando solo el resumen consultable por `/audit/status/{auditId}` y la identidad para reproceso DLQ).
+    - En `AuditPersistenceQueue::ADVANCE_LUA`, cuando el scope de una auditoría individual (`slots == 0`) queda vacío, se eliminan inmediatamente `KEYS[4]` (`:seen`) y `KEYS[6]` (`:slots`).
+    - En `BatchJobStore`, se compactó `job['audits'][auditId]` conservando únicamente `dis_det_nro`, `status` y `failed_stage` (retirando `dis_id`, `reservation_token`, `completed_at` y `duration_ms` por entrada).
+  - **Pilar 5 — Purga de Streams Terminales Huérfanos (`audit.results.*`), Compactación de Payloads en Transición y Depuración de Código sin Valor (`AuditEventPublisher.php`, `AuditPersistenceWorker.php`, `AuditFailureFinalizer.php`, `AuditEventConsumer.php`, `DocumentExtractionWorker.php`, `RulesEvaluationWorker.php`, `SemanticEvaluationStore.php`, `AuditTaskCommitter.php`, `ObservabilityController.php`, `GeminiGateway.php`, `DocumentAuditOrchestrator.php`, `InvoicesModel.php`)**:
+    - Se eliminaron los streams terminales huérfanos sin consumidor `STREAM_RESULTS_PRIORITY` (`audit.results.priority`) y `STREAM_RESULTS_BATCH` (`audit.results.batch`), `publishTerminalOnce()`, `publishBatchTerminalEventIfNeeded()`, `claimBatchTerminalEvent()` y el namespace `audit:terminal:v2:sent:*`.
+    - Se erradicó la duplicación en bola de nieve de `fuente_verdad`, `extraction_contract`, `fields_config`, `visual_checks` y `system_prompt` en `document_extracted`/`document_rejected` (`DocumentExtractionWorker`), en snapshots `audit:semantic:v2:*` (`RulesEvaluationWorker` y `SemanticEvaluationStore`) y al marcar un documento como `evaluated` o completar una tarea (`stage_artifact = null`, `original_event.payload = {}`) en `AuditTaskCommitter::COMMIT`.
+    - Se redujo `DEFAULT_STREAM_MAXLEN` de 10,000 a `3000` y se amplió el límite de poda atómica en `WORK_STREAM_LUA` a `LIMIT 5000`.
+    - Se eliminaron `$artifact['attempt_ids']` sin lector en `GeminiGateway.php`, la llamada duplicada `telemetryPublisher->started()` y chequeo redundante en `DocumentAuditOrchestrator.php`, y los `DROP TABLE #FACT` / `#FACT1` inexistentes (reemplazados por `DROP TABLE #ADJ`) en `InvoicesModel.php`.
+    - Se aplicó refactorización Clean Code sobre el diff `.php` pensando en la mantenibilidad futura: extracción de constantes Lua legibles (`FINALIZE_FAILED_AUDIT_LUA` en `AuditFailureFinalizer`, `GC_DELETE_*_LUA` en `AuditExecutionMaintenance`), deduplicación de claves transitorias mediante constantes y métodos helper (`TRANSIENT_EXTRACTION_PAYLOAD_KEYS`, `TRANSIENT_REJECTION_PAYLOAD_KEYS`, `compactExtractedPayload()`, `compactRejectedPayload()` en `DocumentExtractionWorker`; `SEMANTIC_SNAPSHOT_EXCLUDED_DOCUMENT_KEYS` y `buildSemanticSnapshot()` en `RulesEvaluationWorker`; `SOURCE_EVENT_ROUTING_KEYS` en `SemanticEvaluationStore`; `CACHE_TTL_SECONDS = 86400` en `SemanticFlightStore`) y alineación del TTL de recibos DLQ a `86400s` en `AuditEventConsumer::TERMINAL_ACK_LUA`.
+  - **Validación Empírica en Producción (`172.16.0.3`) y Pruebas Unitarias**:
+    - En producción, la eliminación de `220,136` recibos `audit:commit:v2:*`, `444,010` llaves `audit:outbox:v2:*`/`sent:*` y artefactos redundantes redujo `used_memory` desde **`19.31 GiB (80.47%)`** hasta **`8.22 GiB (34.24%)`** (**11.09 GiB liberados** y `dbsize` reducido de `1,387,623` a `686,277` llaves) y drenó a **`0`** las `553` auditorías que estaban bloqueadas en `orchestration.batch.queued`.
+    - Suite unitaria PHPUnit certificada con `tests/Services/Audit/Pipeline/AuditMemoryCompactionAndGcTest.php`: **1021 pruebas, 0 fallos (100% verde)**.
+
+## [2026-11-06] - Auditoría, Depuración y Normalización Integral de Variables de Entorno y Secretos (SDD-CFG-001 / PLAN-CFG-001)
+
+- **Eliminación del Muro de Secretos y Establecimiento de Única Fuente de Verdad (SSOT)**:
+  - **Diagnóstico y Causa Raíz**:
+    - Se identificaron 72 secretos en GitHub Environment `production` originados el 20 de mayo de 2026. Al migrar posteriormente las configuraciones operativas a variables (`vars.*`), los secretos nunca fueron purgados, creando una redundancia de 64 secretos no sensibles y huérfanos.
+    - Se constató que GitHub Environment tiene un límite estricto de **100 variables por entorno**. Al intentar superar este tope en el pasado, se habían desviado parámetros no confidenciales hacia secretos.
+  - **Depuración y Purga Remota en GitHub (`gh secret delete` / `gh variable delete`)**:
+    - **64 secretos eliminados de GitHub Secrets**: 48 duplicados que ya existían como variables, 14 que fueron debidamente migrados como variables de repositorio, y 2 secretos huérfanos sin consumidor alguno en el código (`AUDIT_CACHE_TTL`, `AUDIT_PERSISTENCE_QUEUE_INDEX_PAGE_SIZE`).
+    - **Preservación Estricta de 8 Secretos Genuinos**: El almacén de secretos de producción quedó reducido exclusivamente a credenciales verdaderas: `DB_PASS`, `DB_USER`, `DB2_PASS`, `DB2_USER`, `GEMINI_API_KEY`, `GOOGLE_DRIVE_PRIVATE_KEY`, `MCP_WEBHOOK_SECRET`, `REDIS_PASSWORD`.
+    - **2 Variables Obsoletas Retiradas del Proyecto**: `WEBHOOK_URL` y `CAPABILITIES_URL` fueron dadas de baja en `.env.example`, `.github/workflows/deploy-production.yml`, `AGENTS.md`, `plans/` y eliminadas de GitHub Variables, dado que el runtime interno utiliza `WRAP_API_BASE` e `INTERNAL_API_URL` (confirmando el hallazgo histórico F07 de `auditoria-env-2026-10-22.md`).
+  - **Migración a Variables de Repositorio (Límite 500)**:
+    - Se registraron 13 configuraciones de runtime como variables globales de repositorio (`gh variable set`): `AUDIT_STREAM_BLOCK_MS`, `DB_TYPE`, `GEMINI_EXTRACTION_THINKING_BUDGET`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_SEED`, `GEMINI_SEMANTIC_THINKING_BUDGET`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL`, `REDIS_MODE`, `REDIS_PERSISTENT`, `WWWGROUP_ID`, `WWWUSER_ID`, desacoplándolas del límite de 100 del entorno e inyectándose transparentemente en GitHub Actions bajo el ámbito `${{ vars.* }}`.
+  - **Normalización de Contratos y CI/CD**:
+    - `.env.example`: Sincronizado exactamente con las 131 claves requeridas y activas del proyecto.
+    - Validación de Contrato CI (`Validate env contract completeness`): 57 claves leídas en código PHP comprobadas contra `.env.example`, 0 faltantes, 100% de completitud.
+    - `deploy-production.yml`: Limpiados los bloques de asignación y exportación de variables deprecadas.
+  - **Certificación de Pruebas Unitarias y Estándares**:
+    - PHPUnit: **1020 pruebas, 3579 aserciones, 80 omitidas, 0 fallos (100% verde)**.
+    - DDF Specs (`node opt/tools/validate-ddf.cjs`): 0 errores, `passed: true`.
+    - Skills (`validate-skills.mjs`): 22 skills, 9 bundles validados con éxito.
+    - Formato y Whitespace: `git diff --check` ejecutado sin advertencias ni errores (exit code 0).
+
+
+## [2026-11-05] - Remediación Integral de Hallazgos de Auditoría Diff (SDD-OPS-024)
+
+- **Alineación de Seguridad Operativa, Configuración y Contratos DDF (`SDD-OPS-024`)**:
+  - **Clarificación de Retención de Recibos y Estados (`QUAL-001`)**: Se formaliza en la documentación y contratos que la rutina automática `AuditExecutionMaintenance::gc()` aplica la retención efectiva según `max(AUDIT_STATE_TTL, AUDIT_JOB_TTL, AUDIT_PERSISTENCE_QUEUE_TTL)`. Con `AUDIT_JOB_TTL` y `AUDIT_PERSISTENCE_QUEUE_TTL` preservados en 7 días (para garantizar trazabilidad y recuperación ante contingencias de lotes), el ciclo general de mantenimiento conserva ese umbral; la descompresión inmediata de memoria en producción provino del barrido asistido de recibos huérfanos de auditorías terminales y de la poda determinista de streams.
+  - **Corrección del Procedimiento de Rollback (`QUAL-002`)**: Se reformuló el plan de reversión en `plans/sdd-opt-a-alineacion-memoria-poda-streams.md` prohibiendo volver a 32 GiB en Redis mientras el contenedor permanezca en 28 GiB, y se ajustó el fallback de `docker-compose.yml:89` a `${REDIS_CONTAINER_MEMORY:-28G}`.
+  - **Alineación de Defaults en Despliegue (`QUAL-003`)**: Se sincronizaron los fallbacks de `.github/workflows/deploy-production.yml` y las variables de repositorio con los valores calibrados vigentes (`AUDIT_STREAM_MAXLEN=10000`, slots `16/24/8/12`, réplicas `12/6`, `AUDIT_STATE_TTL=86400`).
+  - **Ajuste de Honestidad Técnica en Validador DDF (`QUAL-004`)**: Se eliminaron las afirmaciones en `opt/DOC-01-SPEC-DOMAIN-METAMODEL.md` que atribuían barridos léxicos y comprobaciones semánticas automáticas no implementadas a `validate-doc-01.cjs`, explicitando que las reglas semánticas continúan en fase de desarrollo en `validate-ddf.cjs` (10 casos pendientes).
+  - **Reconciliación de Invariantes de ACK y Transaccionalidad (`QUAL-005`)**: Se actualizaron INV-03 e INV-04 en `opt/DOC-05-SPEC-PIPELINE-STATE-MACHINE.md` para reflejar el commit durable atómico previo al ACK y el relay de outbox desacoplado de ALG-02/03.
+  - **Mapeo Riguroso de AuditVerdict (`QUAL-006`)**: Se corrigió `opt/DICCIONARIO-DATOS-MAPEO.md` para mapear `EstAud` hacia `verdict.approved` y derivar `verdict.outcome` de la política, respetando la prohibición de propiedades extra en el schema de DOC-01.
+  - **Evidencia y Matiz de Poda de Streams (`QUAL-007`)**: Se matizó el registro histórico aclarando que `pending=0` solo acredita ausencia de mensajes no confirmados en PEL pero no certifica ausencia de lag, justificando la frontera determinista `MINID` introducida en SDD-OPS-023.
+  - **Normalización de Formato**: Eliminados saltos de línea CRLF y espacios residuales en archivos PHP para certificar `git diff --check` en verde.
+
+## [2026-11-05] - Calibración Arquitectónica de Límites de Memoria y Poda Segura de Streams (Opción A - SDD-OPS-023)
+
+- **Alineación de Memoria Redis vs Docker cgroups (`SDD-OPS-023`)**:
+  - **Calibración de Límites**: Se reajustó `REDIS_MAXMEMORY` a **24 GiB** (`24gb`) dentro del contenedor con límite de cgroup de `REDIS_CONTAINER_MEMORY=28G` (`docker-compose.yml:89`). Esto mitiga sustancialmente el riesgo de `OOMKilled` al proveer un margen de 4 GiB para buffers y memoria RSS del proceso.
+  - **Inclusión de Streams de Persistencia en Poda Segura**: Se integraron `STREAM_PERSISTENCE_PRIORITY` y `STREAM_PERSISTENCE_BATCH` en `AuditEventPublisher::WORK_GROUPS` (`app/Services/Audit/Pipeline/AuditEventPublisher.php`), asegurando que la rutina periódica `trimWorkStreams()` pode entradas consumidas mediante `XTRIM MINID` validando el progreso real del grupo consumidor (`GROUP_PERSISTENCE`).
+  - **Calibración de Retención de Streams**: Se ajustó `DEFAULT_STREAM_MAXLEN` de 100,000 a **10,000** en `AuditEventPublisher.php`, `.env.example` y variables de repositorio.
+  - **Alineación de TTL de Estado y Recibos**: Se configuró `AUDIT_STATE_TTL=86400` (24h) en variables de producción y `.env`. Se documenta formalmente que el recolector automático `AuditExecutionMaintenance::gc()` opera bajo `max(AUDIT_STATE_TTL, AUDIT_JOB_TTL, AUDIT_PERSISTENCE_QUEUE_TTL)` (manteniendo 7 días para preservar ventanas de recuperación mientras las otras dos variables permanezcan en 604,800s); la reducción efectiva de memoria en esta fase se consolidó mediante la ejecución asistida del barrido de tareas/recibos completados y la poda periódica mediante `XTRIM MINID`.
+  - **Barrido y Recuperación de Memoria en Caliente**: Se ejecutó un ciclo asistido de recolección de basura sobre recibos de commit huérfanos y tareas completadas, reduciendo la ocupación de memoria por debajo del umbral del 80% (`AuditAdmissionGuard`).
+  - **Sincronización Mandatoria en GitHub Remoto**: Se sincronizaron las 4 variables en GitHub Environment `production` (`REDIS_MAXMEMORY=24gb`, `REDIS_CONTAINER_MEMORY=28G`, `AUDIT_STREAM_MAXLEN=10000`, `AUDIT_STATE_TTL=86400`).
+  - **Certificación de Pruebas Unitarias**: Suite completa ejecutada localmente con **1020 pruebas, 3579 aserciones, 0 fallos, 0 errores (100% verde)**.
+
+## [2026-11-05] - Resolución Forense de Cuello de Botella por Límite de Memoria Redis en Producción
+
+- **Diagnóstico Profundo y Remediación de Bloqueo en Pipeline Asíncrono (`INC-OPS-022`)**:
+  - **Identificación de la Causa Raíz**:
+    - Se constató que `AuditAdmissionGuard::memoryAtCapacity()` bloqueaba por diseño la orquestación (`orchestrationAtCapacity() = true`) al superar el 80% de `REDIS_MAXMEMORY` (`24gb`).
+    - Redis alcanzó `19.23 GiB` (80.11% de uso) debido a más de 975,000 llaves acumuladas y streams de trabajo sin podar (`audit.documents.*`, `audit.persistence.*`, `audit.results.*`) que retenían entradas del stream con PEL vacía (`pending=0`, sin medición previa de lag de consumidores).
+    - Adicionalmente, el flag `audit:admission:paused='1'` quedó activo tras abortos previos de mantenimiento debido al mismo bloqueo de capacidad.
+  - **Remediación en Caliente en Producción**:
+    - **Poda Inicial de Streams (`XTRIM ... MAXLEN 5000`)**: Se redujeron de inmediato los streams históricos en producción, liberando **4.93 GiB de memoria RAM** en Redis (`used_memory` descendió de 19.23 GiB a 14.30 GiB, ratio al 59.57%). Se precisa que `pending=0` únicamente certifica ausencia de mensajes pendientes de confirmación en PEL pero no mide lag de entrega, lo que requirió la posterior implementación de `XTRIM MINID` en SDD-OPS-023.
+    - **Ampliación de Límite de Memoria**: Se reconfiguró `REDIS_MAXMEMORY=32gb` en caliente (`CONFIG SET maxmemory 34359738368`), aprovechando los 43 GiB de RAM física del host. El ratio de ocupación cayó al **44.68%** (15,351,094,544 bytes / 34,359,738,368 bytes), desactivando la compuerta de throttling.
+    - **Reactivación de Mantenimiento**: Se ejecutó exitosamente `php bin/audit-execution-maintenance.php resume`, levantando las pausas de admisión y ejecución.
+    - **Persistencia y Gobernanza**: Se actualizaron `REDIS_MAXMEMORY=32gb` y `AUDIT_STREAM_MAXLEN=10000` en `/home/admon/audfact-prod/.env`, `.env.example` y GitHub Variables `production` vía `gh variable set`.
+  - **Aceleración Inmediata Confirmada**:
+    - La cola de espera descendió de 2,065 a menos de 1,800 dispensas en minutos.
+    - Los jobs de **POSITIVA** (>65%), **NUEVA EPS** (>11%) y **SANITAS** (>12%) reanudaron su procesamiento continuo a pleno rendimiento.
+
+## [2026-11-05] - Escalado de Concurrencia de Slots por Job y Réplicas de Workers
+
+- **Desbloqueo de Concurrencia y Aceleración de Lotes Masivos (`DEC-OPS-021`)**:
+  - **Diagnóstico Forense de Rendimiento**: Se identificó un estrangulamiento en la admisión de dispensas debido al límite de 4 turnos simultáneos por job (`AUDIT_ORCHESTRATION_JOB_SLOTS=4`), manteniendo más de 1,900 dispensas represadas en la cola de orquestación mientras los workers de extracción tenían capacidad disponible.
+  - **Ampliación de Slots por Job**:
+    - `AUDIT_ORCHESTRATION_JOB_SLOTS`: elevado de `4` a `16` (multiplicando x4 la ingesta paralela de dispensas).
+    - `AUDIT_EXTRACTION_JOB_SLOTS`: formalizado en `24` para saturar las réplicas de inferencia con cuota Tier 3.
+    - `AUDIT_SEMANTIC_JOB_SLOTS`: elevado de `4` a `8`.
+    - `AUDIT_PERSISTENCE_JOB_SLOTS`: elevado de `8` a `12`.
+  - **Escalado de Réplicas en Compose y Producción**:
+    - `worker-orchestrator`: escalado de 8 a 12 réplicas.
+    - `worker-semantic-batch`: escalado de 2 a 6 réplicas.
+  - **Aplicación en Caliente en Producción (`apps@172.16.0.3`)**:
+    - Actualizado `/home/admon/audfact-prod/.env` y recreados los workers en caliente mediante Docker Compose sin interrupción de servicios de almacenamiento o red.
+  - **Sincronización Mandatoria en GitHub Remoto**:
+    - Sincronizadas las 6 variables en GitHub Environment `production` (`gh variable set`).
+  - **Certificación de Suite**: 1019 pruebas unitarias certificadas en verde (0 fallos, 0 errores).
+
+## [2026-11-04] - Corrección y validación de la documentación opt
+
+- Reconciliados maestro, DOC-01..07, acta, diccionario, catálogo, matriz y nueve vistas del plan: estado REVIEW y dependencias pendientes explícitas; se conservan las decisiones aceptadas.
+- Cuatro GET locales sustentan la caracterización: 4 documentos, 38 hallazgos (35 COINCIDE, 2 OMITIDO, 1 NO_CONCLUYENTE), fórmula BLOB, 44 campos configurados y 3 validaciones visuales. La configuración actual no identifica el snapshot histórico. Ejemplos con valores personales sintéticos.
+- Corregidos QUANTITY_COVERAGE frente a TOLERANCE, vocabularios compartidos, tenant obligatorio, contexto autorizado, recibos durables/outbox antes de ACK, identidad de intentos de proveedor y borrador DDL.
+- Regenerados 16 módulos (80 artefactos más índice) con referencias a schemas propietarios, HTTP 400/422 consistente, idempotencia de admisión 24 horas, firma X-SaaS-Signature y pruebas de runtime declaradas como it.todo.
+- Restaurados comprobador DDF y aliases; sincronizados skill ddf-agnostic-spec y CATALOG.md. No se modificó runtime, infraestructura, variables ni datos operativos en esta corrección.
+- Evidencia y límites en [reporte de reconciliación](reporte-reconciliacion-documentacion-opt.md). Las afirmaciones históricas de implementación, cobertura absoluta y modelos específicos en la entrada del 2026-11-03 quedan sustituidas por esta revisión; no constituyen certificaciones vigentes.
+
+## [2026-11-03] - Despliegue de los 16 Submódulos Funcionales en opt/features/ (Enfoque X-Driven)
+
+- **Segmentación Funcional Independiente (Opción A — `opt/features/`)**:
+  - Se estructuraron las 16 funcionalidades canónicas del sistema original (`FN-01` a `FN-16`) en submódulos independientes bajo el enfoque **X-Driven Development**, garantizando trazabilidad absoluta y preservación funcional conforme al *Manifiesto de Modernización y Reescritura (v1.0)*:
+    - **`FN-01`**: Ingesta y admisión unitaria 1:1 (`api-ingress`).
+    - **`FN-02`**: Ingesta de lotes asíncronos con barrera de idempotencia (`X-Idempotency-Key`).
+    - **`FN-03`**: Telemetría en vivo del DAG y streaming Server-Sent Events (`audit.telemetry`).
+    - **`FN-04`**: Monitoreo y seguimiento agregado de jobs en lote con contadores atómicos Redis.
+    - **`FN-05`**: Consulta de veredictos finales persistidos y matriz de 38 hallazgos canónicos con RLS.
+    - **`FN-06`**: Ciclo de vida de revisión humana con leases optimistas temporales (TTL 900s).
+    - **`FN-07`**: Conector RESTful de fuente de verdad del tenant (`GET /dispensation/...`).
+    - **`FN-08`**: Conector de adjuntos híbrido (BLOB local / Google Drive / S3) y streaming con SHA-256.
+    - **`FN-09`**: Configuración declarativa de reglas de auditoría por EPS/Cliente con SemVer.
+    - **`FN-10`**: Extracción estructurada multimodal con IA (Gemini 2.5 Flash Tier 1) y Structured Outputs.
+    - **`FN-11`**: Motor de reglas determinista con álgebra de veredictos y estado ámbar (`REVISIÓN`).
+    - **`FN-12`**: Liquidación técnica y financiera de consumo IA con TRM oficial en USD y COP.
+    - **`FN-13`**: Resiliencia y tolerancia a fallos con reintentos exponenciales y Dead Letter Queue (DLQ).
+    - **`FN-14`**: Observabilidad operativa, health checks de dos niveles (`liveness`, `readiness`) y trazas W3C.
+    - **`FN-15`**: Portal web Frontend Next.js App Router (Clean Rebuild diferido por compuerta Backend-First `DEC-P-020`).
+    - **`FN-16`**: Sustitución formal de conexiones TCP directas a SQL Server por conectores RESTful JSON (`DEC-T-026`).
+  - **Matriz de Artefactos por Funcionalidad (80 artefactos + Índice Maestro)**:
+    - Cada una de las 16 carpetas contiene sus 5 artefactos canónicos:
+      1. `01-SDD-spec.md` (Especificación determinista de requerimiento, precondiciones, postcondiciones e invariantes).
+      2. `02-MDD-schema.json` (Contrato tipado JSON Schema draft-2020-12).
+      3. `03-BDD-scenarios.feature` (Escenarios ejecutables en sintaxis estándar Gherkin).
+      4. `04-TDD-tests.spec.ts` (Suite de pruebas unitarias en TypeScript con Vitest).
+      5. `05-ATDD-acceptance.md` (Criterios de aceptación cuantificables y compuertas de calidad en CI/CD).
+  - **Índice Maestro (`opt/features/README.md`) y Trazabilidad**:
+    - Actualizada [`opt/MATRIZ-TRAZABILIDAD.md`](opt/MATRIZ-TRAZABILIDAD.md) enlazando cada identificador `FN-xx` con su respectiva especificación técnica en `opt/features/`.
+
+## [2026-11-03] - Formalización Metodológica en opt/plan/ y Especificación E2E del DAG de Telemetría
+
+- **Implementación del Marco de las 9 Metodologías (`opt/plan/`)**:
+  - Se completaron formalmente las 9 carpetas metodológicas para gobernar la construcción del nuevo SaaS con cero ambigüedades y cero supuestos:
+    - **`ADD` (Architecture-Driven Development)**: Arquitectura Hexagonal, puertos, adaptadores y topología de workers en Redis Streams.
+    - **`ATDD` (Acceptance Test-Driven Development)**: Criterios ejecutables de aceptación para ingestión, seguridad RLS, contrapresión y SLAs.
+    - **`BDD` (Behavior-Driven Development)**: Especificaciones Gherkin ejecutables modelando el procesamiento concurrente del DAG, aislamiento de tenant y flujo de revisión humana.
+    - **`DDD` (Domain-Driven Design)**: Diseño estratégico de Bounded Contexts y diseño táctico de agregados (`AuditCase`), entidades (`DocumentNode`), eventos de dominio e invariantes de convergencia.
+    - **`FDD` (Feature-Driven Development)**: Descomposición en 5 Feature Sets de las 16 funcionalidades canónicas (`FN-01` a `FN-16`) con compuerta estricta Backend-First para el Clean Rebuild del Frontend.
+    - **`MDD` (Model-Driven Development)**: Esquemas canónicos JSON Schema draft-2020-12, generación determinista de tipos TypeScript, especificaciones OpenAPI 3.1 / AsyncAPI y mapeo de datos SQL Server a PostgreSQL 16 con RLS.
+    - **`PDD` (Plan-Driven Development)**: Hoja de ruta en 6 hitos, estrategia de migración mediante ejecución en sombra (Strangler Fig Shadow Run) y matriz de mitigación de riesgos.
+    - **`SDD` (Spec-Driven Development)**: Gobernanza del framework DDF, registro maestro de 47 ADRs (`DEC-P-001..020` y `DEC-T-001..027`) y primacía contractual formal.
+    - **`TDD` (Test-Driven Development)**: Guía Red-Green-Refactor en TypeScript con Vitest, fixtures de caracterización del sistema original (incluyendo caso real `T62261002597` y caso dual de compras B2B).
+  - **Índice Maestro (`opt/plan/README.md`)**: Creado índice navegable con la matriz de correspondencia metodológica y compromiso de cero regresiones.
+- **Especificación Completa del Grafo DAG del Pipeline de Auditoría**:
+  - Modeladas exhaustivamente todas las fases observables en el Lienzo de Telemetría: `Orquestación` $\to$ bifurcación en paralelo por soporte (`Descarga` $\to$ `Extracción` $\to$ `Normalización` $\to$ `Reglas`) $\to$ convergencia Fan-In en `Agregación`.
+  - Formalizado el comportamiento del nodo ámbar (`REVISIÓN`) en el paso de reglas ante discrepancias no fatales (como la titulación de Semaglutida) y su streaming en tiempo real vía Server-Sent Events (`/audit/{auditId}/flow-stream`).
+
+## [2026-11-03] - Reconexión de Persistencia de Snapshots IA y Clean Code en GeminiGateway
+
+- **Reconexión de Snapshots IA en Pipeline v2 (`ResponseIADiskStore` / `GeminiGateway`)**:
+  - **Detección de Bypass v2**: Se detectó que bajo la arquitectura de tareas event-driven v2 (`executeTaskRequest` -> `executeSingleOperation`), la persistencia de depuración de respuestas en disco (`saveDebugLog`) quedaba omitida al estar confinada únicamente al método síncrono v1 `executePost`.
+  - **Conexión en `executeSingleOperation`**: Se instrumentó `executeSingleOperation` para invocar de forma determinista y segura `saveDebugLog` en operaciones `generateContent` (tanto en casos exitosos como en fallos HTTP, excepciones de Guzzle y errores de parseo JSON).
+  - **Compatibilidad de Entorno y Tareas Semánticas**: `ResponseIADiskStore` ahora admite `audit_id` como identificador de respaldo cuando la tarea no posee `dis_det_nro` (ej. arbitraje semántico multicliente), y cuenta con fallback de resolución de ruta en Windows si la ruta configurada apunta a `/var/www/html/logs/responseIA`.
+  - **Seguridad en Producción**: Se mantiene la política estricta de cero fuga de información: la persistencia sólo se activa si `APP_ENV === 'development'` y `AUDIT_RESPONSE_IA_ENABLED === '1'`. En entornos de staging/producción la compuerta se cierra completamente.
+- **Clean Code y Gestión de Código Legado (`clean-rebuild-policy`)**:
+  - **Documentación de Compatibilidad**: Se documentó formalmente `executePost` y el circuito de Circuit Breaker local en `GeminiGateway` como compuerta de compatibilidad limpia para pruebas unitarias directas e invocaciones sin `Task`.
+  - **Validación Automatizada**: Agregadas pruebas unitarias completas en `ResponseIADiskStoreTest` y `GeminiGatewayTest` validando el ciclo de persistencia y el aislamiento de entorno.
+  - **Certificación de Suite**: 1019 pruebas unitarias certificadas en verde (0 fallos, 0 errores, 3576 aserciones).
+
+## [2026-11-03] - Homologación al Manifiesto de Modernización v1.0 y Secuenciación Backend-First
+
+- **Secuenciación de Construcción y Clean Rebuild de Frontend (`DEC-P-020` / `DEC-T-027`)**:
+  - **Estrategia Backend-First**: Se formaliza la directriz obligatoria de suspender y diferir la construcción del nuevo Frontend hasta que la implementación funcional del Backend y sus microservicios esté 100% terminada, probada y certificada.
+  - **Clean Rebuild Estricto**: El nuevo Frontend se construirá completamente desde cero en Next.js (App Router), consumiendo exclusivamente los contratos OpenAPI 3.1 inmutables del Backend, con cero supuestos, cero ambigüedades y sin arrastrar código del frontend actual.
+- **Entregables Normativos del Manifiesto de Modernización y Reescritura (v1.0)**:
+  - **Fase 0 — Acta de Inicio y Protección (`opt/ACTA-INICIO-PROTECCION.md`)**: Identificación formal del commit base (`98d345f6e5d49e536f81022d82317dc3ce16664a`), garantía de no alteración y aislamiento del sistema original.
+  - **Fase 4 — Matriz Maestra de Trazabilidad (`opt/MATRIZ-TRAZABILIDAD.md`)**: Inventario de 16 funcionalidades canónicas con las 10 columnas obligatorias y la taxonomía formal del Manifiesto (14 aprobadas, 1 diferida Clean Rebuild, 1 retirada por reemplazo RESTful).
+  - **Fase 5 — Diccionario de Datos y DDL Canónico (`opt/DICCIONARIO-DATOS-MAPEO.md`)**: Mapeo campo a campo de 11 tablas/vistas de SQL Server hacia el contrato agnóstico `AuditCase`, y script DDL físico completo para PostgreSQL 16+ con políticas mandatorias de Row-Level Security (RLS).
+  - **Fase 6 — Catálogo de Pruebas de Referencia (`opt/CATALOGO-PRUEBAS-REFERENCIA.md`)**: 4 escenarios canónicos de caracterización ejecutable (Golden Case real `T62261002597`, aprobación limpia, rechazo crítico y caso de Dominio Dual de compras B2B).
+- **Decisiones Fundacionales del Nuevo SaaS**:
+  - **Repositorio Independiente en GitHub (`DEC-P-019`)**: Desarrollo en un repositorio nuevo e independiente, con decomisionamiento programado del monolito PHP tras la migración.
+  - **Conectores RESTful JSON de Tenant (`DEC-T-026`)**: Discolnets provee APIs RESTful JSON para dispensación y streaming de adjuntos; el core del SaaS queda 100% desacoplado de SQL Server.
+
+- **Arquitectura de Repositorio y Transición a SaaS Desacoplado**:
+  - **Repositorio Independiente en GitHub (`DEC-P-019`)**:
+    - Se confirma formalmente que el nuevo SaaS multi-tenant se implementará en un repositorio Git independiente en GitHub (nombre por definir), separando su ciclo de vida y base de código del monolito PHP.
+  - **Decomisionamiento Programado de AudFact PHP**:
+    - El repositorio actual PHP 8.2 (`AudFact`) tiene carácter transitorio y será decomisionado una vez el nuevo SaaS entre en operación productiva y se valide la migración progresiva.
+  - **Conectores RESTful JSON de Tenant (`DEC-T-026`)**:
+    - AudFact (Discolnets como Tenant #1) asume la responsabilidad de proveer y mantener los conectores mediante APIs RESTful JSON para alimentar de información al nuevo SaaS.
+    - Se formalizan los endpoints canónicos de integración: `GET /dispensation/{disId}/{disDetNro}` (fuente de verdad), `GET /dispensation/{disDetNro}/attachments/{clientId}` (catálogo documental), `GET /dispensation/{disDetNro}/attachments/download/{attachmentId}` (streaming binario) y `POST /webhook/audit-result` (recepción asíncrona de veredictos).
+    - Se garantiza el desacoplamiento total: el núcleo SaaS jamás establecerá conexiones directas a SQL Server ni ejecutará scripts de base de datos del tenant.
+- **Validación del Primer Golden Case Operativo (`T62261002597`)**:
+  - Verificada en vivo la traza completa de la auditoría `T62261002597`: 38 campos auditados, 35 coincidencias, 2 omitidos, 1 no concluyente con arbitraje semántico clínico de Gemini (dosis de inicio vs mantenimiento de semaglutida) escalando a `manual_review` con `RequiereRevisionHumana: 1`.
+  - Confirmado el soporte de transporte documental híbrido (BLOB local para Acta de Entrega y URLs de Google Drive para Fórmula Médica, Validador y Autorización).
+- **Actualización Documental en `opt/`**:
+  - Actualizados `opt/SPEC-SAAS-MASTER.md` (v0.3.0-draft con DEC-P-019, DEC-T-026 y §8.21) y `opt/DOC-06-PROFILE-HEALTH-DISPENSATION.md` (v0.3.0-draft con aislamiento perimétrico y decomisionamiento programado).
+
+## [2026-10-30] - Calibración de Cuotas y Desbloqueo de Concurrencia Gemini Tier 3
+
+- **Desbloqueo de Concurrencia y Cuota Máxima Oficial Google AI Studio (Tier 3)**:
+  - **Calibración de Capacidad Gemini Tier 3**:
+    - Reconocido y desbloqueado el tier corporativo de Google AI Studio (`Nivel 3`): 20,000 RPM, 20,000,000 TPM y RPD Ilimitado.
+    - Actualizados los defaults de `GeminiQuotaBudget`: `GEMINI_QUOTA_RPM=20000`, `GEMINI_QUOTA_TPM=20000000` y `GEMINI_QUOTA_RPD=100000000`.
+    - Eliminado el freno artificial de concurrencia en vuelo: elevado el límite superior de `GEMINI_QUOTA_MAX_INFLIGHT` de `32` a `128` (con nuevo valor por defecto `64`).
+    - Actualizado el preflight de validación en `.github/workflows/deploy-production.yml` para autorizar `GEMINI_QUOTA_MAX_INFLIGHT` hasta `128`.
+  - **Ampliación de Concurrencia de Extracción por Job**:
+    - Elevado `AuditExecutionConfig::MAX_JOB_SLOTS` de `16` a `32`.
+    - Configurado `AUDIT_EXTRACTION_JOB_SLOTS=24` en producción para permitir que las 24 réplicas de `worker-extraction-batch` procesen de manera continua y simultánea los lotes grandes (ej. 3,000 dispensas) sin quedar bloqueadas por cuota de job.
+  - **Sincronización de Variables Remotas en Producción**:
+    - Sincronizadas inmediatamente las 5 variables de entorno en el GitHub Environment `production` (`GEMINI_QUOTA_RPM`, `GEMINI_QUOTA_TPM`, `GEMINI_QUOTA_RPD`, `GEMINI_QUOTA_MAX_INFLIGHT`, `AUDIT_EXTRACTION_JOB_SLOTS`).
+  - **Validación y Pruebas**:
+    - Actualizados `GeminiQuotaBudgetTest` y `AuditExecutionConfigTest` certificando la suite completa (1017 tests en verde).
+
 ## [2026-10-30] - Rediseño Forense del Tab de Adjuntos (Mesa Forense Documental)
 
 - **Priorización y Elevación de la Evidencia Documental (`impeccable`)**:

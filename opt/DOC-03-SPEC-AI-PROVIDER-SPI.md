@@ -5,19 +5,19 @@
 ```yaml
 document_id: "DOC-03"
 document_name: "SPEC-AI-PROVIDER-SPI"
-version: "v0.1.0-draft"
-status: "DRAFT"
-completeness_level: "B"
-last_updated: "2026-10-05T22:20:00Z"
+version: "v0.3.0-review"
+status: "REVIEW"
+completeness_level: "C"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
 assumptions_count:
   S1: 2
   S2: 2
-  S3: 0
+  S3: 1
   S4: 0
-unknowns_critical: 0
+unknowns_critical: 1
 unknowns_non_critical: 3
 ```
 
@@ -79,7 +79,7 @@ Este documento especifica el **SPI (Service Provider Interface)** agnóstico que
 
 | Componente | Ruta | Método / Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|---|
-| GeminiGateway | [GeminiGateway.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php) | `sendWithStructuredOutput()` | L106-127 | Punto de entrada: envía request Structured Output a Gemini API v1beta | `[CONFIRMADO]` |
+| GeminiGateway | [GeminiGateway.php](../app/Services/Audit/GeminiGateway.php) | `sendWithStructuredOutput()` | L106-127 | Punto de entrada: envía request Structured Output a Gemini API v1beta | `[CONFIRMADO]` |
 | — | — | `executePost()` | L136-206 | Loop de reintentos con backoff exponencial y circuit breaker | `[CONFIRMADO]` |
 | — | — | `buildStructuredOutputPayload()` | L353-375 | Ensambla payload con generationConfig + responseSchema | `[CONFIRMADO]` |
 | — | — | `buildBaseEnvelope()` | L411-428 | systemInstruction + contents + generationConfig + safetySettings | `[CONFIRMADO]` |
@@ -87,28 +87,28 @@ Este documento especifica el **SPI (Service Provider Interface)** agnóstico que
 | — | — | `cbCheck(), cbRecordSuccess(), cbRecordFailure()` | L239-304 | Circuit breaker inline con Redis | `[CONFIRMADO]` |
 | — | — | `assertTaskProfile()` | L465-482 | Validación de perfiles: extraction requiere files, semantic_match prohíbe files | `[CONFIRMADO]` |
 | — | — | `logApiQuotaHeaders()` | L518-550 | Monitoreo de cuota del proveedor via headers HTTP | `[CONFIRMADO]` |
-| GeminiConfig | [GeminiConfig.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiConfig.php) | VO completo | L16-163 | Value Object inmutable: model, temperature, topP, topK, maxOutputTokens, thinkingBudget/Level, seed, mediaResolution | `[CONFIRMADO]` |
+| GeminiConfig | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) | VO completo | L16-163 | Value Object inmutable: model, temperature, topP, topK, maxOutputTokens, thinkingBudget/Level, seed, mediaResolution | `[CONFIRMADO]` |
 | — | — | `toGenerationConfig()` | L57-85 | Serialización a generationConfig con overrides y thinkingConfig | `[CONFIRMADO]` |
 | — | — | `generationOverridesFromEnv()` | L110-133 | Factory de overrides por prefijo de tarea (GEMINI_SEMANTIC_*, etc.) | `[CONFIRMADO]` |
-| GeminiCallMetrics | [GeminiCallMetrics.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiCallMetrics.php) | `fromResponse()` | L19-35 | Construcción de métricas desde usageMetadata de la respuesta | `[CONFIRMADO]` |
+| GeminiCallMetrics | [GeminiCallMetrics.php](../app/Services/Audit/GeminiCallMetrics.php) | `fromResponse()` | L19-35 | Construcción de métricas desde usageMetadata de la respuesta | `[CONFIRMADO]` |
 | — | — | `summarize()` | L76-125 | Agregación: count, avg/min/max/p95_ms, tokens, cache_hits, finish_reasons | `[CONFIRMADO]` |
-| DocumentExtractionContractBuilder | [DocumentExtractionContractBuilder.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `build()` | L21-42 | Compilador de schemas: genera responseSchema + field_groups + contract_hash | `[CONFIRMADO]` |
+| DocumentExtractionContractBuilder | [DocumentExtractionContractBuilder.php](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `build()` | L21-42 | Compilador de schemas: genera responseSchema + field_groups + contract_hash | `[CONFIRMADO]` |
 | — | — | `buildResponseSchema()` | L71-149 | Genera schema JSON con document_conformity, fields, items, visual_checks, document_quality | `[CONFIRMADO]` |
 | — | — | `buildFlatFieldSchema()` | L364-392 | Schema individual por campo: tipo primitivo nullable con descripción | `[CONFIRMADO]` |
 | — | — | `buildVisualChecksSchema()` | L271-329 | Schema de visual checks con checks enum y campos opcionales | `[CONFIRMADO]` |
 | — | — | `hashPayload()` | L155-160 | SHA-256 canónico con ksort recursivo para serialización determinística | `[CONFIRMADO]` |
-| ExtractionPromptBuilder | [ExtractionPromptBuilder.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionPromptBuilder.php) | `buildSystemPrompt()` | L42-58 | System prompt default + custom con deduplicación | `[CONFIRMADO]` |
+| ExtractionPromptBuilder | [ExtractionPromptBuilder.php](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php) | `buildSystemPrompt()` | L42-58 | System prompt default + custom con deduplicación | `[CONFIRMADO]` |
 | — | — | `buildUserPrompt()` | L65-100+ | User prompt: conformity, fields, items, visual checks, artículos | `[CONFIRMADO]` |
 | — | — | `promptContextHash()` | ~L140 | SHA-256 del contexto de prompt para cache key | `[CONFIRMADO]` |
-| ExtractionCacheManager | [ExtractionCacheManager.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionCacheManager.php) | `computeCacheKey()` | L38-55 | Hash compuesto: documentHash + contractHash + promptContextHash + extractorVersion | `[CONFIRMADO]` |
+| ExtractionCacheManager | [ExtractionCacheManager.php](../app/Services/Audit/Pipeline/ExtractionCacheManager.php) | `computeCacheKey()` | L38-55 | Hash compuesto: documentHash + contractHash + promptContextHash + extractorVersion | `[CONFIRMADO]` |
 | — | — | `get(), put()` | L64-103 | Redis get/set con TTL configurable (default 86400s) | `[CONFIRMADO]` |
-| GeminiResponseParser | [GeminiResponseParser.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/GeminiResponseParser.php) | `parse()` | L39-57 | Extrae JSON de candidate, valida finishReason, rehidrata campos | `[CONFIRMADO]` |
-| ExtractedEvidence | [ExtractedEvidence.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractedEvidence.php) | VO | L15-77 | DTO inmutable: valor, valores, presente, estadoExtraccion | `[CONFIRMADO]` |
-| ExtractionState | [ExtractionState.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionState.php) | enum | L13-32 | 4 estados: FOUND, FOUND_IN_LIST, NOT_FOUND, ILLEGIBLE | `[CONFIRMADO]` |
-| ResponseIADiskStore | [ResponseIADiskStore.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/ResponseIADiskStore.php) | `persist()` | L34-111 | Snapshot request/response a disco con redacción de inlineData. Solo development. | `[CONFIRMADO]` |
-| AuditLane | [AuditLane.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditLane.php) | enum | L12-74 | 3 carriles: ALL, PRIORITY, BATCH. Partición de API keys y circuit breaker. | `[CONFIRMADO]` |
-| SemanticMatchJudge | [SemanticMatchJudge.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/SemanticMatchJudge.php) | `evaluate()` | L42-73 | Árbitro semántico con caché Redis 30d y 2 propósitos | `[CONFIRMADO]` |
-| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-28 | Generador de prompts y schemas por propósito | `[CONFIRMADO]` |
+| GeminiResponseParser | [GeminiResponseParser.php](../app/Services/Audit/Pipeline/GeminiResponseParser.php) | `parse()` | L39-57 | Extrae JSON de candidate, valida finishReason, rehidrata campos | `[CONFIRMADO]` |
+| ExtractedEvidence | [ExtractedEvidence.php](../app/Services/Audit/Pipeline/ExtractedEvidence.php) | VO | L15-77 | DTO inmutable: valor, valores, presente, estadoExtraccion | `[CONFIRMADO]` |
+| ExtractionState | [ExtractionState.php](../app/Services/Audit/Pipeline/ExtractionState.php) | enum | L13-32 | 4 estados: FOUND, FOUND_IN_LIST, NOT_FOUND, ILLEGIBLE | `[CONFIRMADO]` |
+| ResponseIADiskStore | [ResponseIADiskStore.php](../app/Services/Audit/ResponseIADiskStore.php) | `persist()` | L34-111 | Snapshot request/response a disco con redacción de inlineData. Solo development. | `[CONFIRMADO]` |
+| AuditLane | [AuditLane.php](../app/Services/Audit/Pipeline/AuditLane.php) | enum | L12-74 | 3 carriles: ALL, PRIORITY, BATCH. Partición de API keys y circuit breaker. | `[CONFIRMADO]` |
+| SemanticMatchJudge | [SemanticMatchJudge.php](../app/Services/Audit/SemanticMatchJudge.php) | `evaluate()` | L42-73 | Árbitro semántico con caché Redis 30d y 2 propósitos | `[CONFIRMADO]` |
+| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](../app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-28 | Generador de prompts y schemas por propósito | `[CONFIRMADO]` |
 
 ### 3.2 Flujo de Datos Actual
 
@@ -170,36 +170,36 @@ flowchart TD
 
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
-| R-01 | Endpoint: `POST v1beta/models/{model}:generateContent` con `x-goog-api-key` header. | [GeminiGateway.php:123](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L123) | `[CONFIRMADO]` |
-| R-02 | Structured Output usa `generationConfig.responseMimeType = 'application/json'` + `responseSchema`. | [GeminiGateway.php:366-367](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L366-L367) | `[CONFIRMADO]` |
-| R-03 | Retry: 3 intentos máximos con backoff exponencial `1s × 2^attempt`. Códigos retryable: 429, 500, 502, 503, 504. | [GeminiGateway.php:23-25, 308-322](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L23-L25) | `[CONFIRMADO]` |
-| R-04 | Circuit breaker: umbral configurable (default 3 fallos), cooldown configurable (default 60s). Estado en Redis con TTL. | [GeminiGateway.php:280-303](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L280-L303) | `[CONFIRMADO]` |
-| R-05 | Circuit breaker particionado por carril: cada AuditLane tiene su par de keys `cb:gemini:{lane}:state/fails`. | [GeminiGateway.php:220-232](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L220-L232) | `[CONFIRMADO]` |
-| R-06 | 2 perfiles de tarea: `extraction` (requiere archivos adjuntos) y `semantic_match` (prohíbe archivos). | [GeminiGateway.php:465-482](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L465-L482) | `[CONFIRMADO]` |
-| R-07 | API keys particionadas por carril: `GEMINI_API_KEY_PRIORITY`, `GEMINI_API_KEY_BATCH`, fallback a `GEMINI_API_KEY`. | [GeminiGateway.php:68-75](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L68-L75) | `[CONFIRMADO]` |
-| R-08 | Schema compiler genera contract_hash SHA-256 canónico con ksort recursivo para serialización determinística. | [DocumentExtractionContractBuilder.php:155-181](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L155-L181) | `[CONFIRMADO]` |
-| R-09 | Extraction cache key = SHA-256(documentHash + contractHash + promptContextHash + extractorVersion). TTL=86400s. | [ExtractionCacheManager.php:38-55](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionCacheManager.php#L38-L55) | `[CONFIRMADO]` |
-| R-10 | Response parser acepta solo `finishReason=STOP`; cualquier otro lanza error con código explícito. | [GeminiResponseParser.php:23, 72-79](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/GeminiResponseParser.php#L23) | `[CONFIRMADO]` |
-| R-11 | ExtractedEvidence: shape canónica `{valor, valores, presente, estadoExtraccion}` como DTO inmutable JSON-serializable. | [ExtractedEvidence.php:15-77](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractedEvidence.php#L15-L77) | `[CONFIRMADO]` |
-| R-12 | Semantic arbiter cache: Redis 30d, namespace versionado por propósito (`product:v5`, `person:v2`). | [SemanticMatchJudge.php:19-21](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/SemanticMatchJudge.php#L19-L21) | `[CONFIRMADO]` |
-| R-13 | Safety settings: `BLOCK_NONE` para las 4 categorías de contenido peligroso. | [GeminiGateway.php:487-495](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L487-L495) | `[CONFIRMADO]` |
-| R-14 | Métricas capturan: duration_ms, model, task_type, document_type, finish_reason, prompt/output/thoughts_tokens, cache_hit. | [GeminiCallMetrics.php:19-35](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiCallMetrics.php#L19-L35) | `[CONFIRMADO]` |
-| R-15 | `normalizeSchemaProperties()` convierte `"properties": []` a `"properties": {}` recursivamente para evitar 400 de la API. | [GeminiGateway.php:441-460](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L441-L460) | `[CONFIRMADO]` |
-| R-16 | Debug snapshots: solo en `APP_ENV=development`, redacta `inlineData` sustituyendo `data` por SHA-256 + tamaño. | [ResponseIADiskStore.php:36-39, 113-133](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/ResponseIADiskStore.php#L36-L39) | `[CONFIRMADO]` |
-| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). | [GeminiConfig.php:71-83](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiConfig.php#L71-L83) | `[CONFIRMADO]` |
-| R-18 | Error HTTP 400 NO activa circuit breaker (error del caller, no del proveedor). | [GeminiGateway.php:196-198](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L196-L198) | `[CONFIRMADO]` |
+| R-01 | Endpoint: `POST v1beta/models/{model}:generateContent` con `x-goog-api-key` header. | [GeminiGateway.php:123](../app/Services/Audit/GeminiGateway.php#L123) | `[CONFIRMADO]` |
+| R-02 | Structured Output usa `generationConfig.responseMimeType = 'application/json'` + `responseSchema`. | [GeminiGateway.php:366-367](../app/Services/Audit/GeminiGateway.php#L366-L367) | `[CONFIRMADO]` |
+| R-03 | Retry: 3 intentos máximos con backoff exponencial `1s × 2^attempt`. Códigos retryable: 429, 500, 502, 503, 504. | [GeminiGateway.php:23-25, 308-322](../app/Services/Audit/GeminiGateway.php#L23-L25) | `[CONFIRMADO]` |
+| R-04 | Circuit breaker: umbral configurable (default 3 fallos), cooldown configurable (default 60s). Estado en Redis con TTL. | [GeminiGateway.php:280-303](../app/Services/Audit/GeminiGateway.php#L280-L303) | `[CONFIRMADO]` |
+| R-05 | Circuit breaker particionado por carril: cada AuditLane tiene su par de keys `cb:gemini:{lane}:state/fails`. | [GeminiGateway.php:220-232](../app/Services/Audit/GeminiGateway.php#L220-L232) | `[CONFIRMADO]` |
+| R-06 | 2 perfiles de tarea: `extraction` (requiere archivos adjuntos) y `semantic_match` (prohíbe archivos). | [GeminiGateway.php:465-482](../app/Services/Audit/GeminiGateway.php#L465-L482) | `[CONFIRMADO]` |
+| R-07 | API keys particionadas por carril: `GEMINI_API_KEY_PRIORITY`, `GEMINI_API_KEY_BATCH`, fallback a `GEMINI_API_KEY`. | [GeminiGateway.php:68-75](../app/Services/Audit/GeminiGateway.php#L68-L75) | `[CONFIRMADO]` |
+| R-08 | Schema compiler genera contract_hash SHA-256 canónico con ksort recursivo para serialización determinística. | [DocumentExtractionContractBuilder.php:155-181](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L155-L181) | `[CONFIRMADO]` |
+| R-09 | Extraction cache key = SHA-256(documentHash + contractHash + promptContextHash + extractorVersion). TTL=86400s. | [ExtractionCacheManager.php:38-55](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L38-L55) | `[CONFIRMADO]` |
+| R-10 | Response parser acepta solo `finishReason=STOP`; cualquier otro lanza error con código explícito. | [GeminiResponseParser.php:23, 72-79](../app/Services/Audit/Pipeline/GeminiResponseParser.php#L23) | `[CONFIRMADO]` |
+| R-11 | ExtractedEvidence: shape canónica `{valor, valores, presente, estadoExtraccion}` como DTO inmutable JSON-serializable. | [ExtractedEvidence.php:15-77](../app/Services/Audit/Pipeline/ExtractedEvidence.php#L15-L77) | `[CONFIRMADO]` |
+| R-12 | Semantic arbiter cache: Redis 30d, namespace versionado por propósito (`product:v5`, `person:v2`). | [SemanticMatchJudge.php:19-21](../app/Services/Audit/SemanticMatchJudge.php#L19-L21) | `[CONFIRMADO]` |
+| R-13 | Safety settings: `BLOCK_NONE` para las 4 categorías de contenido peligroso. | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495) | `[CONFIRMADO]` |
+| R-14 | Métricas capturan: duration_ms, model, task_type, document_type, finish_reason, prompt/output/thoughts_tokens, cache_hit. | [GeminiCallMetrics.php:19-35](../app/Services/Audit/GeminiCallMetrics.php#L19-L35) | `[CONFIRMADO]` |
+| R-15 | `normalizeSchemaProperties()` convierte `"properties": []` a `"properties": {}` recursivamente para evitar 400 de la API. | [GeminiGateway.php:441-460](../app/Services/Audit/GeminiGateway.php#L441-L460) | `[CONFIRMADO]` |
+| R-16 | Debug snapshots: solo en `APP_ENV=development`, redacta `inlineData` sustituyendo `data` por SHA-256 + tamaño. | [ResponseIADiskStore.php:36-39, 113-133](../app/Services/Audit/ResponseIADiskStore.php#L36-L39) | `[CONFIRMADO]` |
+| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). | [GeminiConfig.php:71-83](../app/Services/Audit/GeminiConfig.php#L71-L83) | `[CONFIRMADO]` |
+| R-18 | Error HTTP 400 NO activa circuit breaker (error del caller, no del proveedor). | [GeminiGateway.php:196-198](../app/Services/Audit/GeminiGateway.php#L196-L198) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **Redis no disponible en circuit breaker**: Si Redis no está accesible, `cbCheck()` retorna silenciosamente (fail-open). [GeminiGateway.php:241-249](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L241-L249). `[CONFIRMADO]`
+1. **Redis no disponible en circuit breaker**: Si Redis no está accesible, `cbCheck()` retorna silenciosamente (fail-open). [GeminiGateway.php:241-249](../app/Services/Audit/GeminiGateway.php#L241-L249). `[CONFIRMADO]`
 
-2. **Redis no disponible en extraction cache**: `ExtractionCacheManager::get()` lanza `RuntimeException` (fail-closed: no se permite extracción sin cache). [ExtractionCacheManager.php:68-72](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionCacheManager.php#L68-L72). `[CONFIRMADO]`
+2. **Redis no disponible en extraction cache**: `ExtractionCacheManager::get()` lanza `RuntimeException` (fail-closed: no se permite extracción sin cache). [ExtractionCacheManager.php:68-72](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L68-L72). `[CONFIRMADO]`
 
-3. **`properties: []` tras Redis Streams**: PHP json_decode convierte `{}` a `[]`; el normalizador recursivo restaura `stdClass()` para evitar HTTP 400. [GeminiGateway.php:430-460](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L430-L460). `[CONFIRMADO]`
+3. **`properties: []` tras Redis Streams**: PHP json_decode convierte `{}` a `[]`; el normalizador recursivo restaura `stdClass()` para evitar HTTP 400. [GeminiGateway.php:430-460](../app/Services/Audit/GeminiGateway.php#L430-L460). `[CONFIRMADO]`
 
-4. **Gemini devuelve finishReason ≠ STOP**: Error clasificado con código `GEMINI_EXTRACTION_UNSAFE_FINISH_REASON`; el worker lo reclasifica como rechazo documental si es un error de contenido. [GeminiResponseParser.php:72-79](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/GeminiResponseParser.php#L72-L79). `[CONFIRMADO]`
+4. **Gemini devuelve finishReason ≠ STOP**: Error clasificado con código `GEMINI_EXTRACTION_UNSAFE_FINISH_REASON`; el worker lo reclasifica como rechazo documental si es un error de contenido. [GeminiResponseParser.php:72-79](../app/Services/Audit/Pipeline/GeminiResponseParser.php#L72-L79). `[CONFIRMADO]`
 
-5. **Semantic arbiter: Gemini falla**: Se produce `is_match=false` con reasoning de fallback; resultado marcado `cacheable=false` para no persistir fallos transitorios. [SemanticMatchJudge.php:282-292](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/SemanticMatchJudge.php#L282-L292). `[CONFIRMADO]`
+5. **Semantic arbiter: Gemini falla**: Se produce `is_match=false` con reasoning de fallback; resultado marcado `cacheable=false` para no persistir fallos transitorios. [SemanticMatchJudge.php:282-292](../app/Services/Audit/SemanticMatchJudge.php#L282-L292). `[CONFIRMADO]`
 
 ---
 
@@ -219,17 +219,65 @@ flowchart TD
   "description": "Configuración inmutable del proveedor de IA para una instancia del gateway.",
   "type": "object",
   "properties": {
-    "model_id": { "type": "string", "description": "Identificador del modelo (ej: gemini-3.7-flash)." },
-    "temperature": { "type": "number", "minimum": 0.0, "maximum": 2.0, "default": 0.0 },
-    "top_p": { "type": ["number", "null"] },
-    "top_k": { "type": ["integer", "null"] },
-    "max_output_tokens": { "type": "integer", "default": 8192 },
-    "media_resolution": { "type": ["string", "null"], "description": "Resolución de media para tareas multimodales." },
-    "thinking_budget": { "type": ["integer", "null"], "description": "Token budget para razonamiento (proveedor v2.5)." },
-    "thinking_level": { "type": ["string", "null"], "description": "Nivel de razonamiento (proveedor v3+)." },
-    "seed": { "type": ["integer", "null"], "description": "Semilla para reproducibilidad." }
+    "model_id": {
+      "type": "string",
+      "description": "Identificador del modelo (ej: gemini-3.7-flash)."
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 2.0,
+      "default": 0.0
+    },
+    "top_p": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "top_k": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "max_output_tokens": {
+      "type": "integer",
+      "default": 8192
+    },
+    "media_resolution": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Resolución de media para tareas multimodales."
+    },
+    "thinking_budget": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Token budget para razonamiento (proveedor v2.5)."
+    },
+    "thinking_level": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Nivel de razonamiento (proveedor v3+)."
+    },
+    "seed": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "description": "Semilla para reproducibilidad."
+    }
   },
-  "required": ["model_id", "max_output_tokens"]
+  "required": [
+    "model_id",
+    "max_output_tokens"
+  ]
 }
 ```
 
@@ -241,7 +289,10 @@ flowchart TD
   "$id": "https://schemas.invalid/audit-platform/doc-03/v0.1/task-profile.schema.json",
   "title": "TaskProfile",
   "type": "string",
-  "enum": ["extraction", "semantic_match"]
+  "enum": [
+    "extraction",
+    "semantic_match"
+  ]
 }
 ```
 
@@ -259,18 +310,68 @@ flowchart TD
   "title": "AICallMetrics",
   "type": "object",
   "properties": {
-    "duration_ms": { "type": "integer", "minimum": 0 },
-    "model": { "type": ["string", "null"] },
-    "task_type": { "type": "string" },
-    "document_type_id": { "type": ["string", "null"] },
-    "finish_reason": { "type": ["string", "null"] },
-    "cache_hit": { "type": "boolean", "default": false },
-    "prompt_tokens": { "type": ["integer", "null"], "minimum": 0 },
-    "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
-    "thoughts_tokens": { "type": ["integer", "null"], "minimum": 0 },
-    "total_tokens": { "type": ["integer", "null"], "minimum": 0 }
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "task_type": {
+      "type": "string"
+    },
+    "document_type_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "finish_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cache_hit": {
+      "type": "boolean",
+      "default": false
+    },
+    "prompt_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "output_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "thoughts_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "total_tokens": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    }
   },
-  "required": ["duration_ms", "cache_hit"]
+  "required": [
+    "duration_ms",
+    "cache_hit"
+  ]
 }
 ```
 
@@ -287,62 +388,140 @@ flowchart TD
     "document_conformity": {
       "type": "object",
       "properties": {
-        "matches_expected_type": { "type": "boolean" },
-        "detected_type": { "type": ["string", "null"] },
-        "justification": { "type": ["string", "null"] }
+        "matches_expected_type": {
+          "type": "boolean"
+        },
+        "detected_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "justification": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["matches_expected_type"]
+      "required": [
+        "matches_expected_type"
+      ],
+      "additionalProperties": false
     },
     "fields": {
-      "type": ["object", "null"],
-      "additionalProperties": { "$ref": "#/$defs/ExtractedEvidence" }
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/ExtractedEvidence"
+      }
     },
     "items": {
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "items": {
         "type": "object",
-        "additionalProperties": { "$ref": "#/$defs/ExtractedEvidence" }
+        "additionalProperties": {
+          "$ref": "#/$defs/ExtractedEvidence"
+        }
       }
     },
     "visual_checks": {
-      "type": ["array", "null"],
-      "items": { "$ref": "#/$defs/VisualCheckResult" }
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/VisualCheckResult"
+      }
     },
     "document_quality": {
       "type": "string",
-      "enum": ["legible", "partially_legible", "illegible"]
+      "enum": [
+        "legible",
+        "partially_legible",
+        "illegible"
+      ]
     },
     "quality_notes": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     }
   },
-  "required": ["document_conformity", "document_quality", "quality_notes"],
+  "required": [
+    "document_conformity",
+    "document_quality",
+    "quality_notes"
+  ],
   "$defs": {
     "ExtractedEvidence": {
       "type": "object",
       "properties": {
-        "value": { "description": "Valor principal extraído." },
-        "values": { "type": "array", "items": {}, "description": "Tokens individuales (multi-valor)." },
-        "present": { "type": "boolean" },
+        "value": {
+          "description": "Valor principal extraído."
+        },
+        "values": {
+          "type": "array",
+          "items": {},
+          "description": "Tokens individuales (multi-valor)."
+        },
+        "present": {
+          "type": "boolean"
+        },
         "extraction_state": {
           "type": "string",
-          "enum": ["FOUND", "FOUND_IN_LIST", "NOT_FOUND", "ILLEGIBLE"]
+          "enum": [
+            "FOUND",
+            "FOUND_IN_LIST",
+            "NOT_FOUND",
+            "ILLEGIBLE"
+          ]
         }
       },
-      "required": ["value", "values", "present", "extraction_state"]
+      "required": [
+        "value",
+        "values",
+        "present",
+        "extraction_state"
+      ],
+      "additionalProperties": false
     },
     "VisualCheckResult": {
       "type": "object",
       "properties": {
-        "check_id": { "type": "string" },
-        "present": { "type": "boolean" },
-        "detail": { "type": ["string", "null"] },
-        "severity": { "type": ["string", "null"] }
+        "check_id": {
+          "type": "string"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "required": ["check_id", "present"]
+      "required": [
+        "check_id",
+        "present"
+      ],
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -355,23 +534,55 @@ flowchart TD
   "title": "CircuitBreakerConfig",
   "type": "object",
   "properties": {
-    "failure_threshold": { "type": "integer", "minimum": 1, "default": 3 },
-    "cooldown_seconds": { "type": "integer", "minimum": 1, "default": 60 },
+    "failure_threshold": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3
+    },
+    "cooldown_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 60
+    },
     "retryable_status_codes": {
       "type": "array",
-      "items": { "type": "integer" },
-      "default": [429, 500, 502, 503, 504]
+      "items": {
+        "type": "integer"
+      },
+      "default": [
+        429,
+        500,
+        502,
+        503,
+        504
+      ]
     },
-    "max_retries": { "type": "integer", "minimum": 0, "default": 3 },
-    "base_retry_delay_ms": { "type": "integer", "minimum": 100, "default": 1000 },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 3
+    },
+    "base_retry_delay_ms": {
+      "type": "integer",
+      "minimum": 100,
+      "default": 1000
+    },
     "non_circuit_breaker_codes": {
       "type": "array",
-      "items": { "type": "integer" },
-      "default": [400],
+      "items": {
+        "type": "integer"
+      },
+      "default": [
+        400
+      ],
       "description": "Códigos HTTP que NO deben activar el circuit breaker (errores del caller)."
     }
   },
-  "required": ["failure_threshold", "cooldown_seconds", "max_retries"]
+  "required": [
+    "failure_threshold",
+    "cooldown_seconds",
+    "max_retries"
+  ]
 }
 ```
 
@@ -719,7 +930,7 @@ flowchart TD
 | R-17 thinkingConfig dual | AIProviderConfig (thinking_budget + thinking_level) | ✅ | |
 | R-18 400 no activa CB | ALG-01 paso 5.3.3 + CBConfig.non_circuit_breaker_codes | ✅ | |
 
-**Cobertura: 18/18 = 100%.**
+**Trazabilidad declarada: 18/18 filas de esta tabla.** Es cobertura del inventario descrito, no evidencia de ejecución o de inventario exhaustivo del sistema.
 
 ### 5.2 Prueba de Dominio Dual
 
@@ -770,10 +981,10 @@ flowchart TD
 
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
-| A-01 | El backoff exponencial `1s × 2^attempt` es suficiente para que un proveedor con rate-limit se recupere. | S1 | [GeminiGateway.php:314-317](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L314-L317). Funciona empíricamente para Gemini API. | Monitoreo en producción |
-| A-02 | El TTL de caché de extracción (86400s = 24h) es suficiente para cubrir lotes diarios sin degradar la frescura. | S2 | [ExtractionCacheManager.php:35](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionCacheManager.php#L35). TTL configurable. | Análisis de patrones de uso |
-| A-03 | La política de safety settings `BLOCK_NONE` es apropiada para auditoría documental (contenido no sensible). | S1 | [GeminiGateway.php:487-495](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L487-L495). En dominios sensibles puede requerir override. | Revisión de compliance por tenant |
-| A-04 | El circuit breaker fail-open (cuando Redis no disponible) es la política correcta para no bloquear el pipeline por fallo de infraestructura. | S2 | [GeminiGateway.php:241-249](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/GeminiGateway.php#L241-L249). Alternativa: fail-closed por seguridad. | Decisión de arquitectura |
+| A-01 | El backoff exponencial `1s × 2^attempt` es suficiente para que un proveedor con rate-limit se recupere. | S1 | [GeminiGateway.php:314-317](../app/Services/Audit/GeminiGateway.php#L314-L317). Funciona empíricamente para Gemini API. | Monitoreo en producción |
+| A-02 | El TTL de caché de extracción (86400s = 24h) es suficiente para cubrir lotes diarios sin degradar la frescura. | S2 | [ExtractionCacheManager.php:35](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L35). TTL configurable. | Análisis de patrones de uso |
+| A-03 | La política de safety settings `BLOCK_NONE` es apropiada para auditoría documental (contenido no sensible). | S1 | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495). En dominios sensibles puede requerir override. | Revisión de compliance por tenant |
+| A-04 | El circuit breaker fail-open (cuando Redis no disponible) es la política correcta para no bloquear el pipeline por fallo de infraestructura. | S2 | [GeminiGateway.php:241-249](../app/Services/Audit/GeminiGateway.php#L241-L249). Alternativa: fail-closed por seguridad. | Decisión de arquitectura |
 
 ### 6.4 Desconocidos No Críticos
 
@@ -781,7 +992,7 @@ flowchart TD
 |---|---|---|:---:|
 | U-01 | ¿El `extractorVersion` se incrementa automáticamente al actualizar el modelo o requiere bump manual? | En AudFact se configura vía `AUDIT_VERSION_EXTRACTOR` env. | `[DESCONOCIDO]` |
 | U-02 | ¿La métrica `thoughts_tokens` es exclusiva de Gemini o existe equivalente en otros proveedores? | Solo observado en Gemini usageMetadata. | `[DESCONOCIDO]` |
-| U-03 | ¿La política de deduplicación de oraciones del system prompt aplica a todos los proveedores o es específica de Gemini? | [ExtractionPromptBuilder.php:49-52](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L49-L52). Puede ser redundante con otros proveedores. | `[DESCONOCIDO]` |
+| U-03 | ¿La política de deduplicación de oraciones del system prompt aplica a todos los proveedores o es específica de Gemini? | [ExtractionPromptBuilder.php:49-52](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L49-L52). Puede ser redundante con otros proveedores. | `[DESCONOCIDO]` |
 
 ---
 
@@ -830,58 +1041,29 @@ flowchart TD
 
 ---
 
-## §8 — Puerta de Calidad (Auto-Auditoría Adversarial)
+## §8 — Puerta de Calidad — Revisión del 2026-11-03
 
-### 8.1 Auditoría de Consistencia
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | PENDIENTE DE EJECUCIÓN | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-03. |
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| C-01 | ¿Toda afirmación sobre AudFact tiene clasificación epistémica? | PASS | 18 reglas + 5 casos borde, todos `[CONFIRMADO]` |
-| C-02 | ¿Existen contradicciones entre §3 y §4? | PASS | Tabla de cobertura §5.1 = 18/18 |
-| C-03 | ¿Toda entrada de la tabla de cobertura (5.1) está resuelta? | PASS | 18/18 con ✅ |
-| C-04 | ¿Los esquemas JSON Schema son válidos según draft-2020-12? | PASS | 5 schemas con $schema correcto |
-| C-05 | ¿Cada interfaz tiene pre/post-condiciones y modos de fallo? | PASS | 4 interfaces con contratos completos |
+[DESCONOCIDO] U-DOC-03 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-### 8.2 Auditoría de Fugas
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| A-01 | ¿La Sección 4 pasa el filtrado léxico (5.3)? | PASS | 7 términos buscados, 0 encontrados |
-| A-02 | ¿Cada contrato pasa la Prueba de Dominio Dual (5.2)? | PASS | 6 contratos verificados en salud + seguros |
-| A-03 | ¿Algún esquema hardcodea valores específicos de un solo dominio? | PASS | Enums son genéricos |
-
-### 8.3 Auditoría de Completitud
-
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| D-01 | ¿Existen `[DESCONOCIDO]` críticos sin convertir a supuesto? | PASS | 0 críticos, 3 no-críticos |
-| D-02 | ¿Existen supuestos S3 o S4 sin resolver? | PASS | 0 S3, 0 S4 |
-| D-03 | ¿Toda funcionalidad tiene al menos un criterio de aceptación? | PASS | 16 test cases en §7 |
-| D-04 | ¿El nivel de completitud asignado es consistente? | PASS | Nivel B: 2 S1 + 2 S2, sin S3/S4 |
-
-### 8.4 Preguntas Adversariales
-
-| # | Pregunta | Respuesta | Evidencia |
-|---|---|:---:|---|
-| ADV-01 | ¿Un desarrollador que no conozca AudFact puede implementar este SPI solo con §4? | SÍ | 5 algoritmos, 5 schemas, 4 interfaces tipadas |
-| ADV-02 | ¿Si se cambia de SQL Server a PostgreSQL, este contrato sigue válido? | SÍ | No hay SQL en §4 |
-| ADV-03 | ¿Si se cambia de Gemini a OpenAI/Claude, este contrato sigue válido? | SÍ | AIGateway es un SPI; el adaptador implementa la traducción al proveedor |
-| ADV-04 | ¿Si se auditan contratos legales en lugar de documentos de salud? | SÍ | Schemas, profiles y cache son completamente agnósticos al dominio |
-
----
-
-### Clasificación Final
+### Clasificación vigente
 
 ```yaml
-completeness_level: "B"
-justification: >
-  4 supuestos menores (2 S1 + 2 S2) documentados con ruta de validación.
-  0 desconocidos críticos. 3 desconocidos no-críticos sobre portabilidad a otros proveedores.
-  Cobertura 100% de funcionalidades actuales. Filtrado léxico limpio.
-  Prueba de dominio dual superada (salud + seguros).
-blockers: []
+completeness_level: C
+implementation_ready: false
+blockers:
+  - U-DOC-03
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "Resolver U-01: documentar política de versionado de extractorVersion"
-  - "Resolver U-02: mapear equivalentes de thoughts_tokens en OpenAI/Claude"
-  - "Escribir adaptador de referencia para Gemini como implementación del SPI (DOC-06)"
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```

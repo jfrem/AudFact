@@ -50,7 +50,7 @@ final class AuditExecutionMigrationRedisTest extends TestCase
             $next = AuditTaskEffects::followUp($task, AuditEvent::TYPE_DOCUMENT_REGISTERED,
                 ['synthetic' => $i], 'document-' . $i, 'document-' . $i);
             $effect = AuditTaskEffects::event($task, $next, 'document-' . $i);
-            $this->redis->eval('redis.call("HSET",KEYS[1],"record",ARGV[1],"state","pending"); return redis.call("ZADD",KEYS[2],0,ARGV[2])',
+            $this->redis->eval('redis.call("HSET",KEYS[1],"record",ARGV[1]); return redis.call("ZADD",KEYS[2],0,ARGV[2])',
                 ['audit:outbox:v2:' . $effect['effect_id'], AuditTaskCommitter::OUTBOX], [json_encode($effect), $effect['effect_id']]);
         }
         $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2));
@@ -101,30 +101,6 @@ final class AuditExecutionMigrationRedisTest extends TestCase
         foreach ($keys as $key) {
             self::assertSame('must-survive', $this->redis->get($key));
         }
-    }
-
-    public function testReconciliationRecoversReceiptWrittenBeforeTaskCommitIndex(): void
-    {
-        // Arrange:
-        $event = AuditEvent::create(AuditEvent::TYPE_AUDIT_CREATED, AuditEvent::uuidV4());
-        $this->root($event, []);
-        $queue = $this->admitOrchestrationTask($event);
-        $task = $queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'crashed');
-        $effects = AuditTaskEffects::empty($task);
-        $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'patch_audit_context', null, ['recovered' => true]);
-        $receipt = ['state' => 'committing', 'task' => $task->record, 'effects' => $effects];
-        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])',
-            ['audit:commit:v2:' . $task->id() . ':' . $task->record['fence']], [json_encode($receipt)]);
-
-        // Act:
-        (new AuditExecutionInspector($this->redis))->reconcile();
-        (new AuditExecutionInspector($this->redis))->reconcile();
-
-        // Assert:
-        self::assertTrue((new AuditStateStore($this->redis))->getAudit($event->auditId)['recovered']);
-        self::assertSame('completed', $queue->get($task->id())->record['state']);
-        self::assertSame(0, $this->redis->eval('return redis.call("SCARD",KEYS[1])', [AuditTaskCommitter::PENDING]));
-        self::assertSame(0, $queue->metrics()['orchestration']['batch']['active']);
     }
 
     public function testGcCollectsPriorTerminalRecordsAndOrphanedReservationsWhilePreservingActiveOnes(): void

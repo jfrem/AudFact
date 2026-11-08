@@ -6,6 +6,7 @@ namespace Tests\Services\Audit\Pipeline;
 
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditStateStore;
+use Core\Env;
 use Core\RedisClient;
 use Core\RedisUnavailableException;
 use PHPUnit\Framework\MockObject\MockObject;
@@ -16,11 +17,26 @@ final class AuditStateStoreTest extends TestCase
 {
     private MockObject&RedisClient $redis;
     private AuditStateStore $store;
+    private ?string $previousStateTtl = null;
 
     protected function setUp(): void
     {
+        $this->previousStateTtl = getenv('AUDIT_STATE_TTL') !== false ? (string) getenv('AUDIT_STATE_TTL') : null;
+        putenv('AUDIT_STATE_TTL');
+        Env::clearCache();
+
         $this->redis = $this->createMock(RedisClient::class);
         $this->store = new AuditStateStore($this->redis);
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->previousStateTtl !== null) {
+            putenv("AUDIT_STATE_TTL={$this->previousStateTtl}");
+        } else {
+            putenv('AUDIT_STATE_TTL');
+        }
+        Env::clearCache();
     }
 
     public function testInitAuditUsesSetnxAndReturnsTrueOnNewKey(): void
@@ -91,7 +107,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertIsArray($args[0]);
                     $this->assertSame('processing', $args[0]['status']);
                     $this->assertArrayHasKey('updated_at', $args[0]);
-                    $this->assertSame(604800, $args[1]);
+                    $this->assertSame(86400, $args[1]);
                     return true;
                 })
             )
@@ -363,7 +379,7 @@ final class AuditStateStoreTest extends TestCase
                     $this->assertSame('audit_created', $args[0]['event_type']);
                     $this->assertSame('audit.inbox', $args[0]['stream']);
                     $this->assertSame(123, $args[0]['queue_wait_ms']);
-                    $this->assertSame(604800, $args[2]);
+                    $this->assertSame(86400, $args[2]);
                     return true;
                 })
             )

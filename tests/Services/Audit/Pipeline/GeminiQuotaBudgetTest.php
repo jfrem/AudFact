@@ -118,7 +118,7 @@ final class GeminiQuotaBudgetTest extends TestCase
             'GEMINI_QUOTA_MAX_INFLIGHT_invalid',
         ];
         yield 'excessive GEMINI_QUOTA_MAX_INFLIGHT' => [
-            array_replace($valid, ['GEMINI_QUOTA_MAX_INFLIGHT' => '64']),
+            array_replace($valid, ['GEMINI_QUOTA_MAX_INFLIGHT' => (string) (GeminiQuotaBudget::MAX_INFLIGHT_LIMIT + 1)]),
             'GEMINI_QUOTA_MAX_INFLIGHT_invalid',
         ];
     }

@@ -168,16 +168,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             $meta,
             $event->jobId
         );
-        $startedAt = hrtime(true);
-        $meta = ['worker' => $this->consumer()];
-        $this->telemetryPublisher->started(
-            $event->auditId,
-            'orchestration',
-            null,
-            $identity['dis_det_nro'],
-            $meta,
-            $event->jobId
-        );
 
         try {
             if (!$this->stateStore->markAuditStarted($event->auditId)) {
@@ -732,8 +722,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         return $telemetry;
     }
 
-
-
     private static function normalizeAplicaServicio(mixed $value): string
     {
         $normalized = strtoupper(trim((string) ($value ?? '')));
@@ -890,9 +878,6 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
     {
         $autorizacion = trim((string) ($context['fuenteVerdad']['header']['Autorizacion'] ?? 'S'));
 
-        if ($autorizacion === 'S') {
-            return;
-        }
         if ($autorizacion !== 'N') {
             return;
         }

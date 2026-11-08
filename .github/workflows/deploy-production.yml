@@ -93,8 +93,8 @@ jobs:
             fi
           done
 
-          if [ "$GEMINI_QUOTA_MAX_INFLIGHT" -gt 32 ]; then
-            echo "::error::GEMINI_QUOTA_MAX_INFLIGHT must be between 1 and 32"
+          if [ "$GEMINI_QUOTA_MAX_INFLIGHT" -gt 128 ]; then
+            echo "::error::GEMINI_QUOTA_MAX_INFLIGHT must be between 1 and 128"
             exit 1
           fi
 
@@ -121,8 +121,6 @@ jobs:
           NEXT_PUBLIC_POLLING_HEALTH_MS: ${{ vars.NEXT_PUBLIC_POLLING_HEALTH_MS }}
           NEXT_PUBLIC_LOCALE: ${{ vars.NEXT_PUBLIC_LOCALE }}
           NEXT_PUBLIC_TIMEZONE: ${{ vars.NEXT_PUBLIC_TIMEZONE }}
-          WEBHOOK_URL: ${{ vars.WEBHOOK_URL }}
-          CAPABILITIES_URL: ${{ vars.CAPABILITIES_URL }}
           DB_TYPE: ${{ vars.DB_TYPE }}
           DB_HOST: ${{ vars.DB_HOST }}
           DB_PORT: ${{ vars.DB_PORT }}
@@ -289,8 +287,6 @@ jobs:
 
           FRONTEND_PUBLIC_URL="http://${NODE_HOST}:${FRONTEND_HOST_PORT}"
           API_PUBLIC_URL="http://${NODE_HOST}:8080"
-          WEBHOOK_URL="${WEBHOOK_URL:-${API_PUBLIC_URL}/app/wrap/webhook.php}"
-          CAPABILITIES_URL="${CAPABILITIES_URL:-${API_PUBLIC_URL}/app/wrap/capabilities.php}"
 
           ALL_ORIGINS="http://localhost:3000,http://172.16.0.3:${FRONTEND_HOST_PORT}"
           if [ -n "${ALLOWED_ORIGINS:-}" ]; then
@@ -335,8 +331,6 @@ jobs:
             write_env_var 'NEXT_PUBLIC_LOCALE' "${NEXT_PUBLIC_LOCALE:-es-CO}"
             write_env_var 'NEXT_PUBLIC_TIMEZONE' "${NEXT_PUBLIC_TIMEZONE:-America/Bogota}"
             printf '\n'
-            write_env_var 'WEBHOOK_URL' "$WEBHOOK_URL"
-            write_env_var 'CAPABILITIES_URL' "$CAPABILITIES_URL"
             write_env_var 'MCP_WEBHOOK_SECRET' "$MCP_WEBHOOK_SECRET"
             printf '\n'
             write_env_var 'DB_TYPE' "${DB_TYPE:-sqlsrv}"
@@ -383,7 +377,7 @@ jobs:
             write_env_var 'GEMINI_QUOTA_MAX_INFLIGHT' "$GEMINI_QUOTA_MAX_INFLIGHT"
             write_env_var 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' "${AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE:-20000}"
             write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-1}"
-            write_env_var 'AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS' "${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS' "${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-6}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
             write_env_var 'GEMINI_TOP_P' "${GEMINI_TOP_P:-1.0}"
@@ -427,7 +421,7 @@ jobs:
             printf '\n'
             write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
             write_env_var 'AUDIT_WORKER_LANE' "${AUDIT_WORKER_LANE:-all}"
-            write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-8}"
+            write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-12}"
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-16}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-2}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS' "${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-24}"
@@ -436,14 +430,14 @@ jobs:
             write_env_var 'AUDIT_WORKER_PERSISTENCE_REPLICAS' "${AUDIT_WORKER_PERSISTENCE_REPLICAS:-16}"
             write_env_var 'AUDIT_WORKER_BATCH_REPLICAS' "${AUDIT_WORKER_BATCH_REPLICAS:-4}"
             write_env_var 'AUDIT_IDEMPOTENCY_KEY_TTL' "${AUDIT_IDEMPOTENCY_KEY_TTL:-300}"
-            write_env_var 'AUDIT_JOB_TTL' "${AUDIT_JOB_TTL:-604800}"
-            write_env_var 'AUDIT_STATE_TTL' "${AUDIT_STATE_TTL:-604800}"
-            write_env_var 'AUDIT_PERSISTENCE_QUEUE_TTL' "${AUDIT_PERSISTENCE_QUEUE_TTL:-604800}"
-            write_env_var 'AUDIT_PERSISTENCE_JOB_SLOTS' "${AUDIT_PERSISTENCE_JOB_SLOTS:-8}"
-            write_env_var 'AUDIT_ORCHESTRATION_JOB_SLOTS' "${AUDIT_ORCHESTRATION_JOB_SLOTS:-4}"
-            write_env_var 'AUDIT_EXTRACTION_JOB_SLOTS' "${AUDIT_EXTRACTION_JOB_SLOTS:-16}"
+            write_env_var 'AUDIT_JOB_TTL' "${AUDIT_JOB_TTL:-86400}"
+            write_env_var 'AUDIT_STATE_TTL' "${AUDIT_STATE_TTL:-86400}"
+            write_env_var 'AUDIT_PERSISTENCE_QUEUE_TTL' "${AUDIT_PERSISTENCE_QUEUE_TTL:-86400}"
+            write_env_var 'AUDIT_PERSISTENCE_JOB_SLOTS' "${AUDIT_PERSISTENCE_JOB_SLOTS:-12}"
+            write_env_var 'AUDIT_ORCHESTRATION_JOB_SLOTS' "${AUDIT_ORCHESTRATION_JOB_SLOTS:-16}"
+            write_env_var 'AUDIT_EXTRACTION_JOB_SLOTS' "${AUDIT_EXTRACTION_JOB_SLOTS:-24}"
             write_env_var 'AUDIT_POLICY_JOB_SLOTS' "${AUDIT_POLICY_JOB_SLOTS:-8}"
-            write_env_var 'AUDIT_SEMANTIC_JOB_SLOTS' "${AUDIT_SEMANTIC_JOB_SLOTS:-4}"
+            write_env_var 'AUDIT_SEMANTIC_JOB_SLOTS' "${AUDIT_SEMANTIC_JOB_SLOTS:-8}"
             write_env_var 'AUDIT_PENDING_RECLAIM_IDLE_MS' "${AUDIT_PENDING_RECLAIM_IDLE_MS:-600000}"
             write_env_var 'AUDIT_PENDING_RECLAIM_INTERVAL_MS' "${AUDIT_PENDING_RECLAIM_INTERVAL_MS:-30000}"
             write_env_var 'AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS' "${AUDIT_BATCH_PENDING_RECLAIM_IDLE_MS:-1800000}"
@@ -451,7 +445,7 @@ jobs:
             write_env_var 'AUDIT_EVENT_MAX_RETRIES' "${AUDIT_EVENT_MAX_RETRIES:-3}"
             write_env_var 'AUDIT_STREAM_BLOCK_MS' "${AUDIT_STREAM_BLOCK_MS:-5000}"
             write_env_var 'AUDIT_DLQ_STREAM' "${AUDIT_DLQ_STREAM:-audit.dlq}"
-            write_env_var 'AUDIT_STREAM_MAXLEN' "${AUDIT_STREAM_MAXLEN:-100000}"
+            write_env_var 'AUDIT_STREAM_MAXLEN' "${AUDIT_STREAM_MAXLEN:-3000}"
             printf '\n'
             write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-604800}"
             write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_BYTES' "${AUDIT_DOCUMENT_CACHE_MAX_BYTES:-1610612736}"

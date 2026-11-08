@@ -82,10 +82,6 @@ final class AuditExecutionInspector
         if ($this->redis->get('audit:execution:paused') !== '1') {
             throw new \RuntimeException('execution_pause_required');
         }
-        $this->reconcileCommitReceipts();
-        do {
-            $repaired = (new AuditTaskCommitter($this->redis))->repair();
-        } while ($repaired > 0);
         $snapshot = $this->snapshot();
         $derived = [FairAuditTaskQueue::COUNTS => ['hash', []], FairAuditTaskQueue::ALL => ['set', []],
             SemanticEvaluationStore::PLANS => ['set', []], 'audit:semantic:v2:counts' => ['hash', []],
@@ -121,7 +117,7 @@ final class AuditExecutionInspector
             } elseif ($state === 'delayed') {
                 $derived[$base . ':delayed'] ??= ['zset', []];
                 $derived[$base . ':delayed'][1][$id] = $record['due_at_ms'];
-            } elseif (in_array($state, ['active', 'committing'], true)) {
+            } elseif ($state === 'active') {
                 $derived[$base . ':active'] ??= ['hash', []];
                 $derived[$base . ':active'][1][$scope] = ($derived[$base . ':active'][1][$scope] ?? 0) + 1;
                 $derived[$base . ':leases'] ??= ['zset', []];
@@ -143,11 +139,7 @@ final class AuditExecutionInspector
                 $derived[$refKey][1][] = 'plan:' . $plan['plan_id'];
             }
         }
-        foreach ($this->records('audit:outbox:v2:*', true) as $key => $stored) {
-            $state = $this->redis->eval('return redis.call("HGET",KEYS[1],"state")', [$key]);
-            if ($state === 'sent') {
-                continue;
-            }
+        foreach ($this->records('audit:outbox:v2:*', true) as $stored) {
             $effect = $stored['value'];
             $derived[AuditTaskCommitter::OUTBOX][1][$effect['effect_id']] = 0;
             $refKey = 'audit:execution:refs:' . $effect['event']['audit_id'];
@@ -166,36 +158,6 @@ final class AuditExecutionInspector
             $this->redis->eval('if redis.call("GET",KEYS[2])~="1" then return redis.error_reply("execution_pause_required") end; return redis.call("HSET",KEYS[1],"admitted","1")', [$key, 'audit:execution:paused']);
         }
         return ['tasks' => count($snapshot['tasks']), 'indexes' => count($derived)];
-    }
-
-    private function reconcileCommitReceipts(): void
-    {
-        $pending = [];
-        foreach ($this->records('audit:commit:v2:*') as $key => $stored) {
-            $receipt = $stored['value'];
-            if ($receipt['state'] === 'committing') {
-                $task = new AuditTask($receipt['task']);
-                $reference = $task->id() . ':' . $task->record['fence'];
-                if ($key !== 'audit:commit:v2:' . $reference) {
-                    throw new \RuntimeException('commit_receipt_identity_invalid');
-                }
-                $pending[] = $reference;
-            }
-        }
-        $old = $this->redis->eval('return redis.call("SMEMBERS",KEYS[1])', [AuditTaskCommitter::PENDING]);
-        foreach ($old as $reference) {
-            if ($this->redis->get('audit:commit:v2:' . $reference) !== null) {
-                continue;
-            }
-            $id = explode(':', $reference, 2)[0];
-            $task = (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->get($id);
-            if ($task === null || $task->record['state'] !== 'active') {
-                throw new \RuntimeException('commit_receipt_missing');
-            }
-            // Sin recibo todavía no pudo ejecutarse ninguna transición de negocio.
-        }
-        $this->redis->eval(self::REPLACE_INDEX, [AuditTaskCommitter::PENDING, 'audit:execution:paused'],
-            ['set', json_encode($pending, JSON_THROW_ON_ERROR)]);
     }
 
     private function recordsIndexKeys(): \Generator

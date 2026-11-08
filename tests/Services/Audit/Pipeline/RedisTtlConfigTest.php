@@ -55,7 +55,7 @@ final class RedisTtlConfigTest extends TestCase
             ->with(
                 $this->stringContains('storeState'),
                 [BatchJobStore::jobKey('job-default')],
-                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 604800)
+                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 86400)
             )
             ->willReturn(1);
 
@@ -108,7 +108,7 @@ final class RedisTtlConfigTest extends TestCase
             $this->assertTrue($store->patchJob("job-invalid-{$index}", ['status' => 'completed']));
         }
 
-        $this->assertSame([604800, 604800, 604800], $ttls);
+        $this->assertSame([86400, 86400, 86400], $ttls);
     }
 
     public function testAuditStateTtlDefaultIsSevenDays(): void
@@ -120,7 +120,7 @@ final class RedisTtlConfigTest extends TestCase
             ->with(
                 $this->stringContains('storeState'),
                 [AuditStateStore::auditKey('audit-default')],
-                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 604800)
+                $this->callback(static fn (array $args): bool => ($args[1] ?? null) === 86400)
             )
             ->willReturn(1);
 

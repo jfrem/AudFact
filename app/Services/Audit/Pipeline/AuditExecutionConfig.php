@@ -16,7 +16,7 @@ final readonly class AuditExecutionConfig
     public const MAX_REQUEST_BYTES = 32768;
     public const MAX_INPUT_TOKENS = 8192;
     public const DEFAULT_JOB_SLOTS = 1;
-    public const MAX_JOB_SLOTS = 16;
+    public const MAX_JOB_SLOTS = 32;
 
     /**
      * @param array<string,int> $stageJobSlots Turnos simultáneos máximos por job y etapa

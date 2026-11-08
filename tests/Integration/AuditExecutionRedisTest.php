@@ -229,7 +229,6 @@ final class AuditExecutionRedisTest extends TestCase
             self::assertStringContainsString('document_state_missing', $error->getMessage());
             self::assertArrayNotHasKey('must_not_exist', $this->audit($event));
             self::assertSame('active', $this->queue->get($task->id())->record['state']);
-            self::assertSame(0, $this->redis->eval('return redis.call("SCARD",KEYS[1])', [AuditTaskCommitter::PENDING]));
         }
     }
 
@@ -395,34 +394,6 @@ final class AuditExecutionRedisTest extends TestCase
         foreach (AuditTaskStage::cases() as $stage) {
             yield $stage->value => [$stage];
         }
-    }
-
-    public function testInterruptedCommitRepairsFromReceiptWithoutRepeatingEffects(): void
-    {
-        // Arrange:
-        $event = $this->event(AuditTaskStage::ORCHESTRATION);
-        $this->admit($event);
-        $task = $this->queue->claim(AuditTaskStage::ORCHESTRATION, AuditLane::BATCH, 'crashed');
-        $effects = AuditTaskEffects::empty($task);
-        $effects['state_transitions'][] = AuditTaskEffects::transition($task, 'patch_audit_context', null, ['repaired' => true]);
-        $receipt = ['state' => 'committing', 'task' => $task->record, 'effects' => $effects];
-        $reference = $task->id() . ':' . $task->record['fence'];
-        $this->redis->eval('local r=cjson.decode(redis.call("HGET",KEYS[1],"record")); r.state="committing"; redis.call("HSET",KEYS[1],"record",cjson.encode(r)); redis.call("SET",KEYS[2],ARGV[1]); redis.call("SADD",KEYS[3],ARGV[2]); redis.call("HINCRBY",KEYS[4],"orchestration:batch:active",-1); return redis.call("HINCRBY",KEYS[4],"orchestration:batch:committing",1)',
-            [FairAuditTaskQueue::taskKey($task->id()), 'audit:commit:v2:' . $reference, AuditTaskCommitter::PENDING, FairAuditTaskQueue::COUNTS],
-            [json_encode($receipt), $reference]);
-
-        // Act:
-        $committer = new AuditTaskCommitter($this->redis);
-        $first = $committer->repair();
-        $second = $committer->repair();
-
-        // Assert:
-        self::assertSame(1, $first);
-        self::assertSame(0, $second);
-        self::assertTrue($this->audit($event)['repaired']);
-        self::assertSame(1, $this->audit($event)['evaluation_revision']);
-        self::assertSame('completed', $this->queue->get($task->id())->record['state']);
-        self::assertSame(0, $this->queue->metrics()['orchestration']['batch']['active']);
     }
 
     public function testSingleFlightCanRecoverExpiredOwnerAndRejectsItsCacheWrite(): void

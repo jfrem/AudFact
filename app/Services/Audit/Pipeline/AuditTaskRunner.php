@@ -30,7 +30,6 @@ final class AuditTaskRunner
         if ($this->redis->get('audit:execution:paused') === '1') {
             return false;
         }
-        $this->committer->repair();
         if ($stage === AuditTaskStage::ORCHESTRATION && (new AuditAdmissionGuard($this->redis, $this->config))->orchestrationAtCapacity()) {
             return false;
         }
@@ -53,7 +52,6 @@ final class AuditTaskRunner
                 $effects['attempt_metrics'] = $this->attemptMetrics($task);
                 $result = $this->committer->commit($task->record, $effects);
                 if ($result === 'RETRY_PREPARE') {
-                    $this->committer->repair();
                     continue;
                 }
                 $this->finishCommit($worker, $task, $result);
@@ -111,7 +109,6 @@ final class AuditTaskRunner
     private function finishCommit(AuditEventConsumer $worker, AuditTask $task, string $result): void
     {
         if ($result === 'RETRY_PREPARE') {
-            $this->committer->repair();
             $this->queue->defer($task, $this->queue->nowMs() + 100, 'commit_contention');
         }
         $this->cleanup($worker, $task, in_array($result, ['COMMITTED', 'ALREADY_COMMITTED'], true));

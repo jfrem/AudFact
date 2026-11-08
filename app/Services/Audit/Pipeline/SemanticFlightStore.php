@@ -9,6 +9,9 @@ use Core\RedisClient;
 /** Caché compartida con propietario/fence; no representa estado clínico. */
 final class SemanticFlightStore
 {
+    /** Retención de 24 horas alineada con `AUDIT_STATE_TTL` para evitar acumulación de cachés semánticos. */
+    public const CACHE_TTL_SECONDS = 86400;
+
     public function __construct(private readonly RedisClient $redis)
     {
     }
@@ -18,8 +21,11 @@ final class SemanticFlightStore
         $lock = 'semantic:flight:v2:' . hash('sha256', $cacheKey);
         $raw = $this->redis->get($lock);
         $previous = $raw === null ? null : json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-        $keys = [FairAuditTaskQueue::taskKey($task->id()), $lock,
-            $previous === null ? FairAuditTaskQueue::taskKey($task->id()) : FairAuditTaskQueue::taskKey($previous['task_id'])];
+        $keys = [
+            FairAuditTaskQueue::taskKey($task->id()),
+            $lock,
+            $previous === null ? FairAuditTaskQueue::taskKey($task->id()) : FairAuditTaskQueue::taskKey($previous['task_id']),
+        ];
         return $this->redis->eval(self::CLAIM, $keys, [json_encode($task->record, JSON_THROW_ON_ERROR), $raw ?? '']) === 1;
     }
 
@@ -45,17 +51,31 @@ final class SemanticFlightStore
             throw new \InvalidArgumentException('semantic_cache_result_invalid');
         }
         $result = $cached;
-        if ($this->redis->eval(self::WRITE, [FairAuditTaskQueue::taskKey($task->id()),
-            'semantic:flight:v2:' . hash('sha256', $cacheKey), $cacheKey],
-            [$task->id(), $task->record['fence'], $task->record['lease_owner'], json_encode($result, JSON_THROW_ON_ERROR)]) !== 1) {
+        if ($this->redis->eval(
+            self::WRITE,
+            [
+                FairAuditTaskQueue::taskKey($task->id()),
+                'semantic:flight:v2:' . hash('sha256', $cacheKey),
+                $cacheKey,
+            ],
+            [
+                $task->id(),
+                $task->record['fence'],
+                $task->record['lease_owner'],
+                json_encode($result, JSON_THROW_ON_ERROR),
+            ]
+        ) !== 1) {
             throw new \RuntimeException('semantic_cache_writer_stale');
         }
     }
 
     public function release(AuditTask $task, string $cacheKey): void
     {
-        $this->redis->eval('local raw=redis.call("GET",KEYS[1]); if not raw then return 0 end; local r=cjson.decode(raw); if r.task_id==ARGV[1] and r.fence==tonumber(ARGV[2]) then return redis.call("DEL",KEYS[1]) end; return 0',
-            ['semantic:flight:v2:' . hash('sha256', $cacheKey)], [$task->id(), $task->record['fence']]);
+        $this->redis->eval(
+            'local raw=redis.call("GET",KEYS[1]); if not raw then return 0 end; local r=cjson.decode(raw); if r.task_id==ARGV[1] and r.fence==tonumber(ARGV[2]) then return redis.call("DEL",KEYS[1]) end; return 0',
+            ['semantic:flight:v2:' . hash('sha256', $cacheKey)],
+            [$task->id(), $task->record['fence']]
+        );
     }
 
     public static function validResult(mixed $result): bool
@@ -87,6 +107,6 @@ final class SemanticFlightStore
         local lock=cjson.decode(raw); local r=cjson.decode(redis.call('HGET',KEYS[1],'record'))
         local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
         if lock.task_id~=ARGV[1] or lock.fence~=tonumber(ARGV[2]) or r.state~='active' or r.fence~=lock.fence or r.lease_owner~=ARGV[3] or r.lease_until_ms<=now then return 0 end
-        redis.call('SET',KEYS[3],ARGV[4],'EX',2592000); return 1
+        redis.call('SET',KEYS[3],ARGV[4],'EX',86400); return 1
     LUA;
 }

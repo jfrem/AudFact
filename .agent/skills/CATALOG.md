@@ -116,6 +116,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | Especificaciones agnósticas en `opt/*` | `ddf-agnostic-spec` |
 | `opt/SPEC-SAAS-MASTER.md` (autoridad documental y cierre de gaps SaaS) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
 | `opt/tools/*.cjs` (comprobadores de contratos documentales) | `ddf-agnostic-spec` + `write-sdd-spec` + `audfact-docs-sync` |
+| `opt/features/**`, `scripts/generate-feature-modules.mjs` | `ddf-agnostic-spec` + `audfact-docs-sync` (contratos derivados y tareas de pruebas futuras) |
+| `opt/plan/**`, `opt/CATALOGO-PRUEBAS-REFERENCIA.md`, `opt/DICCIONARIO-DATOS-MAPEO.md`, `opt/MATRIZ-TRAZABILIDAD.md`, `opt/ACTA-INICIO-PROTECCION.md` | `ddf-agnostic-spec` + `audfact-docs-sync` (evidencia y diseño SaaS en revisión) |
 | `.agent/hooks.json`, `.agent/scripts/*` | `audfact-docs-sync` + `phpunit-test-architect` (Lifecycle hooks de línea base en verde y prevención de drift) |
 
 ---

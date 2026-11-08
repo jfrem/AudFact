@@ -27,7 +27,7 @@ class AuditStateStore
     /** Error fatal de pipeline (timeout, Gemini down, excepción no recuperable) — no se completó el análisis */
     public const AUDIT_STATUS_FAILED        = 'failed';
 
-    private const DEFAULT_AUDIT_TTL_SECONDS = 604800;
+    private const DEFAULT_AUDIT_TTL_SECONDS = 86400;
 
     private RedisClient $redis;
 
@@ -584,6 +584,16 @@ class AuditStateStore
 
         audit['completed_at'] = now
         audit['updated_at'] = now
+        -- Una vez persistido el resultado canónico en SQL Server (AudDispEst),
+        -- se liberan los artefactos intermedios en Redis conservando solo metadatos de consulta.
+        audit['documents'] = nil
+        audit['rules_evaluated_result'] = nil
+        audit['audit_result'] = nil
+        audit['operation_receipts'] = nil
+        audit['gemini_attempts'] = nil
+        audit['event_timings'] = nil
+        audit['synthetic_rejections'] = nil
+        audit['reservation_token'] = nil
 
         storeState(KEYS[1], audit, ttl)
         return 1

@@ -80,8 +80,8 @@ final class ObservabilityControllerTest extends TestCase
                 if (str_ends_with($key, ':waiting')) {
                     return [];
                 }
-                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
-                    return [0, 0, [], '999999'];
+                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::OUTBOX) {
+                    return [0, [], '999999'];
                 }
                 if (str_starts_with($key, 'gemini:quota:v2:')) {
                     return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];
@@ -137,8 +137,8 @@ final class ObservabilityControllerTest extends TestCase
             if (str_ends_with($key, ':waiting')) {
                 return [];
             }
-            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
-                return [0, 0, [], '999999'];
+            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::OUTBOX) {
+                return [0, [], '999999'];
             }
             if (str_starts_with($key, 'gemini:quota:v2:')) {
                 return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];
@@ -211,7 +211,7 @@ final class ObservabilityControllerTest extends TestCase
                         ),
                     ];
                 }
-                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) { return [0, 0, [], '999999']; }
+                if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::OUTBOX) { return [0, [], '999999']; }
                 if (str_starts_with($key, 'gemini:quota:v2:')) { return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []]; }
                 if ($key === AuditEventPublisher::dlqStream()) { return [0, []]; }
                 return [];
@@ -255,8 +255,8 @@ final class ObservabilityControllerTest extends TestCase
             if (str_ends_with($key, ':waiting')) {
                 return [];
             }
-            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::PENDING) {
-                return [0, 0, [], '999999'];
+            if ($key === \App\Services\Audit\Pipeline\AuditTaskCommitter::OUTBOX) {
+                return [0, [], '999999'];
             }
             if (str_starts_with($key, 'gemini:quota:v2:')) {
                 return str_ends_with($key, ':inflight') ? [] : [0, 0, 0, 0, []];

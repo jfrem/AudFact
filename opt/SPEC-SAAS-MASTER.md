@@ -4,16 +4,16 @@
 
 ```yaml
 document_id: SPEC-SAAS-MASTER
-version: 0.2.0-draft
-status: DRAFT_COMPLETE
+version: 0.4.0-draft
+status: REVIEW
 completeness_level: C
-last_updated: 2026-10-19
+last_updated: 2026-11-04
 decision_mode: una_pregunta_de_producto_a_la_vez
-active_gap: NINGUNO_INVENTARIO_INICIAL_COMPLETO
-implementation_ready: true
+active_gap: RECONCILIACION_Y_VALIDACION_DE_CONTRATOS
+implementation_ready: false
 ```
 
-Este documento registra el cierre progresivo de decisiones para la nueva plataforma. Su estado DRAFT y nivel D indican descubrimiento pendiente; ninguna recomendación de producto equivale a una decisión del usuario. Los DOC-01 a DOC-07 conservan sus estados de revisión propios.
+Este documento registra el cierre progresivo de decisiones para la nueva plataforma. Su estado REVIEW y nivel C indican contratos pendientes de validación integral; ninguna recomendación de producto equivale a una decisión del usuario. Los DOC-01 a DOC-07 conservan sus estados de revisión propios.
 
 ## 2. Objetivo, alcance y autoridad
 
@@ -54,7 +54,7 @@ La ubicación y numeración de los contratos adicionales del SaaS se decidirán 
 | BASE-01 | [CONFIRMADO] AudFact no tiene la segmentación por tenants requerida para el nuevo SaaS. | Aclaración explícita del usuario después de consultar GET /clients, conversación del 2026-10-06. |
 | BASE-02 | [CONFIRMADO] El catálogo actual devuelve clientes de negocio identificados por NitSec y NitCom. La consulta revisada no recibe contexto de tenant. | C:/Users/USER/Desktop/AudFact/app/Models/ClientsModel.php, ClientsModel::getAllClients(), líneas observadas 47-79; GET /clients devolvió 21 registros. |
 | BASE-03 | [CONFIRMADO] Las configuraciones de documentos del cliente se consultan por NitSec. | C:/Users/USER/Desktop/AudFact/app/Models/ClientsModel.php, ClientsModel::getDocumentsByClient(), líneas observadas 82-110. |
-| BASE-04 | [CONFIRMADO] DOC-01 exige tenant_id en AuditCase, pero DOC-04 permite omitirlo en AuditState e InitOptions. Esta es una inconsistencia de las especificaciones actuales. | C:/Users/USER/Desktop/AudFact/opt/DOC-01-SPEC-DOMAIN-METAMODEL.md, schema AuditCase, required; C:/Users/USER/Desktop/AudFact/opt/DOC-04-SPEC-PORTS-AND-ADAPTERS.md, schemas y puertos de sección 4, líneas observadas 219 y 326. |
+| BASE-04 | [CONFIRMADO] Hallazgo histórico corregido el 2026-11-04: DOC-01 y DOC-04 exigen tenant_id; AuditState e InitOptions ya no lo admiten omitido. La autorización requiere además el SecurityContext. | C:/Users/USER/Desktop/AudFact/opt/DOC-01-SPEC-DOMAIN-METAMODEL.md, schema AuditCase, required; C:/Users/USER/Desktop/AudFact/opt/DOC-04-SPEC-PORTS-AND-ADAPTERS.md, schemas y puertos de sección 4, líneas observadas 219 y 326. |
 | BASE-05 | [CONFIRMADO] Una auditoría persistida devuelve `EstadoDetallado=manual_review`, `RequiereRevisionHumana=1` y `auditExecuted=true`: 3 documentos, 30 campos, 29 coincidencias y una discrepancia alta en `CodigoProducto` de `AUTORIZACION`. El hallazgo es `VALOR_DISTINTO`, comparación `exact`, entre el código `15` del registro y `20071759-1` del soporte. | GET `http://localhost:8080/audit/results/D12260901883`, ejecutado el 2026-10-06; respuesta `success=true`. Se registra un resumen sin nombres ni documentos de identidad. |
 | BASE-06 | [CONFIRMADO] `POST /audit/single` solicita el procesamiento de una dispensación existente. Valida `disDetNro` y `disId` opcional, resuelve la identidad y la fuente de verdad, publica `audit_created` y responde HTTP 202 con `audit_id` y estado `pending`. | Lectura del 2026-10-06: `app/Controllers/AuditController.php`, `single()`, líneas 22-117; rutas en `app/Routes/web.php`. El portal lo consume mediante `frontend/lib/api/audfact.ts::runAuditSingle()`, líneas 116-137. |
 | BASE-07 | [CONFIRMADO] `POST /audit/async` solicita un lote por cliente y fechas: `facNitSec`, `date`, `dateTo` opcional y `limit` 1..100, por defecto 100. Requiere `X-Idempotency-Key`, publica `batch_requested` y responde HTTP 202 con `job_id` y estado `pending`; una clave ya reclamada devuelve HTTP 409 con el job existente. | Lectura del 2026-10-06: `app/Controllers/AuditController.php`, `async()`, líneas 391-473. El portal lo consume mediante `frontend/lib/api/audfact.ts::enqueueAuditBatch()`, líneas 127-139. La barrera tiene TTL configurado por `AUDIT_IDEMPOTENCY_KEY_TTL`, por defecto 300 segundos. |
@@ -91,6 +91,16 @@ Estas reglas desarrollan el objetivo autorizado. Requieren implementación y ver
 | DEC-T-014 | La configuración utiliza campos y documentos tipados y un registro versionado de operadores admitidos. Cada contrato compartido tiene un propietario único y referencias desde sus consumidores; validar estructura, referencias, tipos, capacidades y revisión exacta antes de publicar. | DEC-P-005, DEC-T-004/008 y reglas PRO-01 a PRO-06 de sección 4.6. BASE-08/09/10 obligan a reconciliar DOC-01/02 y recuperar una validación reproducible antes de cerrar GAP-04. No se elige una variante de schema silenciosamente. |
 | DEC-T-016 | Modelo Push API-First y Desacoplamiento de BD de Clientes. El núcleo del Pipeline opera exclusivamente sobre el contrato canónico AuditCase (DOC-01) y persiste sus resultados en la base de datos interna de la plataforma SaaS (AuditStoragePort). Queda estrictamente prohibido que el pipeline central establezca conexiones directas (JDBC/PDO/TCP) o ejecute sentencias contra las bases de datos transaccionales de los tenants (SQL Server, MongoDB, Oracle, etc.). Toda ingestión se realiza mediante envío a la API B2B (CaseIngestionPort), y los resultados se entregan al cliente mediante Webhooks asíncronos firmados (WebhookDeliveryPort) o consulta REST. La extracción directa desde bases de datos externas se confina a Conectores Periféricos independientes (ej. Conector SQL de Salud para AudFact). | DEC-P-004, DEC-P-007, DOC-01, DOC-04 y DOC-06. Elimina la fuga de abstracción de SQL en DataRepository; garantiza que tenants con MongoDB (ej. Legal) o cualquier otro motor se integren sin cambios en el núcleo. |
 | DEC-T-017 | Identidad y Autenticación Central con Aislamiento Multidimensional en el MVP. La plataforma SaaS implementa su propio servicio central de identidad (Argon2id, tokens JWT firmados con RS256/EdDSA y scopes de tenant/cliente/proceso) y API Keys seguras con hash SHA-256 para machine-to-machine. Discolnets es formalmente el Primer Tenant de referencia. El contexto de seguridad `SecurityContext` es inmutable y obligatorio en cada operación; el SSO federado empresarial por tenant queda formalmente diferido a Post-MVP. | DEC-P-012, DEC-P-002, DEC-P-003 y sección 4.7. Garantiza autenticación simple, segura y sin fricción en el MVP, habilitando a Discolnets y conectores periféricos a operar de inmediato. |
+| DEC-T-018 | Ingestión Push API-First y Transporte Documental Híbrido. Resolución dual de artefactos: REMOTE_URL (streaming/descarga servida por conector del tenant) y STORED_CONTENT (URLs prefirmadas S3 del SaaS). | DEC-P-004, DEC-P-007, DOC-04 y GAP-06. Evita transferencias redundantes cuando el tenant ya aloja los binarios. |
+| DEC-T-019 | Envelope Inmutable de Ejecución y Trazabilidad Criptográfica. Contrato AuditExecutionEnvelope con congelamiento de snapshots de caso, política compilada, hashes SHA-256 de artefactos y parámetros de IA. | DEC-T-003, DOC-04 y GAP-07. Garantiza reproducibilidad absoluta y previene divergencia por reintentos técnicos. |
+| DEC-T-020 | Arquitectura Estrictamente Agnóstica al Proveedor de IA (AiProviderSPI). Toda interacción con LLMs se realiza mediante la interfaz AIGateway; Gemini opera como adaptador Tier 1 de alto desempeño con responseSchema. | DEC-P-013, DOC-03 y GAP-08. Desacoplamiento total del núcleo frente a cambios de modelos o proveedores de IA. |
+| DEC-T-021 | Arquitectura de Concurrencia, Aislamiento y Contrapresión. Particionamiento de carriles priority/batch en Redis Streams, planificación Fair-Share entre tenants y compuerta Prefetch Gate con histéresis 90/70. | DEC-P-014, DOC-05 y GAP-09. Protege la memoria de workers y garantiza SLA p95 <= 15s en auditorías individuales 1:1. |
+| DEC-T-022 | Ciclo de Vida de Datos, Habeas Data y Purga Criptográfica. Veredictos y discrepancias permanentes en BD interna; purga automática de binarios temporales en 48-72h preservando hashes SHA-256 forenses. | DEC-P-015, DOC-04 y GAP-10. Cumplimiento de privacidad y derecho al olvido sin alterar auditorías históricas ni ledgers. |
+| DEC-T-023 | Framework de Replay Determinístico y Suite de Calibración de Dominio Dual (DOC-07). Hashing canónico SHA-256 (ALG-01) y Release Gate obligatorio evaluando salud y logística sobre el mismo binario del núcleo. | DEC-P-016, DOC-07 y GAP-11. Certifica paridad histórica frente a AudFact y corrección frente al oráculo curado (>= 99.5%). |
+| DEC-T-024 | Arquitectura de Migración Strangler Fig, Modo Sombra y Conector Periférico Discolnets. Coexistencia progresiva y conmutación gradual EPS por EPS con rollback inmediato; archivo histórico en solo lectura. | DEC-P-017, DOC-06 y GAP-12. Mitiga y cierra definitivamente RISK-01 garantizando cero downtime durante la transición. |
+| DEC-T-025 | Arquitectura de Microservicios Modulares en Contenedores, Node.js/TypeScript, PostgreSQL con RLS y Observabilidad OpenTelemetry. Contenedores inmutables autónomos y propagación de trazas W3C end-to-end. | DEC-P-018, DOC-04, DOC-05 y GAP-13. Establece el stack canónico de producción y desarrollo local con Docker Compose. |
+| DEC-T-026 | Arquitectura de Conectores RESTful JSON de Tenant (Tenant Information Source & Artifact Resolution API). El nuevo SaaS (en repo independiente) consume dispensaciones y streaming de adjuntos mediante contratos HTTP/REST JSON limpios provistos por el tenant, desacoplado de BD, habilitando el decomisionamiento definitivo del monolito PHP de AudFact. | DEC-P-019, DOC-04 y DOC-06. Formaliza la entrega de conectores por AudFact como Tenant #1 y el retiro total del repo PHP tras la migración. |
+| DEC-T-027 | Metodología Clean Rebuild para Frontend B2B condicionado a Backend Certificado. El nuevo frontend se construye desde cero en Next.js (App Router) única y estrictamente tras completar y certificar funcionalmente el backend y sus contratos OpenAPI 3.1. | DEC-P-020, DEC-P-004, GAP-03 y GAP-13. Erradica la deuda técnica de presentación y evita retrabajos por inestabilidad de contratos. |
 
 ### 4.2 GAP-01 — Definición del tenant SaaS
 
@@ -514,7 +524,7 @@ Bloqueos confirmados para el cierre técnico:
 | ID | Bloqueo | Resolución y evidencia requerida |
 |---|---|---|
 | PRO-BLOCK-01 — RESUELTO | BASE-08: vocabularios incompatibles. | DOC-01/Common Severity; DOC-02 operadores/resultados/Finding; referencias compiladas y 20 comprobaciones compartidas. |
-| PRO-BLOCK-02 — RESUELTO LOCALMENTE | BASE-09: validador citado ausente. | opt/tools/validate-ddf.cjs y aliases disponibles; dependencias exactas del lockfile, 137 comprobaciones/0 fallos. Versionado/CI pendiente por RISK-06, sin ocultar /opt/ ignorado. |
+| PRO-BLOCK-02 — RESUELTO LOCALMENTE | BASE-09: validador citado ausente. | Comprobador restaurado en la revisión del 2026-11-03; ver §8.22 para alcance actual. Las 137 comprobaciones históricas no fueron reproducibles al inicio de esta revisión y no son evidencia vigente. CI pendiente de AC-07. |
 | PRO-BLOCK-03 — RESUELTO | Política de publicación. | DEC-P-011: administrador autorizado, validación exacta, inmutabilidad y trazabilidad; DOC-01 §4.7.1. |
 | PRO-BLOCK-04 — RESUELTO, CONTRATO | BASE-10: dos modos numéricos agrupados. | QUANTITY_COVERAGE: documento >= referencia. TOLERANCE: abs(diferencia) < factor positivo. Factor literal o selector declarado; 18 casos numéricos. Paridad completa del adaptador legacy pendiente de GAP-11/12. |
 
@@ -610,7 +620,7 @@ Para casos con discrepancias, baja confianza de extracción o incertidumbre en r
 |---|---|
 | ING-01 | **Push Canónico Exclusivo**: El SaaS no consulta ni lee bases de datos externas de los tenants. Toda admisión entra por `POST /api/v1/cases` (1:1) o `POST /api/v1/cases/batch` (Lote), validando el schema JSON `AuditCase` (DOC-01). Entrada inválida genera HTTP 422 `UNPROCESSABLE_ENTITY` inmediato. |
 | ING-02 | **Idempotencia Estricta en Admisión**: Peticiones de admisión individual y por lote exigen la cabecera `X-Idempotency-Key: <uuid_o_token>` (almacenada en Redis con TTL de 24h). Solicitudes repetidas con la misma clave mientras el caso está en proceso o terminado devuelven HTTP 409 con el identificador del caso/job existente sin reencolar duplicados. |
-| ING-03 | **Respuesta Asíncrona (HTTP 202 Accepted)**: La admisión confirma la recepción, asigna `audit_id` (o `job_id`), persiste el snapshot inmutable del caso en `AuditStoragePort`, publica el evento `audit_created` (o `batch_created`) en Redis Streams y responde en ≤ 200 ms. |
+| ING-03 | **Respuesta Asíncrona (HTTP 202 Accepted)**: La admisión confirma la recepción, asigna `audit_id` (o `job_id`), confirma en una transacción el snapshot inmutable y el outbox de `audit_created` (o `batch_created`), y responde con objetivo p99 ≤ 200 ms. El relay publica en Redis Streams y reintenta hasta confirmar entrega; HTTP 202 no exige que la publicación externa ya haya terminado. |
 | ING-04 | **Streaming Seguro de Artefactos Remotos**: Para artefactos con `storage.kind = "REMOTE_URL"`, el conector del tenant provee URLs seguras (como los endpoints de streaming de Discolnets `/dispensation/{id}/attachments/download/{attachmentId}`). El worker del SaaS descarga el documento con timeout estricto (30s) y límite de peso (50 MB por archivo). Si la descarga falla tras 3 reintentos, el estado del documento transiciona a `document_rejected` sin tumbar el worker. |
 | ING-05 | **URLs Prefirmadas para Almacenamiento SaaS**: Para artefactos con `storage.kind = "STORED_CONTENT"`, el SaaS emite URLs prefirmadas de subida (PUT) con vigencia de 15 minutos en el bucket de la plataforma. Una vez completada la subida, el conector invoca `POST /api/v1/cases/{caseId}/artifacts/{artifactId}/complete-upload`. |
 | ING-06 | **Notificación Asíncrona vía Webhook (`WebhookDeliveryPort`)**: Al finalizar la auditoría (o resolverse la revisión humana), el SaaS despacha un evento HTTP POST firmado con HMAC-SHA256 en la cabecera `X-SaaS-Signature` a la `callback_url` registrada por el tenant. Reintentos exponenciales con jitter (hasta 5 intentos) y fallback a Dead Letter Queue ante fallos permanentes. |
@@ -650,7 +660,7 @@ source: especificacion_tecnica_arquitectura_2026-10-19
 **DEC-T-019 — Envelope Inmutable de Ejecución y Trazabilidad Criptográfica:**
 La plataforma SaaS garantiza la reproducibilidad determinista, la idempotencia estricta y la trazabilidad inmutable de toda auditoría a través de tres pilares arquitectónicos:
 1. **Envelope Inmutable de Ejecución (`AuditExecutionEnvelope`)**:
-   Toda auditoría admitida se asocia a un `execution_id` único (UUID v4). El envelope congela de forma inmutable al momento de la admisión:
+   Toda auditoría admitida se asocia a un `execution_id` único (UUID v4). La admisión fija caso, política y configuración del modelo. El manifiesto binario se sella una única vez después de verificar los artefactos y antes de la primera extracción; no se exige conocer un hash calculado después de descargar al admitir:
    - `case_snapshot`: Payload del expediente canónico admitido (`AuditCase`).
    - `policy_snapshot`: Snapshot serializado del plan de proceso compilado (`CompiledPlan`), con su versión semántica exacta (`policy_version`), catálogo de reglas y campos requeridos.
    - `artifacts_manifest`: Lista de artefactos con sus hashes SHA-256 calculados tras la descarga.
@@ -663,24 +673,24 @@ La plataforma SaaS garantiza la reproducibilidad determinista, la idempotencia e
    - El compilador genera un `CompiledPlan` inmutable que se persiste en `AuditStoragePort`.
    - La activación de una nueva versión actualiza atómicamente el puntero de versión activa para admisiones futuras; los casos ya admitidos o en cola conservan su versión congelada (`CFG-05`).
 3. **Envelope Canónico de Eventos e Idempotencia en Redis Streams (`EventEnvelope`)**:
-   - Todos los eventos del pipeline (`audit_created`, `document_downloaded`, `document_extracted`, `rules_evaluated`, `audit_completed`, etc.) adoptan una estructura uniforme con `event_id`, `event_type`, `tenant_id`, `execution_id`, `audit_id`, `case_id`, `payload` y `metadata` (`idempotency_key`, `timestamp`, `attempt`).
-   - Deduplicación atómica en la recepción de cada worker mediante clave Redis `idemp:{tenant_id}:{event_id}` (TTL 48h). Eventos duplicados por re-entregas de red o XAUTOCLAIM se descartan inmediatamente antes de consumir cuotas de LLM o mutar el estado.
+   - Todos los eventos del pipeline (`audit_created`, `document_downloaded`, `document_extracted`, `rules_evaluated`, `audit_completed`, etc.) adoptan una estructura uniforme con `event_id`, `event_type`, `tenant_id`, `execution_id`, `audit_id`, `case_id`, `timestamp`, `payload` y `metadata` (`idempotency_key`, `attempt`, `traceparent` opcional), según DOC-04.
+   - Deduplicación por consumidor y tenant con recibos durables COMPLETED; los leases PROCESSING vencidos se recuperan. Redis es proyección, no evidencia única de finalización. Reentregar un evento completado no vuelve a consumir IA; un intento externo de resultado incierto se concilia antes de repetirlo.
 4. **Ledger de Consumo Técnico Deduplicable (`TenantConsumptionRecord` / DEC-T-013)**:
-   - Registro atómico de tokens (prompt, completion, thought), latencia y costo estimado por intento.
-   - Clave única de deduplicación en persistencia `consumption:{execution_id}:{attempt_number}` que previene doble contabilidad de costos ante eventos repetidos en el bus.
+   - Registro atómico de tokens (prompt, completion, thought), latencia y costo estimado por intento HTTP. Cada intento real recibe provider_attempt_id único; el número de intento local de dos documentos no identifica la misma llamada.
+   - Clave única de deduplicación en persistencia `consumption:{tenant_id}:{provider_attempt_id}` que previene doble contabilidad de costos ante eventos repetidos en el bus.
 
 #### 4.9.1 Reglas Normativas de Versionado y Reproducibilidad
 
 | ID | Regla normativa |
 |---|---|
-| VER-01 | **Inmutabilidad del Envelope de Ejecución**: Toda ejecución de auditoría queda sellada bajo un `execution_id` único que congela `case_snapshot`, `policy_snapshot`, `artifacts_manifest` y `model_manifest`. Ningún componente puede alterar estos snapshots tras la admisión. |
+| VER-01 | **Inmutabilidad del Envelope de Ejecución**: Toda ejecución de auditoría queda sellada bajo un `execution_id` único que fija `case_snapshot`, `policy_snapshot` y `model_manifest` al admitir, y sella `artifacts_manifest` antes de extraer. Caso, política y modelo no cambian tras la admisión; artifacts_manifest pasa una sola vez de pendiente a sellado antes de extracción. Tras sellarlo solo puede leerse. Un reproceso crea otra ejecución. |
 | VER-02 | **No-Regresión en Reintentos Técnicos**: Ante fallos recuperables de workers (reintentos 1 a 3), la tarea reanuda utilizando el snapshot fijado en el envelope. Queda prohibido consultar el catálogo dinámico para obtener una versión más nueva durante un reintento. |
 | VER-03 | **Aislamiento de Casos en Tránsito (`CFG-05`)**: Publicar una nueva versión de proceso ($v_{n+1}$) afecta únicamente a casos admitidos con posterioridad al commit atómico. Casos en cola o en procesamiento completan su ciclo con la versión $v_n$ con la que fueron admitidos. |
 | VER-04 | **Reproceso con Nueva Identidad de Ejecución**: Una solicitud de reauditoría o reproceso genera un nuevo `execution_id`. El veredicto anterior permanece inmutable en el historial; el nuevo veredicto referencia la ejecución previa como antecedente (`supersedes_execution_id`). |
 | VER-05 | **Publicación Atómica con Concurrencia Optimista**: La publicación de un borrador de proceso valida `expected_draft_revision`. Si dos administradores intentan publicar sobre el mismo borrador, el segundo recibe HTTP 409 `REVISION_CONFLICT`. |
 | VER-06 | **Integridad Criptográfica de Artefactos**: Cada documento descargado en `DocumentDownloadStage` genera un hash SHA-256 verificado. Si el binario cambia en la fuente externa durante un reintento, el worker detecta la discrepancia y emite `document_rejected` por corrupción de integridad. |
-| VER-07 | **Deduplicación de Eventos en Stream**: Cada worker ejecuta una verificación `SET idemp:{tenant_id}:{event_id} 1 EX 172800 NX` en Redis antes de procesar un mensaje. Si la clave ya existe, el mensaje se reconoce (`XACK`) y se descarta sin reprocesar. |
-| VER-08 | **Ledger de Consumo Deduplicable**: `AuditStoragePort.recordConsumption()` es idempotente por la clave compuesta `(execution_id, attempt_number)`. Peticiones duplicadas de contabilización no incrementan los contadores de facturación técnica. |
+| VER-07 | **Deduplicación de Eventos en Stream**: Cada consumidor identifica su trabajo por `(tenant_id, consumer_group, event_id)`. Una recepción crea un lease recuperable, no un recibo de éxito. Solo un commit durable de efectos y outbox permite marcar COMPLETED y hacer ACK. Un lease activo conserva el mensaje pendiente; uno vencido permite recuperación con fencing token. Protocolo normativo en DOC-05 §4.7 ALG-02. |
+| VER-08 | **Ledger de Consumo Deduplicable**: `AuditStoragePort.recordConsumption()` es idempotente por la clave compuesta `(tenant_id, provider_attempt_id)`. Peticiones duplicadas de contabilización no incrementan los contadores de facturación técnica. |
 
 #### 4.9.2 Casos de Aceptación de Versionado y Reproducibilidad (GAP-07)
 
@@ -690,8 +700,8 @@ La plataforma SaaS garantiza la reproducibilidad determinista, la idempotencia e
 | VER-TC-02 | Un administrador edita el borrador de un proceso en revisión 4. | Otro administrador publica la revisión 4. El primer administrador intenta publicar su borrador desactualizado. | La publicación es rechazada con HTTP 409 `REVISION_CONFLICT`; la versión publicada previamente se preserva intacta. |
 | VER-TC-03 | Un worker de extracción falla por caída de red con Gemini en el intento 1. | El mensaje es reintentado en el intento 2 tras 5 segundos. | El worker reanuda con el mismo `execution_id` y snapshot de parámetros; no consulta nuevas versiones ni altera los prompts congelados. |
 | VER-TC-04 | Un caso finalizó con veredicto V1 bajo la ejecución E1. Se solicita un reproceso explícito. | Se invoca `POST /api/v1/cases/{caseId}/reprocess`. | Se crea la ejecución E2 con nuevo `execution_id`, adoptando la política activa actual; V1 y E1 se conservan íntegros en el historial. |
-| VER-TC-05 | Redis Streams entrega un evento duplicado `document_downloaded` debido a un timeout en XAUTOCLAIM. | El worker recibe el mensaje con un `event_id` ya registrado en `idemp:...`. | El worker descarta el evento duplicado, ejecuta `XACK` y no re-invoca la extracción ni consume tokens de Gemini. |
-| VER-TC-06 | El worker despacha dos veces el evento de consumo técnico del intento 1 por reintento de red. | `AuditStoragePort.recordConsumption()` recibe ambas llamadas con `(E1, attempt: 1)`. | La segunda llamada es reconocida de forma idempotente sin duplicar los tokens ni los costos en el ledger del tenant. |
+| VER-TC-05 | Redis Streams entrega un evento duplicado `document_downloaded` debido a un timeout en XAUTOCLAIM. | El worker recibe el mensaje con un `event_id` cuyo recibo del consumidor ya está COMPLETED. | Si existe recibo durable COMPLETED y sus efectos/outbox están confirmados, ejecuta ACK sin repetir la extracción. Un registro PROCESSING no autoriza ACK y se recupera conforme a su lease. |
+| VER-TC-06 | El worker despacha dos veces el evento de consumo técnico del intento 1 por reintento de red. | `AuditStoragePort.recordConsumption()` recibe ambas llamadas con el mismo `provider_attempt_id` de E1. | La segunda llamada es reconocida de forma idempotente sin duplicar los tokens ni los costos en el ledger del tenant. |
 
 
 ### 4.10 GAP-08 — IA Multimodal, Proveedores Agnósticos, Capacidades y Presupuestos
@@ -879,7 +889,7 @@ La plataforma SaaS establece la siguiente política de certificación de calidad
 2. **Separación Conceptual de Métricas de Calidad**:
    - **Métrica de Corrección (Accuracy / Ground Truth Concordance)**: Porcentaje de campos y veredictos en que el motor coincide con el Oráculo Curado. Criterio de liberación: ≥ 99.5% en la suite de certificación.
    - **Métrica de Paridad Histórica (Legacy Delta)**: Medición comparativa contra registros legados de AudFact para detectar divergencias, clasificar correcciones intencionales de bugs históricos vs regresiones indeseadas.
-   - **Métrica de Determinismo**: 100% de identidad bit a bit (mismo hash SHA-256 canónico) en ejecuciones repetidas sobre los mismos fixtures sin llamadas de IA vivas.
+   - **Métrica de Determinismo**: 100% de igualdad de la proyección canónica definida en DOC-07, más comparación del veredicto y hallazgos completos, en ejecuciones repetidas sobre los mismos fixtures sin llamadas de IA vivas.
 3. **Prueba Obligatoria de Dominio Dual en CI/CD**:
    - La plataforma no puede considerarse un motor SaaS agnóstico hasta demostrar su funcionamiento sobre **dos perfiles de dominio completamente disjuntos** usando exactamente el mismo código y binarios del núcleo:
      - **Perfil 1: Salud y Dispensación Farmacéutica** (`health-dispensation` / Discolnets): Auditoría cruzada entre fórmula médica, acta de entrega, autorización y factura de venta farmacéutica.
@@ -918,7 +928,7 @@ Para certificar el comportamiento del motor de reglas y la estabilidad entre pla
 
 | ID | Dado | Cuando | Resultado Requerido |
 |---|---|---|---|
-| BENCH-TC-01 | Un fixture canónico de salud o logística se ejecuta dos veces consecutivas en el motor de reglas. | Se calcula el hash canónico SHA-256 de los hallazgos en ambas corridas. | `hash_run_1 === hash_run_2` de forma determinista (100% identidad bit a bit). |
+| BENCH-TC-01 | Un fixture canónico de salud o logística se ejecuta dos veces consecutivas en el motor de reglas. | Se calcula el hash canónico SHA-256 de los hallazgos en ambas corridas. | `hash_run_1 === hash_run_2` y comparación de todos los campos semánticos del veredicto/hallazgos; el hash parcial por sí solo no acredita igualdad completa. |
 | BENCH-TC-02 | El motor evalúa el caso canónico de salud (`golden_D65260408592`). | Se comparan los veredictos generados contra `expected.campo_results`. | 100% de coincidencia exacta con el oráculo curado en todos los campos evaluados. |
 | BENCH-TC-03 | El mismo motor de reglas evalúa un fixture del segundo dominio canónico (`procurement-logistics` con orden de compra y remisión B2B). | Se procesa la evaluación sin modificar el core ni añadir condicionales de negocio. | El motor genera hallazgos y emite un veredicto estructurado válido conforme a las reglas del perfil de logística. |
 | BENCH-TC-04 | Se evalúan los hallazgos emitidos en las pruebas de ambos dominios. | Se valida la estructura JSON de cada elemento en `hallazgos.items`. | Cada hallazgo contiene exactamente las 8 claves obligatorias sin omisiones ni campos adicionales no tipados. |
@@ -1000,7 +1010,7 @@ source: respuesta_explicita_usuario_2026-10-19
 **DEC-P-018 — Stack Tecnológico Canónico Asíncrono y Base de Datos con Aislamiento RLS:**
 La plataforma SaaS define el siguiente stack oficial para la reingeniería desacoplada del núcleo y su operación de referencia:
 1. **Runtime del Núcleo y Workers**: **TypeScript / Node.js (LTS)** con arquitectura asíncrona no bloqueante (event loop de alto rendimiento). Proporciona soporte nativo y tipado estricto para los esquemas JSON Schema (draft-2020-12), streaming eficiente de artefactos binarios y validación canónica de contratos compartidos.
-2. **Base de Datos Interna de la Plataforma (`AuditStoragePort`)**: **PostgreSQL 16+** con **Row-Level Security (RLS)** obligatorio a nivel de tabla (`tenant_id = current_setting('app.current_tenant_id')`). Garantiza aislamiento criptográfico y lógico absoluto de datos entre tenants, impidiendo fugas multi-tenant incluso ante errores en la capa de aplicación.
+2. **Base de Datos Interna de la Plataforma (`AuditStoragePort`)**: **PostgreSQL 16+** con **Row-Level Security (RLS)** obligatorio a nivel de tabla (`tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid`). Debe negar el acceso sin contexto y aislar datos por tenant con roles sin BYPASSRLS y políticas forzadas. RLS no aporta cifrado ni sustituye autorización, pruebas de roles y protección de conexiones.
 3. **Broker de Eventos y Caché Distribuido**: **Redis 7.2+** operando con Redis Streams (`inbox.priority`, `inbox.batch`, `documents.*`, `results.*`), grupos de consumidores (`XREADGROUP`), control de histéresis de prefetch y almacenamiento en memoria para sesiones y leases de revisión humana.
 4. **Frontend / Portal B2B**: **Next.js (App Router)** empaquetado en contenedores inmutables, consumiendo la API REST B2B mediante contratos OpenAPI 3.1.
 5. **Almacenamiento de Objetos (Artifacts)**: Almacenamiento compatible S3 / GCS con políticas de ciclo de vida automáticas (purga en 48-72h) y emisión de URLs prefirmadas (`createArtifactUploadUrl`).
@@ -1008,7 +1018,7 @@ La plataforma SaaS define el siguiente stack oficial para la reingeniería desac
 **DEC-T-025 — Arquitectura de Microservicios Modulares, Observabilidad y Despliegue:**
 Para sostener alta disponibilidad, tolerancia a fallos y observabilidad integral:
 1. **Descomposición Modular de Servicios en Contenedores**:
-   - `api-ingress`: Microservicio HTTP/REST que implementa `CaseIngestionPort`, valida JWT/API Keys, aplica rate limiting y admite expedientes en ≤ 150 ms publicando en Redis Streams.
+   - `api-ingress`: Microservicio HTTP/REST que implementa `CaseIngestionPort`, valida JWT/API Keys, aplica rate limiting y admite expedientes con objetivo p99 ≤ 200 ms después del commit de snapshot y outbox. El relay entrega el evento en Redis Streams.
    - `extraction-pool`: Workers que consumen `documents.{lane}`, ejecutan streaming de artefactos, validación de integridad física (`IntegrityValidator`), invocan `AIGateway` (SPI DOC-03) y publican `document_extracted`.
    - `policy-engine-pool`: Workers deterministas que consumen `rules.evaluate`, ejecutan el motor de reglas canónico (`RuleEngine` DOC-02) y emiten `AuditVerdict`.
    - `webhook-dispatcher`: Worker que consume `results.{lane}`, firma con HMAC-SHA256 y despacha al conector del tenant (`WebhookDeliveryPort`) con reintentos exponenciales.
@@ -1039,11 +1049,75 @@ Para sostener alta disponibilidad, tolerancia a fallos y observabilidad integral
 | ID | Dado | Cuando | Resultado Requerido |
 |---|---|---|---|
 | OPS-TC-01 | Se ejecuta una consulta directa contra la tabla de casos de PostgreSQL sin configurar la variable de sesión `app.current_tenant_id`. | Se evalúa la respuesta del motor PostgreSQL. | 0 filas retornadas; la política RLS bloquea el acceso de forma nativa. |
-| OPS-TC-02 | Un conector cliente despacha un expediente a `POST /api/v1/cases` del microservicio `api-ingress`. | Se mide el tiempo de respuesta HTTP y la publicación del evento. | Retorna HTTP 202 en ≤ 150 ms con `case_id` y publica `case_submitted` en `inbox.priority`. |
+| OPS-TC-02 | Un conector cliente despacha un expediente a `POST /api/v1/cases` del microservicio `api-ingress`. | Se mide el tiempo de respuesta HTTP y se inspecciona snapshot/outbox y entrega por relay. | Retorna HTTP 202 con `audit_id` y referencia `case_id`, con objetivo p99 ≤ 200 ms; snapshot y outbox confirmados, y entrega eventual del evento `audit_created` en `inbox.priority` sin pérdida ante caída del relay. |
 | OPS-TC-03 | El stream `inbox.batch` acumula un backlog de más de 500 eventos pendientes. | El orquestador monitorea la métrica de cola `redis_stream_backlog`. | El escalador horizontal incrementa automáticamente las réplicas de `extraction-pool` sin afectar la latencia del carril prioritario. |
 | OPS-TC-04 | Se genera una solicitud de auditoría desde el portal web o API B2B. | Se inspeccionan los logs y trazas distribuidas en Jaeger / Cloud Trace. | El identificador `trace_id` se propaga intacto a través de HTTP, Redis Streams, workers y webhook final. |
 | OPS-TC-05 | Se simula la desconexión del contenedor Redis. | Se consulta el endpoint `/health/readiness` de `api-ingress`. | Retorna HTTP 503 `Service Unavailable` y el balanceador retira la instancia del pool de tráfico. |
 | OPS-TC-06 | Se despliega una nueva imagen de contenedor con versión `v1.1.0`. | Casos admitidos bajo `v1.0.0` están en vuelo en Redis Streams. | Los casos en vuelo completan su auditoría con `v1.0.0` sin abortar y las nuevas admisiones se atienden con `v1.1.0` sin downtime. |
+
+
+### 4.16 Conectores RESTful JSON de Tenant y Decomisionamiento de AudFact PHP
+
+```yaml
+decision_owner: usuario (decomisionamiento y repositorio) + arquitectura (contrato REST)
+classification: CONFIRMADO
+decision_ids:
+  - DEC-P-019
+  - DEC-T-026
+source: instruccion_explicita_usuario_2026-11-03
+```
+
+**DEC-P-019 — Repositorio Independiente del SaaS, Decomisionamiento de AudFact PHP y Entrega de Conectores por el Tenant:**
+1. **Nuevo Repositorio GitHub Independiente:** El nuevo SaaS multi-tenant se desarrollará desde cero en un repositorio independiente en GitHub (nombre por definir), sin compartir el histórico de código ni el workspace con el monolito actual.
+2. **Decomisionamiento Definitivo de AudFact PHP:** El repositorio actual en PHP 8.2 (`AudFact`) tiene carácter estrictamente transitorio y **desaparecerá / será decomisionado** una vez el nuevo SaaS entre en operación productiva y se valide la migración progresiva.
+3. **AudFact como Tenant Proveedor de Conectores:** AudFact (representando a *Discolnets* como Tenant #1) asume la responsabilidad de proveer y mantener los conectores mediante APIs RESTful JSON para alimentar de información al nuevo SaaS.
+
+**DEC-T-026 — Arquitectura de Integración RESTful JSON de Tenant (Tenant Information Source & Artifact Resolution API):**
+Para garantizar el desacoplamiento absoluto del SaaS y la eliminación de código legacy:
+1. **Protocolo 100% RESTful JSON:** Toda interacción entre el nuevo SaaS y el Tenant #1 se realiza exclusivamente mediante peticiones HTTP/HTTPS con payloads JSON y flujos binarios estándar. El nuevo SaaS jamás establecerá conexiones directas a SQL Server ni ejecutará scripts de base de datos del tenant.
+2. **Endpoints Canónicos Provistos por el Tenant (Discolnets):**
+   - **Fuente de Verdad (Dispensación):** `GET /dispensation/{disId}/{disDetNro}` — Retorna el payload JSON con el encabezado de negocio (paciente, médico, IPS, fechas, autorización) y los ítems dispensados.
+   - **Catálogo de Artefactos Documentales:** `GET /dispensation/{disDetNro}/attachments/{clientId}` — Retorna los metadatos de los soportes (nombre documental, tipo de almacenamiento, identificadores físicos).
+   - **Streaming y Descarga de Artefactos:** `GET /dispensation/{disDetNro}/attachments/download/{attachmentId}` — Provee el streaming directo de los archivos PDF o imágenes (resolviendo internamente BLOBs o redirecciones firmadas).
+   - **Receptor de Veredictos (Webhook):** `POST /webhook/audit-result` — Endpoint receptor en el tenant que asimila el `AuditVerdict` firmado con HMAC-SHA256 para actualizar los estados de las dispensaciones en sus sistemas locales.
+3. **Casos de Aceptación de Conectores RESTful JSON:**
+
+| ID | Dado | Cuando | Resultado Requerido |
+|---|---|---|---|
+| CONN-TC-01 | El nuevo SaaS requiere auditar el caso `T62261002597`. | Invoca `GET /dispensation/{disId}/{disDetNro}` del conector del tenant. | Retorna HTTP 200 con JSON estructurado que el SaaS mapea directamente a `TruthSource` sin tocar SQL Server. |
+| CONN-TC-02 | El nuevo SaaS necesita extraer el soporte `attachment_id: 1` (BLOB legacy). | Invoca `GET /dispensation/{disDetNro}/attachments/download/1` del conector. | El conector sirve el stream binario HTTP (`application/pdf` o `image/*`) de forma transparente al SaaS. |
+| CONN-TC-03 | El pipeline del nuevo SaaS emite el veredicto final `AuditVerdict`. | Despacha el resultado vía `WebhookDeliveryPort` a la URL del tenant. | Retorna HTTP 200 con acuse de recibo y el tenant actualiza sus registros transaccionales locales. |
+| CONN-TC-04 | Se completa la migración y el nuevo SaaS opera en producción. | Se ejecuta el plan de retiro de infraestructura. | El repositorio PHP `AudFact` se decomisiona y archiva; únicamente permanece activo el conector RESTful del tenant o la integración nativa de Discolnet. |
+
+
+### 4.17 Secuenciación del Desarrollo: Backend-First y Clean Rebuild del Frontend
+
+```yaml
+decision_owner: usuario (secuenciación y rebuild) + arquitectura (contrato OpenAPI 3.1)
+classification: CONFIRMADO
+decision_ids:
+  - DEC-P-020
+  - DEC-T-027
+source: instruccion_explicita_usuario_2026-11-03
+```
+
+**DEC-P-020 — Secuenciación de Construcción Backend-First y Reconstrucción Limpia del Frontend:**
+1. **Secuenciación Obligatoria Backend-First**: La construcción del nuevo Frontend se suspende y difiere estrictamente **hasta que la implementación funcional del Backend esté 100% terminada, probada y certificada**.
+2. **Metodología Clean Rebuild para Frontend**: El nuevo Frontend no arrastrará componentes, estilos ni código legacy del directorio `frontend/` actual. Se construirá completamente desde cero aplicando la doctrina Clean Rebuild una vez los contratos de API y veredictos del backend estén inmutables.
+3. **Cero Ambigüedades y Cero Supuestos**: Toda interfaz de usuario consumirá exclusivamente esquemas validados y contratos formales emitidos por la especificación OpenAPI 3.1 del backend; queda prohibido especular sobre la forma de las respuestas o estados de la auditoría.
+
+**DEC-T-027 — Metodología Clean Rebuild de Frontend B2B condicionado a Backend Certificado:**
+1. **Compuerta de Entrada para Frontend**: El equipo o agente de desarrollo solo podrá inicializar el proyecto de Frontend en Next.js (App Router) cuando se cumplan las siguientes precondiciones verificables:
+   - Los microservicios de backend (`api-ingress`, `extraction-pool`, `policy-engine-pool`, `webhook-dispatcher`) ejecuten la suite de integración en verde.
+   - El archivo de especificación canónica `openapi.yaml` esté congelado y publicado.
+   - La suite de paridad del Golden Benchmark (`DOC-07`) esté certificada con el caso `T62261002597` y el caso de Dominio Dual.
+2. **Generación de Tipos Type-Safe**: El Frontend autogenerará sus tipos TypeScript y hooks cliente directamente desde `openapi.yaml` (vía `openapi-typescript` / `orval`), garantizando sincronización exacta y libre de ambigüedades.
+
+| ID | Dado | Cuando | Resultado Requerido |
+|---|---|---|---|
+| FE-SEQ-01 | El backend tiene microservicios o endpoints en fase de desarrollo o borrador. | Se solicita iniciar la codificación de vistas o componentes del nuevo Frontend. | DENEGADO; el inicio del Frontend está bloqueado hasta la certificación funcional del Backend al 100%. |
+| FE-SEQ-02 | El backend completó su implementación y el Golden Benchmark pasó con éxito. | Se autoriza el inicio del Frontend. | Se inicializa un proyecto Next.js limpio desde cero (Clean Rebuild), consumiendo `openapi.yaml`. |
+| FE-SEQ-03 | Se diseñan pantallas de resultados, bandejas de revisión humana y administración. | Se conectan los componentes a la API. | Todos los tipos de datos derivan de los contratos compilados del backend; cero tipos ad-hoc o supuestos en cliente. |
 
 
 ## 5. Impacto inverso y límites de abstracción
@@ -1058,7 +1132,7 @@ Para sostener alta disponibilidad, tolerancia a fallos y observabilidad integral
 
 ## 6. Registro de gaps, dependencias y riesgos
 
-El registro se amplía al descubrir dependencias. La totalidad de los 13 gaps del inventario inicial (GAP-01 a GAP-13) han sido formalmente resueltos mediante decisiones de producto del usuario y contratos técnicos de arquitectura. La especificación maestra alcanza completitud de diseño para la reingeniería desacoplada.
+El registro se amplía al descubrir dependencias. Las decisiones de producto del inventario inicial están registradas. Las etiquetas RESUELTO de la tabla describen el alcance de cada decisión, no aprobación integral ni ejecución del SaaS. La revisión del 2026-11-03 mantiene nivel C: deben completarse los contratos públicos, recuperación transaccional e integración de adaptadores antes de declarar implementation_ready.
 
 | ID | Tema | Responsable del cierre | Resultado requerido |
 |---|---|---|---|
@@ -1094,7 +1168,7 @@ El registro se amplía al descubrir dependencias. La totalidad de los 13 gaps de
 | RISK-03 | Inferir decisiones de producto y fijarlas en schemas sin respuesta del usuario. | Una pregunta activa por vez; decisiones pendientes permanecen bloqueadas. |
 | RISK-04 — RESUELTO | Perseguir paridad con errores legados y confundirla con corrección. | [CONFIRMADO] DEC-P-016 separa la métrica de paridad histórica de la de corrección frente al oráculo curado por expertos. Riesgo cerrado en GAP-11. |
 | RISK-05 | Mezclar permisos de una asignación con alcances de otra y crear acceso más amplio que el concedido. | DEC-T-006, ORG-AUTH-02/04 y casos ORG-06/07; pruebas ejecutables de seguridad en GAP-05. |
-| RISK-06 — RESUELTO | Las especificaciones de `opt/` quedaban fuera del control de versiones por la regla `/opt/` observada en `.gitignore`, línea 14. | [CONFIRMADO] Regla `/opt/` eliminada de `.gitignore` el 2026-10-19. `opt/` ahora es rastreado por Git (`git status opt/` confirma archivos listados). Riesgo cerrado y criterio AC-07 desbloqueado. |
+| RISK-06 — RESUELTO | Las especificaciones de `opt/` quedaban fuera del control de versiones por la regla `/opt/` observada en `.gitignore`, línea 14. | [CONFIRMADO] Regla `/opt/` eliminada de `.gitignore` el 2026-10-19. `opt/` ahora es rastreado por Git (`git status opt/` confirma archivos listados). La exclusión queda resuelta; AC-07 sigue pendiente de revisión y validación en CI. |
 | RISK-07 | Sobrescribir el resultado automático, perder la atribución humana o aplicar una decisión a una ejecución diferente. | DEC-T-009, REV-04 a REV-07 y casos REV-TC-02/05/06/07; contratos y pruebas ejecutables en GAP-06/07. |
 | RISK-08 | Incorporar reglas del primer negocio en el núcleo y considerar suficiente un ejemplo de otro dominio sin ejecución. | DEC-T-011, DOM-01/02/06 y DOM-TC-01/02/06; mismo artefacto del núcleo, contratos compartidos y prueba dual ejecutada antes del release. |
 | RISK-09 | Duplicar empresas por reintentos, activar con preparación incompleta o conceder al operador acceso implícito a datos de negocio. | DEC-T-012, ONB-02/05/06/07 y ONB-TC-01/02/04/05/06/07; contratos y pruebas ejecutables en GAP-05/06/07/10/13. |
@@ -1111,7 +1185,7 @@ El registro se amplía al descubrir dependencias. La totalidad de los 13 gaps de
 | AC-04 | Cada requisito crítico se vincula con contrato, criterio de aceptación y evidencia de verificación; no quedan contradicciones críticas abiertas. |
 | AC-05 | La suite especificada cubre aislamiento, configuración versionada, dos dominios, reintentos y recuperación. Sus ejecuciones se distinguen de las pruebas solo redactadas. |
 | AC-06 | El estado listo para implementar exige cerrar decisiones S3/S4 que afecten el alcance implementado. La aptitud de un release exige pruebas ejecutadas sobre su implementación. |
-| AC-07 | La guía canónica y sus contratos aprobados están en control de versiones con propietario, revisión y validación en CI. Cumplido: regla `/opt/` eliminada de `.gitignore` el 2026-10-19. |
+| AC-07 | La guía canónica y sus contratos aprobados están en control de versiones con propietario, revisión y validación en CI. PARCIAL: la exclusión fue retirada; aún se requieren revisión, incorporación de archivos nuevos y ejecución del comprobador en CI. |
 
 ## 8. Puerta de calidad y estado de la sesión
 
@@ -1135,12 +1209,12 @@ El registro se amplía al descubrir dependencias. La totalidad de los 13 gaps de
 | Primer tenant de la plataforma | CONFIRMADO | Discolnets (dominio de salud y dispensación) como Tenant #1 de referencia. |
 | Prueba dual del motor ejecutada | PENDIENTE | DOM-01 a DOM-06 y DOM-TC-01 a DOM-TC-06 son requisitos especificados; motor futuro sin implementación verificada. |
 | Alcance funcional del MVP | CONFIRMADO | GAP-03 resuelto en decisiones de producto; capacidades y límites en sección 4.4.5/4.4.8. |
-| Contratos SaaS reconciliados | PENDIENTE | Contratos base DOC-01/02/04 comprobados; GAP-05 a GAP-13 siguen pendientes. |
+| Contratos SaaS reconciliados | PENDIENTE | Decisiones de GAP-01 a GAP-13 registradas; faltan pruebas de integración y cierre de contratos públicos. Ver §8.22. |
 | Guía canónica bajo control de versiones | CONFIRMADO | Regla `/opt/` eliminada de `.gitignore` el 2026-10-19; `opt/` rastreado por Git. |
-| Schemas y pruebas del SaaS ejecutados | PENDIENTE | Esta sesión inicia el descubrimiento; no certifica el motor futuro. |
+| Schemas y pruebas del SaaS ejecutados | PENDIENTE | Comprobación documental local disponible; suites del motor futuro pendientes. |
 | Preparación para reescritura | NO | Descubrimiento y contratos críticos pendientes. |
 
-Registro vigente del 2026-10-19: decisiones de producto DEC-P-001 a DEC-P-012 confirmadas; GAP-01/02/03/04/05 resueltos a nivel de producto. GAP-06 activo: ingestión Push API-First y ciclo de revisión humana. Los contratos SaaS completos siguen sin aprobación.
+Registro histórico del 2026-10-19, sustituido por §8.22: decisiones de producto DEC-P-001 a DEC-P-012 confirmadas; GAP-01/02/03/04/05 resueltos a nivel de producto. GAP-06 activo: ingestión Push API-First y ciclo de revisión humana. Los contratos SaaS completos siguen sin aprobación.
 
 ### 8.1 Verificación documental del 2026-10-06
 
@@ -1282,7 +1356,7 @@ Aceptada la publicación directa de configuraciones por administrador autorizado
 
 | Comprobación | Comando / mecanismo | Resultado ejecutado |
 |---|---|---|
-| Schemas y contratos compartidos | node opt/tools/validate-ddf.cjs; Node v26.0.0, Ajv 8.20.0, ajv-formats 2.1.1 | 137 comprobaciones, 0 fallos: 11 schemas, 38 fixtures, 10 políticas, 18 casos numéricos, 20 compatibilidades, 27 tipos, 8 conjuntos, 5 controles del validador. |
+| Schemas y contratos compartidos | Registro histórico (no reproducido); Node v26.0.0, Ajv 8.20.0, ajv-formats 2.1.1 | Se declararon 137 comprobaciones, 0 fallos: 11 schemas, 38 fixtures, 10 políticas, 18 casos numéricos, 20 compatibilidades, 27 tipos, 8 conjuntos, 5 controles del validador. |
 | Fuente de herramientas | website/package-lock.json, SHA-256 130e796bd9d82e9c162e2c62e800ed65d182978b73c5c5117b5e8790aad69d91 | Dependencias exactas comprobadas; no se instalaron dependencias ni cambió el lockfile. |
 | Contratos de salud/compras B2B | Fixtures sintéticos de DOC-01 contra el mismo validador | Conformidad documental; no prueba del motor ni ejecución IA. Logística conserva ejemplos estructurales adicionales. |
 | Reportes históricos | Sustituidos los reportes de DOC-01/02 por alcance y evidencia actuales | No trasladar PASS históricos de texto, completitud, paridad ni prueba dual del motor. Ambos documentos conservan completitud C por dependencias SaaS. |
@@ -1328,8 +1402,8 @@ Aceptada la publicación directa de configuraciones por administrador autorizado
 
 1. **Adopción de DEC-T-019 y Envelope Inmutable de Ejecución**: Especificado el contrato `AuditExecutionEnvelope` con congelamiento estricto de `case_snapshot`, `policy_snapshot` (versión de política compilada), `artifacts_manifest` (hashes SHA-256) y `model_manifest` (parámetros de IA). Se prohíbe re-resolver versiones más recientes durante reintentos técnicos (`U-SAAS-01`).
 2. **Publicación y Activación Atómica de Procesos**: Especificado el versionado semántico estricto con control de concurrencia optimista (`expected_draft_revision`), garantizando que casos admitidos previamente completen su ciclo con la versión congelada con la que ingresaron (`CFG-05`).
-3. **Idempotencia y Deduplicación en Redis Streams**: Estandarizado el envelope canónico de eventos con clave de deduplicación atómica `idemp:{tenant_id}:{event_id}` (TTL 48h), previniendo doble consumo de tokens LLM o escrituras divergentes.
-4. **Ledger de Consumo Técnico Deduplicable**: Definida la clave compuesta `(execution_id, attempt_number)` para asegurar que `AuditStoragePort.recordConsumption()` sea idempotente ante entregas repetidas de red.
+3. **Idempotencia y Deduplicación en Redis Streams**: Registro histórico: la propuesta de barrera TTL anterior fue sustituida por recibos durables COMPLETED y leases recuperables por consumidor en DOC-05 ALG-02 (revisión 2026-11-04). Un SET NX previo al trabajo no certifica éxito ni evita por sí solo doble consumo externo.
+4. **Ledger de Consumo Técnico Deduplicable**: Definida la clave compuesta `(tenant_id, provider_attempt_id)` para asegurar que `AuditStoragePort.recordConsumption()` sea idempotente ante entregas repetidas de red.
 5. **Formalización de Reglas Normativas y Casos de Aceptación**: Registradas las reglas `VER-01` a `VER-08` y los casos ejecutables `VER-TC-01` a `VER-TC-06`.
 6. **Cierre de GAP-07 y Activación de GAP-08**: Cerrado GAP-07 en nivel de contratos base y activado `GAP-08` (*IA, capacidades, presupuestos y fallos tipados*).
 
@@ -1384,3 +1458,31 @@ Aceptada la publicación directa de configuraciones por administrador autorizado
 3. **Observabilidad Distribuida (OpenTelemetry)**: Estandarizado el contexto de trazabilidad distribuida W3C (`traceparent`, `tracestate`) propagado end-to-end desde la ingestión HTTP hasta la notificación por webhook, con métricas Prometheus y logs estructurados JSON con sanitización automática de PII.
 4. **Formalización de Reglas Normativas y Casos de Aceptación**: Registradas las reglas `OPS-01` a `OPS-08` y los casos ejecutables `OPS-TC-01` a `OPS-TC-06`.
 5. **Cierre de GAP-13 y Completitud del Inventario Inicial de Gaps (v0.2.0-draft)**: Con la resolución de GAP-13, la totalidad de los 13 gaps del inventario inicial (GAP-01 a GAP-13) han quedado formalmente cerrados con trazabilidad bidireccional, decisiones confirmadas por el usuario, reglas normativas y suites de criterios de aceptación verificables. La especificación maestra alcanza el estado `DRAFT_COMPLETE` lista para implementación.
+
+### 8.21 Verificación después de adoptar DEC-P-019 y DEC-T-026 (2026-11-03)
+
+1. **Adopción de DEC-P-019 y Repositorio Independiente**: Formalizada la instrucción del usuario que define que el nuevo SaaS multi-tenant se desarrollará en un repositorio Git independiente en GitHub (nombre por definir). El repositorio actual monolítico PHP 8.2 (`AudFact`) tiene carácter transitorio y **desaparecerá / será decomisionado** tras culminar la migración productiva.
+2. **Adopción de DEC-T-026 y Conectores RESTful JSON**: Especificado el protocolo desacoplado mediante el cual AudFact (Discolnets como Tenant #1) provee conectores API RESTful JSON para que el nuevo SaaS consuma la fuente de verdad (`GET /dispensation/...`), el catálogo de adjuntos y el streaming binario sin requerir conexión a bases de datos ni código PHP en el core del SaaS.
+3. **Caracterización del caso `T62261002597` (corregida el 2026-11-04)**: Cuatro GET verificaron 38 evaluaciones, 35 coincidencias, 2 omitidos y 1 no concluyente; acta y fórmula BLOB, validador y autorización URL. Esta observación no recuperó la traza completa ni el snapshot histórico de configuración/extracción y no constituye todavía un Golden Fixture reproducible. Véanse el catálogo y §8.22.
+4. **Adopción de DEC-P-020 y DEC-T-027 (Secuenciación Backend-First y Clean Rebuild de Frontend)**: Confirmado que el nuevo Frontend se construirá 100% desde cero bajo metodología Clean Rebuild únicamente después de completar y certificar funcionalmente el Backend y sus contratos OpenAPI 3.1.
+5. **Estado Documental**: La especificación maestra avanza con 20 decisiones de producto (`DEC-P-001` a `DEC-P-020`) y 27 decisiones técnicas (`DEC-T-001` a `DEC-T-027`).
+
+### 8.22 Reconciliación documental del 2026-11-04 y consultas del 2026-11-03
+
+[CONFIRMADO] La solicitud «Corrige la documentacion!!» autoriza corregir los nueve hallazgos de la revisión y los desvíos observados en las cuatro consultas GET. No modifica decisiones de producto ni certifica una implementación SaaS.
+
+| Control | Estado vigente | Evidencia |
+| --- | --- | --- |
+| Línea base del caso de referencia | VERIFICADA POR GET | HTTP 200 en dispensación, resultado, configuración 2624 y adjuntos; resumen anonimizado en CATALOGO-PRUEBAS-REFERENCIA. |
+| Datos observados | CONFIRMADO | 4 documentos, 38 evaluaciones: 35 COINCIDE, 2 OMITIDO y 1 NO_CONCLUYENTE; manual_review. |
+| Transporte observado | CONFIRMADO | Acta y fórmula BLOB; validador y autorización URL; testigo SIN_DOCUMENTOS. |
+| Contratos documentales | COMPROBABLE LOCALMENTE | node opt/tools/validate-ddf.cjs; alcance y conteos reales en su salida. No equivale al validador histórico de 137 casos. |
+| Pruebas TDD del SaaS | PENDIENTE | Plantillas it.todo con escenarios concretos; ninguna se presenta como suite ejecutada. |
+| OpenAPI, CI SaaS y adaptadores | PENDIENTE | No se dispone de implementación certificada en este workspace. |
+| Preparación global para implementación | NO | Nivel C; cerrar contratos de aplicación y recuperación mediante pruebas en el repositorio futuro. |
+
+[CONFIRMADO — diseño futuro] Vocabulario de integración: payload de admisión inválido → HTTP 422; JSON mal formado → HTTP 400; idempotencia de admisión → 24 horas; firma de webhook → X-SaaS-Signature. El TTL legacy de 300 segundos no es el contrato SaaS. Los hallazgos usan FindingOutcome y Severity de DOC-02/01; los estados de revisión humana no sobrescriben AuditVerdict.outcome.
+
+[CONFIRMADO] Las verificaciones de §8.1 a §8.21 son registros históricos. Sus PASS, conteos y estados no sustituyen esta revisión ni los resultados del comprobador presente.
+
+[CONFIRMADO] La evidencia de cierre, comandos, resultados y matrices de impacto de esta corrección están en el [reporte de reconciliación](../plans/reporte-reconciliacion-documentacion-opt.md).

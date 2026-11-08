@@ -198,14 +198,16 @@ Antes de presentar el documento, ejecutar la auto-auditoría de `references/docu
 
 ### Verificación reproducible de contratos compartidos
 
-- Comprobador local de DOC-01/02: `node opt/tools/validate-ddf.cjs`. Los aliases `validate-doc-01.cjs` y `validate-doc-02.cjs` validan siempre el conjunto compartido.
+- Comprobador local del corpus opt (DOC-01..07 y schemas derivados): `node opt/tools/validate-ddf.cjs`. Los aliases `validate-doc-01.cjs` y `validate-doc-02.cjs` validan siempre el conjunto compartido.
 - Usa las versiones exactas Ajv 8.20.0 y ajv-formats 2.1.1 del lockfile de `website/`; `npm ci --prefix website` reproduce su instalación. Actualizar el contrato de herramientas deliberadamente al cambiar versiones.
 - Registrar schemas antes de compilarlos, comprobar referencias/fragmentos locales y rechazar referencias externas no registradas. No cargar schemas remotos suministrados por perfiles.
 - Propietarios actuales: DOC-01/Common para Severity; DOC-02 para ComparisonStrategy, FindingOutcome, Finding y OperatorParameters. Los consumidores referencian esos schemas; no duplican enums o políticas divergentes.
 - Separar QUANTITY_COVERAGE (documento >= referencia) de TOLERANCE (abs(diferencia) < factor). Parámetros cerrados y fuente de factor explícita; números decimales canónicos con aritmética exacta.
-- El comprobador acredita schemas, fixtures y funciones de contrato; no acredita autorización, publicación transaccional, proveedor IA, paridad del adaptador ni prueba dual del motor. Conservar esos gates pendientes hasta ejecutarlos.
+- El comprobador acredita sintaxis JSON, compilación de schemas, fixtures estructurales, controles negativos y enlaces locales. Las mutaciones invalid-semantic se validan solo estructuralmente y se reportan pendientes. No ejecuta operadores de negocio ni acredita autorización, publicación transaccional, proveedor IA, paridad del adaptador o prueba dual del motor. Conservar esos gates pendientes hasta ejecutarlos.
+- Los módulos FN-01..16 se generan con `node scripts/generate-feature-modules.mjs`; `--check` comprueba sincronización. Sus schemas son referencias a contratos propietarios; FN-16 rechaza toda instancia por ser una restricción retirada, no una API. Las tareas `it.todo` y escenarios sin step definitions no cuentan como pruebas aprobadas.
+- PipelineEvent, AuditState y TelemetryEvent exigen tenant_id; autorización y alcances pertenecen a SecurityContext. La recuperación usa recibos durables por consumidor y outbox, no un SET NX previo como prueba de éxito.
 - Cada reporte debe indicar comando, versiones, conteos, fallos y alcance. No trasladar PASS históricos cuyo mecanismo no existe o cuya revisión difiere.
-- El maestro registra RISK-06 cuando `opt/` no está versionado. Continuar el descubrimiento local, pero resolver ubicación canónica y CI antes de aprobar la guía de implementación.
+- El maestro separa el versionado de opt de la integración CI: la presencia de archivos rastreados no acredita que el CI ejecute estos contratos. Resolver la automatización antes de aprobar la guía de implementación.
 
 - Directorio de destino: Todos los documentos DOC-01 a DOC-07 deben alojarse en opt/ (ej. opt/DOC-01-SPEC-DOMAIN-METAMODEL.md).
 - Idioma: Español (Latinoamérica) por defecto, salvo que el usuario solicite otro.

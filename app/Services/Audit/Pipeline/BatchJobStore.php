@@ -21,7 +21,7 @@ class BatchJobStore
     public const JOB_STATUS_COMPLETED_WITH_ERR  = 'completed_with_errors';
     public const JOB_STATUS_FAILED              = 'failed';
 
-    private const DEFAULT_JOB_TTL_SECONDS = 604800;
+    private const DEFAULT_JOB_TTL_SECONDS = 86400;
 
     /** Clave del hash Redis donde se acumulan contadores operativos del pipeline. */
     public const TELEMETRY_KEY = 'telemetry:async_metrics';
@@ -288,23 +288,6 @@ class BatchJobStore
     }
 
     /**
-     * Reclama la publicación única del evento terminal de un job ya sellado.
-     *
-     * @param  string  $jobId  UUID del job batch.
-     * @param  string  $eventType  Tipo de evento terminal a publicar.
-     */
-    public function claimBatchTerminalEvent(string $jobId, string $eventType): bool
-    {
-        return $this->runScript(
-            self::CLAIM_BATCH_TERMINAL_EVENT_LUA,
-            [self::jobKey($jobId)],
-            [$eventType, gmdate('Y-m-d\TH:i:s\Z'), self::jobTtlSeconds()],
-            'No se pudo reclamar el evento terminal del batch en Redis',
-            ['job_id' => $jobId, 'event_type' => $eventType]
-        );
-    }
-
-    /**
      * Intenta reclamar una llave de idempotencia por cliente (X-Idempotency-Key).
      *
      * Usa SETNX atómico: si la llave no existe, la crea con el job_id y TTL.
@@ -491,8 +474,8 @@ if not raw then return 0 end
 local job = cjson.decode(raw)
 local auditId = ARGV[1]
 local disDetNro = ARGV[2]
-local disId = ARGV[3]
-local reservationToken = ARGV[4]
+-- ARGV[3] (disId) y ARGV[4] (reservationToken) viven en audit:{id}:state;
+-- job['audits'] solo conserva la proyección mínima {dis_det_nro, status}.
 local now = ARGV[5]
 local ttl = tonumber(ARGV[6])
 
@@ -501,8 +484,6 @@ if type(job['audits']) ~= 'table' then
 end
 job['audits'][auditId] = {
     dis_det_nro = disDetNro,
-    dis_id = disId,
-    reservation_token = reservationToken,
     status = 'pending'
 }
 job['total'] = (tonumber(job['total']) or 0) + 1
@@ -553,8 +534,10 @@ if wasTerminal then
 end
 
 auditState['status'] = auditStatus
-auditState['completed_at'] = now
-auditState['duration_ms'] = auditDurationMs
+auditState['dis_id'] = nil
+auditState['reservation_token'] = nil
+auditState['completed_at'] = nil
+auditState['duration_ms'] = nil
 
 if (auditStatus == 'failed' or auditStatus == 'manual_review') and failedStage and failedStage ~= '' then
     auditState['failed_stage'] = failedStage
@@ -622,24 +605,6 @@ end
 
 job['updated_at'] = now
 storeState(KEYS[1], job, ttl)
-return 1
-LUA;
-
-    private const CLAIM_BATCH_TERMINAL_EVENT_LUA = <<<'LUA'
-local raw = redis.call('GET', KEYS[1])
-if not raw then return 0 end
-
-local job = cjson.decode(raw)
-if job['sealed'] ~= true then
-    return 0
-end
-if tostring(job['batch_event_published'] or '') ~= '' then
-    return 2
-end
-
-job['batch_event_published'] = ARGV[1]
-job['updated_at'] = ARGV[2]
-storeState(KEYS[1], job, tonumber(ARGV[3]))
 return 1
 LUA;
 

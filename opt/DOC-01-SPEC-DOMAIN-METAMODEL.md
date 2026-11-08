@@ -5,17 +5,17 @@
 ```yaml
 document_id: "DOC-01"
 document_name: "SPEC-DOMAIN-METAMODEL"
-version: "v0.3.0-review"
+version: "v0.4.0-review"
 status: "REVIEW"
 completeness_level: "C"
-last_updated: "2026-10-06"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revision humana"
 reviewers: []
 assumptions_count:
   S1: 2
   S2: 2
-  S3: 0
+  S3: 1
   S4: 0
 unknowns_critical: 3
 unknowns_non_critical: 6
@@ -32,7 +32,7 @@ unknowns_non_critical: 6
 Actualización v0.3.0-review (2026-10-06): contratos únicos de operadores/resultados/Finding de DOC-02, severidad única en Common, parámetros cerrados, SV-07 y publicación directa DEC-P-011. Seguridad, persistencia histórica y extracción SaaS siguen pendientes; completitud C. La verificación actual sustituye el resultado histórico cuyo ejecutable no estaba disponible.
 
 
-Resolución de los hallazgos de la auditoría [audit_doc01_metamodel.md](file:///C:/Users/USER/.gemini/antigravity-ide/brain/1010cf98-4907-4859-8ab6-8ad5bb8fb778/audit_doc01_metamodel.md).
+Resolución de los hallazgos de la auditoría audit_doc01_metamodel.md (referencia histórica externa no incluida en el repositorio).
 
 | Hallazgo | Resolución en v0.2.0 | Dónde |
 |---|---|---|
@@ -103,23 +103,23 @@ Método: lectura directa del código citado y búsquedas por línea sobre `app`,
 
 | Componente | Ruta | Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|:---:|
-| `AuditConfigModel` | [AuditConfigModel.php](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditConfigModel.php) | `getConfig()` | L28-L119 | Une catálogo, enlaces por cliente y documentos; calcula valores efectivos. | `[CONFIRMADO]` |
+| `AuditConfigModel` | [AuditConfigModel.php](../app/Models/AuditConfigModel.php) | `getConfig()` | L28-L119 | Une catálogo, enlaces por cliente y documentos; calcula valores efectivos. | `[CONFIRMADO]` |
 | `AuditConfigModel` | idem | `getHeader()` | L124-L142 | Lee `SystemPrompt`, `Activo`, `FactorConv`, `DiasVigencia` de `AudDisp`. | `[CONFIRMADO]` |
 | `AuditConfigModel` | idem | `getCatalog()` | L336-L352 | Lee `AudDispCampoCatalogo`. | `[CONFIRMADO]` |
-| `AuditConfigController` | [AuditConfigController.php](file:///c:/Users/USER/Desktop/AudFact/app/Controllers/AuditConfigController.php) | `save()`, `sanitizeFields()` | L82-L265 | Validación de la configuración guardada. | `[CONFIRMADO]` |
-| `AuditComparisonType` | [AuditComparisonType.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditComparisonType.php) | enum | L13-L63 | Códigos `E/S/B/V/I/P` y umbrales. | `[CONFIRMADO]` |
-| `AuditFieldValueType` | [AuditFieldValueType.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php) | enum | L15-L237 | 13 tipos de dato con comportamiento asociado. | `[CONFIRMADO]` |
-| `AuditSeverity` | [AuditSeverity.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditSeverity.php) | enum | L13-L30 | Severidades `alta/media/baja`. | `[CONFIRMADO]` |
-| `AuditFindingResult` | [AuditFindingResult.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFindingResult.php) | enum | L12-L30 | Seis resultados de hallazgo y `isFailure()`. | `[CONFIRMADO]` |
-| `DispensationModel` | [DispensationModel.php](file:///c:/Users/USER/Desktop/AudFact/app/Models/DispensationModel.php) | `HEADER_FIELDS`, `ITEM_FIELDS`, `formatDispensation()`, filtros | L19-L91, L162-L167 | Fuente de verdad `{header, items}`; filtros exigen ambas llaves. | `[CONFIRMADO]` |
-| `AttachmentsModel` | [AttachmentsModel.php](file:///c:/Users/USER/Desktop/AudFact/app/Models/AttachmentsModel.php) | `getAttachmentsByDisDetNro()`, `getPhysicalAttachmentsByDisDetNro()` | L26-L66, L76 en adelante | Adjuntos y tipo de almacenamiento. | `[CONFIRMADO]` |
-| `AuditResultPersistenceModel` | [AuditResultPersistenceModel.php](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php) | `persist()`, `upsertAuditResult()`, `persistAttachmentDecisions()`, `executeAttachmentUpdates()` | L40-L95, L148-L188, L231-L331, L336-L418 | Persistencia transaccional del resultado. | `[CONFIRMADO]` |
-| `RulesEvaluationWorker` | [RulesEvaluationWorker.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php) | `resolveFinalStatus()`, `resolveOverallSeverity()`, `buildAuditResultData()` | L560-L660, L672-L721, L761-L793 | Estado final, severidad global y resultado persistido. | `[CONFIRMADO]` |
-| `DocumentPolicyEngine` | [DocumentPolicyEngine.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentPolicyEngine.php) | `evaluateSingleDataField()`, `buildDataFinding()`, `evaluateField()`, `evaluateBusinessField()` | L239-L330, L487-L526, L566-L623, L983-L1030 | Construcción de hallazgos. | `[CONFIRMADO]` |
-| `DocumentExtractionContractBuilder` | [DocumentExtractionContractBuilder.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `groupFields()`, `isItemField()` | L187-L246 | Alcance cabecera/ítem y exclusión de campos internos. | `[CONFIRMADO]` |
-| `DocumentAuditOrchestrator` | [DocumentAuditOrchestrator.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php) | `isServiceApplicable()`, `resolveServiceType()` | L584-L605 | Aplicabilidad de campos por tipo de servicio. | `[CONFIRMADO]` |
-| `DocumentMappingRejectionReason` | [DocumentMappingRejectionReason.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php) | constantes | L9-L13 | Motivos de rechazo de mapeo documental. | `[CONFIRMADO]` |
-| `AuditStateStore` | [AuditStateStore.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php) | constantes | L18-L28 | Estados `pending`, `processing`, `completed`, `manual_review`, `error`, `failed`. | `[CONFIRMADO]` |
+| `AuditConfigController` | [AuditConfigController.php](../app/Controllers/AuditConfigController.php) | `save()`, `sanitizeFields()` | L82-L265 | Validación de la configuración guardada. | `[CONFIRMADO]` |
+| `AuditComparisonType` | [AuditComparisonType.php](../app/Services/Audit/AuditComparisonType.php) | enum | L13-L63 | Códigos `E/S/B/V/I/P` y umbrales. | `[CONFIRMADO]` |
+| `AuditFieldValueType` | [AuditFieldValueType.php](../app/Services/Audit/AuditFieldValueType.php) | enum | L15-L237 | 13 tipos de dato con comportamiento asociado. | `[CONFIRMADO]` |
+| `AuditSeverity` | [AuditSeverity.php](../app/Services/Audit/AuditSeverity.php) | enum | L13-L30 | Severidades `alta/media/baja`. | `[CONFIRMADO]` |
+| `AuditFindingResult` | [AuditFindingResult.php](../app/Services/Audit/AuditFindingResult.php) | enum | L12-L30 | Seis resultados de hallazgo y `isFailure()`. | `[CONFIRMADO]` |
+| `DispensationModel` | [DispensationModel.php](../app/Models/DispensationModel.php) | `HEADER_FIELDS`, `ITEM_FIELDS`, `formatDispensation()`, filtros | L19-L91, L162-L167 | Fuente de verdad `{header, items}`; filtros exigen ambas llaves. | `[CONFIRMADO]` |
+| `AttachmentsModel` | [AttachmentsModel.php](../app/Models/AttachmentsModel.php) | `getAttachmentsByDisDetNro()`, `getPhysicalAttachmentsByDisDetNro()` | L26-L66, L76 en adelante | Adjuntos y tipo de almacenamiento. | `[CONFIRMADO]` |
+| `AuditResultPersistenceModel` | [AuditResultPersistenceModel.php](../app/Models/AuditResultPersistenceModel.php) | `persist()`, `upsertAuditResult()`, `persistAttachmentDecisions()`, `executeAttachmentUpdates()` | L40-L95, L148-L188, L231-L331, L336-L418 | Persistencia transaccional del resultado. | `[CONFIRMADO]` |
+| `RulesEvaluationWorker` | [RulesEvaluationWorker.php](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php) | `resolveFinalStatus()`, `resolveOverallSeverity()`, `buildAuditResultData()` | L560-L660, L672-L721, L761-L793 | Estado final, severidad global y resultado persistido. | `[CONFIRMADO]` |
+| `DocumentPolicyEngine` | [DocumentPolicyEngine.php](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php) | `evaluateSingleDataField()`, `buildDataFinding()`, `evaluateField()`, `evaluateBusinessField()` | L239-L330, L487-L526, L566-L623, L983-L1030 | Construcción de hallazgos. | `[CONFIRMADO]` |
+| `DocumentExtractionContractBuilder` | [DocumentExtractionContractBuilder.php](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `groupFields()`, `isItemField()` | L187-L246 | Alcance cabecera/ítem y exclusión de campos internos. | `[CONFIRMADO]` |
+| `DocumentAuditOrchestrator` | [DocumentAuditOrchestrator.php](../app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php) | `isServiceApplicable()`, `resolveServiceType()` | L584-L605 | Aplicabilidad de campos por tipo de servicio. | `[CONFIRMADO]` |
+| `DocumentMappingRejectionReason` | [DocumentMappingRejectionReason.php](../app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php) | constantes | L9-L13 | Motivos de rechazo de mapeo documental. | `[CONFIRMADO]` |
+| `AuditStateStore` | [AuditStateStore.php](../app/Services/Audit/Pipeline/AuditStateStore.php) | constantes | L18-L28 | Estados `pending`, `processing`, `completed`, `manual_review`, `error`, `failed`. | `[CONFIRMADO]` |
 
 ### 3.2 Flujo de Datos Actual
 
@@ -146,28 +146,28 @@ flowchart TD
 
 | ID | Regla observada | Evidencia | Clasificación |
 |---|---|---|:---:|
-| R-01 | La unidad auditada es una dispensa identificada por `DisDetNro`; `DisId` es la llave padre. Las consultas de fuente de verdad exigen ambos filtros. La PK operativa de `AudDispEst` es `FacNro` y `FacSec` conserva `DisId`. | [DispensationModel.php:162-167](file:///c:/Users/USER/Desktop/AudFact/app/Models/DispensationModel.php#L162-L167); [AGENTS.md:151-152](file:///c:/Users/USER/Desktop/AudFact/AGENTS.md#L151-L152) | `[CONFIRMADO]` |
-| R-02 | La fuente de verdad se parte en `header` (campos de `HEADER_FIELDS`) e `items` (campos de `ITEM_FIELDS`). | [DispensationModel.php:19-69, 78-90](file:///c:/Users/USER/Desktop/AudFact/app/Models/DispensationModel.php#L19-L90) | `[CONFIRMADO]` |
-| R-03 | El catálogo operativo de campos es `AudDispCampoCatalogo` con columnas `CampoNombre`, `CodigoCampo`, `TipoCampo`, `TipoDato`, `Descripcion`, `Severidad`, `EsVisual`. | [AuditConfigModel.php:336-341](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditConfigModel.php#L336-L341) | `[CONFIRMADO]` |
-| R-04 | El enlace campo-documento-cliente (`AudDispCampo`) aporta `Orden`, `DescripcionOverride`, `SeveridadOverride`, `TipoCampoOverride`, `AplicaServicio`, `EsMultiItem`. Estrategia efectiva: `COALESCE(TipoCampoOverride, TipoCampo)`. Descripción efectiva: `DescripcionOverride ?? Descripcion ?? ''`. Severidad efectiva: `SeveridadOverride ?? Severidad ??` `'media'` para campos y `'alta'` para controles visuales. | [AuditConfigModel.php:35-50, 82, 92, 103](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditConfigModel.php#L35-L103) | `[CONFIRMADO]` |
-| R-05 | Solo se exportan documentos no opcionales (`NitMedDocOpc = 'N'`). | [AuditConfigModel.php:49](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditConfigModel.php#L49) | `[CONFIRMADO]` |
-| R-06 | Los códigos `E/S/B/V/I/P` se mapean a `exact/semantic/business/visual/internal/presence`; un código desconocido produce `exact`. Umbral textual: `0.82` para `S`, `0.90` en los demás. Coincidencia por contención: solo `S`. | [AuditComparisonType.php:25-62](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditComparisonType.php#L25-L62) | `[CONFIRMADO]` |
-| R-07 | Existen 13 tipos de dato con rasgos: multivalor documental (`code`, `trace_token`, `article_name`), comparación por subconjunto (`code`), por conjunto igual (`trace_token`), por cobertura (`article_name`), orden de tokens indiferente (`person_name`), árbitro semántico (`article_name`, `person_name`), sumable (`quantity`). | [AuditFieldValueType.php:15-166](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L15-L166) | `[CONFIRMADO]` |
-| R-08 | Tipos permitidos por código de estrategia: `B` solo `quantity`; `S` solo `text`, `person_name`, `institution_name`, `article_name`; `E` y `P` todos; los demás ninguno. | [AuditFieldValueType.php:224-237](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFieldValueType.php#L224-L237) | `[CONFIRMADO]` |
-| R-09 | Los campos `V` e `I` no se evalúan; los `I` se excluyen del contrato de extracción. Un `TipoDato` vacío en un campo evaluable produce excepción. | [DocumentPolicyEngine.php:250-253, 311-314, 555-558](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L250-L314); [DocumentExtractionContractBuilder.php:195-198](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L195-L198) | `[CONFIRMADO]` |
-| R-10 | Un campo pertenece a ítems si `EsMultiItem`, o su estrategia es `business`, o su tipo de dato es `article_name` o `trace_token`. | [DocumentExtractionContractBuilder.php:228-246](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L228-L246) | `[CONFIRMADO]` |
-| R-11 | Un campo aplica si `aplica == 'TODOS'`, o el tipo de servicio del caso es `'TODOS'`, o ambos coinciden. El tipo de servicio es el primer `Tipo` no vacío de los ítems, o `'TODOS'`. | [DocumentAuditOrchestrator.php:584-605](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php#L584-L605) | `[CONFIRMADO]` |
-| R-12 | Un hallazgo de campo contiene `campo`, `valorFuenteVerdad`, `valorDocumento`, `resultado`, `severidad`, `documento`, `detalle`, `tipo_auditoria`, `valueType`, `codigoCampo` y, según el caso, `valoresFuenteVerdad`, `valoresDocumento`, `extraction_meta`. | [DocumentPolicyEngine.php:500-523](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L500-L523) | `[CONFIRMADO]` |
-| R-13 | Resultados de hallazgo: `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`, `RECHAZADO`. Son fallo todos salvo `COINCIDE` y `OMITIDO`. | [AuditFindingResult.php:14-30](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/AuditFindingResult.php#L14-L30) | `[CONFIRMADO]` |
-| R-14 | Estado final: algún fallo con severidad `alta` produce `manual_review`; si no, cualquier otro fallo produce `error`; sin fallos produce `completed`. | [RulesEvaluationWorker.php:672-702](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L672-L702) | `[CONFIRMADO]` |
-| R-15 | Severidad global: máximo entre **todos** los hallazgos (no solo fallos), con valor inicial `baja`. | [RulesEvaluationWorker.php:707-721](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L707-L721) | `[CONFIRMADO]` |
-| R-16 | `EstAud` es `BIT`: `1` solo si el estado final es `completed`. `RequiereRevisionHumana` es `1` si el estado es `manual_review` o `failed`. | [AuditResultPersistenceModel.php:148](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L148); [RulesEvaluationWorker.php:589-595, 621-623](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L589-L623) | `[CONFIRMADO]` |
-| R-17 | El resultado persistido contiene `EstadoDetallado`, `Severidad`, `Hallazgos` (JSON), `DetalleError` (mensaje resumen), `DocumentosProcesados`, `DocumentoFallido`, `DuracionProcesamientoMs`, `FacNitSec`. | [AuditResultPersistenceModel.php:148-157](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L148-L157); [RulesEvaluationWorker.php:618-638](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L618-L638) | `[CONFIRMADO]` |
-| R-18 | Una decisión documental contiene `documentName`, `approved`, `payload`, `doc_id`, `attachment_id` y, si hay rechazo, `rejection_reason`, `rejection_class`, `rejection_category`, `candidate_attachment_ids`. Motivos de mapeo: `DOCUMENT_ATTACHMENT_MISSING`, `_AMBIGUOUS`, `_NO_CONTENT`, `_REUSED`. | [RulesEvaluationWorker.php:560-583](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L560-L583); [DocumentMappingRejectionReason.php:9-13](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php#L9-L13) | `[CONFIRMADO]` |
-| R-19 | Persistir exige al menos un adjunto. La decisión se empareja primero por `attachment_id` y luego por nombre. Una decisión huérfana rechazada se asigna al adjunto `DISPENSA`, o al primero si no existe. | [AuditResultPersistenceModel.php:237-240, 256-307, 321-331](file:///c:/Users/USER/Desktop/AudFact/app/Models/AuditResultPersistenceModel.php#L237-L331) | `[CONFIRMADO]` |
-| R-20 | Tipos de almacenamiento de un adjunto: `BLOB`, `URL`, `SIN_DOCUMENTOS`. | [AttachmentsModel.php:37-41](file:///c:/Users/USER/Desktop/AudFact/app/Models/AttachmentsModel.php#L37-L41) | `[CONFIRMADO]` |
-| R-21 | Validación al guardar configuración: severidades `ALTA/MEDIA/BAJA` con valor por defecto `ALTA`; `diasVigencia` entero entre 1 y 365; `campoNombre` debe existir en el catálogo y cumplir `^[A-Za-z0-9_.\-]{1,100}$`; `aplicaServicio` cumple `^[A-Za-z0-9_\-]{1,20}$` con valor por defecto `TODOS`. | [AuditConfigController.php:19, 119-132, 214-265](file:///c:/Users/USER/Desktop/AudFact/app/Controllers/AuditConfigController.php#L19-L265) | `[CONFIRMADO]` |
-| R-22 | Las métricas leídas sin valor por defecto son `discrepancias` y `total_campos`; `no_concluyentes` se lee con valor por defecto `0`. | [RulesEvaluationWorker.php:767, 771, 781, 791](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L761-L793) | `[CONFIRMADO]` |
+| R-01 | La unidad auditada es una dispensa identificada por `DisDetNro`; `DisId` es la llave padre. Las consultas de fuente de verdad exigen ambos filtros. La PK operativa de `AudDispEst` es `FacNro` y `FacSec` conserva `DisId`. | [DispensationModel.php:162-167](../app/Models/DispensationModel.php#L162-L167); [AGENTS.md:151-152](../AGENTS.md#L151-L152) | `[CONFIRMADO]` |
+| R-02 | La fuente de verdad se parte en `header` (campos de `HEADER_FIELDS`) e `items` (campos de `ITEM_FIELDS`). | [DispensationModel.php:19-69, 78-90](../app/Models/DispensationModel.php#L19-L90) | `[CONFIRMADO]` |
+| R-03 | El catálogo operativo de campos es `AudDispCampoCatalogo` con columnas `CampoNombre`, `CodigoCampo`, `TipoCampo`, `TipoDato`, `Descripcion`, `Severidad`, `EsVisual`. | [AuditConfigModel.php:336-341](../app/Models/AuditConfigModel.php#L336-L341) | `[CONFIRMADO]` |
+| R-04 | El enlace campo-documento-cliente (`AudDispCampo`) aporta `Orden`, `DescripcionOverride`, `SeveridadOverride`, `TipoCampoOverride`, `AplicaServicio`, `EsMultiItem`. Estrategia efectiva: `COALESCE(TipoCampoOverride, TipoCampo)`. Descripción efectiva: `DescripcionOverride ?? Descripcion ?? ''`. Severidad efectiva: `SeveridadOverride ?? Severidad ??` `'media'` para campos y `'alta'` para controles visuales. | [AuditConfigModel.php:35-50, 82, 92, 103](../app/Models/AuditConfigModel.php#L35-L103) | `[CONFIRMADO]` |
+| R-05 | Solo se exportan documentos no opcionales (`NitMedDocOpc = 'N'`). | [AuditConfigModel.php:49](../app/Models/AuditConfigModel.php#L49) | `[CONFIRMADO]` |
+| R-06 | Los códigos `E/S/B/V/I/P` se mapean a `exact/semantic/business/visual/internal/presence`; un código desconocido produce `exact`. Umbral textual: `0.82` para `S`, `0.90` en los demás. Coincidencia por contención: solo `S`. | [AuditComparisonType.php:25-62](../app/Services/Audit/AuditComparisonType.php#L25-L62) | `[CONFIRMADO]` |
+| R-07 | Existen 13 tipos de dato con rasgos: multivalor documental (`code`, `trace_token`, `article_name`), comparación por subconjunto (`code`), por conjunto igual (`trace_token`), por cobertura (`article_name`), orden de tokens indiferente (`person_name`), árbitro semántico (`article_name`, `person_name`), sumable (`quantity`). | [AuditFieldValueType.php:15-166](../app/Services/Audit/AuditFieldValueType.php#L15-L166) | `[CONFIRMADO]` |
+| R-08 | Tipos permitidos por código de estrategia: `B` solo `quantity`; `S` solo `text`, `person_name`, `institution_name`, `article_name`; `E` y `P` todos; los demás ninguno. | [AuditFieldValueType.php:224-237](../app/Services/Audit/AuditFieldValueType.php#L224-L237) | `[CONFIRMADO]` |
+| R-09 | Los campos `V` e `I` no se evalúan; los `I` se excluyen del contrato de extracción. Un `TipoDato` vacío en un campo evaluable produce excepción. | [DocumentPolicyEngine.php:250-253, 311-314, 555-558](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L250-L314); [DocumentExtractionContractBuilder.php:195-198](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L195-L198) | `[CONFIRMADO]` |
+| R-10 | Un campo pertenece a ítems si `EsMultiItem`, o su estrategia es `business`, o su tipo de dato es `article_name` o `trace_token`. | [DocumentExtractionContractBuilder.php:228-246](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L228-L246) | `[CONFIRMADO]` |
+| R-11 | Un campo aplica si `aplica == 'TODOS'`, o el tipo de servicio del caso es `'TODOS'`, o ambos coinciden. El tipo de servicio es el primer `Tipo` no vacío de los ítems, o `'TODOS'`. | [DocumentAuditOrchestrator.php:584-605](../app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php#L584-L605) | `[CONFIRMADO]` |
+| R-12 | Un hallazgo de campo contiene `campo`, `valorFuenteVerdad`, `valorDocumento`, `resultado`, `severidad`, `documento`, `detalle`, `tipo_auditoria`, `valueType`, `codigoCampo` y, según el caso, `valoresFuenteVerdad`, `valoresDocumento`, `extraction_meta`. | [DocumentPolicyEngine.php:500-523](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L500-L523) | `[CONFIRMADO]` |
+| R-13 | Resultados de hallazgo: `COINCIDE`, `VALOR_DISTINTO`, `NO_ENCONTRADO`, `OMITIDO`, `NO_CONCLUYENTE`, `RECHAZADO`. Son fallo todos salvo `COINCIDE` y `OMITIDO`. | [AuditFindingResult.php:14-30](../app/Services/Audit/AuditFindingResult.php#L14-L30) | `[CONFIRMADO]` |
+| R-14 | Estado final: algún fallo con severidad `alta` produce `manual_review`; si no, cualquier otro fallo produce `error`; sin fallos produce `completed`. | [RulesEvaluationWorker.php:672-702](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L672-L702) | `[CONFIRMADO]` |
+| R-15 | Severidad global: máximo entre **todos** los hallazgos (no solo fallos), con valor inicial `baja`. | [RulesEvaluationWorker.php:707-721](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L707-L721) | `[CONFIRMADO]` |
+| R-16 | `EstAud` es `BIT`: `1` solo si el estado final es `completed`. `RequiereRevisionHumana` es `1` si el estado es `manual_review` o `failed`. | [AuditResultPersistenceModel.php:148](../app/Models/AuditResultPersistenceModel.php#L148); [RulesEvaluationWorker.php:589-595, 621-623](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L589-L623) | `[CONFIRMADO]` |
+| R-17 | El resultado persistido contiene `EstadoDetallado`, `Severidad`, `Hallazgos` (JSON), `DetalleError` (mensaje resumen), `DocumentosProcesados`, `DocumentoFallido`, `DuracionProcesamientoMs`, `FacNitSec`. | [AuditResultPersistenceModel.php:148-157](../app/Models/AuditResultPersistenceModel.php#L148-L157); [RulesEvaluationWorker.php:618-638](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L618-L638) | `[CONFIRMADO]` |
+| R-18 | Una decisión documental contiene `documentName`, `approved`, `payload`, `doc_id`, `attachment_id` y, si hay rechazo, `rejection_reason`, `rejection_class`, `rejection_category`, `candidate_attachment_ids`. Motivos de mapeo: `DOCUMENT_ATTACHMENT_MISSING`, `_AMBIGUOUS`, `_NO_CONTENT`, `_REUSED`. | [RulesEvaluationWorker.php:560-583](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L560-L583); [DocumentMappingRejectionReason.php:9-13](../app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php#L9-L13) | `[CONFIRMADO]` |
+| R-19 | Persistir exige al menos un adjunto. La decisión se empareja primero por `attachment_id` y luego por nombre. Una decisión huérfana rechazada se asigna al adjunto `DISPENSA`, o al primero si no existe. | [AuditResultPersistenceModel.php:237-240, 256-307, 321-331](../app/Models/AuditResultPersistenceModel.php#L237-L331) | `[CONFIRMADO]` |
+| R-20 | Tipos de almacenamiento de un adjunto: `BLOB`, `URL`, `SIN_DOCUMENTOS`. | [AttachmentsModel.php:37-41](../app/Models/AttachmentsModel.php#L37-L41) | `[CONFIRMADO]` |
+| R-21 | Validación al guardar configuración: severidades `ALTA/MEDIA/BAJA` con valor por defecto `ALTA`; `diasVigencia` entero entre 1 y 365; `campoNombre` debe existir en el catálogo y cumplir `^[A-Za-z0-9_.\-]{1,100}$`; `aplicaServicio` cumple `^[A-Za-z0-9_\-]{1,20}$` con valor por defecto `TODOS`. | [AuditConfigController.php:19, 119-132, 214-265](../app/Controllers/AuditConfigController.php#L19-L265) | `[CONFIRMADO]` |
+| R-22 | Las métricas leídas sin valor por defecto son `discrepancias` y `total_campos`; `no_concluyentes` se lee con valor por defecto `0`. | [RulesEvaluationWorker.php:767, 771, 781, 791](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L761-L793) | `[CONFIRMADO]` |
 
 ### 3.4 Hechos No Verificados
 
@@ -176,7 +176,7 @@ flowchart TD
 | ~~U-01~~ | Las tablas `AudCatalogoCampo`, `AudCatalogoAlias` y `AudDocTipoCanonicoMap` **no existen en la base de datos** (`Discolnet`). Consulta `INFORMATION_SCHEMA.TABLES` el 2026-10-05 retornó 0 filas. | Cerrado. Las migraciones 001-003 nunca se ejecutaron. Esta especificación no depende de ellas. | `[CONFIRMADO]` |
 | ~~U-02~~ | Clave primaria registrada de `AudDispCampo`: `PK_AudDispCampo (FacNitSec, NitMedDocId, CampoNombre)` — (cliente de negocio, documento, campo). Esta unicidad no demuestra aislamiento de tenants. | Consulta `INFORMATION_SCHEMA.KEY_COLUMN_USAGE` del 2026-10-05 registrada en la revisión anterior; no reejecutada en esta sesión. Semántica de cliente: aclaración del usuario del 2026-10-06 y `ClientsModel::getAllClients()`, líneas observadas 47-79. | `[CONFIRMADO]` |
 | ~~U-03~~ | Relación entre `EsVisual` y el código `V`: **correlación perfecta**. `TipoCampo='V'` siempre con `EsVisual=true` (3 campos); todos los demás códigos (`E`, `S`, `B`, `I`) con `EsVisual=false`. | Consulta `GROUP BY TipoCampo, EsVisual` sobre `AudDispCampoCatalogo` el 2026-10-05. | `[CONFIRMADO]` |
-| U-04 | Valores de calidad de documento distintos de `legible`. | Solo se observa la comparación con `legible` ([DocumentPolicyEngine.php:578](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L578)). | `[DESCONOCIDO]` |
+| U-04 | Valores de calidad de documento distintos de `legible`. | Solo se observa la comparación con `legible` ([DocumentPolicyEngine.php:578](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L578)). | `[DESCONOCIDO]` |
 | U-05 | Conjunto completo de claves de `metrics`. | Solo se leyeron las de R-22. | `[DESCONOCIDO]` |
 | U-06 | Estructura de `timings`. | Producida por `AuditTimingSummarizer`, no leída. | `[DESCONOCIDO]` |
 | U-07 | Cómo se calcula `approved` en `mergeCalculatedFindingsIntoDecisions()`. | Función no leída (L800 en adelante). | `[DESCONOCIDO]` |
@@ -187,11 +187,11 @@ flowchart TD
 
 | ID | Particularidad | Evidencia | Clasificación |
 |---|---|---|:---:|
-| Q-01 | La consulta de fuente de verdad contiene ramas por cliente (`NitSec IN (...)`, `NitSec = '2426'`) que alteran el origen de columnas. | [DispensationModel.php:205, 240, 246](file:///c:/Users/USER/Desktop/AudFact/app/Models/DispensationModel.php#L205) | `[CONFIRMADO]` |
-| Q-02 | Los hallazgos se guardan dos veces en el JSON de resultado (`items` y `field_decisions`). | [RulesEvaluationWorker.php:626-627](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L626-L627) | `[CONFIRMADO]` |
-| Q-03 | La severidad global cuenta hallazgos que no son fallo (R-15). | [RulesEvaluationWorker.php:710-720](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L710-L720) | `[CONFIRMADO]` |
-| Q-04 | El tipo de servicio del caso es el primer ítem con `Tipo` no vacío (R-11). | [DocumentAuditOrchestrator.php:590-605](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php#L590-L605) | `[CONFIRMADO]` |
-| Q-05 | El estado `error` se usa también para discrepancias no altas con auditoría completada. | [RulesEvaluationWorker.php:765-768](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L765-L768) | `[CONFIRMADO]` |
+| Q-01 | La consulta de fuente de verdad contiene ramas por cliente (`NitSec IN (...)`, `NitSec = '2426'`) que alteran el origen de columnas. | [DispensationModel.php:205, 240, 246](../app/Models/DispensationModel.php#L205) | `[CONFIRMADO]` |
+| Q-02 | Los hallazgos se guardan dos veces en el JSON de resultado (`items` y `field_decisions`). | [RulesEvaluationWorker.php:626-627](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L626-L627) | `[CONFIRMADO]` |
+| Q-03 | La severidad global cuenta hallazgos que no son fallo (R-15). | [RulesEvaluationWorker.php:710-720](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L710-L720) | `[CONFIRMADO]` |
+| Q-04 | El tipo de servicio del caso es el primer ítem con `Tipo` no vacío (R-11). | [DocumentAuditOrchestrator.php:590-605](../app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php#L590-L605) | `[CONFIRMADO]` |
+| Q-05 | El estado `error` se usa también para discrepancias no altas con auditoría completada. | [RulesEvaluationWorker.php:765-768](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L765-L768) | `[CONFIRMADO]` |
 
 ---
 
@@ -215,7 +215,7 @@ flowchart TD
 classDiagram
     class ProcessDefinition {
         +Identifier process_id
-        +Identifier tenant_id
+        +UUID tenant_id
         +string version
         +boolean active
         +string extraction_instructions
@@ -269,7 +269,7 @@ classDiagram
     class AuditCase {
         +Identifier case_id
         +Identifier parent_reference
-        +Identifier tenant_id
+        +UUID tenant_id
         +Identifier process_definition_id
         +string discriminator
         +TruthSource truth_source
@@ -332,7 +332,7 @@ Las estrategias `VISUAL` e `INTERNAL` no evalúan un valor textual: su `value_ty
 
 ### 4.4 Esquemas Formales (JSON Schema 2020-12)
 
-Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por diseño. Cada bloque se extrae y valida con [validate-doc-01.cjs](file:///c:/Users/USER/Desktop/AudFact/opt/tools/validate-doc-01.cjs).
+Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por diseño. Cada bloque se extrae y valida con [validate-doc-01.cjs](tools/validate-doc-01.cjs).
 
 #### Esquema común
 
@@ -503,7 +503,8 @@ Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por
       "$ref": "common.schema.json#/$defs/Identifier"
     },
     "tenant_id": {
-      "$ref": "common.schema.json#/$defs/Identifier"
+      "type": "string",
+      "format": "uuid"
     },
     "name": {
       "type": "string",
@@ -1038,7 +1039,8 @@ Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por
       "$ref": "common.schema.json#/$defs/NullableIdentifier"
     },
     "tenant_id": {
-      "$ref": "common.schema.json#/$defs/Identifier"
+      "type": "string",
+      "format": "uuid"
     },
     "process_definition_id": {
       "$ref": "common.schema.json#/$defs/Identifier"
@@ -1212,7 +1214,8 @@ Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por
       "$ref": "common.schema.json#/$defs/Identifier"
     },
     "tenant_id": {
-      "$ref": "common.schema.json#/$defs/Identifier"
+      "type": "string",
+      "format": "uuid"
     },
     "process_definition_id": {
       "$ref": "common.schema.json#/$defs/Identifier"
@@ -1365,7 +1368,7 @@ Los identificadores `$id` usan el dominio reservado `.invalid`: no resuelven por
 
 ### 4.5 Reglas Semánticas
 
-JSON Schema no expresa referencias cruzadas entre elementos de un arreglo. Las siguientes reglas se aplican después del esquema y las implementa [validate-doc-01.cjs](file:///c:/Users/USER/Desktop/AudFact/opt/tools/validate-doc-01.cjs). El parámetro `max_collection_depth` es el nivel de conformidad (CL-1 = 1).
+JSON Schema no expresa referencias cruzadas entre elementos de un arreglo. Las siguientes reglas se aplican contractualmente después del esquema; su implementación formal dentro del arnés de pruebas automatizado [validate-ddf.cjs](tools/validate-ddf.cjs) se encuentra en fase de desarrollo y revisión (10 casos semánticos permanecen marcados como pendientes). El parámetro `max_collection_depth` es el nivel de conformidad (CL-1 = 1).
 
 | Regla | Condición exigida sobre una `ProcessDefinition` |
 |---|---|
@@ -1475,7 +1478,7 @@ Firmas mínimas que requiere este contrato de datos. La especificación completa
 
 | Operación | Precondición | Postcondición | Fallos |
 |---|---|---|---|
-| `obtenerCaso(tenantId, caseId) -> AuditCase` | Contexto autorizado; `tenantId` y `caseId` cumplen `Identifier`. | El resultado valida contra `AuditCase`; `case_id` y `tenant_id` coinciden con los solicitados. | `CASE_NOT_FOUND` si la fuente no tiene el caso. `SOURCE_UNAVAILABLE` si la fuente no responde. |
+| `obtenerCaso(tenantId, caseId) -> AuditCase` | Contexto autorizado; `tenantId` cumple UUID y `caseId` cumple `Identifier`. | El resultado valida contra `AuditCase`; `case_id` y `tenant_id` coinciden con los solicitados. | `CASE_NOT_FOUND` si la fuente no tiene el caso. `SOURCE_UNAVAILABLE` si la fuente no responde. |
 | `obtenerProceso(tenantId, processId, publishedVersion) -> ProcessDefinition` | `processId` cumple `Identifier`. | El resultado valida contra `ProcessDefinition`, coincide con tenant/proceso/versión y ALG-03 retorna una lista vacía. | `PROCESS_NOT_FOUND`, `PROCESS_INACTIVE` si `active` es falso, `PROCESS_INVALID` si ALG-03 retorna violaciones. |
 | `abrirContenido(tenantId, caseId, artifactId) -> flujo de bytes` | El artefacto pertenece al caso y su `storage.kind` no es `NONE`. | El flujo entrega el contenido completo del artefacto. | `ARTIFACT_NO_CONTENT` si `kind` es `NONE`. `ARTIFACT_UNAVAILABLE` si el almacenamiento no responde. |
 | `guardarVeredicto(tenantId, executionId, verdict) -> vacío` | Contexto autorizado; tenant de verdict coincide; resultado valida y executionId identifica la ejecución admitida. | Resultado automático inmutable por ejecución. Una repetición idéntica es idempotente; una diferente en la misma ejecución produce RESULT_CONFLICT. Reproceso crea ejecución nueva; cambiar el puntero vigente conserva el historial. | VERDICT_INVALID, RESULT_CONFLICT, STORE_UNAVAILABLE. Contrato transaccional/envelope pendientes de GAP-07. |
@@ -1544,11 +1547,11 @@ Leyenda: ✅ cubierto por este documento; ⚠️ cubierto parcialmente o delegad
 
 ### 5.2 Prueba de Dominio Dual
 
-Los fixtures `pd-health` y `pd-logistics` (§7.2) son dos definiciones de proceso de dominios distintos. Ambas validan contra el mismo esquema y pasan ALG-03. Los casos TC-VP-09 y TC-VP-10 aplican `ALG-02` con políticas de resultados con nombres distintos (`REQUIRES_REVIEW` frente a `HOLD_SHIPMENT`). El fixture `pd-nested` demuestra colecciones anidadas bajo `max_collection_depth = 2`.
+Los fixtures `pd-health` y `pd-logistics` (§7.2) son dos definiciones de proceso de dominios distintos. Ambas validan estructuralmente contra el mismo esquema JSON (la evaluación completa de paridad con ALG-03 se formaliza en la suite de calibración de DOC-07). Los casos TC-VP-09 y TC-VP-10 aplican `ALG-02` con políticas de resultados con nombres distintos (`REQUIRES_REVIEW` frente a `HOLD_SHIPMENT`). El fixture `pd-nested` demuestra colecciones anidadas bajo `max_collection_depth = 2`.
 
 ### 5.3 Auditoría de Fugas de Abstracción
 
-La verificación es automática: [validate-doc-01.cjs](file:///c:/Users/USER/Desktop/AudFact/opt/tools/validate-doc-01.cjs) busca los siguientes términos en la sección 4 completa, incluidos los esquemas, y falla si encuentra alguno.
+El barrido léxico contra términos de dominio se define contractualmente a continuación (su automatización estricta mediante script validador está programada como control de conformidad complementario):
 
 | Término buscado (sin distinguir mayúsculas) |
 |---|
@@ -1615,12 +1618,9 @@ Estas dependencias impiden completitud A/B de la especificación SaaS completa. 
 
 ### 7.1 Ejecución
 
-```bash
-npm ci --prefix website
-node opt/tools/validate-ddf.cjs
-```
+[CONFIRMADO] Ejecutar `node opt/tools/validate-ddf.cjs` desde la raíz. Los aliases validate-doc-01.cjs y validate-doc-02.cjs ejecutan el mismo comprobador. Dependencias locales: Ajv 8.20.0 y ajv-formats 2.1.1 instaladas mediante el lockfile de website (`npm ci --prefix website`).
 
-El validador usa el lockfile de website: Ajv 8.20.0 y ajv-formats 2.1.1; falla si esas versiones cambian. Los aliases validate-doc-01.cjs y validate-doc-02.cjs ejecutan el conjunto compartido. Retorna 0 solo si todas las comprobaciones pasan. Registro offline mediante addSchema y clase Ajv2020 según [JSON Schema 2020-12](https://ajv.js.org/json-schema.html#draft-2020-12) y [gestión de schemas de Ajv](https://ajv.js.org/guide/managing-schemas.html).
+[CONFIRMADO] El comprobador compila schemas registrados sin descargas, valida fixtures estructurales y controles negativos de tenant/campos, verifica referencias y detecta pruebas tautológicas. Las mutaciones etiquetadas invalid-semantic requieren el validador semántico futuro: se reportan separadas, no como PASS. No ejecuta reglas de negocio, IA, SQL ni autorización SaaS.
 
 ### 7.2 Fixtures
 
@@ -1631,7 +1631,7 @@ Cada bloque lleva en su primera línea de información el nombre, el esquema, la
 ```json fixture name=pd-health schema=ProcessDefinition expect=valid
 {
   "process_id": "CLIENT-A",
-  "tenant_id": "tenant-a",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
   "name": "Proceso de ejemplo - dominio salud",
   "version": "1.0.0",
   "active": true,
@@ -1874,7 +1874,7 @@ Cada bloque lleva en su primera línea de información el nombre, el esquema, la
 ```json fixture name=pd-logistics schema=ProcessDefinition expect=valid
 {
   "process_id": "FREIGHT-STD",
-  "tenant_id": "tenant-b",
+  "tenant_id": "00000000-0000-4000-8000-000000000002",
   "name": "Proceso de ejemplo - transporte de carga",
   "version": "2.1.0",
   "active": true,
@@ -2094,7 +2094,7 @@ Cada bloque lleva en su primera línea de información el nombre, el esquema, la
 {
   "case_id": "CASE-0001",
   "parent_reference": "GROUP-0001",
-  "tenant_id": "tenant-a",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
   "process_definition_id": "CLIENT-A",
   "discriminator": null,
   "truth_source": {
@@ -2157,7 +2157,7 @@ Cada bloque lleva en su primera línea de información el nombre, el esquema, la
 {
   "case_id": "BOL-9948271",
   "parent_reference": null,
-  "tenant_id": "tenant-b",
+  "tenant_id": "00000000-0000-4000-8000-000000000002",
   "process_definition_id": "FREIGHT-STD",
   "discriminator": "ROAD",
   "truth_source": {
@@ -2197,7 +2197,7 @@ Cada bloque lleva en su primera línea de información el nombre, el esquema, la
 ```json fixture name=verdict-health schema=AuditVerdict expect=valid
 {
   "case_id": "CASE-0001",
-  "tenant_id": "tenant-a",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
   "process_definition_id": "CLIENT-A",
   "process_definition_version": "1.0.0",
   "outcome": "REQUIRES_REVIEW",
@@ -2411,7 +2411,7 @@ Fixture sintético de DEC-T-011, sin datos reales ni aprobación de otra oferta 
 ```json fixture name=pd-purchases schema=ProcessDefinition expect=valid
 {
   "process_id": "PURCHASE-MATCH",
-  "tenant_id": "tenant-c",
+  "tenant_id": "00000000-0000-4000-8000-000000000003",
   "name": "Compras B2B - fixture sintetico",
   "version": "1.0.0",
   "active": true,
@@ -2528,7 +2528,7 @@ Fixture sintético de DEC-T-011, sin datos reales ni aprobación de otra oferta 
 ```json fixture name=case-purchases schema=AuditCase expect=valid
 {
   "case_id": "PURCHASE-CASE-1",
-  "tenant_id": "tenant-c",
+  "tenant_id": "00000000-0000-4000-8000-000000000003",
   "process_definition_id": "PURCHASE-MATCH",
   "truth_source": {
     "root_attributes": {
@@ -2613,43 +2613,29 @@ Fixture sintético de DEC-T-011, sin datos reales ni aprobación de otra oferta 
 
 ---
 
-## 8. Puerta de Calidad (Auto-Auditoría Adversarial)
+## 8. Puerta de Calidad — Revisión del 2026-11-03
 
-> [!NOTE]
-> Los resultados de las comprobaciones automáticas se registran en §8.1 con la salida literal de [validate-doc-01.cjs](file:///c:/Users/USER/Desktop/AudFact/opt/tools/validate-doc-01.cjs).
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | PENDIENTE DE EJECUCIÓN | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-01. |
 
-### 8.1 Verificación ejecutada del 2026-10-06
+[DESCONOCIDO] U-DOC-01 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-Comando: `node opt/tools/validate-ddf.cjs` (2026-10-06), Node v26.0.0, Ajv 8.20.0, ajv-formats 2.1.1. Resultado: 137 comprobaciones, 0 fallos; 11 schemas compilados, 38 fixtures, 10 políticas, 18 casos numéricos, 20 compatibilidades de vocabulario/hallazgo, 27 casos de tipos, 8 casos de conjuntos y 5 comprobaciones del validador. El resumen también identifica SHA-256 de entradas y lockfile.
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-El conjunto demuestra conformidad documental de salud, logística y compras B2B contra los mismos schemas y comprobadores de contrato. La prueba del motor SaaS con salud y compras B2B se ejecutará en GAP-11, sobre el mismo artefacto del núcleo. Persistencia, autorización, publicación atómica, normalización y proveedores todavía requieren implementación y sus pruebas.
-
-El reporte histórico del 2026-10-05 afirmaba 43 PASS y auditorías de texto. BASE-09 comprobó que su ejecutable no estaba disponible. Se sustituye por el validador presente; sus resultados no acreditan las auditorías históricas de fugas/completitud. Se corrigieron dos mutaciones que intentaban reemplazar propiedades inexistentes y la política del fixture de salud: toda discrepancia requiere revisión, conforme a DEC-P-006. Es un cambio de diseño explícito respecto a la política legacy.
-
-### 8.2 Auditoría de consistencia y evidencia
-
-| Control | Estado | Evidencia / límite |
-|---|---|---|
-| JSON Schema y referencias cerradas | PASS | 11 schemas compilados juntos; sin resolver URLs remotas. |
-| Tipos/documentos/enlaces/parámetros/políticas | PASS de contrato | Fixtures positivos/negativos y SV-01 a SV-07; tipos de caso SV-CASE-01/02. |
-| Contratos compartidos | PASS | Severity de Common; operadores/resultados/Finding de DOC-02; consumidores por referencia. |
-| Publicación directa | DECISIÓN ACEPTADA | DEC-P-011; algoritmo §4.7.1. Sin prueba de runtime. |
-| Autoridad, seguridad e historial SaaS | PENDIENTE | U-SAAS-01/02/03; GAP-05/07/08/10. |
-| Prueba dual del motor y oráculo | PENDIENTE | GAP-11. El validador es un comprobador de contratos. |
-| Ratificación documental y ubicación versionada | PENDIENTE | REVIEW; RISK-06 del maestro. |
-
-### 8.3 Clasificación vigente
+### Clasificación vigente
 
 ```yaml
-completeness_level: "C"
-justification: "Contratos base conciliados y comprobados. La especificación SaaS completa depende de seguridad, ejecución/historial y extracción/normalización."
+completeness_level: C
+implementation_ready: false
 blockers:
-  - "U-SAAS-01: autorización y alcances"
-  - "U-SAAS-02: transacciones y envelope por ejecución"
-  - "U-SAAS-03: capacidades de normalización y extracción"
-  - "RISK-06: ubicación versionada y gate en CI"
+  - U-DOC-01
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "Resolver GAP-05; mantener una pregunta de producto por vez."
-  - "Concretar publicación/persistencia en GAP-07 y capacidades en GAP-08/10."
-  - "Ejecutar benchmark del motor en GAP-11."
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```

@@ -5,19 +5,19 @@
 ```yaml
 document_id: "DOC-04"
 document_name: "SPEC-PORTS-AND-ADAPTERS"
-version: "v0.2.0-draft"
-status: "DRAFT"
-completeness_level: "B"
-last_updated: "2026-10-19"
+version: "v0.3.0-review"
+status: "REVIEW"
+completeness_level: "C"
+last_updated: "2026-11-04"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
 assumptions_count:
   S1: 3
   S2: 1
-  S3: 0
+  S3: 1
   S4: 0
-unknowns_critical: 0
+unknowns_critical: 1
 unknowns_non_critical: 2
 ```
 
@@ -27,7 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
-| v0.2.2-draft | 2026-10-19 | Inmutabilidad de ejecuciones y deduplicación de consumo (DEC-T-019 / GAP-07). Contrato `AuditExecutionEnvelope` y deduplicación por `(execution_id, attempt_number)` en `AuditStoragePort`. |
+| v0.2.2-draft | 2026-10-19 | Inmutabilidad de ejecuciones y deduplicación de consumo (DEC-T-019 / GAP-07). Contrato `AuditExecutionEnvelope` y deduplicación por `(tenant_id, provider_attempt_id)` en `AuditStoragePort`. |
 | v0.2.1-draft | 2026-10-19 | Ingestión y transporte documental híbrido (DEC-T-018 / GAP-06). Métodos de `createArtifactUploadUrl` en `CaseIngestionPort` y resolución dual (`REMOTE_URL` / `STORED_CONTENT`) en `DocumentStorage`. |
 | v0.2.0-draft | 2026-10-19 | Desacoplamiento total de bases de datos de clientes (DEC-T-016). Eliminación de `DataRepository` con SQL. Incorporación de `CaseIngestionPort`, `AuditStoragePort` (base interna de la plataforma SaaS) y `WebhookDeliveryPort` (retorno asíncrono al cliente). |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Línea base de 10 archivos del core y pipeline. |
@@ -84,13 +84,13 @@ Este documento especifica la **arquitectura de puertos y adaptadores (hexagonal)
 
 | Componente | Ruta | Método / Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|---|
-| Database | [Database.php](file:///c:/Users/USER/Desktop/AudFact/core/Database.php) | clase estática | L10-295 | Conexión PDO a SQL Server con cache por fingerprint, dual-connection (default/db2), transacciones | `[CONFIRMADO]` |
-| RedisClient | [RedisClient.php](file:///c:/Users/USER/Desktop/AudFact/core/RedisClient.php) | clase singleton | L17-870 | Conexión Predis con soporte standalone/sentinel/cluster, operaciones atómicas, Lua, streams | `[CONFIRMADO]` |
-| AuditStateStore | [AuditStateStore.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php) | clase | L13-509 | Estado Redis de auditoría: init, get, patch, markDocument*, constantes de status, TTL 7d | `[CONFIRMADO]` |
-| BatchJobStore | [BatchJobStore.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/BatchJobStore.php) | clase | L13-670 | Estado Redis de jobs batch: init, progress, seal, complete. TTL 7d, índice ZADD. | `[CONFIRMADO]` |
-| AuditEventPublisher | [AuditEventPublisher.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventPublisher.php) | clase | L13-170 | Publicación en Redis Streams con MAXLEN, routing por tipo+prioridad, DLQ con Lua idempotente | `[CONFIRMADO]` |
-| AuditEvent | [AuditEvent.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php) | VO inmutable | L10-247 | DTO de evento: event_id (UUID v4), event_type, audit_id, job_id, document_id, payload, versions | `[CONFIRMADO]` |
-| TelemetryPublisher | [TelemetryPublisher.php](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Telemetry/TelemetryPublisher.php) | clase | L11-168 | Emisión best-effort a `audit.telemetry` stream con MAXLEN=1000. Métodos: started, completed, failed, rejected | `[CONFIRMADO]` |
+| Database | [Database.php](../core/Database.php) | clase estática | L10-295 | Conexión PDO a SQL Server con cache por fingerprint, dual-connection (default/db2), transacciones | `[CONFIRMADO]` |
+| RedisClient | [RedisClient.php](../core/RedisClient.php) | clase singleton | L17-870 | Conexión Predis con soporte standalone/sentinel/cluster, operaciones atómicas, Lua, streams | `[CONFIRMADO]` |
+| AuditStateStore | [AuditStateStore.php](../app/Services/Audit/Pipeline/AuditStateStore.php) | clase | L13-509 | Estado Redis de auditoría: init, get, patch, markDocument*, constantes de status, TTL 7d | `[CONFIRMADO]` |
+| BatchJobStore | [BatchJobStore.php](../app/Services/Audit/Pipeline/BatchJobStore.php) | clase | L13-670 | Estado Redis de jobs batch: init, progress, seal, complete. TTL 7d, índice ZADD. | `[CONFIRMADO]` |
+| AuditEventPublisher | [AuditEventPublisher.php](../app/Services/Audit/Pipeline/AuditEventPublisher.php) | clase | L13-170 | Publicación en Redis Streams con MAXLEN, routing por tipo+prioridad, DLQ con Lua idempotente | `[CONFIRMADO]` |
+| AuditEvent | [AuditEvent.php](../app/Services/Audit/Pipeline/AuditEvent.php) | VO inmutable | L10-247 | DTO de evento: event_id (UUID v4), event_type, audit_id, job_id, document_id, payload, versions | `[CONFIRMADO]` |
+| TelemetryPublisher | [TelemetryPublisher.php](../app/Services/Audit/Telemetry/TelemetryPublisher.php) | clase | L11-168 | Emisión best-effort a `audit.telemetry` stream con MAXLEN=1000. Métodos: started, completed, failed, rejected | `[CONFIRMADO]` |
 
 ### 3.2 Mapa de Puertos del SaaS Multi-Tenant
 
@@ -154,30 +154,30 @@ flowchart LR
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
 | R-01 | Dual-connection: consultas SELECT por `db2`, escrituras INSERT/UPDATE por `default`. Excepción: `AuditStatusModel` lee por `default` para consistencia post-escritura. | AGENTS.md línea "Política de conexión en modelos" | `[CONFIRMADO]` |
-| R-02 | Redis como state store: auditorías con TTL 604800s (7d), jobs batch con TTL 604800s. | [AuditStateStore.php:30](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L30), [BatchJobStore.php:23](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/BatchJobStore.php#L23) | `[CONFIRMADO]` |
-| R-03 | Event routing: 13 event types mapeados a 9 streams (4 pares priority/batch + 1 batch_inbox). | [AuditEventPublisher.php:15-24, 145-162](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventPublisher.php#L15-L24) | `[CONFIRMADO]` |
-| R-04 | DLQ usa Lua script para XADD idempotente: recibo en key `event:{eventId}:dead_letter` previene duplicados. | [AuditEventPublisher.php:77-88](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88) | `[CONFIRMADO]` |
-| R-05 | AuditEvent hereda routing metadata (source, is_priority) del padre vía `followUp()`. Eventos hijos nunca cambian el carril. | [AuditEvent.php:138-149](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php#L138-L149) | `[CONFIRMADO]` |
-| R-06 | AuditEvent incluye versiones de trazabilidad: extractor, normalizer, rules. Metadata, no participa en decisiones. | [AuditEvent.php:37-42](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php#L37-L42) | `[CONFIRMADO]` |
-| R-07 | Telemetría es best-effort: excepciones capturadas silenciosamente, nunca propaga al caller. | [TelemetryPublisher.php:125, 143-149](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Telemetry/TelemetryPublisher.php#L125) | `[CONFIRMADO]` |
-| R-08 | Telemetry stream: `audit.telemetry` con MAXLEN=1000 (circular). 4 tipos: started, completed, failed, rejected. | [TelemetryPublisher.php:13-14, 26-107](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14) | `[CONFIRMADO]` |
-| R-09 | State store usa Lua scripts para merge atómico (patchAudit, markDocument*). | [AuditStateStore.php:112-120](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L112-L120) | `[CONFIRMADO]` |
-| R-10 | Database connection: cache por fingerprint SHA-256. Dos conexiones con credenciales distintas pueden coexistir. | [Database.php:263-280](file:///c:/Users/USER/Desktop/AudFact/core/Database.php#L263-L280) | `[CONFIRMADO]` |
-| R-11 | Stream MAXLEN: configurable vía `AUDIT_STREAM_MAXLEN` (default 100000) para trimming automático. | [AuditEventPublisher.php:33, 41-43](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventPublisher.php#L33) | `[CONFIRMADO]` |
-| R-12 | Redis soporta 3 modos: standalone, sentinel (HA), cluster. Lazy-connect en primer uso. | [RedisClient.php:50-79](file:///c:/Users/USER/Desktop/AudFact/core/RedisClient.php#L50-L79) | `[CONFIRMADO]` |
-| R-13 | AuditEvent identifiers: event_id, audit_id, job_id son UUID v4 validados en constructor. document_id es nullable. | [AuditEvent.php:59-68](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php#L59-L68) | `[CONFIRMADO]` |
+| R-02 | Redis como state store: auditorías con TTL 604800s (7d), jobs batch con TTL 604800s. | [AuditStateStore.php:30](../app/Services/Audit/Pipeline/AuditStateStore.php#L30), [BatchJobStore.php:23](../app/Services/Audit/Pipeline/BatchJobStore.php#L23) | `[CONFIRMADO]` |
+| R-03 | Event routing: 13 event types mapeados a 9 streams (4 pares priority/batch + 1 batch_inbox). | [AuditEventPublisher.php:15-24, 145-162](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L15-L24) | `[CONFIRMADO]` |
+| R-04 | DLQ usa Lua script para XADD idempotente: recibo en key `event:{eventId}:dead_letter` previene duplicados. | [AuditEventPublisher.php:77-88](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88) | `[CONFIRMADO]` |
+| R-05 | AuditEvent hereda routing metadata (source, is_priority) del padre vía `followUp()`. Eventos hijos nunca cambian el carril. | [AuditEvent.php:138-149](../app/Services/Audit/Pipeline/AuditEvent.php#L138-L149) | `[CONFIRMADO]` |
+| R-06 | AuditEvent incluye versiones de trazabilidad: extractor, normalizer, rules. Metadata, no participa en decisiones. | [AuditEvent.php:37-42](../app/Services/Audit/Pipeline/AuditEvent.php#L37-L42) | `[CONFIRMADO]` |
+| R-07 | Telemetría es best-effort: excepciones capturadas silenciosamente, nunca propaga al caller. | [TelemetryPublisher.php:125, 143-149](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L125) | `[CONFIRMADO]` |
+| R-08 | Telemetry stream: `audit.telemetry` con MAXLEN=1000 (circular). 4 tipos: started, completed, failed, rejected. | [TelemetryPublisher.php:13-14, 26-107](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14) | `[CONFIRMADO]` |
+| R-09 | State store usa Lua scripts para merge atómico (patchAudit, markDocument*). | [AuditStateStore.php:112-120](../app/Services/Audit/Pipeline/AuditStateStore.php#L112-L120) | `[CONFIRMADO]` |
+| R-10 | Database connection: cache por fingerprint SHA-256. Dos conexiones con credenciales distintas pueden coexistir. | [Database.php:263-280](../core/Database.php#L263-L280) | `[CONFIRMADO]` |
+| R-11 | Stream MAXLEN: configurable vía `AUDIT_STREAM_MAXLEN` (default 100000) para trimming automático. | [AuditEventPublisher.php:33, 41-43](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L33) | `[CONFIRMADO]` |
+| R-12 | Redis soporta 3 modos: standalone, sentinel (HA), cluster. Lazy-connect en primer uso. | [RedisClient.php:50-79](../core/RedisClient.php#L50-L79) | `[CONFIRMADO]` |
+| R-13 | AuditEvent identifiers: event_id, audit_id, job_id son UUID v4 validados en constructor. document_id es nullable. | [AuditEvent.php:59-68](../app/Services/Audit/Pipeline/AuditEvent.php#L59-L68) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **Redis no disponible en arranque**: `RedisClient` usa lazy-connect; la conexión falla en la primera operación, no al instanciar. El caller recibe `RedisException`. [RedisClient.php:50-79](file:///c:/Users/USER/Desktop/AudFact/core/RedisClient.php#L50-L79). `[CONFIRMADO]`
+1. **Redis no disponible en arranque**: `RedisClient` usa lazy-connect; la conexión falla en la primera operación, no al instanciar. El caller recibe `RedisException`. [RedisClient.php:50-79](../core/RedisClient.php#L50-L79). `[CONFIRMADO]`
 
-2. **SQL Server failover en mid-query**: Si la conexión PDO falla, el modelo propaga `PDOException`. No hay retry automático a nivel de conexión. [Database.php:263-280](file:///c:/Users/USER/Desktop/AudFact/core/Database.php#L263-L280). `[CONFIRMADO]`
+2. **SQL Server failover en mid-query**: Si la conexión PDO falla, el modelo propaga `PDOException`. No hay retry automático a nivel de conexión. [Database.php:263-280](../core/Database.php#L263-L280). `[CONFIRMADO]`
 
-3. **DLQ idempotente ante duplicados**: Si un mismo evento se publica dos veces a DLQ, el Lua script verifica un recibo (`event:{eventId}:dead_letter`) y retorna sin duplicar. [AuditEventPublisher.php:77-88](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88). `[CONFIRMADO]`
+3. **DLQ idempotente ante duplicados**: Si un mismo evento se publica dos veces a DLQ, el Lua script verifica un recibo (`event:{eventId}:dead_letter`) y retorna sin duplicar. [AuditEventPublisher.php:77-88](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88). `[CONFIRMADO]`
 
-4. **Telemetry stream lleno**: Si `MAXLEN=1000` se alcanza, Redis recorta automáticamente (política circular ~). Nunca bloquea al publisher. [TelemetryPublisher.php:13-14](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14). `[CONFIRMADO]`
+4. **Telemetry stream lleno**: Si `MAXLEN=1000` se alcanza, Redis recorta automáticamente (política circular ~). Nunca bloquea al publisher. [TelemetryPublisher.php:13-14](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14). `[CONFIRMADO]`
 
-5. **State store con TTL expirado**: Si una auditoría expira (7d), `getAudit()` retorna `null`. El worker que la recibe debe tratar esto como audit perdida y no reintentar. [AuditStateStore.php:30](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditStateStore.php#L30). `[CONFIRMADO]`
+5. **State store con TTL expirado**: Si una auditoría expira (7d), `getAudit()` retorna `null`. El worker que la recibe debe tratar esto como audit perdida y no reintentar. [AuditStateStore.php:30](../app/Services/Audit/Pipeline/AuditStateStore.php#L30). `[CONFIRMADO]`
 
 ---
 
@@ -190,24 +190,182 @@ flowchart LR
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.1/pipeline-event.schema.json",
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/pipeline-event.schema.json",
   "title": "PipelineEvent",
   "description": "Envelope canónico de evento del pipeline de auditoría.",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "event_id": { "type": "string", "format": "uuid", "description": "UUID v4 único del evento." },
-    "parent_event_id": { "type": ["string", "null"], "format": "uuid" },
-    "event_type": { "type": "string", "description": "Tipo del evento (valor del catálogo de DOC-05)." },
-    "audit_id": { "type": ["string", "null"], "format": "uuid" },
-    "job_id": { "type": ["string", "null"], "format": "uuid" },
-    "document_id": { "type": ["string", "null"] },
-    "timestamp": { "type": "string", "format": "date-time", "description": "ISO-8601 UTC." },
-    "version_extractor": { "type": "string" },
-    "version_normalizer": { "type": "string" },
-    "version_rules": { "type": "string" },
-    "payload": { "type": "object", "additionalProperties": true }
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "execution_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "case_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID v4 único del evento."
+    },
+    "parent_event_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "event_type": {
+      "$ref": "https://schemas.invalid/audit-platform/doc-05/v0.3/event-type-catalog.schema.json"
+    },
+    "audit_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "document_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC."
+    },
+    "version_extractor": {
+      "type": "string"
+    },
+    "version_normalizer": {
+      "type": "string"
+    },
+    "version_rules": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "traceparent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "idempotency_key",
+        "attempt"
+      ]
+    }
   },
-  "required": ["event_id", "event_type", "timestamp", "payload"]
+  "required": [
+    "tenant_id",
+    "execution_id",
+    "case_id",
+    "event_id",
+    "event_type",
+    "timestamp",
+    "payload",
+    "metadata"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "audit_created",
+              "document_registered",
+              "document_downloaded",
+              "document_extracted",
+              "document_rejected",
+              "document_normalized",
+              "rules_evaluated",
+              "audit_completed",
+              "audit_failed",
+              "webhook_dispatched"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "audit_id"
+        ],
+        "properties": {
+          "execution_id": {
+            "type": "string"
+          },
+          "audit_id": {
+            "type": "string"
+          },
+          "case_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "batch_created",
+              "batch_requested",
+              "batch_completed",
+              "batch_completed_with_errors"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "job_id"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -216,28 +374,84 @@ flowchart LR
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.1/audit-state.schema.json",
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/audit-state.schema.json",
   "title": "AuditState",
   "type": "object",
   "properties": {
-    "audit_id": { "type": "string", "format": "uuid" },
+    "audit_id": {
+      "type": "string",
+      "format": "uuid"
+    },
     "status": {
       "type": "string",
-      "enum": ["pending", "processing", "completed", "requires_review", "discrepancies_found", "failed"]
+      "enum": [
+        "pending",
+        "processing",
+        "completed",
+        "requires_review",
+        "discrepancies_found",
+        "failed"
+      ]
     },
-    "case_reference": { "type": "string", "description": "Identificador del caso de auditoría." },
-    "job_id": { "type": ["string", "null"], "format": "uuid" },
-    "tenant_id": { "type": ["string", "null"] },
-    "docs_total": { "type": "integer", "minimum": 0 },
-    "docs_done": { "type": "integer", "minimum": 0 },
-    "docs_extracted": { "type": "integer", "minimum": 0 },
-    "docs_evaluated": { "type": "integer", "minimum": 0 },
-    "docs_rejected": { "type": "integer", "minimum": 0 },
-    "documents": { "type": "object", "additionalProperties": true },
-    "created_at": { "type": "string", "format": "date-time" },
-    "updated_at": { "type": "string", "format": "date-time" }
+    "case_reference": {
+      "type": "string",
+      "description": "Identificador del caso de auditoría."
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "docs_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "docs_done": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "docs_extracted": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "docs_evaluated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "docs_rejected": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "documents": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
   },
-  "required": ["audit_id", "status", "case_reference", "docs_total", "docs_done", "created_at", "updated_at"]
+  "additionalProperties": false,
+  "required": [
+    "tenant_id",
+    "audit_id",
+    "status",
+    "case_reference",
+    "docs_total",
+    "docs_done",
+    "created_at",
+    "updated_at"
+  ]
 }
 ```
 
@@ -246,25 +460,350 @@ flowchart LR
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.1/telemetry-event.schema.json",
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/telemetry-event.schema.json",
   "title": "TelemetryEvent",
   "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "audit_id": { "type": "string" },
-    "job_id": { "type": ["string", "null"] },
-    "case_reference": { "type": ["string", "null"] },
-    "document_id": { "type": ["string", "null"] },
-    "node_id": { "type": "string", "description": "Identificador del nodo del pipeline que emite." },
-    "event_type": { "type": "string", "enum": ["started", "completed", "failed", "rejected"] },
-    "status": { "type": ["string", "null"] },
-    "timestamp": { "type": "string", "format": "date-time" },
-    "meta": { "type": ["object", "null"], "additionalProperties": true }
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "audit_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "case_reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "document_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "node_id": {
+      "type": "string",
+      "description": "Identificador del nodo del pipeline que emite."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "started",
+        "completed",
+        "failed",
+        "rejected"
+      ]
+    },
+    "status": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "meta": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    }
   },
-  "required": ["audit_id", "node_id", "event_type", "timestamp"]
+  "required": [
+    "tenant_id",
+    "audit_id",
+    "node_id",
+    "event_type",
+    "timestamp"
+  ]
+}
+```
+
+
+[CONFIRMADO — diseño futuro] El timestamp del evento reside únicamente en el envelope; metadata contiene idempotency_key y attempt obligatorios, y traceparent opcional. payload sigue siendo un mapa de extensión: falta publicar los schemas específicos por tipo de evento (U-EVENT-PAYLOAD, S3). No se presenta el envelope como validación completa de todos los mensajes.
+
+[CONFIRMADO — diseño futuro] Contratos auxiliares de plataforma. En AuditBatchRequest cada caso debe coincidir con el tenant del lote y del contexto autorizado. JobState exige semánticamente `failed <= done <= total`. HumanResolution representa la solicitud de resolución; identidad del revisor y fecha se asignan en servidor y se conservan en un registro separado. La admisión de revisión también exige lease vigente y revisión coincidente; el schema no sustituye esos controles. HealthStatus no expone secretos ni detalles internos.
+
+#### Schema: AuditBatchRequest
+
+```json
+{
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/audit-batch-request.schema.json",
+  "title": "AuditBatchRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tenant_id",
+    "cases"
+  ],
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$ref": "https://schemas.invalid/audit-platform/doc-01/v0.3/audit-case.schema.json"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
+```
+
+#### Schema: JobState
+
+```json
+{
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/job-state.schema.json",
+  "title": "JobState",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tenant_id",
+    "job_id",
+    "status",
+    "total",
+    "done",
+    "failed"
+  ],
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "enum": [
+        "pending",
+        "processing",
+        "completed",
+        "completed_with_errors",
+        "failed"
+      ]
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "done": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
+```
+
+#### Schema: HumanResolution
+
+```json
+{
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/human-resolution.schema.json",
+  "title": "HumanResolution",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tenant_id",
+    "case_id",
+    "execution_id",
+    "expected_revision",
+    "decision",
+    "justification"
+  ],
+  "properties": {
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "execution_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "expected_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "decision": {
+      "enum": [
+        "HUMAN_APPROVED",
+        "HUMAN_REJECTED",
+        "HUMAN_NEED_INFO"
+      ]
+    },
+    "justification": {
+      "type": "string",
+      "minLength": 10
+    },
+    "finding_code": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
+```
+
+#### Schema: TenantConsumptionRecord
+
+```json
+{
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/tenant-consumption-record.schema.json",
+  "title": "TenantConsumptionRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "tenant_id",
+    "audit_id",
+    "execution_id",
+    "provider_attempt_id",
+    "attempt_number",
+    "tokens_prompt",
+    "tokens_completion",
+    "duration_ms",
+    "timestamp"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "audit_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "execution_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "provider_attempt_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attempt_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tokens_prompt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens_completion": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tokens_thought": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
+```
+
+#### Schema: HealthStatus
+
+```json
+{
+  "$id": "https://schemas.invalid/audit-platform/doc-04/v0.3/health-status.schema.json",
+  "title": "HealthStatus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "check",
+    "timestamp"
+  ],
+  "properties": {
+    "status": {
+      "enum": [
+        "healthy",
+        "unhealthy"
+      ]
+    },
+    "check": {
+      "enum": [
+        "liveness",
+        "readiness"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
 }
 ```
 
 ### 4.2 Interfaces y Puertos
+
+[CONFIRMADO — diseño futuro] Todo puerto se construye en un ámbito autorizado mediante `forContext(context: SecurityContext)`. La factoría valida identidad, membresía, acción y alcance; devuelve una instancia ligada inmutablemente al tenant. Los métodos sin parámetro de contexto heredan esta instancia; no existe una instancia global accesible por consumidores de tenant. Un `tenant_id` en argumentos o DTO debe coincidir con el contexto ligado. Workers reconstruyen el contexto de servicio y verifican el tenant del evento; un UUID no concede autoridad.
+
+```typescript
+type SecurityContext = Readonly<{
+  tenant_id: string;
+  subject_id: string;
+  subject_type: "USER" | "SERVICE";
+  assignments: ReadonlyArray<{
+    permissions: ReadonlyArray<string>;
+    client_scopes: ReadonlyArray<string>;
+    process_scopes: ReadonlyArray<string>;
+  }>;
+}>;
+// Una sola asignación debe cubrir acción + cliente + proceso (ORG-AUTH-04).
+interface ScopedPortFactory<T> {
+  forContext(context: SecurityContext): T;
+}
+```
+
+[CONFIRMADO — diseño futuro] Las claves de estado, caché y recibos incluyen `tenant:{tenant_id}:`. El gateway rechaza discordancia con `TENANT_MISMATCH`; ningún puerto obtiene autoridad de una clave o ID aportado por el solicitante. Falta ejecutar las pruebas de aislamiento sobre los adaptadores futuros (`U-SEC-RUNTIME`, S3).
 
 #### Puerto 1: CaseIngestionPort (Ingestión de Casos)
 
@@ -353,7 +892,7 @@ interface AuditStoragePort {
 
   /**
    * Registra el consumo técnico de la auditoría para facturación externa.
-   * Clave de deduplicación: (execution_id, attempt_number).
+   * Clave de deduplicación: (tenant_id, provider_attempt_id).
    */
   recordConsumption(consumption: TenantConsumptionRecord): Promise<void>;
 }
@@ -376,7 +915,8 @@ type TenantConsumptionRecord = {
   tenant_id: string;
   audit_id: string;
   execution_id: string;
-  attempt_number: number;
+  provider_attempt_id: string;
+  attempt_number: number; // ordinal de diagnóstico; no clave de deduplicación
   tokens_prompt: number;
   tokens_completion: number;
   tokens_thought?: number;
@@ -395,7 +935,7 @@ type TenantConsumptionRecord = {
  */
 interface WebhookDeliveryPort {
   /**
-   * Despacha el resultado con firma HMAC en la cabecera (X-Audit-Signature).
+   * Despacha el resultado con firma HMAC-SHA256 en X-SaaS-Signature (ING-06).
    * Política de resiliencia: RETRY_WITH_BACKOFF (Reintentos con retroceso y DLQ).
    */
   dispatchVerdict(
@@ -426,7 +966,7 @@ interface StateStore {
    * Postcondiciones: retorna true si se creó, false si ya existía
    * Política de resiliencia: FAIL-CLOSED
    */
-  initAudit(auditId: string, caseRef: string, options?: InitOptions): boolean;
+  initAudit(auditId: string, caseRef: string, options: InitOptions): boolean;
 
   /**
    * Lee el estado actual de una auditoría.
@@ -452,7 +992,7 @@ interface BatchStore {
 
 type InitOptions = {
   job_id?: string;
-  tenant_id?: string;
+  tenant_id: string;
   source_id?: string;
 };
 ```
@@ -577,10 +1117,11 @@ SALIDA: streamName: string
      isPriority ? "audit.documents.priority" : "audit.documents.batch"
    rules_evaluated →
      isPriority ? "audit.persistence.priority" : "audit.persistence.batch"
-   audit_completed, audit_failed, batch_completed, batch_completed_with_errors →
+   audit_completed, audit_failed, batch_completed, batch_completed_with_errors, webhook_dispatched →
      isPriority ? "audit.results.priority" : "audit.results.batch"
    batch_requested →
      "audit.batch.inbox"  // Sin partición por prioridad
+   dead_letter → "audit.dlq"
    default → ERROR "event_type sin stream asignado"
 ```
 
@@ -604,13 +1145,17 @@ ENTRADA: parent: PipelineEvent, eventType: string, payload: object, documentId?:
 SALIDA: child: PipelineEvent
 
 1. child.event_id ← newUUID()
+   child.metadata ← {idempotency_key: parent.metadata.idempotency_key, attempt: 1, traceparent: parent.metadata.traceparent}
 2. child.parent_event_id ← parent.event_id
 3. child.event_type ← eventType
 4. child.audit_id ← parent.audit_id
 5. child.job_id ← parent.job_id
 6. child.document_id ← documentId
 7. child.timestamp ← now()
-8. child.version_* ← current versions from env
+8. child.version_* ← versiones fijadas en parent / execution envelope; nunca variables actuales
+   child.tenant_id ← parent.tenant_id
+   child.execution_id ← parent.execution_id
+   child.case_id ← parent.case_id
 9. // Herencia de routing metadata
    PARA CADA key EN ["source", "is_priority"]:
      SI key ∈ parent.payload:
@@ -629,13 +1174,11 @@ ENTRADA: event: PipelineEvent, maxlen: int
 SALIDA: streamId: string
 ATOMICIDAD: Lua script
 
-1. receiptKey ← "event:{event.parent_event_id}:dead_letter"
+1. receiptKey ← "tenant:{event.tenant_id}:event:{event.parent_event_id}:dead_letter"
 2. existingReceipt ← GET(receiptKey)
 3. SI existingReceipt ≠ null → RETORNAR existingReceipt  // Idempotente
-4. SI maxlen > 0:
-   streamId ← XADD(dlqStream, MAXLEN ~maxlen, *, "event", serialize(event))
-5. SI NO:
-   streamId ← XADD(dlqStream, *, "event", serialize(event))
+4. streamId ← XADD(dlqStream, *, "event", serialize(event))
+5. No podar la DLQ sin archivo y confirmación de recuperación.
 6. SET(receiptKey, streamId)
 7. RETORNAR streamId
 ```
@@ -716,7 +1259,7 @@ flowchart LR
 | R-12 Redis standalone/sentinel/cluster | Adaptador detalle infraestructura | ✅ | |
 | R-13 UUID v4 validation | PipelineEvent schema + validation | ✅ | |
 
-**Cobertura: 13/13 = 100%.**
+**Trazabilidad declarada: 13/13 filas de esta tabla.** Es cobertura del inventario descrito, no evidencia de ejecución o de inventario exhaustivo del sistema.
 
 ### 5.2 Prueba de Dominio Dual (Salud SQL Server vs. Legal MongoDB)
 
@@ -769,9 +1312,9 @@ flowchart LR
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
 | A-01 | El state store es efímero: los resultados finales se persisten en BD relacional. La pérdida de Redis no pierde datos de negocio persistidos. | S1 | Diseño explícito en AudFact: Redis = estado transitorio, SQL Server = datos duraderos. | Verificación de flujo |
-| A-02 | El MAXLEN de telemetría (1000) es suficiente para la tasa de consumo del frontend SSE. | S1 | [TelemetryPublisher.php:14](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Telemetry/TelemetryPublisher.php#L14). Overflow descarta eventos antiguos. | Monitoreo producción |
-| A-03 | La herencia de routing metadata (source, is_priority) cubre todos los criterios de priorización. No hay otros criterios de routing. | S2 | [AuditEvent.php:28](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php#L28). Solo 2 keys. | Evaluar con DOC-05 |
-| A-04 | El UUID v4 generado por `random_bytes(16)` tiene suficiente entropía para evitar colisiones en los volúmenes operacionales del sistema. | S1 | [AuditEvent.php:215-223](file:///c:/Users/USER/Desktop/AudFact/app/Services/Audit/Pipeline/AuditEvent.php#L215-L223). P(colisión) ≈ 0 para < 2^32 eventos. | N/A |
+| A-02 | El MAXLEN de telemetría (1000) es suficiente para la tasa de consumo del frontend SSE. | S1 | [TelemetryPublisher.php:14](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L14). Overflow descarta eventos antiguos. | Monitoreo producción |
+| A-03 | La herencia de routing metadata (source, is_priority) cubre todos los criterios de priorización. No hay otros criterios de routing. | S2 | [AuditEvent.php:28](../app/Services/Audit/Pipeline/AuditEvent.php#L28). Solo 2 keys. | Evaluar con DOC-05 |
+| A-04 | El UUID v4 generado por `random_bytes(16)` tiene suficiente entropía para evitar colisiones en los volúmenes operacionales del sistema. | S1 | [AuditEvent.php:215-223](../app/Services/Audit/Pipeline/AuditEvent.php#L215-L223). P(colisión) ≈ 0 para < 2^32 eventos. | N/A |
 
 ### 6.3 Desconocidos No Críticos
 
@@ -823,58 +1366,29 @@ flowchart LR
 
 ---
 
-## §8 — Puerta de Calidad (Auto-Auditoría Adversarial)
+## §8 — Puerta de Calidad — Revisión del 2026-11-03
 
-### 8.1 Auditoría de Consistencia
+| Comprobación | Estado | Evidencia / límite |
+| --- | --- | --- |
+| Schemas y referencias | COMPROBACIÓN LOCAL | `node opt/tools/validate-ddf.cjs` valida JSON, schemas y controles documentales; la salida identifica conteos y versiones. |
+| Algoritmos y contratos | REVIEW | Especificación de diseño; no acredita implementación de puertos, transacciones ni motor. |
+| Pruebas del SaaS | PENDIENTE | Los escenarios de este documento requieren código y fixtures ejecutables del repositorio futuro. |
+| Dominio dual | PENDIENTE DE EJECUCIÓN | Los ejemplos no prueban ejecución del mismo motor en dos dominios. |
+| Aprobación de implementación | NO | Nivel C; ver dependencias del maestro y U-DOC-04. |
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| C-01 | ¿Toda afirmación sobre AudFact tiene clasificación epistémica? | PASS | 13 reglas `[CONFIRMADO]` |
-| C-02 | ¿Contradicciones entre §3 y §4? | PASS | Cobertura 13/13 |
-| C-03 | ¿Schemas JSON Schema son válidos? | PASS | 3 schemas draft-2020-12 |
-| C-04 | ¿Los esquemas JSON Schema son válidos según draft-2020-12? | PASS | 3 schemas con `$schema` correcto |
-| C-05 | ¿Cada interfaz tiene pre/post-condiciones y modos de fallo? | PASS | 5 puertos con contratos y modos de fallo |
+[DESCONOCIDO] U-DOC-04 (S3): conformidad integral de este módulo con los contratos de aplicación, sus adaptadores y pruebas de recuperación/aislamiento. Bloquea su aprobación como guía completa del SaaS.
 
-### 8.2 Auditoría de Fugas
+[CONFIRMADO] Los PASS históricos por inspección y las referencias a 137 comprobaciones previas no son certificados actuales. El comprobador restaurado tiene un alcance propio y no reproduce la suite histórica perdida. Persistencia, autorización, proveedor IA, normalización completa, revisión humana y benchmark siguen requiriendo pruebas de implementación.
 
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| A-01 | ¿§4 pasa filtrado léxico? | PASS | 7/7 términos ausentes |
-| A-02 | ¿Prueba de dominio dual? | PASS | 5 puertos salud + banca |
-| A-03 | ¿Algún esquema hardcodea valores específicos de un solo dominio? | PASS | event_type y state_key son strings genéricos; sin enum hardcoded |
-
-### 8.3 Auditoría de Completitud
-
-| # | Pregunta | Resultado | Evidencia |
-|---|---|:---:|---|
-| D-01 | ¿Desconocidos críticos? | PASS | 0 críticos, 2 no-críticos |
-| D-02 | ¿Supuestos S3/S4? | PASS | 0 S3, 0 S4 |
-| D-03 | ¿Toda funcionalidad tiene test? | PASS | 12 test cases |
-| D-04 | ¿El nivel de completitud asignado es consistente con conteos? | PASS | Nivel B: 3 S1 + 1 S2, 0 S3/S4, 0 desconocidos críticos |
-
-### 8.4 Preguntas Adversariales
-
-| # | Pregunta | Respuesta | Evidencia |
-|---|---|:---:|---|
-| ADV-01 | ¿Implementable sin conocer AudFact? | SÍ | 5 puertos tipados, 4 algoritmos, 3 schemas |
-| ADV-02 | ¿Si se cambia Redis por RabbitMQ+PostgreSQL para estado? | SÍ | StateStore y EventBus son interfaces; adaptador cambia |
-| ADV-03 | ¿Si se cambia de Google Drive a S3? | SÍ | DocumentStorage es una interfaz |
-| ADV-04 | ¿Si se auditan contratos legales en lugar de documentos de salud? | SÍ | Todos los puertos son agnósticos al dominio; el tipo de dato se configura vía DOC-01/DOC-06 |
-
----
-
-### Clasificación Final
+### Clasificación vigente
 
 ```yaml
-completeness_level: "B"
-justification: >
-  4 supuestos menores (3 S1 + 1 S2). 0 desconocidos críticos.
-  2 desconocidos no-críticos sobre sizing operacional.
-  Cobertura 13/13. Filtrado léxico limpio.
-  Prueba de dominio dual superada (salud + banca).
-blockers: []
+completeness_level: C
+implementation_ready: false
+blockers:
+  - U-DOC-04
+  - Contratos de aplicación y validación integrada del repositorio futuro
 next_actions:
-  - "DOC-05 SPEC-PIPELINE-STATE-MACHINE — completar catálogo de event_types referenciado en ALG-01"
-  - "Resolver U-01: benchmark de throughput de streams"
-  - "Resolver U-02: documentar política de limpieza de keys huérfanas"
+  - Ejecutar las pruebas de integración de este módulo contra contratos versionados
+  - Mantener separados los resultados documentales y los del motor
 ```

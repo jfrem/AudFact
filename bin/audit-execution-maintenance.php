@@ -57,7 +57,7 @@ try {
             pcntl_signal(SIGINT, static function () use (&$stop): void { $stop = true; });
         }
         Logger::info('Audit execution maintenance started', ['instance' => gethostname() . ':' . getmypid(),
-            'execution_version' => 2, 'page_size' => 100, 'max_queued_per_stage' => $config->maxQueued,
+            'execution_version' => 2, 'page_size' => AuditExecutionMaintenance::GC_PAGE_SIZE, 'max_queued_per_stage' => $config->maxQueued,
             'lease_ms' => AuditExecutionConfig::LEASE_MS]);
         while (!$stop) {
             if (function_exists('pcntl_signal_dispatch')) {

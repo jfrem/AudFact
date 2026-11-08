@@ -20,7 +20,7 @@ use RuntimeException;
 final class AuditPersistenceWorkerTest extends TestCase
 {
     #[DataProvider('routingCases')]
-    public function testCompletionPreservesRoutingAfterSqlAndRedisClose(array $routing, string $stream): void
+    public function testCompletionClosesSqlAndRedisWithoutPublishingOrphanTerminalStream(array $routing, string $stream): void
     {
         // Arrange:
         $auditId = '22222222-2222-4222-8222-222222222222';
@@ -28,29 +28,15 @@ final class AuditPersistenceWorkerTest extends TestCase
         $model = new RecordingAuditResultPersistenceModel();
         $queue = new RecordingAuditPersistenceQueue();
         $redis = $this->createMock(RedisClient::class);
-        $redis->expects($this->once())->method('eval')->with(
-            $this->stringContains('terminal_key_type_invalid'),
-            $this->callback(function (array $keys) use ($stream): bool {
-                $this->assertSame($stream, $keys[0]);
-                $this->assertStringStartsWith('audit:terminal:v2:sent:', $keys[1]);
-                return true;
-            }),
-            $this->callback(function (array $args) use ($routing, $store, $model): bool {
-                $child = AuditEvent::fromArray(json_decode($args[0], true, flags: JSON_THROW_ON_ERROR));
-                $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $child->eventType);
-                $this->assertSame($routing, array_intersect_key($child->payload, ['source' => true, 'is_priority' => true]));
-                $this->assertSame('completed', $store->lastCompletion['status']);
-                $this->assertSame('87723098', $model->lastAuditResultData['DisId']);
-                return true;
-            })
-        )->willReturn('1-0');
+        $redis->expects($this->never())->method('eval');
+        $publisher = new PersistencePublisher();
         $worker = new AuditPersistenceWorker(
             stateStore: $store,
             jobStore: new RecordingBatchJobStore($store),
             persistenceModel: $model,
             persistenceQueue: $queue,
             redis: $redis,
-            publisher: new AuditEventPublisher($redis),
+            publisher: $publisher,
             telemetryPublisher: new TelemetryPublisher($this->createStub(RedisClient::class)),
             lane: 'all'
         );
@@ -63,18 +49,21 @@ final class AuditPersistenceWorkerTest extends TestCase
         $worker->processEvent($event);
 
         // Assert:
+        $this->assertSame('completed', $store->lastCompletion['status']);
+        $this->assertSame('87723098', $model->lastAuditResultData['DisId']);
+        $this->assertSame([], $publisher->published);
         $this->assertSame([$auditId], $queue->advancedAuditIds);
     }
 
     public static function routingCases(): iterable
     {
-        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
-        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_RESULTS_PRIORITY];
-        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_RESULTS_BATCH];
-        yield 'absent' => [[], AuditEventPublisher::STREAM_RESULTS_BATCH];
+        yield 'single' => [['source' => 'single'], AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY];
+        yield 'priority cron' => [['source' => 'cron', 'is_priority' => true], AuditEventPublisher::STREAM_PERSISTENCE_PRIORITY];
+        yield 'batch' => [['source' => 'batch', 'is_priority' => false], AuditEventPublisher::STREAM_PERSISTENCE_BATCH];
+        yield 'absent' => [[], AuditEventPublisher::STREAM_PERSISTENCE_BATCH];
     }
 
-    public function testRulesEvaluatedPersistsCompletesAuditAndPublishesBatchTerminalEvent(): void
+    public function testRulesEvaluatedPersistsAndCompletesAuditInSqlAndRedis(): void
     {
         $auditId = AuditEvent::uuidV4();
         $jobId = AuditEvent::uuidV4();
@@ -113,9 +102,7 @@ final class AuditPersistenceWorkerTest extends TestCase
         $this->assertSame('T38250701547', $model->lastUpdatedFacNro);
         $this->assertSame(42000, $model->lastUpdatedDurationMs);
         $this->assertArrayNotHasKey('token_usage', $hallazgos['timings']);
-        $this->assertCount(2, $publisher->published);
-        $this->assertSame(AuditEvent::TYPE_AUDIT_COMPLETED, $publisher->published[0]->eventType);
-        $this->assertSame(AuditEvent::TYPE_BATCH_COMPLETED_ERR, $publisher->published[1]->eventType);
+        $this->assertSame([], $publisher->published);
         $this->assertSame([
             'job_id' => $jobId,
             'audit_id' => $auditId,

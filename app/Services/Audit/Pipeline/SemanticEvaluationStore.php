@@ -12,6 +12,18 @@ final class SemanticEvaluationStore
 {
     public const PLANS = 'audit:semantic:v2:plans';
 
+    /**
+     * Claves del payload del evento origen requeridas para conservar el enrutamiento
+     * de carril (`AuditEvent::followUp`) al emitir olas semánticas, sin duplicar
+     * el payload normalizado que ya vive en `snapshot['normalized_payload']`.
+     *
+     * @var array<string, true>
+     */
+    private const SOURCE_EVENT_ROUTING_KEYS = [
+        'source'      => true,
+        'is_priority' => true,
+    ];
+
     public function __construct(private readonly RedisClient $redis)
     {
     }
@@ -36,18 +48,47 @@ final class SemanticEvaluationStore
         if ($source->auditId === null || $source->documentId === null || $candidates === []) {
             throw new \InvalidArgumentException('semantic_plan_identity_invalid');
         }
+
         $fingerprint = hash('sha256', self::canonical($snapshot));
         $id = hash('sha256', self::canonical([$source->auditId, $source->documentId, $fingerprint]));
-        $plan = ['schema_version' => 2, 'plan_id' => $id, 'generation' => 1, 'audit_id' => $source->auditId,
-            'document_id' => $source->documentId, 'source_event' => $source->toArray(), 'snapshot' => $snapshot,
-            'versions' => $snapshot['versions'], 'source_fingerprint' => $fingerprint, 'state' => SemanticPlanState::WAITING->value,
-            'pairs' => [], 'rows' => [], 'requests' => [], 'scheduled_pairs' => [], 'revision' => 0, 'wave' => 0];
+
+        $sourceRecord = $source->toArray();
+        $sourceRecord['payload'] = array_intersect_key(
+            is_array($sourceRecord['payload'] ?? null) ? $sourceRecord['payload'] : [],
+            self::SOURCE_EVENT_ROUTING_KEYS
+        );
+        unset($snapshot['source_event']);
+
+        $plan = [
+            'schema_version'     => 2,
+            'plan_id'            => $id,
+            'generation'         => 1,
+            'audit_id'           => $source->auditId,
+            'document_id'        => $source->documentId,
+            'source_event'       => $sourceRecord,
+            'snapshot'           => $snapshot,
+            'versions'           => $snapshot['versions'],
+            'source_fingerprint' => $fingerprint,
+            'state'              => SemanticPlanState::WAITING->value,
+            'pairs'              => [],
+            'rows'               => [],
+            'requests'           => [],
+            'scheduled_pairs'    => [],
+            'revision'           => 0,
+            'wave'               => 0,
+        ];
+
         foreach ($candidates as $candidate) {
             $purpose = SemanticMatchPurpose::from($candidate['purpose']);
             $schemaHash = hash('sha256', self::canonical(SemanticBatchContract::schema($purpose)));
             $cacheHash = hash('sha256', self::canonical([
-                $candidate['expected'], $candidate['actual'], $candidate['context'], $purpose->value,
-                $snapshot['versions'], SemanticBatchContract::VERSION, $schemaHash,
+                $candidate['expected'],
+                $candidate['actual'],
+                $candidate['context'],
+                $purpose->value,
+                $snapshot['versions'],
+                SemanticBatchContract::VERSION,
+                $schemaHash,
             ]));
             $candidate['cache_hash'] = $cacheHash;
             $candidate['state'] = 'unresolved';
@@ -166,8 +207,13 @@ final class SemanticEvaluationStore
     public static function events(array &$plan): array
     {
         $parent = AuditEvent::fromArray($plan['source_event']);
-        $payload = ['schema_version' => 2, 'plan_id' => $plan['plan_id'], 'generation' => $plan['generation'],
-            'source_fingerprint' => $plan['source_fingerprint'], 'snapshot_ref' => self::key($plan['audit_id'], $plan['document_id'], $plan['plan_id'])];
+        $payload = [
+            'schema_version'     => 2,
+            'plan_id'            => $plan['plan_id'],
+            'generation'         => $plan['generation'],
+            'source_fingerprint' => $plan['source_fingerprint'],
+            'snapshot_ref'       => self::key($plan['audit_id'], $plan['document_id'], $plan['plan_id']),
+        ];
         if ($plan['state'] === SemanticPlanState::READY->value) {
             if (isset($plan['continuation_event'])) {
                 return [];
@@ -185,9 +231,16 @@ final class SemanticEvaluationStore
             foreach ($pairs as $pair) {
                 $plan['scheduled_pairs'][$pair['pair_id']] = $plan['wave'];
             }
-            $events[] = self::stableEvent($parent, AuditEvent::TYPE_SEMANTIC_REQUESTED, $payload + [
-                'wave' => $plan['wave'], 'purpose' => $pairs[0]['purpose'], 'pair_ids' => array_column($pairs, 'pair_id'),
-            ], $plan['plan_id'] . ':' . $plan['generation'] . ':' . $plan['wave'] . ':' . implode(':', array_column($pairs, 'pair_id')));
+            $events[] = self::stableEvent(
+                $parent,
+                AuditEvent::TYPE_SEMANTIC_REQUESTED,
+                $payload + [
+                    'wave'     => $plan['wave'],
+                    'purpose'  => $pairs[0]['purpose'],
+                    'pair_ids' => array_column($pairs, 'pair_id'),
+                ],
+                $plan['plan_id'] . ':' . $plan['generation'] . ':' . $plan['wave'] . ':' . implode(':', array_column($pairs, 'pair_id'))
+            );
         }
         if ($events !== []) {
             $plan['wave']++;

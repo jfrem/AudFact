@@ -109,12 +109,8 @@ final class AuditPersistenceWorker extends AuditEventConsumer
             }
             $aggregationTimings['redis_complete_ms'] = self::elapsedMs($redisCompleteStart);
 
-            $finalAudit = $this->stateStore->getAudit($event->auditId) ?? $audit;
-            $finalAudit['aggregation_timings'] = $aggregationTimings;
-            $this->stateStore->patchAudit(
-                $event->auditId,
-                ['aggregation_timings' => $aggregationTimings]
-            );
+            $completedState = $this->stateStore->getAudit($event->auditId) ?? [];
+            $finalAudit = array_merge($audit, $completedState, ['aggregation_timings' => $aggregationTimings]);
 
             $aggregate['audit_result_data'] = $this->refreshPersistedTimings(
                 $aggregate['audit_result_data'],
@@ -123,28 +119,6 @@ final class AuditPersistenceWorker extends AuditEventConsumer
 
             if ($event->jobId !== null) {
                 $this->markJobAuditCompleted($event, $aggregate, $finalAudit);
-            }
-
-            $completionEvent = $event->followUp(
-                eventType: AuditEvent::TYPE_AUDIT_COMPLETED,
-                documentId: null,
-                payload: array_merge($aggregate['completion_payload'], [
-                    'audit_result_data' => $aggregate['audit_result_data'],
-                    'document_decisions' => $aggregate['document_decisions'],
-                    'completed_at' => gmdate('Y-m-d\TH:i:s\Z'),
-                ]),
-            );
-            $record = $completionEvent->toArray();
-            $record['event_id'] = AuditTaskEffects::uuid($event->auditId . ':' . AuditEvent::TYPE_AUDIT_COMPLETED);
-            $this->publisher->publishTerminalOnce(AuditEvent::fromArray($record));
-
-            if ($event->jobId !== null) {
-                $this->publishBatchTerminalEventIfNeeded(
-                    $this->jobStore,
-                    $event->jobId,
-                    $event->auditId,
-                    $event->eventId
-                );
             }
 
             $this->telemetryPublisher->completed(
