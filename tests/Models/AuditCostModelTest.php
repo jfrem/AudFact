@@ -145,7 +145,7 @@ final class AuditCostModelTest extends TestCase
                 'docs_procesados' => 2,
                 'docs_cache_hit' => 1,
                 'es_cache_hit_total' => 0,
-                'modelo_ia' => 'gemini-3.7-flash',
+                'modelo_ia' => 'gemini-3.8-flash',
                 'fecha_auditoria' => '2026-10-13 13:28:39',
             ],
         ];
@@ -212,7 +212,7 @@ final class AuditCostModelTest extends TestCase
                 'docs_procesados' => 1,
                 'docs_cache_hit' => 0,
                 'es_cache_hit_total' => 0,
-                'modelo_ia' => 'gemini-3.7-flash',
+                'modelo_ia' => 'gemini-3.8-flash',
                 'fecha_auditoria' => '2026-10-13 10:00:00',
             ],
             [
@@ -232,7 +232,7 @@ final class AuditCostModelTest extends TestCase
                 'docs_procesados' => 1,
                 'docs_cache_hit' => 1,
                 'es_cache_hit_total' => 1,
-                'modelo_ia' => 'gemini-3.7-flash',
+                'modelo_ia' => 'gemini-3.8-flash',
                 'fecha_auditoria' => '2026-10-13 11:00:00',
             ],
         ];

@@ -162,6 +162,8 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
                     return json_encode($taskRecord, JSON_THROW_ON_ERROR);
                 }
                 if (($keys[0] ?? '') === $taskKey && str_contains($script, 'DEL')) {
+                    self::assertStringNotContainsString("SCARD', KEYS[4]", $script);
+                    self::assertStringContainsString("redis.call('SREM', KEYS[4], 'task:' .. r.task_id)", $script);
                     $deletedTask = true;
                     return 1;
                 }

@@ -40,7 +40,7 @@ final class GeminiQuotaBudgetTest extends TestCase
     public function testUnconfiguredProjectCannotActivateBudget(): void
     {
         // Arrange:
-        $limits = ['scope' => 'UNCONFIGURED', 'model' => 'gemini-3.7-flash', 'rpm' => 1,
+        $limits = ['scope' => 'UNCONFIGURED', 'model' => 'gemini-3.8-flash', 'rpm' => 1,
             'tpm' => 1, 'rpd' => 1, 'inflight' => 1];
 
         // Assert:
@@ -86,7 +86,7 @@ final class GeminiQuotaBudgetTest extends TestCase
     {
         $valid = [
             'GEMINI_QUOTA_SCOPE' => 'audfact-project-1',
-            'GEMINI_MODEL' => 'gemini-3.7-flash',
+            'GEMINI_MODEL' => 'gemini-3.8-flash',
             'GEMINI_QUOTA_RPM' => '100',
             'GEMINI_QUOTA_TPM' => '200000',
             'GEMINI_QUOTA_RPD' => '10000',

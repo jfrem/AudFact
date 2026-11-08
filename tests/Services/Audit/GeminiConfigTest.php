@@ -55,7 +55,7 @@ final class GeminiConfigTest extends TestCase
     public function testThinkingLevelTakesPrecedenceOverThinkingBudgetWithoutMediaResolutionByDefault(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.5-flash',
+            model: 'gemini-3.8-flash',
             mediaResolution: 'medium',
             thinkingBudget: 128,
             thinkingLevel: 'low'
@@ -74,7 +74,7 @@ final class GeminiConfigTest extends TestCase
     public function testIncludesMediaResolutionWhenRequested(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.7-flash',
+            model: 'gemini-3.8-flash',
             mediaResolution: 'MEDIA_RESOLUTION_HIGH'
         );
 
@@ -83,13 +83,14 @@ final class GeminiConfigTest extends TestCase
         $this->assertSame('MEDIA_RESOLUTION_HIGH', $generationConfig['mediaResolution']);
     }
 
-    public function testGemini37RejectsUnsupportedMinimalThinkingLevel(): void
+    public function testGemini38RejectsUnsupportedMinimalThinkingLevel(): void
     {
         // Arrange:
-        $config = new GeminiConfig(model: 'gemini-3.7-flash', thinkingLevel: 'minimal');
+        $config = new GeminiConfig(model: 'gemini-3.8-flash', thinkingLevel: 'minimal');
 
         // Assert:
         $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('gemini_3_8_thinking_level_invalid');
 
         // Act:
         $config->toGenerationConfig();
@@ -101,7 +102,7 @@ final class GeminiConfigTest extends TestCase
             new Client(),
             'test-key',
             new GeminiConfig(
-                model: 'gemini-3.7-flash',
+                model: 'gemini-3.8-flash',
                 mediaResolution: 'MEDIA_RESOLUTION_MEDIUM'
             )
         );
@@ -135,7 +136,7 @@ final class GeminiConfigTest extends TestCase
     public function testOmitsMediaResolutionWhenNull(): void
     {
         $config = new GeminiConfig(
-            model: 'gemini-3.7-flash',
+            model: 'gemini-3.8-flash',
             mediaResolution: null
         );
 
@@ -149,7 +150,7 @@ final class GeminiConfigTest extends TestCase
         $gateway = new GeminiGateway(
             new Client(),
             'test-key',
-            new GeminiConfig(model: 'gemini-3.5-flash')
+            new GeminiConfig(model: 'gemini-3.8-flash')
         );
 
         $this->expectException(RuntimeException::class);

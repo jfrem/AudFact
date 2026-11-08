@@ -45,7 +45,7 @@ final class GeminiGatewayTest extends TestCase
         $gateway = new GeminiGateway(
             $client,
             'secret-test-api-key',
-            new GeminiConfig(model: 'gemini-3.7-flash', mediaResolution: 'MEDIA_RESOLUTION_MEDIUM')
+            new GeminiConfig(model: 'gemini-3.8-flash', mediaResolution: 'MEDIA_RESOLUTION_MEDIUM')
         );
 
         $schema = [
@@ -77,7 +77,7 @@ final class GeminiGatewayTest extends TestCase
         /** @var Request $request */
         $request = $container[0]['request'];
         $this->assertSame('POST', $request->getMethod());
-        $this->assertSame('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent', (string) $request->getUri());
+        $this->assertSame('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', (string) $request->getUri());
         $this->assertSame('secret-test-api-key', $request->getHeaderLine('x-goog-api-key'));
         $this->assertSame('application/json', $request->getHeaderLine('Content-Type'));
 
@@ -107,7 +107,7 @@ final class GeminiGatewayTest extends TestCase
         $gateway = new GeminiGateway(
             $client,
             'secret-test-api-key',
-            new GeminiConfig(model: 'gemini-3.7-flash')
+            new GeminiConfig(model: 'gemini-3.8-flash')
         );
 
         $this->expectException(RuntimeException::class);
@@ -165,7 +165,7 @@ final class GeminiGatewayTest extends TestCase
             $batchGateway = new GeminiGateway(
                 $clientFailures,
                 'batch-key',
-                new GeminiConfig(model: 'gemini-3.7-flash'),
+                new GeminiConfig(model: 'gemini-3.8-flash'),
                 cbRedis: $redis,
                 lane: 'batch'
             );
@@ -202,7 +202,7 @@ final class GeminiGatewayTest extends TestCase
             $priorityGateway = new GeminiGateway(
                 new Client(['handler' => HandlerStack::create($mockSuccess)]),
                 'priority-key',
-                new GeminiConfig(model: 'gemini-3.7-flash'),
+                new GeminiConfig(model: 'gemini-3.8-flash'),
                 cbRedis: $redis,
                 lane: 'priority'
             );
@@ -258,7 +258,7 @@ final class GeminiGatewayTest extends TestCase
             $gateway = new GeminiGateway(
                 $client,
                 'test-key',
-                new GeminiConfig(model: 'gemini-3.7-flash')
+                new GeminiConfig(model: 'gemini-3.8-flash')
             );
 
             $now = (int) floor(microtime(true) * 1000);

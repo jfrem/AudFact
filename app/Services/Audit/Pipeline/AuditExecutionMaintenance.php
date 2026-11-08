@@ -14,13 +14,14 @@ final class AuditExecutionMaintenance
 
     private const GC_DELETE_TASK_LUA = <<<'LUA'
         local raw = redis.call('HGET', KEYS[1], 'record')
-        if raw ~= ARGV[1] or redis.call('SCARD', KEYS[4]) > 0 then
+        if raw ~= ARGV[1] then
             return 0
         end
         local r = cjson.decode(raw)
         if redis.call('SREM', KEYS[2], r.task_id) == 1 then
             redis.call('HINCRBY', KEYS[3], r.stage .. ':' .. r.lane .. ':' .. r.state, -1)
         end
+        redis.call('SREM', KEYS[4], 'task:' .. r.task_id)
         redis.call('DEL', KEYS[1])
         return 1
     LUA;
@@ -42,8 +43,13 @@ final class AuditExecutionMaintenance
 
     private const GC_DELETE_AUDIT_STATE_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
-        if raw ~= ARGV[1] or redis.call('SCARD', KEYS[2]) > 0 then
+        if raw ~= ARGV[1] then
             return 0
+        end
+        for _, member in ipairs(redis.call('SMEMBERS', KEYS[2])) do
+            if string.sub(member, 1, 5) ~= 'plan:' then
+                return 0
+            end
         end
         return redis.call('DEL', KEYS[1], KEYS[2])
     LUA;
@@ -66,8 +72,10 @@ final class AuditExecutionMaintenance
             return 0
         end
         for i = 3, #KEYS do
-            if redis.call('SCARD', KEYS[i]) > 0 then
-                return 0
+            for _, member in ipairs(redis.call('SMEMBERS', KEYS[i])) do
+                if string.sub(member, 1, 5) ~= 'plan:' then
+                    return 0
+                end
             end
         end
         redis.call('ZREM', KEYS[2], ARGV[2])

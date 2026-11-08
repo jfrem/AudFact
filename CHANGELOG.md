@@ -1,3 +1,12 @@
+## [2026-11-08]
+
+### fix / ops / perf / arch
+- **Remediación Post-Despliegue: Nivel de Pensamiento `gemini-3.8-flash`, Desbloqueo de GC de Huérfanos Pre-Deploy y Reconciliación de Persistencia (`SDD-OPS-026`)**:
+  - **Estandarización de `gemini-3.8-flash` y `thinkingLevel=low` (`GeminiConfig.php`, `.github/workflows/deploy-production.yml`, GitHub Variables)**: Corrección del fallo en producción (`gemini_3_7_thinking_level_invalid` causado por `GEMINI_*_THINKING_LEVEL=minimal` incompatible con `gemini-3.8-flash`, que solo admite `low`, `medium`, `high`). Actualización de variables en GitHub (`GEMINI_THINKING_LEVEL=low`, `GEMINI_EXTRACTION_THINKING_LEVEL=low`, `GEMINI_SEMANTIC_THINKING_LEVEL=low`, eliminación de `GEMINI_*_THINKING_BUDGET`), defaults en `deploy-production.yml` y depuración de referencias legacy (`gemini-3.7-flash` / `gemini-3.5-flash`) en `GeminiConfig.php` (`gemini_3_8_thinking_level_invalid`), `migration_AudDispCosto.sql` y pruebas unitarias.
+  - **Desbloqueo de `AuditExecutionMaintenance::gc()` (`AuditExecutionMaintenance.php`)**: Eliminación de `or redis.call('SCARD', KEYS[4]) > 0` y adición de `redis.call('SREM', KEYS[4], 'task:' .. r.task_id)` en `GC_DELETE_TASK_LUA`, e ignorado de miembros huérfanos `plan:*` en `GC_DELETE_AUDIT_STATE_LUA` y `GC_DELETE_JOB_STATE_LUA` tras vencer la retención de 24h.
+  - **Escalado de Reconciliación de Persistencia (`AuditPersistenceQueue.php`)**: Ampliación de `SCAN ... COUNT` de `200` a `2000` en `RECONCILE_PAGE_LUA` para soportar hasta `2,000,000` de slots sin exceder `MAX_RECONCILIATION_PAGES = 1000` en `/metrics/async`.
+  - **Certificación PHPUnit**: 1022 pruebas, 3590 aserciones, 0 fallos (100% verde).
+
 ## [2026-11-06]
 
 ### fix / ops / perf / arch

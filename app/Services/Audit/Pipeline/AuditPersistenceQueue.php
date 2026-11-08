@@ -375,7 +375,7 @@ class AuditPersistenceQueue
         local now = tonumber(redis.call('TIME')[1])
         if ARGV[1] == '0' then redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[3]) end
         if not redis.call('ZSCORE', KEYS[1], ARGV[3]) then error('Indice perdido durante reconciliacion') end
-        local page = redis.call('SCAN', ARGV[1], 'MATCH', prefix .. '*', 'COUNT', 200)
+        local page = redis.call('SCAN', ARGV[1], 'MATCH', prefix .. '*', 'COUNT', 2000)
         for _, key in ipairs(page[2]) do
             local suffix = nil
             if string.sub(key, -7) == ':active' then suffix = 7 end

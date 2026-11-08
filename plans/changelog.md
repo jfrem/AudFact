@@ -1,5 +1,21 @@
 # Changelog AudFact
 
+## [2026-11-08] - Remediación Post-Despliegue: Nivel de Pensamiento `gemini-3.8-flash`, Desbloqueo de GC de Huérfanos Pre-Deploy y Reconciliación de Persistencia (`SDD-OPS-026`)
+
+- **Estandarización de `gemini-3.8-flash` (`thinkingLevel=low`) y Desbloqueo Definitivo de `AuditExecutionMaintenance::gc()` y `/metrics/async` (`SDD-OPS-026`)**:
+  - **Causa Raíz 1 — Rechazo de `thinkingLevel=minimal` en `gemini-3.8-flash` (`GeminiConfig.php`, `.github/workflows/deploy-production.yml`, GitHub Variables)**:
+    - Las auditorías post-despliegue en producción fallaban con `InvalidArgumentException: gemini_3_7_thinking_level_invalid` en la etapa `extraction` porque las variables de repositorio en GitHub conservaban `GEMINI_THINKING_LEVEL=minimal`, `GEMINI_EXTRACTION_THINKING_LEVEL=minimal` y `GEMINI_SEMANTIC_THINKING_LEVEL=minimal`, mientras que `gemini-3.8-flash` únicamente soporta `low`, `medium` y `high` según la documentación oficial de Google Gemini API (`ai.google.dev/gemini-api/docs/models/gemini-3.8-flash.md`).
+    - Bajo `/clean-rebuild-policy`, se actualizaron las variables de repositorio (`GEMINI_THINKING_LEVEL=low`, `GEMINI_EXTRACTION_THINKING_LEVEL=low`, `GEMINI_SEMANTIC_THINKING_LEVEL=low`, eliminando las variables obsoletas `GEMINI_*_THINKING_BUDGET`) y los defaults de `.github/workflows/deploy-production.yml` (`low` y `AUDIT_VERSION_EXTRACTOR=gemini-3.8-flash`).
+    - En `app/Services/Audit/GeminiConfig.php`, se depuró la condición duplicada `in_array($this->model, ['gemini-3.8-flash', 'gemini-3.8-flash'], true)` a `$this->model === 'gemini-3.8-flash'`, actualizando el código de excepción a `gemini_3_8_thinking_level_invalid`, y se eliminaron las referencias residuales a `gemini-3.7-flash` y `gemini-3.5-flash` en `migration_AudDispCosto.sql` y la suite de pruebas (`GeminiConfigTest`, `GeminiGatewayTest`, `GeminiQuotaBudgetTest`, `GeminiCallMetricsTest`, `AuditCostModelTest`, `GeminiTaskExecutionRedisTest`, `exercise-aof-recovery.php`).
+  - **Causa Raíz 2 — Desbloqueo de `AuditExecutionMaintenance::gc()` ante Referencias Huérfanas `plan:*` Pre-Deploy (`AuditExecutionMaintenance.php`)**:
+    - En producción, `GC_DELETE_TASK_LUA` exigía `SCARD(KEYS[4]) == 0` (`audit:execution:refs:{auditId}`), impidiendo recolectar `300,951` tareas terminales (`1.07 GiB`) porque miles de auditorías previas a `SDD-OPS-025` conservaron miembros `plan:{planId}` huérfanos en `audit:execution:refs:{auditId}`.
+    - Se eliminó la condición `or redis.call('SCARD', KEYS[4]) > 0` de `GC_DELETE_TASK_LUA` (la elegibilidad ya está garantizada por tarea `completed|failed` + auditoría raíz terminal) y se añadió `redis.call('SREM', KEYS[4], 'task:' .. r.task_id)` antes de `DEL KEYS[1]`.
+    - En `GC_DELETE_AUDIT_STATE_LUA` y `GC_DELETE_JOB_STATE_LUA`, tras vencer la retención de 24 horas (`86400s`), se ignoran miembros residuales con prefijo `plan:` al verificar si `audit:execution:refs:{auditId}` bloquea el retiro del estado raíz o del job.
+  - **Causa Raíz 3 — Escalado de `RECONCILE_PAGE_LUA` para Keyspaces Grandes (`AuditPersistenceQueue.php`)**:
+    - Se elevó `COUNT` de `200` a `2000` en `AuditPersistenceQueue::RECONCILE_PAGE_LUA`, permitiendo recorrer hasta `2,000,000` de slots en `MAX_RECONCILIATION_PAGES = 1000` y restableciendo `GET /metrics/async` (`HTTP 200`).
+  - **Certificación de Pruebas Unitarias**:
+    - Suite unitaria PHPUnit certificada con **1022 pruebas, 3590 aserciones, 0 fallos (100% verde)**.
+
 ## [2026-11-06] - Erradicación Estructural y Definitiva del Bloqueo por Umbral de Memoria Redis (80%) (SDD-OPS-025)
 
 - **Reingeniería en 5 Pilares y Depuración Integral de Almacenamiento Redundante en Redis (`SDD-OPS-025`)**:

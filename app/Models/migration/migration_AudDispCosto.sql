@@ -15,7 +15,7 @@ BEGIN
         [TokensSalida]           BIGINT NOT NULL DEFAULT 0,
         [TokensPensamiento]      BIGINT NOT NULL DEFAULT 0,
         [TotalTokens]            BIGINT NOT NULL DEFAULT 0,
-        [ModeloIA]               VARCHAR(50) NOT NULL DEFAULT 'gemini-3.7-flash',
+        [ModeloIA]               VARCHAR(50) NOT NULL DEFAULT 'gemini-3.8-flash',
         [TarifaEntrada1M]        DECIMAL(10, 4) NOT NULL DEFAULT 0.7500, -- Tarifa unitaria vigente en USD
         [TarifaSalida1M]         DECIMAL(10, 4) NOT NULL DEFAULT 3.7500, -- Tarifa unitaria vigente en USD
         [CostoUSD]               DECIMAL(18, 8) NOT NULL,                -- Costo liquidado en USD

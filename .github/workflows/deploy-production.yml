@@ -385,12 +385,12 @@ jobs:
             write_env_var 'GEMINI_MAX_OUTPUT_TOKENS' "${GEMINI_MAX_OUTPUT_TOKENS:-8192}"
             write_env_var 'GEMINI_MEDIA_RESOLUTION' "${GEMINI_MEDIA_RESOLUTION:-MEDIA_RESOLUTION_HIGH}"
             write_env_var 'GEMINI_THINKING_BUDGET' "${GEMINI_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_THINKING_LEVEL' "${GEMINI_THINKING_LEVEL:-}"
+            write_env_var 'GEMINI_THINKING_LEVEL' "${GEMINI_THINKING_LEVEL:-low}"
             write_env_var 'GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS' "${GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS:-4096}"
             write_env_var 'GEMINI_EXTRACTION_THINKING_BUDGET' "${GEMINI_EXTRACTION_THINKING_BUDGET:-}"
-            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-}"
+            write_env_var 'GEMINI_EXTRACTION_THINKING_LEVEL' "${GEMINI_EXTRACTION_THINKING_LEVEL:-low}"
             write_env_var 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS' "${GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS:-2048}"
-            write_env_var 'GEMINI_SEMANTIC_THINKING_LEVEL' "${GEMINI_SEMANTIC_THINKING_LEVEL:-}"
+            write_env_var 'GEMINI_SEMANTIC_THINKING_LEVEL' "${GEMINI_SEMANTIC_THINKING_LEVEL:-low}"
             write_env_var 'GEMINI_SEMANTIC_THINKING_BUDGET' "${GEMINI_SEMANTIC_THINKING_BUDGET:-}"
             write_env_var 'GEMINI_SEED' "${GEMINI_SEED:-}"
             printf '\n'
@@ -453,7 +453,7 @@ jobs:
             printf '\n'
             write_env_var 'RUN_REDIS_INTEGRATION' "${RUN_REDIS_INTEGRATION:-0}"
             printf '\n'
-            write_env_var 'AUDIT_VERSION_EXTRACTOR' "${AUDIT_VERSION_EXTRACTOR:-gemini-3.5-flash}"
+            write_env_var 'AUDIT_VERSION_EXTRACTOR' "${AUDIT_VERSION_EXTRACTOR:-gemini-3.8-flash}"
             write_env_var 'AUDIT_VERSION_NORMALIZER' "${AUDIT_VERSION_NORMALIZER:-1.0.0}"
             write_env_var 'AUDIT_VERSION_RULES' "${AUDIT_VERSION_RULES:-1.0.0}"
           } > "$DEPLOY_PATH/.env"

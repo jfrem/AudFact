@@ -32,7 +32,7 @@ $config = new AuditExecutionConfig(2);
 $queue = new FairAuditTaskQueue($redis, $config);
 $committer = new AuditTaskCommitter($redis);
 $outbox = new AuditTaskOutbox($redis, new AuditPersistenceQueue($redis));
-$quota = new GeminiQuotaBudget($redis, ['scope' => 'aof-fixture', 'model' => 'gemini-3.7-flash',
+$quota = new GeminiQuotaBudget($redis, ['scope' => 'aof-fixture', 'model' => 'gemini-3.8-flash',
     'rpm' => 100, 'tpm' => 10000, 'rpd' => 1000, 'inflight' => 4]);
 $stream = AuditEventPublisher::STREAM_DOCUMENTS_BATCH;
 $manifestKey = 'aof-fixture:manifest';

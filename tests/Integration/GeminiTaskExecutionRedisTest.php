@@ -43,7 +43,7 @@ final class GeminiTaskExecutionRedisTest extends TestCase
         }
         $this->redis = new IsolatedAuditRedis('integration:audit:' . AuditEvent::uuidV4() . ':');
         $this->queue = new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2));
-        $this->quota = new GeminiQuotaBudget($this->redis, ['scope' => 'fixture', 'model' => 'gemini-3.7-flash',
+        $this->quota = new GeminiQuotaBudget($this->redis, ['scope' => 'fixture', 'model' => 'gemini-3.8-flash',
             'rpm' => 100, 'tpm' => 10000, 'rpd' => 1000, 'inflight' => 4]);
         $this->event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, AuditEvent::uuidV4(), documentId: 'existing');
         $root = ['audit_id' => $this->event->auditId, 'status' => 'processing', 'execution_version' => 2,
@@ -284,7 +284,7 @@ final class GeminiTaskExecutionRedisTest extends TestCase
         $stack = HandlerStack::create(new MockHandler($responses));
         $stack->push(Middleware::history($this->history));
         $gateway = new GeminiGateway(new Client(['handler' => $stack]), 'synthetic-key',
-            new GeminiConfig(model: 'gemini-3.7-flash'), cbRedis: $this->redis);
+            new GeminiConfig(model: 'gemini-3.8-flash'), cbRedis: $this->redis);
         return new ScheduledGeminiFixtureWorker($this->redis, $gateway, $this->quota, $this->queue);
     }
 
@@ -301,7 +301,7 @@ final class GeminiTaskExecutionRedisTest extends TestCase
 
     private function quotaBase(): string
     {
-        return 'gemini:quota:v2:' . hash('sha256', 'fixture') . ':' . hash('sha256', 'gemini-3.7-flash');
+        return 'gemini:quota:v2:' . hash('sha256', 'fixture') . ':' . hash('sha256', 'gemini-3.8-flash');
     }
 }
 
