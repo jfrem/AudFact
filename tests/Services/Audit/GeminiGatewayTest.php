@@ -6,12 +6,16 @@ namespace Tests\Services\Audit;
 
 use App\Services\Audit\GeminiConfig;
 use App\Services\Audit\GeminiGateway;
+use App\Services\Audit\GeminiOperationException;
+use Core\RedisClient;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -296,6 +300,125 @@ final class GeminiGatewayTest extends TestCase
                 @rmdir($tempDir);
             }
         }
+    }
+
+    #[DataProvider('singleOperations')]
+    public function testOpenCircuitBlocksSingleOperationWithoutHttp(string $method, string $operation): void
+    {
+        // Arrange:
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->expects($this->once())->method('get')->with('cb:gemini:priority:state')->willReturn('open');
+        $redis->method('ttl')->willReturn(55);
+        $redis->expects($this->never())->method('incr');
+        $http = $this->createMock(Client::class);
+        $http->expects($this->never())->method('request');
+        $gateway = new GeminiGateway($http, 'test-key', new GeminiConfig(model: 'test-model'), cbRedis: $redis, lane: 'priority');
+
+        // Assert:
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(503);
+        $this->expectExceptionMessage('Circuit Breaker abierto [carril: priority]');
+
+        // Act:
+        $gateway->$method(['contents' => []], $this->singleOperationContext($operation));
+    }
+
+    #[DataProvider('singleOperationHttpErrors')]
+    public function testSingleOperationRecordsProviderFailureExceptBadRequest(
+        string $method,
+        string $operation,
+        int $httpCode
+    ): void {
+        // Arrange:
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('get')->willReturn('closed');
+        $redis->expects($httpCode === 400 ? $this->never() : $this->once())
+            ->method('incr')->with('cb:gemini:priority:fails', $this->anything())->willReturn(1);
+        $handler = new MockHandler([new Response($httpCode, ['Retry-After' => '1'], '{"error":{"message":"test"}}')]);
+        $gateway = $this->singleOperationGateway($handler, $redis);
+
+        // Act:
+        try {
+            $gateway->$method(['contents' => []], $this->singleOperationContext($operation));
+            self::fail('La respuesta HTTP fallida debe propagarse');
+        } catch (GeminiOperationException $error) {
+            // Assert:
+            self::assertSame($httpCode, $error->httpCode);
+            self::assertSame($operation, $error->operation);
+            self::assertSame(1000, $error->retryAfterMs);
+            self::assertFalse($error->unknownResult);
+            self::assertCount(0, $handler);
+        }
+    }
+
+    #[DataProvider('singleOperations')]
+    public function testSingleOperationRecordsNetworkFailureWithUnknownResult(string $method, string $operation): void
+    {
+        // Arrange:
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('get')->willReturn('closed');
+        $redis->expects($this->once())->method('incr')
+            ->with('cb:gemini:priority:fails', $this->anything())->willReturn(1);
+        $handler = new MockHandler([new ConnectException('Connection refused', new Request('POST', 'https://example.test'))]);
+        $gateway = $this->singleOperationGateway($handler, $redis);
+
+        // Act:
+        try {
+            $gateway->$method(['contents' => []], $this->singleOperationContext($operation));
+            self::fail('El error de red debe propagarse');
+        } catch (GeminiOperationException $error) {
+            // Assert:
+            self::assertSame(0, $error->httpCode);
+            self::assertSame($operation, $error->operation);
+            self::assertTrue($error->unknownResult);
+            self::assertCount(0, $handler);
+        }
+    }
+
+    public static function singleOperations(): iterable
+    {
+        yield 'generación' => ['sendSingleAttempt', 'generate_content'];
+        yield 'conteo' => ['countInputTokens', 'count_tokens'];
+    }
+
+    public static function singleOperationHttpErrors(): iterable
+    {
+        foreach (self::singleOperations() as $name => [$method, $operation]) {
+            foreach ([400, 429, 503] as $code) {
+                yield "{$name}: HTTP {$code}" => [$method, $operation, $code];
+            }
+        }
+    }
+
+    private function singleOperationGateway(MockHandler $handler, RedisClient $redis): GeminiGateway
+    {
+        return new GeminiGateway(
+            new Client(['handler' => HandlerStack::create($handler)]),
+            'test-key',
+            new GeminiConfig(model: 'test-model'),
+            cbRedis: $redis,
+            lane: 'priority'
+        );
+    }
+
+    /** Contexto sin identidad de auditoría: estas pruebas no deben crear snapshots. */
+    private function singleOperationContext(string $operation): array
+    {
+        return [
+            'operation' => $operation,
+            'deadline_ms' => PHP_INT_MAX,
+            'body_hash' => 'body-hash',
+            'grant' => [
+                'status' => 'GRANTED',
+                'request_id' => 'request-id',
+                'attempt_id' => 'attempt-id',
+                'body_hash' => 'body-hash',
+                'expires_at_ms' => PHP_INT_MAX,
+            ],
+        ];
     }
 
     public function testFactoryResolvesDedicatedApiKeyAndLane(): void

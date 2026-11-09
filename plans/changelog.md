@@ -1,5 +1,40 @@
 # Changelog AudFact
 
+## [2026-11-09] — Clean code del diff PHP (`SDD-CB-RASTER-002`)
+
+- **Rasterización completa**: bloques de hasta 25 páginas con una página compartida (1–25, 25–49, 49–51). La salida mantiene orden y cardinalidad; sondear la página 51 permite rechazar PDFs de más de 50 páginas sin truncarlos.
+- **Errores visibles**: timeout, proceso fallido y salida vacía sin diagnóstico se propagan. Ya no se convierten en fin de documento ni en éxito parcial. El fallback conserva la entrada y las páginas anteriores y descarta los archivos parciales del bloque fallido.
+- **Mantenibilidad**: limpieza única en `finally`; eliminadas tupla con motor sin uso, compatibilidad privada string/array y recorridos duplicados. `CHUNK_SIZE` es privado; firmas públicas preservadas.
+- **Pruebas**: BOM corregido; dobles finitos para ambas numeraciones de motor, providers para límites y CB en generación/conteo, excepciones verificadas y ninguna mutación global en pruebas nuevas.
+- **Verificación**: 1060 pruebas, 5525 aserciones, 79 omitidas; suite afectada también en orden aleatorio: 53 pruebas, 1993 aserciones, 1 omitida por ausencia de motor PDF. HEAD aislado: 1027 pruebas, 3604 aserciones, 79 omitidas.
+- **Documentación**: revisión de la SDD, descripción de `audfact-audit-gemini` sincronizada y [reporte de implementación](reports/clean-code-php-diff-2026-11-09.md). No se ejecutó commit, push ni deploy.
+
+## [2026-11-09] — Propuesta inicial de CB v2 y chunks, corregida por la revisión anterior
+
+- **Falla A (CB inerte en path v2): `GeminiGateway.php` — `executeSingleOperation()`**:
+  - `cbCheck()` y `cbRecordFailure()` existían únicamente en `executePost()` (path v1 legacy). En producción, el pipeline v2 siempre usa `executeTaskRequest → executeSingleOperation()` cuando `task !== null`, por lo que el Circuit Breaker era completamente inerte.
+  - Agregado `$this->cbCheck()` como **primera línea** de `executeSingleOperation()` — el CB verifica el estado antes de cualquier llamada HTTP.
+  - Agregado `$this->cbRecordFailure(0)` en `catch (GuzzleException)` — errores de red (timeout, conexión rechazada) ahora acumulan fallos en el CB.
+  - Agregado `if ($code !== 400) { $this->cbRecordFailure($code); }` antes del `throw` en respuestas HTTP >= 300 — errores transitorios (429, 500, 503) abren el CB; errores de documento (400) no lo contaminan.
+
+- **Falla B (rasterización monolítica): `DocumentPdfRasterizer.php` — `rasterize()`**:
+  - Un único `proc_open` procesaba hasta 51 páginas en un solo comando. Timeout de 60s aplicaba al documento completo — PDFs densos con muchas páginas excedían el límite sistemáticamente.
+  - Reescrito `rasterize()` con loop de chunks de `CHUNK_SIZE = 25` páginas. Cada chunk tiene timeout independiente.
+  - Nuevo `private function rasterizeChunk()`: captura `RuntimeException` (chunk vacío = fin de documento) y retorna array vacío para `break` limpio; propaga `RasterizationFailureException` (contenido inválido explícito).
+  - Loop hasta `MAX_PAGES + 1 = 51` para detectar PDFs que exceden el límite.
+  - `buildCommand()`: nuevo parámetro `int $firstPage = 1` (compatible por default).
+  - `executeRasterization()`: nuevo parámetro `int $firstPage = 1`.
+  - `collectAndValidateImages()`: firma cambiada a `array|string` — acepta rutas pre-acumuladas (modo chunks) o prefijo glob (modo legacy).
+  - Cleanup de chunks DESPUÉS de `buildMultimodalParts()` — evita leer archivos eliminados.
+
+- **Tests TDD nuevos**:
+  - `GeminiGatewayTest.php`: +4 tests — `testCbCheckCalledBeforeHttpInV2Path`, `testCbRecordsFailureInV2PathOn429`, `testCbRecordFailureNotCalledFor400`, `testCbRecordsFailureOnNetworkError`.
+  - `DocumentPdfRasterizerTest.php`: +4 tests — `testChunkedRasterizationFor50PagePdf`, `testChunkedRasterizationPreservesPageOrder`, `testEmptySecondChunkStopsIteration`, `testBuildCommandUsesCorrectFirstPageAndLastPage`.
+
+- **SDD aprobada**: `plans/sdd-cb-v2-rasterizer-chunks.md` — 3 iteraciones de revisión codex (aprobado en iteración 3).
+
+---
+
 ## [2026-11-08] — Resiliencia DLQ: Timeout Rasterizador Configurable + GeminiResponseException Terminal (`SDD-DLQ-RESILIENCE-001`)
 
 - **CR-1: `DocumentPdfRasterizer` — Timeout configurable vía `PDF_RASTERIZER_TIMEOUT_SECONDS` (`DocumentExtractionWorker.php`)**:
@@ -63,11 +98,19 @@
 
 ## [2026-11-08] - Remediación Post-Despliegue: Nivel de Pensamiento `gemini-3.8-flash`, Desbloqueo de GC de Huérfanos Pre-Deploy y Reconciliación de Persistencia (`SDD-OPS-026`)
 
-- **Corrección y Homologación de Enlaces Relativos en Hooks PreInvocation (`.agent/scripts/inject-sdd-reminder.*`)**:
-  - Se corrigieron y homologaron las rutas relativas hacia los archivos `.md` de especificaciones y políticas en la directiva inyectada por el hook `sdd-flow-reminder` (tanto en `inject-sdd-reminder.mjs` como en su par PowerShell `inject-sdd-reminder.ps1`).
+- **Corrección, Homologación y Extensión del Protocolo en Hooks PreInvocation (`.agent/scripts/inject-sdd-reminder.*`)**:
+  - Se corrigieron y homologaron las rutas relativas hacia los archivos `.md` de especificaciones y políticas en ambos archivos (`inject-sdd-reminder.mjs` e `inject-sdd-reminder.ps1`).
   - **Paso 2 (SDD)**: Enlace relativo `[../skills/write-sdd-spec/SKILL.md](../skills/write-sdd-spec/SKILL.md)` preservando `/write-sdd-spec`.
   - **Paso 5 (Clean Rebuild)**: Enlace relativo `[../skills/clean-rebuild-policy/SKILL.md](../skills/clean-rebuild-policy/SKILL.md)` preservando `/clean-rebuild-policy`.
   - **Paso 7 (Docs Sync)**: Enlace relativo `[../skills/audfact-docs-sync/SKILL.md](../skills/audfact-docs-sync/SKILL.md)` preservando `(audfact-docs-sync)`.
+  - **Corrección crítica — Protocolo SDD no ejecutado por agentes (Causa Raíz + Remediación)**:
+  - **Causa Raíz 1 — `hooks.json` inválido**: El archivo `hooks.json` tenía texto del protocolo incrustado fuera del objeto JSON válido, lo que invalidaba la carga de los hooks `ensure-tests-baseline` y `enforce-docs-sync` en bloque.
+  - **Causa Raíz 2 — `ephemeralMessage` sin persistencia**: El tipo `ephemeralMessage` se descarta tras el turno actual. Si el agente no ejecuta todos los pasos en ese turno, la directiva desaparece del contexto y los pasos siguientes quedan sin instrucción.
+  - **Remediación**:
+    1. `hooks.json` restaurado a JSON válido sin contenido extra.
+    2. Ambos scripts (`inject-sdd-reminder.mjs` e `inject-sdd-reminder.ps1`) migrados de `ephemeralMessage` a `systemMessage` (persiste en el trajectory de la conversación entre turnos).
+    3. Lenguaje de la directiva reforzado: de advisory ("debes cumplir") a imperativo ("OBLIGATORIO Y NO NEGOCIABLE"), con marcadores `⛔ BLOQUEANTE` en los 6 pasos que tienen enforcement real (1, 2, 5, 8, 9, 10) y mención explícita al hook que los ejecuta.
+- **Refinamiento semántico del Paso 4 — Validación Empírica**: Se precisó la definición del paso para orientarlo a la instanciación y ejecución de las clases, métodos y componentes definidos en la spec, en lugar de sondeos de infraestructura genéricos. El objetivo explícito ahora es verificar que la implementación cumple los objetivos de la spec, detectar regresiones sobre funcionalidades existentes y anticipar degradaciones de rendimiento o estabilidad antes de consolidar el código. Aplicado en `inject-sdd-reminder.mjs` e `inject-sdd-reminder.ps1`.
 
 - **Estandarización de `gemini-3.8-flash` (`thinkingLevel=low`) y Desbloqueo Definitivo de `AuditExecutionMaintenance::gc()` y `/metrics/async` (`SDD-OPS-026`)**:
   - **Causa Raíz 1 — Rechazo de `thinkingLevel=minimal` en `gemini-3.8-flash` (`GeminiConfig.php`, `.github/workflows/deploy-production.yml`, GitHub Variables)**:

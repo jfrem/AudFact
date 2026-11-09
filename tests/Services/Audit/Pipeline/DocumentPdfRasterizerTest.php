@@ -8,6 +8,7 @@ use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
 use App\Services\Audit\Pipeline\PdfContentFailure;
 use App\Services\Audit\Pipeline\RasterizationFailureException;
 use App\Services\Audit\Pipeline\RasterizationProcessResult;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
@@ -353,5 +354,205 @@ final class DocumentPdfRasterizerTest extends TestCase
         $this->assertCount(1, $parts);
         $this->assertSame('FALLBACK TEST', $parts[0]['label']);
         $this->assertSame(base64_encode('fallback_jpeg_bytes'), $parts[0]['data']);
+    }
+
+    #[DataProvider('pageCounts')]
+    public function testChunksPreserveEveryPageAndCleanTemporaryFiles(int $pages, string $engine): void
+    {
+        // Arrange:
+        $rasterizer = new ChunkedPdfRasterizerFake($pages, $engine);
+
+        // Act:
+        $parts = $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DOCUMENTO');
+
+        // Assert:
+        self::assertCount($pages, $parts);
+        foreach ($parts as $index => $part) {
+            $page = $index + 1;
+            self::assertSame('PAGE:' . $page, base64_decode($part['data'], true));
+            self::assertSame('image/jpeg', $part['mime']);
+            self::assertSame($pages === 1 ? 'DOCUMENTO' : "DOCUMENTO (Página {$page}/{$pages})", $part['label']);
+        }
+        self::assertCount(match (true) {
+            $pages < 25 => 1,
+            $pages < 49 => 2,
+            default => 3,
+        }, $rasterizer->commands);
+        $this->assertTemporaryFilesRemoved($rasterizer);
+    }
+
+    public static function pageCounts(): iterable
+    {
+        foreach ([DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT, DocumentPdfRasterizer::ENGINE_PDFTOPPM] as $engine) {
+            foreach ([1, 10, 24, 25, 26, 49, 50] as $pages) {
+                yield "{$engine}: {$pages} páginas" => [$pages, $engine];
+            }
+        }
+    }
+
+    #[DataProvider('engines')]
+    public function testPageLimitProbeRejects51PagesAndCleansAllChunks(string $engine): void
+    {
+        // Arrange:
+        $rasterizer = new ChunkedPdfRasterizerFake(51, $engine);
+
+        // Assert:
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Documento excede el límite máximo de 50 páginas');
+
+        // Act:
+        try {
+            $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DOCUMENTO');
+        } finally {
+            $this->assertTemporaryFilesRemoved($rasterizer);
+        }
+    }
+
+    #[DataProvider('failedChunks')]
+    public function testLaterChunkFailureNeverReturnsPartialDocument(
+        ?RasterizationProcessResult $result,
+        ?RuntimeException $failure,
+        string $expectedClass
+    ): void {
+        // Arrange:
+        $rasterizer = new ChunkedPdfRasterizerFake(50, DocumentPdfRasterizer::ENGINE_PDFTOPPM);
+        $rasterizer->failOnCall = 2;
+        $rasterizer->failureResult = $result;
+        $rasterizer->failure = $failure;
+
+        // Assert:
+        $this->expectException($expectedClass);
+        if ($failure !== null) {
+            $this->expectExceptionMessage($failure->getMessage());
+        }
+
+        // Act:
+        try {
+            $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DOCUMENTO');
+        } finally {
+            self::assertCount(2, $rasterizer->commands);
+            $this->assertTemporaryFilesRemoved($rasterizer);
+        }
+    }
+
+    public static function failedChunks(): iterable
+    {
+        yield 'timeout' => [null, new RuntimeException('Timeout de rasterización'), RuntimeException::class];
+        yield 'error con salida parcial' => [new RasterizationProcessResult(1, 'No space left on device'), null, RuntimeException::class];
+        yield 'sin imágenes ni diagnóstico' => [new RasterizationProcessResult(0), null, RuntimeException::class];
+        yield 'contenido inválido' => [new RasterizationProcessResult(1, "Couldn't read xref table"), null, RasterizationFailureException::class];
+    }
+
+    public function testLaterChunkFallbackKeepsEarlierPagesAndDiscardsPartialOutput(): void
+    {
+        // Arrange:
+        $rasterizer = new ChunkedPdfRasterizerFake(26, DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT, autoDetect: true);
+        $rasterizer->failOnCall = 2;
+        $rasterizer->failure = new RuntimeException('Fallo de Ghostscript');
+
+        // Act:
+        $parts = $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DOCUMENTO');
+
+        // Assert:
+        self::assertCount(3, $rasterizer->commands);
+        self::assertStringContainsString('-f 25 -l 49', $rasterizer->commands[2]);
+        self::assertCount(26, $parts);
+        foreach ($parts as $index => $part) {
+            self::assertSame('PAGE:' . ($index + 1), base64_decode($part['data'], true));
+        }
+        $this->assertTemporaryFilesRemoved($rasterizer);
+    }
+
+    #[DataProvider('engines')]
+    public function testBuildCommandUsesRequestedPageRange(string $engine): void
+    {
+        // Arrange:
+        $rasterizer = new ChunkedPdfRasterizerFake(50, $engine);
+
+        // Act:
+        $command = $rasterizer->buildCommand('/in.pdf', '/out', 200, 50, $engine, 'renderer', 26);
+
+        // Assert:
+        self::assertStringContainsString(
+            $engine === DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT ? '-dFirstPage=26 -dLastPage=50' : '-f 26 -l 50',
+            $command
+        );
+    }
+
+    public static function engines(): iterable
+    {
+        yield 'Ghostscript' => [DocumentPdfRasterizer::ENGINE_GHOSTSCRIPT];
+        yield 'Poppler' => [DocumentPdfRasterizer::ENGINE_PDFTOPPM];
+    }
+
+    private function assertTemporaryFilesRemoved(ChunkedPdfRasterizerFake $rasterizer): void
+    {
+        self::assertNotEmpty($rasterizer->temporaryFiles);
+        foreach ($rasterizer->temporaryFiles as $path) {
+            self::assertFileDoesNotExist($path);
+        }
+    }
+}
+
+/** Simula ambos motores con un PDF finito y numeración propia de cada motor. */
+final class ChunkedPdfRasterizerFake extends DocumentPdfRasterizer
+{
+    public array $commands = [];
+    public array $temporaryFiles = [];
+    public ?int $failOnCall = null;
+    public ?RasterizationProcessResult $failureResult = null;
+    public ?RuntimeException $failure = null;
+
+    public function __construct(private int $pages, string $engine, bool $autoDetect = false)
+    {
+        parent::__construct($autoDetect ? null : ($engine === self::ENGINE_GHOSTSCRIPT ? 'gs' : 'pdftoppm'));
+    }
+
+    protected function checkBinaryExists(string $binary): bool
+    {
+        return true;
+    }
+
+    protected function executeProcess(string $cmd): RasterizationProcessResult
+    {
+        $this->commands[] = $cmd;
+        $ghostscript = str_contains($cmd, '-sDEVICE=jpeg');
+        preg_match($ghostscript ? '/-dFirstPage=(\d+)/' : '/-f (\d+)/', $cmd, $first);
+        preg_match($ghostscript ? '/-dLastPage=(\d+)/' : '/-l (\d+)/', $cmd, $last);
+        preg_match_all('/(["\'])(.*?)\1/', $cmd, $paths);
+        if ($ghostscript) {
+            $prefix = substr($paths[2][0], 0, (int) strrpos($paths[2][0], '-'));
+            $input = $paths[2][1];
+        } else {
+            [$input, $prefix] = $paths[2];
+        }
+        $this->temporaryFiles[] = $input;
+        if (!is_file($input)) {
+            throw new RuntimeException('El fallback perdió el PDF de entrada');
+        }
+
+        if (count($this->commands) === $this->failOnCall) {
+            if ($this->failure !== null || $this->failureResult?->exitCode !== 0) {
+                $this->writeImage($prefix . '-999.jpg', 'PARTIAL');
+            }
+            if ($this->failure !== null) {
+                throw $this->failure;
+            }
+            return $this->failureResult ?? new RasterizationProcessResult(1);
+        }
+
+        $firstPage = (int) $first[1];
+        $lastPage = min((int) $last[1], $this->pages);
+        for ($page = $firstPage; $page <= $lastPage; ++$page) {
+            $outputPage = $ghostscript ? $page - $firstPage + 1 : $page;
+            $this->writeImage("{$prefix}-{$outputPage}.jpg", "PAGE:{$page}");
+        }
+        return new RasterizationProcessResult(0);
+    }
+
+    private function writeImage(string $path, string $content): void
+    {
+        $this->temporaryFiles[] = $path;
+        file_put_contents($path, $content);
     }
 }

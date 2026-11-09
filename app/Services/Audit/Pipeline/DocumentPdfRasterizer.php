@@ -24,6 +24,7 @@ class DocumentPdfRasterizer
     public const DEFAULT_DPI = 200;
     public const DEFAULT_TIMEOUT_SECONDS = 60;
     public const MAX_PAGES = 50;
+    private const CHUNK_SIZE = 25;
 
     public const ENGINE_GHOSTSCRIPT = 'ghostscript';
     public const ENGINE_PDFTOPPM    = 'pdftoppm';
@@ -138,6 +139,9 @@ class DocumentPdfRasterizer
     /**
      * Orquesta la rasterización del PDF a partes multimodales JPEG a 200 DPI.
      *
+     * Cada bloque tiene timeout independiente y comparte una página con el
+     * anterior para detectar el final sin solicitar un rango completamente vacío.
+     *
      * @param string $pdfDataRaw Bytes crudos del archivo PDF (decodificados)
      * @param string $label Etiqueta del documento (ej. 'FORMULA MEDICA')
      * @param int|null $customDpi Resolución personalizada opcional en DPI
@@ -149,30 +153,50 @@ class DocumentPdfRasterizer
         $this->validateInput($pdfDataRaw);
         $this->ensureBinaryAvailable();
 
-        $dpi              = $customDpi ?? $this->dpi;
-        $tempDir          = $this->resolveTempDir();
-        $uniqueId         = bin2hex(random_bytes(8));
-        $inputPdfPath     = $tempDir . DIRECTORY_SEPARATOR . "input_{$uniqueId}.pdf";
-        $outputPrefix     = $tempDir . DIRECTORY_SEPARATOR . "page_{$uniqueId}";
-        $maxPagesToRender = self::MAX_PAGES + 1;
+        $dpi          = $customDpi ?? $this->dpi;
+        $tempDir      = $this->resolveTempDir();
+        $uniqueId     = bin2hex(random_bytes(8));
+        $inputPdfPath = $tempDir . DIRECTORY_SEPARATOR . "input_{$uniqueId}.pdf";
 
         try {
             $this->writeTemporaryPdf($inputPdfPath, $pdfDataRaw);
+            $images = [];
+            $pageLimitProbe = self::MAX_PAGES + 1;
 
-            $engineUsed = $this->executeRasterization(
-                $inputPdfPath,
-                $outputPrefix,
-                $dpi,
-                $maxPagesToRender,
-                $label,
-                $tempDir,
-                $uniqueId,
-                $pdfDataRaw
-            );
+            for ($firstPage = 1; $firstPage < $pageLimitProbe; $firstPage += self::CHUNK_SIZE - 1) {
+                $lastPage = min($firstPage + self::CHUNK_SIZE - 1, $pageLimitProbe);
+                $chunkId = $uniqueId . '_c' . $firstPage;
+                $outputPrefix = $tempDir . DIRECTORY_SEPARATOR . "page_{$chunkId}";
 
-            $generatedImages = $this->collectAndValidateImages($outputPrefix, $engineUsed);
+                $chunkImages = $this->executeRasterization(
+                    $inputPdfPath,
+                    $outputPrefix,
+                    $dpi,
+                    $firstPage,
+                    $lastPage,
+                    $label,
+                    $tempDir,
+                    $chunkId
+                );
 
-            return $this->buildMultimodalParts($generatedImages, $label);
+                $renderedPageCount = count($chunkImages);
+                if ($firstPage > 1) {
+                    array_shift($chunkImages);
+                }
+                array_push($images, ...$chunkImages);
+
+                if (count($images) > self::MAX_PAGES) {
+                    throw new RuntimeException(
+                        'DocumentPdfRasterizer: Documento excede el límite máximo de ' . self::MAX_PAGES . ' páginas.'
+                    );
+                }
+
+                if ($renderedPageCount < $lastPage - $firstPage + 1) {
+                    break;
+                }
+            }
+
+            return $this->buildMultimodalParts($images, $label);
         } catch (RuntimeException $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -180,14 +204,13 @@ class DocumentPdfRasterizer
                 'error' => $e->getMessage(),
                 'label' => $label,
             ]);
-
             throw new RuntimeException(
                 'DocumentPdfRasterizer: Error inesperado durante la rasterización: ' . $e->getMessage(),
                 0,
                 $e
             );
         } finally {
-            // Limpieza atómica estricta: cero fugas de disco ante éxito, timeout o excepción
+            // El prefijo raíz incluye el PDF y todos los bloques, aun si fallaron.
             $this->cleanupPrefixFiles($tempDir, $uniqueId);
         }
     }
@@ -197,25 +220,26 @@ class DocumentPdfRasterizer
      *
      * El éxito requiere salida cero e imágenes. Un diagnóstico explícito del
      * parser permite rechazo; un fallo desconocido conserva naturaleza técnica.
+     *
+     * @return list<string> Imágenes del bloque en orden de página.
      */
     private function executeRasterization(
         string $inputPdfPath,
         string $outputPrefix,
         int $dpi,
-        int $maxPagesToRender,
+        int $firstPage,
+        int $lastPage,
         string $label,
         string $tempDir,
-        string $uniqueId,
-        string $pdfDataRaw
-    ): string {
+        string $chunkId
+    ): array {
         $engine = $this->activeEngine ?? self::ENGINE_PDFTOPPM;
         $binary = $this->activeBinary ?? 'pdftoppm';
 
-        $cmd = $this->buildCommand($inputPdfPath, $outputPrefix, $dpi, $maxPagesToRender, $engine, $binary);
+        $cmd = $this->buildCommand($inputPdfPath, $outputPrefix, $dpi, $lastPage, $engine, $binary, $firstPage);
 
         try {
-            $this->executeAndValidateOutput($cmd, $outputPrefix, $engine);
-            return $engine;
+            return $this->executeAndValidateOutput($cmd, $outputPrefix, $engine);
         } catch (RuntimeException $e) {
             if (!$this->shouldAttemptFallback($engine)) {
                 throw $e;
@@ -228,31 +252,30 @@ class DocumentPdfRasterizer
                 'error' => $e->getMessage(),
             ]);
 
-            $this->cleanupPrefixFiles($tempDir, $uniqueId);
-
-            if (!is_file($inputPdfPath)) {
-                $this->writeTemporaryPdf($inputPdfPath, $pdfDataRaw);
-            }
+            $this->cleanupPrefixFiles($tempDir, $chunkId);
 
             $fallbackCmd = $this->buildCommand(
                 $inputPdfPath,
                 $outputPrefix,
                 $dpi,
-                $maxPagesToRender,
+                $lastPage,
                 self::ENGINE_PDFTOPPM,
-                'pdftoppm'
+                'pdftoppm',
+                $firstPage
             );
 
-            $this->executeAndValidateOutput($fallbackCmd, $outputPrefix, self::ENGINE_PDFTOPPM);
-            return self::ENGINE_PDFTOPPM;
+            return $this->executeAndValidateOutput($fallbackCmd, $outputPrefix, self::ENGINE_PDFTOPPM);
         }
     }
 
-    private function executeAndValidateOutput(string $cmd, string $outputPrefix, string $engine): void
+    /** @return list<string> */
+    private function executeAndValidateOutput(string $cmd, string $outputPrefix, string $engine): array
     {
         $result = $this->executeProcess($cmd);
-        if ($result->exitCode === 0 && (glob($outputPrefix . '-*.jpg') ?: []) !== []) {
-            return;
+        $images = glob($outputPrefix . '-*.jpg') ?: [];
+        if ($result->exitCode === 0 && $images !== []) {
+            natsort($images);
+            return array_values($images);
         }
         $contentFailure = $result->contentFailure();
         if ($contentFailure !== null) {
@@ -269,36 +292,6 @@ class DocumentPdfRasterizer
         return $this->explicitBinary === null
             && $currentEngine === self::ENGINE_GHOSTSCRIPT
             && $this->checkBinaryExists('pdftoppm');
-    }
-
-    /**
-     * Localiza y valida las imágenes generadas por el motor.
-     *
-     * @return array<int, string> Rutas absolutas ordenadas naturalmente
-     */
-    private function collectAndValidateImages(string $outputPrefix, string $engine): array
-    {
-        $pattern = $outputPrefix . '-*.jpg';
-        $generatedImages = glob($pattern) ?: [];
-
-        if (empty($generatedImages)) {
-            throw new RuntimeException(
-                "DocumentPdfRasterizer: {$engine} no generó imágenes JPEG. "
-                . 'Diagnóstico de contenido no confirmado.'
-            );
-        }
-
-        natsort($generatedImages);
-        $generatedImages = array_values($generatedImages);
-
-        $totalPages = count($generatedImages);
-        if ($totalPages > self::MAX_PAGES) {
-            throw new RuntimeException(
-                "DocumentPdfRasterizer: Documento excede el límite máximo de " . self::MAX_PAGES . " páginas."
-            );
-        }
-
-        return $generatedImages;
     }
 
     /**
@@ -371,6 +364,8 @@ class DocumentPdfRasterizer
 
     /**
      * Construye la línea de comandos adecuada según el motor de rasterización.
+     *
+     * @param int $firstPage Primera página del chunk a renderizar (default 1)
      */
     public function buildCommand(
         string $inputPdfPath,
@@ -378,13 +373,15 @@ class DocumentPdfRasterizer
         int $dpi,
         int $maxPagesToRender,
         string $engine,
-        string $binary
+        string $binary,
+        int $firstPage = 1
     ): string {
         if ($engine === self::ENGINE_GHOSTSCRIPT) {
             return sprintf(
-                '%s -sDEVICE=jpeg -dJPEGQ=90 -r%d -dSAFER -dBATCH -dNOPAUSE -dFirstPage=1 -dLastPage=%d -sOutputFile=%s %s',
+                '%s -sDEVICE=jpeg -dJPEGQ=90 -r%d -dSAFER -dBATCH -dNOPAUSE -dFirstPage=%d -dLastPage=%d -sOutputFile=%s %s',
                 escapeshellcmd($binary),
                 $dpi,
+                $firstPage,
                 $maxPagesToRender,
                 escapeshellarg($outputPrefix . '-%d.jpg'),
                 escapeshellarg($inputPdfPath)
@@ -392,9 +389,10 @@ class DocumentPdfRasterizer
         }
 
         return sprintf(
-            '%s -jpeg -r %d -f 1 -l %d %s %s',
+            '%s -jpeg -r %d -f %d -l %d %s %s',
             escapeshellcmd($binary),
             $dpi,
+            $firstPage,
             $maxPagesToRender,
             escapeshellarg($inputPdfPath),
             escapeshellarg($outputPrefix)
