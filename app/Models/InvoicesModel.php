@@ -134,22 +134,40 @@ class InvoicesModel extends Model
                 AND d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD AND dd.DisTip <> 'A' AND k.KarUnicp > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
 
                     AND NOT EXISTS ( SELECT 1
-                        FROM Factura fx WITH(NOLOCK)
-                        INNER JOIN Tipos tx WITH(NOLOCK) ON tx.TipCod = fx.FacTipCod
+                        FROM DiscolmetsGx2QA.dbo.Factura fx WITH(NOLOCK)
+                        INNER JOIN DiscolmetsGx2QA.dbo.Tipos tx WITH(NOLOCK) ON tx.TipCod = fx.FacTipCod
                         WHERE fx.DisId = dd.DisId AND fx.DisDetId = dd.DisDetId AND fx.FacEst = 'A' AND tx.FueCod = 'FACT'
                         AND EXISTS (
                             SELECT 1
-                            FROM DispensacionDetalleServicio dx WITH(NOLOCK)
-                            WHERE dx.DisId = fx.DisId AND dx.DisDetId = fx.DisDetId
+                            FROM DiscolmetsGx2QA.dbo.DispensacionDetalleServicio dx WITH(NOLOCK)
+                            WHERE dx.DisId = fx.DisId AND dx.DisDetId = fx.DisDetId 
                         )
+                        AND NOT EXISTS (
+                            select 1
+                            from DiscolmetsGx2QA.dbo.factura f with(nolock) 
+                            INNER JOIN DiscolmetsGx2QA.dbo.Tipos t WITH(NOLOCK) ON t.TipCod = f.FacTipCod
+                            where f.FacEst = 'A' AND t.FueCod = 'NCRE' and f.FacSecDev=fx.FacSec
+                            AND EXISTS (
+                                SELECT 1
+                                FROM DiscolmetsGx2QA.dbo.FacturaKardex dx WITH(NOLOCK)
+                                WHERE dx.KarUniTemp=1 and dx.FacSec = f.FacSec 
+                            )
+                        )	
                     )
-
+                        
                     AND NOT EXISTS (
                         SELECT 1
-                        FROM FacturaKardex kx WITH(NOLOCK)
-                        INNER JOIN Factura fx WITH(NOLOCK) ON fx.FacSec = kx.FacSec
-                        INNER JOIN Tipos tx WITH(NOLOCK) ON tx.TipCod = fx.FacTipCod
-                        WHERE kx.FacSecRem = f.FacSec AND fx.FacEst = 'A'AND tx.FueCod = 'FACT' AND fx.facobs2='5'
+                        FROM DiscolmetsGx2QA.dbo.FacturaKardex kx WITH(NOLOCK)
+                        INNER JOIN DiscolmetsGx2QA.dbo.Factura fx WITH(NOLOCK) ON fx.FacSec = kx.FacSec
+                        INNER JOIN DiscolmetsGx2QA.dbo.Tipos tx WITH(NOLOCK) ON tx.TipCod = fx.FacTipCod
+                        WHERE kx.FacSecRem = f.FacSec AND fx.FacEst = 'A'AND tx.FueCod = 'FACT' and fx.facobs2='5'
+                    )
+                    AND NOT EXISTS (
+                        select 1 from DiscolmetsGx2QA.dbo.FacturaKardexCruce fxc with(nolock) 
+                        inner join DiscolmetsGx2QA.dbo.Factura f2 with(nolock) on f2.FacSec=fxc.FacCruFacSec
+                        inner join DiscolmetsGx2QA.dbo.tipos t2 with(nolock) on t2.TipCod=f2.FacTipCod
+                        where fxc.FacSec=f.FacSec and fxc.KarSec=k.KarSec
+                        having sum(case when t2.FueCod='NCRE' then -1 else 1 end)>0
                     )
 
                 GROUP BY f.FacNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
