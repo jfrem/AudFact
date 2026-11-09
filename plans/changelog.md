@@ -1,5 +1,39 @@
 # Changelog AudFact
 
+## [2026-11-09] — Retiro del Circuit Breaker en la Ruta Durable v2 (`SDD-RETIRE-CB-V2-001`)
+
+- **Motivación y Causa Raíz**: El Circuit Breaker intercalado en `GeminiGateway::executeSingleOperation()` generaba un modo de fallo crítico en producción: ante 3 errores 503 transitorios de Gemini, el CB abría su estado durante 60 segundos y lanzaba `RuntimeException(503)` local. En `AuditTaskRunner`, estas excepciones consumían los 3 reintentos en ~6 segundos y provocaban el descarte prematuro e injustificado de auditorías sanas hacia la Dead Letter Queue (`audfact:audit.dlq`).
+- **Ablación Quirúrgica**: Retiro de las 3 llamadas al Circuit Breaker en `GeminiGateway::executeSingleOperation()`:
+  - Eliminado `$this->cbCheck();` al inicio de la operación.
+  - Eliminado `$this->cbRecordFailure(0);` en el catch de `GuzzleException`.
+  - Eliminado `if ($code !== 400) { $this->cbRecordFailure($code); }` en la validación del código HTTP.
+- **Preservación Arquitectónica**:
+  - La gobernanza de flujo, concurrencia máxima (*inflight*) y límites RPM/TPM/RPD permanece plenamente administrada por `GeminiQuotaBudget` (Lua scripts en Redis).
+  - La política de reintentos con backoff y respeto estricto del header HTTP `Retry-After` continúa a cargo de `AuditTaskRunner`.
+  - La ruta directa síncrona sin tarea (`executePost()`, `sendWithStructuredOutput()`) conserva intacto su Circuit Breaker para consumidores directos o scripts fuera del pipeline de tareas.
+  - La rasterización de PDFs en bloques de 25 páginas (`DocumentPdfRasterizer.php`) permanece 100% activa.
+- **Contratos de Prueba (TDD)**:
+  - En `tests/Services/Audit/GeminiGatewayTest.php`, 3 pruebas refactorizadas certifican que la ruta durable v2 nunca consulta (`never()->method('get')`) ni muta (`never()->method('incr')`) las claves del CB en Redis:
+    - `testOpenCircuitDoesNotBlockSingleOperationInV2DurableRoute`: despacha 200 OK con Redis en estado `open`.
+    - `testSingleOperationPropagatesHttpErrorsWithoutTouchingCircuitBreaker`: propaga `GeminiOperationException` sin tocar contadores.
+    - `testSingleOperationPropagatesNetworkFailureWithoutTouchingCircuitBreaker`: propaga excepción de red con `unknownResult: true` sin mutar el CB.
+- **Verificación**: Suite unitaria completa certificada: 1060 tests, 5524 aserciones, 78 skipped, 0 fallos, 0 errores. OK (Código 0).
+- **Revisión Independiente (Paso 5)**: Dictamen `APROBADO` emitido por revisor independiente CLI Gemini (`SDD-RETIRE-CB-V2-001`).
+
+## [2026-11-09] — Dictamen de relevancia del Circuit Breaker en ejecución durable v2
+
+- Informe: `plans/reports/dictamen-relevancia-circuit-breaker-v2-2026-11-09.md`. Recomendación B: retirar la intervención del Circuit Breaker en v2 mediante cambio incremental acotado; no reconstruirlo como requisito del arreglo.
+- Distingue cuota, reintentos y detección de salud; documenta que el retiro no evita agotar intentos reales ante una caída prolongada. Incluye pausa operativa existente, riesgos residuales, costo-beneficio, contratos de aceptación, despliegue/rollback y recuperación DLQ.
+- Reevaluación estratégica de la recomendación anterior de hardening, conservando sus hallazgos. Las cifras históricas y el incidente productivo permanecen como antecedentes no verificados en esta revisión.
+- Validación focalizada: 41 casos, 140 aserciones, 9 omitidos por requerir Redis real; 32 ejecutados satisfactoriamente, salida 0. Solo documentación: sin cambios de código, configuración, skills ni acciones en producción.
+- Validación documental: informe compilado como MDX, JSON válido, 28 referencias completas comprobadas y build del portal exitoso; hook documental sin bloqueo.
+
+## [2026-11-09] — Auditoría independiente del incremento de DLQ tras activar Circuit Breaker v2
+
+- Informe: `plans/reports/auditoria-independiente-circuit-breaker-dlq-2026-11-09.md`. Dictamen: diagnóstico parcialmente justificado con omisiones críticas.
+- Verificados el consumo de reintentos por rechazos locales, los cargos de cuota sin HTTP, la ausencia de registro de éxitos en el circuito durable y los límites de su recuperación. Se documentan la solución propuesta y sus pruebas de aceptación, sin modificar código ni configuración de producción.
+- Validación focalizada: 41 casos PHPUnit, 140 aserciones, 9 omitidos por requerir Redis real; salida 0. Reproducción con HTTP simulado: tres fallos intercalados con éxitos abren el circuito. No se inspeccionó producción ni se certificó la suite completa en esta auditoría.
+
 ## [2026-11-09] — Clean code del diff PHP (`SDD-CB-RASTER-002`)
 
 - **Rasterización completa**: bloques de hasta 25 páginas con una página compartida (1–25, 25–49, 49–51). La salida mantiene orden y cardinalidad; sondear la página 51 permite rechazar PDFs de más de 50 páginas sin truncarlos.

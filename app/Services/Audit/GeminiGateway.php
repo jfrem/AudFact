@@ -295,8 +295,6 @@ class GeminiGateway
 
     private function executeSingleOperation(string $method, array $body, array $context): array
     {
-        $this->cbCheck();
-
         $now = $this->taskQueue?->nowMs() ?? (int) floor(microtime(true) * 1000);
         $grant = $context['grant'] ?? [];
         if (($grant['status'] ?? '') !== 'GRANTED' || ($grant['body_hash'] ?? '') !== ($context['body_hash'] ?? null)
@@ -321,7 +319,6 @@ class GeminiGateway
             if ($method === 'generateContent') {
                 $this->saveDebugLog($body, ['error' => $e->getMessage()], $context, 'http_error');
             }
-            $this->cbRecordFailure(0);
             throw new GeminiOperationException($context['operation'], durationMs: (int) ((hrtime(true) - $start) / 1000000), unknownResult: true);
         }
         $code = $response->getStatusCode();
@@ -341,10 +338,6 @@ class GeminiGateway
             }
             if ($method === 'generateContent') {
                 $this->saveDebugLog($body, ['error' => (string) $response->getBody(), 'http_status' => $code], $context, 'http_error');
-            }
-            // Un payload rechazado no indica indisponibilidad del proveedor.
-            if ($code !== 400) {
-                $this->cbRecordFailure($code);
             }
             throw new GeminiOperationException($context['operation'], $code, $retry, $reason, (int) ((hrtime(true) - $start) / 1000000));
         }

@@ -303,29 +303,29 @@ final class GeminiGatewayTest extends TestCase
     }
 
     #[DataProvider('singleOperations')]
-    public function testOpenCircuitBlocksSingleOperationWithoutHttp(string $method, string $operation): void
+    public function testOpenCircuitDoesNotBlockSingleOperationInV2DurableRoute(string $method, string $operation): void
     {
         // Arrange:
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
-        $redis->expects($this->once())->method('get')->with('cb:gemini:priority:state')->willReturn('open');
-        $redis->method('ttl')->willReturn(55);
+        // La ruta durable v2 no debe consultar el estado del Circuit Breaker ni mutar fallos en Redis:
+        $redis->expects($this->never())->method('get');
         $redis->expects($this->never())->method('incr');
-        $http = $this->createMock(Client::class);
-        $http->expects($this->never())->method('request');
-        $gateway = new GeminiGateway($http, 'test-key', new GeminiConfig(model: 'test-model'), cbRedis: $redis, lane: 'priority');
 
-        // Assert:
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionCode(503);
-        $this->expectExceptionMessage('Circuit Breaker abierto [carril: priority]');
+        $bodyResponse = '{"candidates":[{"content":{"parts":[{"text":"{}"}]}}],"totalTokens":10}';
+        $handler = new MockHandler([new Response(200, [], $bodyResponse)]);
+        $gateway = $this->singleOperationGateway($handler, $redis);
 
         // Act:
-        $gateway->$method(['contents' => []], $this->singleOperationContext($operation));
+        $result = $gateway->$method(['contents' => []], $this->singleOperationContext($operation));
+
+        // Assert:
+        self::assertIsArray($result);
+        self::assertCount(0, $handler);
     }
 
     #[DataProvider('singleOperationHttpErrors')]
-    public function testSingleOperationRecordsProviderFailureExceptBadRequest(
+    public function testSingleOperationPropagatesHttpErrorsWithoutTouchingCircuitBreaker(
         string $method,
         string $operation,
         int $httpCode
@@ -333,9 +333,9 @@ final class GeminiGatewayTest extends TestCase
         // Arrange:
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
-        $redis->method('get')->willReturn('closed');
-        $redis->expects($httpCode === 400 ? $this->never() : $this->once())
-            ->method('incr')->with('cb:gemini:priority:fails', $this->anything())->willReturn(1);
+        // La ruta durable v2 no debe consultar ni incrementar contadores de Circuit Breaker ante fallos del proveedor:
+        $redis->expects($this->never())->method('get');
+        $redis->expects($this->never())->method('incr');
         $handler = new MockHandler([new Response($httpCode, ['Retry-After' => '1'], '{"error":{"message":"test"}}')]);
         $gateway = $this->singleOperationGateway($handler, $redis);
 
@@ -354,14 +354,14 @@ final class GeminiGatewayTest extends TestCase
     }
 
     #[DataProvider('singleOperations')]
-    public function testSingleOperationRecordsNetworkFailureWithUnknownResult(string $method, string $operation): void
+    public function testSingleOperationPropagatesNetworkFailureWithoutTouchingCircuitBreaker(string $method, string $operation): void
     {
         // Arrange:
         $redis = $this->createMock(RedisClient::class);
         $redis->method('isAvailable')->willReturn(true);
-        $redis->method('get')->willReturn('closed');
-        $redis->expects($this->once())->method('incr')
-            ->with('cb:gemini:priority:fails', $this->anything())->willReturn(1);
+        // La ruta durable v2 no debe consultar ni incrementar contadores de Circuit Breaker ante fallos de red:
+        $redis->expects($this->never())->method('get');
+        $redis->expects($this->never())->method('incr');
         $handler = new MockHandler([new ConnectException('Connection refused', new Request('POST', 'https://example.test'))]);
         $gateway = $this->singleOperationGateway($handler, $redis);
 
