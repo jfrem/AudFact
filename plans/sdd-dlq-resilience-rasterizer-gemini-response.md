@@ -261,7 +261,7 @@ Paso 13: Monitorear DLQ post-deploy (meta: 0 nuevas entradas de rasterizador y G
 | ID | Criterio | Verificación |
 |---|---|---|
 | CA-1 | PHPUnit: ≥ 1023 tests / 0 errores / 0 fallos post-implementación | `php vendor/bin/phpunit` → exit 0 |
-| CA-2 | PDF con 300 páginas rasterizado en <120s → `document_extracted` (no DLQ) | Manual post-deploy |
+| CA-2 | PDF con 300 páginas rasterizado en menos de 120s → `document_extracted` (no DLQ) | Manual post-deploy |
 | CA-3 | Documento bloqueado por Gemini (PROVIDER_BLOCKED) → `document_rejected` (no DLQ) | Test unitario |
 | CA-4 | Documento con OUTPUT_TRUNCATED → `document_rejected` (no DLQ) | Test unitario |
 | CA-5 | Variable `PDF_RASTERIZER_TIMEOUT_SECONDS` en `.env.example` y GitHub Variables | `gh variable list --env production` |
@@ -291,5 +291,5 @@ git push origin main
 # CI/CD deploya imagen anterior automáticamente
 ```
 
-**Tiempo estimado de rollback:** <5 min (CI/CD pipeline existente)
+**Tiempo estimado de rollback:** menos de 5 min (CI/CD pipeline existente)
 
