@@ -7,6 +7,8 @@ namespace App\Services\Audit\Pipeline;
 use App\Services\Audit\GeminiCallMetrics;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\GeminiConfig;
+use App\Services\Audit\GeminiResponseException;
+use App\Services\Audit\GeminiResponseFailureReason;
 use App\Services\Audit\Telemetry\TelemetryPublisher;
 use Core\Env;
 use Core\Logger;
@@ -106,7 +108,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         $this->promptBuilder  = $promptBuilder  ?? new ExtractionPromptBuilder();
         $this->cacheManager   = $cacheManager   ?? new ExtractionCacheManager($this->redis, $resolvedTtl, $extractorVersion);
         $this->responseParser = $responseParser ?? new GeminiResponseParser($this->redis);
-        $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer();
+        $rasterTimeout        = (int) Env::get('PDF_RASTERIZER_TIMEOUT_SECONDS', DocumentPdfRasterizer::DEFAULT_TIMEOUT_SECONDS);
+        $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer(null, DocumentPdfRasterizer::DEFAULT_DPI, $rasterTimeout > 0 ? $rasterTimeout : DocumentPdfRasterizer::DEFAULT_TIMEOUT_SECONDS);
         $this->documentCache = $documentCache ?? new AuditDocumentCache($this->redis);
         $this->documentInput = $documentInput ?? new AuditDocumentInput(
             $this->documentCache,
@@ -419,6 +422,30 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     $event->jobId
                 );
                 return;
+            } catch (GeminiResponseException $geminiResponse) {
+                if (!$geminiResponse->retryable()) {
+                    $reason    = $this->mapGeminiResponseToRejectionReason($geminiResponse);
+                    $integrity = [
+                        'valid'         => false,
+                        'reason'        => $reason,
+                        'declared_mime' => $document['mime'] ?? '',
+                        'detected_mime' => null,
+                        'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
+                    ];
+                    $this->handleRejectedDocument($event, $payload, $document, $integrity);
+                    $this->documentCache->release($blobKey);
+                    $this->telemetryPublisher->rejected(
+                        $event->auditId,
+                        'extraction',
+                        self::elapsedMs($extractionStartedAt),
+                        $event->documentId,
+                        $disDetNro,
+                        array_merge($telemetryMeta, ['reason' => $reason, 'gemini_reason' => $geminiResponse->reasonCode()]),
+                        $event->jobId
+                    );
+                    return;
+                }
+                throw $geminiResponse; // MISSING_CANDIDATE es retryable → pipeline retry normal
             } catch (RuntimeException $geminiError) {
                 if ($this->isGeminiDocumentContentError($geminiError)) {
                     $reason    = $this->classifyGeminiContentError($geminiError);
@@ -756,6 +783,16 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         }
 
         return $extracted;
+    }
+
+    private function mapGeminiResponseToRejectionReason(GeminiResponseException $e): string
+    {
+        return match ($e->reason) {
+            GeminiResponseFailureReason::PROVIDER_BLOCKED     => DocumentRejectionReason::GEMINI_PROVIDER_BLOCKED,
+            GeminiResponseFailureReason::OUTPUT_TRUNCATED     => DocumentRejectionReason::GEMINI_OUTPUT_TRUNCATED,
+            GeminiResponseFailureReason::UNSAFE_FINISH_REASON => DocumentRejectionReason::GEMINI_UNSAFE_FINISH,
+            default                                           => DocumentRejectionReason::GEMINI_DECODE_FAILURE,
+        };
     }
 
     // ─── Clasificación de errores Gemini ──────────────────────────────────────

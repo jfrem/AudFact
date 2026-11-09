@@ -17,6 +17,9 @@ final class DocumentRejectionReason
     public const GEMINI_DECODE_FAILURE = 'GEMINI_DECODE_FAILURE';
     public const CORRUPTED_DOCUMENT = 'CORRUPTED_DOCUMENT';
     public const RASTERIZATION_FAILURE = 'RASTERIZATION_FAILURE';
+    public const GEMINI_PROVIDER_BLOCKED = 'GEMINI_PROVIDER_BLOCKED';
+    public const GEMINI_OUTPUT_TRUNCATED = 'GEMINI_OUTPUT_TRUNCATED';
+    public const GEMINI_UNSAFE_FINISH    = 'GEMINI_UNSAFE_FINISH';
 
     private const ALLOWED = [
         self::EMPTY_DOCUMENT,
@@ -29,6 +32,9 @@ final class DocumentRejectionReason
         self::GEMINI_DECODE_FAILURE,
         self::CORRUPTED_DOCUMENT,
         self::RASTERIZATION_FAILURE,
+        self::GEMINI_PROVIDER_BLOCKED,
+        self::GEMINI_OUTPUT_TRUNCATED,
+        self::GEMINI_UNSAFE_FINISH,
     ];
 
     private function __construct()

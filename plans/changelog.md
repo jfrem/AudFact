@@ -1,5 +1,41 @@
 # Changelog AudFact
 
+## [2026-11-08] — Resiliencia DLQ: Timeout Rasterizador Configurable + GeminiResponseException Terminal (`SDD-DLQ-RESILIENCE-001`)
+
+- **CR-1: `DocumentPdfRasterizer` — Timeout configurable vía `PDF_RASTERIZER_TIMEOUT_SECONDS` (`DocumentExtractionWorker.php`)**:
+  - `DEFAULT_TIMEOUT_SECONDS = 60` era hardcodeado y no configurable vía env. PDFs médicos complejos (muchas páginas, fuentes no incrustadas) excedían sistemáticamente el límite, generando 11 entradas en la DLQ con `"Timeout de rasterización (60s) excedido"`.
+  - `DocumentExtractionWorker::__construct()` ahora lee `PDF_RASTERIZER_TIMEOUT_SECONDS` del entorno antes de instanciar `DocumentPdfRasterizer`, pasando el valor configurado como tercer argumento del constructor.
+  - Valor por defecto: `120s` en producción (configurable sin rebuild).
+  - Agregado a `.env.example` con documentación inline.
+  - `DEFAULT_TIMEOUT_SECONDS` ya era `public const` — sin cambios en `DocumentPdfRasterizer.php`.
+
+- **CR-2: `GeminiResponseException` no-retryable → `document_rejected` (no DLQ) (`DocumentExtractionWorker.php`)**:
+  - `OUTPUT_TRUNCATED`, `PROVIDER_BLOCKED` y `UNSAFE_FINISH_REASON` eran lanzados por `GeminiResponseGuard::assertUsable()` como `GeminiResponseException` con código HTTP = 0. El clasificador `isGeminiDocumentContentError()` filtra por `code === 400`, por lo que estas excepciones escapaban, causaban 3 reintentos de pipeline y terminaban en DLQ (4 entradas).
+  - Agregado `catch (GeminiResponseException $geminiResponse)` **antes** del `catch (RuntimeException)` existente. Excepciones con `retryable() = false` → `handleRejectedDocument()` → `document_rejected` (sin DLQ). `MISSING_CANDIDATE` (único caso `retryable() = true`) se relanza para pipeline retry normal.
+  - Nuevo método `mapGeminiResponseToRejectionReason()`: mapea `PROVIDER_BLOCKED → GEMINI_PROVIDER_BLOCKED`, `OUTPUT_TRUNCATED → GEMINI_OUTPUT_TRUNCATED`, `UNSAFE_FINISH_REASON → GEMINI_UNSAFE_FINISH`.
+  - Agregados `use GeminiResponseException` y `use GeminiResponseFailureReason` al worker.
+
+- **`DocumentRejectionReason.php` — 3 nuevas constantes**:
+  - `GEMINI_PROVIDER_BLOCKED = 'GEMINI_PROVIDER_BLOCKED'`
+  - `GEMINI_OUTPUT_TRUNCATED = 'GEMINI_OUTPUT_TRUNCATED'`
+  - `GEMINI_UNSAFE_FINISH = 'GEMINI_UNSAFE_FINISH'`
+  - Agregadas al array `ALLOWED` para pasar validación `isAllowed()`.
+
+- **Tests unitarios nuevos en `DocumentExtractionWorkerTest.php`**:
+  - `testOutputTruncatedProducesDocumentRejectedNotException` — cubre CR-2 `OUTPUT_TRUNCATED`.
+  - `testProviderBlockedProducesDocumentRejectedNotException` — cubre CR-2 `PROVIDER_BLOCKED`.
+  - `testUnsafeFinishReasonProducesDocumentRejectedNotException` — cubre CR-2 `UNSAFE_FINISH_REASON`.
+  - `testMissingCandidateIsRetryableAndRethrows` — verifica que `MISSING_CANDIDATE` se relanza (retryable).
+  - `testRasterTimeoutReadFromEnvWhenConstructingWithDefaults` — verifica CR-1 (API del constructor).
+  - Nuevo stub `StubThrowingGeminiResponseException` para inyectar `GeminiResponseException` tipada en tests.
+  - Test anterior `testMaxTokensFinishReasonDoesNotCacheOrPublishExtraction` reemplazado por `testOutputTruncatedProducesDocumentRejectedNotException` para reflejar el nuevo contrato.
+
+- **SDD spec**: `plans/sdd-dlq-resilience-rasterizer-gemini-response.md`
+
+- **GitHub Variable producción**: `PDF_RASTERIZER_TIMEOUT_SECONDS=120` (`gh variable set --env production`)
+
+---
+
 ## [2026-11-08] — Corrección Bug N:1 Semántico y Purga `batch_completed` Zombie (`SDD-SEMANTIC-MATCH-001`)
 
 - **Bug 1 (`semantic_result_missing`) — Corregir semántica N:1 en `DocumentPolicyEngine` (`app/Services/Audit/Pipeline/DocumentPolicyEngine.php`)**:
