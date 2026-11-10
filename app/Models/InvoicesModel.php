@@ -126,7 +126,7 @@ class InvoicesModel extends Model
                 INNER JOIN DispensacionDetalleServicio dd WITH(NOLOCK) ON dd.DisId = d.DisId
                 INNER JOIN Factura f WITH(NOLOCK) ON f.DisId = dd.DisId AND f.DisDetId = dd.DisDetId
                 INNER JOIN FacturaKardex k WITH(NOLOCK) ON k.FacSec = f.FacSec
-                INNER JOIN Tipos t WITH(NOLOCK) ON t.TipCod = d.DisTipCod
+                INNER JOIN Tipos t WITH(NOLOCK) ON t.TipCod = f.FacTipCod
                 INNER JOIN Nit n WITH(NOLOCK) ON n.NitSec = f.FacNitSec
                 LEFT JOIN Clientes c WITH(NOLOCK) ON c.NitSec = f.FacNitSec AND c.CliSec = f.FacCliSec
                 LEFT JOIN PerfilDeClientes pc WITH(NOLOCK) ON pc.PerCliCod = c.PerCliCod

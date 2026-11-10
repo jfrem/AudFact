@@ -1,5 +1,11 @@
 # Changelog AudFact
 
+## [2026-11-09] — Alineación de TipCod en Facturas (`InvoicesModel`) y Análisis SPI IA
+
+- **Ajuste en InvoicesModel**: Corrección en el JOIN de `Tipos t` en `InvoicesModel::getInvoicesForAuditBatch()`, referenciando `f.FacTipCod` en lugar de `d.DisTipCod` para alineación consistente con la cabecera de facturación.
+- **Análisis de Arquitectura**: Elaboración del informe de impacto arquitectónico y hoja de ruta agnóstica para sustitución o adición de proveedores de IA multimodal (referencia `opt/DOC-03-SPEC-AI-PROVIDER-SPI.md`).
+- **Verificación**: Ejecución de suite unitaria de regresión y generación de artefacto técnico en brain.
+
 ## [2026-11-09] — Retiro del Circuit Breaker en la Ruta Durable v2 (`SDD-RETIRE-CB-V2-001`)
 
 - **Motivación y Causa Raíz**: El Circuit Breaker intercalado en `GeminiGateway::executeSingleOperation()` generaba un modo de fallo crítico en producción: ante 3 errores 503 transitorios de Gemini, el CB abría su estado durante 60 segundos y lanzaba `RuntimeException(503)` local. En `AuditTaskRunner`, estas excepciones consumían los 3 reintentos en ~6 segundos y provocaban el descarte prematuro e injustificado de auditorías sanas hacia la Dead Letter Queue (`audfact:audit.dlq`).
