@@ -12,6 +12,16 @@ use RuntimeException;
 
 final class DocumentAuditOrchestrator extends AuditEventConsumer
 {
+    public const AUTHORIZATION_MODE_REQUIRED = 'R';
+    public const AUTHORIZATION_MODE_EXCLUDED = 'N';
+    public const AUTHORIZATION_MODE_DEFAULT  = 'S';
+    public const AUTHORIZATION_DOC_NAME      = 'AUTORIZACION';
+    public const AUTHORIZATION_FIELD_NAMES   = ['FechaAutorizacion', 'NumeroAutorizacion'];
+    private const AUTHORIZATION_SYNTHETIC_REASONS = [
+        DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_MISSING,
+        DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_NO_CONTENT,
+    ];
+
     private AuditStateStore $stateStore;
     private AuditDataService $dataService;
     private DocumentExtractionContractBuilder $contractBuilder;
@@ -593,6 +603,11 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
             'factor_conv'        => $context['auditConfig']['factorConv'] ?? false,
             'fuente_verdad'      => $context['fuenteVerdad'],
             'contract_hash'      => $contractHash,
+            'physical_attachment' => $attachment !== [] ? [
+                'TipoAlmacenamiento' => $attachment['storage_type'] ?? null,
+                'AdjDisDocUrl'       => $attachment['AdjDisDocUrl'] ?? null,
+                'AdjDisNom'          => $attachment['AdjDisNom'] ?? null,
+            ] : null,
         ];
     }
 
@@ -623,8 +638,8 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
     /**
      * Conserva la regla de negocio Autorizacion=R sin ejecutar un segundo matching.
-     * Solo la ausencia física inequívoca se transforma en el hallazgo sintético existente;
-     * ambigüedad, falta de contenido o reutilización permanecen como rechazos de mapping.
+     * Solo la ausencia física inequívoca o la falta de contenido se transforma en el hallazgo sintético existente;
+     * ambigüedad o reutilización permanecen como rechazos de mapping.
      *
      * @param array<string,mixed> $context
      */
@@ -633,17 +648,14 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         array &$context,
         DocumentAttachmentMatchResult $matchResult
     ): DocumentAttachmentMatchResult {
-        $authorizationMode = trim((string) (
-            $context['fuenteVerdad']['header']['Autorizacion'] ?? 'S'
-        ));
-        if ($authorizationMode !== 'R') {
+        if (self::authorizationMode($context) !== self::AUTHORIZATION_MODE_REQUIRED) {
             return $matchResult;
         }
 
         $authorizationIndex = null;
         $authorizationDocument = null;
         foreach ($context['configuredDocuments'] as $index => $configuredDocument) {
-            if (($configuredDocument['document_name_normalized'] ?? '') === 'AUTORIZACION') {
+            if (($configuredDocument['document_name_normalized'] ?? '') === self::AUTHORIZATION_DOC_NAME) {
                 $authorizationIndex = $index;
                 $authorizationDocument = $configuredDocument;
                 break;
@@ -658,7 +670,7 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
         foreach ($matchResult->rejections as $index => $rejection) {
             if (
                 (string) ($rejection['logical_doc_id'] ?? '') === $logicalDocId
-                && ($rejection['reason'] ?? '') === DocumentMappingRejectionReason::DOCUMENT_ATTACHMENT_MISSING
+                && in_array($rejection['reason'] ?? '', self::AUTHORIZATION_SYNTHETIC_REASONS, true)
             ) {
                 $missingRejectionIndex = $index;
                 break;
@@ -876,15 +888,13 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
      */
     private function filterDocumentsByAutorizacion(AuditEvent $event, array &$context): void
     {
-        $autorizacion = trim((string) ($context['fuenteVerdad']['header']['Autorizacion'] ?? 'S'));
-
-        if ($autorizacion !== 'N') {
+        if (self::authorizationMode($context) !== self::AUTHORIZATION_MODE_EXCLUDED) {
             return;
         }
 
         $authDocIndex = null;
         foreach ($context['configuredDocuments'] as $index => $doc) {
-            if (($doc['document_name_normalized'] ?? '') === 'AUTORIZACION') {
+            if (($doc['document_name_normalized'] ?? '') === self::AUTHORIZATION_DOC_NAME) {
                 $authDocIndex = $index;
                 break;
             }
@@ -894,10 +904,18 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
 
         foreach ($context['configuredDocuments'] as &$configuredDoc) {
             if (isset($configuredDoc['fields']) && is_array($configuredDoc['fields'])) {
+                $fieldsBefore = count($configuredDoc['fields']);
                 $configuredDoc['fields'] = array_values(array_filter(
                     $configuredDoc['fields'],
-                    fn($field) => !in_array($field['campoNombre'] ?? '', ['FechaAutorizacion', 'NumeroAutorizacion'], true)
+                    fn($field) => !in_array($field['campoNombre'] ?? '', self::AUTHORIZATION_FIELD_NAMES, true)
                 ));
+                if (count($configuredDoc['fields']) !== $fieldsBefore) {
+                    $configuredDoc['extraction_contract'] = $this->contractBuilder->build(
+                        $configuredDoc['document_name'],
+                        $configuredDoc['fields'],
+                        $configuredDoc['visual_checks']
+                    );
+                }
             }
         }
         unset($configuredDoc);
@@ -911,6 +929,14 @@ final class DocumentAuditOrchestrator extends AuditEventConsumer
                 'audit_id' => $event->auditId,
             ]);
         }
+    }
+
+    /** @param array<string,mixed> $context */
+    private static function authorizationMode(array $context): string
+    {
+        return strtoupper(trim((string) (
+            $context['fuenteVerdad']['header']['Autorizacion'] ?? self::AUTHORIZATION_MODE_DEFAULT
+        )));
     }
 
     private static function elapsedMs(int $startedAt): int

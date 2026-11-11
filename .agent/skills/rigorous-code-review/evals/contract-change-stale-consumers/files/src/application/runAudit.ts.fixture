@@ -1,0 +1,6 @@
+import type { AIProviderPort, NormalizedDocument } from "../domain/ports/AIProviderPort.js";
+
+export async function runAudit(ai: AIProviderPort, document: NormalizedDocument) {
+  const extraction = await ai.extract(document);
+  return { processStatus: "COMPLETADO" as const, extraction };
+}

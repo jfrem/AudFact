@@ -52,3 +52,5 @@ GEMINI.md
 /website/.swc/
 /website/docs/*.md
 /opt/
+# Junction local a .agent/skills (fuente única de skills para Claude Code)
+.claude/skills

@@ -145,14 +145,19 @@ final class DocumentAttachmentMatcher
 
         foreach ($groups as $attachmentId => $group) {
             $rows = array_values($group['rows']);
-            $signatures = [];
+
+            $canonical = self::selectCanonicalRow($rows);
+
+            // Conflicto ocurre si existen identidades documentales incompatibles para el mismo attachment_id
+            $identitySignatures = [];
             foreach ($rows as $row) {
-                $signatures[$this->physicalSignature($row)] = true;
+                $identitySignatures[$this->documentIdentitySignature($row)] = true;
             }
+
             $groups[$attachmentId] = [
-                'canonical' => $rows[0],
+                'canonical' => $canonical,
                 'rows' => $rows,
-                'conflict' => count($signatures) > 1,
+                'conflict' => count($identitySignatures) > 1,
             ];
         }
 
@@ -489,11 +494,32 @@ final class DocumentAttachmentMatcher
         return false;
     }
 
+    /**
+     * @param array<int,array<string,mixed>> $rows
+     * @return array<string,mixed>
+     */
+    private static function selectCanonicalRow(array $rows): array
+    {
+        foreach ($rows as $candidate) {
+            if (self::rowHasContent($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return $rows[0];
+    }
+
+    /** @param array<string,mixed> $row */
+    private static function rowHasContent(array $row): bool
+    {
+        return AttachmentStorageType::fromTransport($row['storage_type'] ?? null) !== null;
+    }
+
     /** @param array<string,mixed> $group */
     private function groupHasContent(array $group): bool
     {
         foreach ($group['rows'] as $row) {
-            if (in_array(strtoupper(trim((string) ($row['storage_type'] ?? ''))), ['URL', 'BLOB'], true)) {
+            if (self::rowHasContent($row)) {
                 return true;
             }
         }
@@ -502,14 +528,13 @@ final class DocumentAttachmentMatcher
     }
 
     /** @param array<string,mixed> $row */
-    private function physicalSignature(array $row): string
+    private function documentIdentitySignature(array $row): string
     {
         return implode('|', [
             trim((string) ($row['physical_catalog_id'] ?? '')),
             self::normalizeDocumentName($row['physical_document_name'] ?? ''),
             self::normalizeAlias($row['physical_catalog_alias'] ?? ''),
             self::normalizeAlias($row['physical_stored_alias'] ?? ''),
-            strtoupper(trim((string) ($row['storage_type'] ?? ''))),
         ]);
     }
 

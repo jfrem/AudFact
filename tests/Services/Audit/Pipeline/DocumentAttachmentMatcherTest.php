@@ -263,6 +263,27 @@ final class DocumentAttachmentMatcherTest extends TestCase
         $createResult();
     }
 
+    public function testGroupPhysicalAttachmentsPrioritizesRowWithContentAsCanonical(): void
+    {
+        // Arrange: attachment 10 tiene 2 filas en BD: una primera con SIN_DOCUMENTOS y una segunda con URL
+        $matcher = new DocumentAttachmentMatcher();
+        $configured = [['doc_id' => 1, 'document_name' => 'DISPENSA']];
+        $catalog = [1 => ['NitMedDocCodAlt' => 'ANE']];
+        $physical = [
+            $this->attachment('10', '1', 'DISPENSA', 'ANE', 'SIN_DOCUMENTOS'),
+            $this->attachment('10', '1', 'DISPENSA', 'ANE', 'URL'),
+        ];
+
+        // Act:
+        $result = $matcher->matchAll($configured, $catalog, $physical);
+
+        // Assert: Debe hacer match exitoso y el physical_attachment canonical debe tener storage_type URL
+        $this->assertSame([], $result->rejections);
+        $this->assertCount(1, $result->matches);
+        $this->assertSame('10', $result->matches[0]['attachment_id']);
+        $this->assertSame('URL', $result->matches[0]['physical_attachment']['storage_type']);
+    }
+
     /** @return array<string,mixed> */
     private function attachment(
         string $attachmentId,

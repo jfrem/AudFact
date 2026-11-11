@@ -1,0 +1,38 @@
+diff --git a/src/domain/ports/AIProviderPort.ts b/src/domain/ports/AIProviderPort.ts
+index dad6ca5..ffb8606 100644
+--- a/src/domain/ports/AIProviderPort.ts
++++ b/src/domain/ports/AIProviderPort.ts
+@@ -12,5 +12,5 @@ export interface ExtractionResult {
+ export type ExtractionSchema = z.ZodObject<z.ZodRawShape>;
+ 
+ export interface AIProviderPort {
+-  extract(document: NormalizedDocument): Promise<ExtractionResult>;
++  extract(document: NormalizedDocument, schema: ExtractionSchema): Promise<ExtractionResult>;
+ }
+diff --git a/src/infrastructure/ai/GeminiAdapter.ts b/src/infrastructure/ai/GeminiAdapter.ts
+index d78daab..97f6095 100644
+--- a/src/infrastructure/ai/GeminiAdapter.ts
++++ b/src/infrastructure/ai/GeminiAdapter.ts
+@@ -8,18 +8,15 @@ import type {
+ } from "../../domain/ports/AIProviderPort.js";
+ 
+ export class GeminiAdapter implements AIProviderPort {
+-  constructor(
+-    private readonly client: GoogleGenAI,
+-    private readonly schema: ExtractionSchema,
+-  ) {}
++  constructor(private readonly client: GoogleGenAI) {}
+ 
+-  async extract(document: NormalizedDocument): Promise<ExtractionResult> {
++  async extract(document: NormalizedDocument, schema: ExtractionSchema): Promise<ExtractionResult> {
+     const response = await this.client.models.generateContent({
+       model: "gemini-2.5-flash",
+       contents: document.pages.map((p) => p.text ?? "").join("\n"),
+-      config: { responseMimeType: "application/json", responseJsonSchema: z.toJSONSchema(this.schema) },
++      config: { responseMimeType: "application/json", responseJsonSchema: z.toJSONSchema(schema) },
+     });
+-    const fields = this.schema.parse(JSON.parse(response.text ?? "{}"));
++    const fields = schema.parse(JSON.parse(response.text ?? "{}"));
+     return { fields, visualEvidence: [] };
+   }
+ }

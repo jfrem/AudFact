@@ -26,4 +26,12 @@ final class AttachmentDownloadException extends RuntimeException
     {
         return $this->reasonCode;
     }
+
+    public function retryable(): bool
+    {
+        return in_array($this->reasonCode, [
+            self::INCOMPLETE_TRANSFER,
+            self::EXTERNAL_TRANSFER_FAILED,
+        ], true);
+    }
 }

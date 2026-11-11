@@ -28,6 +28,8 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `write-sdd-spec` | Especificación SDD | `plans/*` | Especificaciones de implementación deterministas, auditables y trazables antes de codificar. |
 | `phpunit-test-architect` | Testing / TDD | `tests/**/*.php` | Suites PHPUnit 10+ como contrato ejecutable, alineadas con estructura, namespaces, dependencias y límites arquitectónicos de AudFact. |
 | `ddf-agnostic-spec` | Especificación | `opt/*` | Framework de Documentación Determinista (DDF) para reingeniería agnóstica: meta-modelo, motor de reglas, contratos IA, puertos, pipeline, perfil de referencia y suite de calibración (DOC-01 a DOC-07). |
+| `implement-from-spec` | Implementación SDD | Código y tests gobernados por la spec | Implementa una especificación SDD aprobada de forma determinista y autónoma con pruebas primero y recuperación. |
+| `rigorous-code-review` | Revisión de Código | Repositorio completo / diff | Revisión de código exigente y basada en evidencia: detecta defectos reales y emite veredicto justificado. |
 
 ## Triggers Sugeridos por Skill
 
@@ -54,6 +56,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `write-sdd-spec` | SDD, especificación de implementación, diseño técnico, trazabilidad, migración, rollback |
 | `phpunit-test-architect` | PHPUnit, pruebas unitarias, TDD, test suite, contrato ejecutable, data provider, mocks, stubs, namespace de tests, dependencias, HttpResponseException |
 | `ddf-agnostic-spec` | DDF, reingeniería agnóstica, especificación de plataforma, meta-modelo, motor de reglas declarativo, contratos de IA, puertos y adaptadores, máquina de estados, perfil de referencia, oráculo dorado, DOC-01 a DOC-07, desacoplamiento, vendor agnostic |
+| `implement-from-spec` | implementar spec, ejecutar sdd, llevar a código, spec aprobada, plan sdd |
+| `rigorous-code-review` | revisar código, code review, auditar diff, revisar PR, listo para merge, segunda opinión |
 
 ## Bundles
 

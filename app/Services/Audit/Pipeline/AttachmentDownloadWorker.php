@@ -31,7 +31,9 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     ) {
         parent::__construct($redis, $publisher, $stateStore, $lane);
 
-        $this->downloader         = $downloader         ?? new AttachmentDownloadService();
+        $this->downloader         = $downloader         ?? new AttachmentDownloadService(
+            redis: $this->redis
+        );
         $this->telemetryPublisher = $telemetryPublisher ?? new TelemetryPublisher($this->redis);
         $this->consumerName       = $consumerName       ?? self::defaultConsumerName('downloader', $this->laneEnum);
         $resolvedBlobTtl = $blobTtl ?? AuditDocumentCache::DEFAULT_TTL_SECONDS;
@@ -113,8 +115,12 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             $event->jobId
         );
 
+        $metadata = is_array($payload['physical_attachment'] ?? null)
+            ? $payload['physical_attachment']
+            : null;
+
         try {
-            $document = $this->downloader->download($attachmentId, $disDetNro);
+            $document = $this->downloader->download($attachmentId, $disDetNro, $metadata);
         } catch (\Throwable $error) {
             $this->telemetryPublisher->failed(
                 $event->auditId,

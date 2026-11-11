@@ -7,7 +7,10 @@ description: "Gobierna módulos nuevos, reconstrucciones limpias y decisiones ex
 
 ## Resultado esperado
 
-Aplicar una política de reconstrucción limpia sin confundir alcance MVP con baja calidad ni romper contratos activos. Toda revisión debe concluir con una decisión explícita: `APROBAR`, `RECHAZAR` o `APROBAR CON EXCEPCIÓN`.
+Aplicar una política de reconstrucción limpia sin confundir alcance MVP con baja calidad ni romper contratos activos. La skill opera en dos modos:
+
+- **Modo revisión**: se evalúa una propuesta, plan o implementación existente. Concluye con una decisión explícita: `APROBAR`, `RECHAZAR` o `APROBAR CON EXCEPCIÓN`.
+- **Modo implementación**: el agente construye o refactoriza. Antes de escribir código, clasifica la estrategia mediante la compuerta de decisión; al terminar, autoevalúa el resultado con el mismo formato de salida, de modo que el entregable sea revisable con los mismos criterios.
 
 ## Cuándo aplica
 
@@ -26,20 +29,37 @@ No activarla automáticamente por mantenimiento ordinario, correcciones locales 
 - El alcance funcional se limita al comportamiento validado por el ticket, especificación o usuario.
 - Lo implementado debe quedar listo para producción según los requisitos y riesgos actuales: seguro, comprobable y mantenible. No exigir diseños “definitivos” ni anticipar variaciones futuras no demostradas.
 - Mantener límites proporcionales y explícitos entre dominio, datos, presentación e integraciones. No crear capas ceremoniales sin una responsabilidad actual.
-- No introducir deuda temporal con la promesa informal de corregirla después.
+- No introducir deuda temporal con la promesa informal de corregirla después. La única vía para una solución transitoria es una excepción formal (ver «Registro de excepciones»).
 - No ampliar la tarea para limpiar hallazgos ajenos al cambio. Eliminar únicamente residuos introducidos, reemplazados o expresamente incluidos en el alcance autorizado.
 - No tratar como obsoleto un contrato todavía consumido. Una API interna entre componentes desplegados independientemente también es un contrato activo.
+- Ningún error debe desaparecer silenciosamente. Cada excepción capturada debe resolverse, traducirse, clasificarse, relanzarse o registrarse. El límite que asume responsabilidad operacional registra el error una sola vez con correlación; las capas inferiores pueden relanzarlo sin duplicar logs. Prohibidos los `catch` vacíos.
 
 ## Compuerta de decisión
 
-| Contexto comprobado                                                                                        | Decisión predeterminada     | Condiciones                                                             |
-| ---------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| Módulo nuevo, aislado y sin consumidores previos                                                           | Clean rebuild               | Implementar solo el comportamiento MVP validado.                        |
-| Componente productivo con API, datos o consumidores activos                                                | Refactorización incremental | Preservar el contrato o definir migración, cutover y rollback.          |
-| Componente reemplazado y sin consumidores verificables                                                     | Reconstruir o eliminar      | Demostrar ausencia de referencias estáticas, dinámicas y operativas.    |
-| Incidente o vulnerabilidad que no admite una corrección estructural segura dentro de la ventana disponible | Parche excepcional          | Debe ser mínimo, reversible y quedar registrado con retiro verificable. |
+| Contexto comprobado                                                                                        | Decisión predeterminada     | Condiciones                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Módulo nuevo, aislado y sin consumidores previos                                                           | Clean rebuild               | Implementar solo el comportamiento MVP validado.                                                              |
+| Módulo nuevo que consume o expone contratos existentes                                                     | Clean rebuild interno       | Libertad de diseño interno; los contratos tocados siguen las reglas de la fila siguiente.                     |
+| Componente productivo con API, datos persistidos o consumidores activos                                    | Refactorización incremental | Preservar el contrato o definir migración, cutover y rollback. Los datos persistidos cuentan como consumidor. |
+| Componente reemplazado y sin consumidores verificables                                                     | Eliminar                    | Demostrar ausencia de referencias (ver «Evidencia de ausencia de consumidores»).                              |
+| Componente sin consumidores cuyo comportamiento sigue siendo requerido                                     | Reconstruir                 | Tratarlo como módulo nuevo: alcance MVP validado y eliminación del original en el mismo cambio.               |
+| Incidente o vulnerabilidad que no admite una corrección estructural segura dentro de la ventana disponible | Parche excepcional          | Debe ser mínimo, reversible y quedar registrado con retiro verificable.                                       |
+
+**Desempate**: si el contexto encaja en varias filas, prevalece la decisión más conservadora (parche excepcional > refactorización incremental > reconstruir > clean rebuild > eliminar), salvo que la evidencia descarte la condición que la activa.
 
 Rechazar la reconstrucción cuando su radio de impacto, migración de datos, compatibilidad o reversibilidad no estén resueltos.
+
+### Evidencia de ausencia de consumidores
+
+Para declarar un componente sin consumidores, cubrir cada categoría aplicable y registrar el resultado:
+
+- **Estáticas**: búsqueda de símbolos, imports y llamadas; análisis estático o compilación tras la eliminación.
+- **Dinámicas**: nombres en strings, reflection, inyección por nombre, rutas, registros de plugins, serialización y mensajes en colas.
+- **Configuración e infraestructura**: archivos de configuración, variables de entorno, IaC, manifiestos de despliegue, cron y schedulers.
+- **Operativas**: telemetría, logs de acceso o métricas de uso durante una ventana representativa, cuando estén disponibles.
+- **Externas**: documentación pública, SDKs, clientes de terceros o equipos consumidores conocidos.
+
+Si una categoría no puede comprobarse, declararlo explícitamente; la ausencia de evidencia no equivale a ausencia de consumidores.
 
 ## Clasificación de legacy
 
@@ -83,9 +103,8 @@ Ubicar la normalización de transporte en el adaptador o factory, las invariante
 - **CUÁNDO**: se crea o modifica un worker, listener, consumidor, daemon u otro proceso persistente.
 - **EXIGIR**: log estructurado de inicio con identidad de proceso o instancia, modos o canales activos y límites o timeouts relevantes.
 - **PROHIBIR**: secretos, credenciales, datos sensibles o volcados completos de configuración en logs.
+- **EXCEPCIÓN**: procesos efímeros o gestionados por una plataforma que ya emite esos datos de forma estructurada; documentar dónde se obtienen.
 - **EVIDENCIA**: prueba o ejecución controlada que muestre los campos permitidos y su redacción.
-
-Ningún error debe desaparecer silenciosamente. Cada excepción capturada debe resolverse, traducirse, clasificarse, relanzarse o registrarse. El límite que asume responsabilidad operacional registra el error una sola vez con correlación; las capas inferiores pueden relanzarlo sin duplicar logs. Prohibidos los `catch` vacíos.
 
 ### Higiene del cambio
 
@@ -102,15 +121,16 @@ Ningún error debe desaparecer silenciosamente. Cada excepción capturada debe r
 3. Clasificar la estrategia mediante la compuerta de decisión.
 4. Aplicar solo las compuertas tácticas activadas por el cambio.
 5. Revisar el diff sin incorporar limpieza ajena al alcance.
-6. Validar con los comandos oficiales del proyecto y registrar resultados reales; no declarar verificaciones no ejecutadas.
-7. Emitir la decisión y, cuando corresponda, la alternativa limpia más pequeña que satisfaga el MVP.
+6. Validar con los comandos oficiales del proyecto (definidos en `AGENTS.md`, scripts del gestor de paquetes o pipeline de CI, en ese orden) y registrar resultados reales; no declarar verificaciones no ejecutadas.
+7. Recorrer la checklist de cierre como autoverificación; cualquier respuesta negativa debe reflejarse como hallazgo en `Compuertas activadas` o justificar el rechazo.
+8. Emitir la decisión y, cuando corresponda, la alternativa limpia más pequeña que satisfaga el MVP.
 
 ## Registro de excepciones
 
 Toda excepción debe indicar:
 
 - regla exceptuada y motivo verificable;
-- responsable de resolverla;
+- responsable de resolverla: el agente propone un responsable (rol o persona) y lo marca `pendiente de confirmación` hasta que el usuario lo confirme; una excepción con responsable sin confirmar se reporta como bloqueante, no como rechazo automático;
 - superficie exacta de compatibilidad;
 - condición o fecha de retiro;
 - método de validación;
@@ -132,11 +152,33 @@ Una excepción sin retiro verificable es deuda permanente y debe rechazarse.
 
 ## Formato de salida
 
-Al revisar una propuesta o implementación, informar:
+En ambos modos, informar:
 
 1. `Decisión`: `APROBAR`, `RECHAZAR` o `APROBAR CON EXCEPCIÓN`.
-2. `Alcance MVP`: comportamiento validado y fuente.
-3. `Contratos activos`: qué debe preservarse o migrarse.
-4. `Compuertas activadas`: hallazgos y evidencia por compuerta.
-5. `Excepciones`: responsable, retiro, validación y rollback; escribir `Ninguna` si no existen.
-6. `Validación`: comandos o comprobaciones ejecutadas y resultado real.
+2. `Estrategia`: clean rebuild, refactorización incremental, reconstruir, eliminar o parche excepcional, con la fila de la compuerta aplicada y, si hubo varias candidatas, el desempate.
+3. `Alcance MVP`: comportamiento validado y fuente.
+4. `Contratos activos`: qué debe preservarse o migrarse.
+5. `Compuertas activadas`: hallazgos y evidencia por compuerta.
+6. `Excepciones`: responsable, retiro, validación y rollback; escribir `Ninguna` si no existen.
+7. `Validación`: comandos o comprobaciones ejecutadas y resultado real.
+8. `Alternativa mínima`: solo si la decisión es `RECHAZAR` o `APROBAR CON EXCEPCIÓN`; la opción limpia más pequeña que satisface el MVP.
+
+### Ejemplo
+
+```text
+Decisión: APROBAR CON EXCEPCIÓN
+Estrategia: Refactorización incremental (componente productivo con consumidores activos).
+  Candidata descartada: clean rebuild; prevalece la opción conservadora.
+Alcance MVP: cálculo de tarifas por zona según ticket PAY-142.
+Contratos activos: endpoint GET /v1/fees (consumido por app móvil 3.x); tabla fee_rules.
+Compuertas activadas:
+  - Modelado de dominio: "zone" pasa de string a enum Zone; 4 comparaciones duplicadas eliminadas; pruebas de valor válido, inválido y desconocido.
+  - Contratos y jerarquías: FeeCalculator y sus 2 implementaciones actualizadas; compilación correcta.
+  - Higiene del cambio: eliminado LegacyFeeHelper (sin referencias estáticas, dinámicas ni de configuración).
+Excepciones:
+  - Adaptador /v1/fees → nuevo servicio. Responsable: equipo móvil (pendiente de confirmación).
+    Retiro: cuando la telemetría muestre 0 llamadas de app < 4.0 durante 30 días.
+    Validación: suite contractual de /v1/fees. Rollback: feature flag fees_v2=off.
+Validación: `npm test` → 212 pasadas, 0 fallidas; `npm run lint` → sin errores.
+Alternativa mínima: retirar /v1/fees en el mismo cambio requeriría forzar actualización de la app; no viable en el MVP.
+```

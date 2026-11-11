@@ -1,0 +1,10 @@
+import type { Request, Response } from "express";
+import type { AuditRepositoryPort } from "../../domain/audit/AuditRepositoryPort.js";
+
+export function listAuditsHandler(repo: AuditRepositoryPort) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const rulesetId = String(req.query.rulesetId ?? "");
+    const audits = await repo.findByRuleset(rulesetId);
+    res.json({ audits });
+  };
+}

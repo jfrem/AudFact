@@ -1,0 +1,19 @@
+import { describe, expect, it } from "vitest";
+import { equals, greaterThan, notEquals, operators } from "./operators.js";
+
+describe("equals", () => {
+  it("es verdadero con valores idénticos", () => expect(equals("A", "A")).toBe(true));
+  it("es falso con valores distintos", () => expect(equals("A", "B")).toBe(false));
+});
+
+describe("notEquals", () => {
+  it("es verdadero con valores distintos", () => expect(notEquals("A", "B")).toBe(true));
+  it("es falso con valores idénticos", () => expect(notEquals("A", "A")).toBe(false));
+  it("distingue tipos distintos con el mismo texto", () => expect(notEquals("5", 5)).toBe(true));
+  it("está registrado en el motor", () => expect(operators.notEquals).toBe(notEquals));
+});
+
+describe("greaterThan", () => {
+  it("compara números", () => expect(greaterThan(5, 3)).toBe(true));
+  it("es falso si alguno no es número", () => expect(greaterThan("5", 3)).toBe(false));
+});

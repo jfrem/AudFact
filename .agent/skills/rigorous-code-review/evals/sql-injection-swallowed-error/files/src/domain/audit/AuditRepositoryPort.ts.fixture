@@ -1,0 +1,13 @@
+export type AuditStatus = "PROCESANDO" | "COMPLETADO" | "ERROR";
+
+export interface AuditRecord {
+  id: string;
+  rulesetId: string;
+  status: AuditStatus;
+  report: unknown;
+}
+
+export interface AuditRepositoryPort {
+  save(record: AuditRecord): Promise<void>;
+  findByRuleset(rulesetId: string, limit?: number): Promise<AuditRecord[]>;
+}

@@ -1,5 +1,56 @@
 # Changelog AudFact
 
+## [2026-11-10] — Refactorización Clean Code en Pipeline de Descarga y Orquestación (`SDD-CLEAN-CODE-DOWNLOAD-RESILIENCE`)
+
+- **Enum Tipado para Almacenamiento de Adjuntos (`AttachmentStorageType.php`)**:
+  - Creado enum backed `AttachmentStorageType: string` (`Url = 'URL'`, `Blob = 'BLOB'`) con método de resolución semántica unificada `fromTransport(?string $value): ?self`.
+  - Reemplazo de cadenas mágicas y validaciones dispersas `in_array($type, ['URL', 'BLOB'])` en `DocumentAttachmentMatcher.php`, `AttachmentDownloadService.php` y `AttachmentDownloadWorker.php`.
+- **Descomposición y Modularización de OAuth2 Google Drive (`GoogleDriveAuthService.php`)**:
+  - Reemplazados números mágicos por constantes descriptivas de clase (`REDIS_KEY_TOKEN`, `REDIS_KEY_LOCK`, `DEFAULT_EXPIRY_SECONDS`, `PRE_EXPIRY_MARGIN_SECONDS`, `LOCK_TTL_SECONDS`, `AWAIT_RETRY_INTERVAL_US`, `MAX_AWAIT_RETRIES`, `LUA_RELEASE_LOCK`).
+  - Descompuesto el método monolítico `getAccessToken()` en 9 funciones auxiliares privadas con responsabilidad única: `hasValidMemoryToken()`, `sharedCacheAvailable()`, `fetchSharedToken()`, `readSharedToken()`, `awaitConcurrentRefresh()`, `requestNewToken()`, `storeSharedToken()`, `releaseRefreshLock()` y `resolveDefaultRedis()`.
+- **Limpieza de Contratos y Eliminación de Código Muerto (`DocumentAuditOrchestrator.php`)**:
+  - Introducidas constantes tipadas de clase `AUTHORIZATION_REQUIRED = 'R'`, `AUTHORIZATION_NONE = 'N'` y método auxiliar `authorizationMode()`.
+  - Simplificados `applyMissingAuthorizationRule()` y `filterDocumentsByAutorizacion()` eliminando duplicación de comprobaciones condicionales.
+  - Eliminado el campo no consumido `'BlobSize'` del schema de payload en `buildDocumentState()`, desacoplando la firma del evento sin impacto en downstream.
+- **Simplificación y Eliminación de Fallbacks Muertos (`AttachmentDownloadService.php`)**:
+  - Eliminada llamada redundante `unset($raw)` y el fallback muerto `?? $row['physical_document_name'] ?? null` que jamás existía en la consulta SQL.
+  - Extraídos métodos privados `resolveAttachmentRow()` y `driveAuth()`.
+  - Reemplazada la extracción ambigua de código HTTP (`extractHttpStatusCode()`) para inspeccionar exclusivamente `RequestException::getResponse()->getStatusCode()` sin recurrir a `$e->getCode()` que enmascaraba excepciones genéricas.
+- **Canonicidad Limpia de Filas en Matcher (`DocumentAttachmentMatcher.php`)**:
+  - Extraído `selectCanonicalRow()` aislando la lógica de desambiguación y priorización de filas con contenido real sobre marcadores `SIN_DOCUMENTOS`.
+  - Delegado `rowHasContent()` en `AttachmentStorageType::fromTransport()`.
+- **Simplificación de Guard en Worker (`AttachmentDownloadWorker.php`)**:
+  - Simplificada la validación de payload `physical_attachment` a `is_array($payload['physical_attachment'] ?? null)`.
+- **Pruebas y Verificación (TDD)**:
+  - Nueva suite unitaria: `tests/Unit/Services/Audit/Pipeline/AttachmentStorageTypeTest.php` (2 tests, 12 aserciones).
+  - Actualización de `AttachmentDownloadServiceTest.php` con mocks PSR-7 reales (`ClientException`) para HTTP 404, 401 y verificación de comportamiento ante excepciones no HTTP y registros vacíos.
+  - Suite unitaria completa certificada: 1,086 tests, 5,616 aserciones, 0 fallos, 0 errores, 78 skipped. Código de salida 0.
+
+## [2026-11-10] — Resiliencia del Pipeline de Descarga y Orquestación Documental (`SDD-DOWNLOAD-PIPELINE-RESILIENCE`)
+
+- **Centralización, Caché y Ciclo de Vida de Tokens OAuth2 en Redis (`GoogleDriveAuthService.php`, `AttachmentDownloadService.php`, `AttachmentDownloadWorker.php`)**:
+  - Incorporada gestión centralizada de access tokens de Google Drive en Redis bajo la clave `audit:oauth:google_drive_token` con TTL dinámico basado en `expires_in` de Google (`max(60, expires_in - 300)` = 3,300 s para tokens de 1 h) y margen de renovación anticipada de 30 segundos en memoria y Redis.
+  - Implementado mutex distribuido atómico con `SETNX` bajo `audit:oauth:google_drive_lock` (timeout 10s) con identificador único de proceso (`random_bytes(16)`) y liberación segura garantizada mediante script Lua de atomic compare-and-delete en bloque `finally`.
+  - Incorporado método `clearCachedToken()` para invalidación inmediata de tokens en memoria y Redis ante errores HTTP 401 en descargas concurrentes.
+  - Inyección desacoplada y resolución perezosa (*lazy*) de `GoogleDriveAuthService` en `AttachmentDownloadService` y `AttachmentDownloadWorker`, erradicando fallos de arranque en entornos sin credenciales de Drive configuradas.
+- **Clasificación de Excepciones y Prevención de DLQ Prematuro (`AttachmentDownloadException.php`, `AuditEventConsumer.php`, `AttachmentDownloadService.php`)**:
+  - Implementado método de clasificación `retryable(): bool` en `AttachmentDownloadException` mediante lista cerrada (`INCOMPLETE_TRANSFER`, `EXTERNAL_TRANSFER_FAILED`), diferenciando fallos reintentables de fallos permanentes (`SOURCE_NOT_FOUND` por HTTP 404, `SOURCE_EMPTY`).
+  - En `AttachmentDownloadService`, los fallos HTTP 404 de Google Drive se clasifican como `SOURCE_NOT_FOUND` no reintentables, mientras que errores 403 (cuotas o límites de Drive) y 5xx se clasifican como `EXTERNAL_TRANSFER_FAILED` reintentables.
+  - Modificado el handler de errores en `AuditEventConsumer` para que las excepciones reintentables no aborten prematuramente a Dead Letter Queue en el primer intento, respetando el ciclo completo de reintentos configurado (`MAX_ATTEMPTS`).
+- **Reconstrucción Dinámica de Esquema Gemini Structured Outputs (`DocumentAuditOrchestrator.php`)**:
+  - Ante clientes o reglas con `Autorizacion = 'N'`, el orquestador reconstruye dinámicamente el `extraction_contract` invocando `DocumentExtractionContractBuilder::build()`, eliminando los campos de autorización del esquema JSON devuelto por Gemini. Esto erradica alucinaciones del modelo y fallos de validación estructural por campos omitidos.
+- **Resolución de Limbo Operativo en Autorización Requerida sin Contenido (`DocumentAuditOrchestrator.php`)**:
+  - Cuando un documento tiene `Autorizacion = 'R'` pero el registro físico indica `SIN_DOCUMENTOS` (`DOCUMENT_ATTACHMENT_NO_CONTENT`), el orquestador genera inmediatamente un hallazgo sintético tipado `'AUT'` con estado `NO_ENCONTRADO` y severidad correspondiente, evitando que la factura quede bloqueada indefinidamente o pase a DLQ sin dictamen.
+- **Normalización Estricta de Cabeceras de Autorización (`DocumentAuditOrchestrator.php`)**:
+  - Sanitización exhaustiva de los valores de cabecera con `strtoupper(trim(...))`, previniendo discrepancias por minúsculas o espacios en blanco (`'r'`, `'n'`, `' r '`).
+- **Reconciliación Canónica Inteligente de Adjuntos (`DocumentAttachmentMatcher.php`)**:
+  - Actualizada la agrupación de adjuntos físicos duplicados implementando `documentIdentitySignature()` para desacoplar la firma de negocio de la presencia física.
+  - Priorización canónica de filas enriquecidas que cuentan con contenido descargable real (`storage_type` en `['URL', 'BLOB']`) sobre registros históricos vacíos (`SIN_DOCUMENTOS`), eliminando falsos rechazos por ambigüedad (`DOCUMENT_ATTACHMENT_AMBIGUOUS`).
+- **Contratos de Prueba (TDD) y Certificación**:
+  - Nuevas suites unitarias creadas: `tests/Unit/Services/Audit/Pipeline/AttachmentDownloadExceptionTest.php`, `tests/Unit/Services/Audit/Pipeline/AttachmentDownloadServiceTest.php` y `tests/Unit/Services/GoogleDriveAuthServiceTest.php`.
+  - Pruebas unitarias de regresión ampliadas en `AuditEventConsumerTest`, `DocumentAttachmentMatcherTest`, `DocumentAuditOrchestratorTest` y `AttachmentDownloadWorkerTest`.
+  - Suite unitaria completa certificada: 1,081 tests, 5,597 aserciones, 0 fallos, 0 errores, 78 skipped. Código de salida 0.
+
 ## [2026-11-09] — Alineación de TipCod en Facturas (`InvoicesModel`) y Análisis SPI IA
 
 - **Ajuste en InvoicesModel**: Corrección en el JOIN de `Tipos t` en `InvoicesModel::getInvoicesForAuditBatch()`, referenciando `f.FacTipCod` en lugar de `d.DisTipCod` para alineación consistente con la cabecera de facturación.

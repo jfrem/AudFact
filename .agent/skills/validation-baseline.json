@@ -201,6 +201,22 @@
         ".agent/skills/ddf-agnostic-spec/SKILL.md",
         ".agent/skills/ddf-agnostic-spec/agents/openai.yaml"
       ]
+    },
+    {
+      "name": "implement-from-spec",
+      "path": ".agent/skills/implement-from-spec",
+      "files": [
+        ".agent/skills/implement-from-spec/SKILL.md",
+        ".agent/skills/implement-from-spec/agents/openai.yaml"
+      ]
+    },
+    {
+      "name": "rigorous-code-review",
+      "path": ".agent/skills/rigorous-code-review",
+      "files": [
+        ".agent/skills/rigorous-code-review/SKILL.md",
+        ".agent/skills/rigorous-code-review/agents/openai.yaml"
+      ]
     }
   ],
   "consistency": {

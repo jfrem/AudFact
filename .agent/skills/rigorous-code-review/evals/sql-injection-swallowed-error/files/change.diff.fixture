@@ -1,0 +1,76 @@
+diff --git a/src/application/finishAudit.ts b/src/application/finishAudit.ts
+index 56b67eb..670e705 100644
+--- a/src/application/finishAudit.ts
++++ b/src/application/finishAudit.ts
+@@ -4,6 +4,10 @@ export async function finishAudit(
+   repo: AuditRepositoryPort,
+   record: AuditRecord,
+ ): Promise<{ ok: boolean }> {
+-  await repo.save({ ...record, status: "COMPLETADO" });
++  try {
++    await repo.save({ ...record, status: "COMPLETADO" });
++  } catch {
++    // el reporte ya se envió al cliente; no tiene sentido fallar aquí
++  }
+   return { ok: true };
+ }
+diff --git a/src/domain/audit/AuditRepositoryPort.ts b/src/domain/audit/AuditRepositoryPort.ts
+index cb47f49..1b7b978 100644
+--- a/src/domain/audit/AuditRepositoryPort.ts
++++ b/src/domain/audit/AuditRepositoryPort.ts
+@@ -9,4 +9,5 @@ export interface AuditRecord {
+ 
+ export interface AuditRepositoryPort {
+   save(record: AuditRecord): Promise<void>;
++  findByRuleset(rulesetId: string, limit?: number): Promise<AuditRecord[]>;
+ }
+diff --git a/src/infrastructure/http/listAudits.ts b/src/infrastructure/http/listAudits.ts
+new file mode 100644
+index 0000000..7c7c532
+--- /dev/null
++++ b/src/infrastructure/http/listAudits.ts
+@@ -0,0 +1,10 @@
++import type { Request, Response } from "express";
++import type { AuditRepositoryPort } from "../../domain/audit/AuditRepositoryPort.js";
++
++export function listAuditsHandler(repo: AuditRepositoryPort) {
++  return async (req: Request, res: Response): Promise<void> => {
++    const rulesetId = String(req.query.rulesetId ?? "");
++    const audits = await repo.findByRuleset(rulesetId);
++    res.json({ audits });
++  };
++}
+diff --git a/src/infrastructure/persistence/AuditRepository.ts b/src/infrastructure/persistence/AuditRepository.ts
+index 2f637f8..6eae935 100644
+--- a/src/infrastructure/persistence/AuditRepository.ts
++++ b/src/infrastructure/persistence/AuditRepository.ts
+@@ -1,6 +1,17 @@
+ import type { Pool } from "pg";
+ import type { AuditRecord, AuditRepositoryPort } from "../../domain/audit/AuditRepositoryPort.js";
+ 
++interface AuditRow {
++  id: string;
++  ruleset_id: string;
++  status: AuditRecord["status"];
++  report: unknown;
++}
++
++function toRecord(row: AuditRow): AuditRecord {
++  return { id: row.id, rulesetId: row.ruleset_id, status: row.status, report: row.report };
++}
++
+ export class PgAuditRepository implements AuditRepositoryPort {
+   constructor(private readonly pool: Pool) {}
+ 
+@@ -11,4 +22,11 @@ export class PgAuditRepository implements AuditRepositoryPort {
+       [record.id, record.rulesetId, record.status, JSON.stringify(record.report)],
+     );
+   }
++
++  async findByRuleset(rulesetId: string, limit = 50): Promise<AuditRecord[]> {
++    const result = await this.pool.query<AuditRow>(
++      `SELECT id, ruleset_id, status, report FROM audits WHERE ruleset_id = '${rulesetId}' ORDER BY created_at DESC LIMIT ${limit}`,
++    );
++    return result.rows.map(toRecord);
++  }
+ }

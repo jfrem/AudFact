@@ -1,0 +1,16 @@
+import type { z } from "zod";
+
+export interface NormalizedDocument {
+  pages: { text?: string; imageBase64?: string }[];
+}
+
+export interface ExtractionResult {
+  fields: Record<string, unknown>;
+  visualEvidence: { element: string; present: boolean; page: number }[];
+}
+
+export type ExtractionSchema = z.ZodObject<z.ZodRawShape>;
+
+export interface AIProviderPort {
+  extract(document: NormalizedDocument, schema: ExtractionSchema): Promise<ExtractionResult>;
+}

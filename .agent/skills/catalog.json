@@ -105,11 +105,22 @@
     {
       "path": ".agent/skills/phpunit-test-architect",
       "description": "Diseña suites PHPUnit 10+ como contratos ejecutables alineados con las convenciones arquitectónicas de AudFact.",
-      "name": "phpunit-test-architect"    },
+      "name": "phpunit-test-architect"
+    },
     {
       "path": ".agent/skills/ddf-agnostic-spec",
       "description": "Framework de Documentación Determinista (DDF) para reingeniería agnóstica. Especificaciones DOC-01 a DOC-07 desacopladas de dominio, IA, datos y almacenamiento.",
       "name": "ddf-agnostic-spec"
+    },
+    {
+      "name": "implement-from-spec",
+      "path": ".agent/skills/implement-from-spec",
+      "description": "Implementa una especificación SDD aprobada de forma determinista y autónoma con pruebas primero y recuperación."
+    },
+    {
+      "name": "rigorous-code-review",
+      "path": ".agent/skills/rigorous-code-review",
+      "description": "Revisión de código exigente y basada en evidencia: detecta defectos reales y emite veredicto justificado."
     }
   ]
 }

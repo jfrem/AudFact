@@ -36,6 +36,32 @@ final class AttachmentDownloadWorkerTest extends TestCase
         self::assertSame(0, $processed);
     }
 
+    public function testWorkerCanBeInstantiatedWithoutGoogleDriveEnv(): void
+    {
+        $originalEmail = \Core\Env::get('GOOGLE_DRIVE_CLIENT_EMAIL');
+        $originalKey   = \Core\Env::get('GOOGLE_DRIVE_PRIVATE_KEY');
+        \Core\Env::set('GOOGLE_DRIVE_CLIENT_EMAIL', '');
+        \Core\Env::set('GOOGLE_DRIVE_PRIVATE_KEY', '');
+
+        try {
+            $redis = $this->createMock(RedisClient::class);
+            $redis->method('isAvailable')->willReturn(true);
+            $redis->method('serverConfiguration')->willReturn(['appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction']);
+            $redis->method('serverInfo')->willReturn(['aof_last_write_status' => 'ok']);
+
+            $worker = new AttachmentDownloadWorker(
+                redis: $redis,
+                publisher: new DownloadPublisher(),
+                consumerName: 'lazy-drive-test'
+            );
+
+            self::assertInstanceOf(AttachmentDownloadWorker::class, $worker);
+        } finally {
+            \Core\Env::set('GOOGLE_DRIVE_CLIENT_EMAIL', (string) $originalEmail);
+            \Core\Env::set('GOOGLE_DRIVE_PRIVATE_KEY', (string) $originalKey);
+        }
+    }
+
     public function testPublishesDocumentDownloadedAfterPersistingBlob(): void
     {
         // Arrange:
@@ -170,6 +196,57 @@ final class AttachmentDownloadWorkerTest extends TestCase
         $this->assertArrayNotHasKey('data', $payload);
     }
 
+    public function testWorkerForwardsPhysicalAttachmentMetadataToDownloader(): void
+    {
+        $stateStore = new DownloadRecordingStateStore();
+        $publisher = new DownloadPublisher();
+        $downloader = new StubAttachmentDownloadService(document: [
+            'mime' => 'application/pdf',
+            'data' => base64_encode('test-pdf-bytes'),
+            'duration_ms' => 12,
+        ]);
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('isAvailable')->willReturn(true);
+        $redis->method('set')->willReturn(true);
+        $redis->method('eval')->willReturn(1);
+
+        $worker = new AttachmentDownloadWorker(
+            stateStore: $stateStore,
+            downloader: $downloader,
+            redis: $redis,
+            publisher: $publisher,
+            consumerName: 'downloader-metadata-test',
+            blobTtl: 60
+        );
+
+        $metadata = [
+            'TipoAlmacenamiento' => 'URL',
+            'AdjDisDocUrl' => 'drive-id-12345',
+            'AdjDisNom' => 'formula.pdf',
+            'BlobSize' => null,
+        ];
+
+        $event = AuditEvent::fromArray([
+            'event_id' => AuditEvent::uuidV4(),
+            'audit_id' => AuditEvent::uuidV4(),
+            'event_type' => AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            'timestamp' => '2026-09-24T12:00:00Z',
+            'payload' => [
+                'attachment_id' => 'att-99',
+                'dis_det_nro' => 'DIS-999',
+                'physical_attachment' => $metadata,
+            ],
+            'document_id' => 'doc-1',
+        ]);
+
+        $worker->processEvent($event);
+
+        $this->assertSame('att-99', $downloader->lastAttachmentId);
+        $this->assertSame('DIS-999', $downloader->lastDisDetNro);
+        $this->assertSame($metadata, $downloader->lastMetadata);
+        $this->assertCount(1, $publisher->published);
+    }
+
     /**
      * @return array{mime:string,data:string,duration_ms:int}
      */
@@ -203,6 +280,10 @@ final class DownloadRecordingStateStore extends AuditStateStore
     /** @var array<string,mixed> */
     public array $lastRejectedPatch = [];
 
+    public ?array $lastMetadata = null;
+    public ?string $lastAttachmentId = null;
+    public ?string $lastDisDetNro = null;
+
     public function __construct()
     {
     }
@@ -219,6 +300,10 @@ final class DownloadPublisher extends AuditEventPublisher
     /** @var array<int,AuditEvent> */
     public array $published = [];
 
+    public ?array $lastMetadata = null;
+    public ?string $lastAttachmentId = null;
+    public ?string $lastDisDetNro = null;
+
     public function __construct()
     {
     }
@@ -232,6 +317,10 @@ final class DownloadPublisher extends AuditEventPublisher
 
 final class StubAttachmentDownloadService extends AttachmentDownloadService
 {
+    public ?array $lastMetadata = null;
+    public ?string $lastAttachmentId = null;
+    public ?string $lastDisDetNro = null;
+
     /**
      * @param array<string,mixed>|null $document
      */
@@ -241,8 +330,12 @@ final class StubAttachmentDownloadService extends AttachmentDownloadService
     ) {
     }
 
-    public function download(string $attachmentId, string $disDetNro): array
+    public function download(string $attachmentId, string $disDetNro, ?array $metadata = null): array
     {
+        $this->lastAttachmentId = $attachmentId;
+        $this->lastDisDetNro = $disDetNro;
+        $this->lastMetadata = $metadata;
+
         if ($this->error !== null) {
             throw $this->error;
         }

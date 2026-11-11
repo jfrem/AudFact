@@ -1,0 +1,42 @@
+diff --git a/src/domain/rules/operators.test.ts b/src/domain/rules/operators.test.ts
+index abdffbc..61fc728 100644
+--- a/src/domain/rules/operators.test.ts
++++ b/src/domain/rules/operators.test.ts
+@@ -1,11 +1,18 @@
+ import { describe, expect, it } from "vitest";
+-import { equals, greaterThan } from "./operators.js";
++import { equals, greaterThan, notEquals, operators } from "./operators.js";
+ 
+ describe("equals", () => {
+   it("es verdadero con valores idénticos", () => expect(equals("A", "A")).toBe(true));
+   it("es falso con valores distintos", () => expect(equals("A", "B")).toBe(false));
+ });
+ 
++describe("notEquals", () => {
++  it("es verdadero con valores distintos", () => expect(notEquals("A", "B")).toBe(true));
++  it("es falso con valores idénticos", () => expect(notEquals("A", "A")).toBe(false));
++  it("distingue tipos distintos con el mismo texto", () => expect(notEquals("5", 5)).toBe(true));
++  it("está registrado en el motor", () => expect(operators.notEquals).toBe(notEquals));
++});
++
+ describe("greaterThan", () => {
+   it("compara números", () => expect(greaterThan(5, 3)).toBe(true));
+   it("es falso si alguno no es número", () => expect(greaterThan("5", 3)).toBe(false));
+diff --git a/src/domain/rules/operators.ts b/src/domain/rules/operators.ts
+index b810586..2411387 100644
+--- a/src/domain/rules/operators.ts
++++ b/src/domain/rules/operators.ts
+@@ -2,10 +2,13 @@ export type Operator = (actual: unknown, expected: unknown) => boolean;
+ 
+ export const equals: Operator = (actual, expected) => actual === expected;
+ 
++export const notEquals: Operator = (actual, expected) => !equals(actual, expected);
++
+ export const greaterThan: Operator = (actual, expected) =>
+   typeof actual === "number" && typeof expected === "number" && actual > expected;
+ 
+ export const operators: Record<string, Operator> = {
+   equals,
++  notEquals,
+   greaterThan,
+ };

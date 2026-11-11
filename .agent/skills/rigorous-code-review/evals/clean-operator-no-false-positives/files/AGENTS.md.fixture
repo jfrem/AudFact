@@ -1,0 +1,7 @@
+# AGENTS.md
+
+- Arquitectura hexagonal: `src/domain/` (puro, solo puede importar `zod`), `src/application/` (casos de uso), `src/infrastructure/` (adapters HTTP, IA, PostgreSQL).
+- Toda entrada HTTP se valida con un esquema Zod antes de usarse.
+- Un fallo técnico produce `processStatus: "ERROR"`; nunca se oculta ni se convierte en éxito.
+- Tests con Vitest junto al código (`*.test.ts`), sin red ni BD reales.
+- Comandos: `npm run typecheck`, `npm test`.

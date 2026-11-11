@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rigorous Code Review"
+  short_description: "Revisión de código exigente con veredicto basado en evidencia"
+  default_prompt: "Usa $rigorous-code-review para revisar los cambios actuales, verificar cada hallazgo con evidencia y emitir un veredicto justificado."

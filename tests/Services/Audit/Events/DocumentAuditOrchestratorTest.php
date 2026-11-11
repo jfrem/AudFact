@@ -387,6 +387,10 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertSame('FORMULA_MEDICA', $publisher->published[0]->payload['tipo_documento']);
         $this->assertSame('99', $publisher->published[0]->payload['attachment_id']);
         $this->assertSame('prompt-fixture', $publisher->published[0]->payload['system_prompt']);
+        $this->assertArrayHasKey('physical_attachment', $publisher->published[0]->payload);
+        $physical = $publisher->published[0]->payload['physical_attachment'];
+        $this->assertIsArray($physical);
+        $this->assertEqualsCanonicalizing(['TipoAlmacenamiento', 'AdjDisDocUrl', 'AdjDisNom'], array_keys($physical));
     }
 
     public function testMissingRequiredAttachmentPublishesControlledMappingRejection(): void
@@ -794,6 +798,163 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertArrayHasKey('response_schema', $contract);
         $properties = array_keys($contract['response_schema']['properties'] ?? []);
         $this->assertSame($expected, $properties);
+    }
+
+    public function testAutorizacionNRebuildsExtractionContractSchemaWithoutExcludedFields(): void
+    {
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $dataService = new StubAuditDataService(
+            dispensation: [
+                'header' => [
+                    'NitSec' => '2426',
+                    'DisId' => '87723098',
+                    'NumeroFactura' => 'T38250701547',
+                    'Autorizacion' => 'N',
+                ],
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'OPF', 'NitMedDocNom' => 'FORMULA MEDICA'],
+            ],
+            auditConfig: [
+                'nitSec' => '2426',
+                'activo' => true,
+                'documents' => [
+                    'FORMULA MEDICA' => [
+                        'docId' => 3,
+                        'fields' => [
+                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                            ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'code'],
+                            ['campoNombre' => 'FechaAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'date'],
+                        ],
+                        'visualChecks' => [],
+                    ],
+                ],
+            ],
+            attachments: [
+                ['attachment_id' => '3', 'physical_catalog_id' => '3', 'physical_document_name' => 'FORMULA MEDICA', 'storage_type' => 'URL'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            payload: ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098']
+        );
+
+        $orchestrator->processEvent($event);
+
+        $this->assertCount(1, $store->registeredDocuments);
+        $state = $store->registeredDocuments[0]['state'];
+        $fieldNames = array_column($state['fields_config'], 'campoNombre');
+        $this->assertSame(['DocumentoPaciente'], $fieldNames);
+
+        $contract = $state['extraction_contract'];
+        $schemaFields = array_keys($contract['response_schema']['properties']['fields']['properties'] ?? []);
+        $this->assertSame(['DocumentoPaciente'], $contract['field_groups']['fields']);
+        $this->assertSame(['DocumentoPaciente'], $schemaFields);
+    }
+
+    public function testAutorizacionRWithNoContentGeneratesSyntheticAutFinding(): void
+    {
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $dataService = new StubAuditDataService(
+            dispensation: [
+                'header' => [
+                    'NitSec' => '2426',
+                    'DisId' => '87723098',
+                    'NumeroFactura' => 'T38250701547',
+                    'Autorizacion' => 'R',
+                ],
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 2, 'NitMedDocCodAlt' => 'PDE', 'NitMedDocNom' => 'AUTORIZACION'],
+            ],
+            auditConfig: [
+                'nitSec' => '2426',
+                'activo' => true,
+                'documents' => [
+                    'AUTORIZACION' => [
+                        'docId' => 2,
+                        'fields' => [
+                            ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'code'],
+                        ],
+                        'visualChecks' => [],
+                    ],
+                ],
+            ],
+            attachments: [
+                ['attachment_id' => '2', 'physical_catalog_id' => '2', 'physical_document_name' => 'AUTORIZACION', 'storage_type' => 'SIN_DOCUMENTOS'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            payload: ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098']
+        );
+
+        $orchestrator->processEvent($event);
+
+        $this->assertSame([], $store->rejectedDocuments);
+        $this->assertCount(1, $store->patches);
+        $this->assertArrayHasKey('synthetic_rejections', $store->patches[0]);
+        $synthetics = $store->patches[0]['synthetic_rejections'];
+        $this->assertCount(1, $synthetics);
+        $this->assertSame('AUT', $synthetics[0]['payload']['hallazgos'][0]['Codigo']);
+    }
+
+    public function testAutorizacionSanitizationHandlesWhitespaceAndLowercase(): void
+    {
+        $store = new RecordingStateStore();
+        $publisher = new InMemoryPublisher();
+        $dataService = new StubAuditDataService(
+            dispensation: [
+                'header' => [
+                    'NitSec' => '2426',
+                    'DisId' => '87723098',
+                    'NumeroFactura' => 'T38250701547',
+                    'Autorizacion' => '  n  ',
+                ],
+                'items' => [],
+            ],
+            clientDocuments: [
+                ['NitMedDocId' => 3, 'NitMedDocCodAlt' => 'OPF', 'NitMedDocNom' => 'FORMULA MEDICA'],
+            ],
+            auditConfig: [
+                'nitSec' => '2426',
+                'activo' => true,
+                'documents' => [
+                    'FORMULA MEDICA' => [
+                        'docId' => 3,
+                        'fields' => [
+                            ['campoNombre' => 'DocumentoPaciente', 'tipoCampo' => 'E', 'tipoDato' => 'identity_doc_number'],
+                            ['campoNombre' => 'NumeroAutorizacion', 'tipoCampo' => 'E', 'tipoDato' => 'code'],
+                        ],
+                        'visualChecks' => [],
+                    ],
+                ],
+            ],
+            attachments: [
+                ['attachment_id' => '3', 'physical_catalog_id' => '3', 'physical_document_name' => 'FORMULA MEDICA', 'storage_type' => 'URL'],
+            ],
+        );
+        $orchestrator = $this->makeOrchestrator($dataService, $store, $publisher);
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_AUDIT_CREATED,
+            auditId: AuditEvent::uuidV4(),
+            payload: ['dis_det_nro' => 'T38250701547', 'dis_id' => '87723098']
+        );
+
+        $orchestrator->processEvent($event);
+
+        $this->assertCount(1, $store->registeredDocuments);
+        $state = $store->registeredDocuments[0]['state'];
+        $fieldNames = array_column($state['fields_config'], 'campoNombre');
+        $this->assertSame(['DocumentoPaciente'], $fieldNames);
     }
 }
 

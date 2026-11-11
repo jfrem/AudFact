@@ -7,6 +7,7 @@ namespace App\Services\Audit\Pipeline;
 use App\Models\AttachmentsModel;
 use App\Services\GoogleDriveAuthService;
 use Core\Logger;
+use Core\RedisClient;
 use Throwable;
 
 /**
@@ -19,21 +20,34 @@ use Throwable;
  */
 class AttachmentDownloadService
 {
-    private AttachmentsModel $model;
+    private const HTTP_UNAUTHORIZED = 401;
+    private const HTTP_NOT_FOUND     = 404;
 
-    public function __construct(?AttachmentsModel $model = null)
-    {
+    private AttachmentsModel $model;
+    private ?GoogleDriveAuthService $driveAuth;
+    private ?RedisClient $redis;
+
+    public function __construct(
+        ?AttachmentsModel $model = null,
+        ?GoogleDriveAuthService $driveAuth = null,
+        ?RedisClient $redis = null
+    ) {
         $this->model = $model ?? new AttachmentsModel();
+        $this->driveAuth = $driveAuth;
+        $this->redis = $redis;
     }
 
     /**
-     * {@inheritDoc}
+     * @param string $attachmentId Identificador de adjunto
+     * @param string $disDetNro Número de dispensación/factura
+     * @param array<string,mixed>|null $metadata Metadatos físicos precalculados (opcional para evitar query redundante)
+     * @return array{mime:string,data:string,duration_ms:int}
+     * @throws AttachmentDownloadException
      */
-    public function download(string $attachmentId, string $disDetNro): array
+    public function download(string $attachmentId, string $disDetNro, ?array $metadata = null): array
     {
-        $start       = microtime(true);
-        $attachments = $this->model->getPhysicalAttachmentsByDisDetNro($disDetNro, attachmentId: $attachmentId);
-        $attachment  = $attachments[0] ?? null;
+        $start = microtime(true);
+        $attachment = $this->resolveAttachmentRow($attachmentId, $disDetNro, $metadata);
 
         if (!$attachment) {
             throw new AttachmentDownloadException(
@@ -42,20 +56,41 @@ class AttachmentDownloadService
             );
         }
 
-        $storage = $attachment['TipoAlmacenamiento'] ?? '';
+        $rawStorage = $attachment['TipoAlmacenamiento'] ?? '';
+        $storageType = AttachmentStorageType::fromTransport($rawStorage);
 
-        if ($storage === 'URL') {
+        if ($storageType === AttachmentStorageType::Url) {
             return $this->downloadFromDrive($attachment, $start);
         }
 
-        if ($storage === 'BLOB') {
+        if ($storageType === AttachmentStorageType::Blob) {
             return $this->downloadFromBlob($attachmentId, $disDetNro, $attachment, $start);
         }
 
+        $rawNormalized = strtoupper(trim((string) $rawStorage));
         throw new AttachmentDownloadException(
             AttachmentDownloadException::SOURCE_EMPTY,
-            "Adjunto '{$attachmentId}' sin contenido (TipoAlmacenamiento='{$storage}')"
+            "Adjunto '{$attachmentId}' sin contenido (TipoAlmacenamiento='{$rawNormalized}')"
         );
+    }
+
+    /**
+     * @param array<string,mixed>|null $metadata
+     * @return array<string,mixed>|null
+     */
+    private function resolveAttachmentRow(string $attachmentId, string $disDetNro, ?array $metadata): ?array
+    {
+        if (is_array($metadata) && !empty($metadata['TipoAlmacenamiento'])) {
+            return $metadata;
+        }
+
+        $attachments = $this->model->getPhysicalAttachmentsByDisDetNro($disDetNro, attachmentId: $attachmentId);
+        return $attachments[0] ?? null;
+    }
+
+    private function driveAuth(): GoogleDriveAuthService
+    {
+        return $this->driveAuth ??= new GoogleDriveAuthService(redis: $this->redis);
     }
 
     /**
@@ -73,8 +108,7 @@ class AttachmentDownloadService
         }
 
         try {
-            $service = new GoogleDriveAuthService();
-            $tmp = $service->downloadFileToTemp($fileId, 'adj_');
+            $tmp = $this->driveAuth()->downloadFileToTemp($fileId, 'adj_');
 
             $mime = mime_content_type($tmp['path']) ?: 'application/octet-stream';
             $raw  = file_get_contents($tmp['path']);
@@ -94,6 +128,20 @@ class AttachmentDownloadService
         } catch (AttachmentDownloadException $error) {
             throw $error;
         } catch (Throwable $error) {
+            // Si el error es 401 Unauthorized de Drive, invalidamos el token en cache
+            if ($this->isUnauthorizedError($error)) {
+                $this->driveAuth?->clearCachedToken();
+            }
+
+            // Si es 404 Not Found de Drive, es un error permanente de la fuente
+            if ($this->isNotFoundError($error)) {
+                throw new AttachmentDownloadException(
+                    AttachmentDownloadException::SOURCE_NOT_FOUND,
+                    'El archivo no existe o no se tiene acceso en Google Drive: ' . $error->getMessage(),
+                    $error
+                );
+            }
+
             throw new AttachmentDownloadException(
                 AttachmentDownloadException::EXTERNAL_TRANSFER_FAILED,
                 'Falló la transferencia del adjunto desde Google Drive',
@@ -208,5 +256,24 @@ class AttachmentDownloadService
         if (str_starts_with($h, "\x49\x49\x2A\x00") || str_starts_with($h, "\x4D\x4D\x00\x2A")) return 'image/tiff';
         if (str_starts_with($h, 'PK'))                                         return 'application/zip';
         return null;
+    }
+
+    private function extractHttpStatusCode(Throwable $error): ?int
+    {
+        if ($error instanceof \GuzzleHttp\Exception\RequestException && $error->getResponse() !== null) {
+            return $error->getResponse()->getStatusCode();
+        }
+
+        return null;
+    }
+
+    private function isUnauthorizedError(Throwable $error): bool
+    {
+        return $this->extractHttpStatusCode($error) === self::HTTP_UNAUTHORIZED;
+    }
+
+    private function isNotFoundError(Throwable $error): bool
+    {
+        return $this->extractHttpStatusCode($error) === self::HTTP_NOT_FOUND;
     }
 }

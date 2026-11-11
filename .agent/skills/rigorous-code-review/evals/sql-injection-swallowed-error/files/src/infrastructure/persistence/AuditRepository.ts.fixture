@@ -1,0 +1,32 @@
+import type { Pool } from "pg";
+import type { AuditRecord, AuditRepositoryPort } from "../../domain/audit/AuditRepositoryPort.js";
+
+interface AuditRow {
+  id: string;
+  ruleset_id: string;
+  status: AuditRecord["status"];
+  report: unknown;
+}
+
+function toRecord(row: AuditRow): AuditRecord {
+  return { id: row.id, rulesetId: row.ruleset_id, status: row.status, report: row.report };
+}
+
+export class PgAuditRepository implements AuditRepositoryPort {
+  constructor(private readonly pool: Pool) {}
+
+  async save(record: AuditRecord): Promise<void> {
+    await this.pool.query(
+      "INSERT INTO audits (id, ruleset_id, status, report) VALUES ($1, $2, $3, $4) " +
+        "ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, report = EXCLUDED.report",
+      [record.id, record.rulesetId, record.status, JSON.stringify(record.report)],
+    );
+  }
+
+  async findByRuleset(rulesetId: string, limit = 50): Promise<AuditRecord[]> {
+    const result = await this.pool.query<AuditRow>(
+      `SELECT id, ruleset_id, status, report FROM audits WHERE ruleset_id = '${rulesetId}' ORDER BY created_at DESC LIMIT ${limit}`,
+    );
+    return result.rows.map(toRecord);
+  }
+}

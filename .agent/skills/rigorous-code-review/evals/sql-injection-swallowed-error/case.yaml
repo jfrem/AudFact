@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: sql-injection-swallowed-error
+expected_outcome: |
+  Veredicto REQUEST CHANGES. Detecta la inyección SQL en findByRuleset (interpolación de rulesetId y limit) alcanzable desde listAuditsHandler sin validación Zod, como P0. Detecta el catch vacío en finishAudit que devuelve ok:true ante un fallo de persistencia, contra la regla de AGENTS.md, como P1 o P2. No inventa defectos sin evidencia.
+context:
+  scaffold_script: place-files.sh

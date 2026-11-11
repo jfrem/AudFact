@@ -1,0 +1,13 @@
+import type { AuditRecord, AuditRepositoryPort } from "../domain/audit/AuditRepositoryPort.js";
+
+export async function finishAudit(
+  repo: AuditRepositoryPort,
+  record: AuditRecord,
+): Promise<{ ok: boolean }> {
+  try {
+    await repo.save({ ...record, status: "COMPLETADO" });
+  } catch {
+    // el reporte ya se envió al cliente; no tiene sentido fallar aquí
+  }
+  return { ok: true };
+}

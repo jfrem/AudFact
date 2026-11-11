@@ -79,6 +79,74 @@ final class AuditEventConsumerTest extends TestCase
         }
     }
 
+    public function testAttachmentDownloadTransientFailureDoesNotSendToDeadLetterOnFirstAttempt(): void
+    {
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, null);
+        $failure = new \App\Services\Audit\Pipeline\AttachmentDownloadException(
+            \App\Services\Audit\Pipeline\AttachmentDownloadException::EXTERNAL_TRANSFER_FAILED,
+            'cURL timeout'
+        );
+        $redis = $this->createAvailableRedisMock();
+        $redis->method('incr')->willReturn(1);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects(self::never())->method('eval');
+        $publisher = $this->createMock(AuditEventPublisher::class);
+        $publisher->expects(self::never())->method('publishDeadLetter');
+        $consumer = new class($redis, $publisher, $failure) extends AuditEventConsumer {
+            public int $terminalCleanups = 0;
+            public function __construct(RedisClient $redis, AuditEventPublisher $publisher, private readonly \Throwable $failure)
+            {
+                parent::__construct($redis, $publisher);
+            }
+            protected function streams(): array { return ['test.stream']; }
+            protected function group(): string { return 'test'; }
+            protected function consumer(): string { return 'test'; }
+            protected function eventTypes(): array { return [AuditEvent::TYPE_DOCUMENT_REGISTERED]; }
+            protected function handle(AuditEvent $event): void { throw $this->failure; }
+            protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void { $this->terminalCleanups++; }
+        };
+
+        $processed = $consumer->run(1);
+        self::assertSame(1, $processed);
+        self::assertSame(0, $consumer->terminalCleanups);
+    }
+
+    public function testAttachmentDownloadPermanentFailureSendsToDeadLetterImmediately(): void
+    {
+        $event = AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, null);
+        $failure = new \App\Services\Audit\Pipeline\AttachmentDownloadException(
+            \App\Services\Audit\Pipeline\AttachmentDownloadException::SOURCE_NOT_FOUND,
+            'Missing file'
+        );
+        $redis = $this->createAvailableRedisMock();
+        $redis->method('incr')->willReturn(1);
+        $redis->method('xReadGroupMulti')->willReturn([[
+            'id' => '1-0', 'stream' => 'test.stream', 'fields' => ['event' => $event->toJson()],
+        ]]);
+        $redis->expects(self::once())->method('eval')->willReturn(1);
+        $publisher = $this->createMock(AuditEventPublisher::class);
+        $publisher->expects(self::once())->method('publishDeadLetter')->willReturn('2-0');
+        $consumer = new class($redis, $publisher, $failure) extends AuditEventConsumer {
+            public int $terminalCleanups = 0;
+            public function __construct(RedisClient $redis, AuditEventPublisher $publisher, private readonly \Throwable $failure)
+            {
+                parent::__construct($redis, $publisher);
+            }
+            protected function streams(): array { return ['test.stream']; }
+            protected function group(): string { return 'test'; }
+            protected function consumer(): string { return 'test'; }
+            protected function eventTypes(): array { return [AuditEvent::TYPE_DOCUMENT_REGISTERED]; }
+            protected function handle(AuditEvent $event): void { throw $this->failure; }
+            protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void { $this->terminalCleanups++; }
+        };
+
+        $processed = $consumer->run(1);
+        self::assertSame(1, $processed);
+        self::assertSame(1, $consumer->terminalCleanups);
+    }
+
     public function testReclaimRunsBeforeTheNewMessageGate(): void
     {
         // Arrange:

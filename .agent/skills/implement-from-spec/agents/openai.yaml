@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement From Spec"
+  short_description: "Implementa spec SDD aprobada con pruebas primero y recuperación"
+  default_prompt: "Usa $implement-from-spec para implementar la especificación aprobada, dentro de su perímetro, con pruebas en rojo primero, checkpoints y revisión independiente."

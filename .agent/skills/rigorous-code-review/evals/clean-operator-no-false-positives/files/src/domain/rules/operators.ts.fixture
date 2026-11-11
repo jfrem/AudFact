@@ -1,0 +1,14 @@
+export type Operator = (actual: unknown, expected: unknown) => boolean;
+
+export const equals: Operator = (actual, expected) => actual === expected;
+
+export const notEquals: Operator = (actual, expected) => !equals(actual, expected);
+
+export const greaterThan: Operator = (actual, expected) =>
+  typeof actual === "number" && typeof expected === "number" && actual > expected;
+
+export const operators: Record<string, Operator> = {
+  equals,
+  notEquals,
+  greaterThan,
+};

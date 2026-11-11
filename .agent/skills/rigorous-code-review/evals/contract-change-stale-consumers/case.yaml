@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: contract-change-stale-consumers
+expected_outcome: |
+  Veredicto REQUEST CHANGES. Detecta que src/application/runAudit.ts sigue llamando ai.extract(document) sin esquema y que src/index.ts sigue pasando invoiceSchema al constructor de GeminiAdapter, ambos fuera del diff, como P1 (rotura de contrato / typecheck). Registra la búsqueda de consumidores.
+context:
+  scaffold_script: place-files.sh

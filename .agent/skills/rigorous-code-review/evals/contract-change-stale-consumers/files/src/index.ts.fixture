@@ -1,0 +1,7 @@
+import { GoogleGenAI } from "@google/genai";
+import { z } from "zod";
+import { GeminiAdapter } from "./infrastructure/ai/GeminiAdapter.js";
+
+const invoiceSchema = z.object({ invoiceNumber: z.string(), total: z.number() });
+
+export const ai = new GeminiAdapter(new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }), invoiceSchema);

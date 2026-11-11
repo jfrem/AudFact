@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: clean-operator-no-false-positives
+expected_outcome: |
+  Veredicto APPROVE o APPROVE WITH NITS. No reporta ningún hallazgo P0, P1 ni P2: el operador es puro, coherente con equals y está probado. Declara honestamente las validaciones que no pudo ejecutar.
+context:
+  scaffold_script: place-files.sh

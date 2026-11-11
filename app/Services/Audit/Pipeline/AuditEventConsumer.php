@@ -628,10 +628,10 @@ abstract class AuditEventConsumer
         ]);
 
         $nonRetryable = ($error instanceof \App\Services\Audit\GeminiResponseException && !$error->retryable())
+            || ($error instanceof AttachmentDownloadException && !$error->retryable())
             || $error instanceof \DomainException
             || $error instanceof \InvalidArgumentException
-            || $error instanceof SqlServerOperationException
-            || $error instanceof AttachmentDownloadException;
+            || $error instanceof SqlServerOperationException;
 
         if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
