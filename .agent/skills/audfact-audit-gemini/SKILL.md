@@ -168,10 +168,13 @@ lectura o si se pierde el índice; el miembro `__ready` no cuenta como scope.
 | `GEMINI_API_KEY` | Credencial obligatoria para el extractor (fallback general) |
 | `GEMINI_API_KEY_PRIORITY` | Credencial opcional dedicada para el carril VIP / prioritario (`--priority-only`) |
 | `GEMINI_API_KEY_BATCH` | Credencial opcional dedicada para el carril Batch / masivo (`--batch-only`) |
-| `GEMINI_MODEL` | Modelo configurable; default de `GeminiConfig` y `.env.example`: `gemini-3.7-flash` |
-| `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K`, `GEMINI_SEED`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini |
+| `GEMINI_MODEL` | Modelo configurable; default de `GeminiConfig` y `.env.example`: `gemini-3.8-flash` |
+| `GEMINI_TIMEOUT`, `GEMINI_MAX_OUTPUT_TOKENS`, `GEMINI_MEDIA_RESOLUTION`, `GEMINI_THINKING_BUDGET`, `GEMINI_THINKING_LEVEL` | Configuración base de generación Gemini (`thinkingLevel` en 3.8: `low`/`medium`/`high`; `minimal` devuelve error; `thinkingBudget` solo Gemini 2.5) |
+| `GEMINI_SEED` | **Obligatoria en todo entorno que audite** (repo/prod: `42`). Única palanca de reproducibilidad: sin ella la misma entrada puede cambiar de decisión. No forma parte de las claves de caché: al cambiarla purgar `semantic:match:*` y `extraction:cache:v1:*` |
+| `GEMINI_TEMPERATURE`, `GEMINI_TOP_P`, `GEMINI_TOP_K` | Se envían si están configuradas, pero Gemini ≥ 3.6 las ignora (deprecadas). No usarlas como garantía de determinismo |
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS`, `GEMINI_EXTRACTION_THINKING_LEVEL`, `GEMINI_EXTRACTION_THINKING_BUDGET` | Perfil de generación para extracción documental |
-| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica; en Gemini 3.1 dejar `THINKING_LEVEL` vacío si se desea omitir `thinkingConfig` |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_THINKING_LEVEL`, `GEMINI_SEMANTIC_THINKING_BUDGET` | Perfil de generación para homologación semántica individual; default `low` y 4096 tokens en `SemanticMatchJudge` |
+| `GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS`, `GEMINI_SEMANTIC_BATCH_THINKING_LEVEL`, `GEMINI_SEMANTIC_BATCH_THINKING_BUDGET` | Perfil de generación para homologación semántica en lote cerrado (hasta 16 pares, default 8192 tokens y `thinkingLevel: low`) |
 | `AUDIT_WORKER_LANE` | Filtro de carril en `AuditEventConsumer` (`all`, `priority`, `batch`) |
 | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | Réplicas dedicadas para el worker VIP (`worker-extraction-vip`, default 2) |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | Réplicas batch dedicadas (`worker-extraction-batch`, default Compose 12); verificar despliegue efectivo |

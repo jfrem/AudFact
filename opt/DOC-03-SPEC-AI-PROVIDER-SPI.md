@@ -5,10 +5,10 @@
 ```yaml
 document_id: "DOC-03"
 document_name: "SPEC-AI-PROVIDER-SPI"
-version: "v0.3.0-review"
+version: "v0.3.1-review"
 status: "REVIEW"
 completeness_level: "C"
-last_updated: "2026-11-04"
+last_updated: "2026-11-12"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
@@ -27,6 +27,7 @@ unknowns_non_critical: 3
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review | 2026-11-12 | Reproducibilidad de decisiones IA: `seed` pasa a ser obligatoria cuando el proveedor la soporta (R-19); `temperature`/`top_p`/`top_k` se documentan como ignorados por Gemini ≥ 3.6; `thinking_level` en `gemini-3.8-flash` admite `low`/`medium`/`high` (`minimal` devuelve error). Evidencia: 9 llamadas sin semilla con request idéntico → 4 `is_match=true` / 5 `false`; con semilla fija → 5/5 respuestas byte-idénticas (2026-11-12). |
 | v0.2.0-draft | 2026-10-19 | Desacoplamiento total agnóstico a proveedores de IA (DEC-T-020 / GAP-08). Formalización de `AIGateway` (SPI), `ExtractionSchemaCompiler`, Circuit Breaker por carril, caché determinista y clasificación universal de fallos (`AiFailureClassifier`). |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Línea base de 12 archivos PHP del subsistema IA de AudFact. |
 
@@ -186,8 +187,9 @@ flowchart TD
 | R-14 | Métricas capturan: duration_ms, model, task_type, document_type, finish_reason, prompt/output/thoughts_tokens, cache_hit. | [GeminiCallMetrics.php:19-35](../app/Services/Audit/GeminiCallMetrics.php#L19-L35) | `[CONFIRMADO]` |
 | R-15 | `normalizeSchemaProperties()` convierte `"properties": []` a `"properties": {}` recursivamente para evitar 400 de la API. | [GeminiGateway.php:441-460](../app/Services/Audit/GeminiGateway.php#L441-L460) | `[CONFIRMADO]` |
 | R-16 | Debug snapshots: solo en `APP_ENV=development`, redacta `inlineData` sustituyendo `data` por SHA-256 + tamaño. | [ResponseIADiskStore.php:36-39, 113-133](../app/Services/Audit/ResponseIADiskStore.php#L36-L39) | `[CONFIRMADO]` |
-| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). | [GeminiConfig.php:71-83](../app/Services/Audit/GeminiConfig.php#L71-L83) | `[CONFIRMADO]` |
+| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). En `gemini-3.8-flash` el razonamiento no se desactiva: `low` es el mínimo y `minimal` devuelve error. | [GeminiConfig.php:71-83](../app/Services/Audit/GeminiConfig.php#L71-L83) | `[CONFIRMADO]` |
 | R-18 | Error HTTP 400 NO activa circuit breaker (error del caller, no del proveedor). | [GeminiGateway.php:196-198](../app/Services/Audit/GeminiGateway.php#L196-L198) | `[CONFIRMADO]` |
+| R-19 | Reproducibilidad: `temperature`/`topP`/`topK` se envían si están configurados, pero Gemini ≥ 3.6 los ignora. La única palanca es `seed` (`GEMINI_SEED`, valor vigente `42`); sin ella, el mismo request produjo decisiones opuestas. La semilla no forma parte de las claves de caché actuales. | [GeminiConfig.php:46](../app/Services/Audit/GeminiConfig.php#L46); AGENTS.md › Determinismo de decisiones IA | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
@@ -221,25 +223,28 @@ flowchart TD
   "properties": {
     "model_id": {
       "type": "string",
-      "description": "Identificador del modelo (ej: gemini-3.7-flash)."
+      "description": "Identificador del modelo (ej: gemini-3.8-flash)."
     },
     "temperature": {
       "type": "number",
       "minimum": 0.0,
       "maximum": 2.0,
-      "default": 0.0
+      "default": 0.0,
+      "description": "Solo para proveedores que la respeten. Gemini ≥ 3.6 la ignora (deprecada); no garantiza determinismo (ver R-19)."
     },
     "top_p": {
       "type": [
         "number",
         "null"
-      ]
+      ],
+      "description": "Ignorado por Gemini ≥ 3.6 (deprecado)."
     },
     "top_k": {
       "type": [
         "integer",
         "null"
-      ]
+      ],
+      "description": "Ignorado por Gemini ≥ 3.6 (deprecado)."
     },
     "max_output_tokens": {
       "type": "integer",
@@ -257,21 +262,21 @@ flowchart TD
         "integer",
         "null"
       ],
-      "description": "Token budget para razonamiento (proveedor v2.5)."
+      "description": "Token budget para razonamiento (solo Gemini 2.5; no combinar con thinking_level)."
     },
     "thinking_level": {
       "type": [
         "string",
         "null"
       ],
-      "description": "Nivel de razonamiento (proveedor v3+)."
+      "description": "Nivel de razonamiento (Gemini 3+). En gemini-3.8-flash: low | medium | high; minimal devuelve error."
     },
     "seed": {
       "type": [
         "integer",
         "null"
       ],
-      "description": "Semilla para reproducibilidad."
+      "description": "Semilla de decodificación. Obligatoria para reproducibilidad cuando el proveedor la soporta: sin ella Gemini usa una semilla aleatoria por request (R-19). Debe formar parte del model_manifest (DOC-04) y de las claves de caché."
     }
   },
   "required": [
@@ -929,6 +934,7 @@ flowchart TD
 | R-16 Debug snapshots development | AIGateway.debugContext + INV-06 | ✅ | |
 | R-17 thinkingConfig dual | AIProviderConfig (thinking_budget + thinking_level) | ✅ | |
 | R-18 400 no activa CB | ALG-01 paso 5.3.3 + CBConfig.non_circuit_breaker_codes | ✅ | |
+| R-19 seed obligatoria para reproducibilidad | AIProviderConfig.seed + DOC-04 model_manifest.seed | ⚠️ Parcial | La semilla aún no forma parte de las claves de caché ni de `AuditExecutionConfig`; requiere SDD |
 
 **Trazabilidad declarada: 18/18 filas de esta tabla.** Es cobertura del inventario descrito, no evidencia de ejecución o de inventario exhaustivo del sistema.
 

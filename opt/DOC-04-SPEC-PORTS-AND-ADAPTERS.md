@@ -5,10 +5,10 @@
 ```yaml
 document_id: "DOC-04"
 document_name: "SPEC-PORTS-AND-ADAPTERS"
-version: "v0.3.0-review"
+version: "v0.3.1-review"
 status: "REVIEW"
 completeness_level: "C"
-last_updated: "2026-11-04"
+last_updated: "2026-11-12"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review | 2026-11-12 | `model_manifest` del `AuditExecutionEnvelope` incorpora `seed` y `thinking_level`: sin la semilla una ejecución no es reproducible (DOC-03 R-19). `temperature` se conserva como dato informativo; Gemini ≥ 3.6 la ignora. |
 | v0.2.2-draft | 2026-10-19 | Inmutabilidad de ejecuciones y deduplicación de consumo (DEC-T-019 / GAP-07). Contrato `AuditExecutionEnvelope` y deduplicación por `(tenant_id, provider_attempt_id)` en `AuditStoragePort`. |
 | v0.2.1-draft | 2026-10-19 | Ingestión y transporte documental híbrido (DEC-T-018 / GAP-06). Métodos de `createArtifactUploadUrl` en `CaseIngestionPort` y resolución dual (`REMOTE_URL` / `STORED_CONTENT`) en `DocumentStorage`. |
 | v0.2.0-draft | 2026-10-19 | Desacoplamiento total de bases de datos de clientes (DEC-T-016). Eliminación de `DataRepository` con SQL. Incorporación de `CaseIngestionPort`, `AuditStoragePort` (base interna de la plataforma SaaS) y `WebhookDeliveryPort` (retorno asíncrono al cliente). |
@@ -906,7 +907,7 @@ type AuditExecutionEnvelope = {
   policy_version: string;
   policy_snapshot: Record<string, unknown>;
   artifacts_manifest: Array<{ artifact_id: string; sha256: string; size_bytes: number }>;
-  model_manifest: { model: string; temperature: number; prompt_hash: string };
+  model_manifest: { model: string; seed: number | null; thinking_level: string | null; temperature: number; prompt_hash: string }; // seed obligatoria si el proveedor la soporta (DOC-03 R-19); temperature es informativa
   created_at: string;
 };
 

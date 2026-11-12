@@ -54,6 +54,7 @@ final class SemanticMatchPromptBuilder
             '- CONTEXTO DOCUMENTAL Y ESPECIFICACIONES: Si el nombre extraído del documento omite concentración, dosis o forma farmacéutica en el texto del nombre, pero la Información Contextual del Documento Soporte (posología, concentración, forma farmacéutica o notas adyacentes) confirma o es compatible con la especificación esperada, evalúa is_match=true y same_dimensions_or_dose=true.',
             '- CONTRADICCIÓN EXPLÍCITA: Evalúa is_match=false ÚNICAMENTE cuando exista una contradicción explícita en la sustancia o entidad (ej: compuestos o categorías totalmente distintas) o en los valores cuantitativos de concentración o dosis (ej: 50mcg frente a 200mcg, o 500mg frente a 1000mg).',
             '- CRITERIO CONSERVADOR: Para same_clinical_use, same_dimensions_or_dose, same_material_or_technology y presentation_compatible, responde true si la información no se contradice y es compatible con el contexto disponible.',
+            '- CONCISIÓN OBLIGATORIA: ' . SemanticBatchContract::CONCISE_REASONING_DIRECTIVE,
         ]);
 
         $schema = [
@@ -85,7 +86,7 @@ final class SemanticMatchPromptBuilder
                 ],
                 'reasoning' => [
                     'type' => 'string',
-                    'description' => 'Justificación técnica breve de la decisión.',
+                    'description' => 'Justificación técnica ultra-concisa de la decisión (máximo 250 caracteres).',
                 ],
             ],
             'required' => [
@@ -116,7 +117,8 @@ final class SemanticMatchPromptBuilder
             . 'Considera variaciones comunes: orden de nombres y apellidos, iniciales, apellidos parciales, '
             . 'títulos profesionales y abreviaciones comunes. '
             . 'Responde is_match=true si hay suficiente evidencia de que se trata de la misma persona y no hay contradicción explícita. '
-            . 'Ante duda o evidencia insuficiente, is_match=false.';
+            . 'Ante duda o evidencia insuficiente, is_match=false. '
+            . SemanticBatchContract::CONCISE_REASONING_DIRECTIVE;
 
         $schema = [
             'type' => 'object',
@@ -127,7 +129,7 @@ final class SemanticMatchPromptBuilder
                 ],
                 'reasoning' => [
                     'type' => 'string',
-                    'description' => 'Justificación breve de la decisión.',
+                    'description' => 'Justificación ultra-concisa de la decisión (máximo 250 caracteres).',
                 ],
             ],
             'required' => ['is_match', 'reasoning'],

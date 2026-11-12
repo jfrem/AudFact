@@ -5,10 +5,10 @@
 ```yaml
 document_id: "DOC-06"
 document_name: "PROFILE-HEALTH-DISPENSATION"
-version: "v0.3.0-review"
+version: "v0.3.1-review"
 status: "REVIEW"
 completeness_level: "C"
-last_updated: "2026-11-04"
+last_updated: "2026-11-12"
 authors:
   - "Agente de IA (skill ddf-agnostic-spec) - borrador sin revisión humana"
 reviewers: []
@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review | 2026-11-12 | Adaptador Gemini: modelo `gemini-3.8-flash`; se elimina la afirmación «temperature 0.0 = determinismo máximo» (Gemini ≥ 3.6 la ignora) y se documenta `seed=42` como la palanca de reproducibilidad. |
 | v0.3.0-draft | 2026-11-03 | Formalización de Conectores RESTful JSON de Tenant (DEC-P-019 / DEC-T-026) y decomisionamiento programado del repositorio PHP de AudFact. El nuevo SaaS operará en repo independiente consumiendo únicamente APIs RESTful JSON expuestas por Discolnets. |
 | v0.2.0-draft | 2026-10-19 | Reclasificación de AudFact como Conector Periférico de Ingestión (DEC-T-016 y DOC-04). Aislamiento de consultas SQL Server (`vw_discolnet_dispensas`, `InvoicesModel`, `AudDispEst`) en la frontera del conector sin acoplar el núcleo SaaS. |
 | v0.1.1-draft | 2026-10-06 | Mapeo a vocabularios canónicos DOC-01 v0.3/DOC-02 v0.2 y separación de cobertura/tolerancia. No acredita migración ejecutada. |
@@ -157,8 +158,10 @@ El perfil traduce FactorConv a un campo interno numérico declarado, por ejemplo
 |---|---|---|
 | Endpoint | `POST v1beta/models/{model}:generateContent` | [GeminiGateway.php:123](../app/Services/Audit/GeminiGateway.php#L123) |
 | Auth | Header `x-goog-api-key` | [GeminiGateway.php:122](../app/Services/Audit/GeminiGateway.php#L122) |
-| Model | `gemini-3.7-flash` (default, configurable) | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) |
-| Temperature | `0.0` (determinismo máximo) | GeminiConfig default |
+| Model | `gemini-3.8-flash` (default, configurable) | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) |
+| Seed | `42` (variable de repositorio `GEMINI_SEED`); obligatoria para decisiones reproducibles | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php), AGENTS.md › Determinismo de decisiones IA |
+| Sampling | `temperature`/`topP`/`topK` se envían si están configurados, pero Gemini ≥ 3.6 los ignora; no aportan determinismo | Documentación oficial Google AI Studio (Gemini 3.6 API changes) |
+| Thinking | `thinkingLevel=low` (mínimo admitido por 3.8; `minimal` devuelve error) | GeminiConfig default |
 | Safety Settings | `BLOCK_NONE` (documentos médicos/legales) | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495) |
 | HTTP Client | Guzzle 7.x | GeminiGateway constructor |
 

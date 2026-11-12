@@ -101,10 +101,11 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `REDIS_MAXMEMORY` | `4gb` | Limite interno de memoria Redis (`--maxmemory`) |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | Politica de eviccion Redis para llaves con TTL |
 | `REDIS_CONTAINER_MEMORY` | `5G` | Limite de memoria del contenedor Redis |
-| `GEMINI_MODEL` | `gemini-3.7-flash` | Default actual de `.env.example`; modelo configurable |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para extracción documental |
-| `GEMINI_EXTRACTION_THINKING_LEVEL` | Vacío | Opcional low/medium/high para Gemini 3.7; MINIMAL no está soportado |
-| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `2048` | Límite de salida para homologación semántica |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Default actual de `GeminiConfig` y `.env.example`; modelo configurable |
+| `GEMINI_SEED` | `42` | Obligatoria para decisiones reproducibles; debe coincidir con la variable de repositorio. Al cambiarla, purgar cachés `semantic:match:*` y `extraction:cache:v1:*` |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `8192` | Límite de salida para extracción documental |
+| `GEMINI_EXTRACTION_THINKING_LEVEL` | `low` | low/medium/high en Gemini 3.8; MINIMAL devuelve error |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para homologación semántica individual (el deploy escribe `2048` si falta la variable del repo) |
 | `AUDIT_RESPONSE_IA_ENABLED` | `1` dev / `0` prod | Habilita snapshots Gemini solo en `APP_ENV=development` |
 | `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | Directorio configurable de snapshots locales |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `8` | Default Compose del worker que consume `audit_created` |

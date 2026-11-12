@@ -335,21 +335,38 @@ La ejecución durable v2 (`AuditExecutionConfig::VERSION = 2`) es el único prot
 | `GEMINI_API_KEY_PRIORITY`             | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril prioritario/VIP (fallback a `GEMINI_API_KEY`)                                |
 | `GEMINI_API_KEY_BATCH`                | _(vacío)_                 | ❌        | `GeminiGateway` — API key dedicada opcional para carril batch/masivo (fallback a `GEMINI_API_KEY`)                                   |
 | `GEMINI_MODEL`                        | `gemini-3.8-flash`        | ❌        | Modelo de Gemini a usar                                                                                                              |
-| `GEMINI_TEMPERATURE`                  | `0.0`                     | ❌        | Temperatura (0 = determinístico)                                                                                                     |
+| `GEMINI_TEMPERATURE`                  | _(no se envía)_           | ❌        | **Ignorado por Gemini ≥ 3.6** (incluido `gemini-3.8-flash`): Google lo deprecó y la API lo descarta. No aporta determinismo; en generaciones futuras devolverá `400`. Ver «Determinismo de decisiones IA». |
 | `GEMINI_TIMEOUT`                      | `300`                     | ❌        | Timeout de la API en segundos                                                                                                        |
-| `GEMINI_TOP_P`                        | `1.0`                     | ❌        | Nucleus sampling para determinismo                                                                                                   |
-| `GEMINI_TOP_K`                        | `1`                       | ❌        | Top-K sampling para determinismo                                                                                                     |
+| `GEMINI_TOP_P`                        | _(no se envía)_           | ❌        | **Ignorado por Gemini ≥ 3.6** (deprecado, igual que `GEMINI_TEMPERATURE`)                                                            |
+| `GEMINI_TOP_K`                        | _(no se envía)_           | ❌        | **Ignorado por Gemini ≥ 3.6** (deprecado, igual que `GEMINI_TEMPERATURE`)                                                            |
 | `GEMINI_MAX_OUTPUT_TOKENS`            | `8192`                    | ❌        | Límite de tokens en la respuesta                                                                                                     |
-| `GEMINI_MEDIA_RESOLUTION`             | `MEDIA_RESOLUTION_MEDIUM` | ❌        | `GeminiConfig` — Resolución de imágenes. Enums Protobuf: `MEDIA_RESOLUTION_LOW`, `MEDIA_RESOLUTION_MEDIUM`, `MEDIA_RESOLUTION_HIGH`. |
-| `GEMINI_THINKING_BUDGET`              | _(vacío)_                 | ❌        | Presupuesto de razonamiento (thinking mode)                                                                                          |
-| `GEMINI_THINKING_LEVEL`               | _(vacío)_                 | ❌        | Nivel de razonamiento general Gemini 3; vacío omite `thinkingConfig`                                                                 |
-| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `4096`                    | ❌        | Límite de salida para extracción documental                                                                                          |
-| `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_                 | ❌        | Presupuesto de razonamiento para extracción documental                                                                               |
-| `GEMINI_EXTRACTION_THINKING_LEVEL`    | _(vacío)_                 | ❌        | Nivel de razonamiento Gemini 3 para extracción documental — dejar vacío para Parallel Function Calling determinista                  |
-| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`   | `2048`                    | ❌        | Límite de salida para homologación semántica (2048 para absorber thinking tokens por defecto de Gemini 3)                            |
-| `GEMINI_SEMANTIC_THINKING_LEVEL`      | _(vacío)_                 | ❌        | Nivel de razonamiento Gemini 3 — dejar vacío (omite `thinkingConfig`); `none` no es valor válido en Gemini 3.1                       |
-| `GEMINI_SEMANTIC_THINKING_BUDGET`     | _(vacío)_                 | ❌        | Presupuesto de razonamiento para modelos Gemini 2.5 en homologación semántica                                                        |
-| `GEMINI_SEED`                         | _(vacío)_                 | ❌        | Semilla para reproducibilidad (opcional; dejar vacío para inferencia nativa)                                                         |
+| `GEMINI_MEDIA_RESOLUTION`             | _(no se envía)_           | ❌        | `GeminiConfig` — Resolución de imágenes (`.env.example`: `MEDIA_RESOLUTION_HIGH`). Enums Protobuf: `MEDIA_RESOLUTION_LOW`, `MEDIA_RESOLUTION_MEDIUM`, `MEDIA_RESOLUTION_HIGH`. |
+| `GEMINI_THINKING_BUDGET`              | _(vacío)_                 | ❌        | Solo modelos Gemini 2.5. En Gemini 3 usar `GEMINI_THINKING_LEVEL`; no combinar ambos                                                 |
+| `GEMINI_THINKING_LEVEL`               | `low`                     | ❌        | Nivel de razonamiento general. En `gemini-3.8-flash` solo `low`, `medium` (default de Google) o `high`; **`minimal` devuelve error** |
+| `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `8192`                    | ❌        | Límite de salida para extracción documental (default en `DocumentExtractionWorker`)                                                  |
+| `GEMINI_EXTRACTION_THINKING_BUDGET`   | _(vacío)_                 | ❌        | Solo Gemini 2.5; en Gemini 3 usar `GEMINI_EXTRACTION_THINKING_LEVEL`                                                                 |
+| `GEMINI_EXTRACTION_THINKING_LEVEL`    | `low`                     | ❌        | Nivel de razonamiento para extracción documental (`low`/`medium`/`high` en 3.8; `minimal` no soportado)                             |
+| `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`         | `4096`                    | ❌        | Límite de salida para homologación semántica individual (default en `SemanticMatchJudge`; el deploy escribe `2048` si la variable del repo no existe) |
+| `GEMINI_SEMANTIC_THINKING_LEVEL`            | `low`                     | ❌        | Nivel de razonamiento para homologación individual (`low`/`medium`/`high` en 3.8; `minimal` no soportado)            |
+| `GEMINI_SEMANTIC_THINKING_BUDGET`           | _(vacío)_                 | ❌        | Solo Gemini 2.5; en Gemini 3 usar `GEMINI_SEMANTIC_THINKING_LEVEL`                                                   |
+| `GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS`   | `8192`                    | ❌        | Límite de salida para lote semántico cerrado (hasta 16 pares, margen para thinking tokens y schema completo)         |
+| `GEMINI_SEMANTIC_BATCH_THINKING_LEVEL`      | `low`                     | ❌        | Nivel de razonamiento para lote semántico; `low` es el mínimo admitido por `gemini-3.8-flash`                         |
+| `GEMINI_SEMANTIC_BATCH_THINKING_BUDGET`     | _(vacío)_                 | ❌        | Solo Gemini 2.5; en Gemini 3 usar `GEMINI_SEMANTIC_BATCH_THINKING_LEVEL`                                             |
+| `GEMINI_SEED`                               | `42` _(repo/prod)_        | ✅ Operativa | **Única palanca de reproducibilidad.** Sin valor, Gemini usa una semilla aleatoria por request y la misma entrada puede producir decisiones distintas. El código no la exige (`null` = no se envía), pero todo entorno que audite debe definirla. Valor vigente: variable de repositorio `GEMINI_SEED=42`. |
+
+#### Determinismo de decisiones IA
+
+Requisito de negocio: **una misma entrada debe producir la misma decisión** (`is_match`, subcriterios, resultado del campo) en cualquier ejecución; la redacción de `reasoning` puede variar.
+
+- Desde Gemini 3.6, `temperature`, `topP` y `topK` se ignoran (documentación oficial de Google AI Studio, «API changes and parameter updates»). Enviar `temperature: 0` **no** hace determinista la respuesta.
+- `seed` (`generationConfig.seed`) es el único parámetro de muestreo vigente: «If not set, the request uses a randomly generated seed».
+- En `gemini-3.8-flash` el razonamiento no se puede desactivar: `thinkingLevel` admite `low`/`medium`/`high` y `minimal` devuelve error. `thinkingBudget` no aplica a Gemini 3.
+- Evidencia (2026-11-12, factura `T59260903000`, campo `NombreArticulo`, request byte-idéntico y caché limpia):
+  - sin `GEMINI_SEED`: 9 llamadas, 4 `is_match=true` y 5 `false`; la factura alternó entre `completed` y `manual_review`;
+  - con `GEMINI_SEED=20261112`: 5/5 respuestas byte-idénticas (`is_match=false`);
+  - con `GEMINI_SEED=42`: 5/5 respuestas byte-idénticas (`is_match=false`).
+- La semilla garantiza **reproducibilidad**, no **corrección**: otra semilla puede fijar otra decisión, y una actualización del modelo puede alterarla. Las diferencias numéricas de dosis/concentración deberían resolverse con reglas deterministas antes del LLM.
+- La semilla **no forma parte** de las claves de caché (`semantic:match:v6:*`, `extraction:cache:v1:*`). Al cambiar `GEMINI_SEED` o `GEMINI_MODEL`, purgar esas claves para no mezclar decisiones de configuraciones distintas.
 
 ### Redis
 

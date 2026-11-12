@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Services\Audit;
 
+use App\Services\Audit\SemanticBatchContract;
 use App\Services\Audit\SemanticMatchJudge;
 use App\Services\Audit\SemanticMatchPromptBuilder;
 use PHPUnit\Framework\TestCase;
@@ -32,6 +33,8 @@ final class SemanticMatchPromptBuilderTest extends TestCase
 
         $this->assertStringContainsString('EQUIVALENCIA DE DENOMINACIÓN', $systemInstruction);
         $this->assertStringContainsString('CONTRADICCIÓN EXPLÍCITA', $systemInstruction);
+        $this->assertStringContainsString(SemanticBatchContract::CONCISE_REASONING_DIRECTIVE, $systemInstruction);
+        $this->assertStringContainsString('250 caracteres', $schema['properties']['reasoning']['description']);
 
         $this->assertSame('object', $schema['type']);
         $this->assertArrayHasKey('is_match', $schema['properties']);
@@ -52,6 +55,8 @@ final class SemanticMatchPromptBuilderTest extends TestCase
         $this->assertStringContainsString('YULIETH OSORIO GONZALEZ', $prompt);
 
         $this->assertStringContainsString('verificación de identidad', $systemInstruction);
+        $this->assertStringContainsString(SemanticBatchContract::CONCISE_REASONING_DIRECTIVE, $systemInstruction);
+        $this->assertStringContainsString('250 caracteres', $schema['properties']['reasoning']['description']);
 
         $this->assertSame('object', $schema['type']);
         $this->assertArrayHasKey('is_match', $schema['properties']);
