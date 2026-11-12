@@ -18,7 +18,7 @@ flowchart TD
     end
     
     SQL[("SQL Server<br/>(Discolnet / AudDispEst)")]
-    Gemini["Google Gemini API<br/>(gemini-3.7-flash)"]
+    Gemini["Google Gemini API<br/>(gemini-3.8-flash)"]
     Drive["Google Drive API<br/>(Adjuntos PDF / Imágenes)"]
     
     User -->|HTTP / JSON| CoreApp

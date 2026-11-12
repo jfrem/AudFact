@@ -114,7 +114,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | Archivo | Responsabilidad |
 |---|---|
 | `GeminiGateway.php` | Cliente HTTP (Guzzle) hacia la API de Gemini; implementa Circuit Breaker, retry/backoff y manejo de cuota |
-| `GeminiConfig.php` | Configuración por entorno; modelo actual/default gemini-3.7-flash, thinking opcional low/medium/high. MINIMAL se rechaza para ese modelo. El perfil semántico agrupado fija salida de 8192 tokens. |
+| `GeminiConfig.php` | Configuración por entorno; modelo actual/default gemini-3.8-flash, thinkingLevel low/medium/high (MINIMAL devuelve error en ese modelo). El perfil semántico agrupado (`GEMINI_SEMANTIC_BATCH_*`) usa 8192 tokens y `low` por defecto. `temperature`/`topP`/`topK` se envían si están configurados, pero Gemini ≥ 3.6 los ignora: la reproducibilidad depende de `GEMINI_SEED` (ver AGENTS.md › Determinismo de decisiones IA). |
 | `GeminiCallMetrics.php` | Métricas de latencia y uso por llamada a Gemini |
 | `SemanticMatchJudge.php` | Único rol decisivo de la IA: valida semánticamente si dos cadenas de texto identifican a la misma entidad (paciente, artículo) cuando el comparador determinista no puede resolver, integrando contexto documental |
 | `AuditBatchOrchestrator.php` | Coordina la ejecución de auditorías batch desde el endpoint `POST /audit/async` |

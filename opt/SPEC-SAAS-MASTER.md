@@ -7,7 +7,7 @@ document_id: SPEC-SAAS-MASTER
 version: 0.4.0-draft
 status: REVIEW
 completeness_level: C
-last_updated: 2026-11-04
+last_updated: 2026-11-12
 decision_mode: una_pregunta_de_producto_a_la_vez
 active_gap: RECONCILIACION_Y_VALIDACION_DE_CONTRATOS
 implementation_ready: false
@@ -664,7 +664,7 @@ La plataforma SaaS garantiza la reproducibilidad determinista, la idempotencia e
    - `case_snapshot`: Payload del expediente canónico admitido (`AuditCase`).
    - `policy_snapshot`: Snapshot serializado del plan de proceso compilado (`CompiledPlan`), con su versión semántica exacta (`policy_version`), catálogo de reglas y campos requeridos.
    - `artifacts_manifest`: Lista de artefactos con sus hashes SHA-256 calculados tras la descarga.
-   - `model_manifest`: Snapshot de configuración del proveedor de IA (modelo, temperatura, system prompt y hash del `responseSchema`).
+   - `model_manifest`: Snapshot de configuración del proveedor de IA (modelo, semilla de decodificación, nivel de razonamiento, parámetros de muestreo informativos, system prompt y hash del `responseSchema`). La semilla es obligatoria cuando el proveedor la soporta: sin ella el mismo envelope puede producir decisiones distintas (DOC-03 R-19).
    - **Invariante de Reintento (`U-SAAS-01`)**: Si un worker o etapa falla transitoriamente (ej. timeout de red), los reintentos operan obligatoriamente sobre el mismo `execution_id` y sus snapshots fijados. Jamás se resuelve una versión más reciente de la política ni se alteran los parámetros del modelo.
    - **Invariante de Reproceso**: Un reproceso manual o re-auditoría forzada crea forzosamente un nuevo `execution_id`, vinculándolo a la versión activa vigente de la política, y preservando el veredicto y snapshots de la ejecución previa en el historial histórico de `AuditStoragePort`.
 2. **Publicación y Activación Atómica de Perfiles (`ProcessDefinitionVersion`)**:

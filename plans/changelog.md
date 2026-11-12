@@ -1,5 +1,45 @@
 # Changelog AudFact
 
+## [2026-11-12] — Determinismo de decisiones IA: `GEMINI_SEED` obligatoria (documentación)
+
+- **Causa raíz de decisiones no reproducibles**: con request byte-idéntico y caché limpia, la homologación semántica de `NombreArticulo` en la factura `T59260903000` alternó entre `is_match=true` y `false` (9 llamadas: 4 `true` / 5 `false`), y la factura osciló entre `completed` y `manual_review`. El `.env` local tenía `GEMINI_SEED` vacío.
+- **Documentación oficial de Google AI Studio** (`gemini-3.8-flash`): `temperature`, `topP` y `topK` están deprecados e ignorados desde Gemini 3.6; `thinkingLevel` admite `low`/`medium`/`high` y `minimal` devuelve error; `thinkingBudget` no aplica a Gemini 3; sin `seed` cada request usa una semilla aleatoria.
+- **Validación**: con `GEMINI_SEED=20261112` y con `GEMINI_SEED=42`, 5/5 ejecuciones cada una devolvieron respuestas byte-idénticas (`is_match=false`, inconsistencia de concentración). La variable de repositorio ya era `GEMINI_SEED=42` (desde 2026-11-06), por lo que producción ya operaba con semilla fija; no se modificó GitHub.
+- **Cambios documentales**:
+  - `AGENTS.md`: `GEMINI_SEED` pasa a obligatoria operativa (`42`); `GEMINI_TEMPERATURE`/`TOP_P`/`TOP_K` marcadas como ignoradas; defaults corregidos según el código (`GEMINI_THINKING_LEVEL`, `GEMINI_EXTRACTION_*` = 8192/`low`, `GEMINI_SEMANTIC_*` = 4096/`low`, `GEMINI_MEDIA_RESOLUTION`); nueva sección «Determinismo de decisiones IA» con evidencia y procedimiento de purga de caché.
+  - `.env.example`: `GEMINI_SEED=42` (alineado con el repositorio) y comentarios sobre parámetros ignorados y purga de caché.
+  - `plans/architecture.md`, `plans/architecture-diagrams.md`: modelo `gemini-3.8-flash` (corrige drift `gemini-3.7-flash`) y nota de reproducibilidad.
+  - Skills: `audfact-audit-gemini` (modelo, `GEMINI_SEED` obligatoria, parámetros ignorados) y `audfact-runtime-docker` (modelo, `GEMINI_SEED`, defaults de extracción y semántica).
+  - Especificaciones DDF (`opt/`, v0.3.1-review):
+    - `DOC-03-SPEC-AI-PROVIDER-SPI.md`: nueva regla R-19 (semilla obligatoria para reproducibilidad), descripciones del schema `AIProviderConfig` (`temperature`/`top_p`/`top_k` ignorados por Gemini ≥ 3.6; `thinking_level` sin `minimal` en 3.8; ejemplo de modelo `gemini-3.8-flash`) y fila de trazabilidad R-19 marcada como parcial.
+    - `DOC-04-SPEC-PORTS-AND-ADAPTERS.md`: `model_manifest` del `AuditExecutionEnvelope` incorpora `seed` y `thinking_level`.
+    - `DOC-06-PROFILE-HEALTH-DISPENSATION.md`: adaptador Gemini con modelo `gemini-3.8-flash`; se elimina «temperature 0.0 = determinismo máximo» y se documentan seed `42`, sampling ignorado y thinking `low`.
+    - `SPEC-SAAS-MASTER.md`: el `model_manifest` (DEC-T-019) incluye la semilla y el nivel de razonamiento.
+- **Pendiente (requiere SDD, no implementado)**: retirar `temperature`/`topP`/`topK` del payload (futuro `400`), incluir la semilla en las claves de caché semántica/extracción y comparador determinista de concentraciones antes del LLM.
+
+## [2026-11-11] — Resiliencia Semántica y Límites de Verbosidad en Contratos IA (`SDD-SEMANTIC-RESILIENCE-VERBOSITY-LIMITS`)
+
+- **Límites de Verbosidad en Origen para LLM (`SemanticBatchContract.php`, `SemanticMatchPromptBuilder.php`)**:
+  - Directiva única `SemanticBatchContract::CONCISE_REASONING_DIRECTIVE` (máximo 2 oraciones, menos de 250 caracteres en `reasoning`), reutilizada por el system prompt del lote y por `SemanticMatchPromptBuilder` (`buildProductContract()`, `buildPersonNameContract()`) para evitar deriva entre contratos.
+  - Presupuesto de salida desacoplado para lotes semánticos: configuración dedicada bajo el prefijo `GEMINI_SEMANTIC_BATCH` con default seguro de 8,192 tokens (`maxOutputTokens`) y `thinkingLevel: low`, evitando truncados prematuros (`finishReason: MAX_TOKENS` → `GEMINI_RESPONSE_OUTPUT_TRUNCATED`) provocados por consumo de tokens de razonamiento en lotes de hasta 16 pares, sin verse restringido por el límite individual de salida (`GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS`).
+  - Enriquecimiento declarativo en `responseSchema`: descripción del campo `reasoning` actualizada con la restricción `'Justificación técnica ultra-concisa de máximo 250 caracteres.'`.
+- **Sanitización y Truncamiento Defensivo Postel (`SemanticBatchContract.php`)**:
+  - Implementación de resiliencia según el principio de robustez en `validate()`: si `reasoning` excede `SemanticBatchContract::MAX_REASONING_LENGTH` (512), se trunca de forma segura (UTF-8) con sufijo `...` en lugar de fallar con excepción fatal. El truncamiento se aplica una sola vez, después de cualquier prefijo de degradación.
+  - Fallback para strings vacíos o compuestos únicamente de espacios: `'Sin justificación técnica reportada.'`.
+  - `SemanticFlightStore::validResult()` consume la misma constante `MAX_REASONING_LENGTH`: el límite de truncamiento y el de persistencia en caché ya no pueden divergir.
+- **Degradación Conservadora de Contradicciones Clínicas con Telemetría (`SemanticBatchContract.php`)**:
+  - Manejo resiliente de inconsistencias lógicas internas del modelo: en propósito `EQUIVALENCIA_PRODUCTO`, si el modelo dictamina `is_match: true` pero subcriterios clínicos indican disparidad (`same_dimensions_or_dose: false` o `unresolved_differences: true`), el validador degrada de forma médicamente segura forzando `$isMatch = false`, anteponiendo `'Inconsistencia en subcriterios de equivalencia: '` al razonamiento y registrando una advertencia operativa con `Logger::warning('semantic_clinical_contradiction_degraded', ...)` sin exponer texto clínico sensible.
+  - Erradicación de excepciones fatales en bucles de reintento que enviaban documentos válidos al Dead Letter Queue (DLQ) por discrepancias semánticas menores.
+- **Pruebas y Verificación (TDD)**:
+  - Nueva cobertura en `tests/Services/Audit/SemanticBatchContractTest.php`:
+    - `testOversizedReasoningIsSafelyTruncated`: verifica el truncamiento defensivo a 512 caracteres con sufijo elíptico.
+    - `testClinicalContradictionResolvesConservativelyToNoMatch`: verifica la resolución conservadora hacia `is_match = false` sin lanzar excepción ante contradicciones clínicas.
+    - `testBlankReasoningFallsBackToPersistableText`, `testDowngradedOversizedReasoningStillFitsPersistenceLimit`, `testPersonContradictionFieldsDoNotApplyAndMatchIsPreserved`: fallback, prefijo + truncamiento y propósito PERSON.
+    - `testOutputBudgetUsesDefaultAndDemandsConciseReasoning`: verifica el techo predeterminado de 8,192 tokens desacoplado del límite individual, su presencia de directiva concisa y el respeto a overrides de entorno (`GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS`).
+    - `testInvalidOrClinicallyContradictoryResponseIsTechnicalFailure` renombrado a `testStructurallyInvalidResponseIsTechnicalFailure`; DataProvider limitado a errores de estructura real.
+    - `tests/Integration/SemanticExecutionRedisTest.php`: verificado que certifica la expectativa de 8,192 tokens para llamadas en lote.
+  - Certificación de suite completa: 1,086 tests, 5,622 aserciones, 0 fallos, 0 errores, 78 skipped (integración Redis omitida localmente). Código de salida 0.
+
 ## [2026-11-10] — Refactorización Clean Code en Pipeline de Descarga y Orquestación (`SDD-CLEAN-CODE-DOWNLOAD-RESILIENCE`)
 
 - **Enum Tipado para Almacenamiento de Adjuntos (`AttachmentStorageType.php`)**:

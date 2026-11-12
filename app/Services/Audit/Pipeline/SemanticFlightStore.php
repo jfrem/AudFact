@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use App\Services\Audit\SemanticBatchContract;
 use Core\RedisClient;
 
 /** Caché compartida con propietario/fence; no representa estado clínico. */
@@ -85,7 +86,7 @@ final class SemanticFlightStore
             return false;
         }
         $length = mb_strlen(trim($result['reasoning']), 'UTF-8');
-        return $length >= 1 && $length <= 512;
+        return $length >= 1 && $length <= SemanticBatchContract::MAX_REASONING_LENGTH;
     }
 
     private const CLAIM = <<<'LUA'
