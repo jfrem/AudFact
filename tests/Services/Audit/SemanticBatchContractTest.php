@@ -10,6 +10,7 @@ use App\Services\Audit\Pipeline\AuditExecutionConfig;
 use App\Services\Audit\Pipeline\SemanticFlightStore;
 use App\Services\Audit\SemanticBatchContract;
 use App\Services\Audit\SemanticMatchPurpose;
+use Core\Env;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -125,23 +126,78 @@ final class SemanticBatchContractTest extends TestCase
         self::assertFalse($actual[$pairs[1]['pair_id']]['is_match']);
     }
 
-    public function testOutputBudgetUsesDefaultAndDemandsConciseReasoning(): void
+    public function testOutputBudgetDefaultsTo8192DecoupledFromIndividualLimitAndDemandsConciseReasoning(): void
     {
         // Arrange:
-        $gateway = new RecordingSemanticBatchGateway();
-        $batch = [['pair_id' => hash('sha256', 'p1'), 'purpose' => SemanticMatchPurpose::PRODUCT->value, 'expected' => 'A', 'actual' => 'B', 'context' => []]];
-        $contract = new SemanticBatchContract();
+        $this->isolateEnv([self::BATCH_TOKENS_ENV => null, self::INDIVIDUAL_TOKENS_ENV => '1024']);
 
         // Act:
-        $contract->body($gateway, $batch);
-        $tokens = $gateway->overrides['maxOutputTokens'];
+        $gateway = self::recordBody();
 
         // Assert:
-        $expectedTokens = \Core\Env::get('GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS') !== null
-            ? (int) \Core\Env::get('GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS')
-            : 8192;
-        self::assertSame($expectedTokens, $tokens, 'Conserva el techo configurado o default de 8192 tokens para el lote, desacoplado del límite individual');
+        self::assertSame(8192, $gateway->overrides['maxOutputTokens'], 'Sin variable de lote rige el default 8192, no el límite individual');
+        self::assertSame('low', $gateway->overrides['thinkingLevel']);
         self::assertStringContainsString(SemanticBatchContract::CONCISE_REASONING_DIRECTIVE, $gateway->system);
+    }
+
+    public function testOutputBudgetHonorsBatchEnvOverride(): void
+    {
+        // Arrange:
+        $this->isolateEnv([self::BATCH_TOKENS_ENV => '2048', self::INDIVIDUAL_TOKENS_ENV => '1024']);
+
+        // Act:
+        $gateway = self::recordBody();
+
+        // Assert:
+        self::assertSame(2048, $gateway->overrides['maxOutputTokens']);
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->savedEnv as $key => $value) {
+            Env::set($key, $value === false ? null : $value);
+        }
+        $this->savedEnv = [];
+        parent::tearDown();
+    }
+
+    private const BATCH_TOKENS_ENV = 'GEMINI_SEMANTIC_BATCH_MAX_OUTPUT_TOKENS';
+    private const INDIVIDUAL_TOKENS_ENV = 'GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS';
+
+    /** @var array<string,string|false> */
+    private array $savedEnv = [];
+
+    /**
+     * Fija variables de entorno para el test y guarda las originales.
+     * GeminiConfig::generationOverridesFromEnv() recarga el .env del repositorio;
+     * si este define la variable del lote, el valor fijado aquí sería sobrescrito
+     * y el test dejaría de ser hermético, así que se omite de forma explícita.
+     * La variable individual solo debe ser distinta de la del lote: si el .env la
+     * impone, la aserción sobre el lote sigue siendo válida.
+     *
+     * @param array<string,?string> $values
+     */
+    private function isolateEnv(array $values): void
+    {
+        $dotEnv = dirname(__DIR__, 3) . '/.env';
+        $dotEnvContents = is_file($dotEnv) ? (string) file_get_contents($dotEnv) : '';
+        foreach ($values as $key => $value) {
+            if ($key === self::BATCH_TOKENS_ENV
+                && preg_match('/^\s*' . preg_quote($key, '/') . '\s*=/m', $dotEnvContents) === 1) {
+                self::markTestSkipped("El .env local define {$key}; Env::load() lo impondría sobre el valor del test.");
+            }
+            $this->savedEnv[$key] ??= getenv($key);
+            Env::set($key, $value);
+        }
+    }
+
+    private static function recordBody(): RecordingSemanticBatchGateway
+    {
+        $gateway = new RecordingSemanticBatchGateway();
+        $batch = [['pair_id' => hash('sha256', 'p1'), 'purpose' => SemanticMatchPurpose::PRODUCT->value, 'expected' => 'A', 'actual' => 'B', 'context' => []]];
+        (new SemanticBatchContract())->body($gateway, $batch);
+
+        return $gateway;
     }
 
     #[DataProvider('invalidResponses')]
