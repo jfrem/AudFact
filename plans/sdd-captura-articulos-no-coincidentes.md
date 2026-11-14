@@ -664,7 +664,7 @@ Revertir el commit y redesplegar con el SHA anterior (procedimiento estándar de
 | T-08b | `DocumentPolicyEngineTest` | Ambigüedad intacta | `items` ambiguo + lista no vacía | `evaluate()` | Mismo resultado que sin lista |
 | T-09 | `DocumentPolicyEngineTest` | Recupera falso negativo | FDV `ACETAMINOFEN 500MG`, items `[]`, lista `["DOLEX 500MG"]`, juez doble → match | `evaluate()` | `COINCIDE` |
 | T-10 | `DocumentPolicyEngineTest` | Regresión D66261005571 | FDV `QUETIAPINA 100MG C 30 TABLETA`, items `[]`, lista `["FLUOXETINA 20MG CÁPSULAS"]`, juez doble → no match | `evaluate()` | `NO_CONCLUYENTE` (no `NO_ENCONTRADO`); `valorDocumento = "FLUOXETINA 20MG CÁPSULAS"` |
-| T-11 | `DocumentPolicyEngineTest` | Set parcial | FDV {A,B}, items [A], lista [C], juez no match B↔C | `evaluate()` | `NO_CONCLUYENTE`; detalle contiene `Artículos visibles en el documento:` con A y C |
+| T-11 | `DocumentPolicyEngineTest` | Set parcial | FDV `{A,B}`, items `[A]`, lista `[C]`, juez no match B↔C | `evaluate()` | `NO_CONCLUYENTE`; detalle contiene `Artículos visibles en el documento:` con A y C |
 | T-12 | `DocumentPolicyEngineTest` | No conforme | `matches_expected_type=false` + lista | `evaluate()` | Solo hallazgo `TIP` |
 | T-13 | `DocumentPolicyEngineTest` | Evento antiguo | Payload sin clave | `evaluate()` | Igual al baseline |
 | T-14 | `DocumentPolicyEngineTest` | Paridad plan/resuelto | Caso T-10 | `plan()` y `evaluateResolved()` con el resultado del candidato | Candidato semántico (QUETIAPINA, FLUOXETINA) presente en `plan()` y mismo resultado final |
