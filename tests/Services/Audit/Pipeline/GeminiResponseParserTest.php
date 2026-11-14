@@ -448,4 +448,149 @@ final class GeminiResponseParserTest extends TestCase
 
         $this->parser->parse($response, $contract);
     }
+
+    public function testSanitizeUnmatchedArticlesTrimsDeduplicatesAndFilters(): void
+    {
+        $json = json_encode([
+            'document_conformity' => ['matches_expected_type' => true, 'detected_type' => 'Formula', 'justification' => 'OK'],
+            'fields' => [],
+            'items' => [],
+            'visual_checks' => [],
+            'document_quality' => 'legible',
+            'quality_notes' => [],
+            'unmatched_articles' => [
+                '  FLUOXETINA 20MG  ',
+                'fluoxetina 20mg',
+                '',
+                '   ',
+                null,
+                123,
+                'QUETIAPINA 100MG',
+            ],
+        ], JSON_THROW_ON_ERROR);
+
+        $response = [
+            'candidates' => [[
+                'finishReason' => 'STOP',
+                'content' => ['parts' => [['text' => $json]]],
+            ]],
+        ];
+
+        $contract = [
+            'response_schema' => [
+                'properties' => [
+                    'unmatched_articles' => ['type' => 'array'],
+                ],
+            ],
+        ];
+
+        $parsed = $this->parser->parse($response, $contract);
+
+        $this->assertArrayHasKey('unmatched_articles', $parsed);
+        $this->assertSame(['FLUOXETINA 20MG', 'QUETIAPINA 100MG'], $parsed['unmatched_articles']);
+    }
+
+    public function testSanitizeUnmatchedArticlesTruncatesToMaxItems(): void
+    {
+        $manyArticles = [];
+        for ($i = 1; $i <= 15; $i++) {
+            $manyArticles[] = "MEDICAMENTO_{$i}";
+        }
+
+        $json = json_encode([
+            'document_conformity' => ['matches_expected_type' => true, 'detected_type' => 'Formula', 'justification' => 'OK'],
+            'fields' => [],
+            'items' => [],
+            'visual_checks' => [],
+            'document_quality' => 'legible',
+            'quality_notes' => [],
+            'unmatched_articles' => $manyArticles,
+        ], JSON_THROW_ON_ERROR);
+
+        $response = [
+            'candidates' => [[
+                'finishReason' => 'STOP',
+                'content' => ['parts' => [['text' => $json]]],
+            ]],
+        ];
+
+        $contract = [
+            'response_schema' => [
+                'properties' => [
+                    'unmatched_articles' => ['type' => 'array'],
+                ],
+            ],
+        ];
+
+        $parsed = $this->parser->parse($response, $contract);
+
+        $this->assertCount(10, $parsed['unmatched_articles']);
+        $this->assertSame('MEDICAMENTO_1', $parsed['unmatched_articles'][0]);
+        $this->assertSame('MEDICAMENTO_10', $parsed['unmatched_articles'][9]);
+    }
+
+    public function testSanitizeUnmatchedArticlesToleratesOmission(): void
+    {
+        $json = json_encode([
+            'document_conformity' => ['matches_expected_type' => true, 'detected_type' => 'Formula', 'justification' => 'OK'],
+            'fields' => [],
+            'items' => [],
+            'visual_checks' => [],
+            'document_quality' => 'legible',
+            'quality_notes' => [],
+            // unmatched_articles omitido deliberadamente
+        ], JSON_THROW_ON_ERROR);
+
+        $response = [
+            'candidates' => [[
+                'finishReason' => 'STOP',
+                'content' => ['parts' => [['text' => $json]]],
+            ]],
+        ];
+
+        $contract = [
+            'response_schema' => [
+                'properties' => [
+                    'unmatched_articles' => ['type' => 'array'],
+                ],
+            ],
+        ];
+
+        $parsed = $this->parser->parse($response, $contract);
+
+        $this->assertArrayHasKey('unmatched_articles', $parsed);
+        $this->assertSame([], $parsed['unmatched_articles']);
+    }
+
+    public function testParseOmitsUnmatchedArticlesWhenContractDoesNotDeclareIt(): void
+    {
+        $json = json_encode([
+            'document_conformity' => ['matches_expected_type' => true, 'detected_type' => 'Formula', 'justification' => 'OK'],
+            'fields' => [],
+            'items' => [],
+            'visual_checks' => [],
+            'document_quality' => 'legible',
+            'quality_notes' => [],
+            'unmatched_articles' => ['MEDICAMENTO_EXTRA'],
+        ], JSON_THROW_ON_ERROR);
+
+        $response = [
+            'candidates' => [[
+                'finishReason' => 'STOP',
+                'content' => ['parts' => [['text' => $json]]],
+            ]],
+        ];
+
+        $contract = [
+            'response_schema' => [
+                'properties' => [
+                    'items' => ['type' => 'array'],
+                ],
+            ],
+        ];
+
+        $parsed = $this->parser->parse($response, $contract);
+
+        $this->assertArrayNotHasKey('unmatched_articles', $parsed);
+    }
 }

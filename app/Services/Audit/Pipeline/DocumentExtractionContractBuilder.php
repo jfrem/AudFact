@@ -10,6 +10,8 @@ use InvalidArgumentException;
 
 final class DocumentExtractionContractBuilder
 {
+    public const UNMATCHED_ARTICLES_MAX = 10;
+
     /**
      * Construye el contrato Gemini de Structured Output para un documento.
      *
@@ -117,6 +119,18 @@ final class DocumentExtractionContractBuilder
                 'items' => $this->buildFlatObjectSchema($fieldGroups['items']),
             ];
             $required[] = 'items';
+        }
+
+        if ($this->fieldGroupsDeclareUnmatchedArticles($fieldGroups)) {
+            $properties['unmatched_articles'] = [
+                'type' => 'array',
+                'description' => 'Lista de nombres textuales de medicamentos o articulos legibles en el documento que NO coincidan con ninguno de los candidatos de la dispensacion. Omitir concentraciones o formas si estan separadas, pero incluir el nombre completo si aparece junto. Maximo 10 elementos. Arreglo vacio si todos coinciden o si no hay mas articulos visibles.',
+                'items' => [
+                    'type' => 'string',
+                ],
+                'maxItems' => self::UNMATCHED_ARTICLES_MAX,
+            ];
+            $required[] = 'unmatched_articles';
         }
 
         if ($visualChecks !== []) {
@@ -423,5 +437,45 @@ final class DocumentExtractionContractBuilder
         }
 
         return AuditFieldValueType::fromInput($tipoDato);
+    }
+
+    /**
+     * @param  array<int,array<string,mixed>> $itemsFields
+     */
+    private function itemsDeclareArticleName(array $itemsFields): bool
+    {
+        foreach ($itemsFields as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+            try {
+                $valueType = $this->fieldValueType($field);
+                if ($valueType === AuditFieldValueType::ARTICLE_NAME) {
+                    return true;
+                }
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array{fields:array<int,array<string,mixed>>,items:array<int,array<string,mixed>>} $fieldGroups
+     */
+    private function fieldGroupsDeclareUnmatchedArticles(array $fieldGroups): bool
+    {
+        return isset($fieldGroups['items'])
+            && is_array($fieldGroups['items'])
+            && $this->itemsDeclareArticleName($fieldGroups['items']);
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     */
+    public static function contractDeclaresUnmatchedArticles(array $contract): bool
+    {
+        return isset($contract['response_schema']['properties']['unmatched_articles']);
     }
 }

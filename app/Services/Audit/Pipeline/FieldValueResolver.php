@@ -138,6 +138,26 @@ final class FieldValueResolver
     }
 
     /**
+     * Suma nombres de artículos visibles no coincidentes a la resolución documental de un campo article_name.
+     *
+     * @param array<int,string> $unmatchedNames
+     */
+    public static function mergeDocumentArticleNames(
+        ResolvedAuditValue $base,
+        array $unmatchedNames,
+        AuditFieldValueType $valueType
+    ): ResolvedAuditValue {
+        if ($unmatchedNames === [] || $valueType !== AuditFieldValueType::ARTICLE_NAME || $base->ambiguous) {
+            return $base;
+        }
+
+        $values = self::uniqueSortedValues(array_merge($base->values, $unmatchedNames));
+        $meta = $base->evidenceMeta + ['unmatched_articles' => array_values($unmatchedNames)];
+
+        return self::resolvedValue(ResolvedAuditValue::SOURCE_DOCUMENT, $valueType, implode(', ', $values), $values, false, $meta);
+    }
+
+    /**
      * @return array<int,string>|null
      */
     public static function resolveFindingValues(

@@ -112,6 +112,8 @@ class DocumentPolicyEngine
 
         $context['document_fields'] = $fields;
         $context['document_items'] = $items;
+        $unmatchedArticles = array_values(array_filter((array) ($normalizedPayload['unmatched_articles'] ?? []), 'is_string'));
+        $context['unmatched_articles'] = $unmatchedArticles;
         if (!empty($normalizedPayload['quality_notes'])) {
             $context['quality_notes'] = is_array($normalizedPayload['quality_notes'])
                 ? implode('; ', $normalizedPayload['quality_notes'])
@@ -123,7 +125,7 @@ class DocumentPolicyEngine
         $extractionWarnings = $normalizedPayload['extraction_warnings'] ?? [];
 
         $findings = array_merge(
-            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context, $extractionWarnings),
+            $this->evaluateDataFields($indexedFields, $fields, $items, $sourceTruth, $documentType, $documentQuality, $context, $extractionWarnings, $unmatchedArticles),
             VisualCheckEvaluator::evaluate($documentType, $documentState['visual_checks'] ?? [], $visualChecks, $documentQuality)
         );
 
@@ -229,7 +231,8 @@ class DocumentPolicyEngine
         string $documentType,
         string $documentQuality,
         array $context,
-        array $extractionWarnings = []
+        array $extractionWarnings = [],
+        array $unmatchedArticles = []
     ): array {
         $findings = [];
         $itemSegmentationWarning = $this->findItemSegmentationWarning($extractionWarnings);
@@ -244,7 +247,8 @@ class DocumentPolicyEngine
                 $documentType,
                 $documentQuality,
                 $context,
-                $itemSegmentationWarning
+                $itemSegmentationWarning,
+                $unmatchedArticles
             );
 
             if ($finding !== null) {
@@ -264,7 +268,8 @@ class DocumentPolicyEngine
         string $documentType,
         string $documentQuality,
         array $context,
-        ?array $itemSegmentationWarning
+        ?array $itemSegmentationWarning,
+        array $unmatchedArticles = []
     ): ?array {
         $tipoCampo = strtoupper(trim((string) ($fieldConfig['tipoCampo'] ?? 'E')));
         if ($tipoCampo === '' || $this->isVisualOrInformationalField($tipoCampo)) {
@@ -273,6 +278,9 @@ class DocumentPolicyEngine
 
         $valueType = $this->fieldValueTypeFromConfig($fieldConfig);
         $docResolution = FieldValueResolver::resolveDocumentValue($canonicalField, $valueType, $fields, $items);
+        if ($valueType === AuditFieldValueType::ARTICLE_NAME && $unmatchedArticles !== []) {
+            $docResolution = FieldValueResolver::mergeDocumentArticleNames($docResolution, $unmatchedArticles, $valueType);
+        }
         $fdvResolution = FieldValueResolver::resolveSourceTruthField($canonicalField, $valueType, $sourceTruth);
 
         $comparisonType = AuditComparisonType::fromTipoCampo($tipoCampo);
@@ -458,7 +466,8 @@ class DocumentPolicyEngine
                 $fdvResolution->values,
                 $docResolution->values,
                 $context,
-                $tipoCampo
+                $tipoCampo,
+                $docResolution->evidenceMeta['unmatched_articles'] ?? []
             );
         }
 
@@ -781,9 +790,11 @@ class DocumentPolicyEngine
         array $fdvArticles,
         array $docArticles,
         array $context,
-        string $tipoCampo
+        string $tipoCampo,
+        array $unmatchedArticles = []
     ): array {
         $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
+        $unmatchedSet = array_flip($unmatchedArticles);
 
         // Normalizar ambos sets con limpieza de sufijos farmac�uticos
         $fdvNorm = array_map(fn(string $a): string => TextNormalization::normalizeArticleName($a), $fdvArticles);
@@ -798,7 +809,8 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
-                if ($fNorm === $dNorm || TextNormalization::containsNormalizedSubstring($fNorm, $dNorm)) {
+                $isUnmatchedDoc = isset($unmatchedSet[$docArticles[$di]]);
+                if ($fNorm === $dNorm || (!$isUnmatchedDoc && TextNormalization::containsNormalizedSubstring($fNorm, $dNorm))) {
                     $matchedFdv[$fi] = $di;
                     break;
                 }
@@ -812,6 +824,9 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docArticles as $di => $docOriginal) {
+                if (isset($unmatchedSet[$docOriginal])) {
+                    continue;
+                }
                 if (TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal) >= 0.5) {
                     $matchedFdv[$fi] = $di;
                     break;
@@ -825,6 +840,9 @@ class DocumentPolicyEngine
                 continue;
             }
             foreach ($docNorm as $di => $dNorm) {
+                if (isset($unmatchedSet[$docArticles[$di]])) {
+                    continue;
+                }
                 if (TextNormalization::similarity($fNorm, $dNorm) >= $threshold) {
                     $matchedFdv[$fi] = $di;
                     break;
@@ -922,11 +940,12 @@ class DocumentPolicyEngine
             'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'tipo_auditoria' => 'semantic',
             'detalle' => sprintf(
-                "En '%s', el documento soporte no contiene evidencia para %d de %d artículos de la dispensación: '%s'.",
+                "En '%s', el documento soporte no contiene evidencia para %d de %d artículos de la dispensación: '%s'. Artículos visibles en el documento: '%s'.",
                 $humanField,
                 count($unmatchedNames),
                 count($fdvArticles),
-                implode(', ', $unmatchedNames)
+                implode(', ', $unmatchedNames),
+                implode(', ', $docArticles)
             ),
         ];
     }
@@ -1085,15 +1104,20 @@ class DocumentPolicyEngine
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
-        if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && TextNormalization::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
-            return ['resultado' => AuditFindingResult::MATCH->value];
-        }
+        $isUnmatchedArticle = ($valueType === AuditFieldValueType::ARTICLE_NAME
+            && in_array($docValue, (array) ($context['unmatched_articles'] ?? []), true));
 
-        $score     = TextNormalization::similarity($normalizedFdv, $normalizedDoc);
-        $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
+        if (!$isUnmatchedArticle) {
+            if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && TextNormalization::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
+                return ['resultado' => AuditFindingResult::MATCH->value];
+            }
 
-        if ($score >= $threshold) {
-            return ['resultado' => AuditFindingResult::MATCH->value];
+            $score     = TextNormalization::similarity($normalizedFdv, $normalizedDoc);
+            $threshold = AuditComparisonType::getSemanticThreshold($tipoCampo);
+
+            if ($score >= $threshold) {
+                return ['resultado' => AuditFindingResult::MATCH->value];
+            }
         }
 
         if ($this->semanticJudge !== null && $valueType->allowsSemanticGeminiFallback()) {

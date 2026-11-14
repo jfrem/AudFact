@@ -429,6 +429,78 @@ final class DocumentNormalizerTest extends TestCase
         $this->assertSame(5, $result['extraction_warnings'][0]['expected_items_count']);
     }
 
+    public function testNormalizePropagatesAndNormalizesUnmatchedArticles(): void
+    {
+        $normalizer = new DocumentNormalizer();
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'FORMULA MEDICA',
+            'fields_config' => [],
+            'visual_checks' => [],
+            'extraction_result' => [
+                'document_conformity' => ['matches_expected_type' => true],
+                'fields' => [],
+                'items' => [],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+                'unmatched_articles' => [
+                    'FLUOXETINA 20MG CÁPSULAS',
+                    'FLUOXETINA 20MG CÁPSULAS',
+                ],
+            ],
+        ]);
+
+        $this->assertArrayHasKey('unmatched_articles', $result);
+        $this->assertCount(1, $result['unmatched_articles']);
+        $this->assertSame('FLUOXETINA 20MG CÁPSULAS', $result['unmatched_articles'][0]);
+    }
+
+    public function testNormalizeDefaultsUnmatchedArticlesToEmptyArrayWhenAbsent(): void
+    {
+        $normalizer = new DocumentNormalizer();
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'FORMULA MEDICA',
+            'fields_config' => [],
+            'visual_checks' => [],
+            'extraction_result' => [
+                'document_conformity' => ['matches_expected_type' => true],
+                'fields' => [],
+                'items' => [],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+            ],
+        ]);
+
+        $this->assertArrayHasKey('unmatched_articles', $result);
+        $this->assertSame([], $result['unmatched_articles']);
+    }
+
+    public function testNormalizeLogsOperationsOnUnmatchedArticles(): void
+    {
+        $normalizer = new DocumentNormalizer();
+        $result = $normalizer->normalize([
+            'tipo_documento' => 'FORMULA MEDICA',
+            'fields_config' => [],
+            'visual_checks' => [],
+            'extraction_result' => [
+                'document_conformity' => ['matches_expected_type' => true],
+                'fields' => [],
+                'items' => [],
+                'visual_checks' => [],
+                'document_quality' => 'legible',
+                'quality_notes' => [],
+                'unmatched_articles' => [
+                    '   FLUOXETINA 20MG   ',
+                ],
+            ],
+        ]);
+
+        $this->assertSame(['FLUOXETINA 20MG'], $result['unmatched_articles']);
+        $logOps = array_column($result['normalization_log'], 'operation');
+        $this->assertNotEmpty($logOps);
+    }
+
     /**
      * @param  array<string,string> $typesByField
      * @return array<int,array{campoNombre:string,tipoCampo:string,tipoDato:string}>

@@ -118,7 +118,7 @@ class InvoicesModel extends Model
     private function buildOptimizedBatchSql(string $finalSelect): string
     {
         return "SET NOCOUNT ON;
-                SELECT f.FacNitSec,dd.DisDetNro AS Dispensa,ISNULL(dd.DisAplForRec, 'N') AS Apl,CAST(d.DisFecSol AS DATE) AS Fecha,n.NitCom AS Tercero,pc.PerCliNom AS Perfil,d.DisId,
+                SELECT d.DisNitSec as facnitsec,dd.DisDetNro AS Dispensa,ISNULL(dd.DisAplForRec, 'N') AS Apl,CAST(d.DisFecSol AS DATE) AS Fecha,n.NitCom AS Tercero,pc.PerCliNom AS Perfil,d.DisId,
                 dd.DisDetId,f.FacSec,SUM(k.KarUniCp - k.KarUni) AS Pend,SUM(k.KarUni * k.KarPre) AS Costo,SUM(k.KarUniCp * k.KarPrePub) AS Valor,dd.DisDetUsuAud AS Auditoria,
                 dd.DisTip,dd.DisDetEst AS Est,dd.DisDetAut Aut
                 INTO #DISP
@@ -127,8 +127,8 @@ class InvoicesModel extends Model
                 INNER JOIN Factura f WITH(NOLOCK) ON f.DisId = dd.DisId AND f.DisDetId = dd.DisDetId
                 INNER JOIN FacturaKardex k WITH(NOLOCK) ON k.FacSec = f.FacSec
                 INNER JOIN Tipos t WITH(NOLOCK) ON t.TipCod = f.FacTipCod
-                INNER JOIN Nit n WITH(NOLOCK) ON n.NitSec = f.FacNitSec
-                LEFT JOIN Clientes c WITH(NOLOCK) ON c.NitSec = f.FacNitSec AND c.CliSec = f.FacCliSec
+                INNER JOIN Nit n WITH(NOLOCK) ON n.NitSec = d.DisNitSec
+                LEFT JOIN Clientes c WITH(NOLOCK) ON c.NitSec = d.DisNitSec AND c.CliSec = d.DisClisec
                 LEFT JOIN PerfilDeClientes pc WITH(NOLOCK) ON pc.PerCliCod = c.PerCliCod
                 WHERE t.FueCod = 'DISP' AND dd.DisDetEst = 'A'
                 AND d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD AND dd.DisTip <> 'A' AND k.KarUnicp > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
@@ -170,7 +170,7 @@ class InvoicesModel extends Model
                         having sum(case when t2.FueCod='NCRE' then -1 else 1 end)>0
                     )
 
-                GROUP BY f.FacNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
+                GROUP BY d.DisNitSec,dd.DisDetNro,ISNULL(dd.DisAplForRec, 'N'),CAST(d.DisFecSol AS DATE),n.NitCom,pc.PerCliNom,d.DisId,dd.DisDetId,f.FacSec,dd.DisDetUsuAud,dd.DisTip,dd.DisDetEst,dd.DisDetAut
 
                 OPTION (RECOMPILE);
 

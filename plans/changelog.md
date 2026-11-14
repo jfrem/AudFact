@@ -1,5 +1,32 @@
 # Changelog AudFact
 
+## [2026-11-13] — Captura y Evaluación de Artículos No Coincidentes en Extracción IA (SDD-UNMATCHED-ARTICLES)
+
+- **Problema y Causa Raíz (Caso D66261005571)**:
+  - En FORMULA MEDICA con prescripción de `FLUOXETINA 20MG CÁPSULAS` y entrega en FDV de `QUETIAPINA 100MG C 30 TABLETA`, Gemini devolvía `items: []` debido a la instrucción del prompt de extraer únicamente artículos que coincidieran con los candidatos de la FDV para acotar consumo de tokens.
+  - Al no poblarse `items`, el motor de reglas caía en `NO_ENCONTRADO` en vez de registrar la discrepancia clínica como `NO_CONCLUYENTE` (o `COINCIDE` si existiese homologación semántica comercial).
+- **Componentes y Contratos Implementados**:
+  - `DocumentExtractionContractBuilder.php`: constante pública `UNMATCHED_ARTICLES_MAX = 10`. En contratos cuyo grupo `items` declara al menos un campo `article_name`, inyecta la propiedad `unmatched_articles` (`type: array`, `items: {type: string}`, `maxItems: 10`) en `properties` (ordenada inmediatamente tras `items`) y en `required`. Expone el método estático `contractDeclaresUnmatchedArticles(array $contract): bool`.
+  - `ExtractionPromptBuilder.php`: instruye a Gemini a listar en `unmatched_articles` los nombres (tal como aparecen) de los artículos visibles que no coincidan con los candidatos (máximo 10, o `[]` si todos coinciden o no hay candidatos).
+  - `GeminiResponseParser.php`: método `sanitizeUnmatchedArticles(array $decoded): array` que filtra valores vacíos/no-string, deduplica conservando la primera aparición (`mb_strtoupper`) y trunca deterministamente a 10. Si Gemini omite la clave, registra un warning de logging y devuelve `[]` sin romper el flujo.
+  - `DocumentNormalizer.php`: método `normalizeUnmatchedArticles()` que aplica `normalizeEvidenceScalar` bajo tipo `ARTICLE_NAME` a cada elemento y propaga la lista en `normalized_result` y en el payload del evento Redis Streams `document_normalized`.
+  - `FieldValueResolver.php`: método estático `mergeDocumentArticleNames(ResolvedAuditValue $base, array $unmatchedNames, AuditFieldValueType $valueType): ResolvedAuditValue` que combina ordenadamente los nombres sin alterar resoluciones ambiguas y preserva metadatos de evidencia.
+  - `DocumentPolicyEngine.php`:
+    - Incorpora `$unmatchedArticles` al contexto de evaluación y aplica el merge sobre los campos `article_name`.
+    - **Blindaje Anti-Falso Positivo (D-11)**: los artículos residuales quedan expresamente excluidos de atajos de coincidencia difusa (substring match y similitud léxica en `evaluateSemanticField`; Jaccard en Fase 1.5 y similitud léxica en Fase 2 en `evaluateArticleSetField`). Toda discrepancia entre artículos residuales y FDV avanza obligatoriamente a la Fase 3 (`SemanticMatchJudge`) para arbitraje clínico por LLM, impidiendo falsos `COINCIDE` entre moléculas distintas que comparten dosis o presentación (`QUETIAPINA 100MG TABLETA` vs `FLUOXETINA 100MG TABLETA`).
+    - Enriquecimiento del detalle en fallas de cobertura de sets de artículos, citando los artículos visibles en el documento soporte.
+- **Preservación Inmutable de Modelos**:
+  - Ratificado y preservado el diff en `app/Models/InvoicesModel.php` (`f.FacNitSec` → `d.DisNitSec`, join con `Clientes` para consulta de facturas).
+- **Pruebas y Verificación (TDD)**:
+  - Pruebas contractuales T-01 y T-01b en `DocumentExtractionContractBuilderTest.php` (6 tests, 58 assertions: OK).
+  - Pruebas T-02 y T-03 en `ExtractionPromptBuilderTest.php` (11 tests, 40 assertions: OK).
+  - Pruebas T-04, T-05, T-06, T-06b en `GeminiResponseParserTest.php` (19 tests, 63 assertions: OK).
+  - Pruebas T-07, T-07b, T-07c en `DocumentNormalizerTest.php` (14 tests, 126 assertions: OK).
+  - Pruebas T-08 y T-08b en `FieldValueResolverTest.php` (2 tests, 8 assertions: OK).
+  - Pruebas T-08 a T-15 en `DocumentPolicyEngineTest.php` (72 tests, 235 assertions: OK).
+  - Sincronización contractual de secciones de schema en `DocumentAuditOrchestratorTest.php` (30 tests, 382 assertions: OK).
+  - Certificación de suite completa PHPUnit: 1,109 tests, 5,701 aserciones, 0 fallos, 0 errores, 78 skipped. Código de salida 0.
+
 ## [2026-11-12] — Determinismo de decisiones IA: `GEMINI_SEED` obligatoria (documentación)
 
 - **Causa raíz de decisiones no reproducibles**: con request byte-idéntico y caché limpia, la homologación semántica de `NombreArticulo` en la factura `T59260903000` alternó entre `is_match=true` y `false` (9 llamadas: 4 `true` / 5 `false`), y la factura osciló entre `completed` y `manual_review`. El `.env` local tenía `GEMINI_SEED` vacío.

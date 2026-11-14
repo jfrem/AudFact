@@ -109,6 +109,7 @@ final class DocumentNormalizer extends AuditEventConsumer
                     'visual_checks_resultado' => $normalized['visual_checks_resultado'] ?? [],
                     'document_quality'        => $normalized['document_quality'] ?? null,
                     'quality_notes'           => $normalized['quality_notes'] ?? [],
+                    'unmatched_articles'      => $normalized['unmatched_articles'] ?? [],
                     'normalization_log'       => $normalized['normalization_log'] ?? [],
                     'extraction_warnings'     => $normalized['extraction_warnings'] ?? [],
                 ],
@@ -164,6 +165,10 @@ final class DocumentNormalizer extends AuditEventConsumer
         );
         $documentQuality = $this->normalizeDocumentQuality($extraction['document_quality'] ?? null);
         $qualityNotes = $this->normalizeQualityNotes($extraction['quality_notes'] ?? [], $normalizationLog);
+        $unmatchedArticles = $this->normalizeUnmatchedArticles(
+            $extraction['unmatched_articles'] ?? [],
+            $normalizationLog
+        );
         $extractionWarnings = is_array($extraction['extraction_warnings'] ?? null) ? $extraction['extraction_warnings'] : [];
 
         return [
@@ -174,6 +179,7 @@ final class DocumentNormalizer extends AuditEventConsumer
             'visual_checks_resultado' => $visualChecksResultado,
             'document_quality'        => $documentQuality,
             'quality_notes'           => $qualityNotes,
+            'unmatched_articles'      => $unmatchedArticles,
             'normalization_log'       => $normalizationLog,
             'extraction_warnings'     => $extractionWarnings,
         ];
@@ -744,6 +750,38 @@ final class DocumentNormalizer extends AuditEventConsumer
      * @param array<int,array<string,mixed>> $normalizationLog
      * @param array<string,mixed> $context
      */
+    /**
+     * @param  array<mixed>                   $raw
+     * @param  array<int,array<string,mixed>> $log
+     * @return array<int,string>
+     */
+    private function normalizeUnmatchedArticles(array $raw, array &$log): array
+    {
+        $normalized = [];
+        $seen = [];
+        foreach ($raw as $item) {
+            if (!is_string($item)) {
+                continue;
+            }
+            [$val, $ops] = $this->normalizeEvidenceScalar('NombreArticulo', AuditFieldValueType::ARTICLE_NAME, $item);
+            if ($val === null || !is_string($val) || trim($val) === '') {
+                continue;
+            }
+            $trimmed = trim($val);
+            $upper = mb_strtoupper($trimmed, 'UTF-8');
+            if (isset($seen[$upper])) {
+                continue;
+            }
+            $seen[$upper] = true;
+            $normalized[] = $trimmed;
+            if ($ops !== []) {
+                $this->appendFieldNormalizationOperations($log, $ops, 'NombreArticulo', 'unmatched_article', ['raw' => $item]);
+            }
+        }
+
+        return $normalized;
+    }
+
     private function appendLog(array &$normalizationLog, string $operation, array $context = []): void
     {
         $normalizationLog[] = array_merge(['operation' => $operation], $context);

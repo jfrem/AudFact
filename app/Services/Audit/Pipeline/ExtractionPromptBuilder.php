@@ -130,6 +130,10 @@ final class ExtractionPromptBuilder
             $parts[] = 'Devuelve el nombre tal como aparece en el documento.';
         }
 
+        if ($this->contractRequiresUnmatchedArticles($contract)) {
+            $parts[] = 'Si en el documento aparecen otros articulos o medicamentos legibles que NO coincidan con ninguno de los candidatos anteriores, registra sus nombres textuales en el arreglo `unmatched_articles` (solo el nombre, maximo 10). Si todos coinciden o no hay mas articulos, devuelve `unmatched_articles = []`.';
+        }
+
         $sections = $this->expectedSchemaSections($contract);
         if ($sections !== []) {
             $parts[] = 'Devuelve un JSON con las siguientes secciones: ' . implode(', ', $sections) . '.';
@@ -169,6 +173,14 @@ final class ExtractionPromptBuilder
     {
         $schema = $contract['response_schema'] ?? null;
         return is_array($schema) && isset($schema['properties']['visual_checks']);
+    }
+
+    /**
+     * @param array<string,mixed> $contract
+     */
+    public function contractRequiresUnmatchedArticles(array $contract): bool
+    {
+        return DocumentExtractionContractBuilder::contractDeclaresUnmatchedArticles($contract);
     }
 
     /**

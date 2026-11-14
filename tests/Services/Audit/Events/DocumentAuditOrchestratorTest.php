@@ -241,6 +241,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
             'document_conformity',
             'fields',
             'items',
+            'unmatched_articles',
             'visual_checks',
             'document_quality',
             'quality_notes',
@@ -316,6 +317,7 @@ final class DocumentAuditOrchestratorTest extends TestCase
         $this->assertContractSchemaSections($formulaPayload['extraction_contract'], [
             'document_conformity',
             'items',
+            'unmatched_articles',
             'visual_checks',
             'document_quality',
             'quality_notes',
