@@ -6,6 +6,7 @@ namespace App\Services\Audit\Pipeline;
 
 use App\Services\Audit\DocumentQuality;
 use App\Services\Audit\GeminiResponseGuard;
+use Core\Logger;
 use RuntimeException;
 
 /**
@@ -100,7 +101,7 @@ final class GeminiResponseParser
 
         $this->validateVisualChecks($visualChecks);
 
-        return [
+        $result = [
             'document_conformity' => $documentConformity,
             'fields'              => $fields,
             'items'               => array_values($items),
@@ -108,6 +109,50 @@ final class GeminiResponseParser
             'document_quality'    => $documentQuality,
             'quality_notes'       => array_values($qualityNotes),
         ];
+
+        if (DocumentExtractionContractBuilder::contractDeclaresUnmatchedArticles($contract)) {
+            $result['unmatched_articles'] = $this->sanitizeUnmatchedArticles($decoded);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Sanea, deduplica y trunca la sección unmatched_articles.
+     *
+     * @param  array<string,mixed> $decoded
+     * @return array<int,string>
+     */
+    private function sanitizeUnmatchedArticles(array $decoded): array
+    {
+        if (!isset($decoded['unmatched_articles']) || !is_array($decoded['unmatched_articles'])) {
+            Logger::warning('Gemini extraction omitted unmatched_articles');
+            return [];
+        }
+
+        $cleaned = [];
+        $seen = [];
+        foreach ($decoded['unmatched_articles'] as $raw) {
+            if (!is_string($raw)) {
+                continue;
+            }
+            $trimmed = trim($raw);
+            if ($trimmed === '') {
+                continue;
+            }
+            $upper = mb_strtoupper($trimmed, 'UTF-8');
+            if (isset($seen[$upper])) {
+                continue;
+            }
+            $seen[$upper] = true;
+            $cleaned[] = $trimmed;
+
+            if (count($cleaned) >= DocumentExtractionContractBuilder::UNMATCHED_ARTICLES_MAX) {
+                break;
+            }
+        }
+
+        return $cleaned;
     }
 
     /**

@@ -158,4 +158,38 @@ final class DocumentExtractionContractBuilderTest extends TestCase
         ];
         $this->assertNull(DocumentExtractionContractBuilder::findTipoDocumentoDirective($noDirective));
     }
+
+    public function testBuildIncludesUnmatchedArticlesWhenItemsDeclareArticleName(): void
+    {
+        $fields = [
+            ['campoNombre' => 'NombrePaciente', 'tipoCampo' => 'E', 'tipoDato' => 'person_name'],
+            ['campoNombre' => 'NombreArticulo', 'tipoCampo' => 'S', 'tipoDato' => 'article_name', 'esMultiItem' => true],
+            ['campoNombre' => 'Cantidad', 'tipoCampo' => 'B', 'tipoDato' => 'quantity'],
+        ];
+
+        $contract = $this->builder->build('FORMULA MEDICA', $fields, []);
+        $schema = $contract['response_schema'];
+
+        $this->assertArrayHasKey('unmatched_articles', $schema['properties']);
+        $this->assertContains('unmatched_articles', $schema['required']);
+
+        $unmatched = $schema['properties']['unmatched_articles'];
+        $this->assertSame('array', $unmatched['type']);
+        $this->assertSame(DocumentExtractionContractBuilder::UNMATCHED_ARTICLES_MAX, $unmatched['maxItems']);
+        $this->assertSame('string', $unmatched['items']['type']);
+    }
+
+    public function testBuildOmitsUnmatchedArticlesWhenNoArticleNameInItems(): void
+    {
+        $fields = [
+            ['campoNombre' => 'NombrePaciente', 'tipoCampo' => 'E', 'tipoDato' => 'person_name'],
+            ['campoNombre' => 'CodigoProducto', 'tipoCampo' => 'S', 'tipoDato' => 'code', 'esMultiItem' => true],
+        ];
+
+        $contract = $this->builder->build('FORMULA MEDICA', $fields, []);
+        $schema = $contract['response_schema'];
+
+        $this->assertArrayNotHasKey('unmatched_articles', $schema['properties']);
+        $this->assertNotContains('unmatched_articles', $schema['required']);
+    }
 }

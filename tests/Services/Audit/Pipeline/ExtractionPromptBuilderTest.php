@@ -306,4 +306,68 @@ final class ExtractionPromptBuilderTest extends TestCase
         $this->assertStringContainsString('Criterios y requisitos específicos de identificación: Formato con membrete oficial de IPS. Rechazar órdenes de laboratorio.', $promptCustom);
         $this->assertStringContainsString('### Regla de tipología y conformidad documental', $promptCustom);
     }
+
+    public function testBuildUserPromptIncludesUnmatchedArticlesInstructionWhenContractRequiresIt(): void
+    {
+        $contract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'items' => ['type' => 'array'],
+                    'unmatched_articles' => ['type' => 'array'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => [],
+                'items' => ['NombreArticulo'],
+            ],
+        ];
+
+        $payload = [
+            'fields_config' => [
+                ['campoNombre' => 'NombreArticulo', 'tipoDato' => 'article_name'],
+            ],
+            'fuente_verdad' => [
+                'items' => [
+                    ['NombreArticulo' => 'QUETIAPINA 100MG'],
+                ],
+            ],
+        ];
+
+        $userPrompt = $this->builder->buildUserPrompt('FORMULA MEDICA', $payload, $contract);
+
+        $this->assertStringContainsString('unmatched_articles', $userPrompt);
+        $this->assertStringContainsString('registra sus nombres textuales en el arreglo `unmatched_articles`', $userPrompt);
+    }
+
+    public function testBuildUserPromptOmitsUnmatchedArticlesInstructionWhenContractDoesNotRequireIt(): void
+    {
+        $contract = [
+            'response_schema' => [
+                'type' => 'object',
+                'properties' => [
+                    'items' => ['type' => 'array'],
+                ],
+            ],
+            'field_groups' => [
+                'fields' => [],
+                'items' => ['CodigoProducto'],
+            ],
+        ];
+
+        $payload = [
+            'fields_config' => [
+                ['campoNombre' => 'CodigoProducto', 'tipoDato' => 'code'],
+            ],
+            'fuente_verdad' => [
+                'items' => [
+                    ['CodigoProducto' => 'MED001'],
+                ],
+            ],
+        ];
+
+        $userPrompt = $this->builder->buildUserPrompt('FORMULA MEDICA', $payload, $contract);
+
+        $this->assertStringNotContainsString('unmatched_articles', $userPrompt);
+    }
 }

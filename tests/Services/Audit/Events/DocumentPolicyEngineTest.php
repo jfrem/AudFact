@@ -1792,5 +1792,284 @@ final class DocumentPolicyEngineTest extends TestCase
             'field' => 'NombreArticulo',
         ]);
     }
+
+    // ─── Tests T-08 a T-15: Captura y Evaluación de unmatched_articles ─────────
+
+    public function testT08EvaluateWithEmptyUnmatchedArticlesBehavesAsBaseline(): void
+    {
+        $engine = new DocumentPolicyEngine();
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'ACETAMINOFEN 500MG TABLETA']]]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [],
+            [['NombreArticulo' => 'ACETAMINOFEN 500MG TABLETA']]
+        );
+        $payload['unmatched_articles'] = [];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('COINCIDE', $findings[$nomIdx]['resultado']);
+        self::assertSame('ACETAMINOFEN 500MG TABLETA', $findings[$nomIdx]['valorDocumento']);
+    }
+
+    public function testT08bEvaluateWithAmbiguousItemsPreservesAmbiguityRegardlessOfUnmatchedArticles(): void
+    {
+        $engine = new DocumentPolicyEngine();
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NumeroAutorizacion', 'E')],
+            ['header' => ['NumeroAutorizacion' => '123456'], 'items' => []]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [],
+            [
+                ['NumeroAutorizacion' => '123456'],
+                ['NumeroAutorizacion' => '999999'],
+            ]
+        );
+        $payload['unmatched_articles'] = ['MEDICAMENTO EXTRA'];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $autIdx = array_search('NumeroAutorizacion', $campos, true);
+
+        self::assertNotFalse($autIdx);
+        self::assertSame('NO_CONCLUYENTE', $findings[$autIdx]['resultado']);
+        self::assertStringContainsString('multiples valores distintos', $findings[$autIdx]['detalle']);
+    }
+
+    public function testT09EvaluateRecoversFalseNegativeWithUnmatchedArticlesMatchingViaSemanticJudge(): void
+    {
+        $judge = new class implements \App\Services\Audit\SemanticMatchResolver {
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                if (str_contains($actual, 'DOLEX') && str_contains($expected, 'ACETAMINOFEN')) {
+                    return ['is_match' => true, 'reasoning' => 'DOLEX es marca comercial de ACETAMINOFEN'];
+                }
+                return ['is_match' => false, 'reasoning' => 'No match'];
+            }
+        };
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'ACETAMINOFEN 500MG TABLETA']]]
+        );
+        $payload = self::payload('FORMULA MEDICA', [], []);
+        $payload['unmatched_articles'] = ['DOLEX 500MG TABLETA'];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('COINCIDE', $findings[$nomIdx]['resultado']);
+        self::assertSame('DOLEX 500MG TABLETA', $findings[$nomIdx]['valorDocumento']);
+        self::assertSame('DOLEX es marca comercial de ACETAMINOFEN', $findings[$nomIdx]['detalle']);
+    }
+
+    public function testT10EvaluateTriggersInconclusiveForDiscrepantUnmatchedArticlesD66261005571(): void
+    {
+        $judge = new class implements \App\Services\Audit\SemanticMatchResolver {
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                return ['is_match' => false, 'reasoning' => 'FLUOXETINA y QUETIAPINA corresponden a moleculas distintas'];
+            }
+        };
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'QUETIAPINA 100MG C 30 TABLETA']]]
+        );
+        $payload = self::payload('FORMULA MEDICA', [], []);
+        $payload['unmatched_articles'] = ['FLUOXETINA 20MG CÁPSULAS'];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('NO_CONCLUYENTE', $findings[$nomIdx]['resultado']);
+        self::assertNotSame('NO_ENCONTRADO', $findings[$nomIdx]['resultado'], 'No debe emitir NO_ENCONTRADO');
+        self::assertSame('FLUOXETINA 20MG CÁPSULAS', $findings[$nomIdx]['valorDocumento']);
+        self::assertStringContainsString('FLUOXETINA y QUETIAPINA corresponden a moleculas distintas', $findings[$nomIdx]['detalle']);
+    }
+
+    public function testT11EvaluateArticleSetWithPartialMatchAndUnmatchedArticlesDetailsVisibleArticles(): void
+    {
+        $judge = new class implements \App\Services\Audit\SemanticMatchResolver {
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                return ['is_match' => false, 'reasoning' => 'Sin equivalencia clínica'];
+            }
+        };
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [
+                ['NombreArticulo' => 'LOSARTAN 50MG TABLETA'],
+                ['NombreArticulo' => 'METFORMINA 850MG TABLETA'],
+            ]]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [],
+            [['NombreArticulo' => 'LOSARTAN 50MG TABLETA']]
+        );
+        $payload['unmatched_articles'] = ['GLIBENCLAMIDA 5MG TABLETA'];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('NO_CONCLUYENTE', $findings[$nomIdx]['resultado']);
+        self::assertStringContainsString('no contiene evidencia para 1 de 2 artículos', $findings[$nomIdx]['detalle']);
+        self::assertStringContainsString('METFORMINA 850MG TABLETA', $findings[$nomIdx]['detalle']);
+        self::assertStringContainsString("Artículos visibles en el documento:", $findings[$nomIdx]['detalle']);
+        self::assertStringContainsString('GLIBENCLAMIDA 5MG TABLETA', $findings[$nomIdx]['detalle']);
+        self::assertStringContainsString('LOSARTAN 50MG TABLETA', $findings[$nomIdx]['detalle']);
+    }
+
+    public function testT12EvaluateIgnoresUnmatchedArticlesWhenDocumentConformityFails(): void
+    {
+        $engine = new DocumentPolicyEngine();
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'QUETIAPINA 100MG']]]
+        );
+        $payload = self::payload('FORMULA MEDICA', [], []);
+        $payload['unmatched_articles'] = ['FLUOXETINA 20MG'];
+        $payload['document_conformity'] = [
+            'matches_expected_type' => false,
+            'detected_type' => 'Cédula de ciudadanía',
+            'justification' => 'El adjunto es un documento de identidad',
+        ];
+
+        $result = $engine->evaluate($state, $payload);
+        self::assertCount(1, $result['hallazgos']['items']);
+        self::assertSame('TIP', $result['hallazgos']['items'][0]['codigoCampo']);
+        self::assertSame('NO_CONCLUYENTE', $result['hallazgos']['items'][0]['resultado']);
+    }
+
+    public function testT13EvaluateLegacyPayloadWithoutUnmatchedArticlesKeyProcessesGracefully(): void
+    {
+        $engine = new DocumentPolicyEngine();
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'ACETAMINOFEN 500MG TABLETA']]]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [],
+            [['NombreArticulo' => 'ACETAMINOFEN 500MG TABLETA']]
+        );
+        unset($payload['unmatched_articles']);
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('COINCIDE', $findings[$nomIdx]['resultado']);
+    }
+
+    public function testT14PlanAndEvaluateResolvedPreserveCandidateParityForUnmatchedArticles(): void
+    {
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'QUETIAPINA 100MG C 30 TABLETA']]]
+        );
+        $payload = self::payload('FORMULA MEDICA', [], []);
+        $payload['unmatched_articles'] = ['FLUOXETINA 20MG CÁPSULAS'];
+
+        $engine = new DocumentPolicyEngine();
+        $plan = $engine->plan($state, $payload, 'FAC-PARITY');
+
+        self::assertTrue($plan['requires_semantics']);
+        self::assertCount(1, $plan['candidates']);
+        self::assertSame('QUETIAPINA 100MG C 30 TABLETA', $plan['candidates'][0]['expected']);
+        self::assertSame('FLUOXETINA 20MG CÁPSULAS', $plan['candidates'][0]['actual']);
+
+        $pairId = $plan['candidates'][0]['pair_id'];
+        $resolvedResults = [
+            $pairId => [
+                'is_match' => false,
+                'reasoning' => 'Mecánica de acción y molécula completamente diferentes',
+            ],
+        ];
+
+        $snapshot = [
+            'document_state' => $state,
+            'normalized_payload' => $payload,
+            'fac_nro' => 'FAC-PARITY',
+        ];
+
+        $resolvedResult = $engine->evaluateResolved($snapshot, $resolvedResults);
+        $findings = $resolvedResult['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertSame('NO_CONCLUYENTE', $findings[$nomIdx]['resultado']);
+        self::assertSame('FLUOXETINA 20MG CÁPSULAS', $findings[$nomIdx]['valorDocumento']);
+        self::assertStringContainsString('Mecánica de acción y molécula completamente diferentes', $findings[$nomIdx]['detalle']);
+    }
+
+    public function testT15AntiFalsePositiveBypassesFuzzyMatchForUnmatchedArticles(): void
+    {
+        $judge = new class implements \App\Services\Audit\SemanticMatchResolver {
+            public int $calls = 0;
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                $this->calls++;
+                return [
+                    'is_match' => false,
+                    'reasoning' => 'Pese a compartir dosis y forma farmacéutica, FLUOXETINA y QUETIAPINA no son equivalentes',
+                ];
+            }
+        };
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S')],
+            ['header' => [], 'items' => [['NombreArticulo' => 'QUETIAPINA 100MG C 30 TABLETA']]]
+        );
+        $payload = self::payload('FORMULA MEDICA', [], []);
+        $payload['unmatched_articles'] = ['FLUOXETINA 100MG C 30 TABLETA'];
+
+        $result = $engine->evaluate($state, $payload);
+        $findings = $result['hallazgos']['items'];
+        $campos = array_column($findings, 'campo');
+        $nomIdx = array_search('NombreArticulo', $campos, true);
+
+        self::assertNotFalse($nomIdx);
+        self::assertGreaterThanOrEqual(1, $judge->calls, 'Debe haber invocado al juez semántico obligatoriamente');
+        self::assertSame('NO_CONCLUYENTE', $findings[$nomIdx]['resultado'], 'Blindaje D-11 debe evitar el falso COINCIDE');
+        self::assertStringContainsString('FLUOXETINA y QUETIAPINA no son equivalentes', $findings[$nomIdx]['detalle']);
+    }
 }
 
