@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review (sin cambio de versión) | 2026-11-16 | §3–§8 verificados contra HEAD `335f3da`: TTL de estado/job 24 h y caché semántica 24 h con claves reales; streams `audit.results.*` sustituidos por `audit.semantic.*` (los primeros no existen en el código); referencias de línea de `GeminiGateway` y `AuditResultPersistenceModel` actualizadas; descripción fallback de `article_name` corregida al texto real; `AdjuntosDispensacionDetalle` marcada como no usada por el código; `WebhookDispatcherWorker` marcado como inexistente; `seed=42` citado desde `.env.example` (no desde `AGENTS.md`). Sin cambios de contrato. |
 | v0.3.1-review | 2026-11-12 | Adaptador Gemini: modelo `gemini-3.8-flash`; se elimina la afirmación «temperature 0.0 = determinismo máximo» (Gemini ≥ 3.6 la ignora) y se documenta `seed=42` como la palanca de reproducibilidad. |
 | v0.3.0-draft | 2026-11-03 | Formalización de Conectores RESTful JSON de Tenant (DEC-P-019 / DEC-T-026) y decomisionamiento programado del repositorio PHP de AudFact. El nuevo SaaS operará en repo independiente consumiendo únicamente APIs RESTful JSON expuestas por Discolnets. |
 | v0.2.0-draft | 2026-10-19 | Reclasificación de AudFact como Conector Periférico de Ingestión (DEC-T-016 y DOC-04). Aislamiento de consultas SQL Server (`vw_discolnet_dispensas`, `InvoicesModel`, `AudDispEst`) en la frontera del conector sin acoplar el núcleo SaaS. |
@@ -156,13 +157,13 @@ El perfil traduce FactorConv a un campo interno numérico declarado, por ejemplo
 
 | Parámetro DOC-03 | Valor AudFact | Evidencia |
 |---|---|---|
-| Endpoint | `POST v1beta/models/{model}:generateContent` | [GeminiGateway.php:123](../app/Services/Audit/GeminiGateway.php#L123) |
-| Auth | Header `x-goog-api-key` | [GeminiGateway.php:122](../app/Services/Audit/GeminiGateway.php#L122) |
-| Model | `gemini-3.8-flash` (default, configurable) | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) |
-| Seed | `42` (variable de repositorio `GEMINI_SEED`); obligatoria para decisiones reproducibles | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php), AGENTS.md › Determinismo de decisiones IA |
-| Sampling | `temperature`/`topP`/`topK` se envían si están configurados, pero Gemini ≥ 3.6 los ignora; no aportan determinismo | Documentación oficial Google AI Studio (Gemini 3.6 API changes) |
-| Thinking | `thinkingLevel=low` (mínimo admitido por 3.8; `minimal` devuelve error) | GeminiConfig default |
-| Safety Settings | `BLOCK_NONE` (documentos médicos/legales) | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495) |
+| Endpoint | `POST v1beta/models/{model}:generateContent` (la ruta v2 por tarea usa además `:countTokens`) | [GeminiGateway.php:130, 183, 311](../app/Services/Audit/GeminiGateway.php#L130) |
+| Auth | Header `x-goog-api-key` | [GeminiGateway.php:312, 393](../app/Services/Audit/GeminiGateway.php#L393) |
+| Model | `gemini-3.8-flash` (default en código y en `.env.example`, configurable con `GEMINI_MODEL`) | [GeminiConfig.php:38](../app/Services/Audit/GeminiConfig.php#L38); [.env.example:63](../.env.example#L63) |
+| Seed | `42` en `.env.example` (`GEMINI_SEED`; sin valor por defecto en código); obligatoria para decisiones reproducibles. Valor desplegado en producción `[NO VERIFICADO]`. | [GeminiConfig.php:46](../app/Services/Audit/GeminiConfig.php#L46); [.env.example:87](../.env.example#L87) |
+| Sampling | `temperature` se envía siempre (`0.0` por defecto) y `topP`/`topK` si están configurados; que Gemini ≥ 3.6 los ignore es `[NO VERIFICADO]` en código (afirmación de proveedor) | [GeminiConfig.php:59-65](../app/Services/Audit/GeminiConfig.php#L59-L65) |
+| Thinking | `thinkingLevel=low` por defecto; el código rechaza niveles distintos de `low`/`medium`/`high` para `gemini-3.8-flash` | [GeminiConfig.php:45, 74-79](../app/Services/Audit/GeminiConfig.php#L74-L79) |
+| Safety Settings | `BLOCK_NONE` (documentos médicos/legales) | [GeminiGateway.php:734-742](../app/Services/Audit/GeminiGateway.php#L734-L742) |
 | HTTP Client | Guzzle 7.x | GeminiGateway constructor |
 
 ### 4.2 Adaptador de Ingestión y Retorno: Conector SQL Server AudFact → DOC-04
@@ -175,18 +176,20 @@ En el modelo SaaS desacoplado (DEC-T-016), el código de SQL Server de AudFact n
 | **Construcción del Expediente** | `DispensationModel::formatDispensation()` | Serializa datos a `truth_source` jerárquico y `artifacts` de `AuditCase` | `vw_discolnet_dispensas` |
 | **Envío al Pipeline SaaS** | `ApiClient` / Ingestion Dispatcher | Invoca `CaseIngestionPort.submitCase()` o `submitBatch()` vía HTTP POST | — |
 | **Descarga de Binarios** | `AttachmentsModel` | Implementa `DocumentStorage.download()` para BLOBs o URLs | `AdjuntosDispensacion` (BLOBs / URLs) |
-| **Recepción de Veredicto (Webhook)** | `AuditResultPersistenceModel::persist()` | Endpoint consumidor de `WebhookDeliveryPort.dispatchVerdict()` que actualiza el ERP local | `AudDispEst` (`C` o `R`), `AdjuntosDispensacion` |
+| **Recepción de Veredicto (Webhook)** | `AuditResultPersistenceModel::persist()` | Endpoint consumidor de `WebhookDeliveryPort.dispatchVerdict()` que actualiza el ERP local | `AudDispEst`, `AdjuntosDispensacion` (`C` o `R`), `DispensacionDetalleServicio`, `AudDispCosto` |
 
 ### 4.3 Adaptador de Estado: Redis → DOC-04 StateStore
 
 | Puerto DOC-04 | Implementación AudFact | Key Pattern | TTL |
 |---|---|---|---|
-| `StateStore.initAudit()` | `AuditStateStore::initAudit()` | `audit:{auditId}:state` | 604800s (7d) |
+| `StateStore.initAudit()` | `AuditStateStore::initAudit()` | `audit:{auditId}:state` | 86400s (24h, `AUDIT_STATE_TTL`) |
 | `StateStore.getAudit()` | `AuditStateStore::getAudit()` | — | — |
 | `StateStore.patchAudit()` | `AuditStateStore::patchAudit()` (Lua merge) | — | — |
-| `BatchStore.initJob()` | `BatchJobStore::initJob()` | `job:{jobId}:state` | 604800s (7d) |
-| `ExtractionCache` | `ExtractionCacheManager` | `extraction:cache:v1:{hash}` | 86400s (24h) |
-| `SemanticCache` | `SemanticMatchJudge` | `sem:{purpose}:{version}:{hash}` | 2592000s (30d) |
+| `BatchStore.initJob()` | `BatchJobStore::initJob()` | `job:{jobId}:state` | 86400s (24h, `AUDIT_JOB_TTL`) |
+| `ExtractionCache` | `ExtractionCacheManager` | `extraction:cache:v1:{hash}` | 86400s (24h) por defecto en código; `.env.example` fija 604800s |
+| `SemanticCache` | `SemanticMatchJudge` | `audfact:semantic:match:v6:product:{hash}` / `audfact:semantic:match:v3:person:{hash}` | 86400s (24h) |
+
+Evidencia: [AuditStateStore.php:30, 368-370](../app/Services/Audit/Pipeline/AuditStateStore.php#L368-L370); [BatchJobStore.php:24, 393-395](../app/Services/Audit/Pipeline/BatchJobStore.php#L393-L395); [ExtractionCacheManager.php:23](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L23); [DocumentExtractionWorker.php:36, 99](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php#L99); [SemanticMatchJudge.php:18-20, 91-104](../app/Services/Audit/SemanticMatchJudge.php#L18-L20).
 
 ### 4.4 Adaptador de Eventos: Redis Streams → DOC-04 EventBus
 
@@ -198,11 +201,13 @@ En el modelo SaaS desacoplado (DEC-T-016), el código de SQL Server de AudFact n
 | documents batch | `::STREAM_DOCUMENTS_BATCH` | `audit.documents.batch` |
 | persistence priority | `::STREAM_PERSISTENCE_PRIORITY` | `audit.persistence.priority` |
 | persistence batch | `::STREAM_PERSISTENCE_BATCH` | `audit.persistence.batch` |
-| results priority | `::STREAM_RESULTS_PRIORITY` | `audit.results.priority` |
-| results batch | `::STREAM_RESULTS_BATCH` | `audit.results.batch` |
+| semantic priority | `::STREAM_SEMANTIC_PRIORITY` | `audit.semantic.priority` |
+| semantic batch | `::STREAM_SEMANTIC_BATCH` | `audit.semantic.batch` |
 | batch inbox | `::STREAM_BATCH_INBOX` | `audit.batch.inbox` |
 | DLQ | `AuditEventPublisher::dlqStream()` | `audit.dlq` |
 | Telemetry | `TelemetryPublisher::STREAM` | `audit.telemetry` |
+
+Evidencia: [AuditEventPublisher.php:15-23, 220-224](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L15-L23); [TelemetryPublisher.php:13](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13). No existen `STREAM_RESULTS_*` ni streams `audit.results.*` en el código actual.
 
 ---
 
@@ -237,7 +242,7 @@ Para fechas, transcribe el año exacto tal como está impreso.
 | `auth_number` | "Solo numero de autorizacion/radicado; transcribe cada digito individualmente en orden posicional estricto..." | L213 |
 | `nit` | "Solo numero de NIT sin digito de verificacion a menos que se solicite..." | L214 |
 | `trace_token` | "Lista de lotes o seriales de trazabilidad visibles (ej: [\"LOTE1\", \"LOTE2\"])." | L215 |
-| `article_name` | "Nombre o denominacion del producto o medicamento; incluye concentracion, dosis y forma farmaceutica si estan visibles..." | L216 |
+| `article_name` | "Nombre o denominacion del producto o medicamento." | L216 |
 
 ### 5.3 Directiva de Conformidad Documental
 
@@ -251,10 +256,10 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 
 | Regla | Descripción | Evidencia |
 |---|---|---|
-| Usuario IA | Todas las escrituras usan usuario `Z-IA` | [AuditResultPersistenceModel.php:19](../app/Models/AuditResultPersistenceModel.php#L19) |
-| Transacción atómica | UPSERT del resultado global + decisiones por adjunto en una sola transacción | [AuditResultPersistenceModel.php:55-86](../app/Models/AuditResultPersistenceModel.php#L55-L86) |
-| Status de adjuntos | `C` = Conforme/Aprobado, `R` = Rechazado | [AuditResultPersistenceModel.php:20-21](../app/Models/AuditResultPersistenceModel.php#L20-L21) |
-| Invalidación de caché | Post-commit se invalida el caché de resultados por NitSec | [AuditResultPersistenceModel.php:88-90](../app/Models/AuditResultPersistenceModel.php#L88-L90) |
+| Usuario IA | Todas las escrituras usan usuario `Z-IA` | [AuditResultPersistenceModel.php:20](../app/Models/AuditResultPersistenceModel.php#L20) |
+| Transacción atómica | UPSERT del resultado global + decisiones por adjunto + registro de costo (`AudDispCosto`) en una sola transacción | [AuditResultPersistenceModel.php:62-94](../app/Models/AuditResultPersistenceModel.php#L62-L94) |
+| Status de adjuntos | `C` = Conforme/Aprobado, `R` = Rechazado | [AuditResultPersistenceModel.php:21-22](../app/Models/AuditResultPersistenceModel.php#L21-L22) |
+| Invalidación de caché | Post-commit se invalida el caché de resultados por NitSec | [AuditResultPersistenceModel.php:96-98](../app/Models/AuditResultPersistenceModel.php#L96-L98) |
 
 ### 6.2 Configuración Dinámica por Cliente (EPS)
 
@@ -296,12 +301,13 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 | `NIT` | — | Clientes/EPS | `NitSec` |
 | `Clientes` | — | Datos complementarios de clientes | — |
 | `AdjuntosDispensacion` | — | Archivos adjuntos (BLOB/URL) | `AdjDisId` |
-| `AdjuntosDispensacionDetalle` | — | Observaciones/hallazgos por adjunto | — |
+| `AdjuntosDispensacionDetalle` | — | Observaciones/hallazgos por adjunto. No la usa el código actual (las observaciones se escriben en `AdjuntosDispensacion`; ver [optimize_audit_indexes.sql:66](../database/migrations/optimize_audit_indexes.sql#L66) y [AuditResultPersistenceModel.php:427-436](../app/Models/AuditResultPersistenceModel.php#L427-L436)) | — |
 | `AudDisp` | Discolnet | Cabecera de configuración de auditoría por cliente | `FacNitSec` |
 | `AudDispCampo` | Discolnet | Campos de auditoría por documento × cliente | `FacNitSec + NitMedDocId + CampoNombre` |
 | `AudDispCampoCatalogo` | Discolnet | Catálogo maestro de campos disponibles | `CampoNombre` |
 | `NitDocumentos` | — | Documentos requeridos por cliente | `NitSec + NitMedDocId` |
-| `AudDispEst` | Discolnet | Resultados de auditoría IA | `FacNro` (PK operativa) |
+| `AudDispEst` | Discolnet | Resultados de auditoría IA | `FacNro` (`PK_AudDispEst`, [migration_AudDispEst_updated.sql:30](../app/Models/migration/migration_AudDispEst_updated.sql#L30)) |
+| `AudDispCosto` | Discolnet | Costo IA por intento (tokens, tarifas, TRM, COP) | `AudCostoId`; único `(FacNro, Intento)` ([migration_AudDispCosto.sql:8-31](../app/Models/migration/migration_AudDispCosto.sql#L8-L31)) |
 | `DispensacionDetalleServicio` | — | Detalle de servicios de dispensación | — |
 
 ### 7.2 Política de Conexión
@@ -314,7 +320,9 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 |---|---|---|
 | SELECT (consultas) | `db2` | `DB2_*` |
 | INSERT/UPDATE/DELETE | `default` | `DB_*` |
-| Lectura post-escritura (AuditStatusModel) | `default` (override para consistencia) | `DB_*` |
+| Lectura post-escritura (AuditStatusModel, AuditCostModel) | `default` (override para consistencia, con respaldo a `db2`) | `DB_*` |
+
+Evidencia: [Model.php:14-15](../app/Models/Model.php#L14-L15); [AuditStatusModel.php:28, 624-641](../app/Models/AuditStatusModel.php#L28); [AuditCostModel.php:20, 449-466](../app/Models/AuditCostModel.php#L20).
 
 ---
 
@@ -334,7 +342,7 @@ Cada extracción incluye una regla de tipología que verifica que el archivo cor
 | DOC-03 ResponseParser | GeminiResponseParser | ✅ |
 | DOC-04 CaseIngestionPort | Ingestion Dispatcher / Controller AudFact | ✅ |
 | DOC-04 AuditStoragePort | Almacenamiento interno plataforma SaaS | ✅ |
-| DOC-04 WebhookDeliveryPort | WebhookDispatcherWorker → Receptor Webhook AudFact | ✅ |
+| DOC-04 WebhookDeliveryPort | WebhookDispatcherWorker → Receptor Webhook AudFact. Ni `WebhookDispatcherWorker` ni un receptor de webhook existen en el código actual; hoy `AuditPersistenceWorker` persiste directamente en SQL Server | ❌ (no instanciado en AudFact) |
 | DOC-04 StateStore | AuditStateStore + BatchJobStore | ✅ |
 | DOC-04 EventBus | AuditEventPublisher (Redis Streams) | ✅ |
 | DOC-04 TelemetryEmitter | TelemetryPublisher | ✅ |

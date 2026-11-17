@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.0-review (sin cambio de versión) | 2026-11-16 | §3 y §6 verificados contra HEAD `335f3da`: catálogo con los 14 tipos reales de `AuditEvent` (añade `semantic_evaluation_requested`/`_resolved`; `audit_completed` declarado sin productor ni consumidor; `batch_created` sin consumidor); `WebhookDispatcherWorker` y `webhook_dispatched` marcados como inexistentes en el código actual; worker `SemanticEvaluationWorker` añadido; dos modelos de ejecución (tareas v2 y streams clásicos); estado de documento sin `downloaded`; terminal de lote por Lua en `BatchJobStore` (no existe `claimBatchTerminalEvent()`); rangos de línea actualizados. Sin cambios de contrato. |
 | v0.2.0-draft | 2026-10-19 | Incorporación del worker de notificación `WebhookDispatcherWorker` para entrega asíncrona de veredictos al cliente (DEC-T-016 y DOC-04). Adición del evento `webhook_dispatched`. |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Línea base del pipeline event-driven con 7 workers y 13 event types. |
 
@@ -79,19 +80,23 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 
 | Event Type | Constante | Producido Por | Consumido Por | Clasificación |
 |---|---|---|---|---|
-| `audit_created` | `TYPE_AUDIT_CREATED` | Ingestion API / Controller | Orchestrator | `[CONFIRMADO]` |
-| `batch_created` | `TYPE_BATCH_CREATED` | Ingestion API / Controller | Orchestrator | `[CONFIRMADO]` |
-| `batch_requested` | `TYPE_BATCH_REQUESTED` | Ingestion API / Controller | BatchRequestedWorker | `[CONFIRMADO]` |
+| `audit_created` | `TYPE_AUDIT_CREATED` | `AuditController` (`POST /audit/single`, L85), `AuditBatchOrchestrator` (L565), reproceso DLQ `AuditDlqController` (L121) | Orchestrator (etapa v2 `orchestration`) | `[CONFIRMADO]` |
+| `batch_created` | `TYPE_BATCH_CREATED` | `AuditBatchOrchestrator` (L382) | Ninguno: ningún `eventTypes()` ni etapa lo incluye; el orchestrator lo confirma (ACK) sin procesarlo | `[CONFIRMADO]` |
+| `batch_requested` | `TYPE_BATCH_REQUESTED` | `AuditController` (`POST /audit/async`, L451), `bin/schedule-daily-batches.php` (L200), `BatchRequestedWorker` (republica, L199) | BatchRequestedWorker | `[CONFIRMADO]` |
 | `document_registered` | `TYPE_DOCUMENT_REGISTERED` | Orchestrator | AttachmentDownloadWorker | `[CONFIRMADO]` |
-| `document_downloaded` | `TYPE_DOCUMENT_DOWNLOADED` | DownloadWorker | ExtractionWorker | `[CONFIRMADO]` |
-| `document_extracted` | `TYPE_DOCUMENT_EXTRACTED` | ExtractionWorker | Normalizer (implícito) | `[CONFIRMADO]` |
-| `document_rejected` | `TYPE_DOCUMENT_REJECTED` | ExtractionWorker / DownloadWorker | RulesEvaluationWorker | `[CONFIRMADO]` |
+| `document_downloaded` | `TYPE_DOCUMENT_DOWNLOADED` | DownloadWorker | ExtractionWorker (etapa v2 `extraction`) | `[CONFIRMADO]` |
+| `document_extracted` | `TYPE_DOCUMENT_EXTRACTED` | ExtractionWorker | Normalizer | `[CONFIRMADO]` |
+| `document_rejected` | `TYPE_DOCUMENT_REJECTED` | Orchestrator / ExtractionWorker | RulesEvaluationWorker | `[CONFIRMADO]` |
 | `document_normalized` | `TYPE_DOCUMENT_NORMALIZED` | Normalizer | RulesEvaluationWorker | `[CONFIRMADO]` |
-| `rules_evaluated` | `TYPE_RULES_EVALUATED` | RulesEvaluationWorker | PersistenceWorker | `[CONFIRMADO]` |
-| `audit_completed` | `TYPE_AUDIT_COMPLETED` | PersistenceWorker | WebhookDispatcher / ResultConsumer | `[CONFIRMADO]` |
-| `audit_failed` | `TYPE_AUDIT_FAILED` | Consumer (DLQ) | WebhookDispatcher / ResultConsumer | `[CONFIRMADO]` |
-| `webhook_dispatched` | `TYPE_WEBHOOK_DISPATCHED` | WebhookDispatcherWorker | Observabilidad / Trazabilidad | `[CONFIRMADO]` |
-| `dead_letter` | `TYPE_DEAD_LETTER` | Consumer (retry exhausted) | Admin DLQ controller | `[CONFIRMADO]` |
+| `semantic_evaluation_requested` | `TYPE_SEMANTIC_REQUESTED` | `SemanticEvaluationStore` (L236) | SemanticEvaluationWorker | `[CONFIRMADO]` |
+| `semantic_evaluation_resolved` | `TYPE_SEMANTIC_RESOLVED` | `SemanticEvaluationStore` (L221) | RulesEvaluationWorker | `[CONFIRMADO]` |
+| `rules_evaluated` | `TYPE_RULES_EVALUATED` | RulesEvaluationWorker | PersistenceWorker (vía `AuditPersistenceQueue` → `audit.persistence.*`) | `[CONFIRMADO]` |
+| `audit_completed` | `TYPE_AUDIT_COMPLETED` | Ninguno: la constante existe pero no se publica ni consume en `app/`/`bin/` | — | `[CONFIRMADO]` |
+| `audit_failed` | `TYPE_AUDIT_FAILED` | `AuditTaskRunner` (ruta v2, L88) | Destino de outbox `failure_finalize` (no es stream) | `[CONFIRMADO]` |
+| `webhook_dispatched` | — | No existe en el código actual (no hay constante en `AuditEvent` ni `WebhookDispatcherWorker`): elemento del diseño SaaS | — | `[NO VERIFICADO]` (inexistente en AudFact) |
+| `dead_letter` | `TYPE_DEAD_LETTER` | Consumer clásico (retry exhausted), `AuditTaskRunner` (L90), `AuditExecutionMaintenance` | Admin DLQ controller | `[CONFIRMADO]` |
+
+Evidencia del catálogo: [AuditEvent.php:12-25](../app/Services/Audit/Pipeline/AuditEvent.php#L12-L25); productores y consumidores verificados por búsqueda de `TYPE_*` en `app/` y `bin/` (2026-11-16); [AuditTaskEffects.php:40-45](../app/Services/Audit/Pipeline/AuditTaskEffects.php#L40-L45); [AuditTaskStage.php:14-22](../app/Services/Audit/Pipeline/AuditTaskStage.php#L14-L22).
 
 ### 3.2 Workers (Nodos del Pipeline)
 
@@ -102,40 +107,43 @@ Este documento especifica la **máquina de estados del pipeline** como un grafo 
 | Extractor | [DocumentExtractionWorker](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php) | `extractors` | documents.{priority,batch} | `document_extracted` / `document_rejected` |
 | Normalizer | [DocumentNormalizer](../app/Services/Audit/Pipeline/DocumentNormalizer.php) | `normalizers` | documents.{priority,batch} | `document_normalized` |
 | PolicyEngine | [RulesEvaluationWorker](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php) | `policy` | documents.{priority,batch} | `rules_evaluated` |
-| Persistence | [AuditPersistenceWorker](../app/Services/Audit/Pipeline/AuditPersistenceWorker.php) | `persistence` | persistence.{priority,batch} | `audit_completed` / `audit_failed` |
-| WebhookDispatcher | `WebhookDispatcherWorker` | `webhook-dispatchers` | results.{priority,batch} | `webhook_dispatched` |
-| BatchRequested | [BatchRequestedWorker](../app/Services/Audit/Pipeline/BatchRequestedWorker.php) | `batch-workers` | batch.inbox | `audit_created` × N |
+| Persistence | [AuditPersistenceWorker](../app/Services/Audit/Pipeline/AuditPersistenceWorker.php) | `persistence` | persistence.{priority,batch} | Ninguno: persiste en SQL Server (`AudDispEst`, adjuntos, costos) |
+| Semantic | [SemanticEvaluationWorker](../app/Services/Audit/Pipeline/SemanticEvaluationWorker.php) | `semantic` | semantic.{priority,batch} | `semantic_evaluation_resolved` (vía `SemanticEvaluationStore`) |
+| WebhookDispatcher | `WebhookDispatcherWorker` — **no existe en el código actual** (diseño SaaS) | — | — | — |
+| BatchRequested | [BatchRequestedWorker](../app/Services/Audit/Pipeline/BatchRequestedWorker.php) | `batch-workers` | batch.inbox | `batch_requested` (republicación); `audit_created` × N y `batch_created` vía `AuditBatchOrchestrator` |
+
+Registro y despliegue: 8 workers en [audit-worker.php:20-53](../bin/audit-worker.php#L20-L53); en [docker-compose.yml](../docker-compose.yml) 10 servicios de pipeline con 97 réplicas por defecto (orchestrator 12, batch 4, extraction-vip 2, extraction-batch 24, downloader 16, normalizer 4, policy 12, persistence 16, semantic-vip 1, semantic-batch 6) más `worker-execution-maintenance` (1). Orchestrator, extraction, policy y semantic se ejecutan como tareas v2 (`taskStage()` → `AuditTaskRunner`, cola justa `FairAuditTaskQueue`); downloader, normalizer, persistence y batch leen streams con XREADGROUP/XAUTOCLAIM ([AuditEventConsumer.php:181-273](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L181-L273)).
 
 ### 3.3 Reglas de Negocio Actuales
 
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
-| R-01 | Consumer loop: XREADGROUP bloqueante con `blockMs` configurable (default 5000ms). 1 mensaje por read. | [AuditEventConsumer.php:179-185](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L179-L185) | `[CONFIRMADO]` |
-| R-02 | Retry: max 3 intentos por evento. Contador en Redis key `event:{eventId}:attempts`. | [AuditEventConsumer.php:50, 524-526](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L50) | `[CONFIRMADO]` |
-| R-03 | Non-retryable exceptions: DomainException, InvalidArgumentException, SqlServerOperationException, AttachmentDownloadException → DLQ directamente. | [AuditEventConsumer.php:543-546](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L543-L546) | `[CONFIRMADO]` |
-| R-04 | DLQ: evento `dead_letter` creado con metadata (failed_event_type, failed_stream, failed_stage, attempts, error). Publicación idempotente vía Lua. | [AuditEventConsumer.php:689-713](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L689-L700) | `[CONFIRMADO]` |
-| R-05 | Al enviar a DLQ, se finaliza la auditoría: status=`failed`, requires_manual_review=true. Si tiene jobId, se marca en el batch. | [AuditEventConsumer.php:603-647](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L603-L647) | `[CONFIRMADO]` |
-| R-06 | XAUTOCLAIM: reclaim periódico de mensajes idle > `pendingReclaimIdleMs` (default 10min). Intervalo configurable. | [AuditEventConsumer.php:60-69, 223-266](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L69) | `[CONFIRMADO]` |
-| R-07 | Terminal ACK: Lua script atómico que verifica recibo DLQ, ejecuta XACK, aplica EXPIRE al recibo y elimina attempts key. | [AuditEventConsumer.php:580-588](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588) | `[CONFIRMADO]` |
-| R-08 | Consumer group: creado con `XGROUP CREATE` y cursor `0` al iniciar. Si ya existe, se ignora el error. | [AuditEventConsumer.php:268-275](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275) | `[CONFIRMADO]` |
-| R-09 | AuditState transitions: pending → processing (markAuditStarted) → completed/manual_review/error/failed (completeAudit). | [AuditStateStore.php:17-28, 138-146, 247-255](../app/Services/Audit/Pipeline/AuditStateStore.php#L17-L28) | `[CONFIRMADO]` |
-| R-10 | DocumentState transitions: registered → downloaded → extracted → normalized → evaluated. Rejected es terminal desde downloaded o extracted. | [AuditStateStore.php:149-214](../app/Services/Audit/Pipeline/AuditStateStore.php#L149-L214) | `[CONFIRMADO]` |
-| R-11 | Lua scripts validan que auditoría no esté en estado terminal antes de registrar documentos (guard clause). | [AuditStateStore.php:288-294](../app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294) | `[CONFIRMADO]` |
-| R-12 | Batch terminal event: se publica solo 1 vez, protegido por `claimBatchTerminalEvent()` atómico. | [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687) | `[CONFIRMADO]` |
-| R-13 | Consumer name: `{role}[-{lane}]-{hostname}-{pid}` para identificación única. | [AuditEventConsumer.php:125-133](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L125-L133) | `[CONFIRMADO]` |
-| R-14 | Signal handling: `pcntl_signal_dispatch()` en cada iteración del loop para graceful shutdown. | [AuditEventConsumer.php:164-166](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166) | `[CONFIRMADO]` |
+| R-01 | Consumer loop (workers de stream clásicos): XREADGROUP bloqueante con `blockMs` configurable (`AUDIT_STREAM_BLOCK_MS`, default 5000 ms, mínimo 100). 1 mensaje por read. Los workers con `taskStage()` no leen streams: ejecutan `AuditTaskRunner::tick()` en bucle. | [AuditEventConsumer.php:51, 181-199, 243-250](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L243-L250) | `[CONFIRMADO]` |
+| R-02 | Retry: max 3 intentos por evento (`AUDIT_EVENT_MAX_RETRIES`, mínimo 1). Contador en Redis key `event:{eventId}:attempts` con TTL 86400 s. En la ruta v2 por tarea: hasta 2 reintentos diferidos por operación (1000 ms / 5000 ms + jitter) y `recovery_count > 3` agota la tarea. | [AuditEventConsumer.php:50-55, 763-787](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L763-L787); [AuditTaskRunner.php:47-77](../app/Services/Audit/Pipeline/AuditTaskRunner.php#L47-L77) | `[CONFIRMADO]` |
+| R-03 | Non-retryable exceptions: DomainException, InvalidArgumentException, SqlServerOperationException, AttachmentDownloadException no reintentable y GeminiResponseException no reintentable → DLQ directamente. | [AuditEventConsumer.php:630-636](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L630-L636) | `[CONFIRMADO]` |
+| R-04 | DLQ: evento `dead_letter` creado con metadata (failed_event_type, failed_stream, failed_stage, failed_stream_id, attempts, last_error_code, last_error_message, original_event). Publicación idempotente vía Lua. | [AuditEventConsumer.php:732-761](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L732-L761) | `[CONFIRMADO]` |
+| R-05 | Al enviar a DLQ, se finaliza la auditoría: status=`failed`, requires_manual_review=true. Si tiene jobId, se marca en el batch. | [AuditEventConsumer.php:692-730](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L692-L730) | `[CONFIRMADO]` |
+| R-06 | XAUTOCLAIM: reclaim periódico de mensajes idle > `pendingReclaimIdleMs` (default 10min, mínimo 30 s). Intervalo configurable (default 30 s, mínimo 5 s). | [AuditEventConsumer.php:60-69, 283-339](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L69) | `[CONFIRMADO]` |
+| R-07 | Terminal ACK: Lua script atómico que verifica recibo DLQ, ejecuta XACK, aplica EXPIRE (86400 s) al recibo y elimina attempts key. | [AuditEventConsumer.php:651-677](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L651-L677) | `[CONFIRMADO]` |
+| R-08 | Consumer group: creado con `XGROUP CREATE` y cursor `0` al iniciar. `[NO VERIFICADO]` que el error de grupo existente se ignore: lo gestiona `RedisClient::xGroupCreate()`, no leído. | [AuditEventConsumer.php:341-348](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L341-L348) | `[CONFIRMADO]` |
+| R-09 | AuditState transitions: pending → processing (markAuditStarted y transiciones de documento) → completed/manual_review/error/failed (completeAudit). Una auditoría `failed` puede reabrirse por `recoverFailedAudit()` (reproceso con nuevo `audit_created`). | [AuditStateStore.php:17-28, 231-240, 340-355, 102-156](../app/Services/Audit/Pipeline/AuditStateStore.php#L17-L28) | `[CONFIRMADO]` |
+| R-10 | DocumentState transitions: registered → extracted → normalized → evaluated (no existe estado `downloaded`: el downloader no modifica el estado del documento). `rejected` es terminal; un documento `evaluated` no se reabre ni se rechaza. | [DocumentAuditOrchestrator.php:582](../app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php#L582); [AuditStateStore.php:253-327, 441-542](../app/Services/Audit/Pipeline/AuditStateStore.php#L253-L327) | `[CONFIRMADO]` |
+| R-11 | Lua scripts validan que auditoría no esté en estado terminal antes de registrar documentos (guard clause). | [AuditStateStore.php:386-397](../app/Services/Audit/Pipeline/AuditStateStore.php#L386-L397) | `[CONFIRMADO]` |
+| R-12 | Terminal de lote: no existe evento de terminal de lote ni `claimBatchTerminalEvent()`. El job pasa a `completed` o `completed_with_errors` dentro del Lua de `BatchJobStore` cuando está sellado y `procesados ≥ total`; estados de job: `pending`, `queued`, `processing`, `completed`, `completed_with_errors`, `failed`. | [BatchJobStore.php:17-22, 556-598](../app/Services/Audit/Pipeline/BatchJobStore.php#L556-L598) | `[CONFIRMADO]` |
+| R-13 | Consumer name: `{role}[-{lane}]-{hostname}-{pid}` para identificación única. | [AuditEventConsumer.php:158-166](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L158-L166) | `[CONFIRMADO]` |
+| R-14 | Signal handling: `pcntl_signal_dispatch()` en cada iteración del loop (ambos modelos) para graceful shutdown. | [AuditEventConsumer.php:189-191, 220-222](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L189-L222) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **NOGROUP error en XREADGROUP**: Si el consumer group no existe (ej: `FLUSHDB`), Redis retorna `NOGROUP`. El worker detecta esta respuesta y lanza `RuntimeException` para reiniciar el grupo. [AuditEventConsumer.php:268-275](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L268-L275). `[CONFIRMADO]`
+1. **NOGROUP error en XREADGROUP**: Si el consumer group no existe (ej: `FLUSHDB`), Redis retorna `NOGROUP`. El worker detecta esta respuesta y lanza `RuntimeException` indicando que requiere intervención manual (el grupo solo se crea al arrancar). [AuditEventConsumer.php:251-258](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L251-L258). `[CONFIRMADO]`
 
-2. **Worker muere entre XADD DLQ y XACK**: El mensaje queda en la PEL. `XAUTOCLAIM` lo reclama después de `pendingReclaimIdleMs` (10min). El handler detecta que ya existe recibo DLQ y ejecuta Terminal ACK directamente. [AuditEventConsumer.php:580-588](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L580-L588). `[CONFIRMADO]`
+2. **Worker muere entre XADD DLQ y XACK**: El mensaje queda en la PEL. `XAUTOCLAIM` lo reclama después de `pendingReclaimIdleMs` (10min). El handler detecta que ya existe recibo DLQ y ejecuta Terminal ACK directamente. [AuditEventConsumer.php:651-677](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L651-L677). `[CONFIRMADO]`
 
-3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. `claimBatchTerminalEvent()` usa operación atómica Redis (SETNX); solo 1 worker gana y sella el job. [AuditEventConsumer.php:653-687](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L653-L687). `[CONFIRMADO]`
+3. **Batch terminal race condition**: Dos workers finalizan el último documento simultáneamente. La transición del job a terminal ocurre dentro de un único script Lua de `BatchJobStore` (atómico en Redis); ya no existe `claimBatchTerminalEvent()`. [BatchJobStore.php:556-598](../app/Services/Audit/Pipeline/BatchJobStore.php#L556-L598). `[CONFIRMADO]`
 
-4. **registerDocument en auditoría terminal**: Lua guard clause verifica status antes de registrar. Si la auditoría ya completó/falló, retorna éxito sin modificar estado. [AuditStateStore.php:288-294](../app/Services/Audit/Pipeline/AuditStateStore.php#L288-L294). `[CONFIRMADO]`
+4. **registerDocument en auditoría terminal**: Lua guard clause verifica status antes de registrar. Si la auditoría ya completó/falló, retorna éxito sin modificar estado. [AuditStateStore.php:386-397](../app/Services/Audit/Pipeline/AuditStateStore.php#L386-L397). `[CONFIRMADO]`
 
-5. **Signal dispatch en handler largo**: Si el handler tarda más que `pendingReclaimIdleMs`, otro worker puede reclamar el mismo mensaje vía XAUTOCLAIM. El handler original falla en XACK (ya reclamado) y loguea warning sin propagarle error al pipeline. `[CONFIRMADO]`
+5. **Signal dispatch en handler largo**: Si el handler tarda más que `pendingReclaimIdleMs`, otro worker puede reclamar el mismo mensaje vía XAUTOCLAIM. El handler original falla en XACK (ya reclamado) y loguea warning sin propagarle error al pipeline. `[NO VERIFICADO]`: sin cita de código; el manejo del resultado de `ackMessage()` ([AuditEventConsumer.php:789](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L789)) no se revisó en esta verificación.
 
 ---
 
@@ -606,10 +614,10 @@ SALIDA: void (publica batch_completed o batch_completed_with_errors, o nada)
 
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
-| A-01 | El idle timeout de XAUTOCLAIM (default 10min) es suficiente para que un worker legítimo termine su procesamiento. | S2 | [AuditEventConsumer.php:60-63](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L63). Configurable. | Monitoreo de duración de handlers |
-| A-02 | Leer 1 mensaje por XREADGROUP es suficiente para evitar starvation entre streams priority/batch. | S1 | [AuditEventConsumer.php:183](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L183). | Benchmark de throughput |
+| A-01 | El idle timeout de XAUTOCLAIM (default 10min) es suficiente para que un worker legítimo termine su procesamiento. | S2 | [AuditEventConsumer.php:60-64](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L60-L64). Configurable. | Monitoreo de duración de handlers |
+| A-02 | Leer 1 mensaje por XREADGROUP es suficiente para evitar starvation entre streams priority/batch. | S1 | [AuditEventConsumer.php:248](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L248). | Benchmark de throughput |
 | A-03 | El modelo de consumer groups (competing consumers) provee distribución equitativa entre workers del mismo grupo. | S1 | Comportamiento nativo de Redis Streams. | N/A |
-| A-04 | `pcntl_signal_dispatch()` es suficiente para graceful shutdown en un contexto PHP-FPM + CLI. | S2 | [AuditEventConsumer.php:164-166](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L164-L166). Solo aplica en CLI; FPM usa shutdown handlers. | Verificación operacional |
+| A-04 | `pcntl_signal_dispatch()` es suficiente para graceful shutdown en un contexto PHP-FPM + CLI. | S2 | [AuditEventConsumer.php:189-191, 220-222](../app/Services/Audit/Pipeline/AuditEventConsumer.php#L189-L222). Solo aplica en CLI; FPM usa shutdown handlers. | Verificación operacional |
 
 ### 6.3 Desconocidos No Críticos
 

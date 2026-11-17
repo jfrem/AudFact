@@ -27,6 +27,7 @@ unknowns_non_critical: 3
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review (sin cambio de versión) | 2026-11-16 | §3 y §6 verificados contra HEAD `335f3da`: referencias de línea de `GeminiGateway`, `GeminiConfig`, `GeminiCallMetrics`, `DocumentExtractionContractBuilder`, `ExtractionPromptBuilder`, `SemanticMatchJudge` actualizadas; validación de `finishReason` reubicada en `GeminiResponseGuard` con sus 4 códigos; caché semántica 24 h (`v6:product`/`v3:person`); TTL de caché de extracción por defecto 86400 s en `DocumentExtractionWorker` (`.env.example` fija 604800); ruta v2 por tarea (`executeTaskRequest`: `countTokens` + `generateContent`, un intento, cuota compartida, sin circuit breaker, reintentos en `AuditTaskRunner`). R-19 deja de citar `AGENTS.md`. Sin cambios de contrato. |
 | v0.3.1-review | 2026-11-12 | Reproducibilidad de decisiones IA: `seed` pasa a ser obligatoria cuando el proveedor la soporta (R-19); `temperature`/`top_p`/`top_k` se documentan como ignorados por Gemini ≥ 3.6; `thinking_level` en `gemini-3.8-flash` admite `low`/`medium`/`high` (`minimal` devuelve error). Evidencia: 9 llamadas sin semilla con request idéntico → 4 `is_match=true` / 5 `false`; con semilla fija → 5/5 respuestas byte-idénticas (2026-11-12). |
 | v0.2.0-draft | 2026-10-19 | Desacoplamiento total agnóstico a proveedores de IA (DEC-T-020 / GAP-08). Formalización de `AIGateway` (SPI), `ExtractionSchemaCompiler`, Circuit Breaker por carril, caché determinista y clasificación universal de fallos (`AiFailureClassifier`). |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Línea base de 12 archivos PHP del subsistema IA de AudFact. |
@@ -80,36 +81,37 @@ Este documento especifica el **SPI (Service Provider Interface)** agnóstico que
 
 | Componente | Ruta | Método / Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|---|
-| GeminiGateway | [GeminiGateway.php](../app/Services/Audit/GeminiGateway.php) | `sendWithStructuredOutput()` | L106-127 | Punto de entrada: envía request Structured Output a Gemini API v1beta | `[CONFIRMADO]` |
-| — | — | `executePost()` | L136-206 | Loop de reintentos con backoff exponencial y circuit breaker | `[CONFIRMADO]` |
-| — | — | `buildStructuredOutputPayload()` | L353-375 | Ensambla payload con generationConfig + responseSchema | `[CONFIRMADO]` |
-| — | — | `buildBaseEnvelope()` | L411-428 | systemInstruction + contents + generationConfig + safetySettings | `[CONFIRMADO]` |
-| — | — | `normalizeSchemaProperties()` | L441-460 | Parche para `{}` vs `[]` en JSON de PHP tras Redis Streams | `[CONFIRMADO]` |
-| — | — | `cbCheck(), cbRecordSuccess(), cbRecordFailure()` | L239-304 | Circuit breaker inline con Redis | `[CONFIRMADO]` |
-| — | — | `assertTaskProfile()` | L465-482 | Validación de perfiles: extraction requiere files, semantic_match prohíbe files | `[CONFIRMADO]` |
-| — | — | `logApiQuotaHeaders()` | L518-550 | Monitoreo de cuota del proveedor via headers HTTP | `[CONFIRMADO]` |
-| GeminiConfig | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) | VO completo | L16-163 | Value Object inmutable: model, temperature, topP, topK, maxOutputTokens, thinkingBudget/Level, seed, mediaResolution | `[CONFIRMADO]` |
-| — | — | `toGenerationConfig()` | L57-85 | Serialización a generationConfig con overrides y thinkingConfig | `[CONFIRMADO]` |
-| — | — | `generationOverridesFromEnv()` | L110-133 | Factory de overrides por prefijo de tarea (GEMINI_SEMANTIC_*, etc.) | `[CONFIRMADO]` |
-| GeminiCallMetrics | [GeminiCallMetrics.php](../app/Services/Audit/GeminiCallMetrics.php) | `fromResponse()` | L19-35 | Construcción de métricas desde usageMetadata de la respuesta | `[CONFIRMADO]` |
-| — | — | `summarize()` | L76-125 | Agregación: count, avg/min/max/p95_ms, tokens, cache_hits, finish_reasons | `[CONFIRMADO]` |
-| DocumentExtractionContractBuilder | [DocumentExtractionContractBuilder.php](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `build()` | L21-42 | Compilador de schemas: genera responseSchema + field_groups + contract_hash | `[CONFIRMADO]` |
-| — | — | `buildResponseSchema()` | L71-149 | Genera schema JSON con document_conformity, fields, items, visual_checks, document_quality | `[CONFIRMADO]` |
-| — | — | `buildFlatFieldSchema()` | L364-392 | Schema individual por campo: tipo primitivo nullable con descripción | `[CONFIRMADO]` |
-| — | — | `buildVisualChecksSchema()` | L271-329 | Schema de visual checks con checks enum y campos opcionales | `[CONFIRMADO]` |
-| — | — | `hashPayload()` | L155-160 | SHA-256 canónico con ksort recursivo para serialización determinística | `[CONFIRMADO]` |
+| GeminiGateway | [GeminiGateway.php](../app/Services/Audit/GeminiGateway.php) | `sendWithStructuredOutput()`, `sendPrebuiltBody()` | L115-138, L167-179 | Punto de entrada: envía request Structured Output a Gemini API v1beta; con tarea v2 asignada delega en `executeTaskRequest()` | `[CONFIRMADO]` |
+| — | — | `executePost()` | L383-453 | Loop de reintentos con backoff exponencial y circuit breaker (ruta síncrona sin tarea) | `[CONFIRMADO]` |
+| — | — | `executeTaskRequest()`, `executeSingleOperation()` | L195-273, L296-372 | Ruta v2 por tarea: `countTokens` + `generateContent`, un intento por operación, reserva de cuota `GeminiQuotaBudget`, reutilización de respuesta por hash del body; sin circuit breaker | `[CONFIRMADO]` |
+| — | — | `buildStructuredOutputPayload()` | L600-622 | Ensambla payload con generationConfig + responseSchema | `[CONFIRMADO]` |
+| — | — | `buildBaseEnvelope()` | L658-675 | systemInstruction + contents + generationConfig + safetySettings | `[CONFIRMADO]` |
+| — | — | `normalizeSchemaProperties()` | L688-707 | Parche para `{}` vs `[]` en JSON de PHP tras Redis Streams | `[CONFIRMADO]` |
+| — | — | `cbCheck(), cbRecordSuccess(), cbRecordFailure()` | L467-551 | Circuit breaker inline con Redis | `[CONFIRMADO]` |
+| — | — | `assertTaskProfile()` | L712-729 | Validación de perfiles: extraction requiere files, semantic_match prohíbe files | `[CONFIRMADO]` |
+| — | — | `logApiQuotaHeaders()` | L765 en adelante | Monitoreo de cuota del proveedor via headers HTTP | `[CONFIRMADO]` |
+| GeminiConfig | [GeminiConfig.php](../app/Services/Audit/GeminiConfig.php) | VO completo (modelo por defecto `gemini-3.8-flash`, L38) | L16-165 | Value Object inmutable: model, temperature, topP, topK, maxOutputTokens, thinkingBudget/Level, seed, mediaResolution | `[CONFIRMADO]` |
+| — | — | `toGenerationConfig()` | L57-91 | Serialización a generationConfig con overrides y thinkingConfig | `[CONFIRMADO]` |
+| — | — | `generationOverridesFromEnv()` | L116-139 | Factory de overrides por prefijo de tarea (GEMINI_SEMANTIC_*, etc.) | `[CONFIRMADO]` |
+| GeminiCallMetrics | [GeminiCallMetrics.php](../app/Services/Audit/GeminiCallMetrics.php) | `fromResponse()` | L19-46 | Construcción de métricas desde usageMetadata de la respuesta | `[CONFIRMADO]` |
+| — | — | `summarize()` | L80-146 | Agregación: count, avg/min/max/p95_ms, tokens, cache_hits, finish_reasons | `[CONFIRMADO]` |
+| DocumentExtractionContractBuilder | [DocumentExtractionContractBuilder.php](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php) | `build()` | L23-49 | Compilador de schemas: genera responseSchema + field_groups + contract_hash | `[CONFIRMADO]` |
+| — | — | `buildResponseSchema()` | L73-168 | Genera schema JSON con document_conformity, fields, items, visual_checks, document_quality | `[CONFIRMADO]` |
+| — | — | `buildFlatFieldSchema()` | L378-407 | Schema individual por campo: tipo primitivo nullable con descripción | `[CONFIRMADO]` |
+| — | — | `buildVisualChecksSchema()` | L285-350 | Schema de visual checks con checks enum y campos opcionales | `[CONFIRMADO]` |
+| — | — | `hashPayload()` | L169-178 | SHA-256 canónico con ksort recursivo para serialización determinística | `[CONFIRMADO]` |
 | ExtractionPromptBuilder | [ExtractionPromptBuilder.php](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php) | `buildSystemPrompt()` | L42-58 | System prompt default + custom con deduplicación | `[CONFIRMADO]` |
-| — | — | `buildUserPrompt()` | L65-100+ | User prompt: conformity, fields, items, visual checks, artículos | `[CONFIRMADO]` |
-| — | — | `promptContextHash()` | ~L140 | SHA-256 del contexto de prompt para cache key | `[CONFIRMADO]` |
+| — | — | `buildUserPrompt()` | L65-143 | User prompt: conformity, fields, items, visual checks, artículos | `[CONFIRMADO]` |
+| — | — | `promptContextHash()` | L145 | SHA-256 del contexto de prompt para cache key | `[CONFIRMADO]` |
 | ExtractionCacheManager | [ExtractionCacheManager.php](../app/Services/Audit/Pipeline/ExtractionCacheManager.php) | `computeCacheKey()` | L38-55 | Hash compuesto: documentHash + contractHash + promptContextHash + extractorVersion | `[CONFIRMADO]` |
-| — | — | `get(), put()` | L64-103 | Redis get/set con TTL configurable (default 86400s) | `[CONFIRMADO]` |
-| GeminiResponseParser | [GeminiResponseParser.php](../app/Services/Audit/Pipeline/GeminiResponseParser.php) | `parse()` | L39-57 | Extrae JSON de candidate, valida finishReason, rehidrata campos | `[CONFIRMADO]` |
+| — | — | `get(), put()` | L64-102 | Redis get/set con TTL inyectado: `AUDIT_EXTRACTION_CACHE_TTL`, default 86400 s en `DocumentExtractionWorker.php:36,99` (`.env.example:152` fija 604800) | `[CONFIRMADO]` |
+| GeminiResponseParser | [GeminiResponseParser.php](../app/Services/Audit/Pipeline/GeminiResponseParser.php) | `parse()` | L37-54 | Extrae JSON de candidate (finishReason validado por `GeminiResponseGuard::assertUsable()`), rehidrata campos | `[CONFIRMADO]` |
 | ExtractedEvidence | [ExtractedEvidence.php](../app/Services/Audit/Pipeline/ExtractedEvidence.php) | VO | L15-77 | DTO inmutable: valor, valores, presente, estadoExtraccion | `[CONFIRMADO]` |
 | ExtractionState | [ExtractionState.php](../app/Services/Audit/Pipeline/ExtractionState.php) | enum | L13-32 | 4 estados: FOUND, FOUND_IN_LIST, NOT_FOUND, ILLEGIBLE | `[CONFIRMADO]` |
 | ResponseIADiskStore | [ResponseIADiskStore.php](../app/Services/Audit/ResponseIADiskStore.php) | `persist()` | L34-111 | Snapshot request/response a disco con redacción de inlineData. Solo development. | `[CONFIRMADO]` |
 | AuditLane | [AuditLane.php](../app/Services/Audit/Pipeline/AuditLane.php) | enum | L12-74 | 3 carriles: ALL, PRIORITY, BATCH. Partición de API keys y circuit breaker. | `[CONFIRMADO]` |
-| SemanticMatchJudge | [SemanticMatchJudge.php](../app/Services/Audit/SemanticMatchJudge.php) | `evaluate()` | L42-73 | Árbitro semántico con caché Redis 30d y 2 propósitos | `[CONFIRMADO]` |
-| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](../app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-28 | Generador de prompts y schemas por propósito | `[CONFIRMADO]` |
+| SemanticMatchJudge | [SemanticMatchJudge.php](../app/Services/Audit/SemanticMatchJudge.php) | `evaluate()`, `evaluateBatch()` | L41-89 | Árbitro semántico con caché Redis 24 h y 2 propósitos; lote para artículos | `[CONFIRMADO]` |
+| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](../app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-34 | Generador de prompts y schemas por propósito | `[CONFIRMADO]` |
 
 ### 3.2 Flujo de Datos Actual
 
@@ -171,37 +173,37 @@ flowchart TD
 
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
-| R-01 | Endpoint: `POST v1beta/models/{model}:generateContent` con `x-goog-api-key` header. | [GeminiGateway.php:123](../app/Services/Audit/GeminiGateway.php#L123) | `[CONFIRMADO]` |
-| R-02 | Structured Output usa `generationConfig.responseMimeType = 'application/json'` + `responseSchema`. | [GeminiGateway.php:366-367](../app/Services/Audit/GeminiGateway.php#L366-L367) | `[CONFIRMADO]` |
-| R-03 | Retry: 3 intentos máximos con backoff exponencial `1s × 2^attempt`. Códigos retryable: 429, 500, 502, 503, 504. | [GeminiGateway.php:23-25, 308-322](../app/Services/Audit/GeminiGateway.php#L23-L25) | `[CONFIRMADO]` |
-| R-04 | Circuit breaker: umbral configurable (default 3 fallos), cooldown configurable (default 60s). Estado en Redis con TTL. | [GeminiGateway.php:280-303](../app/Services/Audit/GeminiGateway.php#L280-L303) | `[CONFIRMADO]` |
-| R-05 | Circuit breaker particionado por carril: cada AuditLane tiene su par de keys `cb:gemini:{lane}:state/fails`. | [GeminiGateway.php:220-232](../app/Services/Audit/GeminiGateway.php#L220-L232) | `[CONFIRMADO]` |
-| R-06 | 2 perfiles de tarea: `extraction` (requiere archivos adjuntos) y `semantic_match` (prohíbe archivos). | [GeminiGateway.php:465-482](../app/Services/Audit/GeminiGateway.php#L465-L482) | `[CONFIRMADO]` |
-| R-07 | API keys particionadas por carril: `GEMINI_API_KEY_PRIORITY`, `GEMINI_API_KEY_BATCH`, fallback a `GEMINI_API_KEY`. | [GeminiGateway.php:68-75](../app/Services/Audit/GeminiGateway.php#L68-L75) | `[CONFIRMADO]` |
-| R-08 | Schema compiler genera contract_hash SHA-256 canónico con ksort recursivo para serialización determinística. | [DocumentExtractionContractBuilder.php:155-181](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L155-L181) | `[CONFIRMADO]` |
-| R-09 | Extraction cache key = SHA-256(documentHash + contractHash + promptContextHash + extractorVersion). TTL=86400s. | [ExtractionCacheManager.php:38-55](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L38-L55) | `[CONFIRMADO]` |
-| R-10 | Response parser acepta solo `finishReason=STOP`; cualquier otro lanza error con código explícito. | [GeminiResponseParser.php:23, 72-79](../app/Services/Audit/Pipeline/GeminiResponseParser.php#L23) | `[CONFIRMADO]` |
+| R-01 | Endpoint: `POST v1beta/models/{model}:generateContent` con `x-goog-api-key` header. | [GeminiGateway.php:130, 177, 311-312, 390-394](../app/Services/Audit/GeminiGateway.php#L130) (la ruta v2 usa además `:countTokens`, L183) | `[CONFIRMADO]` |
+| R-02 | Structured Output usa `generationConfig.responseMimeType = 'application/json'` + `responseSchema`. | [GeminiGateway.php:613-614](../app/Services/Audit/GeminiGateway.php#L613-L614) | `[CONFIRMADO]` |
+| R-03 | Retry (ruta síncrona `executePost`): 3 intentos máximos con backoff exponencial `1s × 2^attempt`. Códigos retryable: 429, 500, 502, 503, 504. En la ruta v2 por tarea cada operación es un único intento HTTP; el reintento lo difiere `AuditTaskRunner` (1000 ms y 5000 ms + jitter `crc32 % 251`, respeta `Retry-After`, máx. 2 reintentos; 400/401/403/404 son permanentes). | [GeminiGateway.php:29-31, 555-569](../app/Services/Audit/GeminiGateway.php#L29-L31); [AuditTaskRunner.php:66-77](../app/Services/Audit/Pipeline/AuditTaskRunner.php#L66-L77) | `[CONFIRMADO]` |
+| R-04 | Circuit breaker: umbral configurable (default 3 fallos), cooldown configurable (default 60s). Estado en Redis con TTL. Solo se consulta en la ruta síncrona (`executeTaskRequest()` no invoca `cbCheck()`). | [GeminiGateway.php:521-551](../app/Services/Audit/GeminiGateway.php#L521-L551), [GeminiGateway.php:132-135](../app/Services/Audit/GeminiGateway.php#L132-L135) | `[CONFIRMADO]` |
+| R-05 | Circuit breaker particionado por carril: cada AuditLane tiene su par de keys `cb:gemini:{lane}:state/fails` (carril `all`: `cb:gemini:state/fails`). | [GeminiGateway.php:467-479](../app/Services/Audit/GeminiGateway.php#L467-L479) | `[CONFIRMADO]` |
+| R-06 | 2 perfiles de tarea: `extraction` (requiere archivos adjuntos) y `semantic_match` (prohíbe archivos). | [GeminiGateway.php:712-729](../app/Services/Audit/GeminiGateway.php#L712-L729) | `[CONFIRMADO]` |
+| R-07 | API keys particionadas por carril: `GEMINI_API_KEY_PRIORITY`, `GEMINI_API_KEY_BATCH`, fallback a `GEMINI_API_KEY`. | [GeminiGateway.php:76-84](../app/Services/Audit/GeminiGateway.php#L76-L84) | `[CONFIRMADO]` |
+| R-08 | Schema compiler genera contract_hash SHA-256 canónico con ksort recursivo para serialización determinística. | [DocumentExtractionContractBuilder.php:169-195](../app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php#L169-L195) | `[CONFIRMADO]` |
+| R-09 | Extraction cache key = `extraction:cache:v1:` + SHA-256(documentHash + contractHash + promptContextHash + extractorVersion). TTL por defecto en código 86400 s (`AUDIT_EXTRACTION_CACHE_TTL`; `.env.example:152` fija 604800). | [ExtractionCacheManager.php:23, 38-55](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L38-L55); [DocumentExtractionWorker.php:36, 99](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php#L99) | `[CONFIRMADO]` |
+| R-10 | Solo se acepta `finishReason=STOP`. `GeminiResponseGuard::assertUsable()` (usado por el parser de extracción y por el árbitro) lanza `GeminiResponseException` con `GEMINI_RESPONSE_PROVIDER_BLOCKED` (blockReason), `_MISSING_CANDIDATE`, `_OUTPUT_TRUNCATED` (`MAX_TOKENS`) o `_UNSAFE_FINISH_REASON` (otro valor). | [GeminiResponseGuard.php:10-44](../app/Services/Audit/GeminiResponseGuard.php#L10-L44); [GeminiResponseFailureReason.php:9-12](../app/Services/Audit/GeminiResponseFailureReason.php#L9-L12); [GeminiResponseParser.php:41](../app/Services/Audit/Pipeline/GeminiResponseParser.php#L41) | `[CONFIRMADO]` |
 | R-11 | ExtractedEvidence: shape canónica `{valor, valores, presente, estadoExtraccion}` como DTO inmutable JSON-serializable. | [ExtractedEvidence.php:15-77](../app/Services/Audit/Pipeline/ExtractedEvidence.php#L15-L77) | `[CONFIRMADO]` |
-| R-12 | Semantic arbiter cache: Redis 30d, namespace versionado por propósito (`product:v5`, `person:v2`). | [SemanticMatchJudge.php:19-21](../app/Services/Audit/SemanticMatchJudge.php#L19-L21) | `[CONFIRMADO]` |
-| R-13 | Safety settings: `BLOCK_NONE` para las 4 categorías de contenido peligroso. | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495) | `[CONFIRMADO]` |
-| R-14 | Métricas capturan: duration_ms, model, task_type, document_type, finish_reason, prompt/output/thoughts_tokens, cache_hit. | [GeminiCallMetrics.php:19-35](../app/Services/Audit/GeminiCallMetrics.php#L19-L35) | `[CONFIRMADO]` |
-| R-15 | `normalizeSchemaProperties()` convierte `"properties": []` a `"properties": {}` recursivamente para evitar 400 de la API. | [GeminiGateway.php:441-460](../app/Services/Audit/GeminiGateway.php#L441-L460) | `[CONFIRMADO]` |
+| R-12 | Semantic arbiter cache: Redis 24 h (86400 s), namespace versionado por propósito (`audfact:semantic:match:v6:product`, `audfact:semantic:match:v3:person`). | [SemanticMatchJudge.php:18-20](../app/Services/Audit/SemanticMatchJudge.php#L18-L20) | `[CONFIRMADO]` |
+| R-13 | Safety settings: `BLOCK_NONE` para las 4 categorías de contenido peligroso. | [GeminiGateway.php:734-742](../app/Services/Audit/GeminiGateway.php#L734-L742) | `[CONFIRMADO]` |
+| R-14 | Métricas capturan: duration_ms, model, task_type, document_type, finish_reason, prompt/output/thoughts_tokens, cache_hit. | [GeminiCallMetrics.php:19-46](../app/Services/Audit/GeminiCallMetrics.php#L19-L46) | `[CONFIRMADO]` |
+| R-15 | `normalizeSchemaProperties()` convierte `"properties": []` a `"properties": {}` recursivamente para evitar 400 de la API. | [GeminiGateway.php:688-707](../app/Services/Audit/GeminiGateway.php#L688-L707) | `[CONFIRMADO]` |
 | R-16 | Debug snapshots: solo en `APP_ENV=development`, redacta `inlineData` sustituyendo `data` por SHA-256 + tamaño. | [ResponseIADiskStore.php:36-39, 113-133](../app/Services/Audit/ResponseIADiskStore.php#L36-L39) | `[CONFIRMADO]` |
-| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). En `gemini-3.8-flash` el razonamiento no se desactiva: `low` es el mínimo y `minimal` devuelve error. | [GeminiConfig.php:71-83](../app/Services/Audit/GeminiConfig.php#L71-L83) | `[CONFIRMADO]` |
-| R-18 | Error HTTP 400 NO activa circuit breaker (error del caller, no del proveedor). | [GeminiGateway.php:196-198](../app/Services/Audit/GeminiGateway.php#L196-L198) | `[CONFIRMADO]` |
-| R-19 | Reproducibilidad: `temperature`/`topP`/`topK` se envían si están configurados, pero Gemini ≥ 3.6 los ignora. La única palanca es `seed` (`GEMINI_SEED`, valor vigente `42`); sin ella, el mismo request produjo decisiones opuestas. La semilla no forma parte de las claves de caché actuales. | [GeminiConfig.php:46](../app/Services/Audit/GeminiConfig.php#L46); AGENTS.md › Determinismo de decisiones IA | `[CONFIRMADO]` |
+| R-17 | GeminiConfig soporta `thinkingConfig` (Gemini 3: `thinkingLevel`; Gemini 2.5: `thinkingBudget`). En `gemini-3.8-flash` el razonamiento no se desactiva: `low` es el mínimo; el código rechaza localmente cualquier nivel distinto de `low`/`medium`/`high` (`gemini_3_8_thinking_level_invalid`). Que el proveedor devuelva error con `minimal` es `[NO VERIFICADO]` en código (observación de proveedor). | [GeminiConfig.php:71-91](../app/Services/Audit/GeminiConfig.php#L71-L91) | `[CONFIRMADO]` |
+| R-18 | Error HTTP 400 NO activa circuit breaker (error del caller, no del proveedor). | [GeminiGateway.php:443-445](../app/Services/Audit/GeminiGateway.php#L443-L445) | `[CONFIRMADO]` |
+| R-19 | Reproducibilidad: `temperature` se envía siempre (`0.0` si no se configura) y `topP`/`topK` si están configurados; `seed` se envía si `GEMINI_SEED` está definido (valor de ejemplo `42`; el valor desplegado en producción es `[NO VERIFICADO]`). La semilla no forma parte de las claves de caché de extracción ni semántica. Que Gemini ≥ 3.6 ignore `temperature`/`topP`/`topK` y que sin semilla el mismo request produjera decisiones opuestas es `[NO VERIFICADO]` en código (observación de proveedor registrada en v0.3.1). | [GeminiConfig.php:46, 59-65](../app/Services/Audit/GeminiConfig.php#L46-L65); [.env.example:87](../.env.example#L87); [ExtractionCacheManager.php:49-52](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L49-L52); [SemanticMatchJudge.php:91-104](../app/Services/Audit/SemanticMatchJudge.php#L91-L104) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **Redis no disponible en circuit breaker**: Si Redis no está accesible, `cbCheck()` retorna silenciosamente (fail-open). [GeminiGateway.php:241-249](../app/Services/Audit/GeminiGateway.php#L241-L249). `[CONFIRMADO]`
+1. **Redis no disponible en circuit breaker**: Si Redis no está accesible, `cbCheck()` retorna silenciosamente (fail-open). [GeminiGateway.php:486-496](../app/Services/Audit/GeminiGateway.php#L486-L496). `[CONFIRMADO]`
 
 2. **Redis no disponible en extraction cache**: `ExtractionCacheManager::get()` lanza `RuntimeException` (fail-closed: no se permite extracción sin cache). [ExtractionCacheManager.php:68-72](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L68-L72). `[CONFIRMADO]`
 
-3. **`properties: []` tras Redis Streams**: PHP json_decode convierte `{}` a `[]`; el normalizador recursivo restaura `stdClass()` para evitar HTTP 400. [GeminiGateway.php:430-460](../app/Services/Audit/GeminiGateway.php#L430-L460). `[CONFIRMADO]`
+3. **`properties: []` tras Redis Streams**: PHP json_decode convierte `{}` a `[]`; el normalizador recursivo restaura `stdClass()` para evitar HTTP 400. [GeminiGateway.php:677-707](../app/Services/Audit/GeminiGateway.php#L677-L707). `[CONFIRMADO]`
 
-4. **Gemini devuelve finishReason ≠ STOP**: Error clasificado con código `GEMINI_EXTRACTION_UNSAFE_FINISH_REASON`; el worker lo reclasifica como rechazo documental si es un error de contenido. [GeminiResponseParser.php:72-79](../app/Services/Audit/Pipeline/GeminiResponseParser.php#L72-L79). `[CONFIRMADO]`
+4. **Gemini devuelve finishReason ≠ STOP**: Error clasificado con código `GEMINI_RESPONSE_UNSAFE_FINISH_REASON` (o `_OUTPUT_TRUNCATED` si es `MAX_TOKENS`); si la excepción no es reintentable, el worker de extracción la reclasifica como rechazo documental (`GEMINI_UNSAFE_FINISH`, `GEMINI_OUTPUT_TRUNCATED`, `GEMINI_PROVIDER_BLOCKED`). [GeminiResponseGuard.php:33-41](../app/Services/Audit/GeminiResponseGuard.php#L33-L41); [DocumentExtractionWorker.php:425-426, 788-793](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php#L788-L793). `[CONFIRMADO]`
 
-5. **Semantic arbiter: Gemini falla**: Se produce `is_match=false` con reasoning de fallback; resultado marcado `cacheable=false` para no persistir fallos transitorios. [SemanticMatchJudge.php:282-292](../app/Services/Audit/SemanticMatchJudge.php#L282-L292). `[CONFIRMADO]`
+5. **Semantic arbiter: Gemini falla**: Se produce `is_match=false` con reasoning de fallback; resultado marcado `cacheable=false` para no persistir fallos transitorios. [SemanticMatchJudge.php:226-235, 296-304](../app/Services/Audit/SemanticMatchJudge.php#L226-L304). `[CONFIRMADO]`
 
 ---
 
@@ -987,16 +989,16 @@ flowchart TD
 
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
-| A-01 | El backoff exponencial `1s × 2^attempt` es suficiente para que un proveedor con rate-limit se recupere. | S1 | [GeminiGateway.php:314-317](../app/Services/Audit/GeminiGateway.php#L314-L317). Funciona empíricamente para Gemini API. | Monitoreo en producción |
-| A-02 | El TTL de caché de extracción (86400s = 24h) es suficiente para cubrir lotes diarios sin degradar la frescura. | S2 | [ExtractionCacheManager.php:35](../app/Services/Audit/Pipeline/ExtractionCacheManager.php#L35). TTL configurable. | Análisis de patrones de uso |
-| A-03 | La política de safety settings `BLOCK_NONE` es apropiada para auditoría documental (contenido no sensible). | S1 | [GeminiGateway.php:487-495](../app/Services/Audit/GeminiGateway.php#L487-L495). En dominios sensibles puede requerir override. | Revisión de compliance por tenant |
-| A-04 | El circuit breaker fail-open (cuando Redis no disponible) es la política correcta para no bloquear el pipeline por fallo de infraestructura. | S2 | [GeminiGateway.php:241-249](../app/Services/Audit/GeminiGateway.php#L241-L249). Alternativa: fail-closed por seguridad. | Decisión de arquitectura |
+| A-01 | El backoff exponencial `1s × 2^attempt` es suficiente para que un proveedor con rate-limit se recupere. | S1 | [GeminiGateway.php:561-564](../app/Services/Audit/GeminiGateway.php#L561-L564). Funciona empíricamente para Gemini API. | Monitoreo en producción |
+| A-02 | El TTL de caché de extracción (86400s = 24h) es suficiente para cubrir lotes diarios sin degradar la frescura. | S2 | [DocumentExtractionWorker.php:36, 99](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php#L99). TTL configurable (`.env.example:152` fija 604800 s = 7 días). | Análisis de patrones de uso |
+| A-03 | La política de safety settings `BLOCK_NONE` es apropiada para auditoría documental (contenido no sensible). | S1 | [GeminiGateway.php:734-742](../app/Services/Audit/GeminiGateway.php#L734-L742). En dominios sensibles puede requerir override. | Revisión de compliance por tenant |
+| A-04 | El circuit breaker fail-open (cuando Redis no disponible) es la política correcta para no bloquear el pipeline por fallo de infraestructura. | S2 | [GeminiGateway.php:486-496](../app/Services/Audit/GeminiGateway.php#L486-L496). Alternativa: fail-closed por seguridad. | Decisión de arquitectura |
 
 ### 6.4 Desconocidos No Críticos
 
 | ID | Hecho | Motivo | Clasificación |
 |---|---|---|:---:|
-| U-01 | ¿El `extractorVersion` se incrementa automáticamente al actualizar el modelo o requiere bump manual? | En AudFact se configura vía `AUDIT_VERSION_EXTRACTOR` env. | `[DESCONOCIDO]` |
+| U-01 | ¿El `extractorVersion` se incrementa automáticamente al actualizar el modelo o requiere bump manual? | En AudFact se configura vía `AUDIT_VERSION_EXTRACTOR` env (default en código `gemini-3.x-parallel-fc-v1`, [AuditEvent.php:27](../app/Services/Audit/Pipeline/AuditEvent.php#L27); `.env.example:160` = `gemini-3.5-flash`, distinto de `GEMINI_MODEL=gemini-3.8-flash`). | `[DESCONOCIDO]` |
 | U-02 | ¿La métrica `thoughts_tokens` es exclusiva de Gemini o existe equivalente en otros proveedores? | Solo observado en Gemini usageMetadata. | `[DESCONOCIDO]` |
 | U-03 | ¿La política de deduplicación de oraciones del system prompt aplica a todos los proveedores o es específica de Gemini? | [ExtractionPromptBuilder.php:49-52](../app/Services/Audit/Pipeline/ExtractionPromptBuilder.php#L49-L52). Puede ser redundante con otros proveedores. | `[DESCONOCIDO]` |
 

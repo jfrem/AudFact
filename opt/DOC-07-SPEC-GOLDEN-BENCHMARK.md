@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.0-review (sin cambio de versión) | 2026-11-16 | §3 verificado contra HEAD `335f3da`: catálogo de rechazo ampliado a las 13 razones reales (`GEMINI_PROVIDER_BLOCKED`, `GEMINI_OUTPUT_TRUNCATED`, `GEMINI_UNSAFE_FINISH`); caso borde de WebP retirado (el validador detecta `RIFF…WEBP`); criterios de páginas y EOF de PDF precisados; rangos de línea actualizados. Sin cambios de contrato. |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial. Framework de benchmark basado en Golden Set Replay. |
 
 ---
@@ -76,7 +77,7 @@ Este documento especifica una **suite de calibración de paridad** basada en:
 
 | Componente | Ruta | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|
-| GoldenSetReplayTest | [GoldenSetReplayTest.php](../tests/Services/Audit/GoldenSetReplayTest.php) | L1-271 | Framework de replay con 3 test methods, dataProvider de fixtures, helpers | `[CONFIRMADO]` |
+| GoldenSetReplayTest | [GoldenSetReplayTest.php](../tests/Services/Audit/GoldenSetReplayTest.php) | L1-270 | Framework de replay con 3 test methods, dataProvider de fixtures, helpers | `[CONFIRMADO]` |
 | Fixture: D65260408592 | [golden_D65260408592.json](../tests/Services/Audit/Fixtures/golden_D65260408592.json) | — | Caso: Fórmula Médica — Acetaminofén, CIE10 en lista | `[CONFIRMADO]` |
 
 ### 3.2 Tres Dimensiones de Verificación
@@ -101,7 +102,7 @@ Algoritmo de hash para verificación de determinismo ([GoldenSetReplayTest.php:2
 
 ### 3.4 Shape Canónica de un Hallazgo
 
-Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](../tests/Services/Audit/GoldenSetReplayTest.php#L152-L161)):
+Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:153-160](../tests/Services/Audit/GoldenSetReplayTest.php#L153-L160)):
 
 | Clave | Tipo | Descripción |
 |---|---|---|
@@ -128,8 +129,11 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](../tests/S
 | Fallo de decodificación Gemini | `GEMINI_DECODE_FAILURE` | Extracción | `[CONFIRMADO]` |
 | Documento corrupto (sin EOF) | `CORRUPTED_DOCUMENT` | Integridad | `[CONFIRMADO]` |
 | Fallo de rasterización | `RASTERIZATION_FAILURE` | Pre-extracción | `[CONFIRMADO]` |
+| Respuesta bloqueada por el proveedor | `GEMINI_PROVIDER_BLOCKED` | Extracción | `[CONFIRMADO]` |
+| Respuesta truncada (`MAX_TOKENS`) | `GEMINI_OUTPUT_TRUNCATED` | Extracción | `[CONFIRMADO]` |
+| `finishReason` distinto de `STOP` | `GEMINI_UNSAFE_FINISH` | Extracción | `[CONFIRMADO]` |
 
-**Fuente**: [DocumentRejectionReason.php:10-19](../app/Services/Audit/Pipeline/DocumentRejectionReason.php#L10-L19). `[CONFIRMADO]`
+**Fuente**: [DocumentRejectionReason.php:10-22](../app/Services/Audit/Pipeline/DocumentRejectionReason.php#L10-L22); mapeo de las tres últimas en [DocumentExtractionWorker.php:788-793](../app/Services/Audit/Pipeline/DocumentExtractionWorker.php#L788-L793). `[CONFIRMADO]`
 
 ### 3.6 Validaciones de Integridad Documental
 
@@ -138,20 +142,20 @@ Claves requeridas en cada hallazgo ([GoldenSetReplayTest.php:152-161](../tests/S
 | Contenido no vacío | 1 | `base64_decode` no produce cadena vacía | [DocumentIntegrityValidator.php:54-61](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L54-L61) |
 | Tamaño mínimo | 2 | ≥ 4 bytes (mínimo para magic bytes) | [DocumentIntegrityValidator.php:64-66](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L64-L66) |
 | MIME soportado | 3 | In `[pdf, jpeg, png, webp, tiff, gif]` | [DocumentIntegrityValidator.php:68-70](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L68-L70) |
-| Magic bytes match | 4 | Firma binaria corresponde al MIME declarado | [DocumentIntegrityValidator.php:72-79](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L72-L79) |
+| Magic bytes match | 4 | Firma binaria corresponde al MIME declarado (WebP por `RIFF` + `WEBP` en offset 8) | [DocumentIntegrityValidator.php:72-79, 120-136](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L72-L79) |
 | PDF no cifrado | 5 | No contiene `/Encrypt` en raw | [DocumentIntegrityValidator.php:81-83](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83) |
-| PDF tiene páginas | 6 | Contiene `/Page` object | [DocumentIntegrityValidator.php:85-87](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L85-L87) |
-| PDF tiene EOF | 7 | Contiene `%%EOF` marker | [DocumentIntegrityValidator.php:89-91](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L89-L91) |
+| PDF tiene páginas | 6 | Contiene `/ObjStm` o un objeto `/Type /Page` (no `/Pages`) | [DocumentIntegrityValidator.php:85-87, 143-150](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L143-L150) |
+| PDF tiene EOF | 7 | Contiene `%%EOF` en los últimos 1024 bytes | [DocumentIntegrityValidator.php:89-91, 157-161](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L157-L161) |
 
 ### 3.7 Casos Borde y Excepciones Documentados
 
-1. **Fixture missing**: Si el archivo JSON del fixture no existe en disco, el data provider retorna un array marcado con `_missing=true` y el test falla con mensaje claro indicando qué fixture falta. [GoldenSetReplayTest.php:175-178](../tests/Services/Audit/GoldenSetReplayTest.php#L175-L178). `[CONFIRMADO]`
+1. **Fixture missing**: Si el archivo JSON del fixture no existe en disco, el data provider retorna un array marcado con `_missing=true` y el test falla con mensaje claro indicando qué fixture falta. [GoldenSetReplayTest.php:170-178](../tests/Services/Audit/GoldenSetReplayTest.php#L170-L178). `[CONFIRMADO]`
 
 2. **Campo no presente en hallazgos**: Si `expected.campo_results` contiene un campo que el engine no produjo, `assertArrayHasKey` falla con mensaje que incluye el fixture ID y el nombre del campo faltante. [GoldenSetReplayTest.php:127-131](../tests/Services/Audit/GoldenSetReplayTest.php#L127-L131). `[CONFIRMADO]`
 
 3. **PDF con `/Encrypt` parcial**: La detección busca `str_contains($raw, '/Encrypt')`. Un PDF legítimo con un objeto que contiene la subcadena `/Encrypt` en otro contexto sería rechazado (falso positivo). [DocumentIntegrityValidator.php:81-83](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L81-L83). `[CONFIRMADO]`
 
-4. **WebP sin magic bytes en tabla**: La tabla `MAGIC_SIGNATURES` no incluye WebP (`RIFF...WEBP`), pero `SUPPORTED_MIMES` sí incluye `image/webp`. Un WebP válido sería rechazado con `UNKNOWN_FILE_SIGNATURE`. [DocumentIntegrityValidator.php:33-41 vs 19-26](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L33-L41). `[CONFIRMADO]`
+4. **WebP fuera de la tabla de firmas**: La tabla `MAGIC_SIGNATURES` no incluye WebP, pero `detectMimeFromMagicBytes()` lo reconoce con una comprobación aparte (`RIFF` al inicio y `WEBP` en el offset 8). Un WebP válido ya no se rechaza con `UNKNOWN_FILE_SIGNATURE` (la afirmación anterior quedó obsoleta). [DocumentIntegrityValidator.php:33-41, 130-133](../app/Services/Audit/Pipeline/DocumentIntegrityValidator.php#L130-L133). `[CONFIRMADO]`
 
 ---
 

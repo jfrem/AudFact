@@ -27,6 +27,7 @@ unknowns_non_critical: 2
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.1-review (sin cambio de versión) | 2026-11-16 | §3 y §6 verificados contra HEAD `335f3da`: TTL de estado de auditoría y de job corregido de 7 d a 24 h (`AUDIT_STATE_TTL`/`AUDIT_JOB_TTL` = 86400 s); `AUDIT_STREAM_MAXLEN` por defecto 3000 (no 100000); 14 tipos de evento (se añaden `semantic_evaluation_requested`/`_resolved` y los streams `audit.semantic.*`); `audit.persistence.*` alimentado por `AuditPersistenceQueue`; UUID de `audit_id`/`job_id` opcionales; rangos de línea actualizados. La afirmación de v0.3.1 sobre `temperature` ignorada por Gemini ≥ 3.6 queda `[NO VERIFICADO]` en código. Sin cambios de contrato. |
 | v0.3.1-review | 2026-11-12 | `model_manifest` del `AuditExecutionEnvelope` incorpora `seed` y `thinking_level`: sin la semilla una ejecución no es reproducible (DOC-03 R-19). `temperature` se conserva como dato informativo; Gemini ≥ 3.6 la ignora. |
 | v0.2.2-draft | 2026-10-19 | Inmutabilidad de ejecuciones y deduplicación de consumo (DEC-T-019 / GAP-07). Contrato `AuditExecutionEnvelope` y deduplicación por `(tenant_id, provider_attempt_id)` en `AuditStoragePort`. |
 | v0.2.1-draft | 2026-10-19 | Ingestión y transporte documental híbrido (DEC-T-018 / GAP-06). Métodos de `createArtifactUploadUrl` en `CaseIngestionPort` y resolución dual (`REMOTE_URL` / `STORED_CONTENT`) en `DocumentStorage`. |
@@ -85,13 +86,13 @@ Este documento especifica la **arquitectura de puertos y adaptadores (hexagonal)
 
 | Componente | Ruta | Método / Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|---|
-| Database | [Database.php](../core/Database.php) | clase estática | L10-295 | Conexión PDO a SQL Server con cache por fingerprint, dual-connection (default/db2), transacciones | `[CONFIRMADO]` |
-| RedisClient | [RedisClient.php](../core/RedisClient.php) | clase singleton | L17-870 | Conexión Predis con soporte standalone/sentinel/cluster, operaciones atómicas, Lua, streams | `[CONFIRMADO]` |
-| AuditStateStore | [AuditStateStore.php](../app/Services/Audit/Pipeline/AuditStateStore.php) | clase | L13-509 | Estado Redis de auditoría: init, get, patch, markDocument*, constantes de status, TTL 7d | `[CONFIRMADO]` |
-| BatchJobStore | [BatchJobStore.php](../app/Services/Audit/Pipeline/BatchJobStore.php) | clase | L13-670 | Estado Redis de jobs batch: init, progress, seal, complete. TTL 7d, índice ZADD. | `[CONFIRMADO]` |
-| AuditEventPublisher | [AuditEventPublisher.php](../app/Services/Audit/Pipeline/AuditEventPublisher.php) | clase | L13-170 | Publicación en Redis Streams con MAXLEN, routing por tipo+prioridad, DLQ con Lua idempotente | `[CONFIRMADO]` |
-| AuditEvent | [AuditEvent.php](../app/Services/Audit/Pipeline/AuditEvent.php) | VO inmutable | L10-247 | DTO de evento: event_id (UUID v4), event_type, audit_id, job_id, document_id, payload, versions | `[CONFIRMADO]` |
-| TelemetryPublisher | [TelemetryPublisher.php](../app/Services/Audit/Telemetry/TelemetryPublisher.php) | clase | L11-168 | Emisión best-effort a `audit.telemetry` stream con MAXLEN=1000. Métodos: started, completed, failed, rejected | `[CONFIRMADO]` |
+| Database | [Database.php](../core/Database.php) | clase estática | L10-294 | Conexión PDO a SQL Server con cache por fingerprint, dual-connection (default/db2), transacciones | `[CONFIRMADO]` |
+| RedisClient | [RedisClient.php](../core/RedisClient.php) | clase singleton | L17-922 | Conexión Predis con soporte standalone/sentinel/cluster, operaciones atómicas, Lua, streams | `[CONFIRMADO]` |
+| AuditStateStore | [AuditStateStore.php](../app/Services/Audit/Pipeline/AuditStateStore.php) | clase | L13-621 | Estado Redis de auditoría: init, get, patch, markDocument*, recuperación de `failed`, constantes de status, TTL 24 h (`AUDIT_STATE_TTL`) | `[CONFIRMADO]` |
+| BatchJobStore | [BatchJobStore.php](../app/Services/Audit/Pipeline/BatchJobStore.php) | clase | L13-686 | Estado Redis de jobs batch: init, progress, seal, complete. TTL 24 h (`AUDIT_JOB_TTL`), índice ZADD. | `[CONFIRMADO]` |
+| AuditEventPublisher | [AuditEventPublisher.php](../app/Services/Audit/Pipeline/AuditEventPublisher.php) | clase | L13-225 | Publicación en Redis Streams con MAXLEN y recorte por grupos consumidores, routing por tipo+prioridad, DLQ con Lua idempotente | `[CONFIRMADO]` |
+| AuditEvent | [AuditEvent.php](../app/Services/Audit/Pipeline/AuditEvent.php) | VO inmutable | L10-246 | DTO de evento: event_id (UUID v4), event_type, audit_id, job_id, document_id, payload, versions | `[CONFIRMADO]` |
+| TelemetryPublisher | [TelemetryPublisher.php](../app/Services/Audit/Telemetry/TelemetryPublisher.php) | clase | L11-167 | Emisión best-effort a `audit.telemetry` stream con MAXLEN=1000. Métodos: started, completed, failed, rejected | `[CONFIRMADO]` |
 
 ### 3.2 Mapa de Puertos del SaaS Multi-Tenant
 
@@ -122,7 +123,7 @@ flowchart LR
     subgraph Infrastructure["Infraestructura y Clientes"]
         SAAS_DB[("SaaS Platform DB<br/>(Postgres / DocumentDB)")]
         CLIENT_WH["Webhook del Cliente<br/>(Callback URL)"]
-        REDIS_STATE["Redis State (TTL 7d)"]
+        REDIS_STATE["Redis State (TTL 24h por defecto)"]
         REDIS_STREAMS["Redis Streams"]
         STORAGE_BIN["S3 / Google Drive / Blob"]
         SSE["Stream SSE"]
@@ -155,30 +156,30 @@ flowchart LR
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
 | R-01 | Dual-connection: consultas SELECT por `db2`, escrituras INSERT/UPDATE por `default`. Excepción: `AuditStatusModel` lee por `default` para consistencia post-escritura. | AGENTS.md línea "Política de conexión en modelos" | `[CONFIRMADO]` |
-| R-02 | Redis como state store: auditorías con TTL 604800s (7d), jobs batch con TTL 604800s. | [AuditStateStore.php:30](../app/Services/Audit/Pipeline/AuditStateStore.php#L30), [BatchJobStore.php:23](../app/Services/Audit/Pipeline/BatchJobStore.php#L23) | `[CONFIRMADO]` |
-| R-03 | Event routing: 13 event types mapeados a 9 streams (4 pares priority/batch + 1 batch_inbox). | [AuditEventPublisher.php:15-24, 145-162](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L15-L24) | `[CONFIRMADO]` |
-| R-04 | DLQ usa Lua script para XADD idempotente: recibo en key `event:{eventId}:dead_letter` previene duplicados. | [AuditEventPublisher.php:77-88](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88) | `[CONFIRMADO]` |
-| R-05 | AuditEvent hereda routing metadata (source, is_priority) del padre vía `followUp()`. Eventos hijos nunca cambian el carril. | [AuditEvent.php:138-149](../app/Services/Audit/Pipeline/AuditEvent.php#L138-L149) | `[CONFIRMADO]` |
+| R-02 | Redis como state store: auditorías con TTL 86400 s (24 h, `AUDIT_STATE_TTL`), jobs batch con TTL 86400 s (`AUDIT_JOB_TTL`); `.env.example` fija ambos en 86400. | [AuditStateStore.php:30, 39-42](../app/Services/Audit/Pipeline/AuditStateStore.php#L30), [BatchJobStore.php:24, 38](../app/Services/Audit/Pipeline/BatchJobStore.php#L24), [.env.example:133-134](../.env.example#L133-L134) | `[CONFIRMADO]` |
+| R-03 | Event routing: 14 tipos de evento declarados; 9 streams de trabajo (4 pares priority/batch: `inbox`, `documents`, `persistence`, `semantic` + `audit.batch.inbox`). `streamForEventType()` enruta 10 tipos; `rules_evaluated` llega a `audit.persistence.*` vía `AuditPersistenceQueue`; `dead_letter` va a `audit.dlq` vía `publishDeadLetter()`; `audit_completed` y `audit_failed` no tienen stream. | [AuditEvent.php:12-25](../app/Services/Audit/Pipeline/AuditEvent.php#L12-L25), [AuditEventPublisher.php:15-23, 203-217](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L15-L23) | `[CONFIRMADO]` |
+| R-04 | DLQ usa Lua script para XADD idempotente: recibo en key `event:{eventId}:dead_letter` previene duplicados. | [AuditEventPublisher.php:65-95](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L65-L95) | `[CONFIRMADO]` |
+| R-05 | AuditEvent hereda routing metadata (source, is_priority) del padre vía `followUp()`. Eventos hijos nunca cambian el carril. | [AuditEvent.php:122-149](../app/Services/Audit/Pipeline/AuditEvent.php#L122-L149) | `[CONFIRMADO]` |
 | R-06 | AuditEvent incluye versiones de trazabilidad: extractor, normalizer, rules. Metadata, no participa en decisiones. | [AuditEvent.php:37-42](../app/Services/Audit/Pipeline/AuditEvent.php#L37-L42) | `[CONFIRMADO]` |
-| R-07 | Telemetría es best-effort: excepciones capturadas silenciosamente, nunca propaga al caller. | [TelemetryPublisher.php:125, 143-149](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L125) | `[CONFIRMADO]` |
-| R-08 | Telemetry stream: `audit.telemetry` con MAXLEN=1000 (circular). 4 tipos: started, completed, failed, rejected. | [TelemetryPublisher.php:13-14, 26-107](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14) | `[CONFIRMADO]` |
-| R-09 | State store usa Lua scripts para merge atómico (patchAudit, markDocument*). | [AuditStateStore.php:112-120](../app/Services/Audit/Pipeline/AuditStateStore.php#L112-L120) | `[CONFIRMADO]` |
+| R-07 | Telemetría es best-effort: excepciones capturadas silenciosamente, nunca propaga al caller. | [TelemetryPublisher.php:115-153](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L115) | `[CONFIRMADO]` |
+| R-08 | Telemetry stream: `audit.telemetry` con MAXLEN=1000 (circular). 4 tipos: started, completed, failed, rejected. | [TelemetryPublisher.php:13-14, 26-112](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14) | `[CONFIRMADO]` |
+| R-09 | State store usa Lua scripts para merge atómico (patchAudit, markDocument*). | [AuditStateStore.php:205-216, 386-620](../app/Services/Audit/Pipeline/AuditStateStore.php#L205-L216) | `[CONFIRMADO]` |
 | R-10 | Database connection: cache por fingerprint SHA-256. Dos conexiones con credenciales distintas pueden coexistir. | [Database.php:263-280](../core/Database.php#L263-L280) | `[CONFIRMADO]` |
-| R-11 | Stream MAXLEN: configurable vía `AUDIT_STREAM_MAXLEN` (default 100000) para trimming automático. | [AuditEventPublisher.php:33, 41-43](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L33) | `[CONFIRMADO]` |
-| R-12 | Redis soporta 3 modos: standalone, sentinel (HA), cluster. Lazy-connect en primer uso. | [RedisClient.php:50-79](../core/RedisClient.php#L50-L79) | `[CONFIRMADO]` |
-| R-13 | AuditEvent identifiers: event_id, audit_id, job_id son UUID v4 validados en constructor. document_id es nullable. | [AuditEvent.php:59-68](../app/Services/Audit/Pipeline/AuditEvent.php#L59-L68) | `[CONFIRMADO]` |
+| R-11 | Stream MAXLEN: configurable vía `AUDIT_STREAM_MAXLEN` (default 3000; `.env.example:55` = 3000); el recorte solo elimina entradas ya consumidas por todos los grupos de `WORK_GROUPS` (máx. 5000 por XTRIM). | [AuditEventPublisher.php:34-45, 53-55, 175](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L34) | `[CONFIRMADO]` |
+| R-12 | Redis soporta 3 modos: standalone, sentinel (HA), cluster (`REDIS_MODE`, `.env.example:108` = standalone). Lazy-connect en primer uso. El arranque del pipeline v2 exige además AOF `always`, `noeviction` y modo distinto de cluster. | [RedisClient.php:44-79](../core/RedisClient.php#L44-L79); [AuditExecutionConfig.php:87-96](../app/Services/Audit/Pipeline/AuditExecutionConfig.php#L87-L96) | `[CONFIRMADO]` |
+| R-13 | AuditEvent identifiers: `event_id` es UUID v4 obligatorio; `parent_event_id`, `audit_id` y `job_id` son opcionales y, si están presentes, se validan como UUID v4. `document_id` es nullable y no se valida como UUID. | [AuditEvent.php:59-74](../app/Services/Audit/Pipeline/AuditEvent.php#L59-L74) | `[CONFIRMADO]` |
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **Redis no disponible en arranque**: `RedisClient` usa lazy-connect; la conexión falla en la primera operación, no al instanciar. El caller recibe `RedisException`. [RedisClient.php:50-79](../core/RedisClient.php#L50-L79). `[CONFIRMADO]`
+1. **Redis no disponible en arranque**: `RedisClient` usa lazy-connect; la conexión falla en la primera operación, no al instanciar. El caller recibe `RedisException`. [RedisClient.php:44-79](../core/RedisClient.php#L44-L79). `[CONFIRMADO]`
 
 2. **SQL Server failover en mid-query**: Si la conexión PDO falla, el modelo propaga `PDOException`. No hay retry automático a nivel de conexión. [Database.php:263-280](../core/Database.php#L263-L280). `[CONFIRMADO]`
 
-3. **DLQ idempotente ante duplicados**: Si un mismo evento se publica dos veces a DLQ, el Lua script verifica un recibo (`event:{eventId}:dead_letter`) y retorna sin duplicar. [AuditEventPublisher.php:77-88](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L77-L88). `[CONFIRMADO]`
+3. **DLQ idempotente ante duplicados**: Si un mismo evento se publica dos veces a DLQ, el Lua script verifica un recibo (`event:{eventId}:dead_letter`) y retorna sin duplicar. [AuditEventPublisher.php:65-95](../app/Services/Audit/Pipeline/AuditEventPublisher.php#L65-L95). `[CONFIRMADO]`
 
 4. **Telemetry stream lleno**: Si `MAXLEN=1000` se alcanza, Redis recorta automáticamente (política circular ~). Nunca bloquea al publisher. [TelemetryPublisher.php:13-14](../app/Services/Audit/Telemetry/TelemetryPublisher.php#L13-L14). `[CONFIRMADO]`
 
-5. **State store con TTL expirado**: Si una auditoría expira (7d), `getAudit()` retorna `null`. El worker que la recibe debe tratar esto como audit perdida y no reintentar. [AuditStateStore.php:30](../app/Services/Audit/Pipeline/AuditStateStore.php#L30). `[CONFIRMADO]`
+5. **State store con TTL expirado**: Si una auditoría expira (24 h por defecto), `getAudit()` retorna `null`. El worker que la recibe debe tratar esto como audit perdida y no reintentar. [AuditStateStore.php:30](../app/Services/Audit/Pipeline/AuditStateStore.php#L30). `[CONFIRMADO]`
 
 ---
 
@@ -1247,7 +1248,7 @@ flowchart LR
 | Funcionalidad Actual (§3) | Contrato Agnóstico (§4) | ¿Cobertura? | Notas |
 |---|---|:---:|---|
 | R-01 Dual-connection legacy | CaseIngestionPort + AuditStoragePort | ✅ | Desacoplado: Ingestión canónica y almacenamiento interno propio del SaaS |
-| R-02 Redis state TTL 7d | StateStore.initAudit con TTL | ✅ | TTL configurable |
+| R-02 Redis state TTL 24 h | StateStore.initAudit con TTL | ✅ | TTL configurable |
 | R-03 Event routing 13→9 | ALG-01 EventRouting | ✅ | |
 | R-04 DLQ Lua idempotente | ALG-04 IdempotentDLQ | ✅ | |
 | R-05 Routing metadata herencia | ALG-03 FollowUpEvent | ✅ | |
@@ -1321,7 +1322,7 @@ flowchart LR
 
 | ID | Hecho | Motivo | Clasificación |
 |---|---|---|:---:|
-| U-01 | ¿El `AUDIT_STREAM_MAXLEN` de 100k es suficiente para picos de carga batch? | Solo inferido del default. No hay métricas de throughput publicadas. | `[DESCONOCIDO]` |
+| U-01 | ¿El `AUDIT_STREAM_MAXLEN` de 3000 (default en código y en `.env.example`) es suficiente para picos de carga batch? | Solo inferido del default. No hay métricas de throughput publicadas. | `[DESCONOCIDO]` |
 | U-02 | ¿Existe un mecanismo de limpieza de keys huérfanas en el state store (auditorías que nunca completaron)? | No encontrado un TTL scanner explícito; solo TTL nativo de Redis. | `[DESCONOCIDO]` |
 
 ---

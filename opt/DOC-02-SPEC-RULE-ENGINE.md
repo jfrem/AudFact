@@ -32,6 +32,7 @@ unknowns_non_critical: 4
 
 | Versión | Fecha | Cambio |
 |---|---|---|
+| v0.3.0-review (sin cambio de versión) | 2026-11-16 | §3 y §6 verificados contra HEAD `335f3da`: referencias de línea actualizadas; caché del árbitro corregida a 24 h con namespaces por propósito; emparejamiento de artículos con fase de Jaccard ordenado y lote semántico; cascada semántica excluye artículos no coincidentes de las fases léxicas. Sin cambios de contrato. |
 | v0.2.0-draft | 2026-10-06 | Vocabulario único, Finding compartido, política referenciada, operadores numéricos separados, parámetros cerrados y validador ejecutable. Completitud C; runtime pendiente. |
 | v0.1.0-draft | 2026-10-05 | Borrador inicial completo. Línea base extraída de 15 archivos PHP. |
 
@@ -86,28 +87,28 @@ Este documento especifica un **motor de reglas declarativo y agnóstico al domin
 
 | Componente | Ruta | Método / Símbolo | Líneas | Propósito | Clasificación |
 |---|---|---|---|---|---|
-| DocumentPolicyEngine | [DocumentPolicyEngine.php](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php) | `evaluate()` | L35-140 | Orquestador principal: recibe documento normalizado y fuente de verdad, produce hallazgos por campo | `[CONFIRMADO]` |
-| — | — | `evaluateField()` | L566-622 | Dispatcher por estrategia: EXACT, SEMANTIC, BUSINESS | `[CONFIRMADO]` |
-| — | — | `evaluateExactField()` | L862-879 | Comparación exacta con normalización por tipo de valor | `[CONFIRMADO]` |
-| — | — | `evaluateSemanticField()` | L884-949 | Cascada: token-set → substring → similitud ≥ umbral → Gemini | `[CONFIRMADO]` |
-| — | — | `evaluateBusinessField()` | L983-1038 | Comparación numérica con tolerancia por factor de conversión | `[CONFIRMADO]` |
-| — | — | `evaluatePresenceField()` | L1118-1176 | Verificación de presencia bilateral sin comparación de valor | `[CONFIRMADO]` |
-| — | — | `evaluateTraceSetField()` | L674-707 | Comparación de conjuntos de tokens de trazabilidad | `[CONFIRMADO]` |
-| — | — | `evaluateArticleSetField()` | L760-857 | Emparejamiento suryectivo N:1 de artículos con cascada de 3 fases | `[CONFIRMADO]` |
-| — | — | `evaluateSubsetField()` | L633-659 | Comparación de subconjuntos (FDV ⊆ documento) | `[CONFIRMADO]` |
-| — | — | `resolveFinalStatus()` en RulesEvaluationWorker | L672-702 | Derivación del veredicto final | `[CONFIRMADO]` |
+| DocumentPolicyEngine | [DocumentPolicyEngine.php](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php) | `evaluate()` | L54-161 | Orquestador principal: recibe documento normalizado y fuente de verdad, produce hallazgos por campo | `[CONFIRMADO]` |
+| — | — | `evaluateField()` | L594-651 | Dispatcher por estrategia: EXACT, SEMANTIC, BUSINESS | `[CONFIRMADO]` |
+| — | — | `evaluateExactField()` | L1066-1083 | Comparación exacta con normalización por tipo de valor | `[CONFIRMADO]` |
+| — | — | `evaluateSemanticField()` | L1088-1159 | Cascada: token-set → substring → similitud ≥ umbral → Gemini (los artículos marcados como no coincidentes saltan substring y similitud) | `[CONFIRMADO]` |
+| — | — | `evaluateBusinessField()` | L1199-1269 | Comparación numérica con tolerancia por factor de conversión | `[CONFIRMADO]` |
+| — | — | `evaluatePresenceField()` | L1334-1392 | Verificación de presencia bilateral sin comparación de valor | `[CONFIRMADO]` |
+| — | — | `evaluateTraceSetField()` | L702-735 | Comparación de conjuntos de tokens de trazabilidad | `[CONFIRMADO]` |
+| — | — | `evaluateArticleSetField()` | L788-951 (lote: `tryBatchSemanticMatch()` L964-1039) | Emparejamiento suryectivo N:1 de artículos con cascada de 4 fases | `[CONFIRMADO]` |
+| — | — | `evaluateSubsetField()` | L661-687 | Comparación de subconjuntos (FDV ⊆ documento) | `[CONFIRMADO]` |
+| — | — | `resolveFinalStatus()` en RulesEvaluationWorker | L772-802 | Derivación del veredicto final | `[CONFIRMADO]` |
 | AuditComparisonType | [AuditComparisonType.php](../app/Services/Audit/AuditComparisonType.php) | `fromTipoCampo()` | L25-35 | Mapeo código BD → estrategia interna (E→EXACT, S→SEMANTIC, etc.) | `[CONFIRMADO]` |
 | — | — | `getSemanticThreshold()` | L46-52 | Umbral de similitud por tipo de campo (S=0.82, default=0.90) | `[CONFIRMADO]` |
 | AuditFieldValueType | [AuditFieldValueType.php](../app/Services/Audit/AuditFieldValueType.php) | enum completo | L15-238 | 13 tipos de dato con rasgos (multi-valor, subset, token-sort, etc.) | `[CONFIRMADO]` |
 | AuditFindingResult | [AuditFindingResult.php](../app/Services/Audit/AuditFindingResult.php) | enum | L12-32 | 6 resultados: MATCH, MISMATCH, NOT_FOUND, SKIPPED, INCONCLUSIVE, REJECTED | `[CONFIRMADO]` |
 | AuditSeverity | [AuditSeverity.php](../app/Services/Audit/AuditSeverity.php) | enum | L13-30 | 3 niveles: HIGH, MEDIUM, LOW con pesos 10/5/1 | `[CONFIRMADO]` |
 | AuditFindingRules | [AuditFindingRules.php](../app/Services/Audit/AuditFindingRules.php) | clase | L1-549 | Normalización (fecha, NIT, auth_number, número), métricas, risk_score, tokenización | `[CONFIRMADO]` |
-| TextNormalization | [TextNormalization.php](../app/Services/Audit/TextNormalization.php) | clase | L1-285 | Normalización de texto, similitud (Levenshtein+Jaccard+similar_text), comparación de personas | `[CONFIRMADO]` |
-| IdentityDocNormalizer | [IdentityDocNormalizer.php](../app/Services/Audit/IdentityDocNormalizer.php) | clase | L1-175 | Normalización de documentos de identidad (alias RIPS/BDUA) | `[CONFIRMADO]` |
-| SemanticMatchJudge | [SemanticMatchJudge.php](../app/Services/Audit/SemanticMatchJudge.php) | `evaluate()` | L42-73 | Árbitro semántico con caché Redis 30d, 2 propósitos (producto, persona) | `[CONFIRMADO]` |
-| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](../app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-28 | Generador de prompts y schemas para Gemini Structured Output | `[CONFIRMADO]` |
-| FieldValueResolver | [FieldValueResolver.php](../app/Services/Audit/Pipeline/FieldValueResolver.php) | clase | L1-445 | Resolución de valores header/items, consolidación, ambigüedad | `[CONFIRMADO]` |
-| VisualCheckEvaluator | [VisualCheckEvaluator.php](../app/Services/Audit/Pipeline/VisualCheckEvaluator.php) | `evaluate()` | L60-122 | Evaluación de checks visuales (presencia/ausencia en documento) | `[CONFIRMADO]` |
+| TextNormalization | [TextNormalization.php](../app/Services/Audit/TextNormalization.php) | clase | L1-359 | Normalización de texto, similitud (Levenshtein+Jaccard+similar_text), comparación de personas | `[CONFIRMADO]` |
+| IdentityDocNormalizer | [IdentityDocNormalizer.php](../app/Services/Audit/IdentityDocNormalizer.php) | clase | L1-174 | Normalización de documentos de identidad (alias RIPS/BDUA) | `[CONFIRMADO]` |
+| SemanticMatchJudge | [SemanticMatchJudge.php](../app/Services/Audit/SemanticMatchJudge.php) | `evaluate()`, `evaluateBatch()` | L41-89 | Árbitro semántico con caché Redis 24 h, 2 propósitos (producto, persona); evaluación en lote para artículos | `[CONFIRMADO]` |
+| SemanticMatchPromptBuilder | [SemanticMatchPromptBuilder.php](../app/Services/Audit/SemanticMatchPromptBuilder.php) | `buildContract()` | L22-34 | Generador de prompts y schemas para Gemini Structured Output | `[CONFIRMADO]` |
+| FieldValueResolver | [FieldValueResolver.php](../app/Services/Audit/Pipeline/FieldValueResolver.php) | clase | L1-464 | Resolución de valores header/items, consolidación, ambigüedad | `[CONFIRMADO]` |
+| VisualCheckEvaluator | [VisualCheckEvaluator.php](../app/Services/Audit/Pipeline/VisualCheckEvaluator.php) | `evaluate()` | L60-126 | Evaluación de checks visuales (presencia/ausencia en documento) | `[CONFIRMADO]` |
 | InternalIntegrityEvaluator | [InternalIntegrityEvaluator.php](../app/Services/Audit/Pipeline/InternalIntegrityEvaluator.php) | `evaluate()` | L49-95 | Cross-check de consistencia interna en la fuente de verdad | `[CONFIRMADO]` |
 | DocumentQuality | [DocumentQuality.php](../app/Services/Audit/DocumentQuality.php) | enum | L16-38 | 3 calidades: legible, parcialmente_legible, ilegible | `[CONFIRMADO]` |
 
@@ -156,27 +157,27 @@ flowchart TD
 
 | ID | Regla | Evidencia | Clasificación |
 |---|---|---|---|
-| R-01 | Un campo con `tipoCampo=V` o `tipoCampo=I` se excluye de evaluación de datos. Solo V genera visual checks; I genera integrity checks. | [DocumentPolicyEngine.php:311-314](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L311-L314) | `[CONFIRMADO]` |
-| R-02 | Si `document_quality ≠ legible` y `docValue = null`, el hallazgo es `INCONCLUSIVE` con detalle explicativo. | [DocumentPolicyEngine.php:578-583](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L578-L583) | `[CONFIRMADO]` |
-| R-03 | Si FDV y documento son ambos null, el campo se `SKIPPED`. | [DocumentPolicyEngine.php:585-587](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L585-L587) | `[CONFIRMADO]` |
-| R-04 | Si `docValue = null` y `fdvValue ≠ null` (calidad legible), el resultado es `NOT_FOUND`. | [DocumentPolicyEngine.php:589-594](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L589-L594) | `[CONFIRMADO]` |
-| R-05 | Si `fdvValue = null` y `docValue ≠ null`, el campo se `SKIPPED` (no hay referencia para comparar). | [DocumentPolicyEngine.php:596-598](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L596-L598) | `[CONFIRMADO]` |
-| R-06 | Para `CODE`: la FDV debe ser subconjunto del set documental tokenizado. | [DocumentPolicyEngine.php:608-610](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L608-L610), [AuditFieldValueType.php:82-85](../app/Services/Audit/AuditFieldValueType.php#L82-L85) | `[CONFIRMADO]` |
-| R-07 | Para `PERSON_NAME` con comparación `SEMANTIC`: primero intenta token-sort match (tokens ordenados idénticos). | [DocumentPolicyEngine.php:612-616](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L612-L616) | `[CONFIRMADO]` |
-| R-08 | Comparación SEMANTIC usa cascada de 4 niveles: token-set match → substring → similitud ≥ umbral → Gemini fallback. | [DocumentPolicyEngine.php:892-949](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L892-L949) | `[CONFIRMADO]` |
+| R-01 | Un campo con `tipoCampo=V` o `tipoCampo=I` se excluye de evaluación de datos. Solo V genera visual checks; I genera integrity checks. | [DocumentPolicyEngine.php:274-277, 338-341](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L274-L341) | `[CONFIRMADO]` |
+| R-02 | Si `document_quality ≠ legible` y `docValue = null`, el hallazgo es `INCONCLUSIVE` con detalle explicativo. | [DocumentPolicyEngine.php:606-611](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L606-L611) | `[CONFIRMADO]` |
+| R-03 | Si FDV y documento son ambos null, el campo se `SKIPPED`. | [DocumentPolicyEngine.php:613-615](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L613-L615) | `[CONFIRMADO]` |
+| R-04 | Si `docValue = null` y `fdvValue ≠ null` (calidad legible), el resultado es `NOT_FOUND`. | [DocumentPolicyEngine.php:617-622](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L617-L622) | `[CONFIRMADO]` |
+| R-05 | Si `fdvValue = null` y `docValue ≠ null`, el campo se `SKIPPED` (no hay referencia para comparar). | [DocumentPolicyEngine.php:624-626](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L624-L626) | `[CONFIRMADO]` |
+| R-06 | Para `CODE`: la FDV debe ser subconjunto del set documental tokenizado. | [DocumentPolicyEngine.php:636-638](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L636-L638), [AuditFieldValueType.php:82-85](../app/Services/Audit/AuditFieldValueType.php#L82-L85) | `[CONFIRMADO]` |
+| R-07 | Para `PERSON_NAME` con comparación `SEMANTIC`: primero intenta token-sort match (tokens ordenados idénticos). | [DocumentPolicyEngine.php:640-644](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L640-L644) | `[CONFIRMADO]` |
+| R-08 | Comparación SEMANTIC usa cascada de 4 niveles: token-set match → substring → similitud ≥ umbral → Gemini fallback. Un `ARTICLE_NAME` incluido en `unmatched_articles` salta substring y similitud. | [DocumentPolicyEngine.php:1096-1147](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1096-L1147) | `[CONFIRMADO]` |
 | R-09 | Umbral de similitud: `S` (semántico) = 0.82; default = 0.90. | [AuditComparisonType.php:46-52](../app/Services/Audit/AuditComparisonType.php#L46-L52) | `[CONFIRMADO]` |
-| R-10 | Similitud compuesta = max(similar_text, 0.6×Levenshtein + 0.4×Jaccard). | [TextNormalization.php:244-266](../app/Services/Audit/TextNormalization.php#L244-L266) | `[CONFIRMADO]` |
+| R-10 | Similitud compuesta = max(similar_text, 0.6×Levenshtein + 0.4×Jaccard). | [TextNormalization.php:319-341](../app/Services/Audit/TextNormalization.php#L319-L341) | `[CONFIRMADO]` |
 | R-11 | Gemini fallback solo para `ARTICLE_NAME` y `PERSON_NAME`. | [AuditFieldValueType.php:103-107](../app/Services/Audit/AuditFieldValueType.php#L103-L107) | `[CONFIRMADO]` |
-| R-12 | BUSINESS + QUANTITY: `docNumber ≥ fdvNumber` → MATCH (sin factor); con factor: banda simétrica `±factorConv`. | [DocumentPolicyEngine.php:1013-1053](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1013-L1053) | `[CONFIRMADO]` |
-| R-13 | TRACE_TOKEN: comparación de conjuntos (FDV=Doc→MATCH; Doc⊂FDV→INCONCLUSIVE; Doc⊄FDV→MISMATCH). | [DocumentPolicyEngine.php:661-707](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L661-L707) | `[CONFIRMADO]` |
-| R-14 | ARTICLE_NAME: emparejamiento suryectivo N:1 en 3 fases (léxico directo → similitud → Gemini). | [DocumentPolicyEngine.php:760-857](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L760-L857) | `[CONFIRMADO]` |
-| R-15 | PRESENCE: verifica existencia bilateral sin comparar identidad de valores. 4 casos explícitos. | [DocumentPolicyEngine.php:1118-1176](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1118-L1176) | `[CONFIRMADO]` |
+| R-12 | BUSINESS + QUANTITY: `docNumber ≥ fdvNumber` → MATCH (sin factor); con factor: banda simétrica `±factorConv`. | [DocumentPolicyEngine.php:1221-1231, 1262-1269](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1221-L1269) | `[CONFIRMADO]` |
+| R-13 | TRACE_TOKEN: comparación de conjuntos (FDV=Doc→MATCH; Doc⊂FDV→INCONCLUSIVE; Doc⊄FDV→MISMATCH). | [DocumentPolicyEngine.php:702-735](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L702-L735) | `[CONFIRMADO]` |
+| R-14 | ARTICLE_NAME: emparejamiento suryectivo N:1 en 4 fases (léxico directo o contención → Jaccard de tokens ordenados ≥ 0.5 → similitud ≥ umbral → Gemini en una sola llamada por lote, con degradación a llamadas individuales si el lote falla). Los artículos documentales marcados como no coincidentes no participan en contención, Jaccard ni similitud. | [DocumentPolicyEngine.php:788-951](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L788-L951), [DocumentPolicyEngine.php:964-1039](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L964-L1039) | `[CONFIRMADO]` |
+| R-15 | PRESENCE: verifica existencia bilateral sin comparar identidad de valores. 4 casos explícitos. | [DocumentPolicyEngine.php:1334-1392](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1334-L1392) | `[CONFIRMADO]` |
 | R-16 | Severidad tiene 3 niveles con pesos de riesgo: alta=10, media=5, baja=1. | [AuditFindingRules.php:19-26](../app/Services/Audit/AuditFindingRules.php#L19-L26) | `[CONFIRMADO]` |
 | R-17 | Isomorphism `isFailure()`: MISMATCH, NOT_FOUND, INCONCLUSIVE, REJECTED → true. MATCH, SKIPPED → false. | [AuditFindingResult.php:24-30](../app/Services/Audit/AuditFindingResult.php#L24-L30) | `[CONFIRMADO]` |
-| R-18 | Derivación de veredicto: `∃ alta-fallo → manual_review`; `∃ no-alta-fallo → error`; default → `completed`. | [RulesEvaluationWorker.php:672-702](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L672-L702) | `[CONFIRMADO]` |
-| R-19 | Árbitro semántico para productos: exige 6 flags conservadores (`is_match ∧ same_clinical_use ∧ same_dimensions_or_dose ∧ same_material_or_technology ∧ presentation_compatible ∧ ¬unresolved_differences`). | [SemanticMatchJudge.php:249-261](../app/Services/Audit/SemanticMatchJudge.php#L249-L261) | `[CONFIRMADO]` |
-| R-20 | Árbitro semántico para personas: solo exige `is_match = true`. | [SemanticMatchJudge.php:251-253](../app/Services/Audit/SemanticMatchJudge.php#L251-L253) | `[CONFIRMADO]` |
-| R-21 | Caché del árbitro: Redis 30d, namespace versionado, hash SHA-256 de (expected, actual, purpose, context). | [SemanticMatchJudge.php:19-88](../app/Services/Audit/SemanticMatchJudge.php#L19-L88) | `[CONFIRMADO]` |
+| R-18 | Derivación de veredicto: `∃ alta-fallo → manual_review`; `∃ no-alta-fallo → error`; default → `completed`. | [RulesEvaluationWorker.php:772-802](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L772-L802) | `[CONFIRMADO]` |
+| R-19 | Árbitro semántico para productos: exige 6 flags conservadores (`is_match ∧ same_clinical_use ∧ same_dimensions_or_dose ∧ same_material_or_technology ∧ presentation_compatible ∧ ¬unresolved_differences`). | [SemanticMatchJudge.php:262-274](../app/Services/Audit/SemanticMatchJudge.php#L262-L274) | `[CONFIRMADO]` |
+| R-20 | Árbitro semántico para personas: solo exige `is_match = true`. | [SemanticMatchJudge.php:264-266](../app/Services/Audit/SemanticMatchJudge.php#L264-L266) | `[CONFIRMADO]` |
+| R-21 | Caché del árbitro: Redis con TTL de 24 h (86400 s); namespace versionado por propósito (`...:v6:product`, `...:v3:person`); clave = SHA-256 de (expected, actual) en minúsculas y ordenados, más el contexto documental si existe. Los resultados fallidos no se cachean. | [SemanticMatchJudge.php:18-20, 65-68, 91-104, 296-304](../app/Services/Audit/SemanticMatchJudge.php#L18-L104) | `[CONFIRMADO]` |
 | R-22 | INTERNAL: cross-check entre columnas de la fuente de verdad. Mapa de reglas estático con template de detalle. | [InternalIntegrityEvaluator.php:35-40](../app/Services/Audit/Pipeline/InternalIntegrityEvaluator.php#L35-L40) | `[CONFIRMADO]` |
 | R-23 | Normalización de fecha soporta: ISO, numérica separada, narrativa en español con meses abreviados. | [AuditFindingRules.php:215-429](../app/Services/Audit/AuditFindingRules.php#L215-L429) | `[CONFIRMADO]` |
 | R-24 | Normalización de NIT: elimina dígito de verificación (`-X`) y separadores de miles. | [AuditFindingRules.php:174-181](../app/Services/Audit/AuditFindingRules.php#L174-L181) | `[CONFIRMADO]` |
@@ -184,15 +185,15 @@ flowchart TD
 
 ### 3.4 Casos Borde y Excepciones Documentados
 
-1. **Ambigüedad documental**: Si el documento extraído tiene múltiples valores distintos para un campo que no permite multi-valor, se resuelve como `INCONCLUSIVE` sin comparar. [FieldValueResolver.php:219-222](../app/Services/Audit/Pipeline/FieldValueResolver.php#L219-L222). `[CONFIRMADO]`
+1. **Ambigüedad documental**: Si el documento extraído tiene múltiples valores distintos para un campo que no permite multi-valor, se resuelve como `INCONCLUSIVE` sin comparar. [FieldValueResolver.php:278-285, 362-370](../app/Services/Audit/Pipeline/FieldValueResolver.php#L278-L370), [DocumentPolicyEngine.php:559-575](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L559-L575). `[CONFIRMADO]`
 
-2. **Segmentación incompleta de items**: Si la extracción reporta `ITEM_SEGMENTATION_INCOMPLETE` y el resultado no es MATCH, se degrada a `INCONCLUSIVE` con detalle contextual. [DocumentPolicyEngine.php:345-370](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L345-L370). `[CONFIRMADO]`
+2. **Segmentación incompleta de items**: Si la extracción reporta `ITEM_SEGMENTATION_INCOMPLETE` y el resultado no es MATCH, se degrada a `INCONCLUSIVE` con detalle contextual. [DocumentPolicyEngine.php:370-424](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L370-L424). `[CONFIRMADO]`
 
-3. **Gemini fallback no disponible**: Si el `SemanticMatchJudge` no está inyectado (null), la cascada semántica termina en `INCONCLUSIVE` con detalle de diferencia textual. [DocumentPolicyEngine.php:940-949](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L940-L949). `[CONFIRMADO]`
+3. **Gemini fallback no disponible**: Si el `SemanticMatchJudge` no está inyectado (null), la cascada semántica termina en `INCONCLUSIVE` con detalle de diferencia textual. [DocumentPolicyEngine.php:1149-1158](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1149-L1158). `[CONFIRMADO]`
 
-4. **BUSINESS con no-numérico**: Si un valor de negocio no parsea como número, retorna `INCONCLUSIVE`. [DocumentPolicyEngine.php:997-1003](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L997-L1003). `[CONFIRMADO]`
+4. **BUSINESS con no-numérico**: Si un valor de negocio no parsea como número, retorna `INCONCLUSIVE`. [DocumentPolicyEngine.php:1213-1219](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1213-L1219). `[CONFIRMADO]`
 
-5. **Gemini devuelve `is_match=true` pero flags conservadores fallan**: Se construye resultado `is_match=false` con reasoning prefijado por "Evidencia semántica insuficiente:". [SemanticMatchJudge.php:275-277](../app/Services/Audit/SemanticMatchJudge.php#L275-L277). `[CONFIRMADO]`
+5. **Gemini devuelve `is_match=true` pero flags conservadores fallan**: Se construye resultado `is_match=false` con reasoning prefijado por "Evidencia semántica insuficiente:". [SemanticMatchJudge.php:288-290](../app/Services/Audit/SemanticMatchJudge.php#L288-L290). `[CONFIRMADO]`
 
 ---
 
@@ -1189,18 +1190,18 @@ stateDiagram-v2
 
 | ID | Supuesto | Severidad | Justificación | Ruta de Validación |
 |---|---|:---:|---|---|
-| A-01 | La banda de tolerancia TOLERANCE siempre usa ±1 factor como default y el factor se resuelve de los items de la fuente de verdad. | S2 | Observado en [DocumentPolicyEngine.php:1005-1016](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1005-L1016). Puede requerir configuración por tenant. | Revisión con stakeholders |
-| A-02 | `ARTICLE_NAME` sin emparejamiento produce siempre INCONCLUSIVE (no MISMATCH), lo cual es intencional para evitar falsos negativos ante extracciones parciales. | S1 | [DocumentPolicyEngine.php:846-857](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L846-L857) | Confirmación de política de negocio |
+| A-01 | La banda de tolerancia TOLERANCE siempre usa ±1 factor como default y el factor se resuelve de los items de la fuente de verdad. | S2 | Observado en [DocumentPolicyEngine.php:1221-1231](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L1221-L1231). Puede requerir configuración por tenant. | Revisión con stakeholders |
+| A-02 | `ARTICLE_NAME` sin emparejamiento produce siempre INCONCLUSIVE (no MISMATCH), lo cual es intencional para evitar falsos negativos ante extracciones parciales. | S1 | [DocumentPolicyEngine.php:925-951](../app/Services/Audit/Pipeline/DocumentPolicyEngine.php#L925-L951) | Confirmación de política de negocio |
 | A-03 | Los pesos de risk_score (10/5/1) son fijos y no configurables por tenant. | S1 | [AuditFindingRules.php:19-26](../app/Services/Audit/AuditFindingRules.php#L19-L26) | Evaluar si DOC-06 necesita override |
-| A-04 | Substring match bidireccional (`A⊂B ∨ B⊂A`) es correcto y no genera falsos positivos para la línea base. | S2 | [TextNormalization.php:234-242](../app/Services/Audit/TextNormalization.php#L234-L242) | Evaluación con dataset dorado (DOC-07) |
-| A-05 | El árbitro semántico conservador para productos (6 flags) es la política correcta para el dominio general. | S1 | [SemanticMatchJudge.php:249-261](../app/Services/Audit/SemanticMatchJudge.php#L249-L261). En otros dominios podría simplificarse. | Validar con DOC-06 como primer perfil |
+| A-04 | Substring match bidireccional (`A⊂B ∨ B⊂A`) es correcto y no genera falsos positivos para la línea base. | S2 | [TextNormalization.php:309-317](../app/Services/Audit/TextNormalization.php#L309-L317) | Evaluación con dataset dorado (DOC-07) |
+| A-05 | El árbitro semántico conservador para productos (6 flags) es la política correcta para el dominio general. | S1 | [SemanticMatchJudge.php:262-274](../app/Services/Audit/SemanticMatchJudge.php#L262-L274). En otros dominios podría simplificarse. | Validar con DOC-06 como primer perfil |
 
 ### 6.4 Desconocidos No Críticos
 
 | ID | Hecho | Motivo | Clasificación |
 |---|---|---|:---:|
 | U-01 | ¿El wildcard `?` en PersonNameTokenMatch es usado por algún pipeline de extracción o es feature latente? | Solo se observa su implementación, no un productor de `?`. | `[DESCONOCIDO]` |
-| U-02 | ¿El scoring de `findingPriority()` se usa más allá de `resolveFailedDocument()`? | Solo encontrado en [RulesEvaluationWorker.php:748](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L748). | `[DESCONOCIDO]` |
+| U-02 | ¿El scoring de `findingPriority()` se usa más allá de `resolveFailedDocument()`? | Solo encontrado en [RulesEvaluationWorker.php:848](../app/Services/Audit/Pipeline/RulesEvaluationWorker.php#L848) (búsqueda en `app/` del 2026-11-16: único uso fuera de su definición en `AuditFindingRules.php:28`). | `[DESCONOCIDO]` |
 | U-03 | ¿El contrato conservador del árbitro (6 flags) aplica a todos los dominios o solo al farmacéutico? | Implementado genéricamente pero con semántica farmacéutica. | `[DESCONOCIDO]` |
 | U-04 | ¿La métrica `risk_score` tiene consumidores downstream (dashboards, alertas)? | Se calcula y persiste pero no se encontraron queries que la usen para decisiones automáticas. | `[DESCONOCIDO]` |
 
