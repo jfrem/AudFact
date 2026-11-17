@@ -508,7 +508,10 @@ final class RulesEvaluationWorker extends AuditEventConsumer
             );
         }
 
-        $detail = "Documento rechazado por validación de integridad: {$reason}";
+        $maxPages = $reason === DocumentRejectionReason::DOCUMENT_EXCEEDS_PAGE_LIMIT
+            ? DocumentPdfRasterizer::resolveMaxPagesFromEnv()
+            : null;
+        $detail = DocumentRejectionReason::describeForAuditor($reason, $documentName, $maxPages);
         $finding = [
             'severidad'         => AuditSeverity::HIGH->value,
             'campo'             => 'INTEGRIDAD_DOCUMENTO',
@@ -536,7 +539,7 @@ final class RulesEvaluationWorker extends AuditEventConsumer
                 'payload'      => AuditFindingRules::buildRejectionPayload($facNro, [
                     [
                         'Codigo' => 'INTEGRIDAD',
-                        'Descripcion' => "Documento no procesable: {$reason}"
+                        'Descripcion' => $detail,
                     ]
                 ]),
             ],

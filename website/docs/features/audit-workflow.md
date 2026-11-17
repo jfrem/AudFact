@@ -65,7 +65,7 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |
 | `DocumentPolicyEngine` | Compara valores resueltos por `TipoCampo`/`TipoDato` y emite hallazgos canonicos |
-| `RulesEvaluationWorker` | Evalúa reglas y convierte contratos cerrados de contenido o `DOCUMENT_MAPPING`; mapping produce código `MAP`, severidad alta y resultado `RECHAZADO` |
+| `RulesEvaluationWorker` | Evalúa reglas y convierte contratos cerrados de contenido (`DocumentRejectionReason::describeForAuditor()`) o `DOCUMENT_MAPPING`; mapping produce código `MAP`, severidad alta y resultado `RECHAZADO` |
 | `AuditPersistenceQueue` | Deduplica `rules_evaluated`, fija slots por job y mantiene un turno activo por slot |
 | `AuditPersistenceWorker` | Consume `audit.persistence.priority` y `audit.persistence.batch`, valida, persiste en SQL, cierra Redis, libera el turno y publica eventos terminales |
 | `AuditStateStore` | Estado Redis por auditoría: contadores, timings, documentos y outcome |

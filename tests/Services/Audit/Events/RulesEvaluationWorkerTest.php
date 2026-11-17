@@ -14,6 +14,7 @@ use App\Services\Audit\Pipeline\DocumentAuditOrchestrator;
 use App\Services\Audit\Pipeline\DocumentMappingRejectionReason;
 use App\Services\Audit\Pipeline\DocumentRejectionReason;
 use App\Services\Audit\Pipeline\RulesEvaluationWorker;
+use Core\Env;
 use Core\RedisClient;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -159,6 +160,64 @@ final class RulesEvaluationWorkerTest extends TestCase
             DocumentRejectionReason::UNKNOWN_FILE_SIGNATURE,
             $payload['document_decisions'][0]['rejection_reason']
         );
+        $expectedDetail = DocumentRejectionReason::describeForAuditor(
+            DocumentRejectionReason::UNKNOWN_FILE_SIGNATURE,
+            'FORMULA MEDICA'
+        );
+        $this->assertSame($expectedDetail, $finding['detalle']);
+        $this->assertSame(
+            $expectedDetail,
+            $payload['document_decisions'][0]['payload']['hallazgos'][0]['Descripcion'] ?? null
+        );
+    }
+
+    public function testPageLimitRejectionProducesClearAuditorMessageInFindingAndDecision(): void
+    {
+        $previousMaxPages = Env::get('PDF_MAX_PAGES');
+        Env::set('PDF_MAX_PAGES', '15');
+
+        try {
+            $auditId = AuditEvent::uuidV4();
+            $documentId = AuditEvent::uuidV4();
+            $publisher = new RulesPublisher();
+            $queue = new RulesPersistenceQueue();
+            $store = new RulesRejectedStateStore($auditId, $documentId);
+
+            $worker = new RulesEvaluationWorker(
+                stateStore: $store,
+                policyEngine: new StubDocumentPolicyEngine(['unexpected' => true]),
+                redis: $this->createMock(RedisClient::class),
+                publisher: $publisher,
+                consumerName: 'policy-test',
+                persistenceQueue: $queue
+            );
+
+            $worker->processEvent(AuditEvent::create(
+                eventType: AuditEvent::TYPE_DOCUMENT_REJECTED,
+                auditId: $auditId,
+                documentId: $documentId,
+                payload: [
+                    'document_type' => 'FORMULA MEDICA',
+                    'rejection_class' => DocumentRejectionReason::REJECTION_CLASS,
+                    'rejection_origin' => DocumentExtractionWorker::class,
+                    'rejection_reason' => DocumentRejectionReason::DOCUMENT_EXCEEDS_PAGE_LIMIT,
+                ]
+            ));
+
+            $this->assertCount(1, $queue->enqueued);
+            $payload = $queue->enqueued[0]->payload;
+            $finding = $payload['hallazgos']['items'][0];
+            $decision = $payload['document_decisions'][0];
+
+            $this->assertSame('INTEGRIDAD_DOCUMENTO', $finding['campo']);
+            $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $decision['rejection_reason']);
+            $this->assertStringContainsString("El PDF adjunto de 'FORMULA MEDICA' supera el límite máximo permitido de 15 páginas", $finding['detalle']);
+            $this->assertStringContainsString('historia clínica o epicrisis', $finding['detalle']);
+            $this->assertStringNotContainsString('DOCUMENT_EXCEEDS_PAGE_LIMIT', $finding['detalle']);
+            $this->assertSame($finding['detalle'], $decision['payload']['hallazgos'][0]['Descripcion'] ?? null);
+        } finally {
+            Env::set('PDF_MAX_PAGES', $previousMaxPages === null ? null : (string) $previousMaxPages);
+        }
     }
 
     public function testMappingRejectionPublishesMapFindingAndPreservesTraceability(): void

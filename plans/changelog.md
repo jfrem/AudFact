@@ -1,5 +1,19 @@
 # Changelog AudFact
 
+## [2026-11-17] — Mensajes claros y accionables para el auditor humano en rechazos de integridad documental (`SDD-DOC-REJECTION-MESSAGES-001`)
+
+- **Problema y Motivación**:
+  - Al consultar el resultado de auditorías rechazadas preventivamente como `X07261005323`, `findings[].detalle` mostraba `"Documento rechazado por validación de integridad: DOCUMENT_EXCEEDS_PAGE_LIMIT"` y `documentDecisions[].payload.hallazgos[0].Descripcion` mostraba `"Documento no procesable: DOCUMENT_EXCEEDS_PAGE_LIMIT"`, obligando al auditor humano a descifrar códigos internos en inglés.
+- **Componentes modificados**:
+  - `app/Services/Audit/Pipeline/DocumentRejectionReason.php`: unificada la fuente de verdad en `AUDITOR_MESSAGES` (eliminando duplicación entre `ALLOWED` y `match` y evitando APIs públicas solo-test) junto con `describeForAuditor(string $reason, string $documentName, ?int $maxPages = null): string` usando `strtr()` seguro para las 14 razones con explicaciones claras y accionables en español (incluyendo el límite vigente `PDF_MAX_PAGES` para `DOCUMENT_EXCEEDS_PAGE_LIMIT`), más fallback legible ante códigos desconocidos.
+  - `app/Services/Audit/Pipeline/RulesEvaluationWorker.php`: `buildContentRejectedPolicyResult()` resuelve un único `$detail` mediante `DocumentRejectionReason::describeForAuditor()` (pasando `DocumentPdfRasterizer::resolveMaxPagesFromEnv()` cuando aplica `DOCUMENT_EXCEEDS_PAGE_LIMIT`) y lo asigna consistentemente a `finding['detalle']` y `document_decision['payload']['hallazgos'][0]['Descripcion']`, preservando el código técnico en `document_decision['rejection_reason']`.
+  - Documentación y skills (`audfact-docs-sync`): actualizados `plans/architecture.md`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md` y `.agent/skills/audfact-audit-gemini/SKILL.md`.
+- **Pruebas y Verificación**:
+  - `tests/Services/Audit/Pipeline/DocumentRejectionReasonTest.php`: validación por reflexión (`ReflectionClassConstant::IS_PUBLIC`) sobre las 14 constantes declaradas, límite configurado/`null`, `%` literal en nombre de documento y fallback.
+  - `tests/Services/Audit/Events/RulesEvaluationWorkerTest.php`: verificada coherencia `detalle === Descripcion`, propagación dinámica de `PDF_MAX_PAGES` vía `Env::set()` con restauración en `finally` y mensaje claro en `UNKNOWN_FILE_SIGNATURE` y `DOCUMENT_EXCEEDS_PAGE_LIMIT` (`23 tests, 238 aserciones`, OK).
+  - Suite completa PHPUnit (`Unit`): **1,134 tests, 5,851 aserciones, 78 skipped, 0 errores, 0 fallos**.
+  - Validación de skills (`validate-skills.mjs`): `PASS (24 skills, 9 bundles)`.
+
 ## [2026-11-17] — Retiro de `AUDIT_RESPONSE_IA_DIR` y aislamiento solo-desarrollo de `AUDIT_RESPONSE_IA_ENABLED` (`SDD-RESPONSE-IA-ENV-CLEANUP-001`)
 
 - **Política aplicada (`/clean-rebuild-policy`)**:

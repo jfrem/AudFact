@@ -164,7 +164,7 @@ Componentes de dominio compartidos que no pertenecen al ciclo de vida de un work
 | `DocumentAttachmentMatchResult.php` | DTO readonly que impide `logical_doc_id` o `attachment_id` duplicados en matches |
 | `DocumentMappingRejectionReason.php` | Taxonomía cerrada de rechazos `DOCUMENT_MAPPING`: missing, ambiguous, no content y reused |
 | `AttachmentDownloadWorker.php` | Worker: consume `audit.documents.priority` y `audit.documents.batch`, descarga y almacena el adjunto en Redis; publica `document_downloaded` en el stream de origen y propaga cualquier fallo técnico sin crear decisiones documentales |
-| `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` (incluyendo `DOCUMENT_EXCEEDS_PAGE_LIMIT`) |
+| `DocumentRejectionReason.php` | Allowlist cerrada de razones de contenido válidas para `document_rejected` (incluyendo `DOCUMENT_EXCEEDS_PAGE_LIMIT`) y `describeForAuditor()` con mensajes claros en español |
 | `DocumentIntegrityValidator.php` | Gate de integridad estructural (magic bytes, tamaño y MIME) para validar documentos pre-Gemini |
 | `DocumentPdfRasterizer.php` | Renderizador determinista PDF a JPEG (200 DPI) con Ghostscript y fallback Poppler; doble capa contra exceso de páginas (`PDF_MAX_PAGES`, default `10`, rango `1-100`): sonda rápida `pdfinfo` (`3s`) y rasterización acotada `maxPages + 1`, emitiendo `DOCUMENT_EXCEEDS_PAGE_LIMIT` además de diagnósticos de PDF sin páginas/corrupto, nunca ante errores operativos |
 | `RasterizationProcessResult.php`, `PdfContentFailure.php`, `RasterizationFailureException.php` | Clasificación interna de diagnósticos de parser PDF para separar contenido no procesable de fallos técnicos sin exponer salida de binarios |

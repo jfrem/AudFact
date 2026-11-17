@@ -1,6 +1,10 @@
 ## [2026-11-17]
 
 ### fix / refactor / ops / docs
+- **Mensajes Claros para el Auditor Humano en Rechazos de Integridad (`SDD-DOC-REJECTION-MESSAGES-001`)**:
+  - `DocumentRejectionReason::describeForAuditor()` centraliza explicaciones claras y accionables en español para las 14 razones de rechazo de contenido (`ALLOWED`), indicando el límite activo `PDF_MAX_PAGES` en `DOCUMENT_EXCEEDS_PAGE_LIMIT` (p. ej. guía para revisar anexos como historia clínica o epicrisis).
+  - `RulesEvaluationWorker::buildContentRejectedPolicyResult()` unifica `findings[].detalle` y `document_decisions[].payload.hallazgos[0].Descripcion` con dicho texto legible manteniendo `rejection_reason` técnico intacto para observabilidad.
+  - Certificación PHPUnit posterior: **1,134 pruebas, 5,851 aserciones, 78 omitidas, 0 fallos**.
 - **Rechazo Preventivo por Límite de Páginas en PDFs (`SDD-PAGE-LIMIT-REJECTION-001`)**:
   - **Doble Capa Anti-DoS (`DocumentPdfRasterizer.php`)**: Retiro de constante legacy `MAX_PAGES = 50`; nuevo límite configurable `PDF_MAX_PAGES` (default `10`, rango `1-100`, clamping vía `normalizeMaxPages()`), sonda rápida `pdfinfo` (`DEFAULT_PROBE_TIMEOUT_SECONDS = 3`s, `bypass_shell` en Windows, limpieza garantizada por `try/finally`) y rasterización acotada (`maxPages + 1`) con `pdftoppm`/Ghostscript.
   - **Contrato Tipado & Caché Particionada (`PdfContentFailure`, `DocumentRejectionReason`, `ExtractionCacheManager`, `DocumentExtractionWorker`)**: Nuevo motivo `DOCUMENT_EXCEEDS_PAGE_LIMIT` (fluye a `document_rejected` → `manual_review` sin saturar `audit.dlq`), partición Redis `:maxp:{maxPages}` con envelope obligatorio `['extracted', 'page_count']` y guarda única `canReplayStoredExtraction()`.
