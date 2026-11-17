@@ -270,7 +270,7 @@ El flujo automatizado vive en:
 
 - **Xdebug**: Condicional por `ENABLE_XDEBUG` en el build de `docker/Dockerfile`. Produccion publica imagenes con `ENABLE_XDEBUG=0`.
 - **Frontend**: El contenedor Next.js escucha en `3000`, pero el host lo publica en `${AUDFACT_FRONTEND_HOST_PORT:-3100}` para evitar colisiones con otros proyectos LAN.
-- **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. `responseIA` no tiene volumen dedicado y solo se escribe en desarrollo bajo `AUDIT_RESPONSE_IA_DIR`.
+- **Volúmenes**: En producción se monta `./logs:/var/www/html/logs`; el código vive dentro de la imagen, no en mounts del host. `responseIA` no tiene volumen dedicado y solo se escribe en `logs/responseIA` cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1`.
 - **Gemini**: `GEMINI_API_KEY` debe estar vigente en GitHub Environment `production`; una key expirada provoca `400 API key expired` en `worker-extraction` y envía eventos a DLQ.
 - No editar archivos dentro del contenedor directamente; usar el mount de volumen para logs y el rebuild para código
 - **PowerShell + WSL**: Siempre envolver cadenas de comandos Docker en `wsl bash -c "..."` para evitar que `&&` rompa la cadena entre shells

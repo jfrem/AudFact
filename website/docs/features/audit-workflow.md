@@ -58,9 +58,9 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 | `DocumentExtractionContractBuilder` | Construye function declarations Gemini dinámicas desde `audit-config` |
 | `AttachmentDownloadWorker` | Descarga adjuntos, valida transferencia completa, admite caché global si cabe y publica referencias/hash; propaga fallos técnicos |
 | `AuditDocumentCache` / `AuditDocumentInput` | Caché global acotada, recuperación desde origen durante extracción y verificación del mismo SHA256 de base64 |
-| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, usa cache por `document_hash`, invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
+| `DocumentExtractionWorker` | Consume `document_downloaded`, valida integridad, alinea cache Redis por `:maxp:{maxPages}` / `page_count` (`canReplayStoredExtraction()`), invoca Gemini (con política de recuperación en 3 fases) y produce exclusivamente rechazos de contenido |
 | `DocumentIntegrityValidator` | Rechaza documentos vacíos, corruptos, con MIME inconsistente o no soportados antes de Gemini |
-| `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI) con Ghostscript y fallback Poppler; solo diagnósticos reconocidos de PDF sin páginas/corrupto generan rechazo documental tipado, mientras los fallos operativos siguen siendo técnicos |
+| `DocumentPdfRasterizer` | Pre-rasteriza PDFs a imágenes JPEG (200 DPI) con Ghostscript y fallback Poppler; aplica doble capa por `PDF_MAX_PAGES` (default `10`, rango `1-100`) mediante sonda rápida `pdfinfo` (`3s`) y rasterización acotada `maxPages + 1`, emitiendo rechazo documental tipado `DOCUMENT_EXCEEDS_PAGE_LIMIT` además de PDF sin páginas/corrupto, mientras los fallos operativos siguen siendo técnicos |
 | `ExtractionPromptBuilder` | Construye prompts estructurados y deterministas para Gemini |
 | `DocumentNormalizer` | Normaliza evidencia extraída de forma determinística |
 | `FieldValueResolver` / `ResolvedAuditValue` | Resuelve FDV y documento con un contrato comun de valores escalares, sets, sumatorias y ambiguedad |

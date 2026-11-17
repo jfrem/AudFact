@@ -1,5 +1,52 @@
 # Changelog AudFact
 
+## [2026-11-17] — Retiro de `AUDIT_RESPONSE_IA_DIR` y aislamiento solo-desarrollo de `AUDIT_RESPONSE_IA_ENABLED` (`SDD-RESPONSE-IA-ENV-CLEANUP-001`)
+
+- **Política aplicada (`/clean-rebuild-policy`)**:
+  - **Eliminación de `AUDIT_RESPONSE_IA_DIR`**: variable de entorno obsoleta sin consumidores productivos (`ResponseIADiskStore` aplica hard-deny cuando `APP_ENV !== 'development'` y ya resuelve `/var/www/html/logs/responseIA` en Docker o `logs/responseIA` en Windows local). En GitHub Environment `production` había quedado incluso almacenada con un path corrupto de MSYS.
+  - **Aislamiento solo-desarrollo de `AUDIT_RESPONSE_IA_ENABLED`**: se conserva como interruptor local en desarrollo (`APP_ENV=development`), pero se excluye del flujo de despliegue productivo.
+- **Componentes modificados**:
+  - `app/Services/Audit/ResponseIADiskStore.php`: eliminadas `ENV_DIR`, `DEFAULT_BASE_DIR`, la bifurcación por `/var/www/html` y la lectura `Env::get('AUDIT_RESPONSE_IA_DIR')`; `resolveDefaultBaseDir()` resuelve siempre `dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'responseIA'` (equivalente a `Core\Logger`), manteniendo `construct(?string $baseDir = null)` y el hard-deny en `APP_ENV !== 'development'`.
+  - `.env.example` y `.env`: eliminada `AUDIT_RESPONSE_IA_DIR` y documentado que `AUDIT_RESPONSE_IA_ENABLED` aplica únicamente con `APP_ENV=development`.
+  - `.github/workflows/deploy-production.yml`: retiradas `AUDIT_RESPONSE_IA_ENABLED` y `AUDIT_RESPONSE_IA_DIR` de `env:` y de `write_env_var`.
+  - `scripts/sync-github-production-env.sh`: agregada lista `DEV_ONLY_KEYS=(AUDIT_RESPONSE_IA_ENABLED)` para omitirla automáticamente en sincronizaciones y generación de `.env.production` sin romper la paridad `.env` ↔ `.env.example`.
+  - `AGENTS.md`, `README.md`, `CHANGELOG.md`, `plans/architecture.md`, `plans/architecture-executive-report.md`, `plans/docker-operations.md`, `plans/deployment-and-ci.md`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-runtime-docker/SKILL.md`: sincronizados sin `AUDIT_RESPONSE_IA_DIR` y con el contrato actualizado de `PDF_MAX_PAGES` (`DOCUMENT_EXCEEDS_PAGE_LIMIT`, sonda `pdfinfo` y partición Redis `:maxp:{maxPages}`).
+  - GitHub Environment `production`: verificado el retiro remoto de `AUDIT_RESPONSE_IA_DIR` y `AUDIT_RESPONSE_IA_ENABLED`.
+- **Pruebas y Verificación**:
+  - `tests/Services/Audit/ResponseIADiskStoreTest.php` y `tests/Services/Audit/GeminiGatewayTest.php`: migrados a inyección directa por constructor (`new ResponseIADiskStore($dir)`), sin mutar variables globales de ruta; añadida prueba `testProductionNeverPersistsWhenConstructedWithDefaults()`.
+  - Suite completa PHPUnit (`Unit`): **1,130 tests, 5,756 aserciones, 78 skipped, 0 errores, 0 fallos**.
+  - Validación de skills (`validate-skills.mjs`): `PASS (24 skills, 9 bundles)`.
+  - Verificación de contrato de entorno (`Env::get`/`getenv` vs `.env.example`): `0` variables faltantes.
+  - Compilación del portal de documentación Docusaurus (`cd website && npm run build`): ejecutada y verificada en verde tras la sincronización documental.
+
+## [2026-11-17] — Rechazo preventivo por límite de páginas en adjuntos PDF y blindaje de rasterización (SDD-PAGE-LIMIT-REJECTION-001)
+
+- **Problema y Causa Raíz (Dispensas X07261005323, X07261007282, U98261100047, X07260907393, X07261100143)**:
+  - En el lote batch `dd5de84b-6d7f-46b6-8310-40c62bd871fc` en producción, se presentaron fórmulas médicas anómalas de 40 a 80+ páginas (historias clínicas y epicrisis anexas indebidamente como soporte).
+  - El límite duro interno anterior `DocumentPdfRasterizer::MAX_PAGES = 50` lanzaba una `RuntimeException` no tipada al superar 50 páginas.
+  - Al no estar capturada como no conformidad documental en `DocumentExtractionWorker`, agotaba los 3 reintentos del stream Redis, precipitaba la auditoría a la Dead Letter Queue (`audit.dlq`) y la marcaba con `status: failed`, interrumpiendo el flujo operativo en vez de clasificarla para revisión humana con no conformidad.
+- **Arquitectura de Doble Capa y Prevención Anti-DoS**:
+  - `DocumentPdfRasterizer.php`:
+    - Retirada la constante obsoleta `MAX_PAGES = 50` (sin consumidores verificables) y reemplazados los literales mágicos por constantes explícitas: `DEFAULT_MAX_PAGES = 10`, `MIN_ALLOWED_PAGES = 1`, `MAX_ALLOWED_PAGES = 100`, `DEFAULT_PROBE_TIMEOUT_SECONDS = 3` y `PROBE_POLL_INTERVAL_US = 5000`.
+    - Métodos `resolveMaxPagesFromEnv()` (vía `Core\Env::get()` sin bug falsy con `"0"`, y regex estricta `/^[0-9]+$/D`) y `normalizeMaxPages()` compartido para clamping determinista `[1, 100]` (negativos → default `10`).
+    - **Capa 1 (Sonda Rápida Poppler)**: `probePageCountWithPdfinfo()` ejecuta `pdfinfo` mediante `executePdfinfoProcess()` con timeout multiplataforma de 3 segundos, `bypass_shell` en Windows (`DIRECTORY_SEPARATOR === '\\'`), retención del código de salida y liberación única garantizada por `try/finally`. Si detecta `Pages: > maxPages`, lanza inmediatamente `RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT)` en 5-10 ms sin tocar disco ni rasterizar. Si `pdfinfo` no está instalado, falla o se agota el timeout, degrada silenciosamente a `null`.
+    - **Capa 2 (Rasterización Acotada)**: Invocación de `pdftoppm` con `-f 1 -l (maxPages + 1)` o Ghostscript con `-dFirstPage=1 -dLastPage=(maxPages + 1)`. Si la cantidad de imágenes generadas supera `maxPages`, limpia de inmediato los archivos temporales y lanza `RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT)`, previniendo la rasterización de decenas de páginas irrelevantes. Eliminado bloque `catch` redundante en `rasterize()`.
+  - `PdfContentFailure.php`: caso enum `EXCEEDS_PAGE_LIMIT = 'DOCUMENT_EXCEEDS_PAGE_LIMIT'`.
+  - `DocumentRejectionReason.php`: nueva constante `DOCUMENT_EXCEEDS_PAGE_LIMIT = 'DOCUMENT_EXCEEDS_PAGE_LIMIT'`, registrada en `ALLOWED`.
+  - `RasterizationProcessResult.php`: getter público `output(): string`.
+  - `ExtractionCacheManager.php`: clave de caché Redis `:maxp:{$maxPages}`, normalización compartida de `maxPages` vía `DocumentPdfRasterizer::normalizeMaxPages()` en constructor y envelope obligatorio `['extracted' => ..., 'page_count' => int]`. Invalida automáticamente entradas legacy sin `page_count` o que excedan el límite configurado.
+  - `DocumentExtractionWorker.php`: alinea `$cacheManager` con `$this->pdfRasterizer->getMaxPages()` en constructor, extrae la guarda única `canReplayStoredExtraction()` (reutilizada en `prepareTask()` y `processEvent()` evitando duplicación) y captura `RasterizationFailureException` emitiendo `AuditEvent::TYPE_DOCUMENT_REJECTED` con motivo `DOCUMENT_EXCEEDS_PAGE_LIMIT`.
+  - Flujo downstream: `RulesEvaluationWorker` procesa el rechazo con severidad `alta`, culminando en `dbo.AudDispEst` con `EstadoDetallado = manual_review`, `EstAud = 0`, `RequiereRevisionHumana = 1` y hallazgo descriptivo de no conformidad, sin arrojar excepción no controlada ni enviar a DLQ.
+- **Configuración y Despliegue**:
+  - `.env.example` y `.env`: documentada variable `PDF_MAX_PAGES=10`.
+  - `AGENTS.md`: registrada variable en el Catálogo de Variables de Entorno.
+  - `.github/workflows/deploy-production.yml`: mapeada `PDF_MAX_PAGES: ${{ vars.PDF_MAX_PAGES }}` con fallback determinista `${PDF_MAX_PAGES:-10}`.
+- **Pruebas y Verificación (TDD)**:
+  - Nuevas suites unitarias: `tests/Services/Audit/Pipeline/DocumentRejectionReasonTest.php` y `tests/Services/Audit/Pipeline/ExtractionCacheManagerTest.php` (incluyendo clamping de constructor).
+  - Actualización exhaustiva de `tests/Services/Audit/Pipeline/DocumentPdfRasterizerTest.php` (aislamiento de dobles, pruebas de clamping, `Core\Env` con `"0"` falsy, timeout de 3s en sonda y detección acotada).
+  - Migración de fixtures de caché y nuevas pruebas en `tests/Services/Audit/Events/DocumentExtractionWorkerTest.php` (`testExceedsPageLimitRasterizationPublishesTypedDocumentRejection` y `testReplayInvalidatedWhenStoredStateLacksOrExceedsPageCount`).
+  - Certificación de suite completa PHPUnit: 1,129 tests, 5,755 aserciones, 0 fallos, 0 errores, 78 skipped.
+
 ## [2026-11-13] — Captura y Evaluación de Artículos No Coincidentes en Extracción IA (SDD-UNMATCHED-ARTICLES)
 
 - **Problema y Causa Raíz (Caso D66261005571)**:

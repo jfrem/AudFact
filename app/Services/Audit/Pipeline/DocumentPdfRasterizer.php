@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Audit\Pipeline;
 
+use Core\Env;
 use Core\Logger;
 use RuntimeException;
 use Throwable;
@@ -12,18 +13,23 @@ use Throwable;
  * Servicio encargado de la pre-rasterización determinista de documentos PDF a imágenes JPEG de alta resolución.
  *
  * Arquitectura Clean Code y Tolerancia a Fallos:
- * 1. Ghostscript (gs / gswin): Motor primario de alta tolerancia a fallos. Corrige y repara
+ * 1. Sonda rápida Poppler (`pdfinfo`): valida el conteo total de páginas en milisegundos antes de tocar disco.
+ * 2. Ghostscript (gs / gswin): Motor primario de alta tolerancia a fallos. Corrige y repara
  *    estructuras sintácticas malformadas generadas por librerías como iText 8 y mapea tipografías
  *    del sistema con codificación Identity-H no incrustadas (ej. Segoe UI).
- * 2. pdftoppm (poppler-utils): Motor alternativo / fallback de alto rendimiento para PDFs estándar.
+ * 3. pdftoppm (poppler-utils): Motor alternativo / fallback de alto rendimiento para PDFs estándar.
  *
- * Garantiza nitidez nativa a 200 DPI para legibilidad de tipografías médicas pequeñas (6-8pt).
+ * Garantiza nitidez nativa a 200 DPI y acota la rasterización a `maxPages + 1` páginas para evitar DoS.
  */
 class DocumentPdfRasterizer
 {
     public const DEFAULT_DPI = 200;
     public const DEFAULT_TIMEOUT_SECONDS = 60;
-    public const MAX_PAGES = 50;
+    public const DEFAULT_MAX_PAGES = 10;
+    public const MIN_ALLOWED_PAGES = 1;
+    public const MAX_ALLOWED_PAGES = 100;
+    public const DEFAULT_PROBE_TIMEOUT_SECONDS = 3;
+    private const PROBE_POLL_INTERVAL_US = 5000;
     private const CHUNK_SIZE = 25;
 
     public const ENGINE_GHOSTSCRIPT = 'ghostscript';
@@ -32,6 +38,7 @@ class DocumentPdfRasterizer
     private ?string $explicitBinary;
     private int $dpi;
     private int $timeoutSeconds;
+    private int $maxPages;
     private ?string $activeEngine = null;
     private ?string $activeBinary = null;
     private ?bool $binaryAvailable = null;
@@ -39,13 +46,53 @@ class DocumentPdfRasterizer
     public function __construct(
         ?string $binaryPath = null,
         int $dpi = self::DEFAULT_DPI,
-        int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS
+        int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS,
+        ?int $maxPages = null
     ) {
         $this->explicitBinary = $binaryPath;
         $this->dpi            = $dpi > 0 ? $dpi : self::DEFAULT_DPI;
         $this->timeoutSeconds = $timeoutSeconds > 0 ? $timeoutSeconds : self::DEFAULT_TIMEOUT_SECONDS;
+        $this->maxPages       = $maxPages !== null
+            ? self::normalizeMaxPages($maxPages)
+            : self::resolveMaxPagesFromEnv();
 
         $this->resolveEngineAndBinary();
+    }
+
+    public function getMaxPages(): int
+    {
+        return $this->maxPages;
+    }
+
+    /**
+     * Resuelve y valida el límite máximo de páginas configurado en el entorno.
+     * Rango permitido: [MIN_ALLOWED_PAGES, MAX_ALLOWED_PAGES]. Default: DEFAULT_MAX_PAGES.
+     */
+    public static function resolveMaxPagesFromEnv(?string $raw = null): int
+    {
+        $value = $raw ?? Env::get('PDF_MAX_PAGES', $_ENV['PDF_MAX_PAGES'] ?? null);
+        if (!is_string($value) && !is_int($value)) {
+            return self::DEFAULT_MAX_PAGES;
+        }
+
+        $trimmed = trim((string) $value);
+        if (preg_match('/^[0-9]+$/D', $trimmed) !== 1) {
+            return self::DEFAULT_MAX_PAGES;
+        }
+
+        return self::normalizeMaxPages((int) $trimmed);
+    }
+
+    /**
+     * Normaliza un límite de páginas: negativos caen a DEFAULT_MAX_PAGES; 0..N se acotan a [1, 100].
+     */
+    public static function normalizeMaxPages(int $pages): int
+    {
+        if ($pages < 0) {
+            return self::DEFAULT_MAX_PAGES;
+        }
+
+        return max(self::MIN_ALLOWED_PAGES, min(self::MAX_ALLOWED_PAGES, $pages));
     }
 
     /**
@@ -137,6 +184,110 @@ class DocumentPdfRasterizer
     }
 
     /**
+     * Resuelve la ruta del binario de pdfinfo (poppler-utils) si está disponible en el entorno.
+     */
+    protected function resolvePdfinfoBinary(): ?string
+    {
+        $candidates = DIRECTORY_SEPARATOR === '\\'
+            ? ['pdfinfo.exe', 'pdfinfo']
+            : ['pdfinfo'];
+
+        foreach ($candidates as $candidate) {
+            if ($this->checkBinaryExists($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Ejecuta pdfinfo de forma aislada con timeout estricto sin alterar
+     * los contadores ni llamadas de executeProcess().
+     */
+    protected function executePdfinfoProcess(string $cmd, int $timeoutSeconds = self::DEFAULT_PROBE_TIMEOUT_SECONDS): ?string
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        // En Windows se usa bypass_shell para invocar el binario directamente sin cmd.exe,
+        // garantizando que proc_terminate termine el subproceso de inmediato en caso de timeout.
+        $options = DIRECTORY_SEPARATOR === '\\' ? ['bypass_shell' => true] : [];
+
+        $process = @proc_open($cmd, $descriptors, $pipes, null, null, $options);
+        if (!is_resource($process)) {
+            return null;
+        }
+
+        $timeout = $timeoutSeconds > 0 ? $timeoutSeconds : self::DEFAULT_PROBE_TIMEOUT_SECONDS;
+        $startTime = microtime(true);
+        $exitCode = -1;
+
+        try {
+            fclose($pipes[0]);
+
+            // En Windows, stream_set_blocking() no desactiva el bloqueo en pipes de proc_open().
+            // Leer solo tras finalizar el proceso evita bloqueo sincrónico antes de evaluar el timeout.
+            while (true) {
+                $status = proc_get_status($process);
+
+                if (!$status['running']) {
+                    // En PHP < 8.3/POSIX, proc_close() retorna -1 tras proc_get_status().
+                    $exitCode = (int) ($status['exitcode'] ?? -1);
+                    break;
+                }
+
+                if ((microtime(true) - $startTime) > $timeout) {
+                    @proc_terminate($process, 9);
+                    return null;
+                }
+
+                usleep(self::PROBE_POLL_INTERVAL_US);
+            }
+
+            $output = (string) stream_get_contents($pipes[1]) . (string) stream_get_contents($pipes[2]);
+            return ($exitCode === 0 && trim($output) !== '') ? $output : null;
+        } finally {
+            @fclose($pipes[1]);
+            @fclose($pipes[2]);
+            @proc_close($process);
+        }
+    }
+
+    /**
+     * Consulta la cantidad total de páginas con pdfinfo sin rasterizar.
+     * Retorna null si pdfinfo no está disponible, falla, da timeout o su salida no es interpretable.
+     */
+    protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+    {
+        $pdfinfoBinary = $this->resolvePdfinfoBinary();
+        if ($pdfinfoBinary === null) {
+            return null;
+        }
+
+        $cmd = sprintf('%s %s', escapeshellcmd($pdfinfoBinary), escapeshellarg($pdfPath));
+
+        try {
+            $output = $this->executePdfinfoProcess($cmd, self::DEFAULT_PROBE_TIMEOUT_SECONDS);
+            if ($output === null) {
+                return null;
+            }
+
+            if (preg_match('/^Pages:\s+(\d+)/m', $output, $matches) === 1) {
+                return (int) $matches[1];
+            }
+
+            return null;
+        } catch (Throwable) {
+            // Degrada silenciosamente al sondeo acotado de rasterización ante cualquier excepción
+            return null;
+        }
+    }
+
+    /**
      * Orquesta la rasterización del PDF a partes multimodales JPEG a 200 DPI.
      *
      * Cada bloque tiene timeout independiente y comparte una página con el
@@ -160,8 +311,16 @@ class DocumentPdfRasterizer
 
         try {
             $this->writeTemporaryPdf($inputPdfPath, $pdfDataRaw);
+
+            // Capa 1: Sonda rápida Poppler pdfinfo (5ms)
+            $detectedPages = $this->probePageCountWithPdfinfo($inputPdfPath);
+            if ($detectedPages !== null && $detectedPages > $this->maxPages) {
+                throw new RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT);
+            }
+
+            // Capa 2: Rasterización acotada a (maxPages + 1)
             $images = [];
-            $pageLimitProbe = self::MAX_PAGES + 1;
+            $pageLimitProbe = $this->maxPages + 1;
 
             for ($firstPage = 1; $firstPage < $pageLimitProbe; $firstPage += self::CHUNK_SIZE - 1) {
                 $lastPage = min($firstPage + self::CHUNK_SIZE - 1, $pageLimitProbe);
@@ -185,10 +344,8 @@ class DocumentPdfRasterizer
                 }
                 array_push($images, ...$chunkImages);
 
-                if (count($images) > self::MAX_PAGES) {
-                    throw new RuntimeException(
-                        'DocumentPdfRasterizer: Documento excede el límite máximo de ' . self::MAX_PAGES . ' páginas.'
-                    );
+                if (count($images) > $this->maxPages) {
+                    throw new RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT);
                 }
 
                 if ($renderedPageCount < $lastPage - $firstPage + 1) {

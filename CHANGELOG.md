@@ -1,3 +1,17 @@
+## [2026-11-17]
+
+### fix / refactor / ops / docs
+- **Rechazo Preventivo por Límite de Páginas en PDFs (`SDD-PAGE-LIMIT-REJECTION-001`)**:
+  - **Doble Capa Anti-DoS (`DocumentPdfRasterizer.php`)**: Retiro de constante legacy `MAX_PAGES = 50`; nuevo límite configurable `PDF_MAX_PAGES` (default `10`, rango `1-100`, clamping vía `normalizeMaxPages()`), sonda rápida `pdfinfo` (`DEFAULT_PROBE_TIMEOUT_SECONDS = 3`s, `bypass_shell` en Windows, limpieza garantizada por `try/finally`) y rasterización acotada (`maxPages + 1`) con `pdftoppm`/Ghostscript.
+  - **Contrato Tipado & Caché Particionada (`PdfContentFailure`, `DocumentRejectionReason`, `ExtractionCacheManager`, `DocumentExtractionWorker`)**: Nuevo motivo `DOCUMENT_EXCEEDS_PAGE_LIMIT` (fluye a `document_rejected` → `manual_review` sin saturar `audit.dlq`), partición Redis `:maxp:{maxPages}` con envelope obligatorio `['extracted', 'page_count']` y guarda única `canReplayStoredExtraction()`.
+  - **Configuración & Deploy**: Registrada `PDF_MAX_PAGES=10` en `.env.example`, `.env`, `AGENTS.md`, `.github/workflows/deploy-production.yml` (fallback `${PDF_MAX_PAGES:-10}`) y GitHub Environment `production`.
+- **Retiro de `AUDIT_RESPONSE_IA_DIR` y Aislamiento Solo-Desarrollo (`SDD-RESPONSE-IA-ENV-CLEANUP-001`)**:
+  - **`ResponseIADiskStore.php`**: Eliminadas `ENV_DIR`, `DEFAULT_BASE_DIR`, lectura `Env::get('AUDIT_RESPONSE_IA_DIR')` y bifurcación OS `/var/www/html`; ruta uniforme `dirname(__DIR__, 3) . '/logs/responseIA'`, conservando hard-deny cuando `APP_ENV !== 'development'`.
+  - **Aislamiento de Despliegue**: Retiro de `AUDIT_RESPONSE_IA_*` en `.github/workflows/deploy-production.yml` y GitHub Environment `production`; `scripts/sync-github-production-env.sh` omite claves `DEV_ONLY_KEYS=(AUDIT_RESPONSE_IA_ENABLED)`.
+- **Sincronización Documental y Skills (`audfact-docs-sync`)**:
+  - Actualizados `README.md`, `CHANGELOG.md`, `AGENTS.md`, `plans/architecture.md`, `plans/architecture-executive-report.md`, `plans/docker-operations.md`, `plans/deployment-and-ci.md`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md`, `.agent/skills/audfact-audit-gemini/SKILL.md` y `.agent/skills/audfact-runtime-docker/SKILL.md`.
+- **Certificación PHPUnit**: 1,130 pruebas, 5,756 aserciones, 78 omitidas, 0 errores, 0 fallos (código de salida `0`).
+
 ## [2026-11-08]
 
 ### fix / ops / perf / arch

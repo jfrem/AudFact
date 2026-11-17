@@ -91,7 +91,8 @@ npm run dev
 | `DB_TRUST_SERVER_CERT` / `DB2_TRUST_SERVER_CERT`                       | Trust del certificado SQL Server (`yes` temporal)                                              |
 | `GEMINI_API_KEY`                                                       | API Key de Google Gemini                                                                       |
 | `GEMINI_MODEL`                                                         | Modelo de Gemini a usar (default: `gemini-3.5-flash`)                                          |
-| `AUDIT_RESPONSE_IA_ENABLED` / `AUDIT_RESPONSE_IA_DIR`                  | Snapshots Gemini locales; solo persisten en `APP_ENV=development`                              |
+| `PDF_MAX_PAGES`                                                        | Límite máximo de páginas PDF antes de rechazo preventivo `DOCUMENT_EXCEEDS_PAGE_LIMIT` (`10`, rango `1-100`) |
+| `AUDIT_RESPONSE_IA_ENABLED`                                            | Snapshots Gemini locales en `logs/responseIA` (`APP_ENV=development`); excluida de producción   |
 | `CB_GEMINI_THRESHOLD` / `CB_GEMINI_COOLDOWN`                           | Umbral y cooldown del circuit breaker Gemini                                                   |
 | `REDIS_HOST` / `REDIS_PORT`                                            | Host y puerto de Redis para pipeline async                                                     |
 | `REDIS_PASSWORD` / `REDIS_MODE`                                        | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`)                               |
@@ -270,7 +271,7 @@ AUDFACT_IMAGE_TAG=<sha> docker compose --profile frontend up -d --no-build --rem
 `docker-compose.yml` es la fuente unica universal: en desarrollo puede construir desde el repo; en produccion usa imagenes publicadas en GHCR, no construye en el servidor y levanta la misma topologia funcional de workers (`batch`, `orchestrator`, `downloader`, `extraction`, `normalizer`, `policy`, `persistence`) para que `/audit/async` avance.
 El frontend productivo usa la imagen `audfact-frontend` y publica el contenedor Next.js interno `:3000` en el puerto LAN `${AUDFACT_FRONTEND_HOST_PORT:-3100}`. En el servidor actual queda disponible como `http://172.16.0.3:3100`.
 El build de `php` usa `ENABLE_XDEBUG=0` por defecto para evitar Xdebug en runtime productivo.
-En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). `responseIA` no tiene volumen dedicado: los snapshots solo se escriben en desarrollo, bajo `AUDIT_RESPONSE_IA_DIR`.
+En `APP_ENV=production`, el logger escribe en `stderr` (logs del contenedor). El compose monta `./logs:/var/www/html/logs`; el código fuente vive dentro de la imagen (Zero-Source). `responseIA` no tiene volumen dedicado: los snapshots solo se escriben en desarrollo dentro de `logs/responseIA` cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1`.
 El contenedor PHP usa un healthcheck empaquetado en `/usr/local/bin/audfact-healthcheck.php`, evitando depender de rutas eliminadas durante el build final.
 
 Nota operativa: si `nginx` falla con `unexpected end of file`, validar que `docker/nginx-ha.conf.template` tenga saltos de línea reales (LF) y no secuencias literales `\r\n`.

@@ -8,4 +8,5 @@ enum PdfContentFailure: string
 {
     case NO_PAGES = 'EMPTY_PDF_NO_PAGES';
     case CORRUPTED = 'CORRUPTED_DOCUMENT';
+    case EXCEEDS_PAGE_LIMIT = 'DOCUMENT_EXCEEDS_PAGE_LIMIT';
 }

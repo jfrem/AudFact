@@ -44,7 +44,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/AttachmentDownloadWorker.php` | Consume `document_registered`, descarga con metadata precalculada e inyección de `GoogleDriveAuthService`, admite BLOB en caché global acotada cuando cabe y publica referencias recuperables en `document_downloaded`; propaga fallos técnicos |
 | `app/Services/Audit/Pipeline/AuditDocumentCache.php` | Presupuesto global atómico por bytes JSON/entradas; TTL 3600 s, bypass al llenarse, poda de 64 reservas vencidas por admisión y liberación idempotente |
 | `app/Services/Audit/Pipeline/AuditDocumentInput.php` | Lee caché o vuelve a descargar desde fuente durante extracción; verifica SHA256 de base64 y propaga fallos técnicos sin convertirlos en rechazo funcional |
-| `app/Services/Audit/Pipeline/DocumentRejectionReason.php` | Allowlist cerrada para rechazos comprobados de contenido |
+| `app/Services/Audit/Pipeline/DocumentRejectionReason.php` | Allowlist cerrada para rechazos comprobados de contenido (`CORRUPTED_DOCUMENT`, `EMPTY_PDF_NO_PAGES`, `ENCRYPTED_DOCUMENT`, `DOCUMENT_EXCEEDS_PAGE_LIMIT`, etc.) |
 | `app/Services/Audit/Pipeline/DocumentMappingRejectionReason.php` | Categoría y allowlist cerrada para rechazos de asociación lógica/física |
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatcher.php` | Matcher puro, determinista y global 1:1 por nombre, ID corroborado y alias único, priorizando registros con contenido descargable (`URL`, `BLOB`) sobre registros vacíos |
 | `app/Services/Audit/Pipeline/DocumentAttachmentMatchResult.php` | DTO readonly que impide IDs lógicos o físicos duplicados en matches |
@@ -52,9 +52,9 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/Pipeline/DocumentAuditOrchestrator.php` | Consume `audit_created`, reconcilia todos los adjuntos físicos 1:1, reconstruye `extraction_contract` dinámico en `Autorizacion = 'N'`, resuelve limbo en `Autorizacion = 'R'` sin contenido generando hallazgo sintético `'AUT'`, publica matches y emite rechazos `DOCUMENT_MAPPING` controlados |
 | `app/Services/Audit/Pipeline/DocumentExtractionContractBuilder.php` | Construye `response_schema` Gemini plano y unificado: `document_conformity` (tipología con short-circuit y directiva dinámica `TipoDocumento`/`TIP`), `fields`, `items` y `visual_checks` solo cuando aplican; `document_quality` y `quality_notes` siempre. Invalida cache deterministamente mediante `contract_hash`. |
 | `app/Services/Audit/Pipeline/DocumentExtractionWorker.php` | Orquestador delgado que consume `document_downloaded`, delega estado a Redis, genera prompts y parsea respuestas. Produce rechazos `document_content`. |
-| `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php` | PDF a JPEG (200 DPI): bloques de hasta 25 páginas con una página compartida, sondeo de página 51 y límite de 50; fallback Ghostscript/Poppler por bloque y limpieza global en `finally`. Fallos técnicos nunca devuelven éxito parcial; únicamente diagnósticos inequívocos del parser generan rechazo tipado. |
+| `app/Services/Audit/Pipeline/DocumentPdfRasterizer.php` | PDF a JPEG (200 DPI): doble capa contra exceso de páginas gobernada por `PDF_MAX_PAGES` (default `10`, rango `1-100`): capa 1 sonda rápida `pdfinfo` (`3s`, multiplataforma con `bypass_shell` en Windows) y capa 2 rasterización acotada `maxPages + 1` con fallback Ghostscript/Poppler y limpieza global en `finally`. Fallos técnicos nunca devuelven éxito parcial; diagnósticos inequívocos (incluido `DOCUMENT_EXCEEDS_PAGE_LIMIT`) generan rechazo tipado hacia `manual_review`. |
 | `app/Services/Audit/Pipeline/RasterizationProcessResult.php`, `PdfContentFailure.php`, `RasterizationFailureException.php` | Resultado interno del proceso y taxonomía cerrada de fallos de contenido PDF; la salida de Ghostscript/Poppler no se propaga a eventos ni logs. |
-| `app/Services/Audit/Pipeline/ExtractionCacheManager.php` | Administra estado transitorio y cache de extracción Gemini en Redis mediante `HSET`/`HGET`. |
+| `app/Services/Audit/Pipeline/ExtractionCacheManager.php` | Administra estado transitorio y cache de extracción Gemini en Redis mediante `HSET`/`HGET` particionada por `:maxp:{maxPages}` (`normalizeMaxPages()`) y envelope obligatorio `['extracted' => ..., 'page_count' => int]` que invalida entradas legacy o fuera de límite. |
 | `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php` | Construye prompts del sistema y usuario para Structured Outputs de Gemini; inyecta directivas específicas de tipología (`TipoDocumento`/`TIP`) en la regla 1 de conformidad documental. |
 | `app/Services/Audit/Pipeline/GeminiResponseParser.php` | Parsea JSON text generado por Gemini Structured Output y rehidrata campos planos a la shape canónica `{valor, presente, estadoExtraccion}`. |
 | `app/Services/Audit/Pipeline/ExtractionState.php` | Enum tipado para el estado de extracción de campos (`FOUND`, `FOUND_IN_LIST`, `NOT_FOUND`, `ILLEGIBLE`) |
@@ -82,7 +82,7 @@ Mantener confiable el pipeline event-driven de auditoría documental con Redis S
 | `app/Services/Audit/GeminiGateway.php` | Cliente HTTP para Gemini API con retry, timeout, function calling, perfiles explícitos (`extraction`, `semantic_match`) y métricas `X-Audit-Metrics` |
 | `app/Services/Audit/SemanticMatchJudge.php` | Fallback semántico conservador y agnóstico de plataforma para arbitraje de entidades (productos, personas); usa evidencia estructurada, contexto documental enriquecido, cache versionada y no cachea fallos transitorios |
 | `app/Services/Audit/GeminiCallMetrics.php` | Normaliza métricas Gemini por tarea: latencia, tokens de prompt/output/thinking/total y cache hits |
-| `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `AUDIT_RESPONSE_IA_DIR` solo cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1` |
+| `app/Services/Audit/ResponseIADiskStore.php` | Persiste snapshots de request/response Gemini en `logs/responseIA` solo cuando `APP_ENV=development` y `AUDIT_RESPONSE_IA_ENABLED=1` |
 
 ### Workers bootstrap (largas ejecuciones)
 
@@ -194,7 +194,9 @@ lectura o si se pierde el índice; el miembro `__ready` no cuenta como scope.
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | TTL de turnos, pendientes y deduplicación de persistencia (default 604800) |
 | `AUDIT_FDV_TTL` | TTL de la FDV completa en Redis |
 | `AUDIT_INTERNAL_API_BASE` | Base URL que los workers usan para la API interna (FDV/catalogos/adjuntos) |
-| `AUDIT_RESPONSE_IA_ENABLED`, `AUDIT_RESPONSE_IA_DIR` | Controlan snapshots Gemini locales; producción nunca persiste snapshots por hard-deny de `APP_ENV=production` |
+| `PDF_MAX_PAGES` | Límite máximo de páginas PDF antes de rechazo preventivo `DOCUMENT_EXCEEDS_PAGE_LIMIT` (default `10`, rango `1-100`) |
+| `PDF_RASTERIZER_TIMEOUT_SECONDS` | Timeout en segundos para rasterización de PDFs (default `60` en código, `120` en `.env.example`/producción) |
+| `AUDIT_RESPONSE_IA_ENABLED` | Controla snapshots Gemini locales en `logs/responseIA` (`APP_ENV=development`); producción nunca persiste snapshots ni recibe esta variable |
 | `AUDIT_VERSION_EXTRACTOR`, `AUDIT_VERSION_NORMALIZER`, `AUDIT_VERSION_RULES` | Versionado para trazabilidad en `AuditEvent` |
 
 `GEMINI_MODEL` es el único selector de versión de modelo usado por el gateway. `GeminiConfig` conserva un fallback local si la variable falta, pero `GEMINI_EXTRACTION_*` y `GEMINI_SEMANTIC_*` son perfiles de generación del mismo modelo configurado; no implementan fallback ni redirección a otra versión Gemini.
@@ -219,7 +221,9 @@ flowchart TD
     B -->|PDF sin %%EOF o Truncado| C[Rechazo Preventivo: CORRUPTED_DOCUMENT]
     B -->|PDF sin Páginas| D[Rechazo Preventivo: EMPTY_PDF_NO_PAGES]
     B -->|PDF con Password| E[Rechazo Preventivo: ENCRYPTED_DOCUMENT]
-    B -->|Estructura Válida| F[Llamada a Google Gemini API - Structured Output]
+    B -->|Estructura Válida| R[Rasterizador: DocumentPdfRasterizer]
+    R -->|Páginas > PDF_MAX_PAGES| E2[Rechazo Preventivo: DOCUMENT_EXCEEDS_PAGE_LIMIT]
+    R -->|PDF rasterizado OK| F[Llamada a Google Gemini API - Structured Output]
 
     F -->|200 OK| G[document_extracted]
     F -->|400 Decode Error / Corrupt File| H[Nivel 2: DocumentExtractionWorker]
@@ -228,6 +232,7 @@ flowchart TD
     C --> J[Emitir document_rejected]
     D --> J
     E --> J
+    E2 --> J
     I --> J
     J --> K[Incrementar docs_done 3/3]
     G --> K

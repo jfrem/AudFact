@@ -10,6 +10,7 @@ use App\Services\Audit\Pipeline\AuditStateStore;
 use App\Services\Audit\Pipeline\DocumentExtractionContractBuilder;
 use App\Services\Audit\Pipeline\DocumentExtractionWorker;
 use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
+use App\Services\Audit\Pipeline\ExtractionPromptBuilder;
 use App\Services\Audit\Pipeline\PdfContentFailure;
 use App\Services\Audit\Pipeline\RasterizationFailureException;
 use App\Services\Audit\GeminiGateway;
@@ -118,6 +119,112 @@ final class DocumentExtractionWorkerTest extends TestCase
         $this->assertSame('EMPTY_PDF_NO_PAGES', $publisher->published[0]->payload['rejection_reason'] ?? null);
     }
 
+    public function testExceedsPageLimitRasterizationPublishesTypedDocumentRejection(): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $base64 = $this->validPdfBase64();
+        $publisher = new ExtractionPublisher();
+        $store = new ExtractionRecordingStateStore();
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(1);
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $base64, 'duration_ms' => 0]);
+        $redis->method('get')->willReturnCallback(static function (string $key) use ($blobJson): ?string {
+            return str_starts_with($key, 'audit:blob:') ? $blobJson : null;
+        });
+        $gateway = new StubGeminiGateway([]);
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public function __construct() { parent::__construct('test-rasterizer', maxPages: 10); }
+            public function isAvailable(): bool { return true; }
+            public function rasterize(string $pdfDataRaw, string $label, ?int $customDpi = null): array
+            {
+                throw new RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT);
+            }
+        };
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: $gateway,
+            redis: $redis,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: $rasterizer
+        );
+        $worker->processEvent($this->documentDownloadedEvent($auditId, $documentId));
+
+        $this->assertSame(0, $gateway->calls);
+        $this->assertCount(0, $publisher->deadLetters);
+        $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $store->lastRejectedPatch['rejection_reason'] ?? null);
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $publisher->published[0]->payload['rejection_reason'] ?? null);
+    }
+
+    #[DataProvider('invalidReplayPageCounts')]
+    public function testReplayInvalidatedWhenStoredStateLacksOrExceedsPageCount(?int $storedPageCount): void
+    {
+        $auditId = AuditEvent::uuidV4();
+        $documentId = AuditEvent::uuidV4();
+        $event = $this->documentDownloadedEvent($auditId, $documentId);
+        $payload = $event->payload;
+        $contract = $payload['extraction_contract'];
+        $promptBuilder = new ExtractionPromptBuilder();
+        $userPrompt = $promptBuilder->buildUserPrompt('FORMULA MEDICA', $payload, $contract);
+        $systemPrompt = $promptBuilder->buildSystemPrompt($payload, $contract);
+        $promptContextHash = $promptBuilder->promptContextHash($userPrompt, $systemPrompt);
+
+        $storedDoc = [
+            'status' => 'extracted',
+            'document_hash' => $payload['document_hash'],
+            'contract_hash' => $payload['contract_hash'],
+            'prompt_context_hash' => $promptContextHash,
+            'extraction_result' => ['fields' => ['NumeroFactura' => 'T38250701547']],
+        ];
+        if ($storedPageCount !== null) {
+            $storedDoc['page_count'] = $storedPageCount;
+        }
+
+        $store = new ExtractionRecordingStateStore();
+        $store->auditState = ['documents' => [$documentId => $storedDoc]];
+        $publisher = new ExtractionPublisher();
+        $blobJson = json_encode(['mime' => 'application/pdf', 'data' => $this->validPdfBase64(), 'duration_ms' => 0]);
+
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(1);
+        $redis->method('get')->willReturnCallback(static function (string $key) use ($blobJson): ?string {
+            return str_starts_with($key, 'audit:blob:') ? $blobJson : null;
+        });
+
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public function __construct() { parent::__construct('test-rasterizer', maxPages: 10); }
+            public function isAvailable(): bool { return true; }
+            public function rasterize(string $pdfDataRaw, string $label, ?int $customDpi = null): array
+            {
+                throw new RasterizationFailureException(PdfContentFailure::EXCEEDS_PAGE_LIMIT);
+            }
+        };
+
+        $worker = new DocumentExtractionWorker(
+            stateStore: $store,
+            gateway: new StubGeminiGateway([]),
+            redis: $redis,
+            publisher: $publisher,
+            consumerName: 'extractor-test',
+            pdfRasterizer: $rasterizer
+        );
+
+        $worker->processEvent($event);
+
+        $this->assertSame(AuditEvent::TYPE_DOCUMENT_REJECTED, $publisher->published[0]->eventType);
+        $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $publisher->published[0]->payload['rejection_reason'] ?? null);
+    }
+
+    public static function invalidReplayPageCounts(): iterable
+    {
+        yield 'missing page_count' => [null];
+        yield 'zero page_count' => [0];
+        yield 'exceeds configured maxPages' => [15];
+    }
+
     public function testCacheHitSkipsGeminiAndPublishesDocumentExtracted(): void
     {
         $documentId = AuditEvent::uuidV4();
@@ -137,16 +244,19 @@ final class DocumentExtractionWorkerTest extends TestCase
                 }
                 // extraction cache hit
                 return json_encode([
-                    'document_conformity' => [
-                        'matches_expected_type' => true,
-                        'detected_type' => null,
-                        'justification' => null,
+                    'extracted' => [
+                        'document_conformity' => [
+                            'matches_expected_type' => true,
+                            'detected_type' => null,
+                            'justification' => null,
+                        ],
+                        'fields' => ['NumeroFactura' => 'T38250701547'],
+                        'items' => [],
+                        'visual_checks' => [],
+                        'document_quality' => 'legible',
+                        'quality_notes' => [],
                     ],
-                    'fields' => ['NumeroFactura' => 'T38250701547'],
-                    'items' => [],
-                    'visual_checks' => [],
-                    'document_quality' => 'legible',
-                    'quality_notes' => [],
+                    'page_count' => 1,
                 ]);
             });
 
@@ -549,16 +659,19 @@ final class DocumentExtractionWorkerTest extends TestCase
                 }
                 // extraction cache hit
                 return json_encode([
-                    'document_conformity' => [
-                        'matches_expected_type' => true,
-                        'detected_type' => null,
-                        'justification' => null,
+                    'extracted' => [
+                        'document_conformity' => [
+                            'matches_expected_type' => true,
+                            'detected_type' => null,
+                            'justification' => null,
+                        ],
+                        'fields' => ['NumeroFactura' => 'T38250701547'],
+                        'items' => [],
+                        'visual_checks' => [],
+                        'document_quality' => 'legible',
+                        'quality_notes' => [],
                     ],
-                    'fields' => ['NumeroFactura' => 'T38250701547'],
-                    'items' => [],
-                    'visual_checks' => [],
-                    'document_quality' => 'legible',
-                    'quality_notes' => [],
+                    'page_count' => 1,
                 ]);
             });
 

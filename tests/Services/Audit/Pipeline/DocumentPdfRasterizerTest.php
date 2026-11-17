@@ -8,6 +8,7 @@ use App\Services\Audit\Pipeline\DocumentPdfRasterizer;
 use App\Services\Audit\Pipeline\PdfContentFailure;
 use App\Services\Audit\Pipeline\RasterizationFailureException;
 use App\Services\Audit\Pipeline\RasterizationProcessResult;
+use Core\Env;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -62,6 +63,11 @@ final class DocumentPdfRasterizerTest extends TestCase
             public function isAvailable(): bool
             {
                 return true;
+            }
+
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
             }
 
             protected function executeProcess(string $cmd): RasterizationProcessResult
@@ -121,6 +127,11 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
+            }
+
             protected function executeProcess(string $cmd): RasterizationProcessResult
             {
                 // Extrae output prefix y simula un archivo parcial antes de fallar
@@ -152,12 +163,17 @@ final class DocumentPdfRasterizerTest extends TestCase
         $rasterizer = new class extends DocumentPdfRasterizer {
             public function __construct()
             {
-                parent::__construct('mock-binary');
+                parent::__construct('mock-binary', self::DEFAULT_DPI, self::DEFAULT_TIMEOUT_SECONDS, 50);
             }
 
             public function isAvailable(): bool
             {
                 return true;
+            }
+
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
             }
 
             protected function executeProcess(string $cmd): RasterizationProcessResult
@@ -173,9 +189,10 @@ final class DocumentPdfRasterizerTest extends TestCase
 
         try {
             $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'ACTA DE ENTREGA');
-            $this->fail('Expected RuntimeException was not thrown');
-        } catch (RuntimeException $e) {
-            $this->assertStringContainsString('Documento excede el límite máximo de 50 páginas', $e->getMessage());
+            $this->fail('Expected RasterizationFailureException was not thrown');
+        } catch (RasterizationFailureException $e) {
+            $this->assertSame(PdfContentFailure::EXCEEDS_PAGE_LIMIT, $e->reason);
+            $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $e->reason->value);
         }
 
         $afterFiles = is_dir($tempDir) ? glob($tempDir . '/*') ?: [] : [];
@@ -196,6 +213,11 @@ final class DocumentPdfRasterizerTest extends TestCase
             public function isAvailable(): bool
             {
                 return true;
+            }
+
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
             }
 
             protected function executeProcess(string $cmd): RasterizationProcessResult
@@ -233,6 +255,11 @@ final class DocumentPdfRasterizerTest extends TestCase
             public function isAvailable(): bool
             {
                 return true;
+            }
+
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
             }
 
             protected function executeProcess(string $cmd): RasterizationProcessResult
@@ -325,6 +352,11 @@ final class DocumentPdfRasterizerTest extends TestCase
                 return true;
             }
 
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null;
+            }
+
             protected function checkBinaryExists(string $binary): bool
             {
                 return true;
@@ -396,13 +428,13 @@ final class DocumentPdfRasterizerTest extends TestCase
         // Arrange:
         $rasterizer = new ChunkedPdfRasterizerFake(51, $engine);
 
-        // Assert:
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Documento excede el límite máximo de 50 páginas');
-
-        // Act:
+        // Act & Assert:
         try {
             $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'DOCUMENTO');
+            $this->fail('Expected RasterizationFailureException was not thrown');
+        } catch (RasterizationFailureException $e) {
+            $this->assertSame(PdfContentFailure::EXCEEDS_PAGE_LIMIT, $e->reason);
+            $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $e->reason->value);
         } finally {
             $this->assertTemporaryFilesRemoved($rasterizer);
         }
@@ -485,6 +517,152 @@ final class DocumentPdfRasterizerTest extends TestCase
         yield 'Poppler' => [DocumentPdfRasterizer::ENGINE_PDFTOPPM];
     }
 
+    public function testResolveMaxPagesFromEnvClampingAndFallback(): void
+    {
+        // Valores nulos o vacíos retornan DEFAULT_MAX_PAGES (10)
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv(null));
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv(''));
+
+        // Cadenas no numéricas o con caracteres espurios retornan fallback (10)
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv('abc'));
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv('12garbage'));
+
+        // Valores negativos retornan fallback (10)
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv('-5'));
+
+        // Clamping inferior: 0 satura a 1
+        $this->assertSame(1, DocumentPdfRasterizer::resolveMaxPagesFromEnv('0'));
+
+        // Rango válido [1, 100]
+        $this->assertSame(5, DocumentPdfRasterizer::resolveMaxPagesFromEnv('5'));
+        $this->assertSame(10, DocumentPdfRasterizer::resolveMaxPagesFromEnv('10'));
+        $this->assertSame(50, DocumentPdfRasterizer::resolveMaxPagesFromEnv('50'));
+        $this->assertSame(100, DocumentPdfRasterizer::resolveMaxPagesFromEnv('100'));
+
+        // Clamping superior: > 100 satura a 100
+        $this->assertSame(100, DocumentPdfRasterizer::resolveMaxPagesFromEnv('101'));
+        $this->assertSame(100, DocumentPdfRasterizer::resolveMaxPagesFromEnv('9999'));
+    }
+
+    public function testResolveMaxPagesFromEnvReadsCoreEnvAndHandlesFalsyZero(): void
+    {
+        $previous = Env::get('PDF_MAX_PAGES', null);
+        try {
+            Env::set('PDF_MAX_PAGES', '0');
+            $this->assertSame(1, DocumentPdfRasterizer::resolveMaxPagesFromEnv());
+
+            Env::set('PDF_MAX_PAGES', '15');
+            $this->assertSame(15, DocumentPdfRasterizer::resolveMaxPagesFromEnv());
+        } finally {
+            Env::set('PDF_MAX_PAGES', $previous === false ? null : $previous);
+        }
+    }
+
+    public function testPdfinfoFastProbeDetectsExceedanceEarly(): void
+    {
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public int $executeProcessCalls = 0;
+
+            public function __construct()
+            {
+                parent::__construct('mock-binary', maxPages: 10);
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            protected function resolvePdfinfoBinary(): ?string
+            {
+                return 'pdfinfo';
+            }
+
+            protected function executePdfinfoProcess(string $cmd, int $timeoutSeconds = 3): ?string
+            {
+                return "Title: Test Doc\nPages: 11\nPDF version: 1.4\n";
+            }
+
+            protected function executeProcess(string $cmd): RasterizationProcessResult
+            {
+                $this->executeProcessCalls++;
+                return new RasterizationProcessResult(0);
+            }
+        };
+
+        try {
+            $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'FORMULA MEDICA');
+            $this->fail('Expected RasterizationFailureException was not thrown');
+        } catch (RasterizationFailureException $e) {
+            $this->assertSame(PdfContentFailure::EXCEEDS_PAGE_LIMIT, $e->reason);
+            $this->assertSame('DOCUMENT_EXCEEDS_PAGE_LIMIT', $e->reason->value);
+            $this->assertSame(0, $rasterizer->executeProcessCalls, 'executeProcess no debió ser llamado al ser rechazado por la sonda rápida');
+        }
+    }
+
+    public function testProbePageCountWithPdfinfoTerminatesHangingProcessWithinTimeout(): void
+    {
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public function __construct()
+            {
+                parent::__construct('mock-binary', maxPages: 10);
+            }
+
+            public function testExecuteHangingProcess(): ?string
+            {
+                $cmd = PHP_OS_FAMILY === 'Windows'
+                    ? 'powershell -Command "Start-Sleep -Seconds 5"'
+                    : 'sleep 5';
+
+                return $this->executePdfinfoProcess($cmd, 1);
+            }
+        };
+
+        $t0 = microtime(true);
+        $result = $rasterizer->testExecuteHangingProcess();
+        $elapsed = microtime(true) - $t0;
+
+        $this->assertNull($result);
+        $this->assertLessThan(2.5, $elapsed, 'Timeout no interrumpió el subproceso a tiempo');
+    }
+
+    public function testBoundedRasterizationFallbackDetectsExceedanceWhenPdfinfoFails(): void
+    {
+        $rasterizer = new class extends DocumentPdfRasterizer {
+            public function __construct()
+            {
+                parent::__construct('mock-binary', maxPages: 10);
+            }
+
+            public function isAvailable(): bool
+            {
+                return true;
+            }
+
+            protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+            {
+                return null; // Sonda rápida falla o ausente
+            }
+
+            protected function executeProcess(string $cmd): RasterizationProcessResult
+            {
+                preg_match('/([^\s]+)$/', trim($cmd), $m);
+                $prefix = trim($m[1] ?? '', "'\"");
+                for ($i = 1; $i <= 11; $i++) {
+                    file_put_contents("{$prefix}-{$i}.jpg", "image_page_{$i}");
+                }
+                return new RasterizationProcessResult(0);
+            }
+        };
+
+        try {
+            $rasterizer->rasterize("%PDF-1.4\n%%EOF\n", 'ACTA');
+            $this->fail('Expected RasterizationFailureException was not thrown');
+        } catch (RasterizationFailureException $e) {
+            $this->assertSame(PdfContentFailure::EXCEEDS_PAGE_LIMIT, $e->reason);
+        }
+    }
+
     private function assertTemporaryFilesRemoved(ChunkedPdfRasterizerFake $rasterizer): void
     {
         self::assertNotEmpty($rasterizer->temporaryFiles);
@@ -505,7 +683,17 @@ final class ChunkedPdfRasterizerFake extends DocumentPdfRasterizer
 
     public function __construct(private int $pages, string $engine, bool $autoDetect = false)
     {
-        parent::__construct($autoDetect ? null : ($engine === self::ENGINE_GHOSTSCRIPT ? 'gs' : 'pdftoppm'));
+        parent::__construct(
+            $autoDetect ? null : ($engine === self::ENGINE_GHOSTSCRIPT ? 'gs' : 'pdftoppm'),
+            self::DEFAULT_DPI,
+            self::DEFAULT_TIMEOUT_SECONDS,
+            50
+        );
+    }
+
+    protected function probePageCountWithPdfinfo(string $pdfPath): ?int
+    {
+        return null;
     }
 
     protected function checkBinaryExists(string $binary): bool

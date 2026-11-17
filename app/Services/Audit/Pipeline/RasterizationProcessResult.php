@@ -11,6 +11,11 @@ final readonly class RasterizationProcessResult
     {
     }
 
+    public function output(): string
+    {
+        return $this->output;
+    }
+
     public function contentFailure(): ?PdfContentFailure
     {
         if (!in_array($this->exitCode, [0, 1, 99], true)) {

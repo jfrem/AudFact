@@ -49,6 +49,10 @@ REQUIRED_VARIABLE_KEYS=(
   DB2_NAME
 )
 
+DEV_ONLY_KEYS=(
+  AUDIT_RESPONSE_IA_ENABLED
+)
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -160,6 +164,7 @@ declare -a DUPLICATE_KEYS=()
 declare -A IS_SECRET=()
 declare -A IS_REQUIRED_SECRET=()
 declare -A IS_REQUIRED_VARIABLE=()
+declare -A IS_DEV_ONLY=()
 
 for key in "${SECRET_KEYS[@]}"; do
   IS_SECRET["$key"]=1
@@ -171,6 +176,10 @@ done
 
 for key in "${REQUIRED_VARIABLE_KEYS[@]}"; do
   IS_REQUIRED_VARIABLE["$key"]=1
+done
+
+for key in "${DEV_ONLY_KEYS[@]}"; do
+  IS_DEV_ONLY["$key"]=1
 done
 
 # ==========================================
@@ -190,10 +199,6 @@ get_invariant_value() {
     case "$key" in
       INTERNAL_API_URL|WRAP_API_BASE|AUDIT_INTERNAL_API_BASE)
         echo "http://nginx"
-        return 0
-        ;;
-      AUDIT_RESPONSE_IA_ENABLED)
-        echo "0"
         return 0
         ;;
     esac
@@ -240,6 +245,10 @@ generate_env() {
       local key="${BASH_REMATCH[1]}"
       local val="${BASH_REMATCH[2]}"
       local invariant_val
+
+      if [[ "$target_env" == "production" && -n "${IS_DEV_ONLY[$key]:-}" ]]; then
+        continue
+      fi
       
       if invariant_val=$(get_invariant_value "$target_env" "$key"); then
         val="$invariant_val"
@@ -375,6 +384,9 @@ missing_required=()
 
 for key in "${ENV_KEYS[@]}"; do
   value="${ENV_VALUES[$key]}"
+  if [[ "$GITHUB_ENVIRONMENT" == "production" && -n "${IS_DEV_ONLY[$key]:-}" ]]; then
+    continue
+  fi
   if [[ -n "${IS_SECRET[$key]:-}" ]]; then
     if [[ -z "$value" && -z "${IS_REQUIRED_SECRET[$key]:-}" ]]; then
       empty_optional_secrets+=("$key")

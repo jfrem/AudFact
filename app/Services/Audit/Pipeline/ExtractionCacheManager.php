@@ -12,25 +12,29 @@ use RuntimeException;
  * Gestiona la caché de extracción Gemini en Redis.
  *
  * Responsabilidades:
- * - Calcular la clave compuesta (documento + contrato + prompt + versión)
- * - Leer extracción desde Redis (cache get)
- * - Escribir extracción en Redis con TTL (cache put)
+ * - Calcular la clave compuesta (documento + contrato + prompt + versión + maxPages)
+ * - Leer extracción desde Redis validando el envelope certificado con `page_count`
+ * - Escribir extracción en Redis junto con `page_count` y TTL (cache put)
  *
  * @see DocumentExtractionWorker — delegante principal
  */
 final class ExtractionCacheManager
 {
     private const CACHE_PREFIX = 'extraction:cache:v1:';
+    private readonly int $maxPages;
 
     public function __construct(
         private readonly RedisClient $redis,
         private readonly int $cacheTtl,
-        private readonly string $extractorVersion
-    ) {}
+        private readonly string $extractorVersion,
+        int $maxPages = DocumentPdfRasterizer::DEFAULT_MAX_PAGES
+    ) {
+        $this->maxPages = DocumentPdfRasterizer::normalizeMaxPages($maxPages);
+    }
 
     /**
      * Computa la cache key compuesta.
-     * Cualquier cambio en documento, contrato, prompt efectivo o versión invalida el cache.
+     * Cualquier cambio en documento, contrato, prompt efectivo, versión o límite de páginas invalida el cache.
      *
      * INVARIANTE: Produce el mismo valor que DocumentExtractionWorker::compositeCacheKey()
      * para los mismos inputs. Verificar con test unitario antes de desplegar.
@@ -48,18 +52,19 @@ final class ExtractionCacheManager
 
         $composite = hash(
             'sha256',
-            $documentHash . $contractHash . $promptContextHash . $this->extractorVersion
+            $documentHash . $contractHash . $promptContextHash . $this->extractorVersion . ':maxp:' . $this->maxPages
         );
 
         return self::CACHE_PREFIX . $composite;
     }
 
     /**
-     * Lee la extracción desde Redis.
+     * Lee la extracción verificando integridad de conteo de páginas.
+     * Retorna null si es un cache miss, si la entrada es legacy (sin page_count válido >= 1)
+     * o si page_count > maxPages.
      *
-     * @return array<string,mixed>|null  null = cache miss
-     * @throws RuntimeException si Redis no está disponible (crítico para el pipeline)
-     * @throws RuntimeException si el JSON en Redis está corrupto
+     * @return array{extracted: array<string,mixed>, page_count: int}|null
+     * @throws RuntimeException si Redis no está disponible o el JSON está corrupto
      */
     public function get(string $cacheKey): ?array
     {
@@ -80,18 +85,44 @@ final class ExtractionCacheManager
             throw new RuntimeException('Extraction cache corrupto en Redis');
         }
 
-        return $decoded;
+        // Validación estricta del envelope:
+        if (!isset($decoded['page_count']) || !is_int($decoded['page_count']) || $decoded['page_count'] < 1) {
+            return null; // Formato legacy o inválido: cache miss seguro para forzar re-evaluación
+        }
+
+        if (!isset($decoded['extracted']) || !is_array($decoded['extracted'])) {
+            return null;
+        }
+
+        if ($decoded['page_count'] > $this->maxPages) {
+            return null; // Excede límite actual: cache miss para forzar rechazo
+        }
+
+        return [
+            'extracted'  => $decoded['extracted'],
+            'page_count' => $decoded['page_count'],
+        ];
     }
 
     /**
-     * Escribe la extracción en Redis con TTL.
+     * Escribe la extracción junto con el conteo certificado de páginas.
      *
      * @param array<string,mixed> $payload
-     * @throws RuntimeException si la serialización o escritura falla
+     * @param int $pageCount Número real de páginas del documento (>= 1)
+     * @throws RuntimeException si la serialización o escritura falla en Redis
      */
-    public function put(string $cacheKey, array $payload): void
+    public function put(string $cacheKey, array $payload, int $pageCount): void
     {
-        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($pageCount < 1) {
+            throw new RuntimeException('ExtractionCacheManager: pageCount debe ser >= 1');
+        }
+
+        $envelope = [
+            'extracted'  => $payload,
+            'page_count' => $pageCount,
+        ];
+
+        $encoded = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         if ($encoded === false) {
             throw new RuntimeException('No se pudo serializar extraction cache');
         }

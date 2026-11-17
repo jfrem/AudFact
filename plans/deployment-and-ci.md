@@ -134,6 +134,7 @@ flowchart LR
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | — | Retención del scheduler justo por job (`604800` por defecto) |
 | `AUDIT_PERSISTENCE_JOB_SLOTS` | — | Turnos por job (`2` por defecto, 1..16); fijados en Redis al primer uso |
 | `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS`, `AUDIT_SEMANTIC_JOB_SLOTS` | — | Tareas simultáneas por job y etapa (`1` por defecto, 1..16); el workflow las inyecta desde `vars` y genera el `.env` |
+| `PDF_MAX_PAGES` | — | Límite máximo de páginas por adjunto PDF (`10` por defecto, rango `1-100`) antes de rechazo preventivo `DOCUMENT_EXCEEDS_PAGE_LIMIT`; el workflow aplica fallback `${PDF_MAX_PAGES:-10}` |
 
 El workflow inyecta y genera `AUDIT_PERSISTENCE_JOB_SLOTS`. El primer despliegue requiere drenar jobs y colas con productores/consumidores actuales antes de recrearlos coordinadamente. Para rollback a una imagen sin slots, drenar primero; reducir réplicas con la imagen nueva limita concurrencia sin abandonar pendientes. [Especificación de migración](sdd-optimizacion-cuello-botella-persistencia.md).
 
@@ -148,7 +149,7 @@ bash scripts/sync-github-production-env.sh --dry-run
 bash scripts/sync-github-production-env.sh --apply
 ```
 
-El script nunca copia `.env` al host productivo. El runner crea el `.env`
+El script nunca copia `.env` al host productivo y omite automáticamente claves exclusivas de desarrollo (`DEV_ONLY_KEYS`, como `AUDIT_RESPONSE_IA_ENABLED`). El runner crea el `.env`
 actualizado durante cada deploy. Para `--apply`, el `.env` fuente debe ser
 productivo: `APP_ENV=production`, URLs públicas sin `localhost`, e internos
 Docker como `INTERNAL_API_URL=http://nginx` y `WRAP_API_BASE=http://nginx`.

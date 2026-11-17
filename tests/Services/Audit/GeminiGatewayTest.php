@@ -7,6 +7,7 @@ namespace Tests\Services\Audit;
 use App\Services\Audit\GeminiConfig;
 use App\Services\Audit\GeminiGateway;
 use App\Services\Audit\GeminiOperationException;
+use App\Services\Audit\ResponseIADiskStore;
 use Core\RedisClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
@@ -246,7 +247,6 @@ final class GeminiGatewayTest extends TestCase
         $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'gemini-gateway-test-' . bin2hex(random_bytes(4));
         \Core\Env::set('APP_ENV', 'development');
         \Core\Env::set('AUDIT_RESPONSE_IA_ENABLED', '1');
-        \Core\Env::set('AUDIT_RESPONSE_IA_DIR', $tempDir);
 
         try {
             $mockHandler = new MockHandler([
@@ -262,7 +262,8 @@ final class GeminiGatewayTest extends TestCase
             $gateway = new GeminiGateway(
                 $client,
                 'test-key',
-                new GeminiConfig(model: 'gemini-3.8-flash')
+                new GeminiConfig(model: 'gemini-3.8-flash'),
+                diskStore: new ResponseIADiskStore($tempDir)
             );
 
             $now = (int) floor(microtime(true) * 1000);
@@ -294,7 +295,6 @@ final class GeminiGatewayTest extends TestCase
         } finally {
             \Core\Env::set('APP_ENV', null);
             \Core\Env::set('AUDIT_RESPONSE_IA_ENABLED', null);
-            \Core\Env::set('AUDIT_RESPONSE_IA_DIR', null);
             if (is_dir($tempDir)) {
                 array_map('unlink', glob($tempDir . DIRECTORY_SEPARATOR . '*') ?: []);
                 @rmdir($tempDir);

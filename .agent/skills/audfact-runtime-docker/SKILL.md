@@ -106,8 +106,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `GEMINI_EXTRACTION_MAX_OUTPUT_TOKENS` | `8192` | Límite de salida para extracción documental |
 | `GEMINI_EXTRACTION_THINKING_LEVEL` | `low` | low/medium/high en Gemini 3.8; MINIMAL devuelve error |
 | `GEMINI_SEMANTIC_MAX_OUTPUT_TOKENS` | `4096` | Límite de salida para homologación semántica individual (el deploy escribe `2048` si falta la variable del repo) |
-| `AUDIT_RESPONSE_IA_ENABLED` | `1` dev / `0` prod | Habilita snapshots Gemini solo en `APP_ENV=development` |
-| `AUDIT_RESPONSE_IA_DIR` | `/var/www/html/logs/responseIA` | Directorio configurable de snapshots locales |
+| `PDF_MAX_PAGES` | `10` | Límite máximo de páginas PDF antes de `DOCUMENT_EXCEEDS_PAGE_LIMIT` (rango `1-100`) |
+| `PDF_RASTERIZER_TIMEOUT_SECONDS` | `60` | Timeout de rasterización PDF en segundos (`120` sugerido en producción) |
+| `AUDIT_RESPONSE_IA_ENABLED` | `1` (solo dev) | Habilita snapshots Gemini en `logs/responseIA` solo con `APP_ENV=development` (excluida de deploy productivo) |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `8` | Default Compose del worker que consume `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `4` | Default Compose del worker que consume `batch_requested` |
 | `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | Default Compose; consume `document_registered` |

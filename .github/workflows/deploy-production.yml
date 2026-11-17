@@ -145,8 +145,6 @@ jobs:
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           LOG_RETENTION_DAYS: ${{ vars.LOG_RETENTION_DAYS }}
           LOG_MAX_SIZE_MB: ${{ vars.LOG_MAX_SIZE_MB }}
-          AUDIT_RESPONSE_IA_ENABLED: ${{ vars.AUDIT_RESPONSE_IA_ENABLED }}
-          AUDIT_RESPONSE_IA_DIR: ${{ vars.AUDIT_RESPONSE_IA_DIR }}
           ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
           MAX_JSON_SIZE: ${{ vars.MAX_JSON_SIZE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -185,6 +183,7 @@ jobs:
           AUDIT_NGINX_READ_TIMEOUT: ${{ vars.AUDIT_NGINX_READ_TIMEOUT }}
           AUDIT_FPM_TERMINATE_TIMEOUT: ${{ vars.AUDIT_FPM_TERMINATE_TIMEOUT }}
           PHP_CLI_MEMORY_LIMIT: ${{ vars.PHP_CLI_MEMORY_LIMIT }}
+          PDF_MAX_PAGES: ${{ vars.PDF_MAX_PAGES }}
           AUDIT_BATCH_CHUNK_SIZE: ${{ vars.AUDIT_BATCH_CHUNK_SIZE }}
           AUDIT_BATCH_LOCK_TTL_SECONDS: ${{ vars.AUDIT_BATCH_LOCK_TTL_SECONDS }}
           REDIS_HOST: ${{ vars.REDIS_HOST }}
@@ -364,8 +363,6 @@ jobs:
             write_env_var 'LOG_LEVEL' "${LOG_LEVEL:-warning}"
             write_env_var 'LOG_RETENTION_DAYS' "${LOG_RETENTION_DAYS:-7}"
             write_env_var 'LOG_MAX_SIZE_MB' "${LOG_MAX_SIZE_MB:-10}"
-            write_env_var 'AUDIT_RESPONSE_IA_ENABLED' "${AUDIT_RESPONSE_IA_ENABLED:-0}"
-            write_env_var 'AUDIT_RESPONSE_IA_DIR' "${AUDIT_RESPONSE_IA_DIR:-/var/www/html/logs/responseIA}"
             write_env_var 'ALLOWED_ORIGINS' "$EFFECTIVE_ALLOWED_ORIGINS"
             write_env_var 'MAX_JSON_SIZE' "${MAX_JSON_SIZE:-1048576}"
             printf '\n'
@@ -408,6 +405,7 @@ jobs:
             write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
             write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
             write_env_var 'PHP_CLI_MEMORY_LIMIT' "${PHP_CLI_MEMORY_LIMIT:-768M}"
+            write_env_var 'PDF_MAX_PAGES' "${PDF_MAX_PAGES:-10}"
             printf '\n'
             write_env_var 'REDIS_HOST' "${REDIS_HOST:-redis}"
             write_env_var 'REDIS_PORT' "${REDIS_PORT:-6379}"

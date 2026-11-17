@@ -20,6 +20,7 @@ final class DocumentRejectionReason
     public const GEMINI_PROVIDER_BLOCKED = 'GEMINI_PROVIDER_BLOCKED';
     public const GEMINI_OUTPUT_TRUNCATED = 'GEMINI_OUTPUT_TRUNCATED';
     public const GEMINI_UNSAFE_FINISH    = 'GEMINI_UNSAFE_FINISH';
+    public const DOCUMENT_EXCEEDS_PAGE_LIMIT = 'DOCUMENT_EXCEEDS_PAGE_LIMIT';
 
     private const ALLOWED = [
         self::EMPTY_DOCUMENT,
@@ -35,6 +36,7 @@ final class DocumentRejectionReason
         self::GEMINI_PROVIDER_BLOCKED,
         self::GEMINI_OUTPUT_TRUNCATED,
         self::GEMINI_UNSAFE_FINISH,
+        self::DOCUMENT_EXCEEDS_PAGE_LIMIT,
     ];
 
     private function __construct()

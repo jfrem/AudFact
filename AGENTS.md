@@ -316,8 +316,7 @@ La ejecución durable v2 (`AuditExecutionConfig::VERSION = 2`) es el único prot
 | `LOG_LEVEL`                 | `info`                          | ❌        | `Core\Logger` — nivel mínimo (`error`, `warning`, `info`)                                      |
 | `LOG_RETENTION_DAYS`        | `7`                             | ❌        | `Core\Logger` — días antes de borrar logs                                                      |
 | `LOG_MAX_SIZE_MB`           | `10`                            | ❌        | `Core\Logger` — tamaño máximo por archivo                                                      |
-| `AUDIT_RESPONSE_IA_ENABLED` | `1`                             | ❌        | `ResponseIADiskStore` — snapshots Gemini solo en `APP_ENV=development`; usar `0` en producción |
-| `AUDIT_RESPONSE_IA_DIR`     | `/var/www/html/logs/responseIA` | ❌        | `ResponseIADiskStore` — directorio configurable de snapshots locales                           |
+| `AUDIT_RESPONSE_IA_ENABLED` | `1`                             | ❌        | `ResponseIADiskStore` — snapshots Gemini en `logs/responseIA` solo con `APP_ENV=development` (excluida de producción) |
 
 ### Seguridad y red
 
@@ -429,6 +428,7 @@ Requisito de negocio: **una misma entrada debe producir la misma decisión** (`i
 | `AUDIT_STREAM_BLOCK_MS`                  | `5000`                      | ❌         | `AuditEventConsumer` — bloqueo en `XREADGROUP` antes de re-poll                                                                                                                  |
 | `AUDIT_DLQ_STREAM`                       | `audit.dlq`                 | ❌         | Nombre del stream DLQ                                                                                                                                                            |
 | `PDF_RASTERIZER_TIMEOUT_SECONDS`         | `60`                        | ❌         | `DocumentExtractionWorker` / `DocumentPdfRasterizer` — timeout en segundos para rasterización de PDFs complejos                                                                  |
+| `PDF_MAX_PAGES`                          | `10`                        | ❌         | `DocumentPdfRasterizer` / `ExtractionCacheManager` — límite máximo de páginas por adjunto PDF (default: 10, rango: 1-100)                                                         |
 | `AUDIT_VERSION_EXTRACTOR`                | `gemini-3.x-parallel-fc-v1` | ❌         | Versión de trazabilidad del extractor                                                                                                                                            |
 | `AUDIT_VERSION_NORMALIZER`               | `1.0.0`                     | ❌         | Versión de trazabilidad del normalizador                                                                                                                                         |
 | `AUDIT_VERSION_RULES`                    | `1.0.0`                     | ❌         | Versión de trazabilidad de reglas                                                                                                                                                |

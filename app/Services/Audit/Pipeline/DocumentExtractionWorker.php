@@ -106,10 +106,20 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             : self::DEFAULT_EXTRACTOR_VERSION;
 
         $this->promptBuilder  = $promptBuilder  ?? new ExtractionPromptBuilder();
-        $this->cacheManager   = $cacheManager   ?? new ExtractionCacheManager($this->redis, $resolvedTtl, $extractorVersion);
         $this->responseParser = $responseParser ?? new GeminiResponseParser($this->redis);
         $rasterTimeout        = (int) Env::get('PDF_RASTERIZER_TIMEOUT_SECONDS', DocumentPdfRasterizer::DEFAULT_TIMEOUT_SECONDS);
-        $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer(null, DocumentPdfRasterizer::DEFAULT_DPI, $rasterTimeout > 0 ? $rasterTimeout : DocumentPdfRasterizer::DEFAULT_TIMEOUT_SECONDS);
+        $this->pdfRasterizer  = $pdfRasterizer  ?? new DocumentPdfRasterizer(
+            null,
+            DocumentPdfRasterizer::DEFAULT_DPI,
+            $rasterTimeout > 0 ? $rasterTimeout : DocumentPdfRasterizer::DEFAULT_TIMEOUT_SECONDS,
+            DocumentPdfRasterizer::resolveMaxPagesFromEnv()
+        );
+        $this->cacheManager   = $cacheManager   ?? new ExtractionCacheManager(
+            $this->redis,
+            $resolvedTtl,
+            $extractorVersion,
+            $this->pdfRasterizer->getMaxPages()
+        );
         $this->documentCache = $documentCache ?? new AuditDocumentCache($this->redis);
         $this->documentInput = $documentInput ?? new AuditDocumentInput(
             $this->documentCache,
@@ -178,11 +188,8 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $telemetryMeta,
             $event->jobId
         );
-        if (
-            in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
-            && ($stored['document_hash'] ?? '') === $hash && ($stored['contract_hash'] ?? '') === $contractHash
-            && ($stored['prompt_context_hash'] ?? '') === $promptHash && is_array($stored['extraction_result'] ?? null)
-        ) {
+
+        if ($this->canReplayStoredExtraction($stored, $hash, $contractHash, $promptHash)) {
             $state = $stored;
             $this->telemetryPublisher->completed(
                 $event->auditId,
@@ -349,13 +356,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $systemPrompt = $this->promptBuilder->buildSystemPrompt($payload, $contract);
             $promptContextHash = $this->promptBuilder->promptContextHash($userPrompt, $systemPrompt);
             $stored = $this->stateStore->getAudit($event->auditId)['documents'][$event->documentId] ?? null;
-            if (
-                is_array($stored) && in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
-                && ($stored['document_hash'] ?? '') === $documentHash
-                && ($stored['contract_hash'] ?? '') === $contractHash
-                && ($stored['prompt_context_hash'] ?? '') === $promptContextHash
-                && is_array($stored['extraction_result'] ?? null)
-            ) {
+            if ($this->canReplayStoredExtraction($stored, $documentHash, $contractHash, $promptContextHash)) {
                 $this->publishDocumentExtracted($event, $payload, $stored);
                 $this->documentCache->release($blobKey);
                 $this->telemetryPublisher->completed(
@@ -542,20 +543,22 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         AuditEvent $event,
         GeminiGateway $gateway
     ): array {
-        $extracted = $this->cacheManager->get($cacheKey);
-        if ($extracted !== null) {
+        $cached = $this->cacheManager->get($cacheKey);
+        if ($cached !== null) {
             return [
-                'extracted'          => $extracted,
+                'extracted'          => $cached['extracted'],
                 'cache_hit'          => true,
                 'gemini_duration_ms' => 0,
                 'gemini_metrics'     => GeminiCallMetrics::cacheHit([
                     'task_type'     => GeminiGateway::TASK_EXTRACTION,
                     'document_type' => $documentType,
                 ]),
+                'page_count'         => $cached['page_count'],
             ];
         }
 
         $files = $this->buildMultimodalParts($document, $documentType);
+        $pageCount = max(1, count($files));
 
         $responseSchema = $this->requiredArray($contract, 'response_schema');
 
@@ -588,13 +591,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             throw $error;
         }
         $extracted = $this->annotateItemSegmentation($documentType, $payload, $contract, $extracted);
-        $this->cacheManager->put($cacheKey, $extracted);
+        $this->cacheManager->put($cacheKey, $extracted, $pageCount);
 
         return [
             'extracted'          => $extracted,
             'cache_hit'          => false,
             'gemini_duration_ms' => $geminiDurationMs,
             'gemini_metrics'     => $geminiMetrics,
+            'page_count'         => $pageCount,
         ];
     }
 
@@ -625,11 +629,37 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         ]];
     }
 
+    /**
+     * Determina si un estado almacenado previamente puede reutilizarse en replay sin re-extraer.
+     * Exige coincidencia de hashes y conteo certificado dentro del límite vigente de páginas.
+     */
+    private function canReplayStoredExtraction(
+        mixed $stored,
+        string $documentHash,
+        string $contractHash,
+        string $promptContextHash
+    ): bool {
+        if (!is_array($stored)) {
+            return false;
+        }
+
+        $pageCount = $stored['page_count'] ?? null;
+        if (!is_int($pageCount) || $pageCount < 1 || $pageCount > $this->pdfRasterizer->getMaxPages()) {
+            return false;
+        }
+
+        return in_array($stored['status'] ?? '', ['extracted', 'normalized', 'evaluated'], true)
+            && ($stored['document_hash'] ?? '') === $documentHash
+            && ($stored['contract_hash'] ?? '') === $contractHash
+            && ($stored['prompt_context_hash'] ?? '') === $promptContextHash
+            && is_array($stored['extraction_result'] ?? null);
+    }
+
     // ─── Estado del documento ────────────────────────────────────────────────
 
     /**
      * @param array<string,mixed> $document
-     * @param array{extracted:array<string,mixed>,cache_hit:bool,gemini_duration_ms:int,gemini_metrics:?array<string,mixed>} $extraction
+     * @param array{extracted:array<string,mixed>,cache_hit:bool,gemini_duration_ms:int,gemini_metrics:?array<string,mixed>,page_count:int} $extraction
      * @return array<string,mixed>
      */
     private function buildDocumentState(
@@ -640,11 +670,16 @@ final class DocumentExtractionWorker extends AuditEventConsumer
         string $contractHash = '',
         string $promptContextHash = ''
     ): array {
+        if (!isset($extraction['page_count']) || !is_int($extraction['page_count']) || $extraction['page_count'] < 1) {
+            throw new RuntimeException('DocumentExtractionWorker: extraction result must contain a certified page_count >= 1');
+        }
+
         $documentState = [
             'status'                 => 'extracted',
             'document_hash'          => $documentHash,
             'contract_hash'          => $contractHash,
             'prompt_context_hash'    => $promptContextHash,
+            'page_count'             => $extraction['page_count'],
             'cache_hit'              => $extraction['cache_hit'],
             'mime'                   => $document['mime'],
             'extraction_result'      => $extraction['extracted'],

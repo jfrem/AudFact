@@ -21,7 +21,6 @@ final class ResponseIADiskStoreTest extends TestCase
         $this->envBackup = [
             'APP_ENV' => getenv('APP_ENV'),
             'AUDIT_RESPONSE_IA_ENABLED' => getenv('AUDIT_RESPONSE_IA_ENABLED'),
-            'AUDIT_RESPONSE_IA_DIR' => getenv('AUDIT_RESPONSE_IA_DIR'),
         ];
         $this->baseDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'audfact-responseia-' . bin2hex(random_bytes(4));
         Env::clearCache();
@@ -43,9 +42,8 @@ final class ResponseIADiskStoreTest extends TestCase
     {
         $this->setEnv('APP_ENV', 'development');
         $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '1');
-        $this->setEnv('AUDIT_RESPONSE_IA_DIR', $this->baseDir);
 
-        $store = new ResponseIADiskStore();
+        $store = new ResponseIADiskStore($this->baseDir);
         $persisted = $store->persist(
             [
                 'contents' => [
@@ -84,9 +82,8 @@ final class ResponseIADiskStoreTest extends TestCase
     {
         $this->setEnv('APP_ENV', 'production');
         $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '1');
-        $this->setEnv('AUDIT_RESPONSE_IA_DIR', $this->baseDir);
 
-        $store = new ResponseIADiskStore();
+        $store = new ResponseIADiskStore($this->baseDir);
         $persisted = $store->persist([], [], ['dis_det_nro' => 'T38250701547']);
 
         $this->assertFalse($persisted);
@@ -97,9 +94,8 @@ final class ResponseIADiskStoreTest extends TestCase
     {
         $this->setEnv('APP_ENV', 'development');
         $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '0');
-        $this->setEnv('AUDIT_RESPONSE_IA_DIR', $this->baseDir);
 
-        $store = new ResponseIADiskStore();
+        $store = new ResponseIADiskStore($this->baseDir);
         $persisted = $store->persist([], [], ['dis_det_nro' => 'T38250701547']);
 
         $this->assertFalse($persisted);
@@ -110,9 +106,8 @@ final class ResponseIADiskStoreTest extends TestCase
     {
         $this->setEnv('APP_ENV', 'development');
         $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '1');
-        $this->setEnv('AUDIT_RESPONSE_IA_DIR', $this->baseDir);
 
-        $store = new ResponseIADiskStore();
+        $store = new ResponseIADiskStore($this->baseDir);
         $persisted = $store->persist([], ['candidates' => []], ['audit_id' => 'AUD-TASK-9988']);
 
         $this->assertTrue($persisted);
@@ -121,6 +116,15 @@ final class ResponseIADiskStoreTest extends TestCase
 
         $payload = json_decode((string) file_get_contents($files[0]), true);
         $this->assertSame('AUD-TASK-9988', $payload['meta']['dis_det_nro']);
+    }
+
+    public function testProductionNeverPersistsWhenConstructedWithDefaults(): void
+    {
+        $this->setEnv('APP_ENV', 'production');
+        $this->setEnv('AUDIT_RESPONSE_IA_ENABLED', '1');
+
+        $store = new ResponseIADiskStore();
+        $this->assertFalse($store->persist([], [], ['dis_det_nro' => 'T38250701547']));
     }
 
     private function setEnv(string $key, string $value): void

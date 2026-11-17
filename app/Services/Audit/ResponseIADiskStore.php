@@ -15,9 +15,7 @@ use Core\Logger;
  */
 final class ResponseIADiskStore
 {
-    private const DEFAULT_BASE_DIR = '/var/www/html/logs/responseIA';
     private const ENV_ENABLED = 'AUDIT_RESPONSE_IA_ENABLED';
-    private const ENV_DIR = 'AUDIT_RESPONSE_IA_DIR';
     private const DEFAULT_STATUS = 'unknown';
     private const SOURCE = 'GeminiGateway::sendWithStructuredOutput';
 
@@ -25,7 +23,7 @@ final class ResponseIADiskStore
 
     public function __construct(?string $baseDir = null)
     {
-        $this->baseDir = rtrim($baseDir ?? self::configuredBaseDir(), '/\\');
+        $this->baseDir = rtrim($baseDir ?? self::resolveDefaultBaseDir(), '/\\');
     }
 
     /**
@@ -132,15 +130,9 @@ final class ResponseIADiskStore
         return $redacted;
     }
 
-    private static function configuredBaseDir(): string
+    private static function resolveDefaultBaseDir(): string
     {
-        $baseDir = trim((string) Env::get(self::ENV_DIR, self::DEFAULT_BASE_DIR));
-        if ($baseDir === '' || str_starts_with($baseDir, '/var/www/html')) {
-            if (!is_dir('/var/www/html') && DIRECTORY_SEPARATOR === '\\') {
-                return dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'responseIA';
-            }
-        }
-        return $baseDir !== '' ? $baseDir : self::DEFAULT_BASE_DIR;
+        return dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'responseIA';
     }
 
     private function isEnabledForEnvironment(string $appEnv): bool
