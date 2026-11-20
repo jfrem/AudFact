@@ -1,5 +1,42 @@
 # Changelog AudFact
 
+## [2026-11-20] — Sintonización de concurrencia y ampliación de caché documental (`SDD-SCALE-001`)
+
+- **Problema y Motivación**:
+  - Tras el análisis forense del job masivo `685ebaf6-cc23-404e-92d1-ddf950712929` (2,100 facturas de NUEVA EPS), se determinó que el 98.2% del tiempo total de procesamiento correspondió a espera pasiva en cola (10.2 min en extraction stream, 8.6 min en semantic stream) y saturación de la compuerta de prefetch (5,565 pausas por límite de 1.5 GB en memoria).
+  - El servidor de producción dispone de 15.55 GB de RAM con solo 2.5 GB utilizados (< 20% de utilización de memoria).
+- **Componentes modificados y calibrados**:
+  - `app/Services/Audit/Pipeline/AuditDocumentCache.php`: actualizado el valor por defecto de `$maxBytes` a `3221225472` (3.0 GB).
+  - `docker-compose.yml`:
+    - `worker-extraction-batch.deploy.replicas`: calibrado a `${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-36}` (aumento de 24 a 36 réplicas para desatascar la extracción multimodal con Gemini).
+    - `worker-semantic-batch.deploy.replicas`: calibrado a `${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-12}` (aumento de 6 a 12 réplicas para eliminar la latencia acumulada en inferencia semántica).
+  - `.env.example` y `.env`: actualizados `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS=36`, `AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS=12` y `AUDIT_DOCUMENT_CACHE_MAX_BYTES=3221225472` (3 GB / 4096 entradas).
+  - GitHub Environment `production`: sincronizadas remotamente mediante `gh variable set` las 3 variables de entorno (`AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS`, `AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS` y `AUDIT_DOCUMENT_CACHE_MAX_BYTES`).
+- **Especificaciones y Trazabilidad**:
+  - Spec SDD creada: `plans/sdd-sintonizacion-concurrencia-y-cache.md` (SDD-SCALE-001).
+  - GitHub Issue asociado al desperdicio de tokens y política de degradación parcial: `#46` (`https://github.com/jfrem/AudFact/issues/46`).
+- **Pruebas y Verificación**:
+  - Suite completa PHPUnit (`Unit`): **1,134 tests, 5,851 aserciones, 78 skipped, 0 errores, 0 fallos**.
+  - Validación de paridad de variables en GitHub Actions Environment `production` certificada vía `gh variable list --env production`.
+
+
+## [2026-11-19] — Nueva skill de diagnóstico causa raíz en 5 capas (`audfact-incident-diagnosis`)
+
+- **Motivación**:
+  - Formalizar en una metodología determinista y reutilizable el proceso forense aplicado durante el incidente de producción del 2026-11-19 (bloqueo simultáneo por *Head-of-Line* SQL Server `08S01` en `worker-batch` y compuerta `audit:admission:paused = 1` en Redis, más distinción de jobs huérfanos históricos y falsos positivos).
+- **Componentes creados y sincronizados**:
+  - `.agent/skills/audfact-incident-diagnosis/SKILL.md`: protocolo estructurado en Paso 0 (triaje HTTP con `/health`, `/metrics/async`, `/audit/jobs`) + 5 Capas de Aislamiento (Host/Hardware → Docker/Runtime → Redis durable v2 → Dependencias Externas → Dominio), mecánica segura PowerShell/Base64/SSH, compuerta de remediación quirúrgica bajo aprobación y formato obligatorio de reporte RCA.
+  - `.agent/skills/audfact-incident-diagnosis/agents/openai.yaml`: interfaz de activación compatible con el validador del repositorio.
+  - `.agent/skills/audfact-incident-diagnosis/references/diagnostic-commands.md`: batería de comandos de solo lectura para las 5 capas y comandos de remediación condicionados a aprobación.
+  - `.agent/skills/audfact-incident-diagnosis/references/symptom-playbooks.md`: playbooks por síntoma (jobs en `pending`, HTTP `503 audit_capacity_unavailable`, atasco en etapas intermedias, acumulación en `audit.dlq`, `/health` degradado/`502`/`504`) y guía de falsos positivos comunes (`total: 0` completado, `PEL > 0`, prefijo `audfact:`, strings JSON vs hashes).
+  - Registros y documentación sincronizados: `.agent/skills/catalog.json`, `.agent/skills/aliases.json`, `.agent/skills/bundles.json` (bundle `audfact-ops`), `.agent/skills/validation-baseline.json`, `.agent/skills/CATALOG.md` y `AGENTS.md`.
+- **Verificación**:
+  - Validación de skills (`node .agent/skills/_shared/scripts/validate-skills.mjs`): `PASS (25 skills, 9 bundles)`.
+- **Optimización posterior (revisión contra el código)**:
+  - Correcciones factuales: `resume` exige heartbeat ≤ 10000 ms y ausencia de `atCapacity` (si no, `maintenance_unhealthy`); `durability-check` también exige `aof_rewrite_in_progress=0`; orden real de `assertAccepting()` (protocolo primero); `/metrics/async` responde 503 si el protocolo v2 está roto; la Capa 5 dejaba de consultar `/audit/results/{facNro}` con un `dis_det_nro` y ahora usa `?facNitSec=&dateFrom=`; añadido el servicio `docs` y réplicas reales.
+  - Seguridad: `redis-cli` toma `REDIS_PASSWORD` dentro del contenedor vía `REDISCLI_AUTH` (sin leer `.env` del host ni exponerla en `argv`).
+  - Operabilidad: tabla señal → capa → playbook con enlaces, semántica de `jobs.pending/queued/running`, regla de doble lectura ≥ 60 s, catálogo de comandos de mantenimiento (`pause`, `observe`, `resume`, `protocol`, `reconcile`, `outbox`, `gc`) con precondiciones, preámbulo Redis único, modo local sin SSH y nuevos falsos positivos (`prefetch_pauses`, `maintenance_unhealthy`).
+
 ## [2026-11-17] — Mensajes claros y accionables para el auditor humano en rechazos de integridad documental (`SDD-DOC-REJECTION-MESSAGES-001`)
 
 - **Problema y Motivación**:

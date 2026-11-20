@@ -26,7 +26,7 @@ final class AuditDocumentCache
         private readonly int $ttlSeconds = self::DEFAULT_TTL_SECONDS
     ) {
         $this->redis = $redis ?? RedisClient::getInstance();
-        $this->maxBytes = $maxBytes ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_BYTES', 1610612736);
+        $this->maxBytes = $maxBytes ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_BYTES', 3221225472);
         $this->maxEntries = $maxEntries ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_ENTRIES', 4096);
         if ($this->maxBytes < 1 || $this->maxEntries < 1 || $ttlSeconds < 1) {
             throw new \InvalidArgumentException('Los límites de caché documental deben ser positivos');
