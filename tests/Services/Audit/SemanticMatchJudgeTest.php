@@ -315,12 +315,12 @@ final class SemanticMatchJudgeTest extends TestCase
         $redis->method('isAvailable')->willReturn(true);
         $redis->expects($this->once())
             ->method('get')
-            ->with($this->stringContains('audfact:semantic:match:v3:person:'))
+            ->with($this->stringContains('audfact:semantic:match:v4:person:'))
             ->willReturn(null);
         $redis->expects($this->once())
             ->method('set')
             ->with(
-                $this->stringContains('audfact:semantic:match:v3:person:'),
+                $this->stringContains('audfact:semantic:match:v4:person:'),
                 $this->isType('string'),
                 $this->equalTo(86400)
             )

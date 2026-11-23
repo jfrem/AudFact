@@ -65,6 +65,20 @@ final class SemanticMatchPromptBuilderTest extends TestCase
         $this->assertContains('reasoning', $schema['required']);
     }
 
+    public function testBuildPersonNameContractMentionsMinorTypingErrors(): void
+    {
+        // Arrange & Act:
+        [, $systemInstruction, $schema] = $this->builder->buildPersonNameContract(
+            'NIETO RODRIGUEZ JOSE ERNESTO',
+            'JOSE ERNESTO NIETO RODRIGREZ'
+        );
+
+        // Assert:
+        $this->assertStringContainsString('errores tipográficos menores', $systemInstruction);
+        $this->assertStringContainsString('cambia un nombre o apellido por otro distinto', $systemInstruction);
+        $this->assertSame(['is_match', 'reasoning'], $schema['required']);
+    }
+
     public function testBuildContractRoutesAccordingToCallPurpose(): void
     {
         [$promptPerson] = $this->builder->buildContract(

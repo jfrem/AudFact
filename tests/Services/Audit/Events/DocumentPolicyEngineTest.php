@@ -2071,5 +2071,323 @@ final class DocumentPolicyEngineTest extends TestCase
         self::assertSame('NO_CONCLUYENTE', $findings[$nomIdx]['resultado'], 'Blindaje D-11 debe evitar el falso COINCIDE');
         self::assertStringContainsString('FLUOXETINA y QUETIAPINA no son equivalentes', $findings[$nomIdx]['detalle']);
     }
+
+    // ── SDD-TOL-001: Tolerancia ortográfica controlada ────────────────────
+
+    private static function spySemanticJudge(
+        bool $isMatch = false,
+        string $reasoning = 'Escalado a Capa 2'
+    ): \App\Services\Audit\SemanticMatchResolver {
+        return new class ($isMatch, $reasoning) implements \App\Services\Audit\SemanticMatchResolver {
+            public int $calls = 0;
+
+            public function __construct(
+                private readonly bool $isMatch,
+                private readonly string $reasoning
+            ) {
+            }
+
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                $this->calls++;
+
+                return ['is_match' => $this->isMatch, 'reasoning' => $this->reasoning];
+            }
+        };
+    }
+
+    public function testPatientNameMinorTypoMatchesWhenDocumentIdMatches(): void
+    {
+        // Arrange: caso real X49260801520 con NombrePaciente ANTES que DocumentoPaciente en fields_config
+        $judge = self::spySemanticJudge(false, 'No debería invocarse Gemini');
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [
+                self::field('NombrePaciente', 'S', 'alta', 'person_name', 'PAC'),
+                self::field('DocumentoPaciente', 'E', 'alta', 'identity_doc_number', 'DOP'),
+            ],
+            [
+                'header' => [
+                    'NombrePaciente'    => 'NIETO RODRIGUEZ JOSE ERNESTO',
+                    'DocumentoPaciente' => '86030619',
+                ],
+                'items' => [],
+            ]
+        );
+        $payload = self::payload('FORMULA MEDICA', [
+            'NombrePaciente'    => 'JOSE ERNESTO NIETO RODRIGREZ',
+            'DocumentoPaciente' => '86030619',
+        ]);
+
+        // Act:
+        $result = $engine->evaluate($state, $payload, 'X49260801520');
+
+        // Assert:
+        $findings = $result['hallazgos']['items'];
+        $pacIdx = array_search('NombrePaciente', array_column($findings, 'campo'), true);
+
+        self::assertNotFalse($pacIdx);
+        self::assertSame('COINCIDE', $findings[$pacIdx]['resultado']);
+        self::assertSame('JOSE ERNESTO NIETO RODRIGREZ', $findings[$pacIdx]['valorDocumento']);
+        self::assertStringContainsString("'RODRIGREZ' ≈ 'RODRIGUEZ'", (string) $findings[$pacIdx]['detalle']);
+        self::assertStringContainsString('DocumentoPaciente', (string) $findings[$pacIdx]['detalle']);
+        self::assertTrue($result['document_decision']['approved']);
+        self::assertSame(0, $judge->calls);
+    }
+
+    public function testPersonNameTypoToleranceIsSymmetricRegardlessOfTokenOrder(): void
+    {
+        // Arrange:
+        $fieldsCfg = [
+            self::field('NombrePaciente', 'S', 'alta', 'person_name', 'PAC'),
+            self::field('DocumentoPaciente', 'E', 'alta', 'identity_doc_number', 'DOP'),
+        ];
+        $fdv = [
+            'header' => [
+                'NombrePaciente'    => 'NIETO RODRIGUEZ JOSE ERNESTO',
+                'DocumentoPaciente' => '86030619',
+            ],
+            'items' => [],
+        ];
+        $engine = new DocumentPolicyEngine();
+
+        // Act: con cédula coincidente en ambos órdenes
+        $sameOrderWithId = $engine->evaluate(
+            self::baseState('FORMULA MEDICA', $fieldsCfg, $fdv),
+            self::payload('FORMULA MEDICA', [
+                'NombrePaciente'    => 'NIETO RODRIGREZ JOSE ERNESTO',
+                'DocumentoPaciente' => '86030619',
+            ])
+        );
+        $reversedWithId = $engine->evaluate(
+            self::baseState('FORMULA MEDICA', $fieldsCfg, $fdv),
+            self::payload('FORMULA MEDICA', [
+                'NombrePaciente'    => 'JOSE ERNESTO NIETO RODRIGREZ',
+                'DocumentoPaciente' => '86030619',
+            ])
+        );
+
+        // Act: sin cédula en ambos órdenes (simétrico: ninguno aprueba en Capa 1)
+        $sameOrderNoId = $engine->evaluate(
+            self::baseState('FORMULA MEDICA', $fieldsCfg, $fdv),
+            self::payload('FORMULA MEDICA', ['NombrePaciente' => 'NIETO RODRIGREZ JOSE ERNESTO'])
+        );
+        $reversedNoId = $engine->evaluate(
+            self::baseState('FORMULA MEDICA', $fieldsCfg, $fdv),
+            self::payload('FORMULA MEDICA', ['NombrePaciente' => 'JOSE ERNESTO NIETO RODRIGREZ'])
+        );
+
+        // Assert:
+        self::assertSame('COINCIDE', $sameOrderWithId['hallazgos']['items'][0]['resultado']);
+        self::assertSame('COINCIDE', $reversedWithId['hallazgos']['items'][0]['resultado']);
+        self::assertSame('NO_CONCLUYENTE', $sameOrderNoId['hallazgos']['items'][0]['resultado']);
+        self::assertSame('NO_CONCLUYENTE', $reversedNoId['hallazgos']['items'][0]['resultado']);
+    }
+
+    public function testPatientNameTypoWithMismatchingOrMissingDocumentIdDoesNotAutoMatch(): void
+    {
+        // Arrange:
+        $judgeMissing = self::spySemanticJudge(false, 'Escalado a Capa 2 por ausencia de ancla');
+        $judgeMismatch = self::spySemanticJudge(false, 'Escalado a Capa 2 por cédula distinta');
+
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [
+                self::field('NombrePaciente', 'S', 'alta', 'person_name', 'PAC'),
+                self::field('DocumentoPaciente', 'E', 'alta', 'identity_doc_number', 'DOP'),
+            ],
+            [
+                'header' => [
+                    'NombrePaciente'    => 'NIETO RODRIGUEZ JOSE ERNESTO',
+                    'DocumentoPaciente' => '86030619',
+                ],
+                'items' => [],
+            ]
+        );
+
+        // Act:
+        $resMissing = (new DocumentPolicyEngine($judgeMissing))->evaluate(
+            $state,
+            self::payload('FORMULA MEDICA', ['NombrePaciente' => 'JOSE ERNESTO NIETO RODRIGREZ'])
+        );
+        $resMismatch = (new DocumentPolicyEngine($judgeMismatch))->evaluate(
+            $state,
+            self::payload('FORMULA MEDICA', [
+                'NombrePaciente'    => 'JOSE ERNESTO NIETO RODRIGREZ',
+                'DocumentoPaciente' => '86030618',
+            ])
+        );
+
+        // Assert:
+        self::assertSame('NO_CONCLUYENTE', $resMissing['hallazgos']['items'][0]['resultado']);
+        self::assertSame(1, $judgeMissing->calls);
+
+        self::assertSame('NO_CONCLUYENTE', $resMismatch['hallazgos']['items'][0]['resultado']);
+        self::assertSame('VALOR_DISTINTO', $resMismatch['hallazgos']['items'][1]['resultado']);
+        self::assertSame(1, $judgeMismatch->calls);
+    }
+
+    public function testPersonNameGenderInflectionDoesNotAutoMatchInLayer1(): void
+    {
+        // Arrange:
+        $judge1 = self::spySemanticJudge(false, 'Género distinto');
+        $judge2 = self::spySemanticJudge(false, 'Género distinto (-A)');
+
+        // Act: A/O en mismo orden aun con cédula coincidente
+        $resMariaMario = (new DocumentPolicyEngine($judge1))->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [
+                    self::field('NombrePaciente', 'S', 'alta', 'person_name', 'PAC'),
+                    self::field('DocumentoPaciente', 'E', 'alta', 'identity_doc_number', 'DOP'),
+                ],
+                ['header' => ['NombrePaciente' => 'PEREZ LOPEZ MARIA', 'DocumentoPaciente' => '12345678'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['NombrePaciente' => 'PEREZ LOPEZ MARIO', 'DocumentoPaciente' => '12345678'])
+        );
+
+        // Act: sufijo -A en Medico (R1-TOL-B1)
+        $resDanielDaniela = (new DocumentPolicyEngine($judge2))->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('Medico', 'S', 'alta', 'person_name', 'MED')],
+                ['header' => ['Medico' => 'DR DANIEL PEREZ LOPEZ'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['Medico' => 'DRA DANIELA PEREZ LOPEZ'])
+        );
+
+        // Assert:
+        self::assertSame('NO_CONCLUYENTE', $resMariaMario['hallazgos']['items'][0]['resultado']);
+        self::assertSame(1, $judge1->calls);
+        self::assertSame('NO_CONCLUYENTE', $resDanielDaniela['hallazgos']['items'][0]['resultado']);
+        self::assertSame(1, $judge2->calls);
+    }
+
+    public function testDoctorInstitutionAndLabMinorTypoMatchDeterministically(): void
+    {
+        // Arrange:
+        $judge = self::spySemanticJudge(false, 'Escalado a Capa 2');
+        $engine = new DocumentPolicyEngine($judge);
+
+        // Act 1: Medico (S), IPS (S), Cliente (S), Laboratorio (S) y Title Case con ñ (E1-TOL-B1)
+        $resValid = $engine->evaluate(
+            self::baseState(
+                'ACTA DE ENTREGA',
+                [
+                    self::field('Medico', 'S', 'alta', 'person_name', 'MED'),
+                    self::field('IPS', 'S', 'alta', 'institution_name', 'IPS'),
+                    self::field('Cliente', 'S', 'alta', 'institution_name', 'CLI'),
+                    self::field('Laboratorio', 'S', 'alta', 'text', 'LAB'),
+                ],
+                [
+                    'header' => [
+                        'Medico'      => 'SIERRA GOYENECHE JENNY LUCIA',
+                        'IPS'         => 'HOSPITAL DEPARTAMENTAL DE VILLAVICENCIO',
+                        'Cliente'     => 'NUEVA EMPRESA PROMOTORA DE SALUD',
+                        'Laboratorio' => 'TECNOQUIMICAS',
+                    ],
+                    'items' => [],
+                ]
+            ),
+            self::payload('ACTA DE ENTREGA', [
+                'Medico'      => 'JENNY LUCIA SIERA GOYENECHE',
+                'IPS'         => 'VILAVICENCIO HOSPITAL DEPARTAMENTAL DE',
+                'Cliente'     => 'NUEVA EMPRESA PROMOTORA DE SALUUD',
+                'Laboratorio' => 'TECNOQUIMCAS',
+            ])
+        );
+
+        // Act 2: Title Case con ñ (caso real D75261101999, E1-TOL-B1)
+        $resEnye = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('Medico', 'S', 'alta', 'person_name', 'MED')],
+                ['header' => ['Medico' => 'JAIME ORLANDO PATIÑO FRANCO'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['Medico' => 'Jaime Orlando Patiño Franco'])
+        );
+
+        // Act 3: Cardinalidad > 1 en IPS bloqueada (R1-TOL-I1)
+        $resCard = $engine->evaluate(
+            self::baseState(
+                'ACTA DE ENTREGA',
+                [self::field('IPS', 'S', 'alta', 'institution_name', 'IPS')],
+                ['header' => ['IPS' => 'CLINICA BOGOTA'], 'items' => []]
+            ),
+            self::payload('ACTA DE ENTREGA', ['IPS' => 'CLINICA ESPECIALIZADA DE CIRUGIA BOGOTAA'])
+        );
+
+        // Act 4: Comodín ? + typo en persona escala a Capa 2 (R1-TOL-I2)
+        $resWildcardTypo = $engine->evaluate(
+            self::baseState(
+                'FORMULA MEDICA',
+                [self::field('Medico', 'S', 'alta', 'person_name', 'MED')],
+                ['header' => ['Medico' => 'NOREÑA AGUDELO JUAN JOSE'], 'items' => []]
+            ),
+            self::payload('FORMULA MEDICA', ['Medico' => 'JUAN JOSE NORE?A AGUDELOO'])
+        );
+
+        // Assert:
+        foreach ($resValid['hallazgos']['items'] as $finding) {
+            self::assertSame('COINCIDE', $finding['resultado'], "Campo {$finding['campo']} debía aprobar en Capa 1");
+        }
+        self::assertSame('COINCIDE', $resEnye['hallazgos']['items'][0]['resultado']);
+        self::assertSame('exact', $resEnye['hallazgos']['items'][0]['tipo_auditoria']);
+        self::assertSame('NO_CONCLUYENTE', $resCard['hallazgos']['items'][0]['resultado']);
+        self::assertSame('NO_CONCLUYENTE', $resWildcardTypo['hallazgos']['items'][0]['resultado']);
+        self::assertSame(1, $judge->calls, 'Solo el caso comodín ? + typo debe escalar a Capa 2');
+    }
+
+    public function testArticleNameAndExactFieldsNeverUseTypoTolerance(): void
+    {
+        // Arrange:
+        $judge = self::spySemanticJudge(false, 'Principio activo distinto (LASA)');
+
+        $engine = new DocumentPolicyEngine($judge);
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [
+                self::field('NombreArticulo', 'S', 'alta', 'article_name', 'NAM'),
+                self::field('DocumentoPaciente', 'E', 'alta', 'identity_doc_number', 'DOP'),
+                self::field('CodigoDiagnostico', 'E', 'alta', 'code', 'CIE'),
+                self::field('Lote', 'E', 'alta', 'trace_token', 'LOT'),
+            ],
+            [
+                'header' => [
+                    'DocumentoPaciente' => '86030619',
+                    'CodigoDiagnostico' => 'C439',
+                ],
+                'items' => [
+                    ['NombreArticulo' => 'CLONAZEPAM 2MG TABLETA', 'Lote' => 'LOTEA123'],
+                ],
+            ]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [
+                'DocumentoPaciente' => '86030618',
+                'CodigoDiagnostico' => 'C438',
+            ],
+            [
+                ['NombreArticulo' => 'TABLETA 2MG CLORAZEPAM', 'Lote' => 'LOTEA124'],
+            ]
+        );
+
+        // Act:
+        $result = $engine->evaluate($state, $payload);
+
+        // Assert:
+        $byCampo = [];
+        foreach ($result['hallazgos']['items'] as $item) {
+            $byCampo[$item['campo']] = $item['resultado'];
+        }
+        self::assertSame('NO_CONCLUYENTE', $byCampo['NombreArticulo']);
+        self::assertSame('VALOR_DISTINTO', $byCampo['DocumentoPaciente']);
+        self::assertSame('VALOR_DISTINTO', $byCampo['CodigoDiagnostico']);
+        self::assertSame('VALOR_DISTINTO', $byCampo['Lote']);
+        self::assertSame(1, $judge->calls);
+    }
 }
 

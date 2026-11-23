@@ -115,9 +115,10 @@ final class SemanticMatchPromptBuilder
         $systemInstruction = 'Eres un evaluador experto en verificación de identidad. '
             . 'Determina si el Nombre Esperado y el Nombre del Documento se refieren a la misma persona. '
             . 'Considera variaciones comunes: orden de nombres y apellidos, iniciales, apellidos parciales, '
-            . 'títulos profesionales y abreviaciones comunes. '
+            . 'títulos profesionales, abreviaciones comunes y errores tipográficos menores de digitación '
+            . '(1 letra sustituida, omitida o transpuesta en un nombre o apellido largo cuando el resto del nombre coincide). '
             . 'Responde is_match=true si hay suficiente evidencia de que se trata de la misma persona y no hay contradicción explícita. '
-            . 'Ante duda o evidencia insuficiente, is_match=false. '
+            . 'Responde is_match=false si cambia un nombre o apellido por otro distinto o ante duda o evidencia insuficiente. '
             . SemanticBatchContract::CONCISE_REASONING_DIRECTIVE;
 
         $schema = [

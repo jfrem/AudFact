@@ -6,6 +6,16 @@ Pipeline distribuido que audita dispensaciones farmacéuticas usando `DisId` com
 
 ## Fuentes de Verdad
 
+- Implementación 2026-11-23 ([SDD-TOL-001](../sdd-tolerancia-ortografica-semantica.md)):
+  tolerancia ortográfica determinista en Capa 1 (`Damerau-Levenshtein = 1` sobre tokens
+  alfabéticos `/^[A-Z]+$/`) para campos semánticos (`TipoCampo = 'S'`) seguros
+  (`PERSON_NAME`, `INSTITUTION_NAME`, `TEXT`), excluyendo `ARTICLE_NAME` y campos `E`/`B`.
+  Exige ancla `DocumentoPaciente` verificado para `NombrePaciente`, bloquea flexiones de
+  género (`A`/`O` y sufijo `-A` con raíz `>= 4`), retira el atajo asimétrico `similarity()`/`substring`
+  en `PERSON_NAME`, corrige `TextNormalization::normalizeText()` (`strtoupper(stripAccents())`)
+  y versiona selectivamente la caché de personas (`semantic-batch-person-v2` y
+  `audfact:semantic:match:v4:person`, preservando `semantic-batch-v1` y `v6:product`).
+
 - Implementación 2026-10-16: control de prefetch y errores tipados de la
   [SDD de correcciones](../sdd-correccion-fallos-y-rendimiento-pipeline.md).
   Descargas nuevas se pausan al 90% de bytes o entradas y reanudan al 70% de
