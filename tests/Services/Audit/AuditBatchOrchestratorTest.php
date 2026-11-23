@@ -370,7 +370,9 @@ final class BatchOrchestratorInvoicesModel extends InvoicesModel
         string $dateFrom,
         string $dateTo,
         int $limit = 100,
-        ?array $cursor = null
+        ?array $cursor = null,
+        ?string $jobId = null,
+        ?int $queryTimeoutSeconds = null
     ): array {
         $this->calls++;
 

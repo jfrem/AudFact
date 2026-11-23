@@ -14,6 +14,8 @@ use PDOStatement;
 class InvoicesModel extends Model
 {
     private const SEARCH_MAX_PAGE_SIZE = 100;
+    /** Límite máximo de candidatas por congelación batch (SDD-BATCH-001, Fase 2). */
+    private const BATCH_MAX_FREEZE_LIMIT = 50000;
 
     /**
      * Obtiene una página de facturas pendientes de auditoría por NIT y rango de fechas.
@@ -131,7 +133,7 @@ class InvoicesModel extends Model
                 LEFT JOIN Clientes c WITH(NOLOCK) ON c.NitSec = d.DisNitSec AND c.CliSec = d.DisClisec
                 LEFT JOIN PerfilDeClientes pc WITH(NOLOCK) ON pc.PerCliCod = c.PerCliCod
                 WHERE t.FueCod = 'DISP' AND dd.DisDetEst = 'A'
-                AND d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD AND dd.DisTip <> 'A' AND k.KarUnicp > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
+                AND d.DisFecSol >= CONVERT(datetime, :dateFromD, 23) AND d.DisFecSol < DATEADD(day, 1, CONVERT(datetime, :dateToD, 23)) AND dd.DisTip <> 'A' AND k.KarUnicp > 0 AND ISNULL(dd.DisAplForRec, 'N') = 'N' AND d.DisNitSec = :facNitSec
 
                     AND NOT EXISTS ( SELECT 1
                         FROM DiscolmetsGx2QA.dbo.Factura fx WITH(NOLOCK)
@@ -252,6 +254,8 @@ class InvoicesModel extends Model
      * @param  string  $dateTo  Fecha final en formato YYYY-MM-DD.
      * @param  int  $limit  Máximo de candidatos por página (1-1000).
      * @param  array{date?:string,disId?:string,dispensa?:string}|null  $cursor  Cursor keyset de la última fila leída.
+     * @param  string|null  $jobId  Identificador del job para correlación en logs (opcional).
+     * @param  int|null  $queryTimeoutSeconds  Timeout SQL (PDO::SQLSRV_ATTR_QUERY_TIMEOUT); solo se aplica si es > 0.
      * @return array<int,array<string,mixed>>
      */
     public function getInvoicesForAuditBatch(
@@ -259,9 +263,11 @@ class InvoicesModel extends Model
         string $dateFrom,
         string $dateTo,
         int $limit = 100,
-        ?array $cursor = null
+        ?array $cursor = null,
+        ?string $jobId = null,
+        ?int $queryTimeoutSeconds = null
     ): array {
-        $limit = min(max($limit, 1), 1000);
+        $limit = min(max($limit, 1), self::BATCH_MAX_FREEZE_LIMIT);
         $safeLimit = (int) $limit;
 
         $cursorWhere = '';
@@ -298,15 +304,20 @@ class InvoicesModel extends Model
             ? (string) substr((string) $cursor['date'], 0, 10)
             : $dateFrom;
 
+        $options = $queryTimeoutSeconds !== null && $queryTimeoutSeconds > 0
+            ? [PDO::SQLSRV_ATTR_QUERY_TIMEOUT => $queryTimeoutSeconds]
+            : [];
+
         $result = $this->read(function (PDO $connection) use (
             $sql,
             $facNitSec,
             $effectiveDateFrom,
             $dateTo,
             $cursorWhere,
-            $cursor
+            $cursor,
+            $options
         ): array {
-            $stmt = $connection->prepare($sql);
+            $stmt = $connection->prepare($sql, $options);
             $stmt->bindValue(':facNitSec', $facNitSec, PDO::PARAM_INT);
             $stmt->bindValue(':dateFromD', $effectiveDateFrom);
             $stmt->bindValue(':dateToD', $dateTo);
@@ -331,6 +342,7 @@ class InvoicesModel extends Model
 
         $maskedNitSec = '***' . substr((string) $facNitSec, -3);
         Logger::info('Executed SQL audit batch candidates', [
+            'job_id' => $jobId,
             'facNitSec' => $maskedNitSec,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,

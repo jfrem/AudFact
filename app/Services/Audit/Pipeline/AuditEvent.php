@@ -95,10 +95,11 @@ final class AuditEvent
         ?string $jobId = null,
         ?string $documentId = null,
         array $payload = [],
-        ?string $parentEventId = null
+        ?string $parentEventId = null,
+        ?string $eventId = null
     ): self {
         return new self(
-            eventId: self::uuidV4(),
+            eventId: $eventId ?? self::uuidV4(),
             parentEventId: $parentEventId,
             eventType: $eventType,
             auditId: $auditId,
@@ -221,6 +222,14 @@ final class AuditEvent
             '%s%s-%s-%s-%s-%s%s%s',
             str_split(bin2hex($data), 4)
         );
+    }
+
+    /** UUID v4 determinista derivado de SHA-256 de la identidad (sin aleatoriedad). */
+    public static function deterministicUuidV4(string $identity): string
+    {
+        $hex = hash('sha256', $identity);
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-4' . substr($hex, 13, 3)
+            . '-a' . substr($hex, 17, 3) . '-' . substr($hex, 20, 12);
     }
 
     public static function isUuidV4(string $candidate): bool

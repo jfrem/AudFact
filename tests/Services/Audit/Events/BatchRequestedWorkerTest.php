@@ -128,7 +128,9 @@ final class BatchRequestedWorkerTest extends TestCase
                     string $dateFrom,
                     string $dateTo,
                     int $limit = 100,
-                    ?array $cursor = null
+                    ?array $cursor = null,
+                    ?string $jobId = null,
+                    ?int $queryTimeoutSeconds = null
                 ): array {
                     return [
                         ['NitSec' => $facNitSec, 'DisId' => '101', 'Dispensa' => 'D101', 'DisFecSol' => '2026-06-01T00:00:00'],
@@ -221,7 +223,9 @@ final class BatchRequestedWorkerTest extends TestCase
                     string $dateFrom,
                     string $dateTo,
                     int $limit = 100,
-                    ?array $cursor = null
+                    ?array $cursor = null,
+                    ?string $jobId = null,
+                    ?int $queryTimeoutSeconds = null
                 ): array {
                     return [
                         ['NitSec' => $facNitSec, 'DisId' => '101', 'Dispensa' => 'D101', 'DisFecSol' => '2026-06-01T00:00:00'],
