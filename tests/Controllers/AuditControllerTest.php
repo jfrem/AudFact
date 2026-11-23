@@ -244,6 +244,7 @@ final class AuditControllerTest extends TestCase
         $this->assertSame(500, $response->getCode());
         $this->assertSame('Configuración de idempotencia inválida', $response->getData()['message']);
         $this->assertSame([], $publisher->published);
+        $this->assertSame(0, $jobStore->initJobCalls, 'Con TTL inválido no debe iniciarse ningún job (initJob).');
     }
 
     public function testAsyncReturns422WhenDateToBeforeDate(): void
@@ -783,6 +784,7 @@ class StubBatchJobStore extends BatchJobStore
     public ?array $activeReservation = null;
     public ?string $claimIdempotencyKeyReturns = null;
     public bool $claimIdempotencyKeyThrowsInvalid = false;
+    public int $initJobCalls = 0;
 
     public function __construct(
         private bool $claimReturns = true,
@@ -817,6 +819,7 @@ class StubBatchJobStore extends BatchJobStore
         string $dateTo,
         int $limit
     ): bool {
+        $this->initJobCalls++;
         return $this->initJobReturns;
     }
 

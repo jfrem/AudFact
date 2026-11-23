@@ -55,15 +55,20 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         $this->seedAuditState($changedId, 'completed', $expired, 100);
         $replacement = json_encode(['audit_id' => $changedId, 'status' => 'completed', 'completed_at' => $expired, 'pad' => 'changed'], JSON_THROW_ON_ERROR);
         $connection = $this->redis;
-        $wrapper = new RecordingRedis($connection, static function (string $script, array $keys) use ($connection, $changedId, $replacement): void {
-            // Modifica el valor justo después de leer sus metadatos de retención (ventana entre lectura y borrado).
-            if (str_contains($script, 'sha1hex(raw)') && ($keys[0] ?? '') === AuditStateStore::auditKey($changedId)) {
+        $mutated = false;
+        // Solo AUDIT_RETENTION_LUA (la única con `completed_at` y `sha1hex(raw)`) dispara la mutación, una vez.
+        $wrapper = new RecordingRedis($connection, static function (string $script, array $keys) use ($connection, $changedId, $replacement, &$mutated): void {
+            if (!$mutated && str_contains($script, 'completed_at') && str_contains($script, 'sha1hex(raw)')
+                && ($keys[0] ?? '') === AuditStateStore::auditKey($changedId)) {
+                $mutated = true;
                 $connection->eval('return redis.call("SET",KEYS[1],ARGV[1])', [AuditStateStore::auditKey($changedId)], [$replacement]);
             }
         });
 
-        (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
+        $removed = (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
 
+        self::assertTrue($mutated, 'La ventana entre lectura de metadatos y borrado debe ejercitarse.');
+        self::assertSame(1, $removed, 'Solo la clave no modificada se borra.');
         self::assertNull($this->redis->get(AuditStateStore::auditKey($deletedId)));
         self::assertSame($replacement, $this->redis->get(AuditStateStore::auditKey($changedId)));
     }
@@ -81,6 +86,10 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         $total += $first;
         self::assertGreaterThan(0, $first);
         self::assertLessThan(750, $first, 'La primera llamada debe cortar por GC_MAX_ITEMS.');
+        // Tras el corte el SCAN de tareas queda incompleto y el estado queda persistido en gc:cursors.
+        self::assertSame('0', $this->cursorField('pattern_index'), 'El corte ocurre dentro del patrón tasks (0).');
+        self::assertNotSame('0', $this->cursorField('cursor:tasks') ?? '0', 'El cursor de tasks debe persistirse sin completar el barrido.');
+        self::assertIsArray(json_decode($this->cursorField('pending_keys') ?? '[]', true, 512, JSON_THROW_ON_ERROR));
 
         for ($round = 0; $round < 5 && $this->countKeys('audit:task:v2:*') + $this->countKeys('audit:*:state') > 0; $round++) {
             $total += (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
@@ -97,10 +106,10 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     {
         $expired = gmdate('Y-m-d\TH:i:s\Z', time() - 864000);
         for ($i = 0; $i < 1200; $i++) {
-            $auditId = self::uuidFor('large-' . $i);
-            $this->seedAuditState($auditId, 'failed', $expired, 40000);
-            $this->seedTerminalTask($i, $auditId, $expired);
+            // La auditoría de 40 KB se siembra una sola vez, dentro de la tarea terminal (sin sobrescribirla).
+            $this->seedTerminalTask($i, self::uuidFor('large-' . $i), $expired, 40000);
         }
+        memory_reset_peak_usage();
         $baseline = memory_get_usage(true);
 
         (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
@@ -166,23 +175,27 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     }
 
     /**
-     * T-I8 (CA-F1-06, INV-F1-04), forma reducida: tick_duration_ms ≤ TICK_BUDGET_MS + máxima llamada Redis + margen
-     * de llamadas fijas. No siembra 3.000 efectos de outbox; la descomposición completa de los cuatro términos
-     * queda pendiente de ejecución con Redis real.
+     * T-I8 (CA-F1-06, INV-F1-04), con carga: 3.000 efectos de outbox + 1.500 no coincidentes.
+     * Cota aplicada: tick_duration_ms ≤ TICK_BUDGET_MS + máxima llamada Redis + margen de llamadas fijas.
+     * La descomposición en U_outbox, U_intake_forzada, G y F requiere marcas de fase en producción (pendiente).
      */
-    public function testTickDurationStaysWithinDeadlineBound(): void
+    public function testTickDurationStaysWithinDeadlineBoundUnderLoad(): void
     {
-        $maxCallMs = 0.0;
-        $wrapper = new RecordingRedis($this->redis, null, static function (float $ms) use (&$maxCallMs): void {
-            $maxCallMs = max($maxCallMs, $ms);
-        });
-        (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->tick();
+        $this->seedTickLoad();
 
-        $duration = (int) ($this->meta()['tick_duration_ms'] ?? PHP_INT_MAX);
-        self::assertLessThanOrEqual(
-            AuditExecutionMaintenance::TICK_BUDGET_MS + (int) ceil($maxCallMs) + 1000,
-            $duration
-        );
+        $this->assertTickWithinDeadlineBound();
+    }
+
+    /**
+     * Variante sin GC de T-I8: gc:cursors.last_gc_ms = nowMs() ⇒ el GC no es elegible en el tick (G = 0 en el término).
+     */
+    public function testTickDurationStaysWithinDeadlineBoundWithoutGc(): void
+    {
+        $this->seedTickLoad();
+        $this->redis->eval('return redis.call("HSET",KEYS[1],"last_gc_ms",ARGV[1])',
+            [AuditExecutionMaintenance::GC_CURSORS_KEY], [(string) $this->nowMs()]);
+
+        $this->assertTickWithinDeadlineBound();
     }
 
     /** T-I9 (CA-F1-11): 450 efectos de outbox se publican en un solo tick. */
@@ -196,32 +209,62 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     }
 
     /**
-     * T-I10 (CA-F1-08, CA-F1-12, W-F1-B1): 1.500 no coincidentes y 50 coincidentes en el stream del grupo
-     * extractors; policy se crea en `$` tras sembrar y no confirma nada.
+     * T-I10 (CA-F1-08, W-F1-B1, W-F1-M5): 1.500 no coincidentes y 50 coincidentes en el stream del grupo
+     * extractors; policy se crea en `$` tras sembrar y no confirma nada. El RecordingRedis cuenta solo las
+     * llamadas del grupo extractors.
      */
     public function testIntakeAcksNonMatchingBatchesWithoutStarvingHead(): void
     {
         $stream = AuditEventPublisher::STREAM_DOCUMENTS_BATCH;
-        $this->redis->eval('return redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"0","MKSTREAM")', [$stream], ['extractors']);
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        for ($i = 0; $i < 1500; $i++) {
-            $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, AuditEvent::uuidV4()));
-            if ($i % 30 === 0) {
-                $auditId = self::uuidFor('batch-' . intdiv($i, 30));
-                $this->seedAuditState($auditId, 'processing', $now);
-                $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $auditId));
-            }
-        }
-        $this->redis->eval('return redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"$")', [$stream], ['policy']);
+        $this->seedDocumentsBatch(0);
+        $calls = self::newCallCounter();
+        $wrapper = new RecordingRedis($this->redis, static function (string $script, array $keys, array $argv) use (&$calls): void {
+            self::countExtractorCall($script, $argv, $calls);
+        });
 
-        (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->tick();
+        (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->tick();
 
+        self::assertLessThanOrEqual(8, $calls['xreadgroup'], '≤ 8 XREADGROUP de extractors (la 8.ª ronda, con 150 < 200, corta).');
+        self::assertLessThanOrEqual(8, $calls['xack'], '≤ 8 XACK-lote de extractors.');
+        self::assertSame(50, $calls['admit'], 'Exactamente 50 admisiones de extractors.');
         self::assertSame('1500', $this->meta()['intake_acked'] ?? null);
         self::assertSame(0, $this->pendingCount($stream, 'extractors'));
         self::assertSame(0, $this->pendingCount($stream, 'policy'));
+        self::assertSame(0, $this->groupLag($stream, 'extractors'), 'XINFO GROUPS extractors: lag = 0.');
+        self::assertSame(0, $this->groupLag($stream, 'policy'), 'XINFO GROUPS policy: lag = 0.');
+        self::assertSame(50, $this->queueMetrics()['extraction']['batch']['queued'], '50 tareas en cola extraction:batch.');
     }
 
-    /** T-I11 (CA-F1-08, INV-F1-05): con capacidad 10 y 50 coincidentes, 10 se admiten y 40 quedan en PEL. */
+    /**
+     * T-I10 variante de latencia (CA-F1-12): usleep(20000) antes de cada llamada Redis y las 200 primeras
+     * entradas no coincidentes. Debe haber ≥ 1 ronda XREADGROUP de extractors y intake_acked ≥ 200, aunque el
+     * deadline venza durante el tick.
+     */
+    public function testIntakeLatencyVariantAcksLeadingNonMatchingWithinDeadline(): void
+    {
+        $this->seedDocumentsBatch(200);
+        $calls = self::newCallCounter();
+        $wrapper = new RecordingRedis(
+            $this->redis,
+            static function (string $script, array $keys, array $argv) use (&$calls): void {
+                self::countExtractorCall($script, $argv, $calls);
+            },
+            null,
+            static function (): void {
+                usleep(20000);
+            }
+        );
+
+        (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->tick();
+
+        self::assertGreaterThanOrEqual(1, $calls['xreadgroup'], 'La ronda forzada de extractors debe ejecutarse.');
+        self::assertGreaterThanOrEqual(200, (int) ($this->meta()['intake_acked'] ?? 0));
+    }
+
+    /**
+     * T-I11 (CA-F1-08, INV-F1-05, H-06): capacidad 10 y 50 coincidentes ⇒ 10 admitidos y 40 en PEL; tras liberar
+     * capacidad y forzar IDLE ≥ 5 s, un tick posterior reclama los 40 vía XAUTOCLAIM y los admite.
+     */
     public function testCapacityLimitLeavesRemainderInPendingList(): void
     {
         $stream = AuditEventPublisher::STREAM_DOCUMENTS_BATCH;
@@ -233,11 +276,23 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
             $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $auditId));
         }
         // 90 tareas ya en cola de extraction (batch) con maxQueued = 100 ⇒ capacidad = min(100, 100 - 90) = 10.
+        $this->seedWaitingHead('extraction', 'batch');
         $this->redis->eval('return redis.call("HINCRBY",KEYS[1],ARGV[1],90)', [FairAuditTaskQueue::COUNTS], ['extraction:batch:pending']);
 
-        (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2, 100)))->tick();
+        $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2, 100));
+        $maintenance->tick();
 
         self::assertSame(40, $this->pendingCount($stream, 'extractors'));
+        self::assertSame(10, $this->tasksInAll(), 'Solo 10 tareas admitidas en el primer tick.');
+
+        // Libera la capacidad (cola vaciada) y fuerza IDLE 6000 en la PEL para que XAUTOCLAIM (5000 ms) la reclame.
+        $this->redis->eval('return redis.call("HSET",KEYS[1],ARGV[1],0)', [FairAuditTaskQueue::COUNTS], ['extraction:batch:pending']);
+        $this->forceIdle($stream, 'extractors', 6000);
+
+        $maintenance->tick();
+
+        self::assertSame(0, $this->pendingCount($stream, 'extractors'), 'Ninguna entrada coincidente debe quedar en PEL.');
+        self::assertSame(50, $this->tasksInAll(), 'Las 50 coincidentes deben terminar admitidas, sin pérdidas ni duplicados.');
     }
 
     /** T-I12 (CA-F1-13, REQ-F1-12): expireLegacyIdempotency fija TTL legado; gc amplía con GT si el job vive. */
@@ -265,7 +320,7 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     }
 
     /**
-     * T-I13 (CA-F1-16): dentro de una etapa, .priority consume la capacidad compartida antes que .batch,
+     * T-I13 (CA-F1-16, H-01): dentro de una etapa, .priority consume la capacidad compartida antes que .batch,
      * con cada valor inicial de intakeOffset (0..3).
      */
     #[DataProvider('intakeOffsets')]
@@ -282,17 +337,24 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
             $batchAudit = self::uuidFor('b-' . $i);
             $this->seedAuditState($priorityAudit, 'processing', $now);
             $this->seedAuditState($batchAudit, 'processing', $now);
-            $this->xadd($priority, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $priorityAudit));
+            // is_priority = true es la única señal que fija el carril priority (AuditEventPublisher::isPriorityEvent).
+            $this->xadd($priority, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $priorityAudit, null, null, ['is_priority' => true]));
             $this->xadd($batch, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $batchAudit));
         }
+        $this->seedWaitingHead('extraction', 'priority');
         $this->redis->eval('return redis.call("HINCRBY",KEYS[1],ARGV[1],90)', [FairAuditTaskQueue::COUNTS], ['extraction:priority:pending']);
 
         $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2, 100));
         (new \ReflectionProperty(AuditExecutionMaintenance::class, 'intakeOffset'))->setValue($maintenance, $offset);
         $maintenance->tick();
 
-        self::assertSame(10, $this->pendingCount($priority, 'extractors'), 'los 10 cupos deben consumirse en .priority');
-        self::assertSame(0, $this->pendingCount($batch, 'extractors'), '.batch no debe recibir capacidad');
+        self::assertSame('10', $this->meta()['intake_admitted'] ?? null, 'Los 10 cupos se admiten.');
+        self::assertSame(10, $this->tasksInAll());
+        $metrics = $this->queueMetrics();
+        self::assertSame(100, $metrics['extraction']['priority']['queued'], '90 previas + 10 admitidas del carril priority.');
+        self::assertSame(0, $metrics['extraction']['batch']['queued'], 'Ninguna tarea del carril batch.');
+        self::assertSame(10, $this->pendingCount($priority, 'extractors'), 'Las 10 restantes de .priority quedan en PEL.');
+        self::assertSame(0, $this->pendingCount($batch, 'extractors'), '.batch no debe recibir capacidad.');
     }
 
     public static function intakeOffsets(): iterable
@@ -303,8 +365,8 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     }
 
     /**
-     * T-I14 (CA-F1-03, DEC-F1-04): una excepción en la última clave deja pattern_index avanzado;
-     * un pending_pattern inválido descarta pending_keys con warning.
+     * T-I14 (CA-F1-03, DEC-F1-04, H-07): una excepción en la última clave deja pattern_index avanzado y las
+     * siguientes instancias reanudan por el patrón siguiente; pending_pattern se castea (int) o descarta (no numérico).
      */
     public function testExceptionOnLastKeyAdvancesPatternAndInvalidPendingIsDiscarded(): void
     {
@@ -312,20 +374,45 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', [$corrupt], ['{invalido']);
         $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2));
 
-        try {
-            $maintenance->gc(60000, $this->nowMs());
-            self::fail('El estado corrupto debe provocar una excepción en la última clave.');
-        } catch (\Throwable) {
-            // Esperado: una caída por ciclo (DEC-F1-04).
-        }
+        // 1.ª instancia: `audits` (patrón 2) lanza en su última clave ⇒ pattern_index avanza a 3 (una caída por ciclo).
+        self::assertTrue($this->gcThrows($maintenance), 'El estado corrupto debe provocar una excepción en la última clave.');
         self::assertSame('3', $this->cursorField('pattern_index'));
         self::assertSame('[]', $this->cursorField('pending_keys'));
 
-        $this->redis->eval('return redis.call("HSET",KEYS[1],"pending_pattern",ARGV[1],"pending_keys",ARGV[2])',
-            [AuditExecutionMaintenance::GC_CURSORS_KEY], ['x', '["k1"]']);
+        // 2.ª instancia con $corrupt aún presente: gemini_attempts (3) se procesa antes y borra su clave;
+        // después `audits` vuelve a lanzar como 7.º patrón del ciclo.
+        $attempt = 'gemini:attempt:v2:' . AuditEvent::uuidV4();
+        $attemptRaw = json_encode([
+            'attempt_id' => 'attempt-' . AuditEvent::uuidV4(), 'state' => 'completed',
+            'task_id' => str_repeat('a', 64), 'quota_base' => 'q1',
+        ], JSON_THROW_ON_ERROR);
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', [$attempt], [$attemptRaw]);
+        self::assertTrue($this->gcThrows(new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2))));
+        self::assertNull($this->redis->get($attempt), 'gemini_attempts debe borrarse antes de volver a audits.');
+        self::assertSame('3', $this->cursorField('pattern_index'));
+
+        // Variante int: pending_pattern = '2' con pending_keys válidas ⇒ tras loadGcState() es int y se procesan.
         $this->redis->eval('return redis.call("DEL",KEYS[1])', [$corrupt]);
+        $expiredId = AuditEvent::uuidV4();
+        $expiredKey = AuditStateStore::auditKey($expiredId);
+        $this->seedAuditState($expiredId, 'completed', gmdate('Y-m-d\TH:i:s\Z', time() - 864000));
+        $this->redis->eval('return redis.call("HSET",KEYS[1],"pattern_index",ARGV[1],"pending_pattern",ARGV[2],"pending_keys",ARGV[3])',
+            [AuditExecutionMaintenance::GC_CURSORS_KEY], ['2', '2', json_encode([$expiredKey], JSON_THROW_ON_ERROR)]);
+        $loadGcState = new \ReflectionMethod(AuditExecutionMaintenance::class, 'loadGcState');
+        $state = $loadGcState->invoke(new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)));
+        self::assertSame(2, $state['pending_pattern'], 'pending_pattern "2" se castea a int.');
+        self::assertSame([$expiredKey], $state['pending_keys']);
         (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
-        self::assertSame('[]', $this->cursorField('pending_keys'), 'pending_pattern inválido descarta pending_keys.');
+        self::assertNull($this->redis->get($expiredKey), 'La nueva instancia procesa las pending_keys del patrón 2.');
+
+        // Variante inválida: pending_pattern = 'x' ⇒ pending descartadas (observable en loadGcState()).
+        $otherId = AuditEvent::uuidV4();
+        $this->seedAuditState($otherId, 'completed', gmdate('Y-m-d\TH:i:s\Z', time() - 864000));
+        $this->redis->eval('return redis.call("HSET",KEYS[1],"pattern_index",ARGV[1],"pending_pattern",ARGV[2],"pending_keys",ARGV[3])',
+            [AuditExecutionMaintenance::GC_CURSORS_KEY], ['2', 'x', json_encode([AuditStateStore::auditKey($otherId)], JSON_THROW_ON_ERROR)]);
+        $state = $loadGcState->invoke(new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)));
+        self::assertNull($state['pending_pattern'], 'pending_pattern no numérico se descarta.');
+        self::assertSame([], $state['pending_keys'], 'pending_keys se descartan con pending_pattern inválido.');
     }
 
     /** T-I15 (REQ-F1-13, P-F1-01): banderas de pausa visibles en heartbeat:meta y aviso con throttling. */
@@ -357,6 +444,145 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         self::assertSame(0, $property->getValue($maintenance));
     }
 
+    /** Carga común de T-I8: 3.000 efectos de outbox y 1.500 entradas no coincidentes en documents.batch. */
+    private function seedTickLoad(): void
+    {
+        $this->seedOutboxEffects(3000);
+        $stream = AuditEventPublisher::STREAM_DOCUMENTS_BATCH;
+        $this->redis->eval('return redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"0","MKSTREAM")', [$stream], ['extractors']);
+        for ($i = 0; $i < 1500; $i++) {
+            $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, AuditEvent::uuidV4()));
+        }
+    }
+
+    private function assertTickWithinDeadlineBound(): void
+    {
+        $maxCallMs = 0.0;
+        $wrapper = new RecordingRedis($this->redis, null, static function (float $ms) use (&$maxCallMs): void {
+            $maxCallMs = max($maxCallMs, $ms);
+        });
+        (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2)))->tick();
+
+        $duration = (int) ($this->meta()['tick_duration_ms'] ?? PHP_INT_MAX);
+        self::assertLessThanOrEqual(
+            AuditExecutionMaintenance::TICK_BUDGET_MS + (int) ceil($maxCallMs) + 1000,
+            $duration
+        );
+    }
+
+    /**
+     * Stream documents.batch del grupo extractors: 1.500 document_registered y 50 document_downloaded
+     * (coincidentes). Los primeros $leading eventos son no coincidentes. policy se crea en `$` tras sembrar:
+     * no recibe entradas (W-F1-B1).
+     */
+    private function seedDocumentsBatch(int $leading): void
+    {
+        $stream = AuditEventPublisher::STREAM_DOCUMENTS_BATCH;
+        $this->redis->eval('return redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"0","MKSTREAM")', [$stream], ['extractors']);
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        for ($i = 0; $i < 1500; $i++) {
+            $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_REGISTERED, AuditEvent::uuidV4()));
+            if ($i >= $leading && ($i - $leading) % 30 === 0) {
+                $auditId = self::uuidFor('batch-' . $i);
+                $this->seedAuditState($auditId, 'processing', $now);
+                $this->xadd($stream, AuditEvent::create(AuditEvent::TYPE_DOCUMENT_DOWNLOADED, $auditId));
+            }
+        }
+        $this->redis->eval('return redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"$")', [$stream], ['policy']);
+    }
+
+    /** @return array{xreadgroup:int,xack:int,admit:int} */
+    private static function newCallCounter(): array
+    {
+        return ['xreadgroup' => 0, 'xack' => 0, 'admit' => 0];
+    }
+
+    /**
+     * Clasifica una llamada Redis del intake del grupo extractors. ADMIT se reconoce por `audit_state_missing`,
+     * XREADGROUP por su literal y el XACK-lote por `unpack(ARGV,2)`; en los tres, argv[0] o argv[2] es el grupo.
+     *
+     * @param array{xreadgroup:int,xack:int,admit:int} $calls
+     */
+    private static function countExtractorCall(string $script, array $argv, array &$calls): void
+    {
+        if (str_contains($script, 'audit_state_missing')) {
+            if (($argv[2] ?? null) === 'extractors') {
+                $calls['admit']++;
+            }
+            return;
+        }
+        if (($argv[0] ?? null) !== 'extractors') {
+            return;
+        }
+        if (str_contains($script, 'XREADGROUP')) {
+            $calls['xreadgroup']++;
+        } elseif (str_contains($script, 'unpack(ARGV,2)')) {
+            $calls['xack']++;
+        }
+    }
+
+    /** Siembra un único elemento en el índice :waiting de (stage, lane), requerido por FairAuditTaskQueue::metrics(). */
+    private function seedWaitingHead(string $stage, string $lane): void
+    {
+        $this->redis->eval('return redis.call("ZADD",KEYS[1],ARGV[1],ARGV[2])',
+            [FairAuditTaskQueue::base($stage, $lane) . ':waiting'], [(string) $this->nowMs(), 'seed-waiting-head']);
+    }
+
+    /** Libera la PEL de $group en $stream forzando IDLE en las entradas pendientes (XCLAIM ... IDLE). */
+    private function forceIdle(string $stream, string $group, int $idleMs): void
+    {
+        $this->redis->eval(<<<'LUA'
+            local pending = redis.call('XPENDING', KEYS[1], ARGV[1], '-', '+', 1000)
+            local ids = {}
+            for _, entry in ipairs(pending) do ids[#ids + 1] = entry[1] end
+            if #ids > 0 then
+                redis.call('XCLAIM', KEYS[1], ARGV[1], 'forced-idle', 0, unpack(ids), 'IDLE', ARGV[2])
+            end
+            return #ids
+            LUA, [$stream], [$group, (string) $idleMs]);
+    }
+
+    /** Lag de un grupo (XINFO GROUPS, Redis ≥ 7.0). Devuelve null si Redis no lo informa. */
+    private function groupLag(string $stream, string $group): ?int
+    {
+        $lag = $this->redis->eval(<<<'LUA'
+            local groups = redis.call('XINFO', 'GROUPS', KEYS[1])
+            for _, g in ipairs(groups) do
+                local name, lag
+                for i = 1, #g, 2 do
+                    if g[i] == 'name' then name = g[i + 1] elseif g[i] == 'lag' then lag = g[i + 1] end
+                end
+                if name == ARGV[1] then return lag end
+            end
+            return nil
+            LUA, [$stream], [$group]);
+
+        return $lag === null || $lag === false ? null : (int) $lag;
+    }
+
+    /** @return array<string,array<string,array{queued:int,active:int,delayed:int,oldest_wait_ms:int}>> */
+    private function queueMetrics(): array
+    {
+        return (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->metrics();
+    }
+
+    private function tasksInAll(): int
+    {
+        return (int) $this->redis->eval('return redis.call("SCARD",KEYS[1])', [FairAuditTaskQueue::ALL]);
+    }
+
+    /** Ejecuta gc() y devuelve true si lanzó; nunca usa assert dentro del try para no tragarse fallos propios. */
+    private function gcThrows(AuditExecutionMaintenance $maintenance): bool
+    {
+        try {
+            $maintenance->gc(60000, $this->nowMs());
+        } catch (\Throwable) {
+            return true;
+        }
+
+        return false;
+    }
+
     private function nowMs(): int
     {
         return (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->nowMs();
@@ -382,9 +608,10 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         return $raw;
     }
 
-    private function seedTerminalTask(int $index, string $auditId, string $completedAt): void
+    /** Tarea terminal (completed) y auditoría terminal asociada; $padBytes se aplica a la auditoría. */
+    private function seedTerminalTask(int $index, string $auditId, string $completedAt, int $padBytes = 0): void
     {
-        $this->seedAuditState($auditId, 'failed', $completedAt);
+        $this->seedAuditState($auditId, 'failed', $completedAt, $padBytes);
         $event = AuditEvent::create(AuditEvent::TYPE_AUDIT_CREATED, $auditId);
         $record = AuditTask::fromEvent(AuditTaskStage::ORCHESTRATION, $event)->record;
         $record['task_id'] = hash('sha256', 'task-' . $index);
@@ -453,7 +680,7 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
 
 /**
  * Envoltorio de RedisClient que delega en la conexión aislada del test y permite observar las llamadas eval
- * (ARGV de cada script) y medir la duración de cada llamada Redis.
+ * (ARGV de cada script), medir su duración e inyectar latencia antes de cada llamada Redis.
  */
 class RecordingRedis extends RedisClient
 {
@@ -461,16 +688,19 @@ class RecordingRedis extends RedisClient
      * @param IsolatedAuditRedis                         $connection conexión aislada del test
      * @param (\Closure(string,array,array):void)|null   $after      observador tras cada eval
      * @param (\Closure(float):void)|null                $timer      recibe la duración en ms de cada eval
+     * @param (\Closure():void)|null                     $before     se ejecuta antes de cada llamada Redis
      */
     public function __construct(
         private readonly IsolatedAuditRedis $connection,
         private readonly ?\Closure $after = null,
-        private readonly ?\Closure $timer = null
+        private readonly ?\Closure $timer = null,
+        private readonly ?\Closure $before = null
     ) {
     }
 
     public function eval(string $script, array $keys = [], array $argv = []): mixed
     {
+        $this->beforeCall();
         $start = hrtime(true);
         $result = $this->connection->eval($script, $keys, $argv);
         if ($this->timer !== null) {
@@ -485,11 +715,15 @@ class RecordingRedis extends RedisClient
 
     public function get(string $key): ?string
     {
+        $this->beforeCall();
+
         return $this->connection->get($key);
     }
 
     public function scanKeys(string $pattern, string $cursor = '0', int $count = 100): array
     {
+        $this->beforeCall();
+
         return $this->connection->scanKeys($pattern, $cursor, $count);
     }
 
@@ -501,5 +735,12 @@ class RecordingRedis extends RedisClient
     public function serverConfiguration(array $names): array
     {
         return $this->connection->serverConfiguration($names);
+    }
+
+    private function beforeCall(): void
+    {
+        if ($this->before !== null) {
+            ($this->before)();
+        }
     }
 }

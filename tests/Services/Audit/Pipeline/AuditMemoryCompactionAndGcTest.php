@@ -245,7 +245,8 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
             $next = $page + 1 < count($pages) ? (string) ($page + 1) : '0';
             return [$next, array_column($pages[$page], 'key')];
         });
-        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys = [], array $argv = []) use ($tasksRecords, &$statusEvals, &$taskDeletes): mixed {
+        $cursorsArgv = null;
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys = [], array $argv = []) use ($tasksRecords, &$statusEvals, &$taskDeletes, &$cursorsArgv): mixed {
             if ($keys === []) {
                 return 1700000000000;
             }
@@ -257,6 +258,10 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
                 return $tasksRecords[$keys[0]];
             }
             if (($keys[0] ?? '') === 'audit:execution:gc:cursors') {
+                if (str_contains($script, 'HSET')) {
+                    $cursorsArgv = $argv;
+                    return 1;
+                }
                 return str_contains($script, 'HGETALL') ? [] : 1;
             }
             if (str_contains($script, "'DEL'") || str_contains($script, '"DEL"')) {
@@ -276,6 +281,15 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
         self::assertSame(5, $tasksScanned, 'La 6.ª página no debe leerse: el corte llega en GC_MAX_ITEMS.');
         self::assertTrue($reflection->getValue($maintenance) === true, 'gc() debe marcar gcBudgetStopped al cortar por ítems.');
         self::assertSame(AuditExecutionMaintenance::GC_MAX_ITEMS, $taskDeletes, 'Se procesan exactamente GC_MAX_ITEMS tareas.');
+
+        self::assertNotNull($cursorsArgv, 'gc() debe persistir gc:cursors con un HSET.');
+        $saved = [];
+        for ($i = 0; $i < count($cursorsArgv); $i += 2) {
+            $saved[$cursorsArgv[$i]] = $cursorsArgv[$i + 1];
+        }
+        self::assertSame('[]', $saved['pending_keys'] ?? null, 'Corte en frontera de página: sin claves pendientes.');
+        self::assertSame('5', $saved['cursor:tasks'] ?? null, 'El cursor de tasks debe ser el de la 5.ª página (siguiente: 5).');
+        self::assertSame('0', $saved['pattern_index'] ?? null, 'pattern_index debe seguir en tasks (0).');
     }
 
     /** T-U5 (CA-F1-17): gc() corta por budgetMs y deja pending_keys persistido. */
@@ -405,8 +419,13 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
             $scans++;
             return ['0', []];
         });
-        $redis->method('eval')->willReturnCallback(static function (string $script, array $keysArg = []): mixed {
+        $heartbeatArgv = null;
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keysArg = [], array $argv = []) use (&$heartbeatArgv): mixed {
             if ($keysArg === []) {
+                return 1700000000000;
+            }
+            if (in_array(AuditExecutionMaintenance::HEARTBEAT_META_KEY, $keysArg, true)) {
+                $heartbeatArgv = $argv;
                 return 1700000000000;
             }
             return str_contains($script, 'HGETALL') ? [] : 0;
@@ -418,6 +437,16 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
         self::assertSame(0, $scans, 'Sobre el límite blando, gc() no debe hacer SCAN.');
         $reflection = new \ReflectionProperty(AuditExecutionMaintenance::class, 'gcBudgetStopped');
         self::assertTrue($reflection->getValue($maintenance) === true);
+
+        // Tras el corte, el heartbeat (writeHeartbeat, invocado tal como lo hace tick()) lleva gc_budget_stopped = 1.
+        (new \ReflectionMethod(AuditExecutionMaintenance::class, 'writeHeartbeat'))->invoke($maintenance, 0, 0, 0, 0, 0);
+        self::assertNotNull($heartbeatArgv, 'El heartbeat debe escribir heartbeat:meta.');
+        $meta = [];
+        // argv: [TTL heartbeat, TTL meta, campo, valor, ...]
+        for ($i = 2; $i < count($heartbeatArgv); $i += 2) {
+            $meta[$heartbeatArgv[$i]] = $heartbeatArgv[$i + 1];
+        }
+        self::assertSame(1, $meta['gc_budget_stopped'] ?? null, 'heartbeat:meta.gc_budget_stopped = 1 tras el corte.');
     }
 
     public function testCompleteAuditAndPersistenceAdvanceCompactTerminalFootprint(): void
