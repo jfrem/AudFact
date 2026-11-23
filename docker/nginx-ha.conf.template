@@ -92,7 +92,7 @@ server {
     }
 
     # ── Endpoint de auditoría IA — rate limit estricto (costoso) ────────
-    location = /audit {
+    location ~ ^/audit/(single|async)$ {
         limit_req zone=audit_limit burst=5 nodelay;
         limit_req_status 429;
         try_files $uri /index.php?$query_string;
