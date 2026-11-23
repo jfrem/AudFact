@@ -87,7 +87,7 @@ final class SemanticEvaluationStore
                 $candidate['context'],
                 $purpose->value,
                 $snapshot['versions'],
-                SemanticBatchContract::VERSION,
+                SemanticBatchContract::promptVersionFor($purpose),
                 $schemaHash,
             ]));
             $candidate['cache_hash'] = $cacheHash;

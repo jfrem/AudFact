@@ -17,7 +17,7 @@ final class SemanticMatchJudge implements SemanticMatchResolver
 
     private const CACHE_TTL = 86400; // 24 horas
     private const CACHE_NAMESPACE_PRODUCT = 'audfact:semantic:match:v6:product';
-    private const CACHE_NAMESPACE_PERSON  = 'audfact:semantic:match:v3:person';
+    private const CACHE_NAMESPACE_PERSON  = 'audfact:semantic:match:v4:person';
     private const FALLBACK_REASONING = 'No fue posible confirmar equivalencia semántica; requiere revisión humana.';
 
     private GeminiGateway $gateway;

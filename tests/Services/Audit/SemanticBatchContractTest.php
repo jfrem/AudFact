@@ -152,6 +152,32 @@ final class SemanticBatchContractTest extends TestCase
         self::assertSame(2048, $gateway->overrides['maxOutputTokens']);
     }
 
+    public function testPromptVersionForPreservesProductAndVersionsPerson(): void
+    {
+        // Arrange:
+        $gateway = new RecordingSemanticBatchGateway();
+        $personBatch = [[
+            'pair_id'  => hash('sha256', 'person-typo'),
+            'purpose'  => SemanticMatchPurpose::PERSON->value,
+            'expected' => 'NIETO RODRIGUEZ JOSE ERNESTO',
+            'actual'   => 'JOSE ERNESTO NIETO RODRIGREZ',
+            'context'  => ['document_context' => 'DocumentoPaciente: 86030619'],
+        ]];
+
+        // Act:
+        (new SemanticBatchContract())->body($gateway, $personBatch);
+
+        // Assert:
+        self::assertSame(SemanticBatchContract::VERSION, SemanticBatchContract::promptVersionFor(SemanticMatchPurpose::PRODUCT));
+        self::assertSame('semantic-batch-v1', SemanticBatchContract::promptVersionFor(SemanticMatchPurpose::PRODUCT));
+        self::assertSame(SemanticBatchContract::PERSON_PROMPT_VERSION, SemanticBatchContract::promptVersionFor(SemanticMatchPurpose::PERSON));
+        self::assertSame('semantic-batch-person-v2', SemanticBatchContract::promptVersionFor(SemanticMatchPurpose::PERSON));
+        self::assertStringContainsString('inversiones de orden', $gateway->system);
+        self::assertStringContainsString('errores tipográficos menores', $gateway->system);
+        self::assertStringContainsString('document_context', $gateway->system);
+        self::assertStringContainsString(SemanticBatchContract::CONCISE_REASONING_DIRECTIVE, $gateway->system);
+    }
+
     protected function tearDown(): void
     {
         foreach ($this->savedEnv as $key => $value) {

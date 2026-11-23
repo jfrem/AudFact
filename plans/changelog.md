@@ -1,5 +1,26 @@
 # Changelog AudFact
 
+## [2026-11-23] — Tolerancia ortográfica controlada en campos semánticos seguros (`SDD-TOL-001`)
+
+- **Problema y Motivación**:
+  - En auditorías reales como `X49260801520` (`FORMULA MEDICA`, Nueva EPS), errores tipográficos de 1 carácter impresos en el soporte físico (`JOSE ERNESTO NIETO RODRIGREZ` vs FDV `NIETO RODRIGUEZ JOSE ERNESTO`) generaban `NO_CONCLUYENTE` y rechazo documental (`EstAud = 0`, `AdjDisEstSop = 'R'`, `RecConSopCod = 30`) pese a coincidir exactamente `DocumentoPaciente = 86030619` y los otros `37/38` campos.
+  - Además, el atajo `similarity() >= 0.82` sin ordenar tokens sobre `PERSON_NAME` introducía asimetría por orden y falsos positivos de género/apellido (`MARIA`/`MARIO`, `RUIZ`/`CRUZ`), mientras `TextNormalization::normalizeText()` y `normalizePersonNameForTokenSet()` mutilaban tildes/`ñ` en minúscula al llamar `strtoupper()` antes de `stripAccents()` (`E1-TOL-B1`, detectado empíricamente sobre `251` auditorías reales de `AudDispEst`).
+- **Componentes modificados**:
+  - `app/Services/Audit/AuditFieldValueType.php`: agregado `allowsAlphabeticTypoTolerance(string $tipoCampo): bool` habilitado exclusivamente para `PERSON_NAME`, `INSTITUTION_NAME` y `TEXT` bajo `TipoCampo = 'S'` (excluyendo `ARTICLE_NAME` y todo campo `E`/`B`).
+  - `app/Services/Audit/TextNormalization.php`: corregido orden `strtoupper(self::stripAccents(...))` en `normalizeText()` y `normalizePersonNameForTokenSet()` (`E1-TOL-B1`); agregados `matchTokenSetWithMinorAlphabeticTypo()`, `damerauLevenshteinDistance1()`, `isFinalGenderInflectionDiff()` (intercambio `A`/`O` y sufijo `-A` con raíz `>= 4`) e `isEligibleAlphabeticTypoPair()` (validación `/^[A-Z]+$/`, guarda de cardinalidad `<= 1` fuera de `PERSON_NAME`, rechazo ante ambigüedad).
+  - `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`: retirado chequeo duplicado `samePersonNameTokenSet()` (`:640-644`), aplicada Capa 1 determinista en `evaluateSemanticField()` con ancla obligatoria `hasVerifiedPatientIdentityAnchor()` (`DocumentoPaciente`) para `NombrePaciente`, retirado atajo asimétrico `similarity()`/`substring` en `PERSON_NAME`, y emitida traza estándar `'<doc_token>' ≈ '<fdv_token>'` en `detalle` sin alterar `valorDocumento`.
+  - `app/Services/Audit/SemanticBatchContract.php` y `app/Services/Audit/Pipeline/SemanticEvaluationStore.php`: agregados `PERSON_PROMPT_VERSION = 'semantic-batch-person-v2'` y `promptVersionFor(SemanticMatchPurpose)` para invalidar selectivamente caché de `PERSON` preservando `100 %` de la caché `PRODUCT` (`semantic-batch-v1`), y alineado el system prompt batch de `PERSON`.
+  - `app/Services/Audit/SemanticMatchPromptBuilder.php` y `app/Services/Audit/SemanticMatchJudge.php`: alineado `buildPersonNameContract()` e incrementado `CACHE_NAMESPACE_PERSON` de `v3` a `v4` (`v6:product` intacto).
+  - Pruebas unitarias actualizadas/añadidas en `tests/Services/Audit/AuditFieldValueTypeTest.php`, `tests/Services/Audit/TextNormalizationTest.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php`, `tests/Services/Audit/SemanticBatchContractTest.php`, `tests/Services/Audit/SemanticMatchPromptBuilderTest.php` y `tests/Services/Audit/SemanticMatchJudgeTest.php`.
+- **Documentación y Skills sincronizadas**:
+  - `plans/sdd-tolerancia-ortografica-semantica.md` (`SDD-TOL-001`, aprobada en revisión independiente `agy` y validada empíricamente sobre `251` auditorías reales).
+  - `plans/features/audit-workflow.md`: documentada la política `SDD-TOL-001` y el versionado selectivo de caché de personas.
+  - `.agent/skills/audfact-audit-gemini/SKILL.md`: actualizados `AuditFieldValueType::allowsAlphabeticTypoTolerance()`, regla 5 de tolerancia ortográfica controlada y namespaces `v4:person` / `semantic-batch-person-v2`. Validado con `node .agent/skills/_shared/scripts/validate-skills.mjs` (`PASS`).
+- **Pruebas y Verificación**:
+  - Suite completa PHPUnit (`Unit`): **1,188 tests, 6,059 aserciones, 78 skipped, 0 fallos, 0 errores**.
+  - Compilación Docusaurus (`npm --prefix website run build`): **SUCCESS**.
+  - `0` variables de entorno nuevas (sin cambios requeridos en `.env.example` ni GitHub Environment `production`).
+
 ## [2026-11-20] — Sintonización de concurrencia y ampliación de caché documental (`SDD-SCALE-001`)
 
 - **Problema y Motivación**:

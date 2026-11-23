@@ -235,4 +235,229 @@ final class TextNormalizationTest extends TestCase
             ],
         ];
     }
+
+    // ── normalizeText (diacríticos y ñ en minúscula, E1-TOL-B1) ──────────
+
+    /**
+     * @dataProvider lowercaseDiacriticsProvider
+     */
+    public function testNormalizeTextHandlesLowercaseDiacriticsAndEnye(string $input, string $expected): void
+    {
+        // Arrange & Act:
+        $actual = TextNormalization::normalizeText($input);
+
+        // Assert:
+        $this->assertSame($expected, $actual);
+    }
+
+    public static function lowercaseDiacriticsProvider(): array
+    {
+        return [
+            'caso real D75261101999 Patiño' => ['Jaime Orlando Patiño Franco', 'JAIME ORLANDO PATINO FRANCO'],
+            'caso real T72261100907 Muñoz'  => ['Luis Eduardo Murillo Muñoz', 'LUIS EDUARDO MURILLO MUNOZ'],
+            'caso real V35261101509 ñ min'  => ['sandra milena villafañe', 'SANDRA MILENA VILLAFANE'],
+            'caso real Q83261101995 Carriño' => ['Graciela Carriño de Galindo', 'GRACIELA CARRINO DE GALINDO'],
+            'tildes minúsculas generales'   => ['María José Rodríguez Cáceres', 'MARIA JOSE RODRIGUEZ CACERES'],
+            'diéresis minúscula'            => ['Agüero Pingüino', 'AGUERO PINGUINO'],
+        ];
+    }
+
+    // ── damerauLevenshteinDistance1 ──────────────────────────────────────
+
+    /**
+     * @dataProvider damerauLevenshteinDistance1Provider
+     */
+    public function testDamerauLevenshteinDistance1(string $left, string $right, bool $expected): void
+    {
+        // Arrange & Act:
+        $actual = TextNormalization::damerauLevenshteinDistance1($left, $right);
+
+        // Assert:
+        $this->assertSame($expected, $actual);
+    }
+
+    public static function damerauLevenshteinDistance1Provider(): array
+    {
+        return [
+            'sustitución única (RODRIGUEZ/RODRIGREZ)'   => ['RODRIGUEZ', 'RODRIGREZ', true],
+            'inserción única (RODRIGUEZ/RODRIGUUEZ)'    => ['RODRIGUEZ', 'RODRIGUUEZ', true],
+            'eliminación única (RODRIGUEZ/RODRIGEZ)'    => ['RODRIGUEZ', 'RODRIGEZ', true],
+            'transposición adyacente (RODRIGUEZ/RODRIGEUZ)' => ['RODRIGUEZ', 'RODRIGEUZ', true],
+            'identidad (distancia 0)'                   => ['RODRIGUEZ', 'RODRIGUEZ', false],
+            'distancia 2 (RODRIGUEZ/RODRGIZ)'           => ['RODRIGUEZ', 'RODRGIZ', false],
+            'diferencia de longitud > 1'                => ['RODRIGUEZ', 'RODRIGU', false],
+        ];
+    }
+
+    // ── isFinalGenderInflectionDiff ──────────────────────────────────────
+
+    /**
+     * @dataProvider finalGenderInflectionProvider
+     */
+    public function testIsFinalGenderInflectionDiff(string $left, string $right, bool $expected): void
+    {
+        // Arrange & Act:
+        $actual = TextNormalization::isFinalGenderInflectionDiff($left, $right);
+
+        // Assert:
+        $this->assertSame($expected, $actual);
+    }
+
+    public static function finalGenderInflectionProvider(): array
+    {
+        return [
+            'A/O MARIA vs MARIO'        => ['MARIA', 'MARIO', true],
+            'A/O CARLA vs CARLO'        => ['CARLA', 'CARLO', true],
+            'A/O ERNESTO vs ERNESTA'    => ['ERNESTO', 'ERNESTA', true],
+            'sufijo -A DANIEL/DANIELA'  => ['DANIEL', 'DANIELA', true],
+            'sufijo -A GABRIEL/GABRIELA' => ['GABRIEL', 'GABRIELA', true],
+            'sufijo -A MANUEL/MANUELA'  => ['MANUEL', 'MANUELA', true],
+            'sufijo -A RAFAEL/RAFAELA'  => ['RAFAEL', 'RAFAELA', true],
+            'sufijo -A MARIA/MARI (raíz len 4, conservador)' => ['MARIA', 'MARI', true],
+            'typo interno RODRIGUEZ/RODRIGREZ' => ['RODRIGUEZ', 'RODRIGREZ', false],
+            'identidad MARIA/MARIA'     => ['MARIA', 'MARIA', false],
+            'vocal final A/E MARIA/MARIE' => ['MARIA', 'MARIE', false],
+            'eliminación interna RODRIGUEZ/RODRIGEZ' => ['RODRIGUEZ', 'RODRIGEZ', false],
+            'raíz < 4 ANA/ANAA'         => ['ANA', 'ANAA', false],
+        ];
+    }
+
+    // ── matchTokenSetWithMinorAlphabeticTypo ─────────────────────────────
+
+    /**
+     * @dataProvider minorAlphabeticTypoProvider
+     * @param array{fdv_token:string,doc_token:string}|null $expected
+     */
+    public function testMatchTokenSetWithMinorAlphabeticTypo(
+        string $fdvValue,
+        string $docValue,
+        bool $isPersonName,
+        ?array $expected
+    ): void {
+        // Arrange & Act:
+        $actual = TextNormalization::matchTokenSetWithMinorAlphabeticTypo($fdvValue, $docValue, $isPersonName);
+
+        // Assert:
+        $this->assertSame($expected, $actual);
+    }
+
+    public static function minorAlphabeticTypoProvider(): array
+    {
+        return [
+            'X49260801520 inversión + 1 typo' => [
+                'NIETO RODRIGUEZ JOSE ERNESTO',
+                'JOSE ERNESTO NIETO RODRIGREZ',
+                true,
+                ['fdv_token' => 'RODRIGUEZ', 'doc_token' => 'RODRIGREZ'],
+            ],
+            'transposición adyacente en persona' => [
+                'NIETO RODRIGUEZ JOSE ERNESTO',
+                'NIETO RODRIGEUZ JOSE ERNESTO',
+                true,
+                ['fdv_token' => 'RODRIGUEZ', 'doc_token' => 'RODRIGEUZ'],
+            ],
+            'eliminación de 1 letra en persona' => [
+                'NIETO RODRIGUEZ JOSE ERNESTO',
+                'NIETO RODRIGEZ JOSE ERNESTO',
+                true,
+                ['fdv_token' => 'RODRIGUEZ', 'doc_token' => 'RODRIGEZ'],
+            ],
+            'inserción de 1 letra en persona' => [
+                'NIETO RODRIGUEZ JOSE ERNESTO',
+                'NIETO RODRIGUUEZ JOSE ERNESTO',
+                true,
+                ['fdv_token' => 'RODRIGUEZ', 'doc_token' => 'RODRIGUUEZ'],
+            ],
+            'médico con len 5 y orden invertido' => [
+                'SIERRA GOYENECHE JENNY LUCIA',
+                'JENNY LUCIA SIERA GOYENECHE',
+                true,
+                ['fdv_token' => 'SIERRA', 'doc_token' => 'SIERA'],
+            ],
+            'persona con menos de 2 tokens exactos rechazada' => [
+                'JOSE RODRIGUEZ',
+                'JOSE RODRIGREZ',
+                true,
+                null,
+            ],
+            'persona con 2 tokens con typo rechazada' => [
+                'NIETO RODRIGUEZ JOSE ERNESTO',
+                'NIETTO RODRIGREZ JOSE ERNESTO',
+                true,
+                null,
+            ],
+            'flexión género A/O bloqueada' => [
+                'PEREZ LOPEZ MARIA',
+                'PEREZ LOPEZ MARIO',
+                true,
+                null,
+            ],
+            'flexión género sufijo -A bloqueada (R1-TOL-B1)' => [
+                'DR DANIEL PEREZ LOPEZ',
+                'DRA DANIELA PEREZ LOPEZ',
+                true,
+                null,
+            ],
+            'token corto < 5 bloqueado en persona' => [
+                'ANA PEREZ LOPEZ',
+                'ADA PEREZ LOPEZ',
+                true,
+                null,
+            ],
+            'comodín ? combinado con typo excluido de Capa 1 (R1-TOL-I2)' => [
+                'NOREÑA AGUDELO JUAN JOSE',
+                'JUAN JOSE NORE?A AGUDELOO',
+                true,
+                null,
+            ],
+            'IPS con 1 typo tolerada' => [
+                'HOSPITAL DEPARTAMENTAL DE VILLAVICENCIO',
+                'HOSPITAL DEPARTAMENTAL DE VILAVICENCIO',
+                false,
+                ['fdv_token' => 'VILLAVICENCIO', 'doc_token' => 'VILAVICENCIO'],
+            ],
+            'institución con cardinalidad > 1 bloqueada (R1-TOL-I1)' => [
+                'CLINICA BOGOTA',
+                'CLINICA ESPECIALIZADA DE CIRUGIA BOGOTAA',
+                false,
+                null,
+            ],
+            'institución con tokens repetidos tolerada (R1-TOL-B2, E1-TOL-M2)' => [
+                'HOSPITAL SAN VICENTE DE SAN VICENTE',
+                'HOSPITAL SAN VICENTEE DE SAN VICENTEE',
+                false,
+                ['fdv_token' => 'VICENTE', 'doc_token' => 'VICENTEE'],
+            ],
+            'laboratorio mono-token >= 7 tolerado' => [
+                'TECNOQUIMICAS',
+                'TECNOQUIMCAS',
+                false,
+                ['fdv_token' => 'TECNOQUIMICAS', 'doc_token' => 'TECNOQUIMCAS'],
+            ],
+            'laboratorio mono-token < 7 rechazado (BAYER/MAYER)' => [
+                'BAYER',
+                'MAYER',
+                false,
+                null,
+            ],
+            'siglas cortas EPS vs IPS rechazadas' => [
+                'NUEVA EPS',
+                'NUEVA IPS',
+                false,
+                null,
+            ],
+            'tokens con dígitos rechazados' => [
+                'CLINICA 100',
+                'CLINICA 101',
+                false,
+                null,
+            ],
+            'ambigüedad (2 candidatos a distancia 1) rechazada' => [
+                'ALPHA CASTRO',
+                'ALPHA CASTRA CASTRI',
+                false,
+                null,
+            ],
+        ];
+    }
 }

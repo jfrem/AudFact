@@ -12,6 +12,13 @@ namespace App\Services\Audit;
  */
 final class TextNormalization
 {
+    private const TYPO_MIN_TOKEN_LEN_MULTI = 5;
+    private const TYPO_MIN_TOKEN_LEN_MONO = 7;
+    private const PERSON_MIN_EXACT_TOKENS = 2;
+    private const TEXT_MIN_EXACT_TOKENS = 1;
+    private const TEXT_MAX_TOKEN_CARDINALITY_DIFF = 1;
+    private const GENDER_SUFFIX_MIN_STEM_LEN = 4;
+
     /**
      * Normaliza texto para comparación: uppercase, sin acentos, solo alfanumérico con espacios.
      *
@@ -19,12 +26,11 @@ final class TextNormalization
      */
     public static function normalizeText(string $value): string
     {
-        $trimmed = trim($value);
-        if ($trimmed === '') {
+        $withoutAccents = self::toUpperAsciiWithoutAccents($value);
+        if ($withoutAccents === '') {
             return '';
         }
 
-        $withoutAccents   = self::stripAccents(strtoupper($trimmed));
         $alphanumericOnly = (string) preg_replace('/[^A-Z0-9]+/', ' ', $withoutAccents);
         $normalized       = (string) preg_replace('/\s+/', ' ', trim($alphanumericOnly));
 
@@ -114,14 +120,26 @@ final class TextNormalization
      */
     public static function normalizeToken(string $value): string
     {
-        $ascii = strtr(trim($value), [
-            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
-            'Ü' => 'U', 'Ñ' => 'N',
-            'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u',
-            'ü' => 'u', 'ñ' => 'n',
-        ]);
+        $withoutAccents = self::toUpperAsciiWithoutAccents($value);
+        if ($withoutAccents === '') {
+            return '';
+        }
 
-        return (string) preg_replace('/[^A-Z0-9]+/', '', strtoupper($ascii));
+        return (string) preg_replace('/[^A-Z0-9]+/', '', $withoutAccents);
+    }
+
+    /**
+     * Translitera acentos/ñ antes de convertir a mayúsculas para evitar que
+     * strtoupper() de un solo byte mutile caracteres UTF-8 en minúscula.
+     */
+    private static function toUpperAsciiWithoutAccents(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return strtoupper(self::stripAccents($trimmed));
     }
 
     /**
@@ -281,7 +299,11 @@ final class TextNormalization
 
     public static function normalizePersonNameForTokenSet(string $value): string
     {
-        $withoutAccents = self::stripAccents(strtoupper(trim($value)));
+        $withoutAccents = self::toUpperAsciiWithoutAccents($value);
+        if ($withoutAccents === '') {
+            return '';
+        }
+
         $normalized = (string) preg_replace('/[^A-Z0-9?]+/', ' ', $withoutAccents);
         return (string) preg_replace('/\s+/', ' ', trim($normalized));
     }
@@ -304,6 +326,221 @@ final class TextNormalization
         }
 
         return true;
+    }
+
+    /**
+     * Evalúa si dos valores textuales coinciden por conjunto de tokens permitiendo
+     * exactamente 1 token alfabético con error ortográfico menor (Damerau-Levenshtein = 1).
+     *
+     * Guardas deterministas:
+     * - Normaliza ambos valores con normalizeText() (ASCII uppercase alfanumérico) y tokeniza sin orden.
+     * - Si $isPersonName = true: requiere >= 2 tokens exactos coincidentes, exactamente 1 token
+     *   divergente puramente alfabético (/^[A-Z]+$/), min(len) >= 5, damerauLevenshteinDistance1 === true
+     *   y NO flexión terminal de género (intercambio A/O ni sufijo -A con raíz >= 4).
+     * - Si $isPersonName = false (institution_name o text semántico como Laboratorio):
+     *   multi-token exige diferencia de cardinalidad <= 1, >= 1 token exacto, min(len) >= 5;
+     *   mono-token (1 vs 1) exige min(len) >= 7.
+     *
+     * @return array{fdv_token:string,doc_token:string}|null Par tolerado si coincide, null en caso contrario.
+     */
+    public static function matchTokenSetWithMinorAlphabeticTypo(
+        string $fdvValue,
+        string $docValue,
+        bool $isPersonName = false
+    ): ?array {
+        $fdvTokens = self::tokenize(self::normalizeText($fdvValue));
+        $docTokens = self::tokenize(self::normalizeText($docValue));
+
+        if ($fdvTokens === [] || $docTokens === []) {
+            return null;
+        }
+
+        // Caso mono-token (solo permitido fuera de person_name y cuando ambos lados tienen 1 token)
+        if (count($fdvTokens) === 1 && count($docTokens) === 1) {
+            if ($isPersonName) {
+                return null;
+            }
+            $a = $fdvTokens[0];
+            $b = $docTokens[0];
+            if (self::isEligibleAlphabeticTypoPair($a, $b, self::TYPO_MIN_TOKEN_LEN_MONO, false)) {
+                return ['fdv_token' => $a, 'doc_token' => $b];
+            }
+            return null;
+        }
+
+        $fdvIsShort  = count($fdvTokens) <= count($docTokens);
+        $shortTokens = $fdvIsShort ? $fdvTokens : $docTokens;
+        $longTokens  = $fdvIsShort ? $docTokens : $fdvTokens;
+
+        // Nunca emparejar 1 token contra N > 1 por typo
+        if (count($shortTokens) < 2) {
+            return null;
+        }
+
+        // Fuera de person_name, acotar diferencia de cardinalidad para evitar omisiones múltiples + typo
+        if (!$isPersonName && (count($longTokens) - count($shortTokens)) > self::TEXT_MAX_TOKEN_CARDINALITY_DIFF) {
+            return null;
+        }
+
+        /** @var array<string,list<int>> $longIndicesByValue */
+        $longIndicesByValue = [];
+        foreach ($longTokens as $li => $lt) {
+            $longIndicesByValue[$lt][] = $li;
+        }
+
+        $usedLong       = [];
+        $unmatchedShort = [];
+        $exactCount     = 0;
+
+        foreach ($shortTokens as $st) {
+            if (!empty($longIndicesByValue[$st])) {
+                $matchedIdx            = array_shift($longIndicesByValue[$st]);
+                $usedLong[$matchedIdx] = true;
+                $exactCount++;
+            } else {
+                $unmatchedShort[] = $st;
+            }
+        }
+
+        $minExactRequired = $isPersonName ? self::PERSON_MIN_EXACT_TOKENS : self::TEXT_MIN_EXACT_TOKENS;
+        if (count($unmatchedShort) !== 1 || $exactCount < $minExactRequired) {
+            return null;
+        }
+
+        return self::findUniqueTypoPair($unmatchedShort[0], $longTokens, $usedLong, $fdvIsShort, $isPersonName);
+    }
+
+    /**
+     * Busca un único token no usado en $longTokens a distancia Damerau-Levenshtein 1.
+     * Rechaza con null si existe ambigüedad (dos o más candidatos elegibles).
+     *
+     * @param list<string>    $longTokens
+     * @param array<int,true> $usedLong
+     * @return array{fdv_token:string,doc_token:string}|null
+     */
+    private static function findUniqueTypoPair(
+        string $candidate,
+        array $longTokens,
+        array $usedLong,
+        bool $fdvIsShort,
+        bool $isPersonName
+    ): ?array {
+        $matchedPair = null;
+
+        foreach ($longTokens as $li => $lt) {
+            if (isset($usedLong[$li])) {
+                continue;
+            }
+            if (!self::isEligibleAlphabeticTypoPair($candidate, $lt, self::TYPO_MIN_TOKEN_LEN_MULTI, $isPersonName)) {
+                continue;
+            }
+            if ($matchedPair !== null) {
+                return null;
+            }
+            $matchedPair = $fdvIsShort
+                ? ['fdv_token' => $candidate, 'doc_token' => $lt]
+                : ['fdv_token' => $lt, 'doc_token' => $candidate];
+        }
+
+        return $matchedPair;
+    }
+
+    /**
+     * Verifica si dos tokens ASCII mayúsculas están a distancia Damerau-Levenshtein
+     * (alineación óptima) exactamente igual a 1:
+     * 1 sustitución, 1 inserción, 1 eliminación o 1 transposición de 2 caracteres adyacentes.
+     */
+    public static function damerauLevenshteinDistance1(string $left, string $right): bool
+    {
+        if ($left === $right) {
+            return false;
+        }
+
+        $lenLeft  = strlen($left);
+        $lenRight = strlen($right);
+        if (abs($lenLeft - $lenRight) > 1) {
+            return false;
+        }
+
+        if ($lenLeft === $lenRight) {
+            for ($i = 0; $i < $lenLeft; $i++) {
+                if ($left[$i] !== $right[$i]) {
+                    // Sustitución única
+                    if (substr($left, $i + 1) === substr($right, $i + 1)) {
+                        return true;
+                    }
+                    // Transposición de dos caracteres adyacentes
+                    return $i + 1 < $lenLeft
+                        && $left[$i] === $right[$i + 1]
+                        && $left[$i + 1] === $right[$i]
+                        && substr($left, $i + 2) === substr($right, $i + 2);
+                }
+            }
+            return false;
+        }
+
+        $short    = $lenLeft < $lenRight ? $left : $right;
+        $long     = $lenLeft < $lenRight ? $right : $left;
+        $lenShort = strlen($short);
+
+        for ($i = 0; $i < $lenShort; $i++) {
+            if ($short[$i] !== $long[$i]) {
+                return substr($short, $i) === substr($long, $i + 1);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Detecta flexiones terminales de género en nombres de persona:
+     * 1) Igual longitud con intercambio exclusivo de vocal final A/O (MARIA vs MARIO, CARLA vs CARLO).
+     * 2) Diferencia de longitud 1 donde el token largo es la raíz (len >= 4) seguida de sufijo terminal 'A'
+     *    (DANIEL vs DANIELA, GABRIEL vs GABRIELA, MANUEL vs MANUELA, RAFAEL vs RAFAELA).
+     */
+    public static function isFinalGenderInflectionDiff(string $left, string $right): bool
+    {
+        $lenLeft  = strlen($left);
+        $lenRight = strlen($right);
+
+        if ($lenLeft === $lenRight) {
+            if ($lenLeft < 2 || substr($left, 0, -1) !== substr($right, 0, -1)) {
+                return false;
+            }
+            $lastLeft  = $left[$lenLeft - 1];
+            $lastRight = $right[$lenRight - 1];
+
+            return ($lastLeft === 'A' && $lastRight === 'O')
+                || ($lastLeft === 'O' && $lastRight === 'A');
+        }
+
+        if (abs($lenLeft - $lenRight) === 1) {
+            $short = $lenLeft < $lenRight ? $left : $right;
+            $long  = $lenLeft < $lenRight ? $right : $left;
+
+            return strlen($short) >= self::GENDER_SUFFIX_MIN_STEM_LEN && $long === $short . 'A';
+        }
+
+        return false;
+    }
+
+    private static function isEligibleAlphabeticTypoPair(
+        string $left,
+        string $right,
+        int $minLength,
+        bool $blockGenderInflection
+    ): bool {
+        if (min(strlen($left), strlen($right)) < $minLength) {
+            return false;
+        }
+        if (preg_match('/^[A-Z]+$/', $left) !== 1 || preg_match('/^[A-Z]+$/', $right) !== 1) {
+            return false;
+        }
+        if ($blockGenderInflection && self::isFinalGenderInflectionDiff($left, $right)) {
+            return false;
+        }
+
+        return self::damerauLevenshteinDistance1($left, $right);
     }
 
     public static function containsNormalizedSubstring(string $normalizedFdv, string $normalizedDoc): bool

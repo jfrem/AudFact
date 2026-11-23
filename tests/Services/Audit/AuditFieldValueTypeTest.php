@@ -61,6 +61,34 @@ final class AuditFieldValueTypeTest extends TestCase
         $this->assertFalse(AuditFieldValueType::TEXT->allowsSemanticGeminiFallback());
     }
 
+    public function testAllowsAlphabeticTypoToleranceMatrix(): void
+    {
+        // Arrange:
+        $allowedTypes = [
+            AuditFieldValueType::PERSON_NAME,
+            AuditFieldValueType::INSTITUTION_NAME,
+            AuditFieldValueType::TEXT,
+        ];
+        $tipoCampos = ['S', 's', ' S ', 'E', 'B', 'P', 'V', 'I', ''];
+
+        // Act & Assert:
+        foreach (AuditFieldValueType::cases() as $valueType) {
+            foreach ($tipoCampos as $tipoCampo) {
+                $expected = strtoupper(trim($tipoCampo)) === 'S'
+                    && in_array($valueType, $allowedTypes, true);
+
+                $this->assertSame(
+                    $expected,
+                    $valueType->allowsAlphabeticTypoTolerance($tipoCampo),
+                    sprintf('Falló matriz para (%s, "%s")', $valueType->value, $tipoCampo)
+                );
+            }
+        }
+
+        // Seguridad clínica explícita: ARTICLE_NAME nunca habilita tolerancia ortográfica determinista
+        $this->assertFalse(AuditFieldValueType::ARTICLE_NAME->allowsAlphabeticTypoTolerance('S'));
+    }
+
     public function testAllowedTypesDependOnComparisonType(): void
     {
         $this->assertSame(['quantity'], AuditFieldValueType::allowedValuesForTipoCampo('B'));

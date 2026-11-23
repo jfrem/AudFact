@@ -20,6 +20,9 @@ use RuntimeException;
 
 class DocumentPolicyEngine
 {
+    private const FIELD_PATIENT_NAME = 'NombrePaciente';
+    private const FIELD_PATIENT_DOC_NUMBER = 'DocumentoPaciente';
+
     private ?SemanticMatchResolver $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
@@ -637,12 +640,6 @@ class DocumentPolicyEngine
             return $this->evaluateSubsetField($field, $fdvValue, $docValue);
         }
 
-        if ($valueType->requiresTokenSortComparison() && $forcedType === AuditComparisonType::SEMANTIC->value) {
-            if (TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
-                return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
-            }
-        }
-
         return match ($forcedType) {
             AuditComparisonType::SEMANTIC->value => $this->evaluateSemanticField($field, $fdvValue, $docValue, $context, $tipoCampo, $valueType),
             AuditComparisonType::BUSINESS->value => $this->evaluateBusinessField($field, $fdvValue, $docValue, $valueType, $context),
@@ -1096,7 +1093,7 @@ class DocumentPolicyEngine
         $normalizedFdv = TextNormalization::normalizeText($fdvValue);
         $normalizedDoc = TextNormalization::normalizeText($docValue);
 
-        if ($valueType === AuditFieldValueType::PERSON_NAME && TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
+        if ($valueType->requiresTokenSortComparison() && TextNormalization::samePersonNameTokenSet($fdvValue, $docValue)) {
             return ['resultado' => AuditFindingResult::MATCH->value, 'tipo_auditoria' => 'exact'];
         }
 
@@ -1104,10 +1101,16 @@ class DocumentPolicyEngine
             return ['resultado' => AuditFindingResult::MATCH->value];
         }
 
+        $typoMatch = $this->evaluateMinorAlphabeticTypoMatch($field, $fdvValue, $docValue, $context, $tipoCampo, $valueType);
+        if ($typoMatch !== null) {
+            return $typoMatch;
+        }
+
         $isUnmatchedArticle = ($valueType === AuditFieldValueType::ARTICLE_NAME
             && in_array($docValue, (array) ($context['unmatched_articles'] ?? []), true));
 
-        if (!$isUnmatchedArticle) {
+        // PERSON_NAME no usa substring ni similarity() sin ordenar tokens (evita asimetría por orden y falsos positivos sin cédula).
+        if (!$isUnmatchedArticle && $valueType !== AuditFieldValueType::PERSON_NAME) {
             if (AuditComparisonType::isSubstringMatchAllowed($tipoCampo) && TextNormalization::containsNormalizedSubstring($normalizedFdv, $normalizedDoc)) {
                 return ['resultado' => AuditFindingResult::MATCH->value];
             }
@@ -1156,6 +1159,104 @@ class DocumentPolicyEngine
                 mb_substr($fdvValue, 0, 120)
             ),
         ];
+    }
+
+    /**
+     * Evalúa coincidencia textual con tolerancia ortográfica de 1 carácter (Damerau-Levenshtein = 1)
+     * cuando el tipo de dato/campo lo habilita y, para NombrePaciente, la cédula coincide.
+     *
+     * @param array<string,mixed> $context
+     * @return array{resultado:string,tipo_auditoria:string,detalle:string}|null
+     */
+    private function evaluateMinorAlphabeticTypoMatch(
+        string $field,
+        string $fdvValue,
+        string $docValue,
+        array $context,
+        string $tipoCampo,
+        AuditFieldValueType $valueType
+    ): ?array {
+        if (!$valueType->allowsAlphabeticTypoTolerance($tipoCampo)) {
+            return null;
+        }
+
+        $isPatientName = $valueType === AuditFieldValueType::PERSON_NAME && $field === self::FIELD_PATIENT_NAME;
+        if ($isPatientName && !$this->hasVerifiedPatientIdentityAnchor($context)) {
+            return null;
+        }
+
+        $typoMatch = TextNormalization::matchTokenSetWithMinorAlphabeticTypo(
+            $fdvValue,
+            $docValue,
+            $valueType === AuditFieldValueType::PERSON_NAME
+        );
+        if ($typoMatch === null) {
+            return null;
+        }
+
+        $detail = $isPatientName
+            ? sprintf(
+                "Coincidencia nominal con tolerancia ortográfica menor ('%s' ≈ '%s'), respaldada por coincidencia exacta de DocumentoPaciente.",
+                $typoMatch['doc_token'],
+                $typoMatch['fdv_token']
+            )
+            : sprintf(
+                "Coincidencia textual con tolerancia ortográfica menor ('%s' ≈ '%s').",
+                $typoMatch['doc_token'],
+                $typoMatch['fdv_token']
+            );
+
+        return [
+            'resultado'      => AuditFindingResult::MATCH->value,
+            'tipo_auditoria' => AuditComparisonType::SEMANTIC->value,
+            'detalle'        => $detail,
+        ];
+    }
+
+    /**
+     * Verifica si DocumentoPaciente está presente tanto en la FDV como en el documento
+     * evaluado y coincide exactamente tras normalización canónica.
+     *
+     * Independiente del orden de campos en fields_config.
+     *
+     * @param array<string,mixed> $context
+     */
+    private function hasVerifiedPatientIdentityAnchor(array $context): bool
+    {
+        $sourceTruth = is_array($context['fuente_verdad'] ?? null) ? $context['fuente_verdad'] : null;
+        if ($sourceTruth === null) {
+            return false;
+        }
+
+        $docFields = is_array($context['document_fields'] ?? null) ? $context['document_fields'] : [];
+        $docItems  = is_array($context['document_items'] ?? null) ? $context['document_items'] : [];
+
+        $fdvDoc = FieldValueResolver::resolveSourceTruthField(
+            self::FIELD_PATIENT_DOC_NUMBER,
+            AuditFieldValueType::IDENTITY_DOC_NUMBER,
+            $sourceTruth
+        );
+        $docDoc = FieldValueResolver::resolveDocumentValue(
+            self::FIELD_PATIENT_DOC_NUMBER,
+            AuditFieldValueType::IDENTITY_DOC_NUMBER,
+            $docFields,
+            $docItems
+        );
+
+        if ($fdvDoc->ambiguous || $docDoc->ambiguous || !$fdvDoc->hasValue() || !$docDoc->hasValue()) {
+            return false;
+        }
+
+        $normFdv = AuditFindingRules::normalizeForComparison(
+            AuditFieldValueType::IDENTITY_DOC_NUMBER,
+            (string) $fdvDoc->displayValue
+        );
+        $normDoc = AuditFindingRules::normalizeForComparison(
+            AuditFieldValueType::IDENTITY_DOC_NUMBER,
+            (string) $docDoc->displayValue
+        );
+
+        return $normFdv !== '' && $normDoc !== '' && $normFdv === $normDoc;
     }
 
     /**

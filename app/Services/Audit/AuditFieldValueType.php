@@ -107,6 +107,27 @@ enum AuditFieldValueType: string
     }
 
     /**
+     * ¿Permite tolerancia ortográfica determinista de 1 carácter (Damerau-Levenshtein = 1)
+     * sobre tokens alfabéticos bajo evaluación semántica?
+     *
+     * Excluye explícitamente ARTICLE_NAME (riesgo farmacológico LASA / dosis) y todo campo
+     * no semántico (TipoCampo != 'S': códigos, fechas, montos, documentos, lotes).
+     */
+    public function allowsAlphabeticTypoTolerance(string $tipoCampo): bool
+    {
+        if (AuditComparisonType::fromTipoCampo($tipoCampo) !== AuditComparisonType::SEMANTIC) {
+            return false;
+        }
+
+        return match ($this) {
+            self::PERSON_NAME,
+            self::INSTITUTION_NAME,
+            self::TEXT => true,
+            default    => false,
+        };
+    }
+
+    /**
      * ¿El prompt debe activar instrucciones para separar identidad?
      */
     public function isIdentityPromptValue(): bool
