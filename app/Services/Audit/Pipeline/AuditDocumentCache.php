@@ -8,7 +8,12 @@ use Core\Env;
 use Core\RedisClient;
 use RuntimeException;
 
-/** Caché prescindible de bytes; los eventos conservan la fuente y el hash esperado. */
+/**
+ * Caché prescindible de bytes; los eventos conservan la fuente y el hash esperado.
+ *
+ * Cada carril (`priority` / `batch`) tiene su propio índice y su cuota del presupuesto
+ * global (`forLane()`); el índice heredado sin sufijo solo drena blobs previos al despliegue.
+ */
 final class AuditDocumentCache
 {
     public const DEFAULT_TTL_SECONDS = 3600;
@@ -23,7 +28,8 @@ final class AuditDocumentCache
         ?RedisClient $redis = null,
         ?int $maxBytes = null,
         ?int $maxEntries = null,
-        private readonly int $ttlSeconds = self::DEFAULT_TTL_SECONDS
+        private readonly int $ttlSeconds = self::DEFAULT_TTL_SECONDS,
+        private readonly ?AuditLane $lane = null
     ) {
         $this->redis = $redis ?? RedisClient::getInstance();
         $this->maxBytes = $maxBytes ?? self::positiveEnvInt('AUDIT_DOCUMENT_CACHE_MAX_BYTES', 3221225472);
@@ -31,6 +37,29 @@ final class AuditDocumentCache
         if ($this->maxBytes < 1 || $this->maxEntries < 1 || $ttlSeconds < 1) {
             throw new \InvalidArgumentException('Los límites de caché documental deben ser positivos');
         }
+    }
+
+    /**
+     * Presupuesto de un carril: la cuota prioritaria es `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT`
+     * del total y el carril batch recibe el resto, de modo que la suma nunca excede el total.
+     * Debe invocarse sobre la caché base (sin carril).
+     */
+    public function forLane(AuditLane $lane): self
+    {
+        if ($lane->isAll()) {
+            return $this;
+        }
+        $share = AuditExecutionConfig::documentCachePriorityShare();
+        $priorityBytes = intdiv($this->maxBytes * $share, 100);
+        $priorityEntries = max(1, intdiv($this->maxEntries * $share, 100));
+
+        return new self(
+            $this->redis,
+            $lane->isPriority() ? $priorityBytes : $this->maxBytes - $priorityBytes,
+            $lane->isPriority() ? $priorityEntries : $this->maxEntries - $priorityEntries,
+            $this->ttlSeconds,
+            $lane
+        );
     }
 
     /** @param array{mime:string,data:string,duration_ms?:int} $document */
@@ -78,11 +107,24 @@ final class AuditDocumentCache
         return $document;
     }
 
-    /** Libera tanto entradas presupuestadas como BLOB de productores anteriores. */
-    public function release(string $key): void
+    /**
+     * Libera el BLOB y su reserva. Con `$lane` ajusta el índice del carril; si la clave no
+     * figura allí (blob escrito antes del despliegue), ajusta el índice heredado.
+     * El BLOB se elimina siempre (INV-F3-03).
+     */
+    public function release(string $key, ?AuditLane $lane = null): void
     {
         self::assertKey($key);
-        $result = $this->redis->eval(self::RELEASE_LUA, $this->keys($key), []);
+        $laneIndex = self::indexFor($lane);
+        $result = $this->redis->eval(self::RELEASE_LUA, [
+            $key,
+            $laneIndex . ':expires',
+            $laneIndex . ':sizes',
+            $laneIndex . ':bytes',
+            self::INDEX . ':expires',
+            self::INDEX . ':sizes',
+            self::INDEX . ':bytes',
+        ], []);
         if ($result !== 1) {
             throw new RuntimeException('Redis no confirmó la liberación de caché documental');
         }
@@ -94,14 +136,21 @@ final class AuditDocumentCache
         return ['max_bytes' => $this->maxBytes, 'max_entries' => $this->maxEntries, 'ttl_seconds' => $this->ttlSeconds];
     }
 
-    /** Lee capacidad y recupera reservas vencidas aun cuando las descargas estén pausadas. */
+    /**
+     * Lee capacidad, entradas y edad de la más antigua (`oldest_age_ms`), y recupera reservas
+     * vencidas aun cuando las descargas estén pausadas.
+     */
     public function usage(): array
     {
-        $raw = $this->redis->eval(self::USAGE_LUA, $this->keys('audit:blob:budget-inspection'), [self::PRUNE_LIMIT]);
+        $raw = $this->redis->eval(
+            self::USAGE_LUA,
+            $this->keys('audit:blob:budget-inspection'),
+            [self::PRUNE_LIMIT, $this->ttlSeconds]
+        );
         if (
-            !is_array($raw) || count($raw) !== 2
-            || !is_numeric($raw[0]) || !is_numeric($raw[1])
-            || (int) $raw[0] < 0 || (int) $raw[1] < 0
+            !is_array($raw) || count($raw) !== 3
+            || !is_numeric($raw[0]) || !is_numeric($raw[1]) || !is_numeric($raw[2])
+            || (int) $raw[0] < 0 || (int) $raw[1] < 0 || (int) $raw[2] < 0
         ) {
             throw new RuntimeException('document_cache_usage_invalid');
         }
@@ -109,6 +158,8 @@ final class AuditDocumentCache
         return [
             'reserved_bytes' => (int) $raw[0],
             'reserved_entries' => (int) $raw[1],
+            'oldest_age_ms' => (int) $raw[2],
+            'ttl_ms' => $this->ttlSeconds * 1000,
             'max_bytes' => $this->maxBytes,
             'max_entries' => $this->maxEntries
         ];
@@ -116,7 +167,14 @@ final class AuditDocumentCache
 
     private function keys(string $key): array
     {
-        return [$key, self::INDEX . ':expires', self::INDEX . ':sizes', self::INDEX . ':bytes'];
+        $index = self::indexFor($this->lane);
+        return [$key, $index . ':expires', $index . ':sizes', $index . ':bytes'];
+    }
+
+    /** Índice Redis de un carril; nulo o `all` usan el índice heredado. */
+    private static function indexFor(?AuditLane $lane): string
+    {
+        return $lane === null || $lane->isAll() ? self::INDEX : self::INDEX . ':' . $lane->value;
     }
 
     private static function assertKey(string $key): void
@@ -155,8 +213,14 @@ final class AuditDocumentCache
 
     private const USAGE_LUA = self::PRUNE_LUA . <<<'LUA'
 
-        local used = prune(ARGV[1])
-        return {used, redis.call('ZCARD', KEYS[2])}
+        local used, now = prune(ARGV[1])
+        local oldest = redis.call('ZRANGE', KEYS[2], 0, 0, 'WITHSCORES')
+        local age = 0
+        if #oldest == 2 then
+            -- El score del ZSET es el instante de expiración: edad = TTL - (expiración - ahora).
+            age = math.max(0, tonumber(ARGV[2]) * 1000 - (tonumber(oldest[2]) - now))
+        end
+        return {used, redis.call('ZCARD', KEYS[2]), age}
     LUA;
 
     private const PUT_LUA = self::PRUNE_LUA . <<<'LUA'
@@ -176,13 +240,21 @@ final class AuditDocumentCache
         return 1
     LUA;
 
+    /**
+     * KEYS: 1 blob; 2-4 índice del carril (expires, sizes, bytes); 5-7 índice heredado.
+     * Usa el índice del carril si contiene el blob; si no, el heredado. Siempre elimina el blob.
+     */
     private const RELEASE_LUA = <<<'LUA'
-        local size = tonumber(redis.call('HGET', KEYS[3], KEYS[1]) or '0')
-        local used = tonumber(redis.call('GET', KEYS[4]) or '0')
+        local expiresKey, sizesKey, bytesKey = KEYS[2], KEYS[3], KEYS[4]
+        if not redis.call('HEXISTS', KEYS[3], KEYS[1]) then
+            expiresKey, sizesKey, bytesKey = KEYS[5], KEYS[6], KEYS[7]
+        end
+        local size = tonumber(redis.call('HGET', sizesKey, KEYS[1]) or '0')
+        local used = tonumber(redis.call('GET', bytesKey) or '0')
         redis.call('DEL', KEYS[1])
-        redis.call('HDEL', KEYS[3], KEYS[1])
-        redis.call('ZREM', KEYS[2], KEYS[1])
-        redis.call('SET', KEYS[4], math.max(0, used - size))
+        redis.call('HDEL', sizesKey, KEYS[1])
+        redis.call('ZREM', expiresKey, KEYS[1])
+        redis.call('SET', bytesKey, math.max(0, used - size))
         return 1
     LUA;
 }

@@ -71,7 +71,7 @@ final class ObservabilityControllerTest extends TestCase
                 if ($keys === []) {
                     return 1000000;
                 }
-                if ($key === 'audit:document-cache:{budget}:bytes') {
+                if ($key === 'audit:blob:budget-inspection') { return [0, 0, 0]; } if ($key === 'audit:document-cache:{budget}:bytes') {
                     return [0, 0, []];
                 }
                 if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
@@ -116,6 +116,12 @@ final class ObservabilityControllerTest extends TestCase
         $this->assertSame(['active' => 1, 'pending' => 22, 'scopes' => 1], $data['persistenceScheduler']);
         $this->assertSame(34, $data['backlogDepth']); // PEL 12 + scheduler pending 22; active no se duplica.
         $this->assertFalse($data['streamBacklogs']['inbox_priority']['orchestrator']['lagKnown']);
+        // CA-F3-04: lanes aditivo; las claves previas (limits, counters) se conservan.
+        $this->assertSame(['priority', 'batch'], array_keys($data['documentCache']['lanes']));
+        $this->assertIsInt($data['documentCache']['lanes']['priority']['oldest_age_ms']);
+        $this->assertIsInt($data['documentCache']['lanes']['batch']['oldest_age_ms']);
+        $this->assertArrayHasKey('limits', $data['documentCache']);
+        $this->assertArrayHasKey('counters', $data['documentCache']);
     }
 
     public function testReportsUnreadLagSeparatelyFromPendingEntries(): void
@@ -128,7 +134,7 @@ final class ObservabilityControllerTest extends TestCase
             if ($keys === []) {
                 return 1000000;
             }
-            if ($key === 'audit:document-cache:{budget}:bytes') {
+            if ($key === 'audit:blob:budget-inspection') { return [0, 0, 0]; } if ($key === 'audit:document-cache:{budget}:bytes') {
                 return [0, 0, []];
             }
             if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
@@ -201,7 +207,7 @@ final class ObservabilityControllerTest extends TestCase
                 $key = $keys[0] ?? '';
                 if ($keys === []) { return 1000000; }
                 if ($key === 'audit.persistence:{queue}:scopes') { return [0, 0, 0, 1]; }
-                if ($key === 'audit:document-cache:{budget}:bytes') { return [0, 0, []]; }
+                if ($key === 'audit:blob:budget-inspection') { return [0, 0, 0]; } if ($key === 'audit:document-cache:{budget}:bytes') { return [0, 0, []]; }
                 if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
                     return [
                         ['policy:batch:pending', 2, 'extraction:batch:active', 1, 'semantic:batch:delayed', 3],
@@ -246,7 +252,7 @@ final class ObservabilityControllerTest extends TestCase
             if ($keys === []) {
                 return 1000000;
             }
-            if ($key === 'audit:document-cache:{budget}:bytes') {
+            if ($key === 'audit:blob:budget-inspection') { return [0, 0, 0]; } if ($key === 'audit:document-cache:{budget}:bytes') {
                 return [0, 0, []];
             }
             if ($key === \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {

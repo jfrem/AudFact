@@ -31,6 +31,70 @@ final class AuditDocumentCacheRedisTest extends TestCase
         }
     }
 
+    public function testPriorityLaneSaturationDoesNotAffectBatchLane(): void
+    {
+        // Arrange: 25 % prioritario de 100 000 bytes y 100 entradas => 25 entradas prioritarias.
+        $base = new AuditDocumentCache($this->redis, 100000, 100);
+        $priority = $base->forLane(\App\Services\Audit\Pipeline\AuditLane::PRIORITY);
+        $batch = $base->forLane(\App\Services\Audit\Pipeline\AuditLane::BATCH);
+        for ($i = 0; $i < 23; $i++) {
+            $priority->put("audit:blob:p{$i}", ['mime' => 'application/pdf', 'data' => 'a']);
+        }
+        $noopRecord = static function (): void {};
+        $priorityGate = new \App\Services\Audit\Pipeline\AuditDocumentPrefetchGate($priority, $noopRecord, static fn(): int => 0);
+        $batchGate = new \App\Services\Audit\Pipeline\AuditDocumentPrefetchGate($batch, $noopRecord, static fn(): int => 0);
+
+        // Act / Assert: INV-F3-01, el carril prioritario cierra y el batch sigue abierto.
+        self::assertFalse($priorityGate->canRead());
+        self::assertTrue($batchGate->canRead());
+    }
+
+    public function testReleaseFallsBackToLegacyIndexWhenLaneIndexMissesEntry(): void
+    {
+        // Arrange: blob escrito con el índice heredado (previo al despliegue).
+        $legacy = new AuditDocumentCache($this->redis, 1000, 100);
+        $legacy->put('audit:blob:legacy', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+
+        // Act:
+        $legacy->release('audit:blob:legacy', \App\Services\Audit\Pipeline\AuditLane::PRIORITY);
+
+        // Assert: CA-F3-02 y INV-F3-03.
+        self::assertNull($legacy->read('audit:blob:legacy'));
+        self::assertSame(0, (int) $this->redis->get(self::BUDGET . ':bytes'));
+    }
+
+    public function testUsageReportsOldestAgeAndTtl(): void
+    {
+        // Arrange:
+        $cache = new AuditDocumentCache($this->redis, 100000, 100, 60);
+        $cache->put('audit:blob:age', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+
+        // Act:
+        $usage = $cache->usage();
+
+        // Assert: ZRANGE ... WITHSCORES devuelve el blob más antiguo (R-F3-05).
+        self::assertSame(60000, $usage['ttl_ms']);
+        self::assertGreaterThanOrEqual(0, $usage['oldest_age_ms']);
+        self::assertLessThanOrEqual(60000, $usage['oldest_age_ms']);
+    }
+
+    public function testReleaseWithWrongLaneStillDeletesBlobAndSelfHeals(): void
+    {
+        // Arrange: blob admitido en el carril batch, liberado por error con el carril prioritario.
+        $base = new AuditDocumentCache($this->redis, 100000, 100, 1);
+        $batch = $base->forLane(\App\Services\Audit\Pipeline\AuditLane::BATCH);
+        $batch->put('audit:blob:wrong', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+
+        // Act:
+        $base->release('audit:blob:wrong', \App\Services\Audit\Pipeline\AuditLane::PRIORITY);
+        usleep(2100000);
+        $batch->usage();
+
+        // Assert: INV-F3-03 y INV-F3-04, el índice equivocado se corrige por prune() en <= TTL.
+        self::assertNull($base->read('audit:blob:wrong'));
+        self::assertSame(0, $batch->usage()['reserved_entries']);
+    }
+
     public function testMultipleConnectionsShareByteBudgetAndReleaseIsIdempotent(): void
     {
         // Arrange:
