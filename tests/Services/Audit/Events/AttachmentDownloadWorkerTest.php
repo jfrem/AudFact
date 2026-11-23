@@ -286,7 +286,7 @@ final class AttachmentDownloadWorkerTest extends TestCase
         // Arrange: el carril prioritario está al límite; el batch tiene capacidad.
         $priorityFull = $this->createStub(RedisClient::class);
         $priorityFull->method('eval')->willReturnCallback(
-            static fn(string $script, array $keys): array => str_contains($keys[1], ':priority:') ? [0, 1000000000000, 0] : [0, 0, 0]
+            static fn(string $script, array $keys): array => str_contains($keys[1] ?? '', ':priority:') ? [0, 1000000000000, 0] : [0, 0, 0]
         );
         $priorityClosed = new AttachmentDownloadWorker(redis: $priorityFull, publisher: new DownloadPublisher(),
             consumerName: 'lane-all-closed');
