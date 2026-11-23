@@ -246,7 +246,7 @@ final class AuditDocumentCache
      */
     private const RELEASE_LUA = <<<'LUA'
         local expiresKey, sizesKey, bytesKey = KEYS[2], KEYS[3], KEYS[4]
-        if not redis.call('HEXISTS', KEYS[3], KEYS[1]) then
+        if redis.call('HEXISTS', KEYS[3], KEYS[1]) == 0 then
             expiresKey, sizesKey, bytesKey = KEYS[5], KEYS[6], KEYS[7]
         end
         local size = tonumber(redis.call('HGET', sizesKey, KEYS[1]) or '0')
