@@ -195,6 +195,22 @@ final class AuditDlqRecoveryRedisTest extends TestCase
         self::assertSame(1, $this->redis->eval('return redis.call("XLEN",KEYS[1])', [AuditEventPublisher::STREAM_INBOX_BATCH]));
     }
 
+    /** T-I6 (CA-F1-09, REQ-F1-06): un heartbeat de 20 s sigue siendo válido con el umbral de 30 s. */
+    public function testRecoveryAcceptsHeartbeatWithinThirtySecondThreshold(): void
+    {
+        // Arrange:
+        $this->seed('failed');
+        $now = (new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->nowMs();
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', ['audit:execution:heartbeat'], [$now - 20000]);
+        $recovery = self::recovery();
+
+        // Act:
+        $accepted = (new AuditStateStore($this->redis))->recoverFailedAudit($recovery, self::ORIGINAL_ID);
+
+        // Assert:
+        self::assertSame($recovery->auditId, $accepted['audit_id']);
+    }
+
     #[DataProvider('atomicBarrierChanges')]
     public function testBarrierChangingAfterPreflightIsStillEnforcedAtomically(string $key, string $value): void
     {

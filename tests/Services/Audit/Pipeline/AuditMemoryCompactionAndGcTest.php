@@ -131,17 +131,10 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
 
         $deletedTask = false;
         $deletedPlan = false;
-        $getAuditCalls = 0;
+        $statusEvalCalls = 0;
 
         $redis = $this->createStub(RedisClient::class);
-        $redis->method('get')
-            ->willReturnCallback(static function (string $key) use ($auditId, &$getAuditCalls): ?string {
-                if ($key === AuditStateStore::auditKey($auditId)) {
-                    $getAuditCalls++;
-                    return json_encode(['audit_id' => $auditId, 'status' => 'failed'], JSON_THROW_ON_ERROR);
-                }
-                return null;
-            });
+        $redis->method('get')->willReturn(null);
         $redis->method('scanKeys')
             ->willReturnCallback(static function (string $pattern) use ($taskKey, $planKey): array {
                 if ($pattern === 'audit:task:v2:*') {
@@ -154,9 +147,17 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
             });
 
         $redis->method('eval')
-            ->willReturnCallback(static function (string $script, array $keys = []) use ($taskKey, $taskRecord, $planKey, $planRecord, &$deletedTask, &$deletedPlan): mixed {
+            ->willReturnCallback(static function (string $script, array $keys = []) use ($taskKey, $taskRecord, $planKey, $planRecord, $auditId, &$deletedTask, &$deletedPlan, &$statusEvalCalls): mixed {
                 if ($keys === []) {
                     return 1700000000000;
+                }
+                // REQ-F1-01: el status se lee con un script compacto (AUDIT_STATUS_LUA), nunca con un get completo.
+                if (str_contains($script, "type(a.status) ~= 'string'") && ($keys[0] ?? '') === AuditStateStore::auditKey($auditId)) {
+                    $statusEvalCalls++;
+                    return 'failed';
+                }
+                if (($keys[0] ?? '') === 'audit:execution:gc:cursors') {
+                    return str_contains($script, 'HGETALL') ? [] : 1;
                 }
                 if (($keys[0] ?? '') === $taskKey && str_contains($script, 'return redis.call("HGET"')) {
                     return json_encode($taskRecord, JSON_THROW_ON_ERROR);
@@ -182,8 +183,241 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
 
         self::assertTrue($deletedTask, 'gc() debe eliminar inmediatamente la tarea completada cuya auditoría raíz ya es terminal.');
         self::assertTrue($deletedPlan, 'gc() debe eliminar en un solo paso el plan semántico de una auditoría terminal.');
-        self::assertSame(1, $getAuditCalls, 'gc() debe cachear la lectura de audit:{id}:state por ciclo.');
+        self::assertSame(1, $statusEvalCalls, 'gc() debe cachear el status de audit:{id}:state por llamada.');
         self::assertSame(2, $removed);
+    }
+
+    /** Registro de tarea válido (AuditTask::fromEvent) con identidad, auditoría y estado terminal controlados. */
+    private static function terminalTaskRecord(string $taskId, string $auditId): array
+    {
+        $event = AuditEvent::create(AuditEvent::TYPE_AUDIT_CREATED, AuditEvent::uuidV4());
+        $record = AuditTask::fromEvent(AuditTaskStage::ORCHESTRATION, $event)->record;
+        $record['task_id'] = $taskId;
+        $record['audit_id'] = $auditId;
+        $record['state'] = 'completed';
+        $record['fence'] = 1;
+
+        return $record;
+    }
+
+    /** T-U1 (CA-F1-01): gc() no lee audit:*:state completo, cachea status y corta en GC_MAX_ITEMS. */
+    public function testGcCachesOnlyStatusAndBoundsCache(): void
+    {
+        $statusEvals = 0;
+        $tasksScanned = 0;
+        $taskDeletes = 0;
+        $getStateCalls = 0;
+        $pages = [];
+        // 600 tareas terminales en 6 páginas de 100; las 500 primeras referencian 250 auditorías (2 tareas cada una).
+        for ($page = 0; $page < 6; $page++) {
+            $keys = [];
+            for ($j = 0; $j < 100; $j++) {
+                $i = $page * 100 + $j;
+                $taskId = str_pad(dechex($i + 1), 64, '0', STR_PAD_LEFT);
+                $auditId = $i < 500 ? 'a-' . intdiv($i, 2) : 'b-' . $i;
+                $keys[] = ['key' => 'audit:task:v2:' . $taskId, 'audit_id' => $auditId, 'task_id' => $taskId];
+            }
+            $pages[] = $keys;
+        }
+        $tasksRecords = [];
+        foreach ($pages as $keys) {
+            foreach ($keys as $entry) {
+                $tasksRecords[$entry['key']] = json_encode(
+                    self::terminalTaskRecord($entry['task_id'], $entry['audit_id']),
+                    JSON_THROW_ON_ERROR
+                );
+            }
+        }
+
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('get')->willReturnCallback(static function (string $key) use (&$getStateCalls): ?string {
+            if (str_starts_with($key, 'audit:') && str_ends_with($key, ':state')) {
+                $getStateCalls++;
+            }
+            return null;
+        });
+        $redis->method('scanKeys')->willReturnCallback(static function (string $pattern, string $cursor) use ($pages, &$tasksScanned): array {
+            if ($pattern !== 'audit:task:v2:*') {
+                return ['0', []];
+            }
+            $tasksScanned++;
+            $page = (int) $cursor;
+            $next = $page + 1 < count($pages) ? (string) ($page + 1) : '0';
+            return [$next, array_column($pages[$page], 'key')];
+        });
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys = [], array $argv = []) use ($tasksRecords, &$statusEvals, &$taskDeletes): mixed {
+            if ($keys === []) {
+                return 1700000000000;
+            }
+            if (str_contains($script, "type(a.status) ~= 'string'")) {
+                $statusEvals++;
+                return 'failed';
+            }
+            if (str_contains($script, 'HGET",KEYS[1],"record"') && isset($tasksRecords[$keys[0]])) {
+                return $tasksRecords[$keys[0]];
+            }
+            if (($keys[0] ?? '') === 'audit:execution:gc:cursors') {
+                return str_contains($script, 'HGETALL') ? [] : 1;
+            }
+            if (str_contains($script, "'DEL'") || str_contains($script, '"DEL"')) {
+                $taskDeletes++;
+                return 1;
+            }
+            return 0;
+        });
+
+        // memoryProbe por debajo del límite: solo actúa el corte por ítems.
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024);
+        $maintenance->gc(60000, 1700000000000);
+
+        $reflection = new \ReflectionProperty(AuditExecutionMaintenance::class, 'gcBudgetStopped');
+        self::assertSame(0, $getStateCalls, 'gc() no debe leer audit:*:state completo (REQ-F1-02).');
+        self::assertSame(250, $statusEvals, 'La caché de status debe reutilizarse dentro de la llamada: 250 auditorías distintas.');
+        self::assertSame(5, $tasksScanned, 'La 6.ª página no debe leerse: el corte llega en GC_MAX_ITEMS.');
+        self::assertTrue($reflection->getValue($maintenance) === true, 'gc() debe marcar gcBudgetStopped al cortar por ítems.');
+        self::assertSame(AuditExecutionMaintenance::GC_MAX_ITEMS, $taskDeletes, 'Se procesan exactamente GC_MAX_ITEMS tareas.');
+    }
+
+    /** T-U5 (CA-F1-17): gc() corta por budgetMs y deja pending_keys persistido. */
+    public function testGcStopsWhenTimeBudgetExpires(): void
+    {
+        $keys = [];
+        for ($i = 0; $i < 300; $i++) {
+            $keys[] = 'audit:task:v2:' . str_pad(dechex($i + 1), 64, '0', STR_PAD_LEFT);
+        }
+        $hgetallSaved = null;
+        $statusEvals = 0;
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('scanKeys')->willReturnCallback(static function (string $pattern, string $cursor) use ($keys): array {
+            if ($pattern !== 'audit:task:v2:*') {
+                return ['0', []];
+            }
+            $page = (int) $cursor;
+            $next = $page + 100 < count($keys) ? (string) ($page + 100) : '0';
+            return [$next, array_slice($keys, $page, 100)];
+        });
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keysArg = [], array $argv = []) use (&$hgetallSaved, &$statusEvals, $keys): mixed {
+            if ($keysArg === []) {
+                return 1700000000000;
+            }
+            if (str_contains($script, "type(a.status) ~= 'string'")) {
+                usleep(5000);
+                $statusEvals++;
+                return 'failed';
+            }
+            if (str_contains($script, 'HGET",KEYS[1],"record"')) {
+                // Tarea terminal de una auditoría distinta por clave.
+                $index = array_search($keysArg[0], $keys, true);
+                return json_encode(self::terminalTaskRecord(
+                    str_pad(dechex((int) $index + 1), 64, '0', STR_PAD_LEFT),
+                    'audit-' . $index
+                ), JSON_THROW_ON_ERROR);
+            }
+            if (($keysArg[0] ?? '') === 'audit:execution:gc:cursors') {
+                if (str_contains($script, 'HSET')) {
+                    $hgetallSaved = $argv;
+                    return 1;
+                }
+                return [];
+            }
+            return 0;
+        });
+
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024);
+        $maintenance->gc(20, 1700000000000);
+
+        $map = [];
+        for ($i = 0; $i < count($hgetallSaved ?? []); $i += 2) {
+            $map[$hgetallSaved[$i]] = $hgetallSaved[$i + 1];
+        }
+        self::assertLessThan(300, $statusEvals, 'gc() debe detenerse antes de procesar las 300 tareas.');
+        self::assertNotSame('[]', $map['pending_keys'] ?? '[]', 'pending_keys debe quedar persistido.');
+        self::assertSame('0', $map['pending_pattern'] ?? '', 'pending_pattern debe apuntar al patrón tasks (0).');
+        self::assertSame('0', $map['pattern_index'] ?? '', 'pattern_index debe seguir en tasks.');
+        $reflection = new \ReflectionProperty(AuditExecutionMaintenance::class, 'gcBudgetStopped');
+        self::assertTrue($reflection->getValue($maintenance) === true, 'gcBudgetStopped debe ser true tras el corte por tiempo.');
+    }
+
+    /** T-U6 (CA-F1-17): gc() reencola un job v1 sin leerlo cuando la memoria supera el límite blando. */
+    public function testGcRequeuesJobWhenMemorySoftLimitReached(): void
+    {
+        $jobKeys = ['job:aaa:state', 'job:bbb:state'];
+        $jobGets = 0;
+        $savedArgv = null;
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('get')->willReturnCallback(static function (string $key) use (&$jobGets): ?string {
+            if (str_starts_with($key, 'job:')) {
+                $jobGets++;
+            }
+            return null;
+        });
+        $redis->method('scanKeys')->willReturnCallback(static function (string $pattern) use ($jobKeys): array {
+            return $pattern === 'job:*:state' ? ['0', $jobKeys] : ['0', []];
+        });
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keysArg = [], array $argv = []) use (&$savedArgv): mixed {
+            if ($keysArg === []) {
+                return 1700000000000;
+            }
+            if (($keysArg[0] ?? '') === 'audit:execution:gc:cursors') {
+                if (str_contains($script, 'HSET')) {
+                    $savedArgv = $argv;
+                    return 1;
+                }
+                if (str_contains($script, 'HGETALL')) {
+                    return [
+                        'pattern_index', '4', 'cursor:jobs', '0',
+                    ];
+                }
+            }
+            return 0;
+        });
+
+        // Las dos primeras comprobaciones (presupuesto antes del SCAN y antes de la 1.ª clave) están bajo el límite;
+        // la comprobación dentro de la rama `jobs` ve el límite y reencola la clave sin leerla.
+        $probeCalls = 0;
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        $probe = static function () use (&$probeCalls, $limit): int {
+            $probeCalls++;
+            return $probeCalls <= 2 ? $limit - 1 : $limit;
+        };
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), $probe);
+        $removed = $maintenance->gc(60000, 1700000000000);
+
+        self::assertSame(0, $jobGets, 'Con memoria sobre el límite blando no se debe leer ningún job:*:state.');
+        self::assertSame(0, $removed);
+        $reflection = new \ReflectionProperty(AuditExecutionMaintenance::class, 'gcBudgetStopped');
+        self::assertTrue($reflection->getValue($maintenance) === true, 'gc_budget_stopped debe quedar a verdadero.');
+        self::assertNotNull($savedArgv);
+        $map = [];
+        for ($i = 0; $i < count($savedArgv); $i += 2) {
+            $map[$savedArgv[$i]] = $savedArgv[$i + 1];
+        }
+        self::assertSame('4', $map['pending_pattern'] ?? '', 'La clave debe quedar pendiente en el patrón jobs (4).');
+        self::assertSame(json_encode($jobKeys, JSON_THROW_ON_ERROR), $map['pending_keys'] ?? '', 'La clave no leída debe reencolarse en primera posición.');
+    }
+
+    /** Variante de T-U6: con la sonda siempre sobre el límite, gc() no hace SCAN y retorna 0. */
+    public function testGcDoesNotScanWhenMemoryIsAlwaysAboveSoftLimit(): void
+    {
+        $scans = 0;
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('scanKeys')->willReturnCallback(static function () use (&$scans): array {
+            $scans++;
+            return ['0', []];
+        });
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keysArg = []): mixed {
+            if ($keysArg === []) {
+                return 1700000000000;
+            }
+            return str_contains($script, 'HGETALL') ? [] : 0;
+        });
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => $limit);
+
+        self::assertSame(0, $maintenance->gc(60000, 1700000000000));
+        self::assertSame(0, $scans, 'Sobre el límite blando, gc() no debe hacer SCAN.');
+        $reflection = new \ReflectionProperty(AuditExecutionMaintenance::class, 'gcBudgetStopped');
+        self::assertTrue($reflection->getValue($maintenance) === true);
     }
 
     public function testCompleteAuditAndPersistenceAdvanceCompactTerminalFootprint(): void

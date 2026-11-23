@@ -290,26 +290,38 @@ class BatchJobStore
     /**
      * Intenta reclamar una llave de idempotencia por cliente (X-Idempotency-Key).
      *
-     * Usa SETNX atómico: si la llave no existe, la crea con el job_id y TTL.
-     * Si ya existe, lee y retorna el job_id del primer reclamante.
+     * Usa un único eval atómico `SET NX EX` y, si la llave ya existía, `GET` en el mismo script:
+     * no hay ventana entre ambas operaciones en la que la llave pueda expirar y producir un falso reclamo.
+     * TTL efectivo = max($ttl, AUDIT_JOB_TTL); el GC lo amplía mientras exista el job.
      *
      * @param  string  $key    Valor del header X-Idempotency-Key (o UUID auto-generado)
      * @param  string  $jobId  UUID v4 del job nuevo a registrar
-     * @param  int     $ttl    Segundos de vida de la llave (AUDIT_IDEMPOTENCY_KEY_TTL)
+     * @param  int     $ttl    Segundos mínimos de vida de la llave (AUDIT_IDEMPOTENCY_KEY_TTL), debe ser > 0
      *
      * @return string|null  null → llave reclamada exitosamente (primera solicitud)
      *                      string → job_id existente (solicitud duplicada → 409)
      *
-     * @throws RuntimeException Si Redis no está disponible
+     * @throws \InvalidArgumentException Si $ttl <= 0 (`idempotency_ttl_invalid`)
+     * @throws RuntimeException Si Redis no está disponible o falla el script
      */
     public function claimIdempotencyKey(string $key, string $jobId, int $ttl): ?string
     {
+        if ($ttl <= 0) {
+            throw new \InvalidArgumentException('idempotency_ttl_invalid');
+        }
         $redisKey = self::idempotencyKey($key);
 
         try {
-            $claimed = $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [$redisKey], [$jobId]);
-            return $claimed === 1 ? null : $this->redis->get($redisKey);
-        } catch (RedisUnavailableException $e) {
+            $existing = $this->redis->eval(
+                'local r=redis.call("SET",KEYS[1],ARGV[1],"NX","EX",ARGV[2]); if r then return false end; '
+                . 'return redis.call("GET",KEYS[1])',
+                [$redisKey],
+                [$jobId, max($ttl, self::jobTtlSeconds())]
+            );
+            return $existing === null || $existing === false ? null : (string) $existing;
+        } catch (RedisUnavailableException|\Predis\PredisException $e) {
+            // eval() no lanza RedisUnavailableException hoy (se conserva por compatibilidad con dobles);
+            // PredisException no deriva de \RuntimeException: se envuelve para que async() responda 503.
             throw new RuntimeException('Redis no disponible al reclamar llave de idempotencia', 0, $e);
         }
     }

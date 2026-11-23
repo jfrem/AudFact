@@ -428,6 +428,11 @@ class AuditController extends Controller
 
         try {
             $existingJobId = $jobStore->claimIdempotencyKey((string) $idempotencyKey, $jobId, $ttl);
+        } catch (\InvalidArgumentException $e) {
+            Logger::error('AuditController::async idempotencia mal configurada', [
+                'setting' => 'AUDIT_IDEMPOTENCY_KEY_TTL', 'ttl' => $ttl, 'error' => $e->getMessage(),
+            ]);
+            Response::error('Configuración de idempotencia inválida', 500);
         } catch (\RuntimeException $e) {
             Response::error('Error validando idempotencia: ' . $e->getMessage(), 503);
         }

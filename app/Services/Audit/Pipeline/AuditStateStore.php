@@ -117,6 +117,7 @@ class AuditStateStore
             $recovery->toJson(), self::auditTtlSeconds(),
             $execution->version, (int) floor($execution->maxQueued * 0.8),
             json_encode(array_column(AuditTaskStage::cases(), 'value'), JSON_THROW_ON_ERROR),
+            AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS,
         ]);
         if (!is_string($result)) {
             throw new RuntimeException('Redis no confirmó la recuperación de la auditoría');
@@ -136,7 +137,7 @@ class AuditStateStore
         end
         local t=redis.call('TIME'); local now=tonumber(t[1])*1000+math.floor(tonumber(t[2])/1000)
         local heartbeat=tonumber(redis.call('GET',KEYS[8]) or '')
-        if not heartbeat or heartbeat>now or now-heartbeat>10000 then return redis.error_reply('audit_capacity_unavailable') end
+        if not heartbeat or heartbeat>now or now-heartbeat>tonumber(ARGV[7]) then return redis.error_reply('audit_capacity_unavailable') end
         for _,stage in ipairs(cjson.decode(ARGV[6])) do
             local waiting=0
             for _,lane in ipairs({'priority','batch'}) do
@@ -195,7 +196,50 @@ class AuditStateStore
         return $raw === null ? null : self::decodeJson($raw, 'AuditStateStore');
     }
 
+    /** Lector compacto del estado: solo el `status` (REQ-F1-01/02). Sin copia completa del JSON en PHP. */
+    private const AUDIT_STATUS_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return false end
+        local a = cjson.decode(raw)
+        if type(a.status) ~= 'string' then return '' end
+        return a.status
+    LUA;
 
+    /** Metadatos de retención y el sha1 del valor crudo, para borrado compare-and-delete por hash. */
+    private const AUDIT_RETENTION_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return false end
+        local a = cjson.decode(raw)
+        return cjson.encode({audit_id = a.audit_id, status = a.status,
+            completed_at = a.completed_at, updated_at = a.updated_at, sha1 = redis.sha1hex(raw)})
+    LUA;
+
+    /**
+     * Devuelve solo el status de la auditoría, o null si no existe.
+     *
+     * @throws RuntimeException si Redis no está disponible (RedisClient::eval)
+     * @throws \Predis\PredisException si falla el script
+     */
+    public function getAuditStatus(string $auditId): ?string
+    {
+        $status = $this->redis->eval(self::AUDIT_STATUS_LUA, [self::auditKey($auditId)]);
+
+        return $status === null || $status === false ? null : (string) $status;
+    }
+
+    /**
+     * Devuelve `{audit_id,status,completed_at,updated_at,sha1}` del estado de la clave, o null si no existe.
+     *
+     * @return array{audit_id:mixed,status:mixed,completed_at:mixed,updated_at:mixed,sha1:string}|null
+     * @throws RuntimeException si Redis no está disponible (RedisClient::eval)
+     * @throws \Predis\PredisException si falla el script
+     */
+    public function readAuditRetentionMetadata(string $key): ?array
+    {
+        $raw = $this->redis->eval(self::AUDIT_RETENTION_LUA, [$key]);
+
+        return $raw === null || $raw === false ? null : self::decodeJson((string) $raw, 'AuditStateStore');
+    }
 
     public function deleteAudit(string $auditId): bool
     {

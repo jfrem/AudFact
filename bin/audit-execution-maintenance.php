@@ -27,6 +27,7 @@ try {
     if (in_array($command, ['pause', 'observe', 'resume', 'protocol'], true)) {
         if ($command === 'pause') {
             $redis->eval('redis.call("SET",KEYS[1],"1"); return redis.call("SET",KEYS[2],"1")', ['audit:admission:paused', 'audit:execution:paused']);
+            fwrite(STDERR, AuditExecutionMaintenance::ADMISSION_PAUSED_CLI_NOTICE);
         } else {
             if ($command === 'protocol') {
                 $redis->eval('return redis.call("SET",KEYS[1],"2","NX")', ['audit:execution:version']);
@@ -35,10 +36,11 @@ try {
             new \App\Services\Audit\Pipeline\GeminiQuotaBudget($redis);
             if ($command === 'observe') {
                 $redis->eval('redis.call("SET",KEYS[1],"1"); return redis.call("DEL",KEYS[2])', ['audit:admission:paused', 'audit:execution:paused']);
+                fwrite(STDERR, AuditExecutionMaintenance::ADMISSION_PAUSED_CLI_NOTICE);
             } elseif ($command === 'resume') {
                 $heartbeat = $redis->get('audit:execution:heartbeat');
                 $now = (new \App\Services\Audit\Pipeline\FairAuditTaskQueue($redis, $config))->nowMs();
-                if ($heartbeat === null || !ctype_digit($heartbeat) || (int) $heartbeat > $now || $now - (int) $heartbeat > 10000
+                if ($heartbeat === null || !ctype_digit($heartbeat) || (int) $heartbeat > $now || $now - (int) $heartbeat > AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS
                     || (new \App\Services\Audit\Pipeline\AuditAdmissionGuard($redis, $config))->atCapacity()) {
                     throw new RuntimeException('maintenance_unhealthy');
                 }
@@ -58,7 +60,10 @@ try {
         }
         Logger::info('Audit execution maintenance started', ['instance' => gethostname() . ':' . getmypid(),
             'execution_version' => 2, 'page_size' => AuditExecutionMaintenance::GC_PAGE_SIZE, 'max_queued_per_stage' => $config->maxQueued,
-            'lease_ms' => AuditExecutionConfig::LEASE_MS]);
+            'lease_ms' => AuditExecutionConfig::LEASE_MS, 'tick_budget_ms' => AuditExecutionMaintenance::TICK_BUDGET_MS,
+            'gc_max_items' => AuditExecutionMaintenance::GC_MAX_ITEMS, 'gc_time_budget_ms' => AuditExecutionMaintenance::GC_TIME_BUDGET_MS,
+            'gc_memory_soft_limit_bytes' => AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES,
+            'heartbeat_max_age_ms' => AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS]);
         while (!$stop) {
             if (function_exists('pcntl_signal_dispatch')) {
                 pcntl_signal_dispatch();
@@ -83,6 +88,7 @@ try {
         'outbox' => ['published' => $maintenance->flush()],
         'reconcile' => (new AuditExecutionInspector($redis))->reconcile(),
         'gc' => ['removed' => $maintenance->gc()],
+        'idem-expire-legacy' => $maintenance->expireLegacyIdempotency(),
         default => throw new InvalidArgumentException('unknown_maintenance_command'),
     };
     fwrite(STDOUT, json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . PHP_EOL);

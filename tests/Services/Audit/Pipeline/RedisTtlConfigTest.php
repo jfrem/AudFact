@@ -129,6 +129,85 @@ final class RedisTtlConfigTest extends TestCase
         $this->assertTrue($store->patchAudit('audit-default', ['status' => 'completed']));
     }
 
+    /** T-U3 (CA-F1-10, REQ-F1-11): la llave de idempotencia es un único eval atómico con TTL efectivo. */
+    public function testIdempotencyClaimIsSingleAtomicEvalWithEffectiveTtl(): void
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis
+            ->expects($this->once())
+            ->method('eval')
+            ->with(
+                $this->logicalAnd($this->stringContains('"NX","EX"'), $this->stringContains('GET')),
+                [BatchJobStore::idempotencyKey('key-ttl')],
+                ['job-ttl', 86400]
+            )
+            ->willReturn(null);
+        $redis->expects($this->never())->method('get');
+
+        $store = new BatchJobStore($redis);
+
+        $this->assertNull($store->claimIdempotencyKey('key-ttl', 'job-ttl', 300));
+    }
+
+    public function testIdempotencyClaimUsesConfiguredTtlWhenLarger(): void
+    {
+        $this->setEnv('AUDIT_JOB_TTL', '100');
+
+        $redis = $this->createMock(RedisClient::class);
+        $redis
+            ->expects($this->once())
+            ->method('eval')
+            ->with($this->anything(), [BatchJobStore::idempotencyKey('key-small')], ['job-small', 300])
+            ->willReturn(null);
+
+        $store = new BatchJobStore($redis);
+
+        $this->assertNull($store->claimIdempotencyKey('key-small', 'job-small', 300));
+    }
+
+    public function testIdempotencyClaimReturnsExistingJobIdWhenKeyAlreadyClaimed(): void
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn('job-previo');
+
+        $store = new BatchJobStore($redis);
+
+        $this->assertSame('job-previo', $store->claimIdempotencyKey('key-dup', 'job-nuevo', 300));
+    }
+
+    public function testIdempotencyClaimRejectsNonPositiveTtlWithoutRedisCall(): void
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis->expects($this->never())->method('eval');
+
+        $store = new BatchJobStore($redis);
+
+        foreach ([0, -1] as $ttl) {
+            try {
+                $store->claimIdempotencyKey('key-bad', 'job-bad', $ttl);
+                $this->fail('Un TTL no positivo debe lanzar InvalidArgumentException.');
+            } catch (\InvalidArgumentException $error) {
+                $this->assertSame('idempotency_ttl_invalid', $error->getMessage());
+            }
+        }
+    }
+
+    public function testIdempotencyClaimWrapsPredisErrorAsRuntimeException(): void
+    {
+        $server = new \Predis\Response\ServerException('ERR x');
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willThrowException($server);
+
+        $store = new BatchJobStore($redis);
+
+        try {
+            $store->claimIdempotencyKey('key-fail', 'job-fail', 300);
+            $this->fail('Un fallo de Predis debe envolverse en RuntimeException.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame($server, $error->getPrevious());
+        }
+    }
+
     public function testReservationClaimUsesDurableAtomicSetNx(): void
     {
         $redis = $this->createMock(RedisClient::class);

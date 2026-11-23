@@ -17,6 +17,10 @@ final readonly class AuditExecutionConfig
     public const MAX_INPUT_TOKENS = 8192;
     public const DEFAULT_JOB_SLOTS = 1;
     public const MAX_JOB_SLOTS = 32;
+    /** TTL en segundos de la clave audit:execution:heartbeat (SDD-BATCH-000, REQ-F1-06). */
+    public const HEARTBEAT_TTL_SECONDS = 30;
+    /** Edad máxima aceptada del heartbeat en milisegundos; fuente única para guarda, Lua y resume. */
+    public const HEARTBEAT_MAX_AGE_MS = 30000;
 
     /**
      * @param array<string,int> $stageJobSlots Turnos simultáneos máximos por job y etapa

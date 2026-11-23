@@ -1,5 +1,20 @@
 # Changelog AudFact
 
+## [2026-11-22] — Hotfix de mantenimiento de ejecución (`SDD-BATCH-000`)
+
+- **Problema y motivación**: el proceso `worker-execution-maintenance` agotaba `memory_limit` (512M) dentro de `gc()` cada 19–42 s (`H11`, `E20`) y nunca escribía el heartbeat; con el heartbeat ausente la admisión respondía 503. En producción, `P-F1-03` registró 406,3 MiB / 512 MiB con 42 h de ejecución. Además, la pausa `audit:admission:paused` sin TTL dejó la intake de `worker-batch` cerrada sin aviso (`P-F1-01`).
+- **Cambios**:
+  - `AuditExecutionMaintenance`: `tick()` con deadline de 2.500 ms; outbox en ráfaga; intake `COUNT 200` con `.priority` antes que `.batch`; GC con presupuesto (500 ítems / 500 ms / 256 MiB) y estado persistido en `audit:execution:gc:cursors`; heartbeat y meta en un único `eval`; `expireLegacyIdempotency()`.
+  - `AuditStateStore`: `getAuditStatus()` y `readAuditRetentionMetadata()` (lectores compactos vía Lua); `RECOVER_FAILED_AUDIT_LUA` recibe el umbral de heartbeat como `ARGV[7]`.
+  - `AuditExecutionConfig`: `HEARTBEAT_TTL_SECONDS = 30` y `HEARTBEAT_MAX_AGE_MS = 30000` (fuente única).
+  - `AuditAdmissionGuard`: umbral de heartbeat desde `HEARTBEAT_MAX_AGE_MS` (antes 10.000 ms).
+  - `BatchJobStore::claimIdempotencyKey()`: `SET NX EX max($ttl, AUDIT_JOB_TTL)` en un único eval; `$ttl <= 0` lanza `InvalidArgumentException`.
+  - `AuditController::async()`: captura `InvalidArgumentException` y responde 500 controlado.
+  - `bin/audit-execution-maintenance.php`: comando `idem-expire-legacy`; aviso por `stderr` en `pause`/`observe`; contexto de arranque ampliado.
+- **Pruebas**: `AuditMemoryCompactionAndGcTest` (T-U1, T-U5, T-U6), `AuditAdmissionGuardTest` (T-U2), `RedisTtlConfigTest` (T-U3), `AuditControllerTest` (T-U4), `AuditDlqRecoveryRedisTest` (T-I6) y `AuditExecutionMaintenanceTickRedisTest` (T-I2..T-I15, requiere Redis).
+- **Certificación**: suite PHPUnit local 1.165 pruebas, 5.889 aserciones, 95 omitidas (incluye las de integración Redis), 0 fallos.
+- **Pendiente de despliegue** (ver spec, secciones 14 y 20): verificar `redis_version >= 7.0`, `appendonly yes` y `appendfsync always`; después `idem-expire-legacy` hasta `expired = 0`; `resume` si `audit:admission:paused` quedó activo.
+
 ## [2026-11-20] — Sintonización de concurrencia y ampliación de caché documental (`SDD-SCALE-001`)
 
 - **Problema y Motivación**:

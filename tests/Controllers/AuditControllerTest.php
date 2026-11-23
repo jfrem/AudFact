@@ -215,6 +215,37 @@ final class AuditControllerTest extends TestCase
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
 
+    /** T-U4 (CA-F1-15, REQ-F1-11): TTL de idempotencia inválido ⇒ 500 controlado, sin job ni evento. */
+    public function testAsyncReturns500WhenIdempotencyTtlIsInvalid(): void
+    {
+        $publisher = new InMemoryAuditEventPublisher();
+        $jobStore = $this->newJobStoreStub(initJobReturns: true);
+        $jobStore->claimIdempotencyKeyThrowsInvalid = true;
+
+        $controller = new TestableAuditController(
+            body: [
+                'facNitSec' => 2426,
+                'date' => '2025-07-29',
+                'dateTo' => '2025-07-29',
+                'limit' => 10,
+            ],
+            jobStore: $jobStore,
+            publisher: $publisher,
+        );
+
+        $_SERVER['HTTP_X_IDEMPOTENCY_KEY'] = 'fake-key-ttl-invalid';
+
+        try {
+            $response = self::captureResponse(static fn() => $controller->async());
+        } finally {
+            unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
+        }
+
+        $this->assertSame(500, $response->getCode());
+        $this->assertSame('Configuración de idempotencia inválida', $response->getData()['message']);
+        $this->assertSame([], $publisher->published);
+    }
+
     public function testAsyncReturns422WhenDateToBeforeDate(): void
     {
         $controller = new TestableAuditController(body: [
@@ -751,6 +782,7 @@ class StubBatchJobStore extends BatchJobStore
     /** @var array<string,mixed>|null */
     public ?array $activeReservation = null;
     public ?string $claimIdempotencyKeyReturns = null;
+    public bool $claimIdempotencyKeyThrowsInvalid = false;
 
     public function __construct(
         private bool $claimReturns = true,
@@ -762,6 +794,9 @@ class StubBatchJobStore extends BatchJobStore
 
     public function claimIdempotencyKey(string $idempotencyKey, string $jobId, int $ttlSeconds): ?string
     {
+        if ($this->claimIdempotencyKeyThrowsInvalid) {
+            throw new \InvalidArgumentException('idempotency_ttl_invalid');
+        }
         return $this->claimIdempotencyKeyReturns;
     }
 
