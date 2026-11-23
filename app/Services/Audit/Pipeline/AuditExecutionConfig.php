@@ -68,6 +68,53 @@ final readonly class AuditExecutionConfig
         return $this->stageJobSlots[$stage->value] ?? self::DEFAULT_JOB_SLOTS;
     }
 
+    /**
+     * Mensajes por lectura del descargador (AUDIT_DOCUMENT_STREAM_READ_COUNT, rango 1..50, defecto 5).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero dentro del rango.
+     */
+    public static function documentStreamReadCount(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_DOCUMENT_STREAM_READ_COUNT',
+            (string) Env::get('AUDIT_DOCUMENT_STREAM_READ_COUNT', ''),
+            5,
+            1,
+            50
+        );
+    }
+
+    /**
+     * Porcentaje de la caché documental asignado al carril prioritario
+     * (AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT, rango 1..99, defecto 25).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero dentro del rango.
+     */
+    public static function documentCachePriorityShare(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT',
+            (string) Env::get('AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT', ''),
+            25,
+            1,
+            99
+        );
+    }
+
+    /** Valor vacío usa el defecto; cualquier otro valor debe ser un entero decimal dentro del rango. */
+    private static function digitsOrDefault(string $key, string $raw, int $default, int $min, int $max): int
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return $default;
+        }
+        if (preg_match('/^[0-9]+$/D', $raw) !== 1 || filter_var($raw, FILTER_VALIDATE_INT) === false
+            || (int) $raw < $min || (int) $raw > $max) {
+            throw new \InvalidArgumentException($key . '_invalid');
+        }
+        return (int) $raw;
+    }
+
     public static function integer(string $key, ?int $default, int $min, int $max = PHP_INT_MAX): int
     {
         $raw = (string) Env::get($key, $default === null ? '' : (string) $default);

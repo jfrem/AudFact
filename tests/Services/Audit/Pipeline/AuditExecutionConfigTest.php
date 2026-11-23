@@ -34,6 +34,60 @@ final class AuditExecutionConfigTest extends TestCase
         Env::clearCache();
     }
 
+    public function testPhase3ConfigEmptyStringUsesDefaults(): void
+    {
+        // Arrange:
+        $keys = ['AUDIT_DOCUMENT_STREAM_READ_COUNT', 'AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT'];
+        $previous = array_map(static fn(string $key): string => (string) Env::get($key, ''), $keys);
+        try {
+            foreach ($keys as $key) {
+                Env::set($key, '');
+                Env::clearCache($key);
+            }
+
+            // Act / Assert:
+            self::assertSame(5, AuditExecutionConfig::documentStreamReadCount());
+            self::assertSame(25, AuditExecutionConfig::documentCachePriorityShare());
+        } finally {
+            foreach ($keys as $index => $key) {
+                Env::set($key, $previous[$index] === '' ? null : $previous[$index]);
+                Env::clearCache($key);
+            }
+        }
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function outOfRangePhase3Values(): iterable
+    {
+        yield 'share zero' => ['AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT', '0'];
+        yield 'share one hundred' => ['AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT', '100'];
+        yield 'share not numeric' => ['AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT', 'veinte'];
+        yield 'read count zero' => ['AUDIT_DOCUMENT_STREAM_READ_COUNT', '0'];
+        yield 'read count above range' => ['AUDIT_DOCUMENT_STREAM_READ_COUNT', '51'];
+    }
+
+    #[DataProvider('outOfRangePhase3Values')]
+    public function testPhase3ValuesOutOfRangeThrow(string $key, string $value): void
+    {
+        // Arrange:
+        $previous = (string) Env::get($key, '');
+        try {
+            Env::set($key, $value);
+            Env::clearCache($key);
+
+            // Assert:
+            self::expectException(InvalidArgumentException::class);
+
+            // Act:
+            $key === 'AUDIT_DOCUMENT_STREAM_READ_COUNT'
+                ? AuditExecutionConfig::documentStreamReadCount()
+                : AuditExecutionConfig::documentCachePriorityShare();
+        } finally {
+            Env::set($key, $previous === '' ? null : $previous);
+            Env::clearCache($key);
+        }
+    }
+
     public function testEveryStageKeepsTheSingleTurnContractByDefault(): void
     {
         // Arrange:

@@ -138,6 +138,12 @@ abstract class AuditEventConsumer
     {
     }
 
+    /** Mensajes por `XREADGROUP`; por defecto 1. Solo los consumidores que lo declaran lo amplían. */
+    protected function readCount(): int
+    {
+        return 1;
+    }
+
     protected function canReadNewMessages(): bool
     {
         return true;
@@ -245,7 +251,7 @@ abstract class AuditEventConsumer
                     $this->group(),
                     $this->consumer(),
                     $this->activeStreams(),
-                    1,
+                    $this->readCount(),
                     $this->blockMs
                 );
             } catch (\Exception $e) {
