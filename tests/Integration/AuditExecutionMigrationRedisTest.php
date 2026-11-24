@@ -21,6 +21,7 @@ use App\Services\Audit\Pipeline\BatchJobStore;
 use App\Services\Audit\Pipeline\BatchRequestedWorker;
 use App\Services\Audit\Pipeline\FairAuditTaskQueue;
 use App\Services\Audit\Pipeline\JobLockClaimStatus;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\FakeBatchInvoicesModel;
 use Tests\Support\IsolatedAuditRedis;
@@ -359,6 +360,67 @@ final class AuditExecutionMigrationRedisTest extends TestCase
         self::assertGreaterThanOrEqual($before, $state['last_progress_at']);
         self::assertArrayNotHasKey('generation_abandoned', $store->getJobSummary($undelivered));
         self::assertArrayNotHasKey('generation_abandoned', $store->getJobSummary($inPel));
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function pendingBatchRequestedBranches(): iterable
+    {
+        yield 'sin grupo' => ['no_group'];
+        yield 'no entregados con grupo' => ['undelivered'];
+        yield 'PEL' => ['pel'];
+    }
+
+    /**
+     * VER-C-01 (Sección 9; condición de abandono): 10.001 `batch_requested` en una de las tres poblaciones con el job
+     * relevante en el ÚLTIMO evento. El conjunto de pendientes se pagina completo: el job no se marca
+     * `generation_abandoned`. Control: un job sin evento (sin grupo) o cuya única entrega está confirmada con ACK (con
+     * grupo) sí se marca, lo que conserva la separación entre entregadas confirmadas, PEL y no entregadas.
+     */
+    #[DataProvider('pendingBatchRequestedBranches')]
+    public function testMigrateDetectsPendingBatchRequestedBeyondTenThousandEntries(string $branch): void
+    {
+        $started = microtime(true);
+        $store = new BatchJobStore($this->redis);
+        $target = AuditEvent::uuidV4();
+        $control = AuditEvent::uuidV4();
+        foreach ([$target => 987654260, $control => 987654261] as $jobId => $nit) {
+            $this->seedV1Job($jobId, ['status' => 'processing', 'sealed' => false, 'total' => 1, 'fac_nit_sec' => $nit],
+                [AuditEvent::uuidV4() => ['dis_det_nro' => 'P-' . $nit, 'status' => 'pending']]);
+        }
+        $stream = AuditEventPublisher::STREAM_BATCH_INBOX;
+        $group = AuditEventPublisher::GROUP_BATCH;
+        if ($branch !== 'no_group') {
+            self::assertSame(1, (int) $this->redis->eval('redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"0","MKSTREAM"); '
+                . 'local id = redis.call("XADD",KEYS[1],"*","event",ARGV[2]); '
+                . 'redis.call("XREADGROUP","GROUP",ARGV[1],"c0","COUNT",1,"STREAMS",KEYS[1],">"); '
+                . 'return redis.call("XACK",KEYS[1],ARGV[1],id)',
+                [$stream], [$group, $this->batchRequested($control, 987654261)->toJson()]));
+        }
+        // 10.000 batch_requested de un job sin estado (relleno) y, como evento 10.001, el del job relevante: un único EVAL.
+        $this->redis->eval('for i = 1, tonumber(ARGV[1]) do redis.call("XADD",KEYS[1],"*","event",ARGV[2]) end; '
+            . 'return redis.call("XADD",KEYS[1],"*","event",ARGV[3])',
+            [$stream], ['10000', $this->batchRequested(AuditEvent::uuidV4(), 987654262)->toJson(),
+                $this->batchRequested($target, 987654260)->toJson()]);
+        if ($branch === 'pel') {
+            self::assertSame(10001, (int) $this->redis->eval('local r = redis.call("XREADGROUP","GROUP",ARGV[1],"c1","COUNT",ARGV[2],"STREAMS",KEYS[1],">"); '
+                . 'return #r[1][2]', [$stream], [$group, '10001']));
+        }
+        $expectedLen = $branch === 'no_group' ? 10001 : 10002;
+        self::assertSame($expectedLen, (int) $this->redis->eval('return redis.call("XLEN",KEYS[1])', [$stream]));
+        $tail = (string) $this->redis->eval('return redis.call("XREVRANGE",KEYS[1],"+","-","COUNT",1)[1][2][2]', [$stream]);
+        self::assertSame($target, json_decode($tail, true)['job_id'], 'El job relevante está en el último evento.');
+        if ($branch !== 'no_group') {
+            self::assertSame($branch === 'pel' ? 10001 : 0,
+                (int) $this->redis->eval('return redis.call("XPENDING",KEYS[1],ARGV[1])[1]', [$stream], [$group]));
+        }
+
+        $result = $store->migrateBatchV2(true);
+
+        self::assertNotContains($target, $result['generation_abandoned'], 'Hay un batch_requested pendiente en la última página.');
+        self::assertArrayNotHasKey('generation_abandoned', $store->getJobSummary($target));
+        self::assertContains($control, $result['generation_abandoned'], 'Sin evento pendiente (o con ACK) sí es abandono.');
+        self::assertTrue($store->getJobSummary($control)['generation_abandoned']);
+        self::assertLessThan(30.0, microtime(true) - $started, 'Siembra y migración de 10.001 eventos en menos de ~30 s.');
     }
 
     /** `V-F2-M3`, `W-F2-M5`, `R4-F2-I2`: el rollback no toca jobs v1 (aunque digan execution_version 2) y limpia Fase 2. */

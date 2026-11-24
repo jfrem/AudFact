@@ -1111,30 +1111,72 @@ class BatchJobStore
         'cursor:reservations_legacy', 'legacy_done', 'legacy_pass_done', 'legacy_saw_keys',
     ];
 
+    /** Entradas de stream por página de `PENDING_BATCH_REQUESTED_LUA` (VER-C-01: se pagina hasta agotar cada origen). */
+    private const PENDING_BATCH_REQUESTED_PAGE_SIZE = 1000;
+
     /**
      * IDs de jobs con `batch_requested` pendiente en `audit.batch.inbox`: en PEL del grupo `batch-workers` o aún no
-     * entregados. Sin grupo, toda entrada del stream cuenta como pendiente.
+     * entregados. Sin grupo, toda entrada del stream cuenta como pendiente. Las entregadas confirmadas no cuentan.
+     * Recorre el conjunto completo (Sección 9) en páginas acotadas con cursor exclusivo por id de stream, sin truncar;
+     * el fin del rango de no entregadas es la última entrada observada al empezar (instantánea con escritores parados).
      *
      * @return array<string,true>
      */
     private function pendingBatchRequestedJobIds(): array
     {
-        $raw = $this->evalScript(
-            self::PENDING_BATCH_REQUESTED_LUA,
-            [AuditEventPublisher::STREAM_BATCH_INBOX],
-            [AuditEventPublisher::GROUP_BATCH, '10000'],
-            'No se pudieron leer los batch_requested pendientes'
-        );
+        $meta = $this->pendingBatchRequestedCall(['meta', '', '0', '']);
+        if (!is_array($meta) || (int) ($meta[0] ?? 0) !== 1) {
+            return [];
+        }
+        $hasGroup = (int) ($meta[1] ?? 0) === 1;
+        $endId = (string) ($meta[3] ?? '');
         $ids = [];
-        foreach (is_array($raw) ? $raw : [] as $json) {
-            $event = json_decode((string) $json, true);
-            if (is_array($event) && ($event['event_type'] ?? '') === AuditEvent::TYPE_BATCH_REQUESTED
-                && is_string($event['job_id'] ?? null) && $event['job_id'] !== '') {
-                $ids[$event['job_id']] = true;
-            }
+        if ($hasGroup) {
+            $this->collectPendingBatchRequestedPages('pel', '', '+', $ids);
+        }
+        if ($endId !== '') {
+            $this->collectPendingBatchRequestedPages('range', $hasGroup ? (string) ($meta[2] ?? '') : '', $endId, $ids);
         }
 
         return $ids;
+    }
+
+    /**
+     * Avanza el cursor de un origen (`pel` | `range`) página a página hasta una página incompleta.
+     *
+     * @param array<string,true> $ids
+     */
+    private function collectPendingBatchRequestedPages(string $mode, string $cursor, string $endId, array &$ids): void
+    {
+        while (true) {
+            $page = $this->pendingBatchRequestedCall([$mode, $cursor, (string) self::PENDING_BATCH_REQUESTED_PAGE_SIZE, $endId]);
+            if (!is_array($page) || count($page) < 2) {
+                return;
+            }
+            foreach (array_slice($page, 2) as $json) {
+                $event = json_decode((string) $json, true);
+                if (is_array($event) && ($event['event_type'] ?? '') === AuditEvent::TYPE_BATCH_REQUESTED
+                    && is_string($event['job_id'] ?? null) && $event['job_id'] !== '') {
+                    $ids[$event['job_id']] = true;
+                }
+            }
+            $next = (string) $page[0];
+            if ((int) $page[1] < self::PENDING_BATCH_REQUESTED_PAGE_SIZE || $next === '' || $next === $cursor) {
+                return;
+            }
+            $cursor = $next;
+        }
+    }
+
+    /** @param list<string> $args modo, cursor, tamaño de página, id final */
+    private function pendingBatchRequestedCall(array $args): mixed
+    {
+        return $this->evalScript(
+            self::PENDING_BATCH_REQUESTED_LUA,
+            [AuditEventPublisher::STREAM_BATCH_INBOX],
+            array_merge([AuditEventPublisher::GROUP_BATCH], $args),
+            'No se pudieron leer los batch_requested pendientes'
+        );
     }
 
     /**
@@ -2165,45 +2207,75 @@ if st == nil or st == cjson.null then st = '' end
 return {tostring(nit), tostring(st)}
 LUA;
 
-    /** Eventos `batch_requested` en PEL o no entregados de `audit.batch.inbox` (campo `event` de cada entrada). */
+    /**
+     * Una página de eventos `batch_requested` en PEL o no entregados de `audit.batch.inbox` (campo `event` de cada
+     * entrada). PHP avanza el cursor (`collectPendingBatchRequestedPages()`); el script nunca lee más de una página.
+     */
     private const PENDING_BATCH_REQUESTED_LUA = <<<'LUA'
--- KEYS[1]=audit.batch.inbox  ARGV[1]=grupo  ARGV[2]=máximo de entradas por lectura
-local out = {}
-if redis.call('EXISTS', KEYS[1]) == 0 then return out end
-local max = tonumber(ARGV[2]) or 10000
+-- KEYS[1]=audit.batch.inbox
+-- ARGV[1]=grupo  ARGV[2]=modo ('meta' | 'pel' | 'range')  ARGV[3]=cursor exclusivo ('' = desde el inicio)
+-- ARGV[4]=entradas por página  ARGV[5]=id final inclusivo de 'range' (instantánea devuelta por 'meta')
+-- meta  -> {existe 0|1, grupo 0|1, last-delivered-id del grupo, id de la última entrada ('' si vacío)}
+-- pel   -> {último id leído, entradas leídas, eventos...}: XPENDING (entregadas sin ACK) desde el cursor.
+-- range -> {último id leído, entradas leídas, eventos...}: XRANGE (cursor, fin]. Con grupo el cursor inicial es
+--          last-delivered-id (no entregadas); sin grupo es '' (toda entrada cuenta como pendiente).
+-- Las entregadas confirmadas (<= last-delivered-id y fuera de la PEL) no se leen.
+local mode = ARGV[2]
+if mode == 'meta' then
+    if redis.call('EXISTS', KEYS[1]) == 0 then return {0, 0, '', ''} end
+    local hasGroup, last = 0, ''
+    for _, g in ipairs(redis.call('XINFO', 'GROUPS', KEYS[1])) do
+        local name, delivered
+        for i = 1, #g, 2 do
+            if g[i] == 'name' then name = g[i + 1] elseif g[i] == 'last-delivered-id' then delivered = g[i + 1] end
+        end
+        if name == ARGV[1] then
+            hasGroup = 1
+            if delivered then last = tostring(delivered) end
+        end
+    end
+    local tail = redis.call('XREVRANGE', KEYS[1], '+', '-', 'COUNT', 1)
+    local endId = ''
+    if tail[1] then endId = tail[1][1] end
+    return {1, hasGroup, last, endId}
+end
+local count = tonumber(ARGV[4])
+if count == nil or count < 1 then return redis.error_reply('invalid_page_size') end
 local function eventOf(fields)
     for i = 1, #fields, 2 do
         if fields[i] == 'event' then return fields[i + 1] end
     end
     return nil
 end
-local last = nil
-for _, g in ipairs(redis.call('XINFO', 'GROUPS', KEYS[1])) do
-    local name, delivered
-    for i = 1, #g, 2 do
-        if g[i] == 'name' then name = g[i + 1] elseif g[i] == 'last-delivered-id' then delivered = g[i + 1] end
+local start = '-'
+if ARGV[3] ~= '' then start = '(' .. ARGV[3] end
+local out = {'', 0}
+if redis.call('EXISTS', KEYS[1]) == 0 then return out end
+if mode == 'pel' then
+    local rows = redis.call('XPENDING', KEYS[1], ARGV[1], start, '+', count)
+    out[2] = #rows
+    for _, p in ipairs(rows) do
+        out[1] = p[1]
+        local r = redis.call('XRANGE', KEYS[1], p[1], p[1])
+        if r[1] then
+            local ev = eventOf(r[1][2])
+            if ev then out[#out + 1] = ev end
+        end
     end
-    if name == ARGV[1] then last = delivered end
+    return out
 end
-if last == nil then
-    for _, e in ipairs(redis.call('XRANGE', KEYS[1], '-', '+', 'COUNT', max)) do
+if mode == 'range' then
+    if ARGV[5] == '' then return out end
+    local rows = redis.call('XRANGE', KEYS[1], start, ARGV[5], 'COUNT', count)
+    out[2] = #rows
+    for _, e in ipairs(rows) do
+        out[1] = e[1]
         local ev = eventOf(e[2])
         if ev then out[#out + 1] = ev end
     end
     return out
 end
-for _, p in ipairs(redis.call('XPENDING', KEYS[1], ARGV[1], '-', '+', max)) do
-    local r = redis.call('XRANGE', KEYS[1], p[1], p[1])
-    if r[1] then
-        local ev = eventOf(r[1][2])
-        if ev then out[#out + 1] = ev end
-    end
-end
-for _, e in ipairs(redis.call('XRANGE', KEYS[1], '(' .. last, '+', 'COUNT', max)) do
-    local ev = eventOf(e[2])
-    if ev then out[#out + 1] = ev end
-end
-return out
+return redis.error_reply('invalid_mode')
 LUA;
 
     private const MIGRATE_JOB_KEY_LUA = <<<'LUA'

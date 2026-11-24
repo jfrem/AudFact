@@ -160,6 +160,126 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
     }
 
     /**
+     * VER-C-02 (CA-F2-17; Sección 16 `testGcResumesJobAuditsHscanAcrossBudgetCuts` sobre Redis real): job v2 terminal con
+     * 50.000 entradas reales en `job:{id}:audits`. Corte INDUCIDO: la sonda de memoria devuelve el límite blando tras 5
+     * rebanadas HSCAN del tick (dos cortes, reinstanciando el mantenimiento entre ticks). Medición REAL: en cada consulta
+     * de la sonda y tras cada tick se registra `memory_get_usage(true)` / `memory_get_peak_usage(true)`, que deben
+     * quedar < 256 MiB. La sonda solo sustituye el valor real cuando induce el corte.
+     */
+    public function testGcResumesRealHscanOf50000AuditsAcrossInducedBudgetCutsWithBoundedMemory(): void
+    {
+        $jobId = AuditEvent::uuidV4();
+        $nit = 987654063;
+        $raw = $this->seedTerminalV2Job($jobId, $nit, 50000);
+        // Una referencia `plan:` no es activa: el Lua real no debe abortar el borrado por ella (W-F2-I5).
+        $this->redis->eval('return redis.call("SADD",KEYS[1],ARGV[1])', ['audit:execution:refs:audit-25000'], ['plan:semantic-1']);
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        $obs = $this->observeJobGc($jobId);
+
+        // Tick 1: corte inducido tras 5 rebanadas.
+        $removed = $obs['run'](1, 5);
+
+        self::assertSame(0, $removed);
+        self::assertSame([], $obs['deletes'](), 'Sin terminar el HSCAN no se borra nada.');
+        self::assertCount(5, $obs['slices'](1));
+        self::assertSame('0', $obs['slices'](1)[0], 'El HSCAN empieza en el cursor 0.');
+        self::assertNotNull($this->redis->get(BatchJobStore::jobKey($jobId)));
+        self::assertSame(50000, (int) $this->redis->eval('return redis.call("HLEN",KEYS[1])', [BatchJobStore::jobAuditsKey($jobId)]));
+        self::assertSame($jobId, $this->cursorField('hscan_job_id'));
+        $cursor1 = (string) $this->cursorField('hscan_cursor');
+        self::assertNotSame('0', $cursor1, 'El cursor HSCAN queda persistido a mitad del hash.');
+        self::assertSame(sha1($raw), $this->cursorField('hscan_sha1'));
+        self::assertSame('4', $this->cursorField('pattern_index'));
+        self::assertSame(json_encode([BatchJobStore::jobKey($jobId)]), $this->cursorField('pending_keys'), 'El job se reencola al frente.');
+
+        // Tick 2 (instancia nueva, estado leído de gc:cursors): reanuda en el cursor persistido; nuevo corte inducido.
+        $removed = $obs['run'](2, 5);
+
+        self::assertSame(0, $removed);
+        self::assertSame([], $obs['deletes']());
+        self::assertCount(5, $obs['slices'](2));
+        self::assertSame($cursor1, $obs['slices'](2)[0], 'La 1.ª rebanada del tick siguiente usa hscan_cursor (sin reiniciar).');
+        $cursor2 = (string) $this->cursorField('hscan_cursor');
+        self::assertNotSame('0', $cursor2);
+        self::assertNotSame($cursor1, $cursor2, 'El cursor avanza entre cortes.');
+        self::assertSame(sha1($raw), $this->cursorField('hscan_sha1'), 'El sha1 persistido no se recalcula al reanudar.');
+
+        // Tick 3 (instancia nueva, sin corte inducido): termina el HSCAN y borra con el sha1 persistido.
+        $removed = $obs['run'](3, null);
+
+        self::assertSame($cursor2, $obs['slices'](3)[0]);
+        self::assertSame(1, $removed);
+        self::assertSame([[sha1($raw), $jobId]], $obs['deletes']());
+        $all = array_merge($obs['slices'](1), $obs['slices'](2), $obs['slices'](3));
+        self::assertSame(1, count(array_keys($all, '0', true)), 'El cursor 0 solo inicia el recorrido: no hay reinicios.');
+        // HSCAN COUNT 500 sobre 50.000 campos (codificación hashtable) devuelve >= 500 campos por rebanada: ~100 rebanadas.
+        self::assertGreaterThanOrEqual(80, count($all), 'Rebanadas acotadas (COUNT 500), no lecturas masivas.');
+        self::assertLessThanOrEqual(105, count($all), 'Sin rebanadas más pequeñas que COUNT 500.');
+        self::assertNull($this->redis->get(BatchJobStore::jobKey($jobId)));
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("EXISTS",KEYS[1],KEYS[2],KEYS[3])', [
+            BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId), BatchJobStore::jobCandidatesKey($jobId),
+        ]));
+        self::assertNull($this->redis->eval('return redis.call("ZSCORE",KEYS[1],ARGV[1])', ['jobs:index'], [$jobId]));
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("HEXISTS",KEYS[1],ARGV[1])', [BatchJobStore::activeNitJobsKey($nit)], [$jobId]));
+        self::assertContains($this->cursorField('hscan_job_id'), ['', null]);
+        self::assertContains($this->cursorField('hscan_sha1'), ['', null]);
+
+        // Medición real (no inducida) por tick.
+        foreach ([1, 2, 3] as $tick) {
+            self::assertGreaterThan(0, $obs['realMax']($tick), 'La sonda se consultó y midió memoria real en el tick ' . $tick . '.');
+            self::assertLessThan($limit, $obs['realMax']($tick), 'memory_get_usage(true) < 256 MiB en el tick ' . $tick . '.');
+            self::assertLessThan($limit, $obs['peak']($tick), 'memory_get_peak_usage(true) < 256 MiB en el tick ' . $tick . '.');
+        }
+    }
+
+    /**
+     * VER-C-02 / W-F2-M2 con Redis real: si `job:{id}:state` cambia entre ticks, el borrado usa el sha1 del inicio del
+     * HSCAN, el Lua lo rechaza y no borra nada; el siguiente recorrido reinicia el HSCAN con el sha1 nuevo y sí borra.
+     */
+    public function testGcAbortsRealJobDeletionWhenStateChangesBetweenTicksAndRestartsHscan(): void
+    {
+        $jobId = AuditEvent::uuidV4();
+        $nit = 987654064;
+        $raw = $this->seedTerminalV2Job($jobId, $nit, 5000);
+        $obs = $this->observeJobGc($jobId);
+
+        self::assertSame(0, $obs['run'](1, 3));
+        $cursor1 = (string) $this->cursorField('hscan_cursor');
+        self::assertNotSame('0', $cursor1);
+        self::assertSame(sha1($raw), $this->cursorField('hscan_sha1'));
+
+        // El job cambia entre ticks (sigue terminal y vencido): su sha1 ya no coincide con el persistido.
+        $changed = json_encode(array_merge(json_decode($raw, true), ['updated_at' => gmdate('Y-m-d\TH:i:s\Z', time() - 863000)]), JSON_THROW_ON_ERROR);
+        self::assertNotSame(sha1($raw), sha1($changed));
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', [BatchJobStore::jobKey($jobId)], [$changed]);
+
+        $removed = $obs['run'](2, null);
+
+        self::assertSame($cursor1, $obs['slices'](2)[0], 'Reanuda el HSCAN en curso.');
+        self::assertSame([[sha1($raw), $jobId]], $obs['deletes'](), 'Nunca se recalcula el sha1 al reanudar.');
+        self::assertSame(0, $removed);
+        self::assertSame($changed, $this->redis->get(BatchJobStore::jobKey($jobId)), 'Con el sha1 distinto el job no se borra.');
+        self::assertSame(5000, (int) $this->redis->eval('return redis.call("HLEN",KEYS[1])', [BatchJobStore::jobAuditsKey($jobId)]));
+        self::assertSame(3, (int) $this->redis->eval('return redis.call("EXISTS",KEYS[1],KEYS[2],KEYS[3])', [
+            BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId), BatchJobStore::jobCandidatesKey($jobId),
+        ]));
+        self::assertNotNull($this->redis->eval('return redis.call("ZSCORE",KEYS[1],ARGV[1])', ['jobs:index'], [$jobId]));
+        self::assertSame(1, (int) $this->redis->eval('return redis.call("HEXISTS",KEYS[1],ARGV[1])', [BatchJobStore::activeNitJobsKey($nit)], [$jobId]));
+        self::assertContains($this->cursorField('hscan_job_id'), ['', null], 'El HSCAN abortado se limpia.');
+
+        // Siguiente recorrido: HSCAN desde 0 con el sha1 del valor actual.
+        $removed = $obs['run'](3, null);
+
+        self::assertSame('0', $obs['slices'](3)[0], 'El HSCAN se reinicia.');
+        self::assertSame([[sha1($raw), $jobId], [sha1($changed), $jobId]], $obs['deletes']());
+        self::assertSame(1, $removed);
+        self::assertNull($this->redis->get(BatchJobStore::jobKey($jobId)));
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("EXISTS",KEYS[1],KEYS[2],KEYS[3])', [
+            BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId), BatchJobStore::jobCandidatesKey($jobId),
+        ]));
+    }
+
+    /**
      * SDD-BATCH-001 (`W-F1-I5`, `W-F1-M7`): el meta incluye `jobs_reaped` además de los 10 campos base; un tick sin gc()
      * lo publica en 0.
      */
@@ -656,6 +776,94 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
 
         return sprintf('%s-%s-4%s-8%s-%s', substr($hex, 0, 8), substr($hex, 8, 4), substr($hex, 13, 3),
             substr($hex, 17, 3), substr($hex, 20, 12));
+    }
+
+    /**
+     * Job v2 terminal vencido con `$entries` filas reales en `job:{id}:audits` y `job:{id}:by_dispensa` (sembradas
+     * por EVAL en lotes de 1000), candidatas, `jobs:index` y `jobs:active:nit:{nit}`. Devuelve el JSON de estado.
+     */
+    private function seedTerminalV2Job(string $jobId, int $nit, int $entries): string
+    {
+        $expired = gmdate('Y-m-d\TH:i:s\Z', time() - 864000);
+        $raw = json_encode([
+            'job_id' => $jobId, 'execution_version' => 2, 'status' => 'completed', 'sealed' => true, 'fac_nit_sec' => $nit,
+            'total' => $entries, 'accepted' => $entries, 'done' => $entries, 'failed' => 0, 'completed_at' => $expired, 'updated_at' => $expired,
+        ], JSON_THROW_ON_ERROR);
+        self::assertLessThan(AuditExecutionMaintenance::JOB_STATE_MAX_BYTES, strlen($raw));
+        $this->redis->eval('redis.call("SET",KEYS[1],ARGV[1]); redis.call("ZADD",KEYS[2],ARGV[2],ARGV[3]); '
+            . 'redis.call("HSET",KEYS[3],ARGV[3],"{}"); return redis.call("RPUSH",KEYS[4],ARGV[4],ARGV[5])',
+            [BatchJobStore::jobKey($jobId), 'jobs:index', BatchJobStore::activeNitJobsKey($nit), BatchJobStore::jobCandidatesKey($jobId)],
+            [$raw, 1, $jobId, '{"dis_det_nro":"C1"}', '{"dis_det_nro":"C2"}']);
+        $entry = json_encode(['dis_det_nro' => 'X', 'status' => 'completed', 'pad' => str_repeat('x', 200)], JSON_THROW_ON_ERROR);
+        for ($from = 1; $from <= $entries; $from += 1000) {
+            $this->redis->eval(
+                'for i = tonumber(ARGV[1]), tonumber(ARGV[2]) do redis.call("HSET",KEYS[1],"audit-" .. i,ARGV[3]); '
+                . 'redis.call("HSET",KEYS[2],"D" .. i,ARGV[4]) end; return 1',
+                [BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId)],
+                [$from, min($entries, $from + 999), $entry, '{"audit_id":"x","dispatched":true}']
+            );
+        }
+        self::assertSame($entries, (int) $this->redis->eval('return redis.call("HLEN",KEYS[1])', [BatchJobStore::jobAuditsKey($jobId)]));
+
+        return $raw;
+    }
+
+    /**
+     * Observa el GC de un job sobre Redis real: registra por tick el cursor (ARGV) de cada rebanada
+     * `GC_JOB_REFS_SLICE_LUA` y los ARGV de cada `GC_DELETE_JOB_STATE_LUA`. `run(tick, cutAfter)` crea una instancia
+     * NUEVA del mantenimiento (el estado solo persiste en gc:cursors) con una sonda de memoria que devuelve el valor
+     * real (`memory_get_usage(true)`, registrado como máximo del tick) y solo induce el corte, devolviendo el límite
+     * blando, tras `cutAfter` rebanadas del tick (`null` = sin corte inducido). También registra el pico real del tick.
+     *
+     * @return array<string,\Closure>
+     */
+    private function observeJobGc(string $jobId): array
+    {
+        $auditsKey = BatchJobStore::jobAuditsKey($jobId);
+        $slices = [];
+        $deletes = [];
+        $realMax = [];
+        $peaks = [];
+        $tick = 0;
+        $cutAfter = null;
+        $wrapper = new RecordingRedis($this->redis, static function (string $script, array $keys, array $argv) use ($auditsKey, &$slices, &$deletes, &$tick): void {
+            if ($keys === [$auditsKey] && str_contains($script, 'HSCAN') && str_contains($script, 'audit:execution:refs:')) {
+                $slices[$tick][] = (string) $argv[0];
+            }
+            if (($keys[1] ?? '') === 'jobs:index' && str_contains($script, 'sha1hex')) {
+                $deletes[] = $argv;
+            }
+        });
+        $probe = static function () use (&$slices, &$tick, &$cutAfter, &$realMax): int {
+            $real = memory_get_usage(true);
+            $realMax[$tick] = max($realMax[$tick] ?? 0, $real);
+
+            return $cutAfter !== null && count($slices[$tick] ?? []) >= $cutAfter ? AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES : $real;
+        };
+
+        return [
+            'run' => function (int $n, ?int $cut) use ($wrapper, $probe, &$tick, &$cutAfter, &$peaks): int {
+                $tick = $n;
+                $cutAfter = $cut;
+                memory_reset_peak_usage();
+                $removed = (new AuditExecutionMaintenance($wrapper, new AuditExecutionConfig(2), $probe))->gc(60000, $this->nowMs());
+                $peaks[$n] = memory_get_peak_usage(true);
+
+                return $removed;
+            },
+            'slices' => static function (int $n) use (&$slices): array {
+                return $slices[$n] ?? [];
+            },
+            'deletes' => static function () use (&$deletes): array {
+                return $deletes;
+            },
+            'realMax' => static function (int $n) use (&$realMax): int {
+                return $realMax[$n] ?? 0;
+            },
+            'peak' => static function (int $n) use (&$peaks): int {
+                return $peaks[$n] ?? 0;
+            },
+        ];
     }
 
     private function seedAuditState(string $auditId, string $status, string $completedAt, int $padBytes = 0): string
