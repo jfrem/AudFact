@@ -1,5 +1,18 @@
 # Changelog AudFact
 
+## [2026-11-24] — Admisión VIP, despliegue y documentación de aislamiento de carriles (`SDD-BATCH-002`, parte B)
+
+- **Motivación**: la ráfaga de `POST /audit/single` (`P-F3-01..03`) saturó la cola VIP y detuvo a los descargadores; el límite por IP de Nginx no la habría frenado (`P-F3-02`).
+- **Componentes**:
+  - `AuditExecutionConfig::priorityAdmissionMaxWaitMs()` (`AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS`, defecto `1200000`, mínimo `1000`).
+  - `AuditAdmissionGuard::priorityLaneAtCapacity()`: `true` si `oldest_wait_ms` del carril `priority` alcanza el límite en cualquier etapa.
+  - `AuditController::assertPriorityAdmission()` invocada en `single()` tras `assertAuditAdmission()`: `429` + `Retry-After: 60` si saturado; `503` + `Retry-After: 5` si las métricas fallan. `async()` queda fuera (`INV-F3-05`).
+  - `deploy-production.yml`: cuatro variables nuevas (`env:` y `write_env_var`), defectos `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=6` y `AUDIT_WORKER_SEMANTIC_VIP_REPLICAS=3`, y `worker-downloader` sustituido por `worker-downloader-vip worker-downloader-batch` en la verificación de salud y en los logs.
+  - Documentación: `.env.example`, `AGENTS.md`, `README.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`.
+- **Pruebas**: `AuditAdmissionGuardTest`, `AuditControllerTest` y `AuditExecutionConfigTest` ampliados.
+- **Pendiente de integración**: sustituir `worker-downloader` en `v2_services` y en el `docker compose stop` del paso de cutover/rollback que añade `SDD-BATCH-001` (no existen en este árbol); ejecutar `gh variable set --env production` de las variables nuevas antes del deploy.
+- **Spec**: `plans/sdd-aislamiento-carriles-y-descarga.md` (v1.3).
+
 ## [2026-11-24] — Estabilización batch: migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C)
 
 - **Problema y motivación**: el esquema v2 de jobs batch (estado compacto, hashes `audits`/`by_dispensa`, reserva por `DisDetNro`, fencing) necesita una migración controlada de los datos v1, un rollback seguro, un cierre automático de jobs atascados (`R-STALE`) y un `gc()` que recolecte las claves v2 sin cargar jobs enteros en memoria.

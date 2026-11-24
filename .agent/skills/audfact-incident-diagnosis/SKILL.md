@@ -53,7 +53,7 @@ Si el Paso 0 no aísla la causa, recorrer las capas **en orden** con los comando
 - Throttling térmico y errores/drops de interfaz ≈ 0.
 
 ### Capa 2 — Topología Docker y runtime
-- Servicios de `docker-compose.yml`: `frontend`, `nginx`, `php` (5 réplicas), `redis`, `docs`, `worker-batch` (`AUDIT_WORKER_BATCH_REPLICAS`, default 4), `worker-orchestrator`, `worker-downloader`, `worker-extraction-vip`, `worker-extraction-batch`, `worker-normalizer`, `worker-policy`, `worker-semantic-vip`, `worker-semantic-batch`, `worker-persistence`, `worker-execution-maintenance`.
+- Servicios de `docker-compose.yml`: `frontend`, `nginx`, `php` (5 réplicas), `redis`, `docs`, `worker-batch` (`AUDIT_WORKER_BATCH_REPLICAS`, default 4), `worker-orchestrator`, `worker-downloader-vip`, `worker-downloader-batch`, `worker-extraction-vip`, `worker-extraction-batch`, `worker-normalizer`, `worker-policy`, `worker-semantic-vip`, `worker-semantic-batch`, `worker-persistence`, `worker-execution-maintenance`.
 - `RestartCount`, `OOMKilled`, `ExitCode` y health por contenedor; consumo con `docker stats`.
 - Variables faltantes tras un deploy → runner `actions.runner.jfrem-AudFact.produccion-audfact.service` (ver audfact-production-ops).
 

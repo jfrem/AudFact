@@ -139,11 +139,10 @@ jobs:
           fi
           # --entrypoint php obligatorio: el ENTRYPOINT ejecutaría composer install
           ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
-          # Solo servicios presentes en el compose desplegado: SDD-BATCH-002 reemplaza worker-downloader por
-          # worker-downloader-vip/worker-downloader-batch; la lista admite ambos esquemas.
+          # Solo servicios presentes en el compose desplegado (filtro present()).
           available_services="$(docker compose config --services)"
           present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
-          mapfile -t v2_services < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          mapfile -t v2_services < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           ctl pause
           for _ in $(seq 1 15); do pgrep -f schedule-daily-batches.php >/dev/null || break; sleep 2; done
           docker compose stop -t 30 "${v2_services[@]}"
@@ -263,6 +262,7 @@ jobs:
           AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
           AUDIT_WORKER_LANE: ${{ vars.AUDIT_WORKER_LANE }}
           AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
+          AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS }}
           AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_VIP_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS }}
@@ -291,6 +291,9 @@ jobs:
           AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
           AUDIT_DOCUMENT_CACHE_MAX_BYTES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_BYTES }}
           AUDIT_DOCUMENT_CACHE_MAX_ENTRIES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_ENTRIES }}
+          AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT: ${{ vars.AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT }}
+          AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS: ${{ vars.AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS }}
+          AUDIT_DOCUMENT_STREAM_READ_COUNT: ${{ vars.AUDIT_DOCUMENT_STREAM_READ_COUNT }}
           RUN_REDIS_INTEGRATION: ${{ vars.RUN_REDIS_INTEGRATION }}
           AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
           AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
@@ -437,7 +440,7 @@ jobs:
             write_env_var 'GEMINI_QUOTA_RPD' "$GEMINI_QUOTA_RPD"
             write_env_var 'GEMINI_QUOTA_MAX_INFLIGHT' "$GEMINI_QUOTA_MAX_INFLIGHT"
             write_env_var 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' "${AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE:-20000}"
-            write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-1}"
+            write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS' "${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-12}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
@@ -489,8 +492,9 @@ jobs:
             write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
             write_env_var 'AUDIT_WORKER_LANE' "${AUDIT_WORKER_LANE:-all}"
             write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-12}"
+            write_env_var 'AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS:-4}"
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-16}"
-            write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-6}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS' "${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-36}"
             write_env_var 'AUDIT_WORKER_NORMALIZER_REPLICAS' "${AUDIT_WORKER_NORMALIZER_REPLICAS:-4}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-12}"
@@ -517,6 +521,9 @@ jobs:
             write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-604800}"
             write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_BYTES' "${AUDIT_DOCUMENT_CACHE_MAX_BYTES:-3221225472}"
             write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_ENTRIES' "${AUDIT_DOCUMENT_CACHE_MAX_ENTRIES:-4096}"
+            write_env_var 'AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT' "${AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT:-25}"
+            write_env_var 'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS' "${AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS:-1200000}"
+            write_env_var 'AUDIT_DOCUMENT_STREAM_READ_COUNT' "${AUDIT_DOCUMENT_STREAM_READ_COUNT:-5}"
             printf '\n'
             write_env_var 'RUN_REDIS_INTEGRATION' "${RUN_REDIS_INTEGRATION:-0}"
             printf '\n'
@@ -616,12 +623,22 @@ jobs:
             docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php pause
           fi
           for _ in $(seq 1 15); do pgrep -f schedule-daily-batches.php >/dev/null || break; sleep 2; done
-          # Solo servicios presentes en el compose desplegado (worker-downloader en esta versión;
-          # worker-downloader-vip/worker-downloader-batch tras SDD-BATCH-002).
+          # Solo servicios presentes en el compose desplegado (filtro present()).
           available_services="$(docker compose config --services)"
           present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
-          mapfile -t writers < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          mapfile -t writers < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           docker compose stop -t 30 "${writers[@]}"
+          # Retirada del servicio LEGADO worker-downloader (SDD-BATCH-002 lo renombra a worker-downloader-vip/-batch).
+          # El compose ya copiado no lo declara, así que present() no lo incluye en writers: sin este bloque su
+          # contenedor seguiría escribiendo con la imagen anterior durante migrate-batch-v2 y nunca se retiraría.
+          # Se filtra por las etiquetas del proyecto compose actual; no hace nada si no existen contenedores.
+          compose_project="$(docker compose config | sed -n 's/^name: //p' | head -n1)"
+          if [ -z "$compose_project" ]; then echo "::error::No se pudo resolver el proyecto compose"; exit 1; fi
+          mapfile -t legacy_downloaders < <(docker ps -aq --filter "label=com.docker.compose.project=${compose_project}" --filter "label=com.docker.compose.service=worker-downloader")
+          if [ "${#legacy_downloaders[@]}" -gt 0 ]; then
+            docker stop -t 30 "${legacy_downloaders[@]}"
+            docker rm -f "${legacy_downloaders[@]}"
+          fi
 
       - name: Migrate batch Redis schema to v2
         if: env.OPERATION == 'deploy'
@@ -667,10 +684,10 @@ jobs:
           cd "$DEPLOY_PATH"
           ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
           ctl protocol
-          # Solo servicios presentes en el compose (worker-downloader aquí; worker-downloader-vip/-batch tras SDD-BATCH-002).
+          # Solo servicios presentes en el compose desplegado (filtro present()).
           available_services="$(docker compose --profile frontend --profile docs config --services)"
           present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
-          mapfile -t services < <(present php nginx frontend docs worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          mapfile -t services < <(present php nginx frontend docs worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           docker compose --profile frontend --profile docs up -d --no-deps --no-build "${services[@]}"
 
       - name: Reconcile, wait for maintenance heartbeat and resume
@@ -720,6 +737,6 @@ jobs:
           docker ps --format "table {{.Names}}\t{{.Status}}"
           available_services="$(docker compose --profile frontend --profile docs config --services)"
           present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
-          mapfile -t log_services < <(present frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader-vip worker-downloader-batch worker-downloader worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          mapfile -t log_services < <(present frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader-vip worker-downloader-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           docker compose --profile frontend --profile docs logs --tail=120 "${log_services[@]}"
           exit 1

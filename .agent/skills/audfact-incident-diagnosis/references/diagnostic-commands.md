@@ -195,7 +195,7 @@ docker compose logs --no-color --since=60m worker-extraction-vip worker-extracti
   || echo "Sin alertas Gemini en 60 min"
 
 echo "=== DESCARGA / DRIVE / PREFETCH / PDF (60 min) ==="
-docker compose logs --no-color --since=60m worker-downloader worker-orchestrator worker-normalizer 2>&1 \
+docker compose logs --no-color --since=60m worker-downloader-vip worker-downloader-batch worker-orchestrator worker-normalizer 2>&1 \
   | grep -iE '"level":"(ERROR|CRITICAL|WARNING)"|AttachmentDownload|prefetch|Drive|Rasterizer' | tail -n 40 \
   || echo "Sin alertas de descarga en 60 min"
 

@@ -57,7 +57,7 @@ Recorrer el DAG de izquierda a derecha y ubicar la **primera etapa con cola crec
 | Etapa / Señal en `/metrics/async` | Worker responsable | Qué revisar primero |
 |---|---|---|
 | `inbox_priority/batch` lag > 0 o `executionScheduler.orchestration` | `worker-orchestrator` | Latencia/errores en `AuditDataService` (FDV/catálogo en `db2`) y `DocumentAttachmentMatcher`. |
-| `streamBacklogs.documents_*.downloaders` crece | `worker-downloader` | Revisar `documentCache` (`prefetch_pauses`, bytes/entradas >= 90% por `AuditDocumentPrefetchGate`), `GoogleDriveAuthService` o lecturas BLOB en SQL. |
+| `streamBacklogs.documents_*.downloaders` crece | `worker-downloader-vip` / `worker-downloader-batch` | Revisar `documentCache` (`prefetch_pauses`, bytes/entradas >= 90% por `AuditDocumentPrefetchGate`), `GoogleDriveAuthService` o lecturas BLOB en SQL. |
 | `streamBacklogs.documents_*.extractors` crece o `executionScheduler.extraction` (`queued`/`delayed` altos) | `worker-extraction-vip` / `worker-extraction-batch` | Revisar `geminiBudget` (RPM/TPM/RPD/inflight agotados), errores HTTP Gemini 429/5xx, o rasterización PDF lenta (`PDF_RASTERIZER_TIMEOUT_SECONDS`). |
 | `streamBacklogs.documents_*.normalizers` crece | `worker-normalizer` | Revisar logs de `DocumentNormalizer` (excepciones de payload/parsing). |
 | `streamBacklogs.documents_*.policy`, `semantic_*.semantic` o `executionScheduler.policy`/`semantic` crece | `worker-policy` / `worker-semantic-vip/batch` | Revisar `executionMaintenance.semanticPlans`, `geminiBudget` y logs de `SemanticEvaluationWorker`. |

@@ -273,9 +273,13 @@ Los hallazgos persistidos en `AudDispEst.Hallazgos` conservan el contrato JSON v
 |---|---|---|
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | Workers que procesan batches |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | Workers que resuelven FDV/config/adjuntos |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | Workers que descargan adjuntos |
+| `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS` | `4` | Workers que descargan adjuntos del carril VIP (`worker-downloader-vip`) |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `16` | Workers que descargan adjuntos del carril batch (`worker-downloader-batch`) |
+| `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT` | `25` | Porcentaje (1..99) de la caché documental para el carril VIP |
+| `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS` | `1200000` | Espera VIP desde la cual `POST /audit/single` responde `429` + `Retry-After: 60` (mínimo `1000`) |
+| `AUDIT_DOCUMENT_STREAM_READ_COUNT` | `5` | Mensajes por lectura del descargador (1..50) |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | Workers que consumen Gemini batch |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | Workers que consumen Gemini VIP |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `6` | Workers que consumen Gemini VIP |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | Workers que normalizan documentos |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `8` | Workers de evaluación de reglas |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | Workers SQL globales; la cola limita a uno por job |

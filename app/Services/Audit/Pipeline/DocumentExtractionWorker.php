@@ -307,7 +307,14 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
     public function afterTaskCommitted(AuditTask $task): void
     {
-        $this->documentCache->release($this->requiredString($task->event()->payload, 'blob_reference_key'));
+        $this->releaseBlob($task->event(), $this->requiredString($task->event()->payload, 'blob_reference_key'));
+    }
+
+    /** Libera el BLOB en el índice del carril del evento (DEC-F3-02); el carril nunca sale del proceso. */
+    private function releaseBlob(AuditEvent $event, string $key): void
+    {
+        $lane = ($event->payload['is_priority'] ?? null) === true ? AuditLane::PRIORITY : AuditLane::BATCH;
+        $this->documentCache->release($key, $lane);
     }
 
     protected function afterTerminalFailure(AuditEvent $event, \Throwable $error): void
@@ -320,7 +327,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             Logger::warning('Document extraction: referencia BLOB terminal inválida', ['audit_id' => $event->auditId]);
             return;
         }
-        $this->documentCache->release($key);
+        $this->releaseBlob($event, $key);
     }
 
     protected function handle(AuditEvent $event): void
@@ -358,7 +365,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             $stored = $this->stateStore->getAudit($event->auditId)['documents'][$event->documentId] ?? null;
             if ($this->canReplayStoredExtraction($stored, $documentHash, $contractHash, $promptContextHash)) {
                 $this->publishDocumentExtracted($event, $payload, $stored);
-                $this->documentCache->release($blobKey);
+                $this->releaseBlob($event, $blobKey);
                 $this->telemetryPublisher->completed(
                     $event->auditId,
                     'extraction',
@@ -375,7 +382,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
 
             if (!$integrity['valid']) {
                 $this->handleRejectedDocument($event, $payload, $document, $integrity);
-                $this->documentCache->release($blobKey);
+                $this->releaseBlob($event, $blobKey);
                 $this->telemetryPublisher->rejected(
                     $event->auditId,
                     'extraction',
@@ -412,7 +419,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                     'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
                 ];
                 $this->handleRejectedDocument($event, $payload, $document, $integrity);
-                $this->documentCache->release($blobKey);
+                $this->releaseBlob($event, $blobKey);
                 $this->telemetryPublisher->rejected(
                     $event->auditId,
                     'extraction',
@@ -434,7 +441,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                         'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
                     ];
                     $this->handleRejectedDocument($event, $payload, $document, $integrity);
-                    $this->documentCache->release($blobKey);
+                    $this->releaseBlob($event, $blobKey);
                     $this->telemetryPublisher->rejected(
                         $event->auditId,
                         'extraction',
@@ -458,7 +465,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
                         'size_bytes'    => strlen(base64_decode($document['data'] ?? '', true) ?: ''),
                     ];
                     $this->handleRejectedDocument($event, $payload, $document, $integrity);
-                    $this->documentCache->release($blobKey);
+                    $this->releaseBlob($event, $blobKey);
                     $this->telemetryPublisher->rejected(
                         $event->auditId,
                         'extraction',
@@ -488,7 +495,7 @@ final class DocumentExtractionWorker extends AuditEventConsumer
             }
 
             $this->publishDocumentExtracted($event, $payload, $documentState);
-            $this->documentCache->release($blobKey);
+            $this->releaseBlob($event, $blobKey);
 
             $totalDurationMs = (microtime(true) - $totalStartTime) * 1000;
             $this->logDocumentExtracted($event, $documentState, $totalDurationMs);

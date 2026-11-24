@@ -54,8 +54,32 @@ final class AuditDocumentMetrics
                 $counters[(string) $raw[2][$i]] = (int) $raw[2][$i + 1];
             }
         }
-        return ['reserved_bytes' => (int) $raw[0], 'reserved_entries' => (int) $raw[1],
-            'limits' => (new AuditDocumentCache($this->redis))->configuration(), 'counters' => $counters];
+        $base = new AuditDocumentCache($this->redis);
+        $priority = $base->forLane(AuditLane::PRIORITY)->usage();
+        $batch = $base->forLane(AuditLane::BATCH)->usage();
+
+        return [
+            'reserved_bytes' => (int) $raw[0] + $priority['reserved_bytes'] + $batch['reserved_bytes'],
+            'reserved_entries' => (int) $raw[1] + $priority['reserved_entries'] + $batch['reserved_entries'],
+            'limits' => $base->configuration(),
+            'counters' => $counters,
+            'lanes' => [
+                'priority' => self::laneView($priority),
+                'batch' => self::laneView($batch),
+            ],
+        ];
+    }
+
+    /** @param array<string,int> $usage Salida de `AuditDocumentCache::usage()` de un carril. */
+    private static function laneView(array $usage): array
+    {
+        return [
+            'reserved_bytes' => $usage['reserved_bytes'],
+            'reserved_entries' => $usage['reserved_entries'],
+            'max_bytes' => $usage['max_bytes'],
+            'max_entries' => $usage['max_entries'],
+            'oldest_age_ms' => $usage['oldest_age_ms'],
+        ];
     }
 
     public function recordPrefetchWait(int $durationMs): void

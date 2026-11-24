@@ -72,6 +72,89 @@ final readonly class AuditExecutionConfig
         return $this->stageJobSlots[$stage->value] ?? self::DEFAULT_JOB_SLOTS;
     }
 
+    /**
+     * Mensajes por lectura del descargador (AUDIT_DOCUMENT_STREAM_READ_COUNT, rango 1..50, defecto 5).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero dentro del rango.
+     */
+    public static function documentStreamReadCount(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_DOCUMENT_STREAM_READ_COUNT',
+            (string) Env::get('AUDIT_DOCUMENT_STREAM_READ_COUNT', ''),
+            5,
+            1,
+            50
+        );
+    }
+
+    /**
+     * Porcentaje de la caché documental asignado al carril prioritario
+     * (AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT, rango 1..99, defecto 25).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero dentro del rango.
+     */
+    public static function documentCachePriorityShare(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT',
+            (string) Env::get('AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT', ''),
+            25,
+            1,
+            99
+        );
+    }
+
+    /**
+     * Espera máxima (ms) de la tarea más antigua del carril prioritario antes de rechazar
+     * `POST /audit/single` con 429 (AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS, mínimo 1000, defecto 1200000).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero decimal mayor o igual al mínimo.
+     */
+    public static function priorityAdmissionMaxWaitMs(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS',
+            (string) Env::get('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS', ''),
+            1200000,
+            1000,
+            PHP_INT_MAX
+        );
+    }
+
+    /**
+     * Lector común de enteros decimales de configuración (W-F2-M9 de SDD-BATCH-001 y lectores de SDD-BATCH-002).
+     *
+     * Valor vacío (tras `trim`) usa el defecto; cualquier valor que no sean solo dígitos lanza `{key}_invalid`.
+     * Sin límites (3 argumentos) no valida desbordamiento ni rango: el llamador aplica su piso con `max()`.
+     * Con `$min` o `$max` exige además un entero representable (`FILTER_VALIDATE_INT`) dentro de
+     * `[$min ?? 0, $max ?? PHP_INT_MAX]`.
+     *
+     * @param  string    $key      Nombre de la variable (prefijo del mensaje de error)
+     * @param  string    $raw      Valor crudo leído del entorno
+     * @param  int       $default  Valor si `$raw` está vacío
+     * @param  int|null  $min      Mínimo inclusivo (activa la validación de rango)
+     * @param  int|null  $max      Máximo inclusivo (activa la validación de rango)
+     * @return int                 Valor configurado o defecto
+     * @throws \InvalidArgumentException  Si el valor no es un entero decimal válido o está fuera del rango
+     */
+    private static function digitsOrDefault(string $key, string $raw, int $default, ?int $min = null, ?int $max = null): int
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return $default;
+        }
+        if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
+            throw new \InvalidArgumentException($key . '_invalid');
+        }
+        if (($min !== null || $max !== null)
+            && (filter_var($raw, FILTER_VALIDATE_INT) === false
+                || (int) $raw < ($min ?? 0) || (int) $raw > ($max ?? PHP_INT_MAX))) {
+            throw new \InvalidArgumentException($key . '_invalid');
+        }
+        return (int) $raw;
+    }
+
     public static function integer(string $key, ?int $default, int $min, int $max = PHP_INT_MAX): int
     {
         $raw = (string) Env::get($key, $default === null ? '' : (string) $default);
@@ -102,18 +185,6 @@ final readonly class AuditExecutionConfig
     {
         $raw = trim((string) Env::get('AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS', '300'));
         return max(30, self::digitsOrDefault('AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS', $raw, 300));
-    }
-
-    /** W-F2-M9: '' (variable definida vacía) usa el default; cualquier valor no numérico es error de configuración. */
-    private static function digitsOrDefault(string $key, string $raw, int $default): int
-    {
-        if ($raw === '') {
-            return $default;
-        }
-        if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
-            throw new \InvalidArgumentException($key . '_invalid');
-        }
-        return (int) $raw;
     }
 
     public function assertProtocol(RedisClient $redis): void

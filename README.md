@@ -98,9 +98,13 @@ npm run dev
 | `REDIS_PASSWORD` / `REDIS_MODE`                                        | Autenticación y modo Redis (`standalone`, `sentinel`, `cluster`)                               |
 | `AUDIT_WORKER_BATCH_REPLICAS`                                          | Réplicas del worker de batches (default: `2`)                                                  |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS`                                   | Réplicas de orquestadores async (default: `3`)                                                 |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de descargadores de adjuntos (default: `12`)                                          |
+| `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS`                                 | Réplicas de `worker-downloader-vip`, carril prioritario (default: `4`)                         |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS`                                     | Réplicas de `worker-downloader-batch`, carril batch (default: `16`)                            |
+| `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT`                          | Porcentaje (1..99) de la caché documental para el carril VIP (default: `25`)                   |
+| `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS`                                 | Espera VIP (ms, mínimo `1000`) desde la cual `POST /audit/single` responde `429` (default: `1200000`) |
+| `AUDIT_DOCUMENT_STREAM_READ_COUNT`                                     | Mensajes por lectura del descargador (1..50, default: `5`; `1` revierte)                       |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS`                               | Réplicas de extractores Gemini batch (default: `12`)                                           |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`                                 | Réplicas de extractores Gemini VIP (default: `2`)                                             |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS`                                 | Réplicas de extractores Gemini VIP (default: `6`)                                             |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS`                                     | Réplicas de normalizador documental (default: `4`)                                             |
 | `AUDIT_WORKER_POLICY_REPLICAS`                                         | Réplicas de evaluación de reglas (default: `8`)                                                |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS`                                    | Réplicas globales de persistencia SQL (default: `12`)                                          |
@@ -156,7 +160,7 @@ Base URL: `http://localhost:8080`
 | `POST` | `/dispensation`                                                 | Buscar dispensación por body JSON                            |
 | `GET`  | `/dispensation/{DisDetNro}/attachments/{nitSec}`                | Listar adjuntos                                              |
 | `GET`  | `/dispensation/{DisDetNro}/attachments/download/{attachmentId}` | Descargar/previsualizar adjunto                              |
-| `POST` | `/audit/single`                                                 | Auditoría individual por `disDetNro` (con `disId` opcional)  |
+| `POST` | `/audit/single`                                                 | Auditoría individual por `disDetNro` (con `disId` opcional); `429` + `Retry-After: 60` si la cola VIP está saturada |
 | `POST` | `/audit/async`                                                  | Auditoría en lote asíncrona (→ 202)                          |
 | `GET`  | `/audit/jobs`                                                   | Listar jobs de auditoría en lote                             |
 | `GET`  | `/audit/jobs/{jobId}`                                           | Estado de auditoría asíncrona                                |
@@ -242,7 +246,7 @@ Características:
 - `/metrics/async` expone PEL, lag y pendientes internos, incluyendo colas legacy tras reconciliar el índice; los jobs calculan throughput sobre tiempo de pared. Errores parciales y mediciones incompletas devuelven 503.
 - Observabilidad por auditoría con telemetría de cola, ejecución, ack, agregación y persistencia final.
 - Recuperación periódica de eventos `pending` abandonados en Redis Streams sin robar procesos Gemini en curso.
-- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction`, `worker-policy` y `worker-persistence` sin perder idempotencia por `DisId`.
+- Escalado por variables para `worker-batch`, `worker-orchestrator`, `worker-downloader-vip`, `worker-downloader-batch`, `worker-extraction`, `worker-policy` y `worker-persistence` sin perder idempotencia por `DisId`.
 
 ## Docker
 
