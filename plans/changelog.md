@@ -1,5 +1,11 @@
 # Changelog AudFact
 
+## [2026-11-24] — fix: predicado de fecha SARGable compatible con SQL Server (hotfix `SDD-BATCH-001`)
+
+- **Problema**: `InvoicesModel::buildOptimizedBatchSql()` usaba `CONVERT(datetime, :dateFromD, 23)` y `DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))`. Medido contra SQL Server 16.0.4225 (compatibilidad 160, conexión `db2`): SQLSTATE 22007 «Conversion failed», incluso con el literal `'2026-01-01'`. Toda congelación de batch fallaba.
+- **Cambio**: `d.DisFecSol >= CAST(:dateFromD AS date) AND d.DisFecSol < DATEADD(day, 1, CAST(:dateToD AS date))`. La semántica (inicio inclusivo, fin inclusivo por día completo) no cambia y no depende del idioma de sesión.
+- **Pruebas**: `tests/Models/InvoicesModelTest.php` espera el predicado nuevo y añade un test que impide volver a `, 23)` o `CONVERT(datetime, :dateFromD`.
+
 ## [2026-11-24] — Estabilización batch: migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C)
 
 - **Problema y motivación**: el esquema v2 de jobs batch (estado compacto, hashes `audits`/`by_dispensa`, reserva por `DisDetNro`, fencing) necesita una migración controlada de los datos v1, un rollback seguro, un cierre automático de jobs atascados (`R-STALE`) y un `gc()` que recolecte las claves v2 sin cargar jobs enteros en memoria.
