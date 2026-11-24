@@ -22,7 +22,7 @@ final class AuditAdmissionGuard
         new GeminiQuotaBudget($this->redis);
         $now = (new FairAuditTaskQueue($this->redis, $this->config))->nowMs();
         $heartbeat = $this->redis->get('audit:execution:heartbeat');
-        if ($heartbeat === null || !ctype_digit($heartbeat) || (int) $heartbeat > $now || $now - (int) $heartbeat > 10000
+        if ($heartbeat === null || !ctype_digit($heartbeat) || (int) $heartbeat > $now || $now - (int) $heartbeat > AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS
             || $this->redis->get('audit:execution:paused') === '1' || $this->atCapacity()) {
             throw new \RuntimeException('audit_capacity_unavailable', 503);
         }

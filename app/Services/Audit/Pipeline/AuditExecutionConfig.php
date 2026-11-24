@@ -17,6 +17,10 @@ final readonly class AuditExecutionConfig
     public const MAX_INPUT_TOKENS = 8192;
     public const DEFAULT_JOB_SLOTS = 1;
     public const MAX_JOB_SLOTS = 32;
+    /** TTL en segundos de la clave audit:execution:heartbeat (SDD-BATCH-000, REQ-F1-06). */
+    public const HEARTBEAT_TTL_SECONDS = 30;
+    /** Edad máxima aceptada del heartbeat en milisegundos; fuente única para guarda, Lua y resume. */
+    public const HEARTBEAT_MAX_AGE_MS = 30000;
 
     /**
      * @param array<string,int> $stageJobSlots Turnos simultáneos máximos por job y etapa
@@ -73,6 +77,40 @@ final readonly class AuditExecutionConfig
         $raw = (string) Env::get($key, $default === null ? '' : (string) $default);
         if (preg_match('/^[0-9]+$/D', $raw) !== 1 || filter_var($raw, FILTER_VALIDATE_INT) === false
             || (int) $raw < $min || (int) $raw > $max) {
+            throw new \InvalidArgumentException($key . '_invalid');
+        }
+        return (int) $raw;
+    }
+
+    /** Punto de lectura único del TTL del lock de generación (R4-F2-B2). */
+    public static function batchLockTtlSeconds(): int
+    {
+        $raw = trim((string) Env::get('AUDIT_BATCH_LOCK_TTL_SECONDS', '1800'));
+        return max(60, self::digitsOrDefault('AUDIT_BATCH_LOCK_TTL_SECONDS', $raw, 1800));
+    }
+
+    /** Edad sin progreso (segundos) tras la cual el reaper cierra un job (piso: max(lockTtl, 3600)). */
+    public static function jobStaleAfterSeconds(): int
+    {
+        $floor = max(self::batchLockTtlSeconds(), 3600);
+        $raw = trim((string) Env::get('AUDIT_JOB_STALE_AFTER_SECONDS', '21600'));
+        return max($floor, self::digitsOrDefault('AUDIT_JOB_STALE_AFTER_SECONDS', $raw, 21600));
+    }
+
+    /** Timeout (segundos) de la consulta SQL de congelación de candidatas (piso 30). */
+    public static function freezeQueryTimeoutSeconds(): int
+    {
+        $raw = trim((string) Env::get('AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS', '300'));
+        return max(30, self::digitsOrDefault('AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS', $raw, 300));
+    }
+
+    /** W-F2-M9: '' (variable definida vacía) usa el default; cualquier valor no numérico es error de configuración. */
+    private static function digitsOrDefault(string $key, string $raw, int $default): int
+    {
+        if ($raw === '') {
+            return $default;
+        }
+        if (preg_match('/^[0-9]+$/D', $raw) !== 1) {
             throw new \InvalidArgumentException($key . '_invalid');
         }
         return (int) $raw;

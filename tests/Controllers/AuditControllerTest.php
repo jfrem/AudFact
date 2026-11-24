@@ -14,6 +14,7 @@ use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\Exceptions\HttpResponseException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Tests\Support\InMemoryBatchJobStore;
 
 final class AuditControllerTest extends TestCase
 {
@@ -129,7 +130,7 @@ final class AuditControllerTest extends TestCase
         $state->expects($this->never())->method('initAudit');
         $jobs = $this->createMock(BatchJobStore::class);
         $jobs->expects($this->never())->method('claimIdempotencyKey');
-        $jobs->expects($this->never())->method('initJob');
+        $jobs->expects($this->never())->method('initJobExclusive');
         $publisher = new InMemoryAuditEventPublisher();
         $single = new TestableAuditController(body: ['disId' => 'synthetic', 'disDetNro' => 'synthetic'],
             stateStore: $state, publisher: $publisher, admissionRedis: $redis);
@@ -161,7 +162,7 @@ final class AuditControllerTest extends TestCase
     public function testAsyncReturns202AndPublishesBatchRequested(): void
     {
         $publisher = new InMemoryAuditEventPublisher();
-        $jobStore = $this->newJobStoreStub(initJobReturns: true);
+        $jobStore = $this->newJobStoreStub();
 
         $controller = new TestableAuditController(
             body: [
@@ -188,6 +189,9 @@ final class AuditControllerTest extends TestCase
         $this->assertCount(1, $publisher->published);
         $this->assertSame(AuditEvent::TYPE_BATCH_REQUESTED, $publisher->published[0]->eventType);
         $this->assertSame('2426', $publisher->published[0]->payload['fac_nit_sec']);
+        $this->assertSame(1, $jobStore->initJobExclusiveCalls, 'El job se crea con initJobExclusive (INV-03).');
+        $this->assertSame([], $jobStore->releasedIdempotencyKeys, 'En el camino exitoso la llave de idempotencia se conserva.');
+        $this->assertSame([], $jobStore->deletedJobIds);
 
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
     }
@@ -211,8 +215,42 @@ final class AuditControllerTest extends TestCase
 
         $this->assertSame(409, $response->getCode());
         $this->assertSame('existing-job-id-456', $response->getData()['data']['job_id']);
+        $this->assertSame(0, $jobStore->initJobExclusiveCalls, 'Una solicitud repetida no crea otro job.');
+        $this->assertSame([], $jobStore->releasedIdempotencyKeys, 'La llave previa pertenece a otro job: no se libera.');
 
         unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
+    }
+
+    /** T-U4 (CA-F1-15, REQ-F1-11): TTL de idempotencia inválido ⇒ 500 controlado, sin job ni evento. */
+    public function testAsyncReturns500WhenIdempotencyTtlIsInvalid(): void
+    {
+        $publisher = new InMemoryAuditEventPublisher();
+        $jobStore = $this->newJobStoreStub();
+        $jobStore->claimIdempotencyKeyThrowsInvalid = true;
+
+        $controller = new TestableAuditController(
+            body: [
+                'facNitSec' => 2426,
+                'date' => '2025-07-29',
+                'dateTo' => '2025-07-29',
+                'limit' => 10,
+            ],
+            jobStore: $jobStore,
+            publisher: $publisher,
+        );
+
+        $_SERVER['HTTP_X_IDEMPOTENCY_KEY'] = 'fake-key-ttl-invalid';
+
+        try {
+            $response = self::captureResponse(static fn() => $controller->async());
+        } finally {
+            unset($_SERVER['HTTP_X_IDEMPOTENCY_KEY']);
+        }
+
+        $this->assertSame(500, $response->getCode());
+        $this->assertSame('Configuración de idempotencia inválida', $response->getData()['message']);
+        $this->assertSame([], $publisher->published);
+        $this->assertSame(0, $jobStore->initJobExclusiveCalls, 'Con TTL inválido no debe iniciarse ningún job (initJobExclusive).');
     }
 
     public function testAsyncReturns422WhenDateToBeforeDate(): void
@@ -230,29 +268,13 @@ final class AuditControllerTest extends TestCase
 
     public function testAsyncReturns503WhenInitJobFails(): void
     {
-        $jobStore = $this->newJobStoreStub(initJobReturns: false);
-        // Hacemos que initJob lance excepcion como espera el controlador
+        // El controlador espera una excepción de initJobExclusive.
         $jobStore = new class extends StubBatchJobStore {
-            public function initJob(string $jobId, int $facNitSec, string $dateFrom, string $dateTo, int $limit): bool {
-                throw new RuntimeException('Falla initJob');
+            public function initJobExclusive(string $jobId, int $facNitSec, string $dateFrom, string $dateTo, int $limit): array {
+                throw new RuntimeException('Falla initJobExclusive');
             }
         };
-
-        $controller = new TestableAuditController(
-            body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
-            jobStore: $jobStore,
-            publisher: new InMemoryAuditEventPublisher(),
-        );
-
-        $response = self::captureResponse(static fn() => $controller->async());
-
-        $this->assertSame(503, $response->getCode());
-    }
-
-    public function testAsyncReturns503WhenBatchPublishFails(): void
-    {
-        $publisher = new InMemoryAuditEventPublisher(throwOnPublish: true);
-        $jobStore = $this->newJobStoreStub(initJobReturns: true);
+        $publisher = new InMemoryAuditEventPublisher();
 
         $controller = new TestableAuditController(
             body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
@@ -263,6 +285,145 @@ final class AuditControllerTest extends TestCase
         $response = self::captureResponse(static fn() => $controller->async());
 
         $this->assertSame(503, $response->getCode());
+        $this->assertStringContainsString('Falla initJobExclusive', $response->getData()['message']);
+        $this->assertCount(1, $jobStore->releasedIdempotencyKeys, 'La llave de idempotencia recién reclamada se libera.');
+        $this->assertSame('test-uuid-1234', $jobStore->releasedIdempotencyKeys[0]['key']);
+        $this->assertSame([], $publisher->published);
+    }
+
+    public function testAsyncReturns503WhenBatchPublishFails(): void
+    {
+        $publisher = new InMemoryAuditEventPublisher(throwOnPublish: true);
+        $jobStore = $this->newJobStoreStub();
+
+        $controller = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
+            jobStore: $jobStore,
+            publisher: $publisher,
+        );
+
+        $response = self::captureResponse(static fn() => $controller->async());
+
+        $this->assertSame(503, $response->getCode());
+        $this->assertCount(1, $jobStore->deletedJobIds, 'El job creado se elimina si no se pudo publicar el evento.');
+        $this->assertCount(1, $jobStore->releasedIdempotencyKeys, 'La llave de idempotencia se libera para permitir el reintento.');
+        $this->assertSame($jobStore->deletedJobIds[0], $jobStore->releasedIdempotencyKeys[0]['job_id']);
+    }
+
+    /** W-F2-M6: un fallo de Redis dentro de la compensación no convierte el 503 en 500. */
+    public function testAsyncCompensationFailureStillReturns503(): void
+    {
+        $jobStore = $this->newJobStoreStub();
+        $jobStore->deleteJobThrows = true;
+        $jobStore->releaseIdempotencyThrows = true;
+
+        $controller = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
+            jobStore: $jobStore,
+            publisher: new InMemoryAuditEventPublisher(throwOnPublish: true),
+        );
+
+        $response = self::captureResponse(static fn() => $controller->async());
+
+        $this->assertSame(503, $response->getCode());
+        $this->assertStringContainsString('Error publicando evento batch_requested', $response->getData()['message']);
+        $this->assertSame(1, $jobStore->deleteJobAttempts, 'Se intentó compensar aunque Redis falló.');
+        $this->assertSame(1, $jobStore->releaseIdempotencyAttempts);
+
+        // Mismo comportamiento si falla la compensación tras un error de initJobExclusive.
+        $initFails = new class extends StubBatchJobStore {
+            public function initJobExclusive(string $jobId, int $facNitSec, string $dateFrom, string $dateTo, int $limit): array {
+                throw new RuntimeException('Falla initJobExclusive');
+            }
+        };
+        $initFails->releaseIdempotencyThrows = true;
+        $controller = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'limit' => 10],
+            jobStore: $initFails,
+            publisher: new InMemoryAuditEventPublisher(),
+        );
+
+        $response = self::captureResponse(static fn() => $controller->async());
+
+        $this->assertSame(503, $response->getCode());
+        $this->assertSame(1, $initFails->releaseIdempotencyAttempts);
+    }
+
+    public function testAsyncReturns409WhenActiveJobOverlapsSameNitAndDateRange(): void
+    {
+        $store = new InMemoryBatchJobStore();
+        $activeJobId = AuditEvent::uuidV4();
+        $store->initJobExclusive($activeJobId, 2426, '2026-07-01', '2026-07-31', 100);
+        $publisher = new InMemoryAuditEventPublisher();
+
+        $controller = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2026-07-15', 'dateTo' => '2026-08-15', 'limit' => 10],
+            jobStore: $store,
+            publisher: $publisher,
+            idempotencyKey: 'overlap-key-1',
+        );
+
+        $response = self::captureResponse(static fn() => $controller->async());
+
+        $this->assertSame(409, $response->getCode());
+        $payload = $response->getData();
+        $this->assertFalse($payload['success']);
+        $this->assertSame('Ya existe un job activo para el cliente y rango de fechas especificado', $payload['message']);
+        $this->assertSame([
+            'active_job_id' => $activeJobId,
+            'fac_nit_sec' => 2426,
+            'date_from' => '2026-07-15',
+            'date_to' => '2026-08-15',
+        ], $payload['errors']);
+        $this->assertSame([], $publisher->published, 'No se publica batch_requested.');
+        $this->assertSame([$activeJobId], array_keys($store->jobs), 'No se crea un segundo job.');
+        $this->assertArrayNotHasKey('overlap-key-1', $store->idempotency, 'La llave de idempotencia reclamada se libera (CA-F2-05).');
+        $this->assertSame(1, $store->countCalls('releaseIdempotencyKeyIfMatches'));
+    }
+
+    public function testAsyncAllowsNonOverlappingDateRangeForSameNit(): void
+    {
+        $store = new InMemoryBatchJobStore();
+        $store->initJobExclusive(AuditEvent::uuidV4(), 2426, '2026-01-01', '2026-06-30', 100);
+        $publisher = new InMemoryAuditEventPublisher();
+
+        // Rango contiguo no solapado → 202.
+        $contiguous = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2026-07-01', 'dateTo' => '2026-07-31', 'limit' => 10],
+            jobStore: $store,
+            publisher: $publisher,
+            idempotencyKey: 'contiguous-key',
+        );
+        $accepted = self::captureResponse(static fn() => $contiguous->async());
+
+        $this->assertSame(202, $accepted->getCode());
+        $newJobId = $accepted->getData()['data']['job_id'];
+        $this->assertCount(2, $store->jobs);
+        $this->assertSame($newJobId, $store->idempotency['contiguous-key'], 'La llave se conserva en el camino exitoso.');
+        $this->assertCount(1, $publisher->published);
+
+        // Otro NIT con el mismo rango → 202 (INV-03 es por NIT).
+        $otherNit = new TestableAuditController(
+            body: ['facNitSec' => 9999, 'date' => '2026-01-15', 'dateTo' => '2026-02-15', 'limit' => 10],
+            jobStore: $store,
+            publisher: $publisher,
+            idempotencyKey: 'other-nit-key',
+        );
+        $this->assertSame(202, self::captureResponse(static fn() => $otherNit->async())->getCode());
+
+        // Rango solapado con el job recién creado → 409 y se libera su llave.
+        $overlapping = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2026-06-15', 'dateTo' => '2026-07-31', 'limit' => 10],
+            jobStore: $store,
+            publisher: $publisher,
+            idempotencyKey: 'overlapping-key',
+        );
+        $rejected = self::captureResponse(static fn() => $overlapping->async());
+
+        $this->assertSame(409, $rejected->getCode());
+        $this->assertCount(3, $store->jobs);
+        $this->assertArrayNotHasKey('overlapping-key', $store->idempotency);
+        $this->assertCount(2, $publisher->published);
     }
 
     public function testJobStatusReturns422WhenJobIdInvalid(): void
@@ -437,13 +598,13 @@ final class AuditControllerTest extends TestCase
 
     private function newJobStoreStub(
         bool $claimReturns = true,
-        bool $initJobReturns = true,
+        bool $initCreated = true,
         mixed $getJobReturns = null,
         bool $getJobThrows = false,
     ): StubBatchJobStore {
         return new StubBatchJobStore(
             $claimReturns,
-            $initJobReturns,
+            $initCreated,
             $getJobReturns,
             $getJobThrows,
         );
@@ -545,6 +706,7 @@ final class TestableAuditController extends AuditController
         private ?\App\Models\DispensationModel $dispensationModel = null,
         private ?\App\Models\ClientsModel $clientsModel = null,
         private ?\Core\RedisClient $admissionRedis = null,
+        private string $idempotencyKey = 'test-uuid-1234',
     ) {
     }
 
@@ -585,7 +747,7 @@ final class TestableAuditController extends AuditController
 
     protected function getRequestHeaders(): array
     {
-        return ['X-Idempotency-Key' => 'test-uuid-1234'];
+        return ['X-Idempotency-Key' => $this->idempotencyKey];
     }
 
     protected function buildStateStore(): AuditStateStore
@@ -751,17 +913,33 @@ class StubBatchJobStore extends BatchJobStore
     /** @var array<string,mixed>|null */
     public ?array $activeReservation = null;
     public ?string $claimIdempotencyKeyReturns = null;
+    public bool $claimIdempotencyKeyThrowsInvalid = false;
+    public int $initJobExclusiveCalls = 0;
+    /** @var array{created:bool,conflict_job_id:?string,reason:?string} */
+    public array $initResult = ['created' => true, 'conflict_job_id' => null, 'reason' => null];
+    /** @var array<int,array{key:string,job_id:string}> */
+    public array $releasedIdempotencyKeys = [];
+    public bool $deleteJobThrows = false;
+    public bool $releaseIdempotencyThrows = false;
+    public int $deleteJobAttempts = 0;
+    public int $releaseIdempotencyAttempts = 0;
 
     public function __construct(
         private bool $claimReturns = true,
-        private bool $initJobReturns = true,
+        bool $initCreated = true,
         private mixed $getJobReturns = null,
         private bool $getJobThrows = false,
     ) {
+        if (!$initCreated) {
+            $this->initResult = ['created' => false, 'conflict_job_id' => 'active-job', 'reason' => 'overlap'];
+        }
     }
 
     public function claimIdempotencyKey(string $idempotencyKey, string $jobId, int $ttlSeconds): ?string
     {
+        if ($this->claimIdempotencyKeyThrowsInvalid) {
+            throw new \InvalidArgumentException('idempotency_ttl_invalid');
+        }
         return $this->claimIdempotencyKeyReturns;
     }
 
@@ -775,14 +953,25 @@ class StubBatchJobStore extends BatchJobStore
         return $this->activeReservation;
     }
 
-    public function initJob(
+    public function initJobExclusive(
         string $jobId,
         int $facNitSec,
         string $dateFrom,
         string $dateTo,
         int $limit
-    ): bool {
-        return $this->initJobReturns;
+    ): array {
+        $this->initJobExclusiveCalls++;
+        return $this->initResult;
+    }
+
+    public function releaseIdempotencyKeyIfMatches(string $key, string $jobId): bool
+    {
+        $this->releaseIdempotencyAttempts++;
+        if ($this->releaseIdempotencyThrows) {
+            throw new RuntimeException('Redis no disponible al liberar idempotencia', 503);
+        }
+        $this->releasedIdempotencyKeys[] = ['key' => $key, 'job_id' => $jobId];
+        return true;
     }
 
     public function registerAuditInJob(
@@ -790,7 +979,8 @@ class StubBatchJobStore extends BatchJobStore
         string $auditId,
         string $disDetNro,
         ?string $facSec = null,
-        ?string $reservationToken = null
+        ?string $reservationToken = null,
+        ?int $expectedEpoch = null
     ): bool
     {
         return true;
@@ -805,20 +995,31 @@ class StubBatchJobStore extends BatchJobStore
         return true;
     }
 
-    public function sealJob(string $jobId, int $total, array $metadata = []): bool
-    {
+    public function sealJob(
+        string $jobId,
+        int $skippedLockedDelta = 0,
+        int $skippedExistingDelta = 0,
+        ?int $expectedEpoch = null,
+        ?int $chunkIndex = null,
+        ?int $nextOffset = null
+    ): bool {
         $this->patchedJobs[] = [
             'jobId' => $jobId,
-            'patch' => array_merge($metadata, [
+            'patch' => [
                 'sealed' => true,
-                'total' => $total,
-            ]),
+                'skipped_locked' => $skippedLockedDelta,
+                'skipped_existing' => $skippedExistingDelta,
+            ],
         ];
         return true;
     }
 
     public function deleteJob(string $jobId): bool
     {
+        $this->deleteJobAttempts++;
+        if ($this->deleteJobThrows) {
+            throw new RuntimeException('Redis no disponible al eliminar job', 503);
+        }
         $this->deletedJobIds[] = $jobId;
         return true;
     }

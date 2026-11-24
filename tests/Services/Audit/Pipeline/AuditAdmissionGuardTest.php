@@ -47,6 +47,50 @@ final class AuditAdmissionGuardTest extends TestCase
         yield 'memory threshold still blocks fanout' => [[], 800, true, true];
     }
 
+    /**
+     * T-U2 (CA-F1-09, REQ-F1-06): la guarda acepta un heartbeat de hasta HEARTBEAT_MAX_AGE_MS (30.000 ms).
+     */
+    #[DataProvider('heartbeatAgeCases')]
+    public function testHeartbeatAgeThreshold(?string $heartbeatOffset, bool $accepted): void
+    {
+        $now = 1000000;
+        $heartbeat = $heartbeatOffset === null ? null : (string) ($now + (int) $heartbeatOffset);
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('get')->willReturnCallback(static fn(string $key): ?string => match ($key) {
+            'audit:execution:version' => '2',
+            'audit:execution:heartbeat' => $heartbeat,
+            default => null,
+        });
+        $redis->method('serverConfiguration')->willReturn([
+            'appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction',
+        ]);
+        $redis->method('serverInfo')->willReturn([
+            'aof_last_write_status' => 'ok', 'used_memory' => '100', 'maxmemory' => '1000',
+        ]);
+        $redis->method('eval')->willReturnCallback(static fn(string $script, array $keys = []): mixed => $keys === []
+            ? $now
+            : [[], array_fill(0, 8, [])]);
+
+        $guard = new AuditAdmissionGuard($redis, new AuditExecutionConfig(2, 100));
+        try {
+            $guard->assertAccepting();
+            $result = true;
+        } catch (\RuntimeException $error) {
+            $result = false;
+            self::assertSame(503, $error->getCode());
+        }
+
+        self::assertSame($accepted, $result);
+    }
+
+    public static function heartbeatAgeCases(): iterable
+    {
+        yield 'age 29.999 ms is accepted' => ['-29999', true];
+        yield 'age 30.001 ms is rejected' => ['-30001', false];
+        yield 'missing heartbeat is rejected' => [null, false];
+        yield 'future heartbeat is rejected' => ['1', false];
+    }
+
     private function redis(array $counts, int $memoryUsed): RedisClient
     {
         $redis = $this->createStub(RedisClient::class);

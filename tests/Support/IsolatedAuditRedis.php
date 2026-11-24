@@ -31,8 +31,13 @@ final class IsolatedAuditRedis extends RedisClient
 
     public function eval(string $script, array $keys = [], array $argv = []): mixed
     {
+        // Misma serialización que RedisClient::eval: los ARGV complejos viajan como JSON.
+        $serialized = array_map(
+            static fn($v): string => is_array($v) ? (string) json_encode($v, JSON_UNESCAPED_UNICODE) : (string) $v,
+            $argv
+        );
         return $this->connection->eval($script, count($keys),
-            ...array_merge(array_map(fn(string $key): string => $this->namespace . $key, $keys), $argv));
+            ...array_merge(array_map(fn(string $key): string => $this->namespace . $key, $keys), $serialized));
     }
 
     public function get(string $key): ?string

@@ -27,7 +27,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertSame([['DisId' => '1']], $result);
         $this->assertStringContainsString('INTO #DISP', $pdo->preparedSql);
         $this->assertStringContainsString('GROUP BY d.DisNitSec,dd.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= CONVERT(datetime, :dateFromD, 23) AND d.DisFecSol < DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
         $this->assertStringContainsString("where s.SopOk='1' and s.estSop='P'", $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
@@ -59,9 +59,9 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertSame(7, $total);
         $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol >= :dateFromD AND d.DisFecSol <= :dateToD', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= CONVERT(datetime, :dateFromD, 23) AND d.DisFecSol < DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))', $pdo->preparedSql);
         $this->assertStringContainsString('GROUP BY d.DisNitSec,dd.DisDetNro', $pdo->preparedSql);
-        
+
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
@@ -119,6 +119,28 @@ final class InvoicesModelTest extends TestCase
         $this->assertStringContainsString('kx.FacSecRem = f.FacSec AND fx.FacEst = \'A\'AND tx.FueCod = \'FACT\'', $pdo->preparedSql);
     }
 
+    public function testBatchQueryPassesQueryTimeoutAttributeToPrepare(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 50, null, 'job-1', 300);
+        $this->assertSame([PDO::SQLSRV_ATTR_QUERY_TIMEOUT => 300], $pdo->preparedOptions);
+
+        $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 50, null);
+        $this->assertSame([], $pdo->preparedOptions);
+    }
+
+    public function testBatchLimitIsCappedAtFreezeLimit(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+
+        $model->getInvoicesForAuditBatch(2426, '2025-07-01', '2025-07-30', 999999);
+
+        $this->assertStringContainsString('SELECT TOP (50000)', $pdo->preparedSql);
+    }
+
     private function makeModelWithReadDb(FakePdo $pdo): InvoicesModel
     {
         return new InvoicesModel(new SqlServerConnectionExecutor(
@@ -131,6 +153,7 @@ final class InvoicesModelTest extends TestCase
 final class FakePdo extends PDO
 {
     public string $preparedSql = '';
+    public array $preparedOptions = [];
     public array $nextResult = [];
     public FakePdoStatement $statement;
 
@@ -142,6 +165,7 @@ final class FakePdo extends PDO
     public function prepare(string $query, array $options = []): PDOStatement|false
     {
         $this->preparedSql = $query;
+        $this->preparedOptions = $options;
         $this->statement = new FakePdoStatement();
         $this->statement->result = $this->nextResult;
         return $this->statement;

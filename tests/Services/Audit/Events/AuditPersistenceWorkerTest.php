@@ -110,7 +110,7 @@ final class AuditPersistenceWorkerTest extends TestCase
             'duration_ms' => 42000,
         ], $jobStore->lastJobCompletion);
         $this->assertSame(
-            [['87723098', 'reservation-token']],
+            [['T38250701547', 'reservation-token']],
             $jobStore->releasedReservations
         );
         $this->assertSame([$auditId], $queue->advancedAuditIds);

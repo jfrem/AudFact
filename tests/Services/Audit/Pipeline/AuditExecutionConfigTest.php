@@ -104,6 +104,82 @@ final class AuditExecutionConfigTest extends TestCase
         yield 'text' => ['abc'];
     }
 
+    public function testBatchLockTtlDefaultsAndFloor(): void
+    {
+        $this->withEnv(['AUDIT_BATCH_LOCK_TTL_SECONDS' => null], function (): void {
+            self::assertSame(1800, AuditExecutionConfig::batchLockTtlSeconds());
+        });
+        $this->withEnv(['AUDIT_BATCH_LOCK_TTL_SECONDS' => ''], function (): void {
+            self::assertSame(1800, AuditExecutionConfig::batchLockTtlSeconds());
+        });
+        $this->withEnv(['AUDIT_BATCH_LOCK_TTL_SECONDS' => '10'], function (): void {
+            self::assertSame(60, AuditExecutionConfig::batchLockTtlSeconds());
+        });
+    }
+
+    public function testJobStaleAfterSecondsDefaultsAndFloorUsesLockTtl(): void
+    {
+        $this->withEnv(['AUDIT_JOB_STALE_AFTER_SECONDS' => null, 'AUDIT_BATCH_LOCK_TTL_SECONDS' => null], function (): void {
+            self::assertSame(21600, AuditExecutionConfig::jobStaleAfterSeconds());
+        });
+        $this->withEnv(['AUDIT_JOB_STALE_AFTER_SECONDS' => '', 'AUDIT_BATCH_LOCK_TTL_SECONDS' => ''], function (): void {
+            self::assertSame(21600, AuditExecutionConfig::jobStaleAfterSeconds());
+        });
+        // Piso max(lockTtl, 3600): un valor menor se eleva al piso.
+        $this->withEnv(['AUDIT_JOB_STALE_AFTER_SECONDS' => '100', 'AUDIT_BATCH_LOCK_TTL_SECONDS' => null], function (): void {
+            self::assertSame(3600, AuditExecutionConfig::jobStaleAfterSeconds());
+        });
+        // Con un lock TTL mayor que 3600, el piso sube al lock TTL.
+        $this->withEnv(['AUDIT_JOB_STALE_AFTER_SECONDS' => '100', 'AUDIT_BATCH_LOCK_TTL_SECONDS' => '5000'], function (): void {
+            self::assertSame(5000, AuditExecutionConfig::jobStaleAfterSeconds());
+        });
+    }
+
+    public function testFreezeQueryTimeoutDefaultsAndFloor(): void
+    {
+        $this->withEnv(['AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS' => null], function (): void {
+            self::assertSame(300, AuditExecutionConfig::freezeQueryTimeoutSeconds());
+        });
+        $this->withEnv(['AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS' => ''], function (): void {
+            self::assertSame(300, AuditExecutionConfig::freezeQueryTimeoutSeconds());
+        });
+        $this->withEnv(['AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS' => '5'], function (): void {
+            self::assertSame(30, AuditExecutionConfig::freezeQueryTimeoutSeconds());
+        });
+    }
+
+    public function testNonNumericTimingValuesAreConfigurationErrors(): void
+    {
+        $this->withEnv(['AUDIT_BATCH_LOCK_TTL_SECONDS' => 'abc'], function (): void {
+            $this->expectException(InvalidArgumentException::class);
+            $this->expectExceptionMessage('AUDIT_BATCH_LOCK_TTL_SECONDS_invalid');
+            AuditExecutionConfig::batchLockTtlSeconds();
+        });
+    }
+
+    /**
+     * Fija variables de entorno (null = no definida) durante el callback y las restaura siempre.
+     *
+     * @param array<string,?string> $vars
+     */
+    private function withEnv(array $vars, callable $callback): void
+    {
+        $previous = [];
+        foreach ($vars as $key => $value) {
+            $previous[$key] = getenv($key);
+            $value === null ? putenv($key) : putenv($key . '=' . $value);
+        }
+        Env::clearCache();
+        try {
+            $callback();
+        } finally {
+            foreach ($previous as $key => $value) {
+                $value === false ? putenv($key) : putenv($key . '=' . $value);
+            }
+            Env::clearCache();
+        }
+    }
+
     public function testConstructorRejectsUnknownStageAndInvalidSlots(): void
     {
         // Arrange:

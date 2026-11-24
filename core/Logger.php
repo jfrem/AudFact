@@ -50,6 +50,7 @@ class Logger
             'credit_card',
             'ssn',
             'authorization',
+            'fac_nit_sec',
             'raw',
             'rawtext',
             'parsed',

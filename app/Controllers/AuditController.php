@@ -428,6 +428,11 @@ class AuditController extends Controller
 
         try {
             $existingJobId = $jobStore->claimIdempotencyKey((string) $idempotencyKey, $jobId, $ttl);
+        } catch (\InvalidArgumentException $e) {
+            Logger::error('AuditController::async idempotencia mal configurada', [
+                'setting' => 'AUDIT_IDEMPOTENCY_KEY_TTL', 'ttl' => $ttl, 'error' => $e->getMessage(),
+            ]);
+            Response::error('Configuración de idempotencia inválida', 500);
         } catch (\RuntimeException $e) {
             Response::error('Error validando idempotencia: ' . $e->getMessage(), 503);
         }
@@ -440,10 +445,38 @@ class AuditController extends Controller
             );
         }
 
+        // W-F2-M6: la compensación es best-effort; un fallo de Redis en ella no debe convertir el 503/409 en 500.
+        $compensate = static function (callable $step): void {
+            try {
+                $step();
+            } catch (\Throwable) {
+            }
+        };
+
         try {
-            $jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+            $initResult = $jobStore->initJobExclusive($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
         } catch (\RuntimeException $e) {
+            $compensate(fn () => $jobStore->releaseIdempotencyKeyIfMatches((string) $idempotencyKey, $jobId));
             Response::error('Error inicializando job batch: ' . $e->getMessage(), 503);
+        }
+
+        if (($initResult['created'] ?? false) !== true) {
+            $compensate(fn () => $jobStore->releaseIdempotencyKeyIfMatches((string) $idempotencyKey, $jobId));
+            if (($initResult['reason'] ?? null) === 'overlap') {
+                // INV-03: un solo job activo por (NIT, rango de fechas solapado).
+                Response::error(
+                    'Ya existe un job activo para el cliente y rango de fechas especificado',
+                    409,
+                    [
+                        'active_job_id' => $initResult['conflict_job_id'] ?? null,
+                        'fac_nit_sec'   => $facNitSec,
+                        'date_from'     => $dateFrom,
+                        'date_to'       => $dateTo,
+                    ]
+                );
+            }
+            // `job_exists` (jobId UUID ya presente): no debería ocurrir; no se acepta la solicitud.
+            Response::error('Error inicializando job batch: el job ya existe', 503);
         }
 
         $publisher = $this->buildEventPublisher();
@@ -463,6 +496,8 @@ class AuditController extends Controller
         try {
             $publisher->publish($event);
         } catch (\RuntimeException $e) {
+            $compensate(fn () => $jobStore->deleteJob($jobId));
+            $compensate(fn () => $jobStore->releaseIdempotencyKeyIfMatches((string) $idempotencyKey, $jobId));
             Response::error('Error publicando evento batch_requested: ' . $e->getMessage(), 503);
         }
 
