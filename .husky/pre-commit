@@ -8,6 +8,7 @@
 # 4. Validación de composer en subshell aislada
 # 5. Validación del contrato de variables de entorno (.env.example)
 # 6. Validación de skills si aplica
+# 7. Validación MDX (Docusaurus) sobre docs staged (plans/**/*.md, README/BUSINESS/DESIGN)
 # ==============================================================================
 set -euo pipefail
 
@@ -28,6 +29,7 @@ has_fe=0
 has_composer=0
 has_skills=0
 has_env_example=0
+has_docs=0
 
 # Detección determinista de archivos staged con delimitador NUL
 while IFS= read -r -d '' file; do
@@ -59,6 +61,9 @@ while IFS= read -r -d '' file; do
       ;;
     .agent/skills/*)
       has_skills=1
+      ;;
+    plans/*.md|plans/*/*.md|README.md|BUSINESS.md|DESIGN.md)
+      has_docs=1
       ;;
   esac
 done < <(git diff --cached -z --name-only --diff-filter=ACMR)
@@ -142,10 +147,22 @@ if [ "$has_skills" -eq 1 ]; then
   fi
 fi
 
+# Validación MDX (Docusaurus) si se modificaron docs
+if [ "$has_docs" -eq 1 ] && [ -f "scripts/validate-docs-mdx.mjs" ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "⚠️  'node' no está disponible; omitiendo validación MDX local."
+  else
+    if ! node scripts/validate-docs-mdx.mjs --staged; then
+      has_errors=1
+    fi
+  fi
+fi
+
 if [ "$has_errors" -ne 0 ]; then
   echo ""
   echo "🚫 Commit cancelado por fallos de validación pre-commit."
   exit 1
 fi
 
+echo "✅ Validaciones pre-commit aprobadas."
 exit 0
