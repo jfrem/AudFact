@@ -34,13 +34,18 @@ final class AuditExecutionMaintenance
     public const ADMISSION_PAUSED_WARN_INTERVAL_MS = 300000;
     public const ADMISSION_PAUSED_CLI_NOTICE = "AVISO: audit:admission:paused=1 sin TTL; worker-batch no leera audit.batch.inbox ni la API admitira hasta ejecutar resume\n";
     private const HEARTBEAT_META_TTL_SECONDS = 60;
+    /** SDD-BATCH-001: `job:{id}:state` v2 mide < 2048 B; uno mayor es un job v1 residual que gc() no decodifica. */
+    public const JOB_STATE_MAX_BYTES = 2048;
+    /** Patrón legado recorrido una vez por ciclo dentro del índice 5 mientras `legacy_done = '0'` (W-F2-I3). */
+    public const LEGACY_RESERVATION_PATTERN = 'audit:reservation:disid:*';
+    private const TERMINAL_JOB_STATUSES = ['completed', 'completed_with_errors', 'failed'];
     private const GC_PATTERNS = [
         ['name' => 'tasks', 'pattern' => 'audit:task:v2:*'],
         ['name' => 'plans', 'pattern' => 'audit:semantic:v2:*'],
         ['name' => 'audits', 'pattern' => 'audit:*:state'],
         ['name' => 'gemini_attempts', 'pattern' => 'gemini:attempt:v2:*'],
         ['name' => 'jobs', 'pattern' => 'job:*:state'],
-        ['name' => 'reservations', 'pattern' => 'audit:reservation:disid:*'],
+        ['name' => 'reservations', 'pattern' => 'audit:reservation:disdetnro:*'],
         ['name' => 'idempotency', 'pattern' => 'batch:idem:*'],
     ];
 
@@ -99,20 +104,77 @@ final class AuditExecutionMaintenance
         return redis.call('DEL', KEYS[1])
     LUA;
 
+    /**
+     * Borrado atómico de un job v2 terminal (SDD-BATCH-001 DEC-06): solo si `sha1(job:{id}:state)` sigue siendo el
+     * persistido al iniciar el HSCAN (`hscan_sha1`, W-F2-M2). Las referencias ya se comprobaron por rebanadas.
+     * KEYS: 1=job:{id}:state 2=jobs:index 3=job:{id}:audits 4=job:{id}:by_dispensa 5=job:{id}:candidates
+     *       6=jobs:active:nit:{nit}. ARGV: 1=sha1 2=jobId.
+     */
     private const GC_DELETE_JOB_STATE_LUA = <<<'LUA'
         local raw = redis.call('GET', KEYS[1])
         if not raw or redis.sha1hex(raw) ~= ARGV[1] then
             return 0
         end
-        for i = 3, #KEYS do
-            for _, member in ipairs(redis.call('SMEMBERS', KEYS[i])) do
+        redis.call('ZREM', KEYS[2], ARGV[2])
+        redis.call('HDEL', KEYS[6], ARGV[2])
+        redis.call('DEL', KEYS[3], KEYS[4], KEYS[5])
+        return redis.call('DEL', KEYS[1])
+    LUA;
+
+    /**
+     * Una rebanada `HSCAN COUNT 500` de `job:{id}:audits`: devuelve `{cursor, 1}` si alguna auditoría tiene una
+     * referencia activa (miembro sin prefijo `plan:`), `{cursor, 0}` si no. El prefijo se deriva de KEYS[1].
+     */
+    private const GC_JOB_REFS_SLICE_LUA = <<<'LUA'
+        local prefix = string.match(KEYS[1], '^(.*)job:[^:]+:audits$') or ''
+        local scan = redis.call('HSCAN', KEYS[1], ARGV[1], 'COUNT', 500)
+        local fields = scan[2]
+        for i = 1, #fields, 2 do
+            for _, member in ipairs(redis.call('SMEMBERS', prefix .. 'audit:execution:refs:' .. fields[i])) do
                 if string.sub(member, 1, 5) ~= 'plan:' then
-                    return 0
+                    return {scan[1], 1}
                 end
             end
         end
-        redis.call('ZREM', KEYS[2], ARGV[2])
-        return redis.call('DEL', KEYS[1])
+        return {scan[1], 0}
+    LUA;
+
+    /** Status de un job sin transferir su JSON a PHP; `false` si no existe. */
+    private const GC_JOB_STATUS_LUA = <<<'LUA'
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return false end
+        local ok, job = pcall(cjson.decode, raw)
+        if not ok or type(job) ~= 'table' or job.status == nil or job.status == cjson.null then return '' end
+        return tostring(job.status)
+    LUA;
+
+    /**
+     * X-F2-B1: libera la reserva de una auditoría no registrada en un job terminal (o inexistente) y lleva su
+     * estado vivo del mismo job a `failed` (`orphaned_job_terminal`), conservando `documents` y sin EX.
+     * KEYS: 1=reserva 2=audit:{id}:state. ARGV: 1=reserva leída 2=nowIso.
+     */
+    private const GC_RELEASE_ORPHAN_RESERVATION_LUA = <<<'LUA'
+        if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+            return 0
+        end
+        local raw = redis.call('GET', KEYS[2])
+        if raw then
+            local okRes, res = pcall(cjson.decode, ARGV[1])
+            local okAudit, audit = pcall(cjson.decode, raw)
+            if okRes and okAudit and type(res) == 'table' and type(audit) == 'table' then
+                local st = tostring(audit.status or '')
+                local terminal = st == 'completed' or st == 'manual_review' or st == 'error' or st == 'failed'
+                if not terminal and tostring(audit.job_id or '') == tostring(res.job_id or '') then
+                    audit.status = 'failed'
+                    audit.failed_stage = 'orphaned_job_terminal'
+                    audit.completed_at = ARGV[2]
+                    audit.updated_at = ARGV[2]
+                    redis.call('SET', KEYS[2], cjson.encode(audit))
+                end
+            end
+        end
+        redis.call('DEL', KEYS[1])
+        return 1
     LUA;
 
     private const GC_IDEMPOTENCY_LUA = <<<'LUA'
@@ -144,15 +206,21 @@ final class AuditExecutionMaintenance
     private int $intakeOffset = 0;
     private bool $gcBudgetStopped = false;
     private int $lastAdmissionPausedWarnMs = 0;
+    /** Jobs cerrados por el reaper en el último gc(); tick() lo reinicia y lo publica como `jobs_reaped`. */
+    private int $lastGcReapedJobs = 0;
+    private ?BatchJobStore $batchJobStore;
 
     public function __construct(
         private readonly RedisClient $redis,
         private readonly AuditExecutionConfig $config,
         /** Costura de prueba para la memoria del proceso (la clase es final). */
-        private readonly ?\Closure $memoryProbe = null
+        private readonly ?\Closure $memoryProbe = null,
+        /** Costura de prueba para el reaper (`reapStaleJob`); por defecto usa la misma conexión Redis. */
+        ?BatchJobStore $batchJobStore = null
     ) {
         $this->queue = new FairAuditTaskQueue($redis, $config);
         $this->outbox = new AuditTaskOutbox($redis, new AuditPersistenceQueue($redis));
+        $this->batchJobStore = $batchJobStore;
     }
 
     public static function stages(): array
@@ -214,6 +282,7 @@ final class AuditExecutionMaintenance
         $atCapacity = (new AuditAdmissionGuard($this->redis, $this->config))->orchestrationAtCapacity();
         $removed = 0;
         $this->gcBudgetStopped = false;
+        $this->lastGcReapedJobs = 0;   // un tick sin gc() publica jobs_reaped = 0 (W-F1-M7)
         $state = $this->loadGcState();
         if ($atCapacity || $now - $state['last_gc_ms'] >= self::GC_INTERVAL_MS) {
             $remainingMs = intdiv(max(0, $deadline - hrtime(true)), 1_000_000);
@@ -241,7 +310,7 @@ final class AuditExecutionMaintenance
             $admitted,
             $acked,
             $removed,
-            [],
+            ['jobs_reaped' => $this->lastGcReapedJobs],
             $admissionPaused,
             $executionPaused
         );
@@ -289,6 +358,18 @@ final class AuditExecutionMaintenance
             return $statuses[$auditId];
         };
 
+        $jobStatuses = [];
+        $jobStatusOf = function (string $jobId) use (&$jobStatuses): ?string {
+            if (!array_key_exists($jobId, $jobStatuses)) {
+                if (count($jobStatuses) >= self::GC_STATUS_CACHE_MAX) {
+                    $jobStatuses = [];
+                }
+                $result = $this->redis->eval(self::GC_JOB_STATUS_LUA, [BatchJobStore::jobKey($jobId)]);
+                $jobStatuses[$jobId] = is_string($result) ? $result : null;   // null = job inexistente
+            }
+            return $jobStatuses[$jobId];
+        };
+
         $state ??= $this->loadGcState();
         if ($state['cycle_started_at_ms'] <= 0) {
             $state['cycle_started_at_ms'] = $now;
@@ -303,8 +384,21 @@ final class AuditExecutionMaintenance
         $scanned = false;
         $patternAdvanced = true;
         $p = null;
+        $enteredPatternLoop = false;   // R5-F2-B2
+        // DEC-10: una pausa (corrección hacia adelante) no consume el umbral ni dispara el reaper automático.
+        $resumedAt = $this->redis->get('audit:execution:resumed_at_ms');
+        $reaper = [
+            'paused' => $this->redis->get('audit:execution:paused') === '1',
+            'resumed_at_ms' => is_string($resumedAt) && ctype_digit($resumedAt) ? (int) $resumedAt : 0,
+            'threshold_ms' => AuditExecutionConfig::jobStaleAfterSeconds() * 1000,
+        ];
         try {
+            // W-F2-M7: un reap_job_id pendiente se reanuda antes del bucle de patrones (salvo pausa).
+            if ($state['reap_job_id'] !== '' && !$reaper['paused'] && $this->resumePendingReap($state, $now, $reaper, $items, $deadline) === null) {
+                return $count;   // corte pre-bucle: finally no toca pending_pattern/pending_keys
+            }
             while ($visited < count(self::GC_PATTERNS)) {
+                $enteredPatternLoop = true;
                 $idx = $state['pattern_index'];
                 $p = self::GC_PATTERNS[$idx];
                 $patternAdvanced = false;
@@ -313,6 +407,34 @@ final class AuditExecutionMaintenance
                 $keys = $state['pending_pattern'] === $idx ? $state['pending_keys'] : [];
                 $scanned = $keys !== [];
                 while (true) {
+                    // W-F2-I3 / X-F2-B3: mientras legacy_done = '0', el índice 5 hace primero UNA pasada sobre disid:*.
+                    $inLegacy = $idx === 5 && $state['legacy_done'] !== '1' && $state['legacy_pass_done'] !== '1';
+                    if ($keys === [] && $inLegacy) {
+                        if ($scanned && $state['cursors']['reservations_legacy'] === '0') {
+                            // R5-F2-I1: solo con la página final drenada ($keys === []).
+                            $state['legacy_pass_done'] = '1';
+                            if ($state['legacy_saw_keys'] === '0') {
+                                $state['legacy_done'] = '1';
+                            }
+                            $scanned = false;   // sin break: continúa en disdetnro:* dentro del mismo índice
+                            continue;
+                        }
+                        if ($this->gcBudgetExceeded($items, $deadline)) {
+                            return $count;
+                        }
+                        [$cursor, $page] = $this->redis->scanKeys(self::LEGACY_RESERVATION_PATTERN, $state['cursors']['reservations_legacy'], self::GC_PAGE_SIZE);
+                        $state['cursors']['reservations_legacy'] = $cursor;
+                        if ($page !== []) {
+                            $state['legacy_saw_keys'] = '1';
+                        }
+                        $scanned = true;
+                        $keys = array_values(array_filter($page, static fn(string $k): bool => !isset($seen[$k])));
+                        if (count($keys) > self::GC_PENDING_MAX) {
+                            Logger::warning('gc_scan_page_truncated', ['pattern' => 'reservations_legacy', 'keys' => count($keys)]);
+                            $keys = array_slice($keys, 0, self::GC_PENDING_MAX);
+                        }
+                        continue;
+                    }
                     if ($keys === []) {
                         if ($scanned && $state['cursors'][$p['name']] === '0') {
                             break;
@@ -336,8 +458,10 @@ final class AuditExecutionMaintenance
                     $key = array_shift($keys);
                     $seen[$key] = true;
                     $items++;
-                    $collected = $this->collectKey($p['name'], $key, $now, $retention, $statusOf, $stateStore);
-                    if ($collected === null) {             // rama jobs sin memoria: reencolar y cortar por presupuesto
+                    $collected = $p['name'] === 'jobs'
+                        ? $this->collectJob($key, $now, $retention, $state, $items, $deadline, $reaper)
+                        : $this->collectKey($p['name'], $key, $now, $retention, $statusOf, $stateStore, $jobStatusOf);
+                    if ($collected === null) {             // rama jobs (memoria, HSCAN o reaper cortados): reencolar al frente
                         array_unshift($keys, $key);
                         unset($seen[$key]);
                         $items--;
@@ -345,6 +469,11 @@ final class AuditExecutionMaintenance
                         return $count;
                     }
                     $count += $collected;
+                }
+                if ($idx === 5 && $state['legacy_done'] !== '1') {
+                    // Índice 5 completo: la pasada legada del ciclo siguiente empieza de cero.
+                    $state['legacy_pass_done'] = '0';
+                    $state['legacy_saw_keys'] = '0';
                 }
                 $state['pattern_index'] = ($idx + 1) % count(self::GC_PATTERNS);
                 if ($state['pattern_index'] === 0) {
@@ -355,17 +484,34 @@ final class AuditExecutionMaintenance
             }
             return $count;
         } finally {
-            // Excepción en la última clave de la última página: el patrón quedó agotado aunque no se llegó al
-            // `break`; avanzar aquí evita reiniciar el SCAN del mismo patrón en bucle (V-F1-B1, DEC-F1-04).
-            if (!$patternAdvanced && $scanned && $keys === [] && $p !== null && $state['cursors'][$p['name']] === '0') {
-                $state['pattern_index'] = ($idx + 1) % count(self::GC_PATTERNS);
-                if ($state['pattern_index'] === 0) {
-                    $state['cycle_started_at_ms'] = $now;
+            if ($enteredPatternLoop) {   // R5-F2-B2: un corte pre-bucle conserva pending_pattern/pending_keys
+                $legacyBlocks = $idx === 5 && $state['legacy_done'] !== '1' && $state['legacy_pass_done'] !== '1';
+                $jobsBlocks = $idx === 4 && ($state['hscan_job_id'] !== '' || $state['reap_job_id'] !== '');
+                if ($legacyBlocks && !$patternAdvanced && $scanned && $keys === []
+                    && $state['cursors']['reservations_legacy'] === '0') {
+                    // R5-F2-I1: excepción en la última clave de la página final de disid:*; se cierra la pasada
+                    // legada sin avanzar pattern_index para continuar en disdetnro:* en el próximo tick.
+                    $state['legacy_pass_done'] = '1';
+                    if ($state['legacy_saw_keys'] === '0') {
+                        $state['legacy_done'] = '1';
+                    }
+                } elseif (!$patternAdvanced && $scanned && $keys === [] && $p !== null && $state['cursors'][$p['name']] === '0'
+                    && !$legacyBlocks && !$jobsBlocks) {
+                    // Excepción en la última clave de la última página: el patrón quedó agotado aunque no se llegó al
+                    // `break`; avanzar aquí evita reiniciar el SCAN del mismo patrón en bucle (V-F1-B1, DEC-F1-04).
+                    if ($idx === 5 && $state['legacy_done'] !== '1') {
+                        $state['legacy_pass_done'] = '0';   // R4-F2-I2
+                        $state['legacy_saw_keys'] = '0';
+                    }
+                    $state['pattern_index'] = ($idx + 1) % count(self::GC_PATTERNS);
+                    if ($state['pattern_index'] === 0) {
+                        $state['cycle_started_at_ms'] = $now;
+                    }
                 }
+                // Corte por presupuesto, excepción o fin: las claves aún no extraídas de la página quedan pendientes.
+                $state['pending_pattern'] = $keys === [] ? null : $idx;
+                $state['pending_keys'] = $keys;
             }
-            // Corte por presupuesto, excepción o fin: las claves aún no extraídas de la página quedan pendientes.
-            $state['pending_pattern'] = $keys === [] ? null : $idx;
-            $state['pending_keys'] = $keys;
             $state['last_gc_ms'] = $now;
             $this->saveGcState($state);
             if ($this->gcBudgetStopped) {
@@ -397,9 +543,8 @@ final class AuditExecutionMaintenance
     }
 
     /**
-     * Ejecuta el cuerpo de un patrón para una clave.
-     * Devuelve el número de claves borradas (int ≥ 0) o null solo en la rama `jobs` cuando no hay memoria
-     * para leer el job (la clave no se consume y queda pendiente).
+     * Ejecuta el cuerpo de un patrón (salvo `jobs`, que va por collectJob()) para una clave.
+     * Devuelve el número de claves borradas (int ≥ 0).
      */
     private function collectKey(
         string $name,
@@ -407,8 +552,9 @@ final class AuditExecutionMaintenance
         int $now,
         int $retention,
         \Closure $statusOf,
-        AuditStateStore $stateStore
-    ): ?int {
+        AuditStateStore $stateStore,
+        \Closure $jobStatusOf
+    ): int {
         switch ($name) {
             case 'tasks':
                 $raw = $this->redis->eval('return redis.call("HGET",KEYS[1],"record")', [$key]);
@@ -498,35 +644,8 @@ final class AuditExecutionMaintenance
                 }
                 return 0;
 
-            case 'jobs':
-                // Una lectura por clave y solo si hay memoria: el JSON del job no se reenvía como ARGV (DEC-F1-08).
-                if ($this->memoryBytes() >= self::GC_MEMORY_SOFT_LIMIT_BYTES) {
-                    return null;
-                }
-                $raw = $this->redis->get($key);
-                if ($raw === null) {
-                    return 0;
-                }
-                $job = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
-                $completed = strtotime((string) ($job['completed_at'] ?? $job['updated_at'] ?? ''));
-                if (!in_array($job['status'] ?? '', ['completed', 'completed_with_errors', 'failed'], true)
-                    || $completed === false || $now < ($completed + $retention) * 1000) {
-                    unset($raw, $job);
-                    return 0;
-                }
-                $refs = array_map(
-                    static fn(string $id): string => 'audit:execution:refs:' . $id,
-                    array_keys($job['audits'] ?? [])
-                );
-                $deleted = (int) $this->redis->eval(
-                    self::GC_DELETE_JOB_STATE_LUA,
-                    array_merge([$key, 'jobs:index'], $refs),
-                    [sha1($raw), (string) ($job['job_id'] ?? '')]
-                );
-                unset($raw, $job, $refs);
-                return $deleted;
-
             case 'reservations':
+                // Índice 5: claves `disdetnro:*` y, durante la pasada legada, `disid:*` (misma regla de liberación).
                 $raw = $this->redis->get($key);
                 if (!is_string($raw) || !str_starts_with($raw, '{')) {
                     return 0;
@@ -542,6 +661,23 @@ final class AuditExecutionMaintenance
                         [$key],
                         [$raw]
                     );
+                }
+                // X-F2-B1: auditoría viva cuya reserva pertenece a un job inexistente, o terminal sin la fila registrada.
+                // Una fila registrada en job:{id}:audits nunca se toca aquí (R4-F2-B1).
+                $jobId = (string) ($reservation['job_id'] ?? '');
+                if (str_starts_with($key, 'audit:reservation:disdetnro:') && $status !== null
+                    && !AuditStateStore::isTerminalStatus($status) && $jobId !== ''
+                    && $claimed !== false && $now - ($claimed * 1000) >= 60000) {
+                    $jobStatus = $jobStatusOf($jobId);
+                    if ($jobStatus === null
+                        || (in_array($jobStatus, self::TERMINAL_JOB_STATUSES, true)
+                            && (int) $this->redis->eval('return redis.call("HEXISTS",KEYS[1],ARGV[1])', [BatchJobStore::jobAuditsKey($jobId)], [$auditId]) === 0)) {
+                        return (int) $this->redis->eval(
+                            self::GC_RELEASE_ORPHAN_RESERVATION_LUA,
+                            [$key, AuditStateStore::auditKey($auditId)],
+                            [$raw, gmdate('Y-m-d\TH:i:s\Z')]
+                        );
+                    }
                 }
                 return 0;
 
@@ -560,6 +696,191 @@ final class AuditExecutionMaintenance
             default:
                 throw new \LogicException('gc_pattern_unknown');
         }
+    }
+
+    /**
+     * Rama `jobs` (SDD-BATCH-001, delta Fase 2): solo metadatos de `job:{id}:state` v2 (< 2048 B).
+     *  - terminal y vencido: comprobación de referencias por rebanadas HSCAN reanudables y borrado por sha1;
+     *  - no terminal: reaper (`DEC-10`) salvo pausa, con umbral medido desde `max(progreso, resumed_at_ms)`;
+     *    un job `reaping` se reanuda de inmediato.
+     * Devuelve las claves borradas o null si un corte de presupuesto obliga a reencolar la clave al frente.
+     *
+     * @param array{paused:bool,resumed_at_ms:int,threshold_ms:int} $reaper
+     */
+    private function collectJob(string $key, int $now, int $retention, array &$state, int &$items, int $deadline, array $reaper): ?int
+    {
+        // Una lectura por clave y solo si hay memoria: el JSON del job no se reenvía como ARGV (DEC-F1-08).
+        if ($this->memoryBytes() >= self::GC_MEMORY_SOFT_LIMIT_BYTES) {
+            return null;
+        }
+        $jobId = preg_match('/^job:([^:]+):state$/D', $key, $match) === 1 ? $match[1] : '';
+        $length = (int) $this->redis->eval('return redis.call("STRLEN",KEYS[1])', [$key]);
+        if ($length >= self::JOB_STATE_MAX_BYTES) {
+            Logger::critical('gc_v1_job_state_after_migration', ['job_id' => $jobId]);
+            return 0;
+        }
+        $raw = $length > 0 ? $this->redis->get($key) : null;
+        if ($raw === null) {
+            if ($jobId !== '' && $state['hscan_job_id'] === $jobId) {
+                self::clearHscan($state);
+            }
+            if ($jobId !== '' && $state['reap_job_id'] === $jobId) {
+                $state['reap_job_id'] = '';
+                $state['reap_cursor'] = '0';
+            }
+            return 0;
+        }
+        $job = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        if ($jobId === '') {
+            $jobId = (string) ($job['job_id'] ?? '');
+        }
+
+        if (in_array($job['status'] ?? '', self::TERMINAL_JOB_STATUSES, true)) {
+            $completed = strtotime((string) ($job['completed_at'] ?? $job['updated_at'] ?? ''));
+            if ($completed === false || $now < ($completed + $retention) * 1000) {
+                if ($state['hscan_job_id'] === $jobId) {
+                    self::clearHscan($state);
+                }
+                return 0;
+            }
+            return $this->collectTerminalJob($key, $jobId, $raw, (int) ($job['fac_nit_sec'] ?? 0), $state, $items, $deadline);
+        }
+
+        if ($reaper['paused']) {
+            return 0;
+        }
+        if (($job['reaping'] ?? false) !== true) {
+            $progress = is_numeric($job['last_progress_at'] ?? null) ? (int) $job['last_progress_at'] : 0;
+            if ($progress <= 0) {
+                $progress = self::isoToMs((string) ($job['updated_at'] ?? ''));
+            }
+            if ($progress <= 0 || $now - max($progress, $reaper['resumed_at_ms']) < $reaper['threshold_ms']) {
+                return 0;   // sin marca de progreso interpretable el reaper automático no actúa
+            }
+        }
+
+        return $this->runReaper($jobId, $state['reap_job_id'] === $jobId ? $state['reap_cursor'] : null, $now, $reaper['threshold_ms'], $state, $items, $deadline);
+    }
+
+    /**
+     * HSCAN reanudable de `job:{id}:audits` (`hscan_job_id`/`hscan_cursor`/`hscan_sha1`); cada rebanada cuenta como
+     * un ítem. Referencia activa → aborta el borrado de ese job. Al terminar, borra por sha1 persistido.
+     */
+    private function collectTerminalJob(string $key, string $jobId, string $raw, int $facNitSec, array &$state, int &$items, int $deadline): ?int
+    {
+        if ($state['hscan_job_id'] !== $jobId) {
+            $state['hscan_job_id'] = $jobId;
+            $state['hscan_cursor'] = '0';
+            $state['hscan_sha1'] = sha1($raw);
+        }
+        $auditsKey = BatchJobStore::jobAuditsKey($jobId);
+        do {
+            if ($this->gcBudgetExceeded($items, $deadline)) {
+                return null;
+            }
+            $items++;
+            $slice = $this->redis->eval(self::GC_JOB_REFS_SLICE_LUA, [$auditsKey], [$state['hscan_cursor']]);
+            if (!is_array($slice) || !isset($slice[0])) {
+                throw new \RuntimeException('gc_job_refs_slice_invalid');
+            }
+            if ((int) ($slice[1] ?? 0) === 1) {
+                self::clearHscan($state);   // R4-F2-M3
+                return 0;
+            }
+            $state['hscan_cursor'] = (string) $slice[0];
+        } while ($state['hscan_cursor'] !== '0');
+
+        $deleted = (int) $this->redis->eval(
+            self::GC_DELETE_JOB_STATE_LUA,
+            [
+                $key,
+                'jobs:index',
+                $auditsKey,
+                BatchJobStore::jobByDispensaKey($jobId),
+                BatchJobStore::jobCandidatesKey($jobId),
+                BatchJobStore::activeNitJobsKey($facNitSec),
+            ],
+            [$state['hscan_sha1'], $jobId]
+        );
+        self::clearHscan($state);
+
+        return $deleted;
+    }
+
+    /**
+     * Ejecuta rebanadas de `BatchJobStore::reapStaleJob()` hasta terminar o agotar el presupuesto (cada rebanada
+     * cuenta como un ítem). Un corte tras una rebanada persiste `reap_job_id`/`reap_cursor`.
+     *
+     * @return int|null 0 al terminar; null ante corte de presupuesto.
+     */
+    private function runReaper(string $jobId, ?string $cursor, int $now, int $thresholdMs, array &$state, int &$items, int $deadline): ?int
+    {
+        while (true) {
+            if ($this->gcBudgetExceeded($items, $deadline)) {
+                if ($cursor !== null) {
+                    $state['reap_job_id'] = $jobId;
+                    $state['reap_cursor'] = $cursor;
+                }
+                return null;
+            }
+            $items++;
+            $slice = $this->jobStore()->reapStaleJob($jobId, $now, $thresholdMs, $cursor);
+            if (!$slice['done']) {
+                $cursor = (string) $slice['cursor'];
+                $state['reap_job_id'] = $jobId;
+                $state['reap_cursor'] = $cursor;
+                continue;
+            }
+            if ($state['reap_job_id'] === $jobId) {
+                $state['reap_job_id'] = '';
+                $state['reap_cursor'] = '0';
+            }
+            if ($slice['reaped']) {
+                $this->lastGcReapedJobs++;
+                Logger::warning('stale_no_progress', ['job_id' => $jobId, 'threshold_ms' => $thresholdMs]);
+            }
+            return 0;
+        }
+    }
+
+    /**
+     * Reanuda al inicio de gc() el `reap_job_id` pendiente (W-F2-M7). La invocación cuenta como un ítem. Un fallo no
+     * bloquea gc(): se registra y se descarta el cursor (el job `reaping` se reanuda al recorrer `job:*:state`).
+     *
+     * @param array{paused:bool,resumed_at_ms:int,threshold_ms:int} $reaper
+     * @return int|null null si el presupuesto se agotó antes de terminar.
+     */
+    private function resumePendingReap(array &$state, int $now, array $reaper, int &$items, int $deadline): ?int
+    {
+        $jobId = $state['reap_job_id'];
+        $items++;
+        try {
+            return $this->runReaper($jobId, $state['reap_cursor'], $now, $reaper['threshold_ms'], $state, $items, $deadline);
+        } catch (\Throwable $error) {
+            Logger::error('gc_reap_resume_failed', ['job_id' => $jobId, 'error_class' => get_class($error)]);
+            $state['reap_job_id'] = '';
+            $state['reap_cursor'] = '0';
+            return 0;
+        }
+    }
+
+    private function jobStore(): BatchJobStore
+    {
+        return $this->batchJobStore ??= new BatchJobStore($this->redis);
+    }
+
+    private static function clearHscan(array &$state): void
+    {
+        $state['hscan_job_id'] = '';
+        $state['hscan_cursor'] = '0';
+        $state['hscan_sha1'] = '';
+    }
+
+    /** ISO-8601 → ms UTC; 0 si no se puede interpretar. */
+    private static function isoToMs(string $iso): int
+    {
+        $seconds = $iso === '' ? false : strtotime($iso);
+        return $seconds === false ? 0 : max(0, $seconds * 1000);
     }
 
     /** Presupuesto de GC: ítems, tiempo y memoria del proceso (INV-F1-01/02). */
@@ -584,6 +905,7 @@ final class AuditExecutionMaintenance
         foreach (self::GC_PATTERNS as $pattern) {
             $cursors[$pattern['name']] = '0';
         }
+        $cursors['reservations_legacy'] = '0';
         return [
             'pattern_index' => 0,
             'cursors' => $cursors,
@@ -591,6 +913,15 @@ final class AuditExecutionMaintenance
             'pending_keys' => [],
             'last_gc_ms' => 0,
             'cycle_started_at_ms' => 0,
+            // SDD-BATCH-001 (Fase 2): HSCAN reanudable, reaper por rebanadas y pasada legada de reservas.
+            'hscan_job_id' => '',
+            'hscan_cursor' => '0',
+            'hscan_sha1' => '',
+            'reap_job_id' => '',
+            'reap_cursor' => '0',
+            'legacy_done' => '0',
+            'legacy_pass_done' => '0',
+            'legacy_saw_keys' => '0',
         ];
     }
 
@@ -668,6 +999,32 @@ final class AuditExecutionMaintenance
         $cycle = $fields['cycle_started_at_ms'] ?? '';
         $state['cycle_started_at_ms'] = ctype_digit($cycle) ? (int) $cycle : 0;
 
+        // Campos de Fase 2: un valor inválido vuelve a su default sin warning.
+        $legacyCursor = $fields['cursor:reservations_legacy'] ?? '';
+        if (ctype_digit($legacyCursor)) {
+            $state['cursors']['reservations_legacy'] = $legacyCursor;
+        }
+        foreach (['legacy_done', 'legacy_pass_done', 'legacy_saw_keys'] as $flag) {
+            if (in_array($fields[$flag] ?? '', ['0', '1'], true)) {
+                $state[$flag] = $fields[$flag];
+            }
+        }
+        $hscanJob = $fields['hscan_job_id'] ?? '';
+        $hscanCursor = $fields['hscan_cursor'] ?? '';
+        $hscanSha1 = $fields['hscan_sha1'] ?? '';
+        if (preg_match('/^[^:\s]{1,128}$/D', $hscanJob) === 1 && ctype_digit($hscanCursor)
+            && preg_match('/^[0-9a-f]{40}$/D', $hscanSha1) === 1) {
+            $state['hscan_job_id'] = $hscanJob;
+            $state['hscan_cursor'] = $hscanCursor;
+            $state['hscan_sha1'] = $hscanSha1;
+        }
+        $reapJob = $fields['reap_job_id'] ?? '';
+        $reapCursor = $fields['reap_cursor'] ?? '';
+        if (preg_match('/^[^:\s]{1,128}$/D', $reapJob) === 1 && ctype_digit($reapCursor)) {
+            $state['reap_job_id'] = $reapJob;
+            $state['reap_cursor'] = $reapCursor;
+        }
+
         return $state;
     }
 
@@ -680,6 +1037,15 @@ final class AuditExecutionMaintenance
             'pending_keys' => json_encode($state['pending_keys'], JSON_THROW_ON_ERROR),
             'last_gc_ms' => (string) $state['last_gc_ms'],
             'cycle_started_at_ms' => (string) $state['cycle_started_at_ms'],
+            'cursor:reservations_legacy' => (string) ($state['cursors']['reservations_legacy'] ?? '0'),
+            'hscan_job_id' => (string) ($state['hscan_job_id'] ?? ''),
+            'hscan_cursor' => (string) ($state['hscan_cursor'] ?? '0'),
+            'hscan_sha1' => (string) ($state['hscan_sha1'] ?? ''),
+            'reap_job_id' => (string) ($state['reap_job_id'] ?? ''),
+            'reap_cursor' => (string) ($state['reap_cursor'] ?? '0'),
+            'legacy_done' => (string) ($state['legacy_done'] ?? '0'),
+            'legacy_pass_done' => (string) ($state['legacy_pass_done'] ?? '0'),
+            'legacy_saw_keys' => (string) ($state['legacy_saw_keys'] ?? '0'),
         ];
         foreach (self::GC_PATTERNS as $pattern) {
             $fields['cursor:' . $pattern['name']] = (string) $state['cursors'][$pattern['name']];

@@ -4,18 +4,26 @@ declare(strict_types=1);
 
 namespace Tests\Integration;
 
+use App\Services\Audit\Pipeline\AuditBatchMaintenanceCommands;
 use App\Services\Audit\Pipeline\AuditEvent;
+use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditExecutionConfig;
+use App\Services\Audit\Pipeline\AuditExecutionMaintenance;
 use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\AuditTask;
+use App\Services\Audit\Pipeline\AuditTaskStage;
 use App\Services\Audit\Pipeline\BatchJobStore;
+use App\Services\Audit\Pipeline\FairAuditTaskQueue;
 use App\Services\Audit\Pipeline\JobLockClaimStatus;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\IsolatedAuditRedis;
+use Tests\Support\ObservedRedis;
 
 /**
- * SDD-BATCH-001 (IMPL-BATCH-001-B1): `REAP_STALE_JOB_LUA`, `MARK_JOB_FAILED_LUA`, `CANCEL_UNDISPATCHED_AUDITS_LUA`,
- * prefijo efectivo de `REDIS_PREFIX` y guarda de generación. Requiere Redis 7 real aislado (`RUN_REDIS_INTEGRATION=1`).
- *
- * Los casos de `gc()` / CLI / pausa (`resumed_at_ms`) pertenecen a la tarea de mantenimiento y no se cubren aquí.
+ * SDD-BATCH-001: `REAP_STALE_JOB_LUA`, `MARK_JOB_FAILED_LUA`, `CANCEL_UNDISPATCHED_AUDITS_LUA`, prefijo efectivo de
+ * `REDIS_PREFIX` y guarda de generación (B1); reaper desde `gc()` con pausa y `resumed_at_ms`, reservas huérfanas de
+ * jobs terminales, pasada legada `disid:*` entre ticks y `repair-jobs --force-stale` (C).
+ * Requiere Redis 7 real aislado (`RUN_REDIS_INTEGRATION=1`).
  */
 final class AuditStaleJobReaperRedisTest extends TestCase
 {
@@ -337,6 +345,216 @@ final class AuditStaleJobReaperRedisTest extends TestCase
         $entry = json_decode((string) $this->hget(BatchJobStore::jobAuditsKey($jobId), $audits[0][0]), true);
         self::assertSame('failed', $entry['status']);
         self::assertSame('stale_no_progress', $entry['failed_stage']);
+
+        // ADMIT posterior de una tarea de la auditoría cancelada: XACK sin crear la tarea (rama `return 2`).
+        $this->redis->eval('return redis.call("SET",KEYS[1],"2")', ['audit:execution:version']);
+        $event = AuditEvent::create(AuditEvent::TYPE_AUDIT_CREATED, $audits[0][0], $jobId);
+        $stream = AuditEventPublisher::streamForEvent($event);
+        $group = AuditEventPublisher::GROUP_ORCHESTRATOR;
+        $streamId = (string) $this->redis->eval(
+            'redis.call("XGROUP","CREATE",KEYS[1],ARGV[1],"0","MKSTREAM"); local id=redis.call("XADD",KEYS[1],"*","event",ARGV[2]); '
+            . 'redis.call("XREADGROUP","GROUP",ARGV[1],"test-intake","STREAMS",KEYS[1],">"); return id',
+            [$stream],
+            [$group, $event->toJson()]
+        );
+        $task = AuditTask::fromEvent(AuditTaskStage::ORCHESTRATION, $event);
+        self::assertTrue((new FairAuditTaskQueue($this->redis, new AuditExecutionConfig(2)))->admit($task, $stream, $group, $streamId));
+        self::assertNull($this->redis->eval('return redis.call("HGET",KEYS[1],"record")', [FairAuditTaskQueue::taskKey($task->id())]),
+            'Con estado terminal ADMIT no crea la tarea.');
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("XPENDING",KEYS[1],ARGV[1])[1]', [$stream], [$group]),
+            'ADMIT confirma (XACK) el mensaje.');
+
+        // Tras la retención, gc() recolecta el estado de la auditoría cancelada.
+        $retention = max(
+            AuditExecutionConfig::integer('AUDIT_STATE_TTL', 86400, 1),
+            AuditExecutionConfig::integer('AUDIT_JOB_TTL', 86400, 1),
+            AuditExecutionConfig::integer('AUDIT_PERSISTENCE_QUEUE_TTL', 86400, 1)
+        );
+        (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs() + ($retention + 3600) * 1000);
+        self::assertNull($this->redis->get($key));
+    }
+
+    /** `DEC-10`, `R5-F2-I2`: `gc()` no vence jobs con la ejecución pausada y mide el umbral desde `resumed_at_ms`. */
+    public function testReaperSkippedWhilePausedAndThresholdMeasuredFromResume(): void
+    {
+        $threshold = AuditExecutionConfig::jobStaleAfterSeconds() * 1000;
+        $jobId = $this->newJob(987654040);
+        $epoch = $this->acquireEpoch($jobId);
+        $this->registerAudits($jobId, 1, $epoch, false);
+        $this->setState($jobId, ['last_progress_at' => $this->nowMs() - $threshold - 1000]);
+
+        $this->redis->eval('return redis.call("SET",KEYS[1],"1")', ['audit:execution:paused']);
+        $this->gc();
+        self::assertSame('queued', $this->summary($jobId)['status'], 'En pausa no actúa el reaper.');
+
+        $this->redis->eval('redis.call("DEL",KEYS[1]); return redis.call("SET",KEYS[2],ARGV[1])',
+            ['audit:execution:paused', 'audit:execution:resumed_at_ms'], [(string) ($this->nowMs() - 1000)]);
+        $this->gc();
+        self::assertSame('queued', $this->summary($jobId)['status'], 'El umbral se mide desde la reanudación.');
+
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', ['audit:execution:resumed_at_ms'], [(string) ($this->nowMs() - $threshold - 1000)]);
+        $this->gc();
+        $state = $this->summary($jobId);
+        self::assertSame('failed', $state['status']);
+        self::assertSame('stale_no_progress', $state['stale_reason']);
+    }
+
+    /** `X-F2-B1`, `R4-F2-B1`: reservas de auditorías vivas no registradas en un job terminal (o inexistente). */
+    public function testGcReleasesOrphanReservationOfTerminalJob(): void
+    {
+        $old = gmdate('Y-m-d\TH:i:s\Z', time() - 61);
+        $documents = ['doc-1' => ['status' => 'extracted', 'attempts' => 1]];
+
+        // Caso base: job failed sin la fila en job:{id}:audits.
+        $failed = $this->newJob(987654060);
+        self::assertTrue($this->store->markJobFailed($failed, 'dlq'));
+        $failedBefore = $this->summary($failed);
+        $a1 = AuditEvent::uuidV4();
+        $this->seedAuditState($a1, $failed, 'pending', $documents);
+        $this->seedReservation('ORPH-1', $failed, $a1, $old);
+
+        // Job inexistente: se libera igual.
+        $missing = AuditEvent::uuidV4();
+        $a2 = AuditEvent::uuidV4();
+        $this->seedAuditState($a2, $missing, 'pending', $documents);
+        $this->seedReservation('ORPH-2', $missing, $a2, $old);
+
+        // Job processing: sin cambios.
+        $processing = $this->newJob(987654061);
+        $epochP = $this->acquireEpoch($processing);
+        $rowsP = $this->registerAudits($processing, 2, $epochP, false);
+        self::assertTrue($this->store->markAuditCompletedInJob($processing, $rowsP[0][0], 'completed', 1));
+        self::assertSame('processing', $this->summary($processing)['status']);
+        $a3 = AuditEvent::uuidV4();
+        $this->seedAuditState($a3, $processing, 'pending', $documents);
+        $this->seedReservation('ORPH-3', $processing, $a3, $old);
+
+        // Job completed con la fila registrada: sin cambios.
+        $completed = $this->newJob(987654062);
+        $epochC = $this->acquireEpoch($completed);
+        [$a4, $ddn4] = $this->registerAudits($completed, 1, $epochC)[0];
+        $this->ageReservation($ddn4, $old);
+        $this->setState($completed, ['status' => 'completed', 'sealed' => true]);
+
+        // Job failed (sin stale_reason) con la fila registrada y despachada (en vuelo): sin cambios.
+        $inFlightJob = $this->newJob(987654063);
+        $epochF = $this->acquireEpoch($inFlightJob);
+        [$a5, $ddn5] = $this->registerAudits($inFlightJob, 1, $epochF)[0];
+        self::assertTrue($this->store->markAuditsDispatched($inFlightJob, [$ddn5 => $a5], true, $epochF));
+        self::assertTrue($this->store->markJobFailed($inFlightJob, 'dlq', $epochF));
+        $this->ageReservation($ddn5, $old);
+        $inFlight = $this->telemetry('audits_in_flight');
+
+        $this->gc();
+
+        self::assertSame(0, $this->exists(BatchJobStore::auditReservationKey('ORPH-1')));
+        $state1 = json_decode((string) $this->redis->get(AuditStateStore::auditKey($a1)), true);
+        self::assertSame('failed', $state1['status']);
+        self::assertSame('orphaned_job_terminal', $state1['failed_stage']);
+        self::assertMatchesRegularExpression(self::ISO, (string) $state1['completed_at']);
+        self::assertEquals($documents, $state1['documents']);
+        self::assertSame(-1, $this->ttl(AuditStateStore::auditKey($a1)));
+        self::assertSame($failedBefore, $this->summary($failed), 'Los contadores del job no cambian.');
+
+        self::assertSame(0, $this->exists(BatchJobStore::auditReservationKey('ORPH-2')));
+        self::assertSame('failed', json_decode((string) $this->redis->get(AuditStateStore::auditKey($a2)), true)['status']);
+
+        self::assertSame(1, $this->exists(BatchJobStore::auditReservationKey('ORPH-3')));
+        self::assertSame('pending', json_decode((string) $this->redis->get(AuditStateStore::auditKey($a3)), true)['status']);
+
+        self::assertSame(1, $this->exists(BatchJobStore::auditReservationKey($ddn4)));
+        self::assertSame('pending', json_decode((string) $this->redis->get(AuditStateStore::auditKey($a4)), true)['status']);
+
+        self::assertSame(1, $this->exists(BatchJobStore::auditReservationKey($ddn5)), 'Fila registrada en vuelo: no se toca (R4-F2-B1).');
+        self::assertSame('pending', json_decode((string) $this->redis->get(AuditStateStore::auditKey($a5)), true)['status']);
+        self::assertSame($inFlight, $this->telemetry('audits_in_flight'));
+
+        // Reserva reescrita entre la lectura y el Lua: el script retorna 0 sin tocar nada.
+        $a6 = AuditEvent::uuidV4();
+        $this->seedAuditState($a6, $failed, 'pending', $documents);
+        $this->seedReservation('ORPH-6', $failed, $a6, $old);
+        $read = (string) $this->redis->get(BatchJobStore::auditReservationKey('ORPH-6'));
+        $this->seedReservation('ORPH-6', $failed, $a6, gmdate('Y-m-d\TH:i:s\Z'));
+        $lua = (new \ReflectionClassConstant(AuditExecutionMaintenance::class, 'GC_RELEASE_ORPHAN_RESERVATION_LUA'))->getValue();
+        self::assertSame(0, (int) $this->redis->eval($lua, [BatchJobStore::auditReservationKey('ORPH-6'), AuditStateStore::auditKey($a6)],
+            [$read, gmdate('Y-m-d\TH:i:s\Z')]));
+        self::assertSame(1, $this->exists(BatchJobStore::auditReservationKey('ORPH-6')));
+        self::assertSame('pending', json_decode((string) $this->redis->get(AuditStateStore::auditKey($a6)), true)['status']);
+    }
+
+    /** `X-F2-B3`: la pasada legada sobrevive a un corte de presupuesto y no pierde `legacy_saw_keys` entre ticks. */
+    public function testLegacyReservationPassSurvivesBudgetCutAcrossTicks(): void
+    {
+        $old = gmdate('Y-m-d\TH:i:s\Z', time() - 3600);
+        for ($i = 0; $i < 300; $i++) {
+            $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', ['audit:reservation:disid:L-' . $i],
+                [json_encode(['dis_id' => 'L-' . $i, 'audit_id' => AuditEvent::uuidV4(), 'token' => 't', 'claimed_at' => $old])]);
+        }
+        $live = AuditEvent::uuidV4();
+        $this->seedAuditState($live, 'job-x', 'processing', []);
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', ['audit:reservation:disid:LIVE'],
+            [json_encode(['dis_id' => 'LIVE', 'audit_id' => $live, 'token' => 't', 'claimed_at' => $old])]);
+        foreach (['N-1', 'N-2', 'N-3'] as $ddn) {
+            $this->seedReservation($ddn, AuditEvent::uuidV4(), AuditEvent::uuidV4(), $old);
+        }
+        $this->redis->eval('return redis.call("HSET",KEYS[1],"pattern_index","5")', [AuditExecutionMaintenance::GC_CURSORS_KEY]);
+
+        // Tick 1: corte de memoria tras 50 borrados legados (a mitad de la pasada sobre disid:*).
+        $deleted = 0;
+        $observed = new ObservedRedis($this->redis, static function (string $script, array $keys, array $argv, mixed $result) use (&$deleted): void {
+            if ((int) $result === 1 && str_contains($script, 'redis.call("DEL",KEYS[1])')
+                && str_starts_with((string) ($keys[0] ?? ''), 'audit:reservation:disid:')) {
+                $deleted++;
+            }
+        });
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        (new AuditExecutionMaintenance($observed, new AuditExecutionConfig(2), static function () use (&$deleted, $limit): int {
+            return $deleted >= 50 ? $limit : 1024;
+        }))->gc(60000, $this->nowMs());
+
+        self::assertSame(50, $deleted);
+        self::assertSame('5', $this->cursorField('pattern_index'), 'El corte no salta al índice 6.');
+        self::assertSame('0', $this->cursorField('legacy_pass_done'));
+        self::assertSame('1', $this->cursorField('legacy_saw_keys'), 'El indicador se persiste para el tick siguiente.');
+        self::assertSame(251, $this->countKeys('audit:reservation:disid:*'));
+        self::assertSame(3, $this->countKeys('audit:reservation:disdetnro:*'), 'disdetnro:* aún no se visitó.');
+
+        // Tick 2: completa la pasada legada y recorre disdetnro:* en la misma visita del índice 5.
+        $this->gc();
+        self::assertSame(1, $this->countKeys('audit:reservation:disid:*'), 'Solo sobrevive la reserva viva.');
+        self::assertSame(1, $this->exists('audit:reservation:disid:LIVE'));
+        self::assertSame(0, $this->countKeys('audit:reservation:disdetnro:*'));
+        self::assertSame('0', $this->cursorField('legacy_done'), 'La pasada vio claves: legacy_done sigue en 0.');
+    }
+
+    /** `DEC-10`: `repair-jobs --force-stale[=jobId]` usa umbral 0 y respeta `batch:claim` vivo. */
+    public function testForceStaleCliUsesZeroThresholdButRespectsClaim(): void
+    {
+        $free = $this->newJob(987654070);
+        $this->registerAudits($free, 1, $this->acquireEpoch($free), false);
+        $held = $this->newJob(987654071);
+        $this->registerAudits($held, 1, $this->acquireEpoch($held), false);
+        $claim = $this->store->claimJobGenerationFencedLock($held, 'holder', 1, 600);
+        self::assertSame(JobLockClaimStatus::ACQUIRED, $claim->status);
+        $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2));
+        $run = fn (array $argv): array => AuditBatchMaintenanceCommands::run(
+            AuditBatchMaintenanceCommands::parseArguments($argv), $this->redis, $maintenance);
+
+        self::assertSame(['reaped_jobs' => 0, 'cancelled_audits' => 0, 'skipped_claimed' => 1],
+            $run(['bin', 'repair-jobs', '--force-stale=' . $held]));
+        self::assertNotSame('failed', $this->summary($held)['status']);
+
+        // Sin jobId: cierra todo job no terminal sin lock (aunque su progreso sea reciente) y omite el reclamado.
+        self::assertSame(['reaped_jobs' => 1, 'cancelled_audits' => 1, 'skipped_claimed' => 1],
+            $run(['bin', 'repair-jobs', '--force-stale']));
+        self::assertSame('failed', $this->summary($free)['status']);
+        self::assertSame('stale_no_progress', $this->summary($free)['stale_reason']);
+        self::assertNotSame('failed', $this->summary($held)['status']);
+
+        self::assertTrue($this->store->releaseJobGenerationLock($held, 'holder', $claim->epoch));
+        self::assertSame(['reaped_jobs' => 1, 'cancelled_audits' => 1, 'skipped_claimed' => 0],
+            $run(['bin', 'repair-jobs', '--force-stale=' . $held]));
+        self::assertSame('failed', $this->summary($held)['status']);
     }
 
     /** `W-F2-B4`b: cancela solo lo no despachado de un job `failed`; libera reservas propias y descuenta `in_flight`. */
@@ -509,6 +727,57 @@ final class AuditStaleJobReaperRedisTest extends TestCase
     private function nowMs(): int
     {
         return (int) floor(microtime(true) * 1000);
+    }
+
+    private function gc(): int
+    {
+        return (new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2)))->gc(60000, $this->nowMs());
+    }
+
+    /** @param array<string,mixed> $documents */
+    private function seedAuditState(string $auditId, string $jobId, string $status, array $documents): void
+    {
+        $this->redis->eval('return redis.call("SET", KEYS[1], ARGV[1])', [AuditStateStore::auditKey($auditId)], [json_encode([
+            'audit_id' => $auditId, 'job_id' => $jobId, 'status' => $status, 'execution_version' => 2,
+            'documents' => $documents === [] ? new \stdClass() : $documents,
+        ])]);
+    }
+
+    private function seedReservation(string $disDetNro, string $jobId, string $auditId, string $claimedAt): void
+    {
+        $this->redis->eval('return redis.call("SET", KEYS[1], ARGV[1])', [BatchJobStore::auditReservationKey($disDetNro)], [json_encode([
+            'job_id' => $jobId, 'audit_id' => $auditId, 'dis_det_nro' => $disDetNro, 'token' => 'tok-' . $disDetNro,
+            'source' => 'batch', 'claimed_at' => $claimedAt,
+        ])]);
+    }
+
+    /** Reescribe `claimed_at` de una reserva existente (para superar la ventana de 60 s del GC). */
+    private function ageReservation(string $disDetNro, string $claimedAt): void
+    {
+        $key = BatchJobStore::auditReservationKey($disDetNro);
+        $reservation = json_decode((string) $this->redis->get($key), true);
+        self::assertIsArray($reservation);
+        $reservation['claimed_at'] = $claimedAt;
+        $this->redis->eval('return redis.call("SET", KEYS[1], ARGV[1])', [$key], [json_encode($reservation)]);
+    }
+
+    private function cursorField(string $field): ?string
+    {
+        $value = $this->redis->eval('return redis.call("HGET", KEYS[1], ARGV[1])', [AuditExecutionMaintenance::GC_CURSORS_KEY], [$field]);
+
+        return $value === null || $value === false ? null : (string) $value;
+    }
+
+    private function countKeys(string $pattern): int
+    {
+        $count = 0;
+        $cursor = '0';
+        do {
+            [$cursor, $keys] = $this->redis->scanKeys($pattern, $cursor, 1000);
+            $count += count($keys);
+        } while ($cursor !== '0');
+
+        return $count;
     }
 
     private function newJob(int $nit, string $from = '2026-01-01', string $to = '2026-01-31'): string

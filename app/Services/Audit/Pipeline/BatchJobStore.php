@@ -831,6 +831,300 @@ class BatchJobStore
         return ['done' => true, 'cursor' => null, 'cancelled_audits' => $cancelled, 'reaped' => $code === 1];
     }
 
+    // ── Migración v2, reparación y rollback (SDD-BATCH-001 sección 9) ─────
+
+    /**
+     * Migra el esquema Redis de jobs batch v1 a v2. Idempotente y reentrante; se ejecuta con escritores detenidos.
+     *
+     * Orden: jobs (`repairJobStates()`, `MIGRATE_JOB_KEY_LUA`) → telemetría (`reconcileJobTelemetryMetrics()`) →
+     * reservas `audit:reservation:disid:*` (`MIGRATE_RESERVATION_KEY_LUA`) → `batch:claim:*`. La expiración de
+     * `batch:idem:*` legados la añade la CLI con `expireLegacyIdempotency()` del mantenimiento (`W-F1-I4(a)`): esta
+     * clase no depende del mantenimiento.
+     *
+     * @param  bool  $clearClaims  `true` (cutover con workers detenidos) borra `batch:claim:*`; `false` los convierte
+     *                             al formato JSON `{worker_id, epoch}` conservando `PTTL`.
+     * @return array{migrated_jobs:int,audits_recounted:int,generation_abandoned:list<string>,migrated_reservations:int,claims_cleared:int,claims_converted:int,telemetry:array<string,int>}
+     * @throws RuntimeException `migrate_reservation_failed` si una reserva tiene identidad irresuelta (`-1`) o colisiona
+     *                          (`-2`); las claves origen quedan intactas.
+     */
+    public function migrateBatchV2(bool $clearClaims = false): array
+    {
+        $jobs = $this->repairJobStates();
+        $telemetry = $this->reconcileJobTelemetryMetrics();
+
+        $migratedReservations = 0;
+        foreach ($this->scanAll('audit:reservation:disid:*', 500) as $key) {
+            $result = (int) $this->evalScript(
+                self::MIGRATE_RESERVATION_KEY_LUA,
+                [$key],
+                [''],
+                'No se pudo migrar la reserva legada',
+                ['key' => $key]
+            );
+            if ($result < 0) {
+                Logger::error('migrate_reservation_failed', ['key' => $key, 'code' => $result]);
+                throw new RuntimeException('migrate_reservation_failed');
+            }
+            $migratedReservations += $result;
+        }
+
+        $cleared = 0;
+        $converted = 0;
+        foreach ($this->scanAll('batch:claim:*', 500) as $key) {
+            if ($clearClaims) {
+                $cleared += (int) $this->evalScript('return redis.call("DEL",KEYS[1])', [$key], [], 'No se pudo limpiar el lock de generación');
+                continue;
+            }
+            $jobId = substr($key, strlen('batch:claim:'));
+            $converted += (int) $this->evalScript(
+                self::MIGRATE_CLAIM_LOCK_LUA,
+                [$key, self::jobKey($jobId)],
+                [],
+                'No se pudo normalizar el lock de generación',
+                ['job_id' => $jobId]
+            );
+        }
+
+        return [
+            'migrated_jobs' => $jobs['repaired_jobs'],
+            'audits_recounted' => $jobs['audits_recounted'],
+            'generation_abandoned' => $jobs['generation_abandoned'],
+            'migrated_reservations' => $migratedReservations,
+            'claims_cleared' => $cleared,
+            'claims_converted' => $converted,
+            'telemetry' => $telemetry,
+        ];
+    }
+
+    /**
+     * Repara todos los `job:*:state` con `MIGRATE_JOB_KEY_LUA` (mismo script que la migración, `W-F2-M3`): extrae
+     * `audits` inline, recuenta `total/done/failed` desde `job:{id}:audits` (incluso con `0` entradas), preserva
+     * `failed`, nunca pone `sealed = false` (`R-SEAL`), marca `generation_abandoned` y actualiza `jobs:active:nit:{nit}`.
+     * No toca reservas ni `batch:claim:*`; `last_progress_at` solo se inicializa si falta.
+     *
+     * @return array{repaired_jobs:int,audits_recounted:int,generation_abandoned:list<string>}
+     *         `audits_recounted`: suma de `total` de los jobs reparados.
+     */
+    public function repairJobStates(): array
+    {
+        $pending = $this->pendingBatchRequestedJobIds();
+        $nowMs = self::nowMs();
+        $repaired = 0;
+        $recounted = 0;
+        $abandoned = [];
+
+        foreach ($this->scanAll('job:*:state', 100) as $key) {
+            if (preg_match('/^job:([^:]+):state$/D', $key, $match) !== 1) {
+                continue;
+            }
+            $jobId = $match[1];
+            $meta = $this->jobMeta($key);
+            if ($meta === null) {
+                continue;
+            }
+            $result = (int) $this->evalScript(
+                self::MIGRATE_JOB_KEY_LUA,
+                [$key, self::jobAuditsKey($jobId), self::activeNitJobsKey((int) $meta['fac_nit_sec']), self::jobByDispensaKey($jobId)],
+                [$jobId, isset($pending[$jobId]) ? '1' : '0', (string) $nowMs],
+                'No se pudo migrar el estado del job',
+                ['job_id' => $jobId]
+            );
+            if ($result <= 0) {
+                continue;
+            }
+            $repaired++;
+            $summary = $this->getJobSummary($jobId) ?? [];
+            $recounted += (int) ($summary['total'] ?? 0);
+            if (($summary['generation_abandoned'] ?? false) === true
+                && !in_array((string) ($summary['status'] ?? ''), [self::JOB_STATUS_COMPLETED, self::JOB_STATUS_COMPLETED_WITH_ERR, self::JOB_STATUS_FAILED], true)) {
+                $abandoned[] = $jobId;
+            }
+        }
+
+        if ($abandoned !== []) {
+            Logger::warning('batch_jobs_generation_abandoned', ['job_ids' => $abandoned]);
+        }
+
+        return ['repaired_jobs' => $repaired, 'audits_recounted' => $recounted, 'generation_abandoned' => $abandoned];
+    }
+
+    /**
+     * Recalcula los contadores de jobs de `telemetry:async_metrics` desde los `job:*:state` vivos (un único `HSET`).
+     *
+     * @return array{jobs_queued:int,jobs_active:int,jobs_running:int,jobs_completed:int,jobs_failed:int}
+     */
+    public function reconcileJobTelemetryMetrics(): array
+    {
+        $counts = ['jobs_queued' => 0, 'jobs_active' => 0, 'jobs_running' => 0, 'jobs_completed' => 0, 'jobs_failed' => 0];
+        $field = [
+            self::JOB_STATUS_PENDING => 'jobs_queued',
+            self::JOB_STATUS_QUEUED => 'jobs_active',
+            self::JOB_STATUS_PROCESSING => 'jobs_running',
+            self::JOB_STATUS_COMPLETED => 'jobs_completed',
+            self::JOB_STATUS_COMPLETED_WITH_ERR => 'jobs_completed',
+            self::JOB_STATUS_FAILED => 'jobs_failed',
+        ];
+        foreach ($this->scanAll('job:*:state', 100) as $key) {
+            $status = $this->jobMeta($key)['status'] ?? null;
+            if ($status !== null && isset($field[$status])) {
+                $counts[$field[$status]]++;
+            }
+        }
+
+        $argv = [];
+        foreach ($counts as $name => $value) {
+            $argv[] = $name;
+            $argv[] = (string) $value;
+        }
+        $this->evalScript('return redis.call("HSET",KEYS[1],unpack(ARGV))', [self::TELEMETRY_KEY], $argv, 'No se pudo reconciliar la telemetría de jobs');
+
+        return $counts;
+    }
+
+    /**
+     * Revierte el esquema v2 a v1 solo en reposo (`DEC-11`, forward-fix only). Reentrante: la 2.ª ejecución devuelve
+     * `reverted_jobs = 0` y `reverted_reservations = 0`.
+     *
+     * Precondición (verificada antes de mutar cualquier clave): `0` jobs no terminales y `0` reservas
+     * `audit:reservation:disdetnro:*`. Tras revertir jobs, reservas residuales y `batch:claim:*`, borra
+     * `jobs:active:nit:*`, los 9 campos de Fase 2 de `audit:execution:gc:cursors` y `audit:execution:resumed_at_ms`.
+     *
+     * @return array{reverted_jobs:int,reverted_reservations:int,reverted_claims:int,deleted_active_nit_keys:int}
+     * @throws RuntimeException `rollback_requires_no_active_jobs` | `rollback_requires_no_active_reservations`
+     *                          (sin mutar claves) o `rollback_reservation_failed` (colisión o identidad irresuelta).
+     */
+    public function rollbackBatchV2(): array
+    {
+        $terminal = [self::JOB_STATUS_COMPLETED, self::JOB_STATUS_COMPLETED_WITH_ERR, self::JOB_STATUS_FAILED];
+        foreach ($this->scanAll('job:*:state', 100) as $key) {
+            $meta = $this->jobMeta($key);
+            if ($meta !== null && !in_array($meta['status'], $terminal, true)) {
+                throw new RuntimeException('rollback_requires_no_active_jobs');
+            }
+        }
+        foreach ($this->scanAll('audit:reservation:disdetnro:*', 500) as $ignored) {
+            throw new RuntimeException('rollback_requires_no_active_reservations');
+        }
+
+        $revertedJobs = 0;
+        foreach ($this->scanAll('job:*:state', 100) as $key) {
+            if (preg_match('/^job:([^:]+):state$/D', $key, $match) !== 1) {
+                continue;
+            }
+            $jobId = $match[1];
+            $revertedJobs += (int) $this->evalScript(
+                self::ROLLBACK_JOB_KEY_LUA,
+                [$key, self::jobAuditsKey($jobId), self::jobCandidatesKey($jobId), self::jobByDispensaKey($jobId)],
+                [],
+                'No se pudo revertir el estado del job',
+                ['job_id' => $jobId]
+            );
+        }
+
+        $revertedReservations = 0;
+        foreach ($this->scanAll('audit:reservation:disdetnro:*', 500) as $key) {
+            $result = (int) $this->evalScript(self::ROLLBACK_RESERVATION_KEY_LUA, [$key], [], 'No se pudo revertir la reserva', ['key' => $key]);
+            if ($result < 0) {
+                Logger::error('rollback_reservation_failed', ['key' => $key, 'code' => $result]);
+                throw new RuntimeException('rollback_reservation_failed');
+            }
+            $revertedReservations += $result;
+        }
+
+        $revertedClaims = 0;
+        foreach ($this->scanAll('batch:claim:*', 500) as $key) {
+            $revertedClaims += (int) $this->evalScript(self::ROLLBACK_CLAIM_LOCK_LUA, [$key], [], 'No se pudo revertir el lock de generación');
+        }
+
+        $deletedActive = 0;
+        foreach ($this->scanAll('jobs:active:nit:*', 500) as $key) {
+            $deletedActive += (int) $this->evalScript('return redis.call("DEL",KEYS[1])', [$key], [], 'No se pudo borrar el índice de jobs activos');
+        }
+
+        $this->evalScript(
+            'redis.call("HDEL",KEYS[1],unpack(ARGV)); return redis.call("DEL",KEYS[2])',
+            ['audit:execution:gc:cursors', 'audit:execution:resumed_at_ms'],
+            self::PHASE2_GC_CURSOR_FIELDS,
+            'No se pudieron limpiar los cursores de Fase 2'
+        );
+
+        return [
+            'reverted_jobs' => $revertedJobs,
+            'reverted_reservations' => $revertedReservations,
+            'reverted_claims' => $revertedClaims,
+            'deleted_active_nit_keys' => $deletedActive,
+        ];
+    }
+
+    /** Campos de Fase 2 en `audit:execution:gc:cursors` (los borra `rollbackBatchV2()`). */
+    public const PHASE2_GC_CURSOR_FIELDS = [
+        'hscan_job_id', 'hscan_cursor', 'hscan_sha1', 'reap_job_id', 'reap_cursor',
+        'cursor:reservations_legacy', 'legacy_done', 'legacy_pass_done', 'legacy_saw_keys',
+    ];
+
+    /**
+     * IDs de jobs con `batch_requested` pendiente en `audit.batch.inbox`: en PEL del grupo `batch-workers` o aún no
+     * entregados. Sin grupo, toda entrada del stream cuenta como pendiente.
+     *
+     * @return array<string,true>
+     */
+    private function pendingBatchRequestedJobIds(): array
+    {
+        $raw = $this->evalScript(
+            self::PENDING_BATCH_REQUESTED_LUA,
+            [AuditEventPublisher::STREAM_BATCH_INBOX],
+            [AuditEventPublisher::GROUP_BATCH, '10000'],
+            'No se pudieron leer los batch_requested pendientes'
+        );
+        $ids = [];
+        foreach (is_array($raw) ? $raw : [] as $json) {
+            $event = json_decode((string) $json, true);
+            if (is_array($event) && ($event['event_type'] ?? '') === AuditEvent::TYPE_BATCH_REQUESTED
+                && is_string($event['job_id'] ?? null) && $event['job_id'] !== '') {
+                $ids[$event['job_id']] = true;
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * NIT y status de un `job:*:state` leídos en Lua (no transfiere a PHP el JSON completo de un job v1).
+     *
+     * @return array{fac_nit_sec:string,status:string}|null `null` si la clave no existe.
+     * @throws RuntimeException Si el valor no es JSON (`invalid_job_state`).
+     */
+    private function jobMeta(string $key): ?array
+    {
+        $result = $this->evalScript(self::JOB_META_LUA, [$key], [], 'No se pudo leer el estado del job', ['key' => $key]);
+        if (!is_array($result)) {
+            return null;
+        }
+
+        return ['fac_nit_sec' => (string) ($result[0] ?? ''), 'status' => (string) ($result[1] ?? '')];
+    }
+
+    /**
+     * Recorre un patrón con `SCAN` deduplicando claves repetidas.
+     *
+     * @return \Generator<int,string>
+     */
+    private function scanAll(string $pattern, int $count): \Generator
+    {
+        $cursor = '0';
+        $seen = [];
+        do {
+            [$cursor, $keys] = $this->redis->scanKeys($pattern, $cursor, $count);
+            foreach ($keys as $key) {
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                yield $key;
+            }
+        } while ($cursor !== '0');
+    }
+
     // ── Idempotencia HTTP/cron ───────────────────────────────────────────
 
     /**
@@ -1772,6 +2066,376 @@ leaveStatusCounter(KEYS[4], oldStatus)
 redis.call('HINCRBY', KEYS[4], 'jobs_failed', 1)
 redis.call('SET', KEYS[1], cjson.encode(job))   -- sin EX (INV-07)
 return {1, '0', cancelled}
+LUA;
+
+    /** NIT y status de un job sin transferir el JSON a PHP. Retorna `false` si no existe. */
+    private const JOB_META_LUA = <<<'LUA'
+local raw = redis.call('GET', KEYS[1])
+if not raw then return false end
+local ok, job = pcall(cjson.decode, raw)
+if not ok or type(job) ~= 'table' then return redis.error_reply('invalid_job_state') end
+local nit = job.fac_nit_sec
+if nit == nil or nit == cjson.null then nit = '' end
+local st = job.status
+if st == nil or st == cjson.null then st = '' end
+return {tostring(nit), tostring(st)}
+LUA;
+
+    /** Eventos `batch_requested` en PEL o no entregados de `audit.batch.inbox` (campo `event` de cada entrada). */
+    private const PENDING_BATCH_REQUESTED_LUA = <<<'LUA'
+-- KEYS[1]=audit.batch.inbox  ARGV[1]=grupo  ARGV[2]=máximo de entradas por lectura
+local out = {}
+if redis.call('EXISTS', KEYS[1]) == 0 then return out end
+local max = tonumber(ARGV[2]) or 10000
+local function eventOf(fields)
+    for i = 1, #fields, 2 do
+        if fields[i] == 'event' then return fields[i + 1] end
+    end
+    return nil
+end
+local last = nil
+for _, g in ipairs(redis.call('XINFO', 'GROUPS', KEYS[1])) do
+    local name, delivered
+    for i = 1, #g, 2 do
+        if g[i] == 'name' then name = g[i + 1] elseif g[i] == 'last-delivered-id' then delivered = g[i + 1] end
+    end
+    if name == ARGV[1] then last = delivered end
+end
+if last == nil then
+    for _, e in ipairs(redis.call('XRANGE', KEYS[1], '-', '+', 'COUNT', max)) do
+        local ev = eventOf(e[2])
+        if ev then out[#out + 1] = ev end
+    end
+    return out
+end
+for _, p in ipairs(redis.call('XPENDING', KEYS[1], ARGV[1], '-', '+', max)) do
+    local r = redis.call('XRANGE', KEYS[1], p[1], p[1])
+    if r[1] then
+        local ev = eventOf(r[1][2])
+        if ev then out[#out + 1] = ev end
+    end
+end
+for _, e in ipairs(redis.call('XRANGE', KEYS[1], '(' .. last, '+', 'COUNT', max)) do
+    local ev = eventOf(e[2])
+    if ev then out[#out + 1] = ev end
+end
+return out
+LUA;
+
+    private const MIGRATE_JOB_KEY_LUA = <<<'LUA'
+-- KEYS[1] = job:{jobId}:state, KEYS[2] = job:{jobId}:audits, KEYS[3] = jobs:active:nit:{nit}, KEYS[4] = job:{jobId}:by_dispensa
+-- ARGV[1] = jobId
+-- ARGV[2] = '1' si existe batch_requested pendiente/en PEL para este job en audit.batch.inbox, '0' si no
+-- ARGV[3] = now_ms (inicializa last_progress_at: periodo de gracia post-migración)
+-- s(): cjson.null es truthy y tostring(cjson.null) no es vacío; se normaliza a '' (desviación defensiva de la spec).
+local function s(v) if v == nil or v == cjson.null then return '' end return tostring(v) end
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local job = cjson.decode(raw)
+local audits = job.audits
+local migrated = 0
+
+if type(audits) == 'table' then
+    for auditId, entry in pairs(audits) do
+        if type(entry) == 'table' then
+            local ddn = s(entry.dis_det_nro)
+            local st0 = s(entry.status)
+            local compact = {
+                dis_det_nro = ddn,
+                status = st0 ~= '' and st0 or 'pending'
+            }
+            if s(entry.failed_stage) ~= '' then
+                compact.failed_stage = s(entry.failed_stage)
+            end
+            redis.call('HSET', KEYS[2], tostring(auditId), cjson.encode(compact))
+            if ddn ~= '' and redis.call('HEXISTS', KEYS[4], ddn) == 0 then
+                redis.call('HSET', KEYS[4], ddn, cjson.encode({audit_id = tostring(auditId), dispatched = true}))
+            end
+            migrated = migrated + 1
+        end
+    end
+    job.audits = nil
+end
+
+local actualTotal = tonumber(redis.call('HLEN', KEYS[2])) or 0
+local actualDone = 0
+local actualFailed = 0
+local cursor = '0'
+repeat
+    local scanRes = redis.call('HSCAN', KEYS[2], cursor, 'COUNT', 1000)
+    cursor = scanRes[1]
+    local entries = scanRes[2]
+    for i = 1, #entries, 2 do
+        local auditId = tostring(entries[i])
+        local parsed = cjson.decode(entries[i + 1])
+        local st = s(parsed.status)
+        local ddn = s(parsed.dis_det_nro)
+        if ddn ~= '' and redis.call('HEXISTS', KEYS[4], ddn) == 0 then
+            redis.call('HSET', KEYS[4], ddn, cjson.encode({audit_id = auditId, dispatched = true}))
+        end
+        if st == 'failed' then
+            actualFailed = actualFailed + 1
+        elseif st == 'completed' or st == 'manual_review' or st == 'error' then
+            actualDone = actualDone + 1
+        end
+    end
+until cursor == '0'
+
+-- Invariante H3: reconciliar total/done/failed incluso cuando actualTotal == 0 y preservar status == 'failed'
+job.execution_version = 2
+job.total = actualTotal
+job.accepted = actualTotal
+job.done = actualDone
+job.failed = actualFailed
+local processed = actualDone + actualFailed
+
+if job.status == 'failed' then
+    job.sealed = true
+    if not job.completed_at or job.completed_at == cjson.null or job.completed_at == '' then
+        job.completed_at = job.updated_at or ''
+    end
+elseif (job.sealed == true or job.status == 'completed' or job.status == 'completed_with_errors') and processed >= actualTotal then
+    job.sealed = true   -- R-SEAL: todo job cerrado queda sellado, aunque el dato histórico viniera con sealed = false
+    job.status = actualFailed > 0 and 'completed_with_errors' or 'completed'
+    if not job.completed_at or job.completed_at == cjson.null or job.completed_at == '' then
+        job.completed_at = job.updated_at or ''
+    end
+elseif (job.status == 'completed' or job.status == 'completed_with_errors') and processed < actualTotal then
+    -- R-SEAL: en v1 todo job completed* fue sellado; su generación terminó. NO reabrir generación:
+    -- MARK_AUDIT_COMPLETED_IN_JOB_LUA lo cerrará al terminar las auditorías restantes, o REAP_STALE_JOB_LUA si no progresan.
+    job.status = 'processing'
+    job.sealed = true
+    job.completed_at = cjson.null
+else
+    if actualTotal > 0 and (job.status == 'pending' or job.status == '' or job.status == cjson.null) then
+        job.status = 'queued'
+    end
+    if job.sealed ~= true and ARGV[2] ~= '1' then
+        -- Generación v1 abandonada (sin batch_requested pendiente): nadie llamará SEAL_JOB_LUA.
+        -- Se marca para que REAP_STALE_JOB_LUA lo cierre tras el umbral si no progresa.
+        job.generation_abandoned = true
+    end
+end
+-- W-F2-M3: solo inicializar; repair-jobs reutiliza este script y no debe reiniciar el reloj del reaper
+if (tonumber(job.last_progress_at) or 0) <= 0 then
+    job.last_progress_at = tonumber(ARGV[3]) or 0
+end
+
+job.generation_epoch = tonumber(job.generation_epoch) or 0
+job.candidates_frozen = job.candidates_frozen == true
+job.candidates_count = tonumber(job.candidates_count) or 0
+job.next_candidate_offset = tonumber(job.next_candidate_offset) or 0
+job.last_committed_chunk = tonumber(job.last_committed_chunk) or 0
+job.last_continuation_dispatched_chunk = tonumber(job.last_continuation_dispatched_chunk) or 0
+
+if job.status == 'pending' or job.status == 'queued' or job.status == 'processing' then
+    redis.call('HSET', KEYS[3], ARGV[1], cjson.encode({
+        date_from = s(job.date_from),
+        date_to = s(job.date_to)
+    }))
+else
+    redis.call('HDEL', KEYS[3], ARGV[1])
+end
+
+redis.call('SET', KEYS[1], cjson.encode(job))
+return migrated + 1
+LUA;
+
+    private const MIGRATE_RESERVATION_KEY_LUA = <<<'LUA'
+-- KEYS[1] = audit:reservation:disid:{disId}  (no destructivo ante identidad irresuelta o colisión)
+-- ARGV[1] = '' (prefijo extraído automáticamente desde KEYS[1])
+local function s(v) if v == nil or v == cjson.null then return '' end return tostring(v) end
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local res = cjson.decode(raw)
+local disDetNro = s(res.dis_det_nro)
+local auditId = s(res.audit_id)
+local jobId = s(res.job_id)
+local prefix = string.match(KEYS[1], '^(.*)audit:reservation:disid:') or ''
+
+if disDetNro == '' and auditId ~= '' then
+    local auditRaw = redis.call('GET', prefix .. 'audit:' .. auditId .. ':state')
+    if auditRaw then
+        local a = cjson.decode(auditRaw)
+        disDetNro = s(a.dis_det_nro)
+    end
+end
+if disDetNro == '' and jobId ~= '' and auditId ~= '' then
+    local jobAuditRaw = redis.call('HGET', prefix .. 'job:' .. jobId .. ':audits', auditId)
+    if jobAuditRaw then
+        local ja = cjson.decode(jobAuditRaw)
+        disDetNro = s(ja.dis_det_nro)
+    end
+end
+if disDetNro == '' then
+    return -1 -- R-ROLL: identidad dis_det_nro irresuelta -> NO borrar clave origen
+end
+
+res.dis_det_nro = disDetNro
+local targetKey = prefix .. 'audit:reservation:disdetnro:' .. disDetNro
+local existingRaw = redis.call('GET', targetKey)
+if existingRaw then
+    local existing = cjson.decode(existingRaw)
+    if s(existing.audit_id) == auditId and s(existing.token) == s(res.token) then
+        redis.call('DEL', KEYS[1])
+        return 1 -- idempotente (ya migrada)
+    end
+    return -2 -- colisión con reserva distinta en destino -> NO borrar clave origen
+end
+
+redis.call('SET', targetKey, cjson.encode(res))
+redis.call('DEL', KEYS[1])
+return 1
+LUA;
+
+    private const MIGRATE_CLAIM_LOCK_LUA = <<<'LUA'
+-- KEYS[1] = batch:claim:{jobId}, KEYS[2] = job:{jobId}:state
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+if string.sub(raw, 1, 1) == '{' then
+    local decodedOk = pcall(function() return cjson.decode(raw) end)
+    if decodedOk then return 0 end
+end
+local ttlMs = tonumber(redis.call('PTTL', KEYS[1])) or -1
+local epoch = 0
+local jobRaw = redis.call('GET', KEYS[2])
+if jobRaw then
+    local job = cjson.decode(jobRaw)
+    epoch = tonumber(job.generation_epoch or 0) or 0
+end
+local nextVal = cjson.encode({worker_id = tostring(raw), epoch = epoch})
+if ttlMs > 0 then
+    redis.call('SET', KEYS[1], nextVal, 'PX', ttlMs)
+else
+    redis.call('SET', KEYS[1], nextVal)
+end
+return 1
+LUA;
+
+    private const ROLLBACK_JOB_KEY_LUA = <<<'LUA'
+-- KEYS[1] = job:{jobId}:state, KEYS[2] = job:{jobId}:audits, KEYS[3] = job:{jobId}:candidates, KEYS[4] = job:{jobId}:by_dispensa
+-- Estrictamente idempotente / reentrante (R-ROLL)
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local job = cjson.decode(raw)
+local hasAuditsHash = redis.call('EXISTS', KEYS[2]) == 1
+local hasCandidates = redis.call('EXISTS', KEYS[3]) == 1
+local hasByDispensa = redis.call('EXISTS', KEYS[4]) == 1
+-- v1 ya escribe execution_version = 2: no basta como indicador de v2.
+local isV2State = (job.execution_version == 2 and type(job.audits) ~= 'table')
+    or job.generation_epoch ~= nil
+    or job.generation_owner ~= nil
+    or job.candidates_frozen ~= nil
+    or job.candidates_count ~= nil
+    or job.next_candidate_offset ~= nil
+    or job.last_committed_chunk ~= nil
+    or job.last_continuation_dispatched_chunk ~= nil
+    or job.batch_created_published ~= nil
+    or job.last_cursor ~= nil
+    or job.last_progress_at ~= nil
+    or job.stale_reason ~= nil
+    or job.reaping ~= nil
+    or job.generation_abandoned ~= nil
+    or job.error_message ~= nil
+
+if not hasAuditsHash and not hasCandidates and not hasByDispensa and not isV2State and type(job.audits) == 'table' then
+    return 0 -- Ya revertido a v1 o nunca migrado: no sobreescribir job.audits
+end
+
+local audits = type(job.audits) == 'table' and job.audits or {}
+if hasAuditsHash then
+    audits = {}
+    local cursor = '0'
+    repeat
+        local scanRes = redis.call('HSCAN', KEYS[2], cursor, 'COUNT', 1000)
+        cursor = scanRes[1]
+        local entries = scanRes[2]
+        for i = 1, #entries, 2 do
+            audits[entries[i]] = cjson.decode(entries[i + 1])
+        end
+    until cursor == '0'
+end
+
+local emptyAudits = (next(audits) == nil)
+job.audits = audits
+job.execution_version = nil
+job.generation_epoch = nil
+job.generation_owner = nil
+job.candidates_frozen = nil
+job.candidates_count = nil
+job.next_candidate_offset = nil
+job.last_committed_chunk = nil
+job.last_continuation_dispatched_chunk = nil
+job.batch_created_published = nil
+job.last_cursor = nil
+job.last_progress_at = nil
+job.stale_reason = nil
+job.reaping = nil
+job.generation_abandoned = nil
+job.error_message = nil
+
+local encoded = cjson.encode(job)
+if emptyAudits then
+    encoded = string.gsub(encoded, '"audits":%[%]', '"audits":{}', 1)
+end
+redis.call('SET', KEYS[1], encoded)
+redis.call('DEL', KEYS[2], KEYS[3], KEYS[4])
+return 1
+LUA;
+
+    private const ROLLBACK_RESERVATION_KEY_LUA = <<<'LUA'
+-- KEYS[1] = audit:reservation:disdetnro:{disDetNro}  (atómica, idempotente, cero pérdida ante colisión)
+local function s(v) if v == nil or v == cjson.null then return '' end return tostring(v) end
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local res = cjson.decode(raw)
+local disId = s(res.dis_id)
+local prefix = string.match(KEYS[1], '^(.*)audit:reservation:disdetnro:') or ''
+if disId == '' then
+    local auditId = s(res.audit_id)
+    if auditId ~= '' then
+        local auditRaw = redis.call('GET', prefix .. 'audit:' .. auditId .. ':state')
+        if auditRaw then
+            local a = cjson.decode(auditRaw)
+            disId = s(a.fac_sec)
+            if disId == '' then disId = s(a.dis_id) end
+        end
+    end
+end
+if disId == '' then
+    return -1
+end
+res.dis_id = disId
+local targetKey = prefix .. 'audit:reservation:disid:' .. disId
+local existingRaw = redis.call('GET', targetKey)
+if existingRaw then
+    local existing = cjson.decode(existingRaw)
+    if s(existing.dis_det_nro) == s(res.dis_det_nro)
+       and s(existing.token) == s(res.token) then
+        redis.call('DEL', KEYS[1])
+        return 1
+    end
+    return -2
+end
+redis.call('SET', targetKey, cjson.encode(res))
+redis.call('DEL', KEYS[1])
+return 1
+LUA;
+
+    private const ROLLBACK_CLAIM_LOCK_LUA = <<<'LUA'
+-- KEYS[1] = batch:claim:{jobId}
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+if string.sub(raw, 1, 1) ~= '{' then return 0 end
+local ok, obj = pcall(function() return cjson.decode(raw) end)
+if not ok or type(obj) ~= 'table' or not obj.worker_id then return 0 end
+local ttlMs = tonumber(redis.call('PTTL', KEYS[1])) or -1
+if ttlMs > 0 then
+    redis.call('SET', KEYS[1], tostring(obj.worker_id), 'PX', ttlMs)
+else
+    redis.call('SET', KEYS[1], tostring(obj.worker_id))
+end
+return 1
 LUA;
 
     private const RELEASE_AUDIT_RESERVATION_LUA = <<<'LUA'

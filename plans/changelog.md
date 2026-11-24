@@ -1,5 +1,17 @@
 # Changelog AudFact
 
+## [2026-11-24] — Estabilización batch: migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C)
+
+- **Problema y motivación**: el esquema v2 de jobs batch (estado compacto, hashes `audits`/`by_dispensa`, reserva por `DisDetNro`, fencing) necesita una migración controlada de los datos v1, un rollback seguro, un cierre automático de jobs atascados (`R-STALE`) y un `gc()` que recolecte las claves v2 sin cargar jobs enteros en memoria.
+- **Cambios**:
+  - `BatchJobStore`: `migrateBatchV2(bool $clearClaims)`, `repairJobStates()`, `reconcileJobTelemetryMetrics()` y `rollbackBatchV2()` con los Lua de la Sección 9 (`MIGRATE_JOB_KEY_LUA`, `MIGRATE_RESERVATION_KEY_LUA`, `MIGRATE_CLAIM_LOCK_LUA`, `ROLLBACK_*`). Desviación defensiva: los Lua normalizan `cjson.null` a cadena vacía antes de usarlo como identidad.
+  - `AuditExecutionMaintenance::gc()`: reaper (`reapStaleJob`) con presupuesto, pausa y `resumed_at_ms`; reanudación pre-bucle de `reap_job_id`; HSCAN reanudable con `hscan_sha1`; reservas huérfanas de jobs terminales (`X-F2-B1`); pasada legada `disid:*` persistida entre ticks (`X-F2-B3`); guarda `enteredPatternLoop` en `finally` (`R5-F2-B2`, `R5-F2-I1`); `jobs_reaped` en `heartbeat:meta` reiniciado por tick. Un job con `STRLEN >= 2048` (v1 residual) se omite con `Logger::critical('gc_v1_job_state_after_migration')`.
+  - `AuditExecutionInspector`: `snapshot()` usa `HLEN job:{id}:audits`; nuevos `reapStaleJobs()` y `repairCorruptedJobs()`.
+  - `AuditBatchMaintenanceCommands` (nuevo) + `bin/audit-execution-maintenance.php`: `migrate-batch-v2 [--clear-claims]`, `rollback-batch-v2`, `repair-jobs [--force-stale[=jobId]]`; `resume` escribe `audit:execution:resumed_at_ms`; log de arranque con `job_stale_after_seconds` y `freeze_query_timeout_seconds`.
+  - `deploy-production.yml`: input `operation`, `env.OPERATION`, rollback de datos antes de `Prepare deployment directory`, barrera pausa/stop/migración antes de `Upgrade extractors`, `resume` tras heartbeat; listas de servicios filtradas contra el compose desplegado (`worker-downloader` o `worker-downloader-vip`/`worker-downloader-batch`).
+  - `.env.example`, `AGENTS.md`, `plans/audit-identity-contract.md`.
+- **Pendiente de despliegue**: `gh variable set` de `AUDIT_BATCH_LOCK_TTL_SECONDS`, `AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS` y `AUDIT_JOB_STALE_AFTER_SECONDS` en `production`; ejecución de la suite de integración con `RUN_REDIS_INTEGRATION=1`.
+
 ## [2026-11-22] — Hotfix de mantenimiento de ejecución (`SDD-BATCH-000`)
 
 - **Problema y motivación**: el proceso `worker-execution-maintenance` agotaba `memory_limit` (512M) dentro de `gc()` cada 19–42 s (`H11`, `E20`) y nunca escribía el heartbeat; con el heartbeat ausente la admisión respondía 503. En producción, `P-F1-03` registró 406,3 MiB / 512 MiB con 42 h de ejecución. Además, la pausa `audit:admission:paused` sin TTL dejó la intake de `worker-batch` cerrada sin aviso (`P-F1-01`).

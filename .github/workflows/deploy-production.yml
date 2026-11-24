@@ -6,6 +6,12 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
+      operation:
+        description: "Operation mode: deploy (forward cutover) or rollback (downgrade image_tag)"
+        required: true
+        default: "deploy"
+        type: choice
+        options: [deploy, rollback]
       image_tag:
         description: "GHCR image tag to deploy. Use a commit SHA for rollback."
         required: true
@@ -27,6 +33,9 @@ env:
   DOCS_IMAGE: ${{ vars.AUDFACT_DOCS_IMAGE || format('ghcr.io/{0}/audfact-docs', github.repository_owner) }}
   FRONTEND_HOST_PORT: ${{ vars.AUDFACT_FRONTEND_HOST_PORT || '3100' }}
   IMAGE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.image_tag }}
+  # SDD-BATCH-001 (W-F2-B5): con workflow_run, inputs.operation es ''; todo despliegue automático es 'deploy'.
+  # Los steps exclusivos se condicionan con env.OPERATION, nunca con inputs.operation.
+  OPERATION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.operation }}
 
 jobs:
   deploy:
@@ -96,6 +105,56 @@ jobs:
           if [ "$GEMINI_QUOTA_MAX_INFLIGHT" -gt 128 ]; then
             echo "::error::GEMINI_QUOTA_MAX_INFLIGHT must be between 1 and 128"
             exit 1
+          fi
+
+      # SDD-BATCH-001 (DEC-11, forward-fix only): el rollback de datos corre ANTES de Prepare deployment directory,
+      # mientras $DEPLOY_PATH/docker-compose.yml y .env siguen apuntando a la imagen v2 vigente.
+      - name: Log in to GHCR (rollback precheck)
+        if: env.OPERATION == 'rollback'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rollback data on current v2 stack
+        if: env.OPERATION == 'rollback'
+        run: |
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_DIR:-$HOME/audfact-prod}"          # mismo cálculo que Prepare deployment directory
+          if [ ! -f "$DEPLOY_PATH/docker-compose.yml" ] || [ ! -f "$DEPLOY_PATH/.env" ]; then
+            echo "::error::No existe stack v2 desplegado en $DEPLOY_PATH"; exit 1
+          fi
+          cd "$DEPLOY_PATH"
+          # Guarda bounded-cache evaluada sobre la imagen destino ANTES de mutar datos (se repite en Upgrade extractors):
+          docker pull "${PHP_IMAGE}:${IMAGE_TAG}"
+          if ! docker run --rm --entrypoint php "${PHP_IMAGE}:${IMAGE_TAG}" -r 'exit(is_file("/var/www/html/app/Services/Audit/Pipeline/AuditDocumentInput.php") ? 0 : 1);'; then
+            echo "::error::La imagen destino no soporta bounded cache (AuditDocumentInput.php ausente); rollback no permitido"; exit 1
+          fi
+          if [ -z "$(docker compose ps --status running -q redis)" ]; then
+            docker compose up -d --no-deps --no-build redis
+            for _ in $(seq 1 30); do
+              docker compose exec -T redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping' >/dev/null && break; sleep 2
+            done
+          fi
+          # --entrypoint php obligatorio: el ENTRYPOINT ejecutaría composer install
+          ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
+          # Solo servicios presentes en el compose desplegado: SDD-BATCH-002 reemplaza worker-downloader por
+          # worker-downloader-vip/worker-downloader-batch; la lista admite ambos esquemas.
+          available_services="$(docker compose config --services)"
+          present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
+          mapfile -t v2_services < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          ctl pause
+          for _ in $(seq 1 15); do pgrep -f schedule-daily-batches.php >/dev/null || break; sleep 2; done
+          docker compose stop -t 30 "${v2_services[@]}"
+          if grep -qx "AUDFACT_IMAGE_TAG=${IMAGE_TAG}" .env; then
+            # Re-ejecución tras un fallo posterior a rollback-batch-v2 = 0: los datos ya están revertidos y la
+            # imagen previa no conoce rollback-batch-v2. Se continúa sin re-ejecutarlo.
+            echo "::notice::Stack ya en ${IMAGE_TAG}; datos ya revertidos, se omite rollback-batch-v2"
+          elif ! ctl rollback-batch-v2; then
+            echo "::error::rollback-batch-v2 abortó (DEC-11: jobs activos o reservas disdetnro:*). Se relanza v2 en pausa; corregir hacia adelante."
+            docker compose up -d --no-deps --no-build "${v2_services[@]}"   # mismo $DEPLOY_PATH, .env intacto (tag v2)
+            exit 1                                                        # pause se conserva; los pasos siguientes no corren
           fi
 
       - name: Prepare deployment directory
@@ -186,6 +245,8 @@ jobs:
           PDF_MAX_PAGES: ${{ vars.PDF_MAX_PAGES }}
           AUDIT_BATCH_CHUNK_SIZE: ${{ vars.AUDIT_BATCH_CHUNK_SIZE }}
           AUDIT_BATCH_LOCK_TTL_SECONDS: ${{ vars.AUDIT_BATCH_LOCK_TTL_SECONDS }}
+          AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS: ${{ vars.AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS }}
+          AUDIT_JOB_STALE_AFTER_SECONDS: ${{ vars.AUDIT_JOB_STALE_AFTER_SECONDS }}
           REDIS_HOST: ${{ vars.REDIS_HOST }}
           REDIS_PORT: ${{ vars.REDIS_PORT }}
           REDIS_PREFIX: ${{ vars.REDIS_PREFIX }}
@@ -401,7 +462,9 @@ jobs:
             write_env_var 'AUDIT_BATCH_CRON_LIMIT' "${AUDIT_BATCH_CRON_LIMIT:-3000}"
             write_env_var 'AUDIT_BATCH_TIMEOUT' "${AUDIT_BATCH_TIMEOUT:-3600}"
             write_env_var 'AUDIT_BATCH_CHUNK_SIZE' "${AUDIT_BATCH_CHUNK_SIZE:-500}"
-            write_env_var 'AUDIT_BATCH_LOCK_TTL_SECONDS' "${AUDIT_BATCH_LOCK_TTL_SECONDS:-300}"
+            write_env_var 'AUDIT_BATCH_LOCK_TTL_SECONDS' "${AUDIT_BATCH_LOCK_TTL_SECONDS:-1800}"
+            write_env_var 'AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS' "${AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS:-300}"
+            write_env_var 'AUDIT_JOB_STALE_AFTER_SECONDS' "${AUDIT_JOB_STALE_AFTER_SECONDS:-21600}"
             write_env_var 'AUDIT_NGINX_READ_TIMEOUT' "${AUDIT_NGINX_READ_TIMEOUT:-3600}"
             write_env_var 'AUDIT_FPM_TERMINATE_TIMEOUT' "${AUDIT_FPM_TERMINATE_TIMEOUT:-3600}"
             write_env_var 'PHP_CLI_MEMORY_LIMIT' "${PHP_CLI_MEMORY_LIMIT:-768M}"
@@ -540,6 +603,37 @@ jobs:
           EFFECTIVE_REDIS_PREFIX="$(grep -E '^REDIS_PREFIX=' "$DEPLOY_PATH/.env" | head -n1 | cut -d= -f2-)"
           docker compose exec -T -e REDIS_PREFIX="${EFFECTIVE_REDIS_PREFIX:-audfact:}" redis sh -c 'touch /data/execution-durable-v2 && REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli CONFIG SET appendonly yes appendfsync always maxmemory-policy noeviction && REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli SET "${REDIS_PREFIX:-audfact:}audit:execution:version" "2"'
 
+      # SDD-BATCH-001 (SUP-02): barrera de cutover ANTES de actualizar extractors; cero escritores v1/v2 concurrentes.
+      - name: Pause pipeline and stop writers before cutover
+        if: env.OPERATION == 'deploy'
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          # pause con la imagen PHP en ejecución; si php está detenido, con docker compose run.
+          if [ -n "$(docker compose ps --status running -q php)" ]; then
+            docker compose exec -T php php bin/audit-execution-maintenance.php pause
+          else
+            docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php pause
+          fi
+          for _ in $(seq 1 15); do pgrep -f schedule-daily-batches.php >/dev/null || break; sleep 2; done
+          # Solo servicios presentes en el compose desplegado (worker-downloader en esta versión;
+          # worker-downloader-vip/worker-downloader-batch tras SDD-BATCH-002).
+          available_services="$(docker compose config --services)"
+          present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
+          mapfile -t writers < <(present php worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          docker compose stop -t 30 "${writers[@]}"
+
+      - name: Migrate batch Redis schema to v2
+        if: env.OPERATION == 'deploy'
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          # Imagen ${PHP_IMAGE}:${IMAGE_TAG} (AUDFACT_IMAGE_TAG del .env recién escrito); idempotente y reentrante.
+          ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
+          ctl migrate-batch-v2 --clear-claims
+          ctl repair-jobs
+          ctl reconcile
+
       - name: Upgrade extractors before bounded cache producers
         run: |
           set -euo pipefail
@@ -573,8 +667,34 @@ jobs:
           cd "$DEPLOY_PATH"
           ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
           ctl protocol
-          services=(php nginx frontend docs worker-batch worker-orchestrator worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          # Solo servicios presentes en el compose (worker-downloader aquí; worker-downloader-vip/-batch tras SDD-BATCH-002).
+          available_services="$(docker compose --profile frontend --profile docs config --services)"
+          present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
+          mapfile -t services < <(present php nginx frontend docs worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           docker compose --profile frontend --profile docs up -d --no-deps --no-build "${services[@]}"
+
+      - name: Reconcile, wait for maintenance heartbeat and resume
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
+          if [ "$OPERATION" = "rollback" ]; then
+            # En rollback, reconcile solo si la imagen previa lo soporta.
+            if docker run --rm --entrypoint grep "${PHP_IMAGE}:${IMAGE_TAG}" -q "'reconcile'" /var/www/html/bin/audit-execution-maintenance.php; then
+              ctl reconcile
+            fi
+          fi
+          # resume valida heartbeat < HEARTBEAT_MAX_AGE_MS (30.000 ms); se reintenta hasta ~30 s mientras arranca
+          # worker-execution-maintenance. Si no se logra, la pausa se conserva y el job falla.
+          resumed=0
+          for _ in $(seq 1 15); do
+            if ctl resume; then resumed=1; break; fi
+            sleep 2
+          done
+          if [ "$resumed" -ne 1 ]; then
+            echo "::error::worker-execution-maintenance sin heartbeat fresco; el pipeline sigue en pausa"
+            exit 1
+          fi
 
       - name: Health check
         run: |
@@ -598,5 +718,8 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance
+          available_services="$(docker compose --profile frontend --profile docs config --services)"
+          present() { local s; for s in "$@"; do if grep -qx -- "$s" <<<"$available_services"; then printf '%s\n' "$s"; fi; done; }
+          mapfile -t log_services < <(present frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader-vip worker-downloader-batch worker-downloader worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          docker compose --profile frontend --profile docs logs --tail=120 "${log_services[@]}"
           exit 1

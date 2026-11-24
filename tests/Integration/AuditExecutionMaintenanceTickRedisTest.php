@@ -117,21 +117,28 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
         self::assertLessThan(32 * 1024 * 1024, memory_get_peak_usage(true) - $baseline);
     }
 
-    /** T-I5 (CA-F1-05): job terminal vencido con 3.000 auditorías se borra con ARGV de 40 bytes (sha1 + job_id). */
+    /**
+     * T-I5 (CA-F1-05), adaptado al esquema v2 de SDD-BATCH-001: las 3.000 auditorías viven en `job:{id}:audits`
+     * (no inline); el job terminal vencido se borra con ARGV de 40 bytes (sha1 + job_id) junto con sus claves v2.
+     */
     public function testGcDeletesLargeExpiredJobWithShortArgv(): void
     {
         $jobId = AuditEvent::uuidV4();
-        $audits = [];
-        for ($i = 0; $i < 3000; $i++) {
-            $audits['audit-' . $i] = ['status' => 'completed', 'pad' => str_repeat('x', 600)];
-        }
+        $nit = 987654061;
         $expired = gmdate('Y-m-d\TH:i:s\Z', time() - 864000);
         $raw = json_encode([
-            'job_id' => $jobId, 'status' => 'completed', 'completed_at' => $expired, 'updated_at' => $expired,
-            'audits' => $audits,
+            'job_id' => $jobId, 'execution_version' => 2, 'status' => 'completed', 'sealed' => true, 'fac_nit_sec' => $nit,
+            'total' => 3000, 'accepted' => 3000, 'done' => 3000, 'failed' => 0, 'completed_at' => $expired, 'updated_at' => $expired,
         ], JSON_THROW_ON_ERROR);
         $this->redis->eval('redis.call("SET",KEYS[1],ARGV[1]); return redis.call("ZADD",KEYS[2],ARGV[2],ARGV[3])',
             [BatchJobStore::jobKey($jobId), 'jobs:index'], [$raw, 1, $jobId]);
+        $this->redis->eval(
+            'for i = 1, tonumber(ARGV[1]) do redis.call("HSET",KEYS[1],"audit-" .. i,ARGV[2]); redis.call("HSET",KEYS[2],"D" .. i,ARGV[3]) end; '
+            . 'return redis.call("HSET",KEYS[3],ARGV[4],"{}")',
+            [BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId), BatchJobStore::activeNitJobsKey($nit)],
+            [3000, json_encode(['status' => 'completed', 'pad' => str_repeat('x', 600)]), '{"audit_id":"x","dispatched":true}', $jobId]
+        );
+        self::assertLessThan(AuditExecutionMaintenance::JOB_STATE_MAX_BYTES, strlen($raw));
 
         $deleteArgv = [];
         $wrapper = new RecordingRedis($this->redis, static function (string $script, array $keys, array $argv) use (&$deleteArgv): void {
@@ -143,9 +150,43 @@ final class AuditExecutionMaintenanceTickRedisTest extends TestCase
 
         self::assertNull($this->redis->get(BatchJobStore::jobKey($jobId)));
         self::assertNull($this->redis->eval('return redis.call("ZSCORE",KEYS[1],ARGV[1])', ['jobs:index'], [$jobId]));
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("EXISTS",KEYS[1],KEYS[2])',
+            [BatchJobStore::jobAuditsKey($jobId), BatchJobStore::jobByDispensaKey($jobId)]));
+        self::assertSame(0, (int) $this->redis->eval('return redis.call("HEXISTS",KEYS[1],ARGV[1])', [BatchJobStore::activeNitJobsKey($nit)], [$jobId]));
         self::assertCount(2, $deleteArgv);
         self::assertSame(40, strlen((string) $deleteArgv[0]), 'El ARGV del borrado debe ser el sha1 del valor (40 caracteres).');
+        self::assertSame(sha1($raw), $deleteArgv[0]);
         self::assertSame($jobId, $deleteArgv[1]);
+    }
+
+    /**
+     * SDD-BATCH-001 (`W-F1-I5`, `W-F1-M7`): el meta incluye `jobs_reaped` además de los 10 campos base; un tick sin gc()
+     * lo publica en 0.
+     */
+    public function testHeartbeatMetaIncludesJobsReapedAndResetsPerTick(): void
+    {
+        $store = new BatchJobStore($this->redis);
+        $jobId = AuditEvent::uuidV4();
+        self::assertTrue($store->initJobExclusive($jobId, 987654062, '2026-01-01', '2026-01-31', 10)['created']);
+        $state = $store->getJobSummary($jobId);
+        $state['last_progress_at'] = $this->nowMs() - AuditExecutionConfig::jobStaleAfterSeconds() * 1000 - 1000;
+        $this->redis->eval('return redis.call("SET",KEYS[1],ARGV[1])', [BatchJobStore::jobKey($jobId)], [json_encode($state)]);
+        $maintenance = new AuditExecutionMaintenance($this->redis, new AuditExecutionConfig(2));
+
+        $maintenance->tick();
+
+        $meta = $this->meta();
+        foreach (['tick_duration_ms', 'outbox_flushed', 'intake_admitted', 'intake_acked', 'gc_removed', 'memory_bytes',
+            'gc_budget_stopped', 'admission_paused', 'execution_paused', 'at_ms', 'jobs_reaped'] as $field) {
+            self::assertArrayHasKey($field, $meta);
+        }
+        self::assertSame('1', $meta['jobs_reaped']);
+        self::assertSame('failed', $store->getJobSummary($jobId)['status']);
+        self::assertSame('stale_no_progress', $store->getJobSummary($jobId)['stale_reason']);
+
+        // Segundo tick inmediato: last_gc_ms reciente ⇒ sin gc(); jobs_reaped no repite el conteo anterior.
+        $maintenance->tick();
+        self::assertSame('0', $this->meta()['jobs_reaped'] ?? null);
     }
 
     /** T-I7 (CA-F1-07, REQ-F1-07): heartbeat TTL ≤ 30 s y meta con los campos base; at_ms no sobrescribible. */

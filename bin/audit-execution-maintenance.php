@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use App\Services\Audit\Pipeline\AuditBatchMaintenanceCommands;
 use App\Services\Audit\Pipeline\AuditExecutionConfig;
 use App\Services\Audit\Pipeline\AuditExecutionInspector;
 use App\Services\Audit\Pipeline\AuditExecutionMaintenance;
@@ -15,7 +16,10 @@ use Core\RedisClient;
 Env::load();
 ini_set('memory_limit', '512M');
 $command = $argv[1] ?? '';
-if ($argc > 2) {
+// SDD-BATCH-001: segundo argumento solo para `migrate-batch-v2 --clear-claims` y `repair-jobs --force-stale[=jobId]`.
+try {
+    $arguments = AuditBatchMaintenanceCommands::parseArguments($argv);
+} catch (InvalidArgumentException) {
     fwrite(STDERR, "Opcion desconocida\n");
     exit(1);
 }
@@ -44,7 +48,9 @@ try {
                     || (new \App\Services\Audit\Pipeline\AuditAdmissionGuard($redis, $config))->atCapacity()) {
                     throw new RuntimeException('maintenance_unhealthy');
                 }
-                $redis->eval('return redis.call("DEL",KEYS[1],KEYS[2])', ['audit:admission:paused', 'audit:execution:paused']);
+                // DEC-10: el umbral del reaper se mide desde la última reanudación (la pausa no cuenta como falta de progreso).
+                $redis->eval('redis.call("DEL",KEYS[1],KEYS[2]); return redis.call("SET",KEYS[3],ARGV[1])',
+                    ['audit:admission:paused', 'audit:execution:paused', 'audit:execution:resumed_at_ms'], [(string) $now]);
             }
         }
         fwrite(STDOUT, json_encode(['command' => $command, 'execution_version' => AuditExecutionConfig::VERSION]) . PHP_EOL);
@@ -63,7 +69,9 @@ try {
             'lease_ms' => AuditExecutionConfig::LEASE_MS, 'tick_budget_ms' => AuditExecutionMaintenance::TICK_BUDGET_MS,
             'gc_max_items' => AuditExecutionMaintenance::GC_MAX_ITEMS, 'gc_time_budget_ms' => AuditExecutionMaintenance::GC_TIME_BUDGET_MS,
             'gc_memory_soft_limit_bytes' => AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES,
-            'heartbeat_max_age_ms' => AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS]);
+            'heartbeat_max_age_ms' => AuditExecutionConfig::HEARTBEAT_MAX_AGE_MS,
+            'job_stale_after_seconds' => AuditExecutionConfig::jobStaleAfterSeconds(),
+            'freeze_query_timeout_seconds' => AuditExecutionConfig::freezeQueryTimeoutSeconds()]);
         while (!$stop) {
             if (function_exists('pcntl_signal_dispatch')) {
                 pcntl_signal_dispatch();
@@ -89,11 +97,18 @@ try {
         'reconcile' => (new AuditExecutionInspector($redis))->reconcile(),
         'gc' => ['removed' => $maintenance->gc()],
         'idem-expire-legacy' => $maintenance->expireLegacyIdempotency(),
+        'migrate-batch-v2', 'rollback-batch-v2', 'repair-jobs' => AuditBatchMaintenanceCommands::run($arguments, $redis, $maintenance),
         default => throw new InvalidArgumentException('unknown_maintenance_command'),
     };
     fwrite(STDOUT, json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . PHP_EOL);
 } catch (Throwable $error) {
-    Logger::error('Audit execution maintenance failed', ['command' => $command, 'error_class' => get_class($error)]);
+    // Motivos operativos sin datos sensibles (DEC-11 / migración) se muestran para que el workflow los registre.
+    $reason = in_array($error->getMessage(), ['rollback_requires_no_active_jobs', 'rollback_requires_no_active_reservations',
+        'rollback_reservation_failed', 'migrate_reservation_failed'], true) ? $error->getMessage() : null;
+    Logger::error('Audit execution maintenance failed', ['command' => $command, 'error_class' => get_class($error), 'reason' => $reason]);
+    if ($reason !== null) {
+        fwrite(STDERR, "Motivo: {$reason}\n");
+    }
     fwrite(STDERR, "Mantenimiento fallido; revise el registro operacional y conserve la pausa.\n");
     exit(1);
 }

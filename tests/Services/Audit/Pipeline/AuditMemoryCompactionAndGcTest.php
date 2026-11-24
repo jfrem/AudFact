@@ -14,8 +14,10 @@ use App\Services\Audit\Pipeline\AuditTaskCommitter;
 use App\Services\Audit\Pipeline\AuditTaskEffects;
 use App\Services\Audit\Pipeline\AuditTaskOutbox;
 use App\Services\Audit\Pipeline\AuditTaskStage;
+use App\Services\Audit\Pipeline\BatchJobStore;
 use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\FakeMaintenanceRedis;
 
 final class AuditMemoryCompactionAndGcTest extends TestCase
 {
@@ -480,5 +482,393 @@ final class AuditMemoryCompactionAndGcTest extends TestCase
         self::assertNotNull($capturedAdvanceScript);
         self::assertStringContainsString("if tonumber(ARGV[5]) == 0 then", $capturedAdvanceScript);
         self::assertStringContainsString("redis.call('DEL', KEYS[4], KEYS[6])", $capturedAdvanceScript);
+    }
+
+    // ── SDD-BATCH-001: delta Fase 2 de gc() ──────────────────────────────
+
+    private const NOW_MS = 1_800_000_000_000;
+    private const OLD_ISO = '2026-01-01T00:00:00Z';
+
+    /** `DEC-06`, `W-F2-M2`, `CA-F2-17`: HSCAN de 50.000 entradas cortado por presupuesto y reanudado con el sha1 persistido. */
+    public function testGcResumesJobAuditsHscanAcrossBudgetCuts(): void
+    {
+        [$redis, $jobId, $jobKey] = $this->terminalJobFixture(50000);
+        $originalSha1 = sha1($redis->strings[$jobKey]);
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+
+        // 1.er tick: la memoria llega al límite blando tras 30 rebanadas (15.000 entradas).
+        $removed = (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2),
+            static fn(): int => count($redis->refsCursors) >= 30 ? $limit : 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame(0, $removed);
+        self::assertSame([], $redis->jobDeletes, 'Sin terminar el HSCAN no se borra nada.');
+        self::assertSame('0', $redis->refsCursors[0]);
+        self::assertSame($jobId, $redis->gcCursors['hscan_job_id']);
+        self::assertSame('15000', $redis->gcCursors['hscan_cursor']);
+        self::assertSame($originalSha1, $redis->gcCursors['hscan_sha1']);
+        self::assertSame('4', $redis->gcCursors['pattern_index']);
+        self::assertSame('4', $redis->gcCursors['pending_pattern']);
+        self::assertSame(json_encode([$jobKey]), $redis->gcCursors['pending_keys'], 'El job se reencola al frente.');
+
+        // 2.º tick (instancia nueva, estado leído de gc:cursors): reanuda en 15000 y borra con el sha1 persistido.
+        $redis->refsCursors = [];
+        $removed = (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame('15000', $redis->refsCursors[0], 'La 1.ª rebanada del tick siguiente usa hscan_cursor.');
+        self::assertCount(70, $redis->refsCursors, '35.000 entradas restantes / 500 por rebanada.');
+        self::assertSame(1, $removed);
+        self::assertSame([[$originalSha1, $jobId]], $redis->jobDeletes);
+        self::assertArrayNotHasKey($jobKey, $redis->strings);
+        self::assertSame(['', '0', ''], [$redis->gcCursors['hscan_job_id'], $redis->gcCursors['hscan_cursor'], $redis->gcCursors['hscan_sha1']]);
+    }
+
+    /** `W-F2-M2`: si `job:{id}:state` cambia entre ticks, el borrado usa el sha1 del inicio del HSCAN y se aborta. */
+    public function testGcAbortsJobDeletionWhenStateChangedBetweenTicks(): void
+    {
+        [$redis, $jobId, $jobKey] = $this->terminalJobFixture(2000);
+        $originalSha1 = sha1($redis->strings[$jobKey]);
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2),
+            static fn(): int => count($redis->refsCursors) >= 2 ? $limit : 1024))->gc(60000, self::NOW_MS);
+        self::assertSame('1000', $redis->gcCursors['hscan_cursor']);
+
+        $changed = json_decode($redis->strings[$jobKey], true);
+        $changed['updated_at'] = '2026-01-02T00:00:00Z';
+        $redis->strings[$jobKey] = (string) json_encode($changed);
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame([[$originalSha1, $jobId]], $redis->jobDeletes, 'Nunca se recalcula el sha1 al reanudar.');
+        self::assertArrayHasKey($jobKey, $redis->strings, 'Con el sha1 distinto el job no se borra.');
+        self::assertSame('', $redis->gcCursors['hscan_job_id']);
+    }
+
+    /** `R4-F2-M3`: una referencia activa (miembro sin prefijo `plan:`) aborta el borrado y limpia `hscan_*`. */
+    public function testGcAbortsTerminalJobWithActiveReferenceAndSkipsV1State(): void
+    {
+        [$redis, , $jobKey] = $this->terminalJobFixture(800);
+        $redis->activeRefs[BatchJobStore::jobAuditsKey((string) json_decode($redis->strings[$jobKey], true)['job_id'])] = true;
+        $v1Key = BatchJobStore::jobKey(AuditEvent::deterministicUuidV4('gc-v1-job'));
+        $redis->strings[$v1Key] = (string) json_encode(['status' => 'completed', 'completed_at' => self::OLD_ISO,
+            'audits' => array_fill(0, 80, ['status' => 'completed', 'dis_det_nro' => 'X'])]);
+        $redis->pages['job:*:state'] = [[$jobKey, $v1Key]];
+
+        $removed = (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame(0, $removed);
+        self::assertSame([], $redis->jobDeletes);
+        self::assertCount(1, $redis->refsCursors, 'Se aborta en la 1.ª rebanada con referencia activa.');
+        self::assertSame('', $redis->gcCursors['hscan_job_id']);
+        self::assertGreaterThanOrEqual(AuditExecutionMaintenance::JOB_STATE_MAX_BYTES, strlen($redis->strings[$v1Key]));
+        self::assertNotContains('get:' . $v1Key, $redis->log, 'Un job v1 residual (>= 2048 B) no se lee ni se decodifica.');
+    }
+
+    /** `DEC-10`: el reaper solo actúa sobre jobs vencidos (o en reaping), con el umbral configurado y por rebanadas. */
+    public function testGcInvokesReaperForStaleNonTerminalJobsWithinBudget(): void
+    {
+        $threshold = AuditExecutionConfig::jobStaleAfterSeconds() * 1000;
+        $ids = [];
+        foreach (['stale', 'fresh', 'reaping', 'unmarked', 'updated-only', 'terminal'] as $label) {
+            $ids[$label] = AuditEvent::deterministicUuidV4('gc-reaper-' . $label);
+        }
+        $redis = new FakeMaintenanceRedis();
+        $jobs = [
+            'stale' => ['status' => 'processing', 'last_progress_at' => self::NOW_MS - $threshold - 1000],
+            'fresh' => ['status' => 'processing', 'last_progress_at' => self::NOW_MS - 1000],
+            'reaping' => ['status' => 'queued', 'reaping' => true, 'last_progress_at' => self::NOW_MS - 1000],
+            'unmarked' => ['status' => 'processing', 'last_progress_at' => null, 'updated_at' => '###'],
+            'updated-only' => ['status' => 'pending', 'last_progress_at' => 0,
+                'updated_at' => gmdate('Y-m-d\TH:i:s\Z', intdiv(self::NOW_MS - $threshold - 60000, 1000))],
+            'terminal' => ['status' => 'failed', 'completed_at' => gmdate('Y-m-d\TH:i:s\Z', intdiv(self::NOW_MS, 1000))],
+        ];
+        $keys = [];
+        foreach ($jobs as $label => $fields) {
+            $keys[] = $key = BatchJobStore::jobKey($ids[$label]);
+            $redis->strings[$key] = self::jobJson($ids[$label], $fields);
+        }
+        $redis->pages['job:*:state'] = [$keys];
+        $redis->gcCursors = ['pattern_index' => '4'];
+        $calls = [];
+        $store = $this->createMock(BatchJobStore::class);
+        $store->method('reapStaleJob')->willReturnCallback(
+            static function (string $jobId, int $nowMs, int $thresholdMs, ?string $cursor) use (&$calls, $ids): array {
+                $calls[] = [$jobId, $nowMs, $thresholdMs, $cursor];
+                if ($jobId === $ids['stale'] && $cursor === null) {
+                    return ['done' => false, 'cursor' => '77', 'cancelled_audits' => 2, 'reaped' => false];
+                }
+                return ['done' => true, 'cursor' => null, 'cancelled_audits' => 1, 'reaped' => true];
+            }
+        );
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024, $store);
+
+        $maintenance->gc(60000, self::NOW_MS);
+
+        self::assertSame([
+            [$ids['stale'], self::NOW_MS, $threshold, null],
+            [$ids['stale'], self::NOW_MS, $threshold, '77'],
+            [$ids['reaping'], self::NOW_MS, $threshold, null],
+            [$ids['updated-only'], self::NOW_MS, $threshold, null],
+        ], $calls);
+        self::assertSame(3, (new \ReflectionProperty(AuditExecutionMaintenance::class, 'lastGcReapedJobs'))->getValue($maintenance));
+        self::assertSame('', $redis->gcCursors['reap_job_id']);
+        self::assertSame('0', $redis->gcCursors['reap_cursor']);
+    }
+
+    /** `DEC-10`, `R5-F2-I2`: con pausa no hay reaper (ni reanudación pendiente); el umbral se mide desde `resumed_at_ms`. */
+    public function testReaperSkippedWhilePausedAndThresholdMeasuredFromResume(): void
+    {
+        $threshold = AuditExecutionConfig::jobStaleAfterSeconds() * 1000;
+        $jobId = AuditEvent::deterministicUuidV4('gc-pause-job');
+        $run = function (array $strings, array $cursors = []) use ($jobId, $threshold): array {
+            $redis = new FakeMaintenanceRedis();
+            $redis->strings = $strings + [BatchJobStore::jobKey($jobId) => self::jobJson($jobId,
+                ['status' => 'processing', 'last_progress_at' => self::NOW_MS - $threshold - 1000])];
+            $redis->pages['job:*:state'] = [[BatchJobStore::jobKey($jobId)]];
+            $redis->gcCursors = $cursors + ['pattern_index' => '4'];
+            $calls = [];
+            $store = $this->createMock(BatchJobStore::class);
+            $store->method('reapStaleJob')->willReturnCallback(static function (string $id, int $now, int $t, ?string $cursor) use (&$calls): array {
+                $calls[] = [$id, $cursor];
+                return ['done' => true, 'cursor' => null, 'cancelled_audits' => 0, 'reaped' => true];
+            });
+            (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024, $store))->gc(60000, self::NOW_MS);
+            return [$calls, $redis];
+        };
+
+        [$calls, $redis] = $run(['audit:execution:paused' => '1'], ['reap_job_id' => 'pending-job', 'reap_cursor' => '5']);
+        self::assertSame([], $calls, 'En pausa no se invoca el reaper ni se reanuda reap_job_id.');
+        self::assertSame('pending-job', $redis->gcCursors['reap_job_id'], 'El cursor pendiente se conserva para después de la pausa.');
+
+        [$calls] = $run(['audit:execution:resumed_at_ms' => (string) (self::NOW_MS - 1000)]);
+        self::assertSame([], $calls, 'Reanudado hace 1 s: la pausa no consume el umbral.');
+
+        [$calls] = $run(['audit:execution:resumed_at_ms' => (string) (self::NOW_MS - $threshold - 1)]);
+        self::assertSame([[$jobId, null]], $calls);
+    }
+
+    /** `W-F2-M7`: un `reap_job_id` pendiente se reanuda al inicio de gc(), antes de cualquier SCAN. */
+    public function testPendingReapJobResumedAtGcStart(): void
+    {
+        $redis = new FakeMaintenanceRedis();
+        $redis->gcCursors = ['pattern_index' => '0', 'reap_job_id' => 'job-pendiente', 'reap_cursor' => '42'];
+        $store = $this->createMock(BatchJobStore::class);
+        $store->expects(self::once())->method('reapStaleJob')
+            ->willReturnCallback(static function (string $jobId, int $now, int $t, ?string $cursor) use ($redis): array {
+                $redis->log[] = 'reap:' . $jobId . ':' . $cursor;
+                return ['done' => true, 'cursor' => null, 'cancelled_audits' => 4, 'reaped' => true];
+            });
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024, $store);
+
+        $maintenance->gc(60000, self::NOW_MS);
+
+        $order = array_values(array_filter($redis->log, static fn(string $l): bool => str_starts_with($l, 'reap:') || str_starts_with($l, 'scan:')));
+        self::assertSame('reap:job-pendiente:42', $order[0]);
+        self::assertSame('', $redis->gcCursors['reap_job_id']);
+        self::assertSame(1, (new \ReflectionProperty(AuditExecutionMaintenance::class, 'lastGcReapedJobs'))->getValue($maintenance));
+    }
+
+    /** `R5-F2-B2`: un corte de presupuesto al reanudar `reap_job_id` antes del bucle no pisa `pending_pattern`/`pending_keys`. */
+    public function testPreLoopReapResumeBudgetCutPreservesPendingKeys(): void
+    {
+        $redis = new FakeMaintenanceRedis();
+        $pendingKeys = json_encode(['audit:pendiente-1:state', 'audit:pendiente-2:state']);
+        $redis->gcCursors = ['pattern_index' => '2', 'pending_pattern' => '2', 'pending_keys' => $pendingKeys,
+            'reap_job_id' => 'job-grande', 'reap_cursor' => '42'];
+        $store = $this->createMock(BatchJobStore::class);
+        $store->method('reapStaleJob')->willReturn(['done' => false, 'cursor' => '43', 'cancelled_audits' => 500, 'reaped' => false]);
+        $probes = 0;
+        $limit = AuditExecutionMaintenance::GC_MEMORY_SOFT_LIMIT_BYTES;
+        $maintenance = new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2),
+            static function () use (&$probes, $limit): int { return ++$probes <= 1 ? 1024 : $limit; }, $store);
+
+        self::assertSame(0, $maintenance->gc(60000, self::NOW_MS));
+
+        self::assertSame('2', $redis->gcCursors['pending_pattern']);
+        self::assertSame($pendingKeys, $redis->gcCursors['pending_keys']);
+        self::assertSame('2', $redis->gcCursors['pattern_index']);
+        self::assertSame('job-grande', $redis->gcCursors['reap_job_id']);
+        self::assertSame('43', $redis->gcCursors['reap_cursor']);
+        self::assertSame([], array_filter($redis->log, static fn(string $l): bool => str_starts_with($l, 'scan:')));
+    }
+
+    /** `W-F2-I3`: una `disid:*` viva no provoca bucle; en la misma visita del índice 5 se recolectan las `disdetnro:*`. */
+    public function testSurvivingLegacyReservationDoesNotLoopAndDisdetnroIsStillCollected(): void
+    {
+        $redis = new FakeMaintenanceRedis();
+        $live = 'audit:reservation:disid:LIVE-1';
+        $liveAudit = AuditEvent::deterministicUuidV4('gc-live-audit');
+        $redis->strings[$live] = (string) json_encode(['audit_id' => $liveAudit, 'token' => 't',
+            'claimed_at' => gmdate('Y-m-d\TH:i:s\Z', intdiv(self::NOW_MS, 1000))]);
+        $redis->auditStatuses[$liveAudit] = 'processing';
+        $orphans = [BatchJobStore::auditReservationKey('O-1'), BatchJobStore::auditReservationKey('O-2')];
+        foreach ($orphans as $i => $key) {
+            $redis->strings[$key] = (string) json_encode(['audit_id' => AuditEvent::deterministicUuidV4('gc-orphan-' . $i),
+                'token' => 't', 'claimed_at' => self::OLD_ISO]);
+        }
+        $redis->pages[AuditExecutionMaintenance::LEGACY_RESERVATION_PATTERN] = [[$live]];
+        $redis->pages['audit:reservation:disdetnro:*'] = [$orphans];
+        $redis->gcCursors = ['pattern_index' => '5'];
+        $legacyScans = static fn(): int => count(array_filter($redis->log, static fn(string $l): bool => str_starts_with($l, 'scan:audit:reservation:disid:*')));
+
+        $removed = (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame(2, $removed);
+        self::assertSame($orphans, $redis->reservationDeletes);
+        self::assertArrayHasKey($live, $redis->strings);
+        self::assertSame(1, $legacyScans(), 'Una sola pasada SCAN sobre disid:* por visita del índice 5.');
+        $firstLegacy = array_search('scan:audit:reservation:disid:*:0', $redis->log, true);
+        $firstNew = array_search('scan:audit:reservation:disdetnro:*:0', $redis->log, true);
+        self::assertIsInt($firstLegacy);
+        self::assertIsInt($firstNew);
+        self::assertLessThan($firstNew, $firstLegacy, 'La pasada legada precede a disdetnro:* en el mismo índice.');
+        self::assertSame('0', $redis->gcCursors['legacy_done'], 'La pasada vio claves: se repite en el ciclo siguiente.');
+        self::assertSame('0', $redis->gcCursors['legacy_pass_done'], 'Completado el índice 5, la pasada se reinicia.');
+        self::assertSame('0', $redis->gcCursors['legacy_saw_keys']);
+
+        // Sin claves legadas, la siguiente pasada fija legacy_done = '1' y después no se vuelve a escanear el patrón.
+        unset($redis->strings[$live]);
+        $redis->pages[AuditExecutionMaintenance::LEGACY_RESERVATION_PATTERN] = [[]];
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+        self::assertSame('1', $redis->gcCursors['legacy_done']);
+        self::assertSame(2, $legacyScans());
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+        self::assertSame(2, $legacyScans(), 'Con legacy_done = 1 el patrón legado no se visita más.');
+    }
+
+    /** `W-F1-I3`, `R5-F2-I1`: las excepciones no saltan el índice 5 (pasada legada) ni el 4 (reaper pendiente). */
+    public function testFinallyDoesNotSkipReservationsOrJobsPatternOnException(): void
+    {
+        // (a) Excepción en la última clave de una página INTERMEDIA de disid:*: no avanza a 6.
+        $redis = new FakeMaintenanceRedis();
+        $redis->pages[AuditExecutionMaintenance::LEGACY_RESERVATION_PATTERN] = [
+            ['audit:reservation:disid:A', 'audit:reservation:disid:BAD'],
+            ['audit:reservation:disid:C'],
+        ];
+        $redis->corrupt['audit:reservation:disid:BAD'] = '{json-invalido';
+        $redis->gcCursors = ['pattern_index' => '5'];
+        self::assertTrue($this->gcThrowsWith($redis));
+        self::assertSame('5', $redis->gcCursors['pattern_index']);
+        self::assertSame('1', $redis->gcCursors['cursor:reservations_legacy']);
+        self::assertSame('0', $redis->gcCursors['legacy_pass_done']);
+        self::assertSame('[]', $redis->gcCursors['pending_keys']);
+        // El tick siguiente continúa la pasada legada en la página 1 (no reinicia en '0').
+        $redis->log = [];
+        unset($redis->corrupt['audit:reservation:disid:BAD']);
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+        self::assertContains('scan:audit:reservation:disid:*:1', $redis->log);
+        self::assertNotContains('scan:audit:reservation:disid:*:0', $redis->log);
+
+        // (b) Excepción en la última clave ya extraída de la página FINAL de disid:*: cierra la pasada sin avanzar.
+        $redis = new FakeMaintenanceRedis();
+        $redis->pages[AuditExecutionMaintenance::LEGACY_RESERVATION_PATTERN] = [['audit:reservation:disid:BAD2']];
+        $redis->corrupt['audit:reservation:disid:BAD2'] = '{json-invalido';
+        $redis->gcCursors = ['pattern_index' => '5'];
+        self::assertTrue($this->gcThrowsWith($redis));
+        self::assertSame('5', $redis->gcCursors['pattern_index']);
+        self::assertSame('1', $redis->gcCursors['legacy_pass_done']);
+        self::assertSame('0', $redis->gcCursors['legacy_done'], 'La página tenía claves (legacy_saw_keys = 1).');
+        $redis->log = [];
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+        $first = array_values(array_filter($redis->log, static fn(string $l): bool => str_starts_with($l, 'scan:')))[0] ?? null;
+        self::assertSame('scan:audit:reservation:disdetnro:*:0', $first, 'El tick siguiente sigue en disdetnro:*, sin re-escanear disid:*.');
+
+        // (c) Excepción del reaper tras persistir reap_job_id: el índice 4 no avanza.
+        $threshold = AuditExecutionConfig::jobStaleAfterSeconds() * 1000;
+        $jobId = AuditEvent::deterministicUuidV4('gc-reap-exception');
+        $redis = new FakeMaintenanceRedis();
+        $redis->strings[BatchJobStore::jobKey($jobId)] = self::jobJson($jobId, ['status' => 'processing', 'last_progress_at' => self::NOW_MS - $threshold - 1]);
+        $redis->pages['job:*:state'] = [[BatchJobStore::jobKey($jobId)]];
+        $redis->gcCursors = ['pattern_index' => '4'];
+        $store = $this->createMock(BatchJobStore::class);
+        $slices = 0;
+        $store->method('reapStaleJob')->willReturnCallback(static function () use (&$slices): array {
+            if (++$slices > 1) {
+                throw new \RuntimeException('redis caído');
+            }
+            return ['done' => false, 'cursor' => '9', 'cancelled_audits' => 500, 'reaped' => false];
+        });
+        self::assertTrue($this->gcThrowsWith($redis, $store));
+        self::assertSame('4', $redis->gcCursors['pattern_index']);
+        self::assertSame($jobId, $redis->gcCursors['reap_job_id']);
+        self::assertSame('9', $redis->gcCursors['reap_cursor']);
+    }
+
+    /** `X-F2-B1`, `R4-F2-B1`: solo se libera la reserva de una auditoría viva de un job inexistente o terminal sin la fila. */
+    public function testOrphanReservationReleasedOnlyForMissingOrTerminalJobWithoutRow(): void
+    {
+        $redis = new FakeMaintenanceRedis();
+        $failed = AuditEvent::deterministicUuidV4('orphan-job-failed');
+        $processing = AuditEvent::deterministicUuidV4('orphan-job-processing');
+        $failedWithRow = AuditEvent::deterministicUuidV4('orphan-job-failed-row');
+        $missing = AuditEvent::deterministicUuidV4('orphan-job-missing');
+        $redis->strings[BatchJobStore::jobKey($failed)] = self::jobJson($failed, ['status' => 'failed']);
+        $redis->strings[BatchJobStore::jobKey($processing)] = self::jobJson($processing, ['status' => 'processing']);
+        $redis->strings[BatchJobStore::jobKey($failedWithRow)] = self::jobJson($failedWithRow, ['status' => 'failed']);
+        $old = gmdate('Y-m-d\TH:i:s\Z', intdiv(self::NOW_MS, 1000) - 61);
+        $young = gmdate('Y-m-d\TH:i:s\Z', intdiv(self::NOW_MS, 1000) - 30);
+        $cases = [
+            'R1' => [$failed, $old], 'R2' => [$missing, $old], 'R3' => [$processing, $old],
+            'R4' => [$failedWithRow, $old], 'R5' => [$failed, $young],
+        ];
+        $keys = [];
+        foreach ($cases as $name => [$jobId, $claimedAt]) {
+            $auditId = AuditEvent::deterministicUuidV4('orphan-audit-' . $name);
+            $keys[] = $key = BatchJobStore::auditReservationKey('DDN-' . $name);
+            $redis->strings[$key] = (string) json_encode(['job_id' => $jobId, 'audit_id' => $auditId, 'token' => 't', 'claimed_at' => $claimedAt]);
+            $redis->auditStatuses[$auditId] = 'pending';
+            $redis->strings[AuditStateStore::auditKey($auditId)] = (string) json_encode([
+                'audit_id' => $auditId, 'job_id' => $jobId, 'status' => 'pending', 'documents' => ['doc-1' => ['status' => 'extracted']],
+            ]);
+            if ($name === 'R4') {
+                $redis->hashes[BatchJobStore::jobAuditsKey($jobId)][$auditId] = '{"status":"pending"}';
+            }
+        }
+        $redis->pages['audit:reservation:disdetnro:*'] = [$keys];
+        $redis->gcCursors = ['pattern_index' => '5', 'legacy_done' => '1'];
+
+        (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024))->gc(60000, self::NOW_MS);
+
+        self::assertSame([$keys[0], $keys[1]], $redis->orphanReleases);
+        $state = json_decode($redis->strings[AuditStateStore::auditKey(AuditEvent::deterministicUuidV4('orphan-audit-R1'))], true);
+        self::assertSame('failed', $state['status']);
+        self::assertSame('orphaned_job_terminal', $state['failed_stage']);
+        self::assertSame(['doc-1' => ['status' => 'extracted']], $state['documents']);
+        foreach ([$keys[2], $keys[3], $keys[4]] as $kept) {
+            self::assertArrayHasKey($kept, $redis->strings);
+        }
+    }
+
+    /** @return array{0:FakeMaintenanceRedis,1:string,2:string} */
+    private function terminalJobFixture(int $audits): array
+    {
+        $jobId = AuditEvent::deterministicUuidV4('gc-hscan-job-' . $audits);
+        $jobKey = BatchJobStore::jobKey($jobId);
+        $redis = new FakeMaintenanceRedis();
+        $redis->strings[$jobKey] = self::jobJson($jobId, ['status' => 'completed', 'completed_at' => self::OLD_ISO, 'total' => $audits]);
+        $redis->hashSizes[BatchJobStore::jobAuditsKey($jobId)] = $audits;
+        $redis->pages['job:*:state'] = [[$jobKey]];
+        $redis->gcCursors = ['pattern_index' => '4'];
+
+        return [$redis, $jobId, $jobKey];
+    }
+
+    /** @param array<string,mixed> $fields */
+    private static function jobJson(string $jobId, array $fields): string
+    {
+        return (string) json_encode($fields + [
+            'job_id' => $jobId, 'execution_version' => 2, 'fac_nit_sec' => 2624, 'date_from' => '2026-06-01',
+            'date_to' => '2026-06-30', 'sealed' => false, 'total' => 0, 'done' => 0, 'failed' => 0,
+            'updated_at' => self::OLD_ISO,
+        ]);
+    }
+
+    private function gcThrowsWith(FakeMaintenanceRedis $redis, ?BatchJobStore $store = null): bool
+    {
+        try {
+            (new AuditExecutionMaintenance($redis, new AuditExecutionConfig(2), static fn(): int => 1024, $store))->gc(60000, self::NOW_MS);
+        } catch (\Throwable) {
+            return true;
+        }
+
+        return false;
     }
 }

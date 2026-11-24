@@ -1,3 +1,16 @@
+## [2026-11-24]
+
+### feat / ops / fix
+- **Estabilización batch — migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C, spec `plans/sdd-estabilizacion-batch-y-mantenimiento.md` v1.2)**:
+  - **Migración Redis v1 → v2** (`BatchJobStore::migrateBatchV2()`, CLI `migrate-batch-v2 [--clear-claims]`): extrae `audits` inline a `job:{id}:audits`, puebla `job:{id}:by_dispensa` y `jobs:active:nit:{nit}`, recuenta `total/done/failed` (también con 0 auditorías), conserva `failed`, nunca deja `sealed = false` en un job cerrado (`R-SEAL`), marca `generation_abandoned` si no hay `batch_requested` pendiente, convierte reservas `disid:*` a `disdetnro:*` (aborta sin borrar el origen ante identidad irresuelta o colisión), limpia o normaliza `batch:claim:*`, recalcula `telemetry:async_metrics` y expira `batch:idem:*` legados (`legacy_idempotency` en la salida).
+  - **Rollback forward-fix only** (`rollbackBatchV2()`, CLI `rollback-batch-v2`): sale con código `1` sin mutar claves si hay jobs no terminales o reservas `disdetnro:*` (`DEC-11`); en reposo es reentrante.
+  - **`repair-jobs` y `repair-jobs --force-stale[=jobId]`**: reparación de contadores sin tocar reservas ni locks; cierre manual de jobs sin progreso con umbral `0`, respetando `batch:claim` vivo.
+  - **`gc()` (delta Fase 2)**: reaper automático de jobs sin progreso tras `AUDIT_JOB_STALE_AFTER_SECONDS` (no actúa en pausa; umbral desde `max(last_progress_at, audit:execution:resumed_at_ms)`), reanudación por rebanadas (`reap_job_id`/`reap_cursor`), recolección de jobs terminales con `HSCAN` reanudable y borrado por `sha1` (`hscan_*`), liberación de reservas huérfanas de jobs terminales (`orphaned_job_terminal`), pasada única por ciclo sobre reservas legadas `disid:*` que sobrevive a cortes de presupuesto, y `jobs_reaped` en `heartbeat:meta`. `resume` escribe `audit:execution:resumed_at_ms`.
+  - **Despliegue**: `deploy-production.yml` con `operation=deploy|rollback` (`env.OPERATION = deploy` en `workflow_run`); en `deploy`, pausa + `stop` de `php` y workers + `migrate-batch-v2 --clear-claims`/`repair-jobs`/`reconcile` antes de actualizar extractors y `resume` al ver heartbeat; en `rollback`, `rollback-batch-v2` sobre el stack v2 vigente antes de tocar `.env` (si aborta, relanza v2 en pausa y termina con `exit 1`).
+  - **Configuración**: `AUDIT_BATCH_LOCK_TTL_SECONDS` 300 → 1800; nuevas `AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS=300` y `AUDIT_JOB_STALE_AFTER_SECONDS=21600`; documentadas `DB_TIMEOUT`/`DB2_TIMEOUT`.
+- **Archivos modificados**: `app/Services/Audit/Pipeline/BatchJobStore.php`, `AuditExecutionMaintenance.php`, `AuditExecutionInspector.php`, nuevo `AuditBatchMaintenanceCommands.php`, `bin/audit-execution-maintenance.php`, `.env.example`, `.github/workflows/deploy-production.yml`, `AGENTS.md`, `plans/audit-identity-contract.md`; tests en `tests/Services/Audit/Pipeline/`, `tests/Integration/` y `tests/Support/IsolatedAuditRedis.php`.
+- **Pendiente antes de desplegar**: `gh variable set` de las tres variables en GitHub Environment `production` (ver `AGENTS.md`).
+
 ## [2026-11-22]
 
 ### fix / ops / perf
