@@ -1,5 +1,23 @@
 # Changelog AudFact
 
+## [2026-11-23] — Optimización de homologación semántica, priorización de candidatos y completitud de evidencia (`SDD-OPTIM-SEMANTIC-EVIDENCE-2026-11`)
+
+- **Problema y Motivación**:
+  - En auditorías reales de producción (`D03261002256`, `D63261106501`, `U77261101396`, `V14261105835`), se detectaron pérdidas de razonamiento clínico en `evaluateArticleSetField()` (emitía mensaje estático descartando el motivo del LLM), colas desordenadas de candidatos en `rankUnmatchedCandidates()` donde artículos no coincidentes (`unmatched_articles`) saltaban delante de ítems primarios generando hasta 3 olas HTTP, fugas de fármacos idénticos de Capa 1 a Fase 3 por falta de separación `<número><unidad>` y abreviaturas farmacéuticas (`TAB`/`CAP`), truncamiento de `extraction_meta.valores` a la fila 0, y ambigüedad direccional de roles en `SemanticBatchContract`.
+- **Componentes modificados**:
+  - `app/Services/Audit/Pipeline/FieldValueResolver.php`: corregido `extractPresentItemValues()` para preservar la lista completa de valores extraídos en `evidenceMeta['valores']` (`uniquePreservingOrder()`), y corregido `mergeDocumentArticleNames()` para mantener el orden natural de aparición evitando que `unmatched_articles` adelanten a los ítems primarios. Refactorizado con `SORT_STRING` explícito para determinismo.
+  - `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`: implementada la priorización estricta de 3 niveles en `rankUnmatchedCandidates()` con nombres de intención claros (`$unassignedPrimary`, `$assignedPrimary`, `$unmatchedArticles`), fórmula de desempate léxico documentada; extracción del helper privado `formatInconclusiveArticleReasoning()` para desacoplar la generación del motivo clínico (`Motivo: ...`) en hallazgos `NO_CONCLUYENTE`; inicialización estricta y null-safe de `$lastReasoningByFdv`.
+  - `app/Services/Audit/SemanticBatchContract.php`: agregada definición explícita de roles direccionales en los prompts (`expected` = dispensado/fuente de verdad, `actual` = documento soporte) y directriz compacta agnóstica de desambiguación de forma física principal vs empaque secundario tras guiones o corchetes para evitar falsos positivos de presentación.
+  - `app/Services/Audit/Pipeline/SemanticEvaluationWorker.php`: propagados `dis_det_nro` y `document_type` en el contexto de `evaluateBatch()` para correcta nomenclatura en `logs/responseIA`.
+  - `app/Services/Audit/Pipeline/ExtractionPromptBuilder.php`: incorporada regla de identidad y correlación visual en prescripciones tabulares para evitar intercambio de `NombrePaciente` y `Medico`.
+  - `scripts/eval-dispensations-empirical.php`: suite CLI reproducible con las 4 dispensas reales que certifica el 100% (13/13) de los invariantes.
+- **Refactorización Clean Code (clean-rebuild-policy)**:
+  - Eliminación de acoplamiento rígido (hardcode): retirada de constantes de clase `FIELD_PATIENT_NAME` y `FIELD_PATIENT_DOC_NUMBER` en `DocumentPolicyEngine`. Sustituido por descubrimiento dinámico agnóstico de ancla de identidad (`resolveIdentityDocFieldName()`, `isIdentityAnchoredPerson()` y `hasVerifiedIdentityAnchor()`) a través de `fields_config`, `AuditFieldValueType::IDENTITY_DOC_NUMBER` y `CodigoCampo` (`PAC`/`MED`), garantizando extensibilidad ante cualquier catálogo de clientes.
+  - Higiene del código y modelado de dominio: eliminación de duplicación en manipulación de arrays en `FieldValueResolver` (`SORT_STRING`), variables auto-explicativas en la ordenación por niveles de `DocumentPolicyEngine`, desacoplamiento de responsabilidades de formato vs evaluación y preservación estricta de todos los contratos públicos.
+- **Pruebas y Verificación**:
+  - Suite de evaluación empírica CLI (`php scripts/eval-dispensations-empirical.php`): **13 de 13 invariantes cumplidos (100.0%)**.
+  - Suite PHPUnit (`Unit`): 1,188 tests, 6,059 aserciones, 0 fallos, 0 errores (0 regresiones).
+
 ## [2026-11-23] — Tolerancia ortográfica controlada en campos semánticos seguros (`SDD-TOL-001`)
 
 - **Problema y Motivación**:
@@ -20,6 +38,23 @@
   - Suite completa PHPUnit (`Unit`): **1,188 tests, 6,059 aserciones, 78 skipped, 0 fallos, 0 errores**.
   - Compilación Docusaurus (`npm --prefix website run build`): **SUCCESS**.
   - `0` variables de entorno nuevas (sin cambios requeridos en `.env.example` ni GitHub Environment `production`).
+
+## [2026-11-22] — Verificación cruzada y depuración de las specs `SDD-BATCH-000/001/002` (revisión 1.1)
+
+- **Motivación**:
+  - Depurar las tres especificaciones pendientes de implementar antes de codificar, siguiendo `system.md` (CP3 especificación, CP4 planificación, 17.1 control de deriva). Se verificaron 18 afirmaciones contra el código en `HEAD` (`2d1a467`) con evidencia `archivo:línea` por dos verificadores independientes (grep del orquestador y un agente Sonnet sin contexto previo).
+- **Componentes modificados** (solo documentación; no se tocó código):
+  - `plans/sdd-aislamiento-carriles-y-descarga.md` (`SDD-BATCH-002`): baseline de caché `3 GiB`, réplicas `semantic-batch 12` / `extraction-batch 36`, `DEC-F3-08` sin degradar semantic-batch (`+7 GiB`), dependencia técnica explícita de `SDD-BATCH-001`, renombrado de `worker-downloader` también en `v2_services`, Mapa de Endpoints de `AGENTS.md` y `CA-F3-09` ampliado.
+  - `plans/sdd-estabilizacion-batch-y-mantenimiento.md` (`SDD-BATCH-001`): `SUP-04` reconciliado con `DEC-F3-08`, caché y compuerta marcadas «sin cambios en esta fase», `claimIdempotencyKey()` como heredado de `SDD-BATCH-000`, guarda `$argc` reescrita, criterios con ID `CA-F2-01..16` y matriz REQ→CA.
+  - `plans/sdd-hotfix-mantenimiento-ejecucion.md` (`SDD-BATCH-000`): perímetro añade `plans/changelog.md` y `AGENTS.md`.
+  - Las tres specs pasan a versión `1.1` con `Registro de revisión ASEO (2026-11-22)` (estado `PENDING_APPROVAL`).
+- **Revisión 1.2 (decisiones del usuario, mismo día; verificada por un agente independiente, 2 inconsistencias menores corregidas)**: las tres specs suben a **Nivel A** (implementables; despliegue condicionado).
+  - `000`: Nivel B → A (baseline = `HEAD`, producción es copia fiel de local; `SUP-F1-03`/`04` mitigados; `docker-compose.yml:60,73` verificado).
+  - `001`: se mantiene Nivel A condicionado a `SUP-03`; se añade `CA-F2-17` para `REQ-07` (cifras de `DEC-06`).
+  - `002`: Nivel C → A. `AUDIT_DOCUMENT_STREAM_READ_COUNT` por defecto `5` (el cliente de Drive tiene timeout `60 s`: con `10` se incumplía la regla `readCount × timeout < 600 s`); `429` aceptado para todos los clientes; umbral VIP `20 min` y `+7 GiB` de memoria aprobados.
+- **Pendientes**:
+  - Orden de implementación obligatorio: `000` → `001` → `002`, con despliegues separados.
+  - Despliegue de `001` condicionado a `000` estable `24 h` (`SUP-03`); de `002`, a `000` y `001` estables `24 h` y al `gh variable set` previo.
 
 ## [2026-11-20] — Sintonización de concurrencia y ampliación de caché documental (`SDD-SCALE-001`)
 

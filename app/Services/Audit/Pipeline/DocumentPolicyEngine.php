@@ -20,9 +20,6 @@ use RuntimeException;
 
 class DocumentPolicyEngine
 {
-    private const FIELD_PATIENT_NAME = 'NombrePaciente';
-    private const FIELD_PATIENT_DOC_NUMBER = 'DocumentoPaciente';
-
     private ?SemanticMatchResolver $semanticJudge;
     /** @var array<int,array<string,mixed>> */
     private array $semanticMetrics = [];
@@ -124,6 +121,8 @@ class DocumentPolicyEngine
         }
 
         $indexedFields = $this->indexFieldsByCanonicalName($documentState['fields_config'] ?? []);
+        $context['fields_config']  = $documentState['fields_config'] ?? [];
+        $context['indexed_fields'] = $indexedFields;
 
         $extractionWarnings = $normalizedPayload['extraction_warnings'] ?? [];
 
@@ -190,13 +189,14 @@ class DocumentPolicyEngine
     private function buildEvaluationContext(array $documentState, string $documentType): array
     {
         return [
-            'audit_id'      => $documentState['audit_id'] ?? null,
-            'document_id'   => $documentState['document_id'] ?? null,
-            'dis_det_nro'   => $documentState['dis_det_nro'] ?? null,
-            'document_type' => $documentType,
-            'fac_nit_sec'   => $documentState['fac_nit_sec'] ?? null,
-            'fuente_verdad' => $documentState['fuente_verdad'] ?? null,
+            'audit_id'        => $documentState['audit_id'] ?? null,
+            'document_id'     => $documentState['document_id'] ?? null,
+            'dis_det_nro'     => $documentState['dis_det_nro'] ?? null,
+            'document_type'   => $documentType,
+            'fac_nit_sec'     => $documentState['fac_nit_sec'] ?? null,
+            'fuente_verdad'   => $documentState['fuente_verdad'] ?? null,
             'usa_factor_conv' => (bool) ($documentState['factor_conv'] ?? false),
+            'fields_config'   => $documentState['fields_config'] ?? [],
         ];
     }
 
@@ -799,6 +799,8 @@ class DocumentPolicyEngine
 
         /** @var array<int,int> Mapa fdvIdx => docIdx emparejado */
         $matchedFdv = [];
+        /** @var array<int,string|null> Mapa fdvIdx => razonamiento clínico LLM */
+        $lastReasoningByFdv = [];
 
         // Fase 1: Match léxico directo (normalización exacta o contención de substring)
         foreach ($fdvNorm as $fi => $fNorm) {
@@ -853,14 +855,15 @@ class DocumentPolicyEngine
         // Si el batch falla o el resolver no soporta batch, degradar a evaluación individual.
         if ($this->semanticJudge !== null) {
             $docContextStr = $this->buildDocumentContextSummary($context, $field);
+            $lastReasoningByFdv = [];
 
-            // Construir pares huérfanos: cada FDV → top-1 doc por Jaccard (excluir ya emparejados)
+            // Construir pares huérfanos: cada FDV → top-1 doc por prioridad (excluir ya emparejados)
             $orphanPairs = [];
             foreach ($fdvArticles as $fi => $fdvOriginal) {
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
-                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles);
+                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
                 if ($candidates === []) {
                     continue;
                 }
@@ -881,18 +884,20 @@ class DocumentPolicyEngine
                 foreach ($batchResolved as $pairResult) {
                     if ($pairResult['is_match']) {
                         $matchedFdv[$pairResult['fi']] = $pairResult['di'];
+                    } else {
+                        $lastReasoningByFdv[$pairResult['fi']] = $pairResult['reasoning'] ?? null;
                     }
                 }
                 if (is_array($batchResolved['_gemini_metrics'] ?? null)) {
                     $this->semanticMetrics[] = $batchResolved['_gemini_metrics'];
                 }
             } else {
-                // Fallback: evaluación individual con Jaccard sort (comportamiento pre-batch)
+                // Fallback: evaluación individual con prioridad estricta de 3 niveles
                 foreach ($fdvArticles as $fi => $fdvOriginal) {
                     if (isset($matchedFdv[$fi])) {
                         continue;
                     }
-                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles);
+                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
 
                     foreach ($candidates as $di => $jaccardScore) {
                         $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docArticles[$di], array_merge($context, [
@@ -913,6 +918,7 @@ class DocumentPolicyEngine
                             $matchedFdv[$fi] = $di;
                             break;
                         }
+                        $lastReasoningByFdv[$fi] ??= $judgeResult['reasoning'] ?? null;
                     }
                 }
             }
@@ -933,18 +939,46 @@ class DocumentPolicyEngine
 
         $humanField = TextNormalization::humanizeFieldName($field);
 
+        $reasoningDetail = $this->formatInconclusiveArticleReasoning($unmatchedNames, $fdvArticles, $lastReasoningByFdv);
+
         return [
             'resultado' => AuditFindingResult::INCONCLUSIVE->value,
             'tipo_auditoria' => 'semantic',
             'detalle' => sprintf(
-                "En '%s', el documento soporte no contiene evidencia para %d de %d artículos de la dispensación: '%s'. Artículos visibles en el documento: '%s'.",
+                "En '%s', el documento soporte no contiene evidencia para %d de %d artículos de la dispensación: '%s'. Artículos visibles en el documento: '%s'.%s",
                 $humanField,
                 count($unmatchedNames),
                 count($fdvArticles),
                 implode(', ', $unmatchedNames),
-                implode(', ', $docArticles)
+                implode(', ', $docArticles),
+                $reasoningDetail
             ),
         ];
+    }
+
+    /**
+     * Formatea el razonamiento clínico explicativo de artículos no emparejados.
+     *
+     * @param  array<int,string>           $unmatchedNames     Nombres de artículos huérfanos de la dispensación.
+     * @param  array<int,string>           $fdvArticles        Colección completa de artículos de la dispensación.
+     * @param  array<int,string|null>|null $lastReasoningByFdv Razonamiento clínico indexado por posición FDV.
+     * @return string                                          Detalle de motivos formateado o cadena vacía.
+     */
+    private function formatInconclusiveArticleReasoning(
+        array $unmatchedNames,
+        array $fdvArticles,
+        ?array $lastReasoningByFdv = []
+    ): string {
+        $lastReasoningByFdv ??= [];
+        $reasoningParts = [];
+        foreach ($unmatchedNames as $name) {
+            $fi = array_search($name, $fdvArticles, true);
+            if ($fi !== false && !empty($lastReasoningByFdv[$fi])) {
+                $reasoningParts[] = "Para '{$name}': " . trim((string) $lastReasoningByFdv[$fi]);
+            }
+        }
+
+        return $reasoningParts !== [] ? ' Motivo: ' . implode(' | ', $reasoningParts) : '';
     }
 
     /**
@@ -1038,24 +1072,69 @@ class DocumentPolicyEngine
 
 
     /**
-     * Rankea documentos no emparejados por similitud Jaccard descendente.
+     * Prioriza y ordena candidatos documentales para resolución semántica según política de 3 niveles:
+     * - Nivel 1: Ítems primarios extraídos no asignados (máxima prioridad para evitar llamadas LLM redundantes).
+     * - Nivel 2: Ítems primarios extraídos ya asignados en $matchedFdv (preserva cobertura suryectiva N:1 para entregas divididas).
+     * - Nivel 3: Artículos residuales no coincidentes ($unmatchedSet / restricción D-11 como estricto fallback).
      *
-     * Excluye documentos ya asignados a otro artículo FDV en $matchedFdv.
-     * Resultado ordenado desc por score: el primer elemento es el mejor candidato.
+     * Dentro de cada nivel, ordena descendentemente por score compuesto:
+     * Token-Sorted Jaccard (peso primario) + Similitud de caracteres / 10000 (desempate léxico fino).
      *
-     * @param  string          $fdvOriginal  Artículo FDV a emparejar.
-     * @param  array<int,string> $docArticles  Todos los artículos del documento.
-     * @param  array<int,int>    $matchedFdv   Mapa fdvIdx→docIdx ya emparejado.
-     * @return array<int,float>  docIdx→jaccardScore, ordenado desc.
+     * @param  string               $fdvOriginal  Artículo FDV a emparejar.
+     * @param  array<int,string>    $docArticles  Todos los artículos del documento.
+     * @param  array<string,bool>   $unmatchedSet Conjunto de artículos catalogados como unmatched_articles.
+     * @param  array<int,int>       $matchedFdv   Mapa fdvIdx→docIdx ya emparejado.
+     * @return array<int,float>     docIdx→score, ordenado desc por prioridad y similitud.
      */
-    private function rankUnmatchedCandidates(string $fdvOriginal, array $docArticles): array
-    {
-        $candidates = [];
+    private function rankUnmatchedCandidates(
+        string $fdvOriginal,
+        array $docArticles,
+        array $unmatchedSet = [],
+        array $matchedFdv = []
+    ): array {
+        $assignedDocs = array_flip($matchedFdv);
+
+        $unassignedPrimary = [];
+        $assignedPrimary   = [];
+        $unmatchedArticles = [];
+
         foreach ($docArticles as $di => $docOriginal) {
-            $candidates[$di] = TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal);
+            $isUnmatched = isset($unmatchedSet[$docOriginal]);
+            $isAssigned  = isset($assignedDocs[$di]);
+
+            $jaccard = TextNormalization::tokenSortedJaccard($fdvOriginal, $docOriginal);
+            similar_text(
+                TextNormalization::normalizeArticleName($fdvOriginal),
+                TextNormalization::normalizeArticleName($docOriginal),
+                $sim
+            );
+            $score = $jaccard + ($sim / 10000.0);
+
+            if ($isUnmatched) {
+                $unmatchedArticles[$di] = $score;
+            } elseif ($isAssigned) {
+                $assignedPrimary[$di] = $score;
+            } else {
+                $unassignedPrimary[$di] = $score;
+            }
         }
-        arsort($candidates);
-        return $candidates;
+
+        arsort($unassignedPrimary);
+        arsort($assignedPrimary);
+        arsort($unmatchedArticles);
+
+        $result = [];
+        foreach ($unassignedPrimary as $di => $score) {
+            $result[$di] = $score;
+        }
+        foreach ($assignedPrimary as $di => $score) {
+            $result[$di] = $score;
+        }
+        foreach ($unmatchedArticles as $di => $score) {
+            $result[$di] = $score;
+        }
+
+        return $result;
     }
     /**
      * @return array{resultado:string,detalle?:string}
@@ -1168,6 +1247,13 @@ class DocumentPolicyEngine
      * @param array<string,mixed> $context
      * @return array{resultado:string,tipo_auditoria:string,detalle:string}|null
      */
+    /**
+     * Evalúa coincidencia textual con tolerancia ortográfica de 1 carácter (Damerau-Levenshtein = 1)
+     * cuando el tipo de dato/campo lo habilita y, si es persona titular, su documento de identidad coincide.
+     *
+     * @param array<string,mixed> $context
+     * @return array{resultado:string,tipo_auditoria:string,detalle:string}|null
+     */
     private function evaluateMinorAlphabeticTypoMatch(
         string $field,
         string $fdvValue,
@@ -1180,9 +1266,15 @@ class DocumentPolicyEngine
             return null;
         }
 
-        $isPatientName = $valueType === AuditFieldValueType::PERSON_NAME && $field === self::FIELD_PATIENT_NAME;
-        if ($isPatientName && !$this->hasVerifiedPatientIdentityAnchor($context)) {
-            return null;
+        $fieldConfig = (array) (($context['indexed_fields'][$field] ?? null) ?? []);
+        $identityFieldName = $this->resolveIdentityDocFieldName($context);
+        $requiresIdentityAnchor = $valueType === AuditFieldValueType::PERSON_NAME
+            && $this->isIdentityAnchoredPerson($field, $fieldConfig);
+
+        if ($requiresIdentityAnchor) {
+            if ($identityFieldName === null || !$this->hasVerifiedIdentityAnchor($context, $identityFieldName)) {
+                return null;
+            }
         }
 
         $typoMatch = TextNormalization::matchTokenSetWithMinorAlphabeticTypo(
@@ -1194,11 +1286,12 @@ class DocumentPolicyEngine
             return null;
         }
 
-        $detail = $isPatientName
+        $detail = ($requiresIdentityAnchor && $identityFieldName !== null)
             ? sprintf(
-                "Coincidencia nominal con tolerancia ortográfica menor ('%s' ≈ '%s'), respaldada por coincidencia exacta de DocumentoPaciente.",
+                "Coincidencia nominal con tolerancia ortográfica menor ('%s' ≈ '%s'), respaldada por coincidencia exacta de %s.",
                 $typoMatch['doc_token'],
-                $typoMatch['fdv_token']
+                $typoMatch['fdv_token'],
+                $identityFieldName
             )
             : sprintf(
                 "Coincidencia textual con tolerancia ortográfica menor ('%s' ≈ '%s').",
@@ -1214,14 +1307,65 @@ class DocumentPolicyEngine
     }
 
     /**
-     * Verifica si DocumentoPaciente está presente tanto en la FDV como en el documento
-     * evaluado y coincide exactamente tras normalización canónica.
+     * Determina si un campo PERSON_NAME corresponde al titular / paciente respaldado
+     * por documento de identidad.
      *
-     * Independiente del orden de campos en fields_config.
+     * @param array<string,mixed> $fieldConfig
+     */
+    private function isIdentityAnchoredPerson(string $field, array $fieldConfig): bool
+    {
+        $codigo = strtoupper(trim((string) ($fieldConfig['codigoCampo'] ?? '')));
+        if ($codigo === 'PAC') {
+            return true;
+        }
+        if ($codigo === 'MED') {
+            return false;
+        }
+
+        return (bool) preg_match('/(paciente|usuario|titular|afiliado)/i', $field);
+    }
+
+    /**
+     * Resuelve dinámicamente el nombre del campo de documento de identidad en el contexto documental.
+     *
+     * @param  array<string,mixed> $context
+     * @return string|null
+     */
+    private function resolveIdentityDocFieldName(array $context): ?string
+    {
+        $fieldsConfig = (array) ($context['fields_config'] ?? []);
+        foreach ($fieldsConfig as $fieldConfig) {
+            $tipoDato = trim((string) ($fieldConfig['tipoDato'] ?? ''));
+            if ($tipoDato !== '' && AuditFieldValueType::tryFrom(strtolower($tipoDato)) === AuditFieldValueType::IDENTITY_DOC_NUMBER) {
+                return (string) ($fieldConfig['campoNombre'] ?? '');
+            }
+        }
+
+        // Fallback dinámico sobre fuente_verdad o document_fields si fields_config no está disponible
+        $header = is_array($context['fuente_verdad']['header'] ?? null) ? $context['fuente_verdad']['header'] : [];
+        foreach (array_keys($header) as $k) {
+            if (preg_match('/(documento|cedula|identificacion)/i', (string) $k)) {
+                return (string) $k;
+            }
+        }
+
+        $docFields = is_array($context['document_fields'] ?? null) ? $context['document_fields'] : [];
+        foreach (array_keys($docFields) as $docField) {
+            if (preg_match('/(documento|cedula|identificacion)/i', (string) $docField)) {
+                return (string) $docField;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Verifica si el campo de documento de identidad está presente tanto en la FDV
+     * como en el documento evaluado y coincide exactamente tras normalización canónica.
      *
      * @param array<string,mixed> $context
      */
-    private function hasVerifiedPatientIdentityAnchor(array $context): bool
+    private function hasVerifiedIdentityAnchor(array $context, string $identityFieldName): bool
     {
         $sourceTruth = is_array($context['fuente_verdad'] ?? null) ? $context['fuente_verdad'] : null;
         if ($sourceTruth === null) {
@@ -1232,12 +1376,12 @@ class DocumentPolicyEngine
         $docItems  = is_array($context['document_items'] ?? null) ? $context['document_items'] : [];
 
         $fdvDoc = FieldValueResolver::resolveSourceTruthField(
-            self::FIELD_PATIENT_DOC_NUMBER,
+            $identityFieldName,
             AuditFieldValueType::IDENTITY_DOC_NUMBER,
             $sourceTruth
         );
         $docDoc = FieldValueResolver::resolveDocumentValue(
-            self::FIELD_PATIENT_DOC_NUMBER,
+            $identityFieldName,
             AuditFieldValueType::IDENTITY_DOC_NUMBER,
             $docFields,
             $docItems

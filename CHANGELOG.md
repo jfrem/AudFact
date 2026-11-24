@@ -1,3 +1,13 @@
+## [2026-11-18]
+
+### feat / tooling / governance
+- **Implementación Robusta de Git Hooks con Husky (`SDD-HUSKY-GIT-HOOKS-001`)**:
+  - **`.husky/pre-commit`**: Hook POSIX bash con aislamiento estricto de staged mediante NUL delimitador (`git diff --cached -z`), linting PHP sobre blobs extraídos vía `git show`, escaneo y redacción de credenciales en patch staged, validación de `composer.json` en subshell temporal aislada y auditoría de contrato de variables contra `.env.example`.
+  - **`.husky/pre-push`**: Hook POSIX bash con procesamiento canónico de stdin de Git, verificación de árbol de trabajo 100% limpio (`git status --porcelain -uall`), soporte de tags anotados, análisis exhaustivo de historial saliente incluyendo merges y raíces (`--root -m`), ejecución de la suite completa PHPUnit (`1,134 pruebas`) y bloqueo fail-closed con confirmación tipada ante modificaciones en `.env.example`.
+  - **`scripts/install-hooks.sh`**: Reescrito de forma idempotente con captura de estado previo (`STATE_BEFORE_THIS_RUN`), soporte `--install`, `--uninstall` / `--rollback` y rollback automático con `trap`.
+  - **Configuración Git**: Creación de `.gitattributes` para terminaciones `eol=lf`, actualización de `.gitignore` para ignorar `.husky/.previous-hooks-path`, y script `"prepare-hooks"` en `composer.json`.
+  - **Certificación PHPUnit**: **1,134 tests, 5,851 aserciones, 78 omitidas, 0 errores, 0 fallos**.
+
 ## [2026-11-17]
 
 ### fix / refactor / ops / docs

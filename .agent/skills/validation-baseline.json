@@ -75,6 +75,16 @@
       ]
     },
     {
+      "name": "audfact-incident-diagnosis",
+      "path": ".agent/skills/audfact-incident-diagnosis",
+      "files": [
+        ".agent/skills/audfact-incident-diagnosis/SKILL.md",
+        ".agent/skills/audfact-incident-diagnosis/agents/openai.yaml",
+        ".agent/skills/audfact-incident-diagnosis/references/diagnostic-commands.md",
+        ".agent/skills/audfact-incident-diagnosis/references/symptom-playbooks.md"
+      ]
+    },
+    {
       "name": "audfact-security-guardrails",
       "path": ".agent/skills/audfact-security-guardrails",
       "files": [

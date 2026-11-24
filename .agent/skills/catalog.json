@@ -33,6 +33,11 @@
       "description": "Operaciones de produccion LAN: SSH no interactivo, diagnosticos, runner self-hosted, GitHub Secrets/Variables, deploy y rollback."
     },
     {
+      "name": "audfact-incident-diagnosis",
+      "path": ".agent/skills/audfact-incident-diagnosis",
+      "description": "Diagnóstico causa raíz (RCA) en 5 capas para incidentes en AudFact: triaje HTTP, hardware/OS, Docker, Redis v2, dependencias externas y dominio."
+    },
+    {
       "name": "audfact-security-guardrails",
       "path": ".agent/skills/audfact-security-guardrails",
       "description": "Políticas de seguridad: Rate Limit (100/min), CORS y sanitización de logs."
