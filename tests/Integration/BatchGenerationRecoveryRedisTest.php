@@ -288,6 +288,83 @@ final class BatchGenerationRecoveryRedisTest extends TestCase
         self::assertSame(2, $this->summary($jobId)['total']);
     }
 
+    /**
+     * Prepara una fila creada por un intento con epoch 1 y nunca registrada: estado `audit:{id}:state` + reserva propia.
+     *
+     * @return array{0:string,1:string,2:string} `[jobId, auditId, token]`
+     */
+    private function unregisteredRow(string $ddn = 'D1'): array
+    {
+        $jobId = $this->newJob();
+        $claim = $this->store->claimJobGenerationFencedLock($jobId, 'worker-a', 1, 120);
+        self::assertSame(1, $claim->epoch);
+        $auditId = AuditEvent::deterministicUuidV4("batch-audit:{$jobId}:{$ddn}");
+        $token = AuditEvent::deterministicUuidV4("batch-res:{$jobId}:{$ddn}");
+        self::assertTrue($this->states->initAudit($auditId, $ddn, $jobId, (string) self::NIT, '1001'));
+        self::assertTrue($this->states->patchAudit($auditId, ['reservation_token' => $token]));
+        self::assertTrue($this->store->claimAuditReservation($ddn, $token, ['job_id' => $jobId, 'audit_id' => $auditId, 'source' => 'batch']));
+
+        return [$jobId, $auditId, $token];
+    }
+
+    /** VER-B2-01 (i): epoch vigente y sin `by_dispensa` → borra el estado y la reserva propios en un solo EVAL. */
+    public function testDiscardUnregisteredAuditDeletesOwnStateAndReservationWithCurrentEpoch(): void
+    {
+        [$jobId, $auditId, $token] = $this->unregisteredRow();
+
+        self::assertTrue($this->store->discardUnregisteredAudit($jobId, $auditId, 'D1', $token, 1));
+
+        self::assertNull($this->states->getAudit($auditId));
+        self::assertNull($this->store->getAuditReservation('D1'));
+        self::assertSame(0, $this->summary($jobId)['total'], 'El job no se modifica.');
+    }
+
+    /** VER-B2-01 (ii): tras un takeover (epoch 1 → 2) el propietario obsoleto no borra nada y recibe `false`. */
+    public function testDiscardUnregisteredAuditWithStaleEpochDeletesNothing(): void
+    {
+        [$jobId, $auditId, $token] = $this->unregisteredRow();
+        $this->dropGenerationLock($jobId);
+        self::assertSame(2, $this->store->claimJobGenerationFencedLock($jobId, 'worker-b', 1, 120)->epoch);
+
+        self::assertFalse($this->store->discardUnregisteredAudit($jobId, $auditId, 'D1', $token, 1));
+
+        self::assertSame($jobId, $this->states->getAudit($auditId)['job_id'] ?? null, 'El estado que B reutilizará sobrevive.');
+        self::assertSame($token, $this->store->getAuditReservation('D1')['token'] ?? null, 'La reserva sobrevive.');
+        self::assertFalse($this->store->discardUnregisteredAudit(AuditEvent::uuidV4(), $auditId, 'D1', $token, 1), 'Job inexistente: false.');
+        self::assertNotNull($this->states->getAudit($auditId));
+    }
+
+    /** VER-B2-01 (iii): con entrada `by_dispensa` (registrada por el propietario vigente) no se borra nada. */
+    public function testDiscardUnregisteredAuditKeepsRegisteredDispensa(): void
+    {
+        [$jobId, $auditId, $token] = $this->unregisteredRow();
+        self::assertTrue($this->store->registerAuditInJob($jobId, $auditId, 'D1', '1001', $token, 1));
+
+        self::assertFalse($this->store->discardUnregisteredAudit($jobId, $auditId, 'D1', $token, 1));
+
+        self::assertNotNull($this->states->getAudit($auditId));
+        self::assertSame($token, $this->store->getAuditReservation('D1')['token'] ?? null);
+        self::assertSame(1, $this->summary($jobId)['total']);
+        self::assertFalse($this->store->getBatchDispensaEntry($jobId, 'D1')['dispatched']);
+    }
+
+    /** VER-B2-01 (iv): una reserva con token ajeno y un estado de otro job se conservan aunque las guardas se cumplan. */
+    public function testDiscardUnregisteredAuditKeepsForeignReservationAndStateOfAnotherJob(): void
+    {
+        [$jobId, $auditId, $token] = $this->unregisteredRow();
+        self::assertTrue($this->store->releaseAuditReservation('D1', $token));
+        self::assertTrue($this->store->claimAuditReservation('D1', 'token-ajeno', ['job_id' => 'otro-job', 'audit_id' => 'x', 'source' => 'single']));
+        $foreignAudit = AuditEvent::uuidV4();
+        self::assertTrue($this->states->initAudit($foreignAudit, 'D2', 'otro-job', (string) self::NIT, '1002'));
+
+        self::assertTrue($this->store->discardUnregisteredAudit($jobId, $auditId, 'D1', $token, 1));
+        self::assertTrue($this->store->discardUnregisteredAudit($jobId, $foreignAudit, 'D2', '', 1));
+
+        self::assertNull($this->states->getAudit($auditId), 'El estado propio sí se borra.');
+        self::assertSame('token-ajeno', $this->store->getAuditReservation('D1')['token'] ?? null, 'La reserva ajena se conserva.');
+        self::assertSame('otro-job', $this->states->getAudit($foreignAudit)['job_id'] ?? null, 'El estado de otro job se conserva.');
+    }
+
     /** `R-CONT` (CA-F2-09): el claim de k+1 ocurre entre publish(k+1) y la confirmación de k; no hay 409 ni republicación. */
     public function testNextChunkClaimBeforeConfirmingCurrentChunkDoesNotFailNorRepublish(): void
     {

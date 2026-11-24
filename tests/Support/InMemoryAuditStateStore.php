@@ -66,6 +66,7 @@ final class InMemoryAuditStateStore extends AuditStateStore
 
     public function deleteAudit(string $auditId): bool
     {
+        $this->intercept('deleteAudit', func_get_args());
         $this->deleted[] = $auditId;
         $existed = isset($this->audits[$auditId]);
         unset($this->audits[$auditId]);

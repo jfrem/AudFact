@@ -145,7 +145,7 @@ final class AuditBatchOrchestrator
                 $run
             );
         } catch (Throwable $e) {
-            $this->handleEnqueueException($e, $jobId, $chunkState->chunkIndex, $externalJobId, $run);
+            $this->handleEnqueueException($e, $jobId, $chunkState->chunkIndex, $externalJobId, $run, $epoch);
 
             // INV-02: la DLQ solo puede cerrar el job si conoce el epoch del propietario que falló.
             throw $e instanceof JobGenerationFailedException
@@ -655,13 +655,15 @@ final class AuditBatchOrchestrator
      * Compensación de un chunk fallido (`W-F2-B1`). Solo actúa si no se publicó ningún evento.
      *
      * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     * @param int $epoch Epoch adquirido por este intento (protege la compensación frente a un takeover, `INV-02`).
      */
     private function handleEnqueueException(
         Throwable $e,
         string $jobId,
         int $chunkIndex,
         bool $externalJobId,
-        array $run
+        array $run,
+        int $epoch
     ): void {
         if ($run['published']) {
             Logger::error('AuditBatchOrchestrator::enqueueBatch falló después de publicar eventos; no se ejecuta rollback destructivo', [
@@ -671,7 +673,7 @@ final class AuditBatchOrchestrator
                 'error' => $e->getMessage(),
             ]);
         } else {
-            $this->cleanupAsyncEnqueueState($e, $jobId, $externalJobId, $chunkIndex, $run);
+            $this->cleanupAsyncEnqueueState($e, $jobId, $externalJobId, $chunkIndex, $run, $epoch);
         }
 
         Logger::error('AuditBatchOrchestrator::enqueueBatch falló', [
@@ -825,16 +827,21 @@ final class AuditBatchOrchestrator
      * Casos (en este orden):
      *  (b) fencing → no se borra nada;
      *  (a) job creado por este orquestador en el chunk 1 → limpieza total;
-     *  (c) job externo (o chunk > 1) sin fencing → solo filas creadas en este intento SIN entrada en `by_dispensa`.
+     *  (c) job externo (o chunk > 1) sin fencing → solo filas creadas en este intento SIN entrada en `by_dispensa`,
+     *      mediante `BatchJobStore::discardUnregisteredAudit()`: comprobar epoch/`by_dispensa` y borrar ocurre en un
+     *      único Lua, de modo que si el propietario `epoch + 1` registra y publica la fila entretanto, no se borra nada
+     *      (un 503/timeout no es un rechazo de fencing aunque el lock ya haya cambiado de dueño).
      *
      * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     * @param int $epoch Epoch adquirido por este intento.
      */
     private function cleanupAsyncEnqueueState(
         Throwable $error,
         string $jobId,
         bool $externalJobId,
         int $chunkIndex,
-        array $run
+        array $run,
+        int $epoch
     ): void {
         try {
             if (self::isFencingFailure($error)) {
@@ -853,25 +860,26 @@ final class AuditBatchOrchestrator
                 return;
             }
 
+            $tokens = [];
+            foreach ($run['reservations'] as $reservation) {
+                $tokens[$reservation['dis_det_nro']] = $reservation['token'];
+            }
+            $handled = [];
             foreach ($run['audits'] as $auditId => $disDetNro) {
-                if (($run['registered'][$disDetNro] ?? false) === true
-                    || $this->jobStore->getBatchDispensaEntry($jobId, $disDetNro) !== null
-                ) {
+                $handled[$disDetNro] = true;
+                if (($run['registered'][$disDetNro] ?? false) === true) {
                     continue;
                 }
-                $audit = $this->stateStore->getAudit($auditId);
-                if ($audit !== null && ($audit['job_id'] ?? null) === $jobId) {
-                    $this->stateStore->deleteAudit($auditId);
-                }
+                // Estado (y reserva, si se creó en este intento) en un solo Lua protegido por epoch y by_dispensa.
+                $this->jobStore->discardUnregisteredAudit($jobId, $auditId, $disDetNro, $tokens[$disDetNro] ?? '', $epoch);
             }
             foreach ($run['reservations'] as $reservation) {
                 $disDetNro = $reservation['dis_det_nro'];
-                if (($run['registered'][$disDetNro] ?? false) === true
-                    || $this->jobStore->getBatchDispensaEntry($jobId, $disDetNro) !== null
-                ) {
+                if (isset($handled[$disDetNro]) || ($run['registered'][$disDetNro] ?? false) === true) {
                     continue;
                 }
-                $this->jobStore->releaseAuditReservation($disDetNro, $reservation['token']);
+                // Reserva creada en este intento sin estado propio: solo se libera la reserva (auditId vacío).
+                $this->jobStore->discardUnregisteredAudit($jobId, '', $disDetNro, $reservation['token'], $epoch);
             }
         } catch (Throwable $t) {
             Logger::error('AuditBatchOrchestrator::cleanupAsyncEnqueueState falló durante rollback', [

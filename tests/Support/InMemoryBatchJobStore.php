@@ -47,6 +47,11 @@ final class InMemoryBatchJobStore extends BatchJobStore
     public array $cancelledUndispatchedFor = [];
     /** Si es `true`, `claimJobGenerationFencedLock()` simula una respuesta inválida del store. */
     public bool $invalidClaimResponse = false;
+    /**
+     * Doble de `audit:{id}:state` compartido (en Redis son claves del mismo servidor). Lo usan
+     * `discardUnregisteredAudit()` (obligatorio si recibe `auditId`) y `cancelUndispatchedAudits()` (opcional).
+     */
+    public ?InMemoryAuditStateStore $auditStateStore = null;
 
     public function __construct()
     {
@@ -378,21 +383,107 @@ final class InMemoryBatchJobStore extends BatchJobStore
         return true;
     }
 
+    /**
+     * Réplica de `CANCEL_UNDISPATCHED_AUDITS_LUA`: solo jobs `failed`; por cada entrada `by_dispensa` con
+     * `dispatched !== true` transiciona a `failed` la entrada del job si NO es terminal (cuenta solo esas transiciones),
+     * cierra `audit:{id}:state` propio y no terminal (si hay `$auditStateStore`), libera la reserva propia
+     * (`job_id` + `audit_id`) y conserva `dispatched = false`. `job.failed` se incrementa acotado a `total - done`.
+     * Sin telemetría (`audits_in_flight`).
+     */
     public function cancelUndispatchedAudits(string $jobId, string $failedStage = 'batch_dlq_unpublished'): int
     {
         $this->record(__FUNCTION__, func_get_args());
         $this->cancelledUndispatchedFor[] = $jobId;
+        $job = $this->jobs[$jobId] ?? null;
+        if ($job === null || ($job['status'] ?? '') !== self::JOB_STATUS_FAILED) {
+            return 0;
+        }
         $cancelled = 0;
         foreach ($this->byDispensa[$jobId] ?? [] as $ddn => $entry) {
-            if ($entry['dispatched'] === false && ($this->jobs[$jobId]['status'] ?? '') === self::JOB_STATUS_FAILED) {
-                $this->audits[$jobId][$entry['audit_id']]['status'] = 'failed';
-                $this->audits[$jobId][$entry['audit_id']]['failed_stage'] = $failedStage;
-                $this->byDispensa[$jobId][$ddn]['dispatched'] = true;
+            if (($entry['dispatched'] ?? false) === true) {
+                continue;
+            }
+            $auditId = (string) ($entry['audit_id'] ?? '');
+            if ($auditId === '') {
+                continue;
+            }
+            $state = $this->auditStateStore?->audits[$auditId] ?? null;
+            if ($state !== null && (string) ($state['job_id'] ?? '') === $jobId && !self::isAuditTerminal($state['status'] ?? null)) {
+                $now = gmdate('Y-m-d\TH:i:s\Z');
+                $this->auditStateStore->audits[$auditId] = array_merge($state, [
+                    'status' => 'failed',
+                    'failed_stage' => $failedStage,
+                    'completed_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+            $jobEntry = $this->audits[$jobId][$auditId] ?? null;
+            if ($jobEntry !== null && !self::isAuditTerminal($jobEntry['status'] ?? null)) {
+                $this->audits[$jobId][$auditId]['status'] = 'failed';
+                $this->audits[$jobId][$auditId]['failed_stage'] = $failedStage;
                 $cancelled++;
             }
+            $reservation = $this->reservations[(string) $ddn] ?? null;
+            if ($reservation !== null
+                && (string) ($reservation['job_id'] ?? '') === $jobId
+                && (string) ($reservation['audit_id'] ?? '') === $auditId
+            ) {
+                unset($this->reservations[(string) $ddn]);
+            }
+        }
+        if ($cancelled > 0) {
+            $total = (int) ($job['total'] ?? 0);
+            $done = (int) ($job['done'] ?? 0);
+            $this->jobs[$jobId]['failed'] = min((int) ($job['failed'] ?? 0) + $cancelled, max(0, $total - $done));
         }
 
         return $cancelled;
+    }
+
+    /**
+     * Réplica de `DISCARD_UNREGISTERED_AUDIT_LUA` (operación atómica: el interceptor corre ANTES, nunca en medio).
+     * Guardas: job existente, `generation_epoch === $expectedEpoch` y sin entrada `by_dispensa[$disDetNro]`.
+     * Luego borra el estado propio (`job_id`/`audit_id`/`dis_det_nro`) y la reserva con `token` coincidente.
+     */
+    public function discardUnregisteredAudit(
+        string $jobId,
+        string $auditId,
+        string $disDetNro,
+        string $reservationToken,
+        int $expectedEpoch
+    ): bool {
+        $this->record(__FUNCTION__, func_get_args());
+        if ($jobId === '' || $disDetNro === '' || $expectedEpoch < 1) {
+            return false;
+        }
+        $job = $this->jobs[$jobId] ?? null;
+        if ($job === null) {
+            return false;
+        }
+        if ((int) ($job['generation_epoch'] ?? 0) !== $expectedEpoch) {
+            return false;
+        }
+        if (isset($this->byDispensa[$jobId][$disDetNro])) {
+            return false;
+        }
+        if ($auditId !== '') {
+            if ($this->auditStateStore === null) {
+                throw new \LogicException('discardUnregisteredAudit requiere enlazar $auditStateStore en el doble.');
+            }
+            $state = $this->auditStateStore->audits[$auditId] ?? null;
+            if ($state !== null
+                && (string) ($state['job_id'] ?? '') === $jobId
+                && (string) ($state['audit_id'] ?? '') === $auditId
+                && (string) ($state['dis_det_nro'] ?? '') === $disDetNro
+            ) {
+                unset($this->auditStateStore->audits[$auditId]);
+            }
+        }
+        if ($reservationToken !== '' && ($this->reservations[$disDetNro]['token'] ?? null) === $reservationToken) {
+            unset($this->reservations[$disDetNro]);
+        }
+
+        return true;
     }
 
     // ── Idempotencia y reservas ──────────────────────────────────────────
@@ -530,6 +621,12 @@ final class InMemoryBatchJobStore extends BatchJobStore
         }
 
         return (int) ($job['generation_epoch'] ?? 0) === $expectedEpoch;
+    }
+
+    /** `auditEntryTerminal()` de `LUA_HELPERS`. */
+    private static function isAuditTerminal(mixed $status): bool
+    {
+        return in_array((string) $status, ['completed', 'manual_review', 'error', 'failed'], true);
     }
 
     /** @param array<string,mixed> $job */

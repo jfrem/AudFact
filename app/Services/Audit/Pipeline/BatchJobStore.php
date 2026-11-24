@@ -397,6 +397,55 @@ class BatchJobStore
     }
 
     /**
+     * Descarta de forma ATÓMICA (un solo EVAL) una auditoría creada por un intento de generación fallido que nunca
+     * llegó a registrarse en el job (`W-F2-B1`, `R-PREPUB`, `INV-02`).
+     *
+     * Solo escribe si, en el mismo script: (a) `job:{id}:state` existe y su `generation_epoch` es `$expectedEpoch`
+     * (si otro propietario reclamó el job, el epoch cambió y no se borra nada) y (b) no existe entrada
+     * `job:{id}:by_dispensa[$disDetNro]` (si la dispensa ya está registrada, el propietario vigente la reutiliza).
+     * Entonces borra `audit:{auditId}:state` solo si su `job_id`/`audit_id`/`dis_det_nro` son los de esta auditoría y
+     * libera `audit:reservation:disdetnro:{disDetNro}` solo si su `token` coincide.
+     *
+     * Sustituye a la secuencia `getBatchDispensaEntry()` + `AuditStateStore::deleteAudit()` +
+     * `releaseAuditReservation()`, cuya separación permitía que un propietario obsoleto borrase el estado recién
+     * registrado y publicado por el propietario vigente.
+     *
+     * @param  string  $jobId  UUID del job batch.
+     * @param  string  $auditId  Auditoría a descartar (`''` = no tocar ningún `audit:{id}:state`).
+     * @param  string  $disDetNro  Dispensa de la auditoría (llave de `by_dispensa` y de la reserva).
+     * @param  string  $reservationToken  Token de la reserva creada en el intento (`''` = no liberar la reserva).
+     * @param  int  $expectedEpoch  Epoch adquirido por el intento que compensa.
+     * @return bool `true` si las guardas (a) y (b) se cumplieron; `false` si el job no existe, el epoch es obsoleto o
+     *              la dispensa ya está registrada (en esos casos no se escribe nada).
+     */
+    public function discardUnregisteredAudit(
+        string $jobId,
+        string $auditId,
+        string $disDetNro,
+        string $reservationToken,
+        int $expectedEpoch
+    ): bool {
+        if ($jobId === '' || $disDetNro === '' || $expectedEpoch < 1) {
+            return false;
+        }
+
+        $result = (int) $this->evalScript(
+            self::DISCARD_UNREGISTERED_AUDIT_LUA,
+            [
+                self::jobKey($jobId),
+                self::jobByDispensaKey($jobId),
+                AuditStateStore::auditKey($auditId),
+                self::auditReservationKey($disDetNro),
+            ],
+            [$jobId, $disDetNro, $auditId, $reservationToken, (string) $expectedEpoch],
+            'No se pudo descartar la auditoría no registrada',
+            ['job_id' => $jobId, 'audit_id' => $auditId]
+        );
+
+        return $result === 1;
+    }
+
+    /**
      * Lee la entrada de idempotencia por dispensa del job.
      *
      * @return array{audit_id:string,dispatched:bool}|null
@@ -1560,6 +1609,41 @@ if added == 1 then
 end
 
 redis.call('SET', KEYS[1], cjson.encode(job))
+return 1
+LUA;
+
+    private const DISCARD_UNREGISTERED_AUDIT_LUA = <<<'LUA'
+-- KEYS: 1=job:{id}:state 2=job:{id}:by_dispensa 3=audit:{auditId}:state 4=audit:reservation:disdetnro:{ddn}
+-- ARGV: 1=jobId 2=disDetNro 3=auditId ('' = no tocar el estado) 4=reservationToken ('' = no liberar) 5=expectedEpoch
+-- Todas las claves llegan por KEYS (RedisClient antepone REDIS_PREFIX): el script no construye claves.
+-- Retorno: 1 = guardas superadas; 0 = job inexistente/ilegible; -1 = epoch obsoleto; -3 = dispensa ya registrada.
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local okJob, job = pcall(cjson.decode, raw)
+if not okJob or type(job) ~= 'table' then return 0 end
+-- (a) Fencing: si otro propietario reclamó el job, el epoch cambió y no se borra nada.
+if (tonumber(job.generation_epoch or 0) or 0) ~= (tonumber(ARGV[5]) or -1) then return -1 end
+-- (b) HEXISTS devuelve un entero (0 es truthy en Lua): se compara explícitamente con 1.
+if redis.call('HEXISTS', KEYS[2], ARGV[2]) == 1 then return -3 end
+if ARGV[3] ~= '' then
+    local stateRaw = redis.call('GET', KEYS[3])
+    if stateRaw then
+        local okState, audit = pcall(cjson.decode, stateRaw)
+        if okState and type(audit) == 'table' and tostring(audit.job_id or '') == ARGV[1]
+           and tostring(audit.audit_id or '') == ARGV[3] and tostring(audit.dis_det_nro or '') == ARGV[2] then
+            redis.call('DEL', KEYS[3])
+        end
+    end
+end
+if ARGV[4] ~= '' then
+    local resRaw = redis.call('GET', KEYS[4])
+    if resRaw then
+        local okRes, reservation = pcall(cjson.decode, resRaw)
+        if okRes and type(reservation) == 'table' and tostring(reservation.token or '') == ARGV[4] then
+            redis.call('DEL', KEYS[4])
+        end
+    end
+end
 return 1
 LUA;
 

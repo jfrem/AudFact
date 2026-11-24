@@ -59,6 +59,7 @@ final class AuditBatchOrchestratorTest extends TestCase
     {
         $this->store = new InMemoryBatchJobStore();
         $this->states = new InMemoryAuditStateStore();
+        $this->store->auditStateStore = $this->states;
         $this->publisher = new RecordingAuditEventPublisher();
         $this->invoices = new FakeBatchInvoicesModel($rows);
         $this->orchestrator = new AuditBatchOrchestrator($this->states, $this->store, $this->publisher, $this->invoices);
@@ -821,6 +822,7 @@ final class AuditBatchOrchestratorTest extends TestCase
 
         $this->assertSame([], $this->states->deleted, '0 llamadas a deleteAudit.');
         $this->assertSame(0, $this->store->countCalls('releaseAuditReservation'));
+        $this->assertSame(0, $this->store->countCalls('discardUnregisteredAudit'), 'Un 409 de fencing no intenta descartar nada.');
         $this->assertSame(0, $this->store->countCalls('deleteJob'));
         $this->assertArrayHasKey('D1', $this->store->reservations);
         $this->assertArrayHasKey('D2', $this->store->reservations);
@@ -859,6 +861,12 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertArrayNotHasKey(self::auditIdFor('D5'), $this->states->audits);
         $this->assertArrayNotHasKey('D5', $this->store->byDispensa[self::JOB]);
         $this->assertCount(0, $this->publisher->published);
+        $this->assertSame(
+            [[self::JOB, self::auditIdFor('D5'), 'D5', self::tokenFor('D5'), 1]],
+            $this->store->callsOf('discardUnregisteredAudit'),
+            'Solo D5 se descarta, en una única operación atómica protegida por el epoch adquirido (1).'
+        );
+        $this->assertSame([], $this->states->deleted, 'La compensación externa no usa deleteAudit (DEL sin guarda).');
 
         // Reintento (otro worker toma el lock): A1 pierde su estado y D2 su reserva pasa a otro job.
         unset($this->states->audits[self::auditIdFor('D1')]);
@@ -880,6 +888,109 @@ final class AuditBatchOrchestratorTest extends TestCase
         $this->assertSame(0, $result['skipped_locked']);
         $this->assertSame(5, $this->store->jobs[self::JOB]['total'], '0 duplicados: exactamente 5 auditorías registradas.');
         $this->assertSame('ajeno', $this->store->reservations['D2']['token'], 'La reserva ajena no se toca.');
+    }
+
+    /**
+     * VER-B2-01 (W-F2-B1, INV-02): A (epoch 1) falla con un 503 que NO es rechazo de fencing después de que B reclamó
+     * el job (epoch 2). B registra, publica y confirma D1 DESPUÉS de cualquier lectura de `by_dispensa` de A y ANTES de
+     * su borrado. La compensación de A no debe borrar el estado ni la reserva de la auditoría viva de B.
+     */
+    public function testStaleOwnerCompensationNeverDeletesStateRegisteredAndPublishedByNewOwner(): void
+    {
+        $rows = FakeBatchInvoicesModel::rows(1);
+        $this->useRows($rows);
+        $this->seedFrozen($rows);
+        $auditId = self::auditIdFor('D1');
+        $token = self::tokenFor('D1');
+
+        // A crea estado y reserva de D1; al asociar el token su lock vence, B reclama (epoch 2) y A recibe un 503.
+        $this->states->interceptors['patchAudit'] = function (): void {
+            $this->store->expireLock(self::JOB);
+            $claim = $this->store->claimJobGenerationFencedLock(self::JOB, 'worker-b', 1);
+            $this->assertSame(2, $claim->epoch);
+            throw new RuntimeException('Respuesta de Redis perdida tras el patch', 503);
+        };
+        // B completa su trabajo sobre D1 en el último instante antes del borrado de A: si A borra con
+        // deleteAudit() (tras su lectura de by_dispensa) o con la operación atómica, B ya actuó antes.
+        $takenOver = false;
+        $takeover = function () use (&$takenOver, $auditId, $token): void {
+            if ($takenOver) {
+                return;
+            }
+            $takenOver = true;
+            $this->states->audits[$auditId]['reservation_token'] = $token;
+            $this->assertTrue($this->store->registerAuditInJob(self::JOB, $auditId, 'D1', '1001', $token, 2));
+            $this->publisher->publish(AuditEvent::create(
+                eventType: AuditEvent::TYPE_AUDIT_CREATED,
+                auditId: $auditId,
+                jobId: self::JOB,
+                payload: ['dis_det_nro' => 'D1', 'reservation_token' => $token],
+            ));
+            $this->assertTrue($this->store->markAuditsDispatched(self::JOB, ['D1' => $auditId], true, 2));
+        };
+        $this->store->interceptors['discardUnregisteredAudit'] = $takeover;
+        $this->states->interceptors['deleteAudit'] = $takeover;
+
+        try {
+            $this->runChunk(new BatchChunkState(chunkSizeOverride: 5), 'worker-a');
+            $this->fail('Se esperaba el 503 de A.');
+        } catch (JobGenerationFailedException $error) {
+            $this->assertSame(503, $error->getCode());
+            $this->assertSame(1, $error->epoch, 'La excepción de A conserva su epoch obsoleto.');
+        }
+
+        $this->assertTrue($takenOver, 'B actuó entre la decisión de compensar de A y su borrado.');
+        $this->assertSame(2, $this->store->jobs[self::JOB]['generation_epoch']);
+        $this->assertSame(['worker_id' => 'worker-b', 'epoch' => 2], $this->store->locks[self::JOB], 'A no libera el lock de B.');
+        $this->assertTrue($this->store->byDispensa[self::JOB]['D1']['dispatched']);
+        $this->assertCount(1, $this->publisher->ofType(AuditEvent::TYPE_AUDIT_CREATED), 'Solo el audit_created de B.');
+        // ADMIT necesita audit:{id}:state: sobrevive con la identidad del job y el token de B.
+        $this->assertArrayHasKey($auditId, $this->states->audits, 'El estado de la auditoría viva de B sobrevive.');
+        $this->assertSame(self::JOB, $this->states->audits[$auditId]['job_id']);
+        $this->assertSame($token, $this->states->audits[$auditId]['reservation_token']);
+        $this->assertSame([], $this->states->deleted, 'A nunca usa deleteAudit en la compensación externa.');
+        $this->assertArrayHasKey('D1', $this->store->reservations, 'La reserva de B sobrevive.');
+        $this->assertSame($token, $this->store->reservations['D1']['token']);
+        $this->assertSame([[self::JOB, $auditId, 'D1', $token, 1]], $this->store->callsOf('discardUnregisteredAudit'));
+    }
+
+    /**
+     * VER-B2-01, variante sin registro: B reclamó el job (epoch 2) pero todavía no registró D1. B reutilizará el estado y
+     * la reserva deterministas de A (V-F2-B5), así que A (epoch 1) no debe descartarlos; luego B publica con estado.
+     */
+    public function testStaleOwnerCompensationKeepsUnregisteredRowWhenAnotherOwnerAlreadyClaimedTheJob(): void
+    {
+        $rows = FakeBatchInvoicesModel::rows(1);
+        $this->useRows($rows);
+        $this->seedFrozen($rows);
+        $auditId = self::auditIdFor('D1');
+        $token = self::tokenFor('D1');
+        $this->states->interceptors['patchAudit'] = function (): void {
+            $this->store->expireLock(self::JOB);
+            $this->assertSame(2, $this->store->claimJobGenerationFencedLock(self::JOB, 'worker-b', 1)->epoch);
+            throw new RuntimeException('timeout de Redis', 503);
+        };
+
+        try {
+            $this->runChunk(new BatchChunkState(chunkSizeOverride: 5), 'worker-a');
+            $this->fail('Se esperaba el 503 de A.');
+        } catch (JobGenerationFailedException $error) {
+            $this->assertSame(1, $error->epoch);
+        }
+
+        $this->assertSame([[self::JOB, $auditId, 'D1', $token, 1]], $this->store->callsOf('discardUnregisteredAudit'));
+        $this->assertArrayHasKey($auditId, $this->states->audits, 'Epoch obsoleto: el estado no se borra.');
+        $this->assertSame($token, $this->store->reservations['D1']['token'] ?? null, 'Epoch obsoleto: la reserva no se libera.');
+
+        // El siguiente propietario reutiliza estado y reserva y publica D1 con audit:{id}:state presente.
+        $this->states->interceptors = [];
+        $this->store->expireLock(self::JOB);
+        $this->runChunk(new BatchChunkState(chunkSizeOverride: 5), 'worker-c');
+
+        $this->assertSame(['D1' => $auditId], $this->publishedAuditIds());
+        $this->assertSame($token, $this->states->audits[$auditId]['reservation_token']);
+        $this->assertTrue($this->store->byDispensa[self::JOB]['D1']['dispatched']);
+        $this->assertSame(1, $this->store->jobs[self::JOB]['total']);
     }
 
     public function testFirstChunkNonExternalFailureStillCleansUpFully(): void

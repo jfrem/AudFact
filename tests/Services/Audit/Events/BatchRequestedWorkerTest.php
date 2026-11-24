@@ -62,6 +62,7 @@ final class BatchRequestedWorkerTest extends TestCase
     {
         $this->store = new InMemoryBatchJobStore();
         $this->states = new InMemoryAuditStateStore();
+        $this->store->auditStateStore = $this->states;
         $this->publisher = new RecordingAuditEventPublisher();
         $this->invoices = new FakeBatchInvoicesModel($rows);
         $this->orchestrator = new AuditBatchOrchestrator($this->states, $this->store, $this->publisher, $this->invoices);
