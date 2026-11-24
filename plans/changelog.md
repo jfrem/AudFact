@@ -1,5 +1,11 @@
 # Changelog AudFact
 
+## [2026-11-24] — fix: predicado de fecha SARGable compatible con SQL Server (hotfix `SDD-BATCH-001`)
+
+- **Problema**: `InvoicesModel::buildOptimizedBatchSql()` usaba `CONVERT(datetime, :dateFromD, 23)` y `DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))`. Medido contra SQL Server 16.0.4225 (compatibilidad 160, conexión `db2`): SQLSTATE 22007 «Conversion failed», incluso con el literal `'2026-01-01'`. Toda congelación de batch fallaba.
+- **Cambio**: `d.DisFecSol >= CAST(:dateFromD AS date) AND d.DisFecSol < DATEADD(day, 1, CAST(:dateToD AS date))`. La semántica (inicio inclusivo, fin inclusivo por día completo) no cambia y no depende del idioma de sesión.
+- **Pruebas**: `tests/Models/InvoicesModelTest.php` espera el predicado nuevo y añade un test que impide volver a `, 23)` o `CONVERT(datetime, :dateFromD`.
+
 ## [2026-11-24] — Admisión VIP, despliegue y documentación de aislamiento de carriles (`SDD-BATCH-002`, parte B)
 
 - **Motivación**: la ráfaga de `POST /audit/single` (`P-F3-01..03`) saturó la cola VIP y detuvo a los descargadores; el límite por IP de Nginx no la habría frenado (`P-F3-02`).

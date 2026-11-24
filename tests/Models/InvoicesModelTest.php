@@ -27,7 +27,7 @@ final class InvoicesModelTest extends TestCase
         $this->assertSame([['DisId' => '1']], $result);
         $this->assertStringContainsString('INTO #DISP', $pdo->preparedSql);
         $this->assertStringContainsString('GROUP BY d.DisNitSec,dd.DisDetNro', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol >= CONVERT(datetime, :dateFromD, 23) AND d.DisFecSol < DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= CAST(:dateFromD AS date) AND d.DisFecSol < DATEADD(day, 1, CAST(:dateToD AS date))', $pdo->preparedSql);
         $this->assertStringContainsString('ORDER BY s.fecha ASC, s.DisId ASC, s.Dispensa ASC', $pdo->preparedSql);
         $this->assertStringContainsString("where s.SopOk='1' and s.estSop='P'", $pdo->preparedSql);
         $this->assertStringContainsString('OFFSET :offset ROWS FETCH NEXT :pageSize ROWS ONLY', $pdo->preparedSql);
@@ -59,12 +59,30 @@ final class InvoicesModelTest extends TestCase
 
         $this->assertSame(7, $total);
         $this->assertStringContainsString('SELECT COUNT(1) AS total', $pdo->preparedSql);
-        $this->assertStringContainsString('d.DisFecSol >= CONVERT(datetime, :dateFromD, 23) AND d.DisFecSol < DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))', $pdo->preparedSql);
+        $this->assertStringContainsString('d.DisFecSol >= CAST(:dateFromD AS date) AND d.DisFecSol < DATEADD(day, 1, CAST(:dateToD AS date))', $pdo->preparedSql);
         $this->assertStringContainsString('GROUP BY d.DisNitSec,dd.DisDetNro', $pdo->preparedSql);
 
         $this->assertSame(2426, $pdo->statement->boundValues[':facNitSec']);
         $this->assertSame('2025-07-01', $pdo->statement->boundValues[':dateFromD']);
         $this->assertSame('2025-07-30', $pdo->statement->boundValues[':dateToD']);
+    }
+
+    public function testSearchInvoicesDateRangeUsesValidSqlServerCastNotStyle23(): void
+    {
+        $pdo = new FakePdo();
+        $model = $this->makeModelWithReadDb($pdo);
+        $pdo->nextResult = [];
+
+        $model->searchInvoices([
+            'facNitSec' => 2426,
+            'dateFrom' => '2026-01-01',
+            'dateTo' => '2026-01-31',
+        ], 1, 50);
+
+        $this->assertStringContainsString('CAST(:dateFromD AS date)', $pdo->preparedSql);
+        $this->assertStringContainsString('DATEADD(day, 1, CAST(:dateToD AS date))', $pdo->preparedSql);
+        $this->assertStringNotContainsString(', 23)', $pdo->preparedSql);
+        $this->assertStringNotContainsString('CONVERT(datetime, :dateFromD', $pdo->preparedSql);
     }
 
     public function testGetInvoicesForAuditBatchUsesKeysetPagination(): void
