@@ -423,7 +423,7 @@ final class BatchOrchestratorJobStore extends BatchJobStore
         return $this->generationLockGranted;
     }
 
-    public function releaseJobGenerationLock(string $jobId, string $workerId): bool
+    public function releaseJobGenerationLock(string $jobId, string $workerId, ?int $epoch = null): bool
     {
         $this->releasedLocks[] = ['job_id' => $jobId, 'worker_id' => $workerId];
         return true;
@@ -434,7 +434,8 @@ final class BatchOrchestratorJobStore extends BatchJobStore
         string $auditId,
         string $disDetNro,
         ?string $disId = null,
-        ?string $reservationToken = null
+        ?string $reservationToken = null,
+        ?int $expectedEpoch = null
     ): bool {
         $this->registeredAudits[] = [
             'job_id' => $jobId,

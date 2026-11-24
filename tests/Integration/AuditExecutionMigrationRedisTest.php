@@ -15,7 +15,9 @@ use App\Services\Audit\Pipeline\AuditTask;
 use App\Services\Audit\Pipeline\AuditTaskCommitter;
 use App\Services\Audit\Pipeline\AuditTaskEffects;
 use App\Services\Audit\Pipeline\AuditTaskStage;
+use App\Services\Audit\Pipeline\BatchJobStore;
 use App\Services\Audit\Pipeline\FairAuditTaskQueue;
+use App\Services\Audit\Pipeline\JobLockClaimStatus;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\IsolatedAuditRedis;
 
@@ -38,6 +40,44 @@ final class AuditExecutionMigrationRedisTest extends TestCase
         if (isset($this->redis)) {
             $this->redis->cleanup();
         }
+    }
+
+    /** `V-F2-I7`: la recuperación `R-PREPUB` re-invoca `registerAuditInJob()` y no debe contar dos veces en vuelo. */
+    public function testRegisterAuditInJobIncrementsInFlightOnlyOnce(): void
+    {
+        // Arrange:
+        $store = new BatchJobStore($this->redis);
+        $jobId = AuditEvent::uuidV4();
+        self::assertTrue($store->initJobExclusive($jobId, 987654100, '2026-02-01', '2026-02-28', 10)['created']);
+        $claim = $store->claimJobGenerationFencedLock($jobId, 'worker-inflight', 1, 60);
+        self::assertSame(JobLockClaimStatus::ACQUIRED, $claim->status);
+        $auditId = AuditEvent::deterministicUuidV4($jobId . ':D-INFLIGHT-1');
+        $inFlight = fn (): int => (int) $this->redis->eval(
+            'return redis.call("HGET", KEYS[1], ARGV[1])',
+            [BatchJobStore::TELEMETRY_KEY],
+            ['audits_in_flight']
+        );
+        $baseline = $inFlight();
+
+        // Act: el mismo (jobId, disDetNro, auditId) se registra dos veces (recuperación tras caída pre-publicación).
+        $first = $store->registerAuditInJob($jobId, $auditId, 'D-INFLIGHT-1', 'DIS-1', 'tok', $claim->epoch);
+        $second = $store->registerAuditInJob($jobId, $auditId, 'D-INFLIGHT-1', 'DIS-1', 'tok', $claim->epoch);
+
+        // Assert:
+        self::assertTrue($first);
+        self::assertTrue($second);
+        self::assertSame($baseline + 1, $inFlight());
+        self::assertSame(1, (int) $this->redis->eval('return redis.call("HLEN", KEYS[1])', [BatchJobStore::jobAuditsKey($jobId)]));
+        self::assertSame(1, (int) $this->redis->eval('return redis.call("HLEN", KEYS[1])', [BatchJobStore::jobByDispensaKey($jobId)]));
+        $state = $store->getJobSummary($jobId);
+        self::assertSame(1, $state['total']);
+        self::assertSame(1, $state['accepted']);
+        self::assertSame('queued', $state['status']);
+
+        // Otra dispensa sí cuenta como una auditoría adicional en vuelo.
+        $other = AuditEvent::deterministicUuidV4($jobId . ':D-INFLIGHT-2');
+        self::assertTrue($store->registerAuditInJob($jobId, $other, 'D-INFLIGHT-2', 'DIS-1', 'tok2', $claim->epoch));
+        self::assertSame($baseline + 2, $inFlight());
     }
 
     public function testMaintenanceDrainsMoreThanOnePageBeforeReportingFlushComplete(): void

@@ -828,7 +828,8 @@ class StubBatchJobStore extends BatchJobStore
         string $auditId,
         string $disDetNro,
         ?string $facSec = null,
-        ?string $reservationToken = null
+        ?string $reservationToken = null,
+        ?int $expectedEpoch = null
     ): bool
     {
         return true;
@@ -843,11 +844,17 @@ class StubBatchJobStore extends BatchJobStore
         return true;
     }
 
-    public function sealJob(string $jobId, int $total, array $metadata = []): bool
-    {
+    public function sealJob(
+        string $jobId,
+        int $total = 0,
+        int|array $metadata = [],
+        ?int $expectedEpoch = null,
+        ?int $chunkIndex = null,
+        ?int $nextOffset = null
+    ): bool {
         $this->patchedJobs[] = [
             'jobId' => $jobId,
-            'patch' => array_merge($metadata, [
+            'patch' => array_merge(is_array($metadata) ? $metadata : [], [
                 'sealed' => true,
                 'total' => $total,
             ]),

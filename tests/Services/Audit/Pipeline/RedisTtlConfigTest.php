@@ -210,22 +210,64 @@ final class RedisTtlConfigTest extends TestCase
 
     public function testReservationClaimUsesDurableAtomicSetNx(): void
     {
+        $payload = null;
         $redis = $this->createMock(RedisClient::class);
         $redis
             ->expects($this->once())
             ->method('eval')
             ->with(
                 'local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0',
-                [BatchJobStore::auditReservationKey('877')],
-                $this->callback(static fn (array $args): bool => is_string($args[0] ?? null))
+                ['audit:reservation:disdetnro:877'],
+                $this->callback(static function (array $args) use (&$payload): bool {
+                    $payload = $args[0] ?? null;
+                    return is_string($payload);
+                })
             )
             ->willReturn(1);
 
         $store = new BatchJobStore($redis);
 
+        $this->assertSame('audit:reservation:disdetnro:877', BatchJobStore::auditReservationKey('877'));
         $this->assertTrue($store->claimAuditReservation('877', 'owner-token', [
             'audit_id' => 'audit-877',
+            'dis_id' => 'D-1',
         ]));
+
+        $decoded = json_decode((string) $payload, true);
+        $this->assertSame('877', $decoded['dis_det_nro']);
+        $this->assertSame('owner-token', $decoded['token']);
+        $this->assertSame('audit-877', $decoded['audit_id']);
+        $this->assertSame('D-1', $decoded['dis_id']);
+        $this->assertArrayHasKey('claimed_at', $decoded);
+        // Sin TTL automático (INV-04): el script no usa EX.
+    }
+
+    public function testReleaseIdempotencyKeyIfMatchesDeletesOnlyWhenValueMatches(): void
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis
+            ->expects($this->once())
+            ->method('eval')
+            ->with(
+                $this->logicalAnd($this->stringContains('GET'), $this->stringContains('DEL')),
+                [BatchJobStore::idempotencyKey('key-release')],
+                ['job-release']
+            )
+            ->willReturn(1);
+
+        $store = new BatchJobStore($redis);
+
+        $this->assertTrue($store->releaseIdempotencyKeyIfMatches('key-release', 'job-release'));
+    }
+
+    public function testReleaseIdempotencyKeyIfMatchesReturnsFalseWhenValueDiffers(): void
+    {
+        $redis = $this->createMock(RedisClient::class);
+        $redis->method('eval')->willReturn(0);
+
+        $store = new BatchJobStore($redis);
+
+        $this->assertFalse($store->releaseIdempotencyKeyIfMatches('key-other', 'job-release'));
     }
 
     private function setEnv(string $key, string $value): void
