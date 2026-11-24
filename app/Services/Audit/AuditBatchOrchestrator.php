@@ -5,27 +5,34 @@ declare(strict_types=1);
 namespace App\Services\Audit;
 
 use App\Models\InvoicesModel;
-use App\Services\Audit\Pipeline\AuditStateStore;
-use App\Services\Audit\Pipeline\BatchJobStore;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
+use App\Services\Audit\Pipeline\AuditExecutionConfig;
+use App\Services\Audit\Pipeline\AuditStateStore;
+use App\Services\Audit\Pipeline\BatchJobStore;
+use App\Services\Audit\Pipeline\JobGenerationFailedException;
+use App\Services\Audit\Pipeline\JobLockClaimStatus;
 use Core\Env;
 use Core\Logger;
 use RuntimeException;
+use Throwable;
 
 /**
- * Servicio de orquestación de lotes de auditoría.
- * 
- * Centraliza la lógica de encolamiento, reservas idempotentes por DisId,
- * inicialización del state store (AuditStateStore), publicación de eventos
- * y manejo transaccional de fallos (rollback de estado).
+ * Servicio de orquestación de lotes de auditoría (SDD-BATCH-001 v1.2).
+ *
+ * Congela UNA sola vez las candidatas del job en Redis (`job:{id}:candidates`) y las procesa por chunks, con:
+ * - lock de generación con fencing por `generation_epoch` (`R-EPOCH`): solo el propietario vigente muta el job;
+ * - UUID deterministas por `(jobId, disDetNro)` (`R-PREPUB`): una caída entre registro y publicación se recupera sin
+ *   duplicar ni perder auditorías;
+ * - reservas `1:1` por `DisDetNro` (`INV-04`) y checkpoints idempotentes por chunk (`R-CONT`);
+ * - compensación segura (`W-F2-B1`): jamás borra estado/reservas que un propietario vigente pueda reutilizar.
  */
 final class AuditBatchOrchestrator
 {
     public const DEFAULT_CHUNK_SIZE = 50;
-    public const DEFAULT_LOCK_TTL_SECONDS = 300;
-    private const MIN_FETCH_LIMIT = 50;
-    private const MAX_FETCH_LIMIT = 500;
+    public const DEFAULT_LOCK_TTL_SECONDS = 1800;
+    /** Techo de candidatas congeladas por job (alineado con `InvoicesModel::BATCH_MAX_FREEZE_LIMIT`). */
+    public const MAX_FREEZE_LIMIT = 50000;
 
     public function __construct(
         private readonly AuditStateStore $stateStore,
@@ -35,26 +42,24 @@ final class AuditBatchOrchestrator
     ) {}
 
     /**
-     * Encola un lote de dispensas para ser auditado de forma asíncrona.
-     * 
-     * @param  int          $facNitSec  NIT del cliente/EPS
-     * @param  string       $dateFrom   Fecha inicio (Y-m-d)
-     * @param  string       $dateTo     Fecha fin (Y-m-d)
-     * @param  int          $limit      Máximo de facturas a procesar
-     * @param  string|null  $jobId      UUID externo del job (del controller via worker).
-     *                                  Si null, genera uno nuevo (backward compat).
-     * @param  string       $workerToken Token del worker para locking distribuido.
-     * @param  array{date:string,disId:string,dispensa:string}|null $cursor Cursor keyset para paginación continua.
-     * @param  int          $chunkIndex Índice del chunk actual (1..N).
-     * @param  int          $accumulatedTotal Total de facturas aceptadas acumuladas en chunks previos.
-     * @param  int                  $facNitSec   NIT del cliente/EPS
-     * @param  string               $dateFrom    Fecha inicio (Y-m-d)
-     * @param  string               $dateTo      Fecha fin (Y-m-d)
-     * @param  int                  $limit       Máximo de facturas a procesar
-     * @param  string|null          $jobId       UUID externo del job (del controller via worker).
-     *                                           Si null, genera uno nuevo (backward compat).
-     * @param  string               $workerToken Token del worker para locking distribuido.
-     * @param  BatchChunkState|null $chunkState  Estado inmutable del chunk actual (cursor, acumulados, overrides).
+     * Enmascara el NIT para logs (`R-PII`): `***` + 3 últimos dígitos.
+     */
+    public static function maskNit(int|string $facNitSec): string
+    {
+        return '***' . substr((string) $facNitSec, -3);
+    }
+
+    /**
+     * Procesa un chunk de un lote de dispensas para ser auditado de forma asíncrona.
+     *
+     * @param  int                  $facNitSec    NIT del cliente/EPS
+     * @param  string               $dateFrom     Fecha inicio (Y-m-d)
+     * @param  string               $dateTo       Fecha fin (Y-m-d)
+     * @param  int                  $limit        Máximo de dispensas a aceptar en todo el job
+     * @param  string|null          $jobId        UUID externo del job (creado por controller/cron). Si es null, el
+     *                                            orquestador crea el job (compatibilidad) y lo compensa si falla.
+     * @param  string               $workerToken  Token del worker para el lock de generación.
+     * @param  BatchChunkState|null $chunkState   Estado del chunk actual (cursor, acumulados, offset, tamaño).
      *
      * @return array{
      *     job_id:string,
@@ -64,13 +69,17 @@ final class AuditBatchOrchestrator
      *     skipped_locked:int,
      *     skipped_existing:int,
      *     has_more:bool,
-     *     next_cursor:array{date:string,disId:string,dispensa:string}|null,
+     *     next_cursor:array<string,mixed>|null,
      *     chunk_index:int,
      *     accumulated_total:int,
      *     accumulated_skipped_locked:int,
-     *     accumulated_skipped_existing:int
+     *     accumulated_skipped_existing:int,
+     *     next_candidate_offset?:int,
+     *     generation_epoch?:int,
+     *     locked_busy?:bool
      * }
-     * @throws RuntimeException Si hay falla persistiendo estado o publicando eventos
+     * @throws JobGenerationFailedException Toda excepción posterior a adquirir el lock (porta el `epoch` para la DLQ).
+     * @throws RuntimeException Antes de adquirir el lock (job inexistente `503`, lock `MISSING`, job no creado).
      */
     public function enqueueBatch(
         int $facNitSec,
@@ -85,299 +94,427 @@ final class AuditBatchOrchestrator
         $externalJobId = $jobId !== null;
         $jobId = $jobId ?? AuditEvent::uuidV4();
         $workerToken = $workerToken !== '' ? $workerToken : AuditEvent::uuidV4();
-        $jobInitialized = false;
-        $publishedAnyEvent = false;
-        $hasLock = false;
 
-        $createdAuditIds = [];
-        $createdReservations = [];
+        // Registro de lo creado en ESTE intento (insumo de la compensación, W-F2-B1).
+        $run = ['published' => false, 'audits' => [], 'reservations' => [], 'registered' => []];
 
-        // 1. Verificar idempotencia temprana si el job ya existe en Redis
+        // 1. Idempotencia temprana (job externo) o creación del job (modo compatibilidad).
         if ($externalJobId) {
             $earlyResponse = $this->resolveIdempotentEarlyResponse($jobId, $chunkState);
             if ($earlyResponse !== null) {
                 return $earlyResponse;
             }
-            $jobInitialized = true;
         } else {
             $this->initJobOrFail($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
-            $jobInitialized = true;
         }
 
-        // 2. Lock atómico de generación distribuida para prevenir concurrencia entre réplicas
-        $lockTtl = (int) Env::get('AUDIT_BATCH_LOCK_TTL_SECONDS', self::DEFAULT_LOCK_TTL_SECONDS);
-        $hasLock = $this->jobStore->claimJobGenerationLock($jobId, $workerToken, $lockTtl);
-        if (!$hasLock) {
+        // 2. Lock de generación con fencing (R-EPOCH).
+        $lockTtl = AuditExecutionConfig::batchLockTtlSeconds();
+        try {
+            $lockResult = $this->jobStore->claimJobGenerationFencedLock($jobId, $workerToken, $chunkState->chunkIndex, $lockTtl);
+        } catch (Throwable $claimError) {
+            if (!$externalJobId) {
+                $this->bestEffortDeleteJob($jobId);
+            }
+            throw $claimError;
+        }
+
+        if ($lockResult->status === JobLockClaimStatus::BUSY) {
             return $this->resolveLockedConcurrentResponse($jobId, $workerToken, $chunkState);
         }
+        if ($lockResult->status === JobLockClaimStatus::TERMINAL) {
+            return $this->buildTerminalResponse($jobId, $chunkState);
+        }
+        if ($lockResult->status === JobLockClaimStatus::MISSING) {
+            throw new RuntimeException("Job {$jobId} no encontrado al adquirir lock de generación", 503);
+        }
+
+        $epoch = (int) $lockResult->epoch;
 
         try {
-            // 3. Recolectar candidatos del chunk y reservar slots por DisId
-            $chunk = $this->collectChunkCandidates(
+            return $this->generateChunk(
                 $jobId,
                 $facNitSec,
                 $dateFrom,
                 $dateTo,
                 $limit,
                 $chunkState,
-                $createdAuditIds,
-                $createdReservations
+                $workerToken,
+                $epoch,
+                $lockTtl,
+                $run
             );
+        } catch (Throwable $e) {
+            $this->handleEnqueueException($e, $jobId, $chunkState->chunkIndex, $externalJobId, $run);
 
-            // 4. Publicación causal de eventos (batch_created en chunk 1 antes de hijas)
-            $this->dispatchChunkEvents(
-                $jobId,
-                $chunkState->chunkIndex,
-                $facNitSec,
-                $dateFrom,
-                $dateTo,
-                $limit,
-                $chunk['chunk_total'],
-                $chunk['events'],
-                $publishedAnyEvent
-            );
-
-            // 5. Consolidación de métricas acumuladas
-            $newAccumulatedTotal = $chunkState->accumulatedTotal + $chunk['chunk_total'];
-            $newAccumulatedSkippedLocked = $chunkState->accumulatedSkippedLocked + $chunk['skipped_locked'];
-            $newAccumulatedSkippedExisting = $chunkState->accumulatedSkippedExisting + $chunk['skipped_existing'];
-            $isFinalChunk = !$chunk['has_more_invoices'] || $newAccumulatedTotal >= $limit;
-
-            // 6. Transición de estado en Redis (parche provisional vs sellado definitivo)
-            $responseStatus = $this->finalizeJobState(
-                $jobId,
-                $chunkState->chunkIndex,
-                $isFinalChunk,
-                $newAccumulatedTotal,
-                $newAccumulatedSkippedLocked,
-                $newAccumulatedSkippedExisting
-            );
-
-            return $this->buildBatchResponse(
-                $jobId,
-                $responseStatus,
-                $newAccumulatedTotal,
-                $newAccumulatedSkippedLocked,
-                $newAccumulatedSkippedExisting,
-                !$isFinalChunk,
-                !$isFinalChunk ? $chunk['next_cursor'] : null,
-                $chunkState->chunkIndex,
-                $newAccumulatedTotal,
-                $newAccumulatedSkippedLocked,
-                $newAccumulatedSkippedExisting
-            );
-        } catch (RuntimeException $e) {
-            $this->handleEnqueueException(
-                $e,
-                $jobId,
-                $chunkState->chunkIndex,
-                $jobInitialized,
-                $externalJobId,
-                $publishedAnyEvent,
-                $createdAuditIds,
-                $createdReservations
-            );
-            throw $e;
+            // INV-02: la DLQ solo puede cerrar el job si conoce el epoch del propietario que falló.
+            throw $e instanceof JobGenerationFailedException
+                ? $e
+                : new JobGenerationFailedException($e->getMessage(), is_int($e->getCode()) ? $e->getCode() : 0, $e, $epoch);
         } finally {
-            if ($hasLock) {
-                $this->jobStore->releaseJobGenerationLock($jobId, $workerToken);
+            try {
+                $this->jobStore->releaseJobGenerationLock($jobId, $workerToken, $epoch);
+            } catch (Throwable $releaseError) {
+                Logger::warning('AuditBatchOrchestrator: no se pudo liberar el lock de generación (expirará por TTL)', [
+                    'job_id' => $jobId,
+                    'error' => $releaseError->getMessage(),
+                ]);
             }
         }
     }
 
-    private function resolveIdempotentEarlyResponse(
-        string $jobId,
-        BatchChunkState $chunkState
-    ): ?array {
-        $existing = $this->jobStore->getJob($jobId);
-        if ($existing === null) {
+    /**
+     * Respuesta temprana (sin lock ni SQL) cuando el chunk ya fue procesado o el job está cerrado.
+     *
+     * @return array<string,mixed>|null `null` si el chunk debe procesarse (o recuperar su continuación bajo lock).
+     */
+    private function resolveIdempotentEarlyResponse(string $jobId, BatchChunkState $chunkState): ?array
+    {
+        $summary = $this->jobStore->getJobSummary($jobId);
+        if ($summary === null) {
             throw new RuntimeException("Job externo {$jobId} no encontrado en Redis", 503);
         }
+        $summary['job_id'] = $summary['job_id'] ?? $jobId;
 
-        $alreadySealed = ($existing['sealed'] ?? false) === true;
-        $hasAuditsOnFirstChunk = $chunkState->chunkIndex === 1 && count($existing['audits'] ?? []) > 0;
+        $chunkIndex = $chunkState->chunkIndex;
+        $committed = (int) ($summary['last_committed_chunk'] ?? 0);
+        $continuationDispatched = (int) ($summary['last_continuation_dispatched_chunk'] ?? 0);
 
-        if ($alreadySealed || $hasAuditsOnFirstChunk) {
-            Logger::warning('AuditBatchOrchestrator: Job ya inicializado o sellado previamente; se omite re-generación', [
+        $closed = ($summary['sealed'] ?? false) === true
+            || ($summary['reaping'] ?? false) === true
+            || self::isTerminalJobStatus((string) ($summary['status'] ?? ''));
+        $alreadyDone = $committed >= $chunkIndex && $continuationDispatched >= $chunkIndex;
+
+        if ($closed || $alreadyDone) {
+            Logger::warning('AuditBatchOrchestrator: chunk ya procesado o job cerrado; se omite re-generación', [
                 'job_id' => $jobId,
-                'chunk_index' => $chunkState->chunkIndex,
-                'sealed' => $alreadySealed,
-                'audits_count' => count($existing['audits'] ?? []),
+                'chunk_index' => $chunkIndex,
+                'sealed' => ($summary['sealed'] ?? false) === true,
+                'status' => (string) ($summary['status'] ?? ''),
             ]);
 
-            return $this->buildBatchResponse(
-                $jobId,
-                (string) ($existing['status'] ?? BatchJobStore::JOB_STATUS_PROCESSING),
-                (int) ($existing['total'] ?? count($existing['audits'] ?? [])),
-                (int) ($existing['skipped_locked'] ?? 0),
-                (int) ($existing['skipped_existing'] ?? 0),
-                false,
-                null,
-                $chunkState->chunkIndex,
-                $chunkState->accumulatedTotal,
-                $chunkState->accumulatedSkippedLocked,
-                $chunkState->accumulatedSkippedExisting
-            );
+            return $this->responseFromSummary($summary, $chunkState);
         }
 
+        // committed >= chunk && continuación pendiente && !sealed: se recupera bajo lock (R-CONT).
         return null;
     }
 
-    private function resolveLockedConcurrentResponse(
-        string $jobId,
-        string $workerToken,
-        BatchChunkState $chunkState
-    ): array {
-        Logger::warning('AuditBatchOrchestrator: Generación de batch en curso por otro worker; se omite concurrencia', [
+    /**
+     * Respuesta ante `JobLockClaimStatus::BUSY`: otro worker genera; el consumidor debe retener el mensaje en PEL.
+     *
+     * @return array<string,mixed>
+     */
+    private function resolveLockedConcurrentResponse(string $jobId, string $workerToken, BatchChunkState $chunkState): array
+    {
+        Logger::warning('AuditBatchOrchestrator: generación de batch en curso por otro worker; se difiere el chunk', [
             'job_id' => $jobId,
             'worker_token' => $workerToken,
+            'chunk_index' => $chunkState->chunkIndex,
         ]);
-        $currentJob = $this->jobStore->getJob($jobId);
+        $summary = $this->jobStore->getJobSummary($jobId) ?? ['status' => BatchJobStore::JOB_STATUS_PENDING];
+        $summary['job_id'] = $summary['job_id'] ?? $jobId;
 
-        return $this->buildBatchResponse(
-            $jobId,
-            (string) ($currentJob['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
-            (int) ($currentJob['total'] ?? 0),
-            0,
-            0,
-            false,
-            null,
-            $chunkState->chunkIndex,
-            $chunkState->accumulatedTotal,
-            $chunkState->accumulatedSkippedLocked,
-            $chunkState->accumulatedSkippedExisting
-        );
+        return $this->responseFromSummary($summary, $chunkState, extra: ['locked_busy' => true]);
     }
 
     /**
-     * @param array<string> $createdAuditIds
-     * @param array<int,array{dis_id:string,token:string}> $createdReservations
-     * @return array{
-     *     chunk_total: int,
-     *     skipped_locked: int,
-     *     skipped_existing: int,
-     *     has_more_invoices: bool,
-     *     next_cursor: array{date:string,disId:string,dispensa:string}|null,
-     *     events: array<AuditEvent>
-     * }
+     * Respuesta terminal NO nula (`JobLockClaimStatus::TERMINAL`, `V-F2-B4`): totales autoritativos del estado.
+     *
+     * @return array<string,mixed>
      */
-    private function collectChunkCandidates(
+    private function buildTerminalResponse(string $jobId, BatchChunkState $chunkState): array
+    {
+        $summary = $this->jobStore->getJobSummary($jobId);
+        if ($summary === null) {
+            throw new RuntimeException("Job {$jobId} no encontrado al resolver respuesta terminal", 503);
+        }
+        $summary['job_id'] = $summary['job_id'] ?? $jobId;
+
+        return $this->responseFromSummary($summary, $chunkState);
+    }
+
+    /**
+     * Genera un chunk bajo lock con `$epoch` vigente.
+     *
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     * @return array<string,mixed>
+     */
+    private function generateChunk(
         string $jobId,
         int $facNitSec,
         string $dateFrom,
         string $dateTo,
         int $limit,
         BatchChunkState $chunkState,
-        array &$createdAuditIds,
-        array &$createdReservations
+        string $workerToken,
+        int $epoch,
+        int $lockTtl,
+        array &$run
     ): array {
-        $chunkSize = $chunkState->chunkSizeOverride ?? (int) Env::get('AUDIT_BATCH_CHUNK_SIZE', self::DEFAULT_CHUNK_SIZE);
-        $maxThisChunk = max(1, min($chunkSize, $limit - $chunkState->accumulatedTotal));
-        $chunkTotal = 0;
-        $skippedLocked = 0;
-        $skippedExisting = 0;
-        $hasMoreInvoices = true;
-        $eventsToPublish = [];
-        $cursor = $chunkState->cursor;
+        $summary = $this->requireSummary($jobId);
 
-        while ($chunkTotal < $maxThisChunk) {
-            $fetchLimit = min(max($maxThisChunk * 2, self::MIN_FETCH_LIMIT), self::MAX_FETCH_LIMIT);
-            $invoices = $this->invoicesModel->getInvoicesForAuditBatch(
+        // 3. Continuación huérfana: el chunk ya fue comprometido pero su continuación no se confirmó (R-CONT).
+        if ($this->hasOrphanContinuation($summary, $chunkState->chunkIndex)) {
+            return $this->responseFromSummary(
+                $summary,
+                $chunkState,
+                true,
+                is_array($summary['last_cursor'] ?? null) ? $summary['last_cursor'] : null,
+                ['next_candidate_offset' => (int) ($summary['next_candidate_offset'] ?? 0), 'generation_epoch' => $epoch]
+            );
+        }
+
+        // 4. Congelación SQL única (H1).
+        if (($summary['candidates_frozen'] ?? false) !== true) {
+            $emptyResponse = $this->freezeCandidates(
+                $jobId,
                 $facNitSec,
                 $dateFrom,
                 $dateTo,
-                $fetchLimit,
-                $cursor
+                $limit,
+                $chunkState,
+                $workerToken,
+                $epoch,
+                $lockTtl,
+                $summary
             );
-
-            if ($invoices === []) {
-                $hasMoreInvoices = false;
-                break;
+            if ($emptyResponse !== null) {
+                return $emptyResponse;
             }
-
-            $previousCursor = $cursor;
-            foreach ($invoices as $invoice) {
-                if ($chunkTotal >= $maxThisChunk) {
-                    break;
-                }
-
-                $cursor = self::cursorFromInvoice($invoice);
-
-                $invoiceIdentity = self::resolveInvoiceIdentity($invoice, $jobId);
-                if ($invoiceIdentity === null) {
-                    continue;
-                }
-
-                $disDetNro = $invoiceIdentity['dis_det_nro'];
-                $disId = $invoiceIdentity['dis_id'];
-
-                $auditId = AuditEvent::uuidV4();
-                $reservationToken = AuditEvent::uuidV4();
-                if (!$this->jobStore->claimAuditReservation(
-                    $disId,
-                    $reservationToken,
-                    $this->buildReservationPayload($jobId, $auditId, $disDetNro, $facNitSec, $disId)
-                )) {
-                    $skippedLocked++;
-                    continue;
-                }
-
-                $createdReservations[] = ['dis_id' => $disId, 'token' => $reservationToken];
-
-                $this->initAuditState(
-                    $auditId,
-                    $disDetNro,
-                    $jobId,
-                    $facNitSec,
-                    $disId,
-                    $reservationToken
-                );
-
-                $createdAuditIds[] = $auditId;
-
-                $eventsToPublish[] = $this->buildAuditCreatedEvent(
-                    $auditId,
-                    $jobId,
-                    $disDetNro,
-                    $facNitSec,
-                    $disId,
-                    $reservationToken
-                );
-
-                $chunkTotal++;
-            }
-
-            if ($cursor === null || $cursor === $previousCursor) {
-                $hasMoreInvoices = false;
-                break;
-            }
+            $summary = $this->requireSummary($jobId);
         }
 
-        return [
-            'chunk_total' => $chunkTotal,
-            'skipped_locked' => $skippedLocked,
-            'skipped_existing' => $skippedExisting,
-            'has_more_invoices' => $hasMoreInvoices,
-            'next_cursor' => $cursor,
-            'events' => $eventsToPublish,
-        ];
+        // 5. Recolección idempotente y recuperación pre/post-publicación (R-PREPUB).
+        $candidatesCount = (int) ($summary['candidates_count'] ?? 0);
+        $startOffset = max($chunkState->candidateOffset, (int) ($summary['next_candidate_offset'] ?? 0));
+        // La lista congelada ya está acotada por `limit` (limit - accepted al congelar): el límite no se re-evalúa por
+        // slice. Re-evaluarlo con `accepted` leído al inicio del chunk dejaría sin publicar las filas registradas por
+        // un intento previo caído (R-PREPUB) cuando `accepted == limit`.
+        $remainingCandidates = $candidatesCount - $startOffset;
+        $chunkSize = max(1, $chunkState->chunkSizeOverride
+            ?? (int) Env::get('AUDIT_BATCH_CHUNK_SIZE', self::DEFAULT_CHUNK_SIZE));
+        $slice = $remainingCandidates > 0
+            ? $this->jobStore->readFrozenCandidates($jobId, $startOffset, min($chunkSize, $remainingCandidates))
+            : [];
+
+        $chunkSkippedLocked = 0;
+        $chunkSkippedExisting = 0;
+        /** @var array<int,array{event:AuditEvent,dis_det_nro:string,audit_id:string}> $pendingPublish */
+        $pendingPublish = [];
+
+        foreach ($slice as $row) {
+            $identity = self::resolveInvoiceIdentity($row, $jobId);
+            if ($identity === null) {
+                continue;
+            }
+            $disDetNro = $identity['dis_det_nro'];
+            $disId = $identity['dis_id'];
+
+            $auditId = AuditEvent::deterministicUuidV4("batch-audit:{$jobId}:{$disDetNro}");
+            $reservationToken = AuditEvent::deterministicUuidV4("batch-res:{$jobId}:{$disDetNro}");
+            $entry = $this->jobStore->getBatchDispensaEntry($jobId, $disDetNro);
+
+            if ($entry !== null && ($entry['dispatched'] ?? false) === true) {
+                continue; // ya publicada: no toca reservas ni cuenta skipped_locked
+            }
+
+            if ($entry !== null) {
+                // Caída previa entre registro y publicación: se reutiliza la auditoría registrada.
+                $auditId = ($entry['audit_id'] ?? '') !== '' ? (string) $entry['audit_id'] : $auditId;
+                $audit = $this->stateStore->getAudit($auditId);
+                if ($audit === null) {
+                    // W-F2-B1: jamás se publica audit_created sin audit:{id}:state.
+                    $token = $this->reassertReservation($jobId, $auditId, $disDetNro, $facNitSec, $disId, $reservationToken, $run);
+                    if ($token === null) {
+                        Logger::warning('batch_prepub_reservation_lost', ['job_id' => $jobId, 'audit_id' => $auditId]);
+                        continue;
+                    }
+                    $this->initAuditState($auditId, $disDetNro, $jobId, $facNitSec, $disId, $token, $epoch, $run);
+                } else {
+                    $token = (string) ($audit['reservation_token'] ?? '') !== ''
+                        ? (string) $audit['reservation_token']
+                        : $reservationToken;
+                }
+                $pendingPublish[] = $this->pendingAuditEvent($auditId, $jobId, $disDetNro, $facNitSec, $disId, $token);
+                continue;
+            }
+
+            // Fila nueva: reserva 1:1 por DisDetNro.
+            $payload = $this->buildReservationPayload($jobId, $auditId, $disDetNro, $facNitSec, $disId);
+            if ($this->jobStore->claimAuditReservation($disDetNro, $reservationToken, $payload)) {
+                $run['reservations'][] = ['dis_det_nro' => $disDetNro, 'token' => $reservationToken, 'audit_id' => $auditId];
+                $token = $reservationToken;
+            } else {
+                $existing = $this->jobStore->getAuditReservation($disDetNro);
+                if ($existing === null
+                    || (string) ($existing['job_id'] ?? '') !== $jobId
+                    || (string) ($existing['audit_id'] ?? '') !== $auditId
+                ) {
+                    $chunkSkippedLocked++; // reservada por otro job o por /audit/single
+                    continue;
+                }
+                $token = (string) ($existing['token'] ?? '') !== '' ? (string) $existing['token'] : $reservationToken;
+            }
+
+            $this->initAuditState($auditId, $disDetNro, $jobId, $facNitSec, $disId, $token, $epoch, $run);
+            $pendingPublish[] = $this->pendingAuditEvent($auditId, $jobId, $disDetNro, $facNitSec, $disId, $token);
+        }
+
+        // 6. Publicación causal y confirmación dispatched = true.
+        $this->publishChunk($jobId, $facNitSec, $dateFrom, $dateTo, $limit, $epoch, $summary, $pendingPublish, $run);
+
+        // 7. Cierre final o checkpoint intermedio.
+        $newOffset = $startOffset + count($slice);
+        $fresh = $this->requireSummary($jobId);
+        $authoritativeAccepted = (int) ($fresh['accepted'] ?? 0);
+        $isFinalChunk = $newOffset >= $candidatesCount || $authoritativeAccepted >= $limit || $slice === [];
+
+        if ($isFinalChunk) {
+            if (!$this->jobStore->sealJob($jobId, $chunkSkippedLocked, $chunkSkippedExisting, $epoch, $chunkState->chunkIndex, $newOffset)) {
+                throw new RuntimeException('generation_fence_stale_on_seal', 409);
+            }
+
+            return $this->responseFromSummary($this->requireSummary($jobId), $chunkState);
+        }
+
+        $lastRow = end($slice);
+        $nextCursor = is_array($lastRow) ? self::cursorFromInvoice($lastRow) : null;
+        if ($nextCursor !== null) {
+            $nextCursor['offset'] = $newOffset;
+        }
+
+        if (!$this->jobStore->commitChunkCheckpoint(
+            $jobId,
+            $chunkState->chunkIndex,
+            $newOffset,
+            $chunkSkippedLocked,
+            $chunkSkippedExisting,
+            $epoch,
+            $nextCursor
+        )) {
+            throw new RuntimeException('generation_fence_stale_on_checkpoint', 409);
+        }
+        $this->renewLockOrFail($jobId, $workerToken, $epoch, $lockTtl);
+
+        return $this->responseFromSummary(
+            $this->requireSummary($jobId),
+            $chunkState,
+            true,
+            $nextCursor,
+            ['next_candidate_offset' => $newOffset, 'generation_epoch' => $epoch]
+        );
     }
 
     /**
-     * @param array<AuditEvent> $eventsToPublish
+     * Ejecuta la consulta SQL de congelación (una sola vez por job) y persiste las candidatas.
+     *
+     * @param array<string,mixed> $summary
+     * @return array<string,mixed>|null Respuesta final si el snapshot es vacío (job cerrado); `null` si quedó congelado.
      */
-    private function dispatchChunkEvents(
+    private function freezeCandidates(
         string $jobId,
-        int $chunkIndex,
         int $facNitSec,
         string $dateFrom,
         string $dateTo,
         int $limit,
-        int $chunkTotal,
-        array $eventsToPublish,
-        bool &$publishedAnyEvent
+        BatchChunkState $chunkState,
+        string $workerToken,
+        int $epoch,
+        int $lockTtl,
+        array $summary
+    ): ?array {
+        // Permite migrar y completar jobs v1 en curso sin re-procesar páginas previas.
+        $freezeCursor = ($chunkState->chunkIndex > 1 && $chunkState->cursor !== null) ? $chunkState->cursor : null;
+        $accepted = (int) ($summary['accepted'] ?? 0);
+
+        // R-SQLTO: el lock no se puede renovar durante execute(); se renueva antes y después.
+        $this->renewLockOrFail($jobId, $workerToken, $epoch, $lockTtl);
+        $sqlStartNs = hrtime(true);
+        $snapshot = $this->invoicesModel->getInvoicesForAuditBatch(
+            $facNitSec,
+            $dateFrom,
+            $dateTo,
+            max(1, min($limit, self::MAX_FREEZE_LIMIT) - $accepted),
+            $freezeCursor,
+            $jobId,
+            AuditExecutionConfig::freezeQueryTimeoutSeconds()
+        );
+        $sqlMs = (int) round((hrtime(true) - $sqlStartNs) / 1_000_000);
+
+        $logContext = [
+            'job_id' => $jobId,
+            'fac_nit_sec_masked' => self::maskNit($facNitSec),
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'limit' => $limit,
+            'candidates_count' => count($snapshot),
+            'batch_generation_sql_ms' => $sqlMs,
+        ];
+        Logger::info('AuditBatchOrchestrator: snapshot SQL batch congelado', $logContext);
+        if (count($snapshot) === self::MAX_FREEZE_LIMIT) {
+            Logger::warning('batch_freeze_limit_reached', $logContext);
+        }
+        $this->renewLockOrFail($jobId, $workerToken, $epoch, $lockTtl);
+
+        if ($snapshot === []) {
+            if ($accepted === 0 && $chunkState->chunkIndex === 1) {
+                if (!$this->jobStore->publishEmptyBatch($jobId, 0, 0, $epoch)) {
+                    throw new RuntimeException('generation_fence_stale_on_empty_batch', 409);
+                }
+
+                return $this->responseFromSummary($this->requireSummary($jobId), $chunkState);
+            }
+
+            // Job v1 migrado (chunkIndex > 1): publishEmptyBatch sobrescribiría a 0 los skipped_* acumulados (R4-F2-M2).
+            $offset = max($chunkState->candidateOffset, (int) ($summary['next_candidate_offset'] ?? 0));
+            if (!$this->jobStore->sealJob($jobId, 0, 0, $epoch, $chunkState->chunkIndex, $offset)) {
+                throw new RuntimeException('generation_fence_stale_on_seal', 409);
+            }
+
+            return $this->responseFromSummary($this->requireSummary($jobId), $chunkState);
+        }
+
+        $compact = array_map(static fn (array $row): array => [
+            'NitSec' => $row['NitSec'] ?? null,
+            'DisId' => $row['DisId'] ?? null,
+            'Dispensa' => $row['Dispensa'] ?? null,
+            'DisFecSol' => $row['DisFecSol'] ?? null,
+        ], $snapshot);
+        unset($snapshot);
+
+        if (!$this->jobStore->storeFrozenCandidates($jobId, $compact, $epoch)) {
+            throw new RuntimeException('generation_fence_stale_or_job_missing', 409);
+        }
+
+        return null;
+    }
+
+    /**
+     * Publica `batch_created` (primer chunk que acepta) y los `audit_created` pendientes, y confirma `dispatched`.
+     *
+     * @param array<string,mixed> $summary
+     * @param array<int,array{event:AuditEvent,dis_det_nro:string,audit_id:string}> $pendingPublish
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     */
+    private function publishChunk(
+        string $jobId,
+        int $facNitSec,
+        string $dateFrom,
+        string $dateTo,
+        int $limit,
+        int $epoch,
+        array $summary,
+        array $pendingPublish,
+        array &$run
     ): void {
-        if ($chunkIndex === 1 && $chunkTotal > 0) {
+        if ($pendingPublish === []) {
+            return;
+        }
+
+        $batchCreatedNow = false;
+        if (($summary['batch_created_published'] ?? false) !== true) {
+            // event_id determinista + batch_created_published evitan duplicados (W-F2-M4).
             $this->publisher->publish(AuditEvent::create(
                 eventType: AuditEvent::TYPE_BATCH_CREATED,
                 auditId: null,
@@ -387,71 +524,146 @@ final class AuditBatchOrchestrator
                     'date_from' => $dateFrom,
                     'date_to' => $dateTo,
                     'limit' => $limit,
-                    'initial_chunk_size' => $chunkTotal,
+                    'initial_chunk_size' => count($pendingPublish),
                 ],
+                eventId: AuditEvent::deterministicUuidV4("batch-created:{$jobId}"),
             ));
-            $publishedAnyEvent = true;
+            $run['published'] = true;
+            $batchCreatedNow = true;
         }
 
-        foreach ($eventsToPublish as $event) {
-            $this->publisher->publish($event);
-            $publishedAnyEvent = true;
-        }
-    }
-
-    private function finalizeJobState(
-        string $jobId,
-        int $chunkIndex,
-        bool $isFinalChunk,
-        int $newAccumulatedTotal,
-        int $newAccumulatedSkippedLocked,
-        int $newAccumulatedSkippedExisting
-    ): string {
-        if ($isFinalChunk) {
-            if ($newAccumulatedTotal === 0 && $chunkIndex === 1) {
-                $this->publishEmptyBatch($jobId, $newAccumulatedSkippedLocked, $newAccumulatedSkippedExisting);
-                return BatchJobStore::JOB_STATUS_COMPLETED;
-            }
-
-            if (!$this->jobStore->sealJob($jobId, $newAccumulatedTotal, [
-                'accepted' => $newAccumulatedTotal,
-                'skipped_locked' => $newAccumulatedSkippedLocked,
-                'skipped_existing' => $newAccumulatedSkippedExisting,
-            ])) {
-                throw new RuntimeException('No se pudo sellar el job batch en Redis', 503);
-            }
-            // Sellado significa que no se registraran mas auditorias, pero los workers
-            // pueden no haber completado ninguna aun: el estado observable correcto es queued.
-            return BatchJobStore::JOB_STATUS_QUEUED;
+        $pairs = [];
+        foreach ($pendingPublish as $pending) {
+            $this->publisher->publish($pending['event']);
+            $run['published'] = true;
+            $pairs[$pending['dis_det_nro']] = $pending['audit_id'];
         }
 
-        $this->jobStore->patchJob($jobId, [
-            'total' => $newAccumulatedTotal,
-            'accepted' => $newAccumulatedTotal,
-            'skipped_locked' => $newAccumulatedSkippedLocked,
-            'skipped_existing' => $newAccumulatedSkippedExisting,
-        ]);
-
-        // Hay mas chunks por venir: las auditorias ya registradas estan en stream pero
-        // el job no esta sellado todavia. Para el llamador, el job esta queued.
-        return BatchJobStore::JOB_STATUS_QUEUED;
+        if (!$this->jobStore->markAuditsDispatched($jobId, $pairs, $batchCreatedNow, $epoch)) {
+            throw new RuntimeException('generation_fence_stale_on_dispatch', 409);
+        }
     }
 
     /**
-     * @param array<string> $createdAuditIds
-     * @param array<int,array{dis_id:string,token:string}> $createdReservations
+     * Re-asegura la reserva de una auditoría ya registrada cuyo estado desapareció (`W-F2-B1`).
+     *
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     * @return string|null Token de la reserva vigente, o `null` si pertenece a otro job/single.
+     */
+    private function reassertReservation(
+        string $jobId,
+        string $auditId,
+        string $disDetNro,
+        int $facNitSec,
+        string $disId,
+        string $reservationToken,
+        array &$run
+    ): ?string {
+        $payload = $this->buildReservationPayload($jobId, $auditId, $disDetNro, $facNitSec, $disId);
+        if ($this->jobStore->claimAuditReservation($disDetNro, $reservationToken, $payload)) {
+            $run['reservations'][] = ['dis_det_nro' => $disDetNro, 'token' => $reservationToken, 'audit_id' => $auditId];
+
+            return $reservationToken;
+        }
+
+        $existing = $this->jobStore->getAuditReservation($disDetNro);
+        if ($existing !== null
+            && (string) ($existing['job_id'] ?? '') === $jobId
+            && (string) ($existing['audit_id'] ?? '') === $auditId
+        ) {
+            return (string) ($existing['token'] ?? '') !== '' ? (string) $existing['token'] : $reservationToken;
+        }
+
+        return null;
+    }
+
+    /**
+     * Inicializa (idempotente) el estado Redis de la auditoría y la registra en el job.
+     *
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
+     */
+    private function initAuditState(
+        string $auditId,
+        string $disDetNro,
+        string $jobId,
+        int $facNitSec,
+        string $disId,
+        string $reservationToken,
+        int $epoch,
+        array &$run
+    ): void {
+        if ($this->stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $disId)) {
+            // X-F2-M2: se registra inmediatamente, antes de patchAudit()/registerAuditInJob().
+            $run['audits'][$auditId] = $disDetNro;
+            if (!$this->stateStore->patchAudit($auditId, ['reservation_token' => $reservationToken])) {
+                throw new RuntimeException('No se pudo asociar la reserva a la auditoría', 503);
+            }
+        } else {
+            // V-F2-B5: estado preexistente del MISMO job (caída previa): se continúa sin error.
+            $existing = $this->stateStore->getAudit($auditId);
+            if (($existing['job_id'] ?? null) !== $jobId) {
+                Logger::error('AuditBatchOrchestrator::enqueueBatch no se pudo inicializar auditoría', [
+                    'job_id' => $jobId,
+                    'audit_id' => $auditId,
+                ]);
+                throw new RuntimeException('No se pudo inicializar la auditoría en Redis', 503);
+            }
+            if ((string) ($existing['reservation_token'] ?? '') === ''
+                && !$this->stateStore->patchAudit($auditId, ['reservation_token' => $reservationToken])
+            ) {
+                throw new RuntimeException('No se pudo asociar la reserva a la auditoría', 503);
+            }
+        }
+
+        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $disId, $reservationToken, $epoch)) {
+            throw new RuntimeException('No se pudo registrar la auditoría en el job', 503);
+        }
+        $run['registered'][$disDetNro] = true;
+    }
+
+    /**
+     * @return array{event:AuditEvent,dis_det_nro:string,audit_id:string}
+     */
+    private function pendingAuditEvent(
+        string $auditId,
+        string $jobId,
+        string $disDetNro,
+        int $facNitSec,
+        string $disId,
+        string $reservationToken
+    ): array {
+        return [
+            'event' => AuditEvent::create(
+                eventType: AuditEvent::TYPE_AUDIT_CREATED,
+                auditId: $auditId,
+                jobId: $jobId,
+                documentId: null,
+                payload: [
+                    'dis_det_nro' => $disDetNro,
+                    'fac_nit_sec' => (string) $facNitSec,
+                    'dis_id' => $disId,
+                    'reservation_token' => $reservationToken,
+                ],
+                eventId: AuditEvent::deterministicUuidV4("audit-created:{$jobId}:{$auditId}"),
+            ),
+            'dis_det_nro' => $disDetNro,
+            'audit_id' => $auditId,
+        ];
+    }
+
+    /**
+     * Compensación de un chunk fallido (`W-F2-B1`). Solo actúa si no se publicó ningún evento.
+     *
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
      */
     private function handleEnqueueException(
-        RuntimeException $e,
+        Throwable $e,
         string $jobId,
         int $chunkIndex,
-        bool $jobInitialized,
         bool $externalJobId,
-        bool $publishedAnyEvent,
-        array $createdAuditIds,
-        array $createdReservations
+        array $run
     ): void {
-        if ($publishedAnyEvent) {
+        if ($run['published']) {
             Logger::error('AuditBatchOrchestrator::enqueueBatch falló después de publicar eventos; no se ejecuta rollback destructivo', [
                 'job_id' => $jobId,
                 'chunk_index' => $chunkIndex,
@@ -459,14 +671,7 @@ final class AuditBatchOrchestrator
                 'error' => $e->getMessage(),
             ]);
         } else {
-            $this->cleanupAsyncEnqueueState(
-                $jobId,
-                $jobInitialized,
-                $externalJobId,
-                $chunkIndex,
-                $createdAuditIds,
-                $createdReservations
-            );
+            $this->cleanupAsyncEnqueueState($e, $jobId, $externalJobId, $chunkIndex, $run);
         }
 
         Logger::error('AuditBatchOrchestrator::enqueueBatch falló', [
@@ -478,34 +683,40 @@ final class AuditBatchOrchestrator
 
     private function initJobOrFail(string $jobId, int $facNitSec, string $dateFrom, string $dateTo, int $limit): void
     {
-        if (!$this->jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit)) {
-            throw new RuntimeException('No se pudo inicializar el job en Redis', 503);
+        $result = $this->jobStore->initJobExclusive($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+        if (($result['created'] ?? false) === true) {
+            return;
         }
+
+        if (($result['reason'] ?? null) === 'overlap') {
+            throw new RuntimeException('Ya existe un job activo para el cliente y rango de fechas especificado', 409);
+        }
+
+        throw new RuntimeException('No se pudo inicializar el job en Redis', 503);
     }
 
     /**
-     * Resuelve y valida la identidad obligatoria de una dispensa/factura candidata.
+     * Resuelve y valida la identidad obligatoria de una candidata congelada.
      *
-     * @param  array<string,mixed>  $invoice
+     * @param  array<string,mixed>  $row
      * @return array{dis_det_nro:string,dis_id:string}|null
      */
-    private static function resolveInvoiceIdentity(array $invoice, string $jobId): ?array
+    private static function resolveInvoiceIdentity(array $row, string $jobId): ?array
     {
-        $disDetNro = isset($invoice['Dispensa']) ? trim((string) $invoice['Dispensa']) : '';
-        $disId = isset($invoice['DisId']) ? trim((string) $invoice['DisId']) : '';
+        $disDetNro = isset($row['Dispensa']) ? trim((string) $row['Dispensa']) : '';
+        $disId = isset($row['DisId']) ? trim((string) $row['DisId']) : '';
 
         if ($disDetNro === '' || $disId === '') {
-            Logger::warning('AuditBatchOrchestrator::enqueueBatch factura inválida, omitida', [
+            // R-PII: no se vuelca la fila (contiene el NIT).
+            Logger::warning('AuditBatchOrchestrator::enqueueBatch candidata inválida, omitida', [
                 'job_id' => $jobId,
-                'invoice' => $invoice,
+                'has_dispensa' => $disDetNro !== '',
+                'has_dis_id' => $disId !== '',
             ]);
             return null;
         }
 
-        return [
-            'dis_det_nro' => $disDetNro,
-            'dis_id' => $disId,
-        ];
+        return ['dis_det_nro' => $disDetNro, 'dis_id' => $disId];
     }
 
     /**
@@ -528,70 +739,40 @@ final class AuditBatchOrchestrator
         ];
     }
 
-    private function initAuditState(
-        string $auditId,
-        string $disDetNro,
-        string $jobId,
-        int $facNitSec,
-        string $disId,
-        string $reservationToken
-    ): void {
-        if (!$this->stateStore->initAudit($auditId, $disDetNro, $jobId, (string) $facNitSec, $disId)) {
-            Logger::error('AuditBatchOrchestrator::enqueueBatch no se pudo inicializar auditoría', [
-                'job_id' => $jobId,
-                'audit_id' => $auditId,
-            ]);
-            throw new RuntimeException('No se pudo inicializar la auditoría en Redis', 503);
-        }
+    /**
+     * Construye la respuesta del chunk a partir del estado autoritativo del job.
+     *
+     * @param array<string,mixed> $summary
+     * @param array<string,mixed> $extra
+     * @param array<string,mixed>|null $nextCursor
+     * @return array<string,mixed>
+     */
+    private function responseFromSummary(
+        array $summary,
+        BatchChunkState $chunkState,
+        bool $hasMore = false,
+        ?array $nextCursor = null,
+        array $extra = []
+    ): array {
+        $total = (int) ($summary['total'] ?? 0);
 
-        if (!$this->stateStore->patchAudit($auditId, ['reservation_token' => $reservationToken])) {
-            throw new RuntimeException('No se pudo asociar la reserva a la auditoría', 503);
-        }
-
-        if (!$this->jobStore->registerAuditInJob($jobId, $auditId, $disDetNro, $disId, $reservationToken)) {
-            throw new RuntimeException('No se pudo registrar la auditoría en el job', 503);
-        }
-    }
-
-    private function buildAuditCreatedEvent(
-        string $auditId,
-        string $jobId,
-        string $disDetNro,
-        int $facNitSec,
-        string $disId,
-        string $reservationToken
-    ): AuditEvent {
-        return AuditEvent::create(
-            eventType: AuditEvent::TYPE_AUDIT_CREATED,
-            auditId: $auditId,
-            jobId: $jobId,
-            documentId: null,
-            payload: [
-                'dis_det_nro' => $disDetNro,
-                'fac_nit_sec' => (string) $facNitSec,
-                'dis_id' => $disId,
-                'reservation_token' => $reservationToken,
-            ],
-        );
-    }
-
-    private function publishEmptyBatch(string $jobId, int $skippedLocked, int $skippedExisting): void
-    {
-        if (!$this->jobStore->patchJob($jobId, [
-            'status' => BatchJobStore::JOB_STATUS_COMPLETED,
-            'sealed' => true,
-            'total' => 0,
-            'accepted' => 0,
-            'skipped_locked' => $skippedLocked,
-            'skipped_existing' => $skippedExisting,
-        ])) {
-            throw new RuntimeException('No se pudo cerrar el job batch vacío en Redis', 503);
-        }
-
+        return array_merge($this->buildBatchResponse(
+            (string) ($summary['job_id'] ?? ''),
+            (string) ($summary['status'] ?? BatchJobStore::JOB_STATUS_PENDING),
+            $total,
+            (int) ($summary['skipped_locked'] ?? 0),
+            (int) ($summary['skipped_existing'] ?? 0),
+            $hasMore,
+            $hasMore ? $nextCursor : null,
+            $chunkState->chunkIndex,
+            (int) ($summary['accepted'] ?? $total),
+            (int) ($summary['skipped_locked'] ?? 0),
+            (int) ($summary['skipped_existing'] ?? 0)
+        ), $extra);
     }
 
     /**
-     * @param array{date:string,disId:string,dispensa:string}|null $nextCursor
+     * @param array<string,mixed>|null $nextCursor
      * @return array{
      *     job_id:string,
      *     status:string,
@@ -600,7 +781,7 @@ final class AuditBatchOrchestrator
      *     skipped_locked:int,
      *     skipped_existing:int,
      *     has_more:bool,
-     *     next_cursor:array{date:string,disId:string,dispensa:string}|null,
+     *     next_cursor:array<string,mixed>|null,
      *     chunk_index:int,
      *     accumulated_total:int,
      *     accumulated_skipped_locked:int,
@@ -637,38 +818,133 @@ final class AuditBatchOrchestrator
     }
 
     /**
-     * Limpia el estado parcial de encolamiento si ocurre una excepción
-     * para evitar dejar jobs huérfanos o slots bloqueados.
+     * Compensa el estado parcial de un chunk fallido SIN destruir lo que el propietario vigente puede reutilizar.
      *
-     * @param array<string> $createdAuditIds
-     * @param array<int,array{dis_id:string,token:string}> $createdReservations
+     * Como `auditId` y `reservationToken` son deterministas por `(jobId, disDetNro)`, un token coincidente no prueba
+     * propiedad: tras perder el lock el propietario `epoch + 1` reutiliza exactamente la misma auditoría y reserva.
+     * Casos (en este orden):
+     *  (b) fencing → no se borra nada;
+     *  (a) job creado por este orquestador en el chunk 1 → limpieza total;
+     *  (c) job externo (o chunk > 1) sin fencing → solo filas creadas en este intento SIN entrada en `by_dispensa`.
+     *
+     * @param array{published:bool,audits:array<string,string>,reservations:array<int,array{dis_det_nro:string,token:string,audit_id:string}>,registered:array<string,bool>} $run
      */
     private function cleanupAsyncEnqueueState(
+        Throwable $error,
         string $jobId,
-        bool $jobInitialized,
         bool $externalJobId,
         int $chunkIndex,
-        array $createdAuditIds,
-        array $createdReservations
+        array $run
     ): void {
         try {
-            foreach ($createdAuditIds as $auditId) {
-                $this->stateStore->deleteAudit($auditId);
+            if (self::isFencingFailure($error)) {
+                return;
             }
-            // Salvaguarda: NUNCA borrar el job en Redis si fue creado externamente o si ya pasó del primer chunk
-            if ($jobInitialized && !$externalJobId && $chunkIndex === 1) {
+
+            if (!$externalJobId && $chunkIndex === 1) {
+                foreach (array_keys($run['audits']) as $auditId) {
+                    $this->stateStore->deleteAudit($auditId);
+                }
                 $this->jobStore->deleteJob($jobId);
+                foreach ($run['reservations'] as $reservation) {
+                    $this->jobStore->releaseAuditReservation($reservation['dis_det_nro'], $reservation['token']);
+                }
+
+                return;
             }
-            foreach ($createdReservations as $reservation) {
-                $this->jobStore->releaseAuditReservation($reservation['dis_id'], $reservation['token']);
+
+            foreach ($run['audits'] as $auditId => $disDetNro) {
+                if (($run['registered'][$disDetNro] ?? false) === true
+                    || $this->jobStore->getBatchDispensaEntry($jobId, $disDetNro) !== null
+                ) {
+                    continue;
+                }
+                $audit = $this->stateStore->getAudit($auditId);
+                if ($audit !== null && ($audit['job_id'] ?? null) === $jobId) {
+                    $this->stateStore->deleteAudit($auditId);
+                }
             }
-        } catch (\Throwable $t) {
+            foreach ($run['reservations'] as $reservation) {
+                $disDetNro = $reservation['dis_det_nro'];
+                if (($run['registered'][$disDetNro] ?? false) === true
+                    || $this->jobStore->getBatchDispensaEntry($jobId, $disDetNro) !== null
+                ) {
+                    continue;
+                }
+                $this->jobStore->releaseAuditReservation($disDetNro, $reservation['token']);
+            }
+        } catch (Throwable $t) {
             Logger::error('AuditBatchOrchestrator::cleanupAsyncEnqueueState falló durante rollback', [
                 'job_id' => $jobId,
                 'chunk_index' => $chunkIndex,
-                'error'  => $t->getMessage(),
+                'error' => $t->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * `true` si la excepción (o su causa directa) es un rechazo de fencing (`generation_fence_*`, `job_closed_or_reaping`).
+     */
+    private static function isFencingFailure(Throwable $error): bool
+    {
+        $candidate = $error instanceof JobGenerationFailedException && $error->getPrevious() !== null
+            ? $error->getPrevious()
+            : $error;
+        $message = $candidate->getMessage();
+
+        return str_starts_with($message, 'generation_fence_') || $message === 'job_closed_or_reaping';
+    }
+
+    private function bestEffortDeleteJob(string $jobId): void
+    {
+        try {
+            $this->jobStore->deleteJob($jobId);
+        } catch (Throwable $t) {
+            Logger::error('AuditBatchOrchestrator: no se pudo eliminar el job tras fallar el claim del lock', [
+                'job_id' => $jobId,
+                'error' => $t->getMessage(),
+            ]);
+        }
+    }
+
+    private function renewLockOrFail(string $jobId, string $workerToken, int $epoch, int $lockTtl): void
+    {
+        if (!$this->jobStore->renewJobGenerationLock($jobId, $workerToken, $epoch, $lockTtl)) {
+            throw new RuntimeException('generation_fence_lost', 409);
+        }
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function requireSummary(string $jobId): array
+    {
+        $summary = $this->jobStore->getJobSummary($jobId);
+        if ($summary === null) {
+            throw new RuntimeException("Job {$jobId} no encontrado en Redis", 503);
+        }
+        $summary['job_id'] = $summary['job_id'] ?? $jobId;
+
+        return $summary;
+    }
+
+    /**
+     * @param array<string,mixed> $summary
+     */
+    private function hasOrphanContinuation(array $summary, int $chunkIndex): bool
+    {
+        return (int) ($summary['last_committed_chunk'] ?? 0) >= $chunkIndex
+            && (int) ($summary['last_continuation_dispatched_chunk'] ?? 0) < $chunkIndex
+            && ($summary['sealed'] ?? false) !== true;
+    }
+
+    private static function isTerminalJobStatus(string $status): bool
+    {
+        return in_array($status, [
+            BatchJobStore::JOB_STATUS_COMPLETED,
+            BatchJobStore::JOB_STATUS_COMPLETED_WITH_ERR,
+            BatchJobStore::JOB_STATUS_FAILED,
+        ], true);
     }
 
     /**

@@ -153,59 +153,6 @@ class BatchJobStore
     // ── Creación, lectura y listado de jobs ──────────────────────────────
 
     /**
-     * Inicializa el estado Redis de un job batch.
-     *
-     * @deprecated Reemplazado por initJobExclusive(); se conserva hasta migrar Controller/Orchestrator/cron (IMPL-BATCH-001-B2).
-     */
-    public function initJob(
-        string $jobId,
-        int $facNitSec,
-        string $dateFrom,
-        string $dateTo,
-        int $limit
-    ): bool {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
-        $state = [
-            'job_id'      => $jobId,
-            'execution_version' => AuditExecutionConfig::VERSION,
-            'status'      => self::JOB_STATUS_PENDING,
-            'fac_nit_sec' => $facNitSec,
-            'date_from'   => $dateFrom,
-            'date_to'     => $dateTo,
-            'limit'       => $limit,
-            'sealed'      => false,
-            'total'       => 0,
-            'done'        => 0,
-            'failed'      => 0,
-            'accepted'    => 0,
-            'skipped_locked' => 0,
-            'skipped_existing' => 0,
-            'accumulated_duration_ms' => 0,
-            'avg_duration_ms' => 0,
-            'created_at'  => $now,
-            'updated_at'  => $now,
-            'audits'      => new \stdClass(),
-        ];
-
-        $success = $this->redis->eval('local r=redis.call("SET",KEYS[1],ARGV[1],"NX"); return r and 1 or 0', [self::jobKey($jobId)], [self::encodeJson($state, 'BatchJobStore')]) === 1;
-
-        if ($success) {
-            try {
-                $this->redis->hIncrBy(self::TELEMETRY_KEY, 'jobs_queued', 1);
-                $this->redis->eval(
-                    "redis.call('ZADD', KEYS[1], tonumber(ARGV[1]), ARGV[2])",
-                    ['jobs:index'],
-                    [(string) time(), $jobId]
-                );
-            } catch (\Throwable $e) {
-                Logger::warning('BatchJobStore: No se pudo incrementar jobs_queued o indexar job', ['error' => $e->getMessage()]);
-            }
-        }
-
-        return $success;
-    }
-
-    /**
      * Crea un job de forma atómica rechazando solapamientos por (NIT, rango de fechas) (`INV-03`, `DEC-05`).
      *
      * @return array{created:bool, conflict_job_id:?string, reason:?string}
@@ -480,7 +427,11 @@ class BatchJobStore
     /**
      * Marca como despachadas las auditorías publicadas y, opcionalmente, `batch_created_published`.
      *
-     * @param  array<int|string,mixed>  $pairs  Mapa `disDetNro => auditId` o lista de `['dis_det_nro'=>..., 'audit_id'=>...]`.
+     * Formato ÚNICO de `$pairs`: mapa `disDetNro => auditId` (p. ej. `['T123' => '<uuid>']`). PHP convierte las claves
+     * numéricas a `int`; se normalizan con `(string)`. El Lua solo marca `dispatched = true` si el `audit_id` de la
+     * entrada `by_dispensa` coincide (o si `auditId` viene vacío).
+     *
+     * @param  array<int|string,string>  $pairs  Mapa `disDetNro => auditId`.
      * @param  bool  $batchCreatedPublished  Fija `batch_created_published = true` en el estado del job.
      * @param  int  $expectedEpoch  Epoch de generación vigente.
      * @return bool `false` si falta el job, el epoch es obsoleto o el job está sellado/en reaping/terminal.
@@ -489,13 +440,8 @@ class BatchJobStore
     {
         $flat = [];
         foreach ($pairs as $key => $value) {
-            if (is_array($value)) {
-                $ddn = trim((string) ($value['dis_det_nro'] ?? $value[0] ?? ''));
-                $auditId = trim((string) ($value['audit_id'] ?? $value[1] ?? ''));
-            } else {
-                $ddn = trim((string) $key);
-                $auditId = trim((string) $value);
-            }
+            $ddn = trim((string) $key);
+            $auditId = trim((string) $value);
             if ($ddn === '') {
                 continue;
             }
@@ -677,29 +623,21 @@ class BatchJobStore
     /**
      * Sella el job (no se registrarán más auditorías) y lo cierra si `done + failed >= total` (`SEAL_JOB_LUA`).
      *
-     * Firma v2: `sealJob($jobId, $skippedLockedDelta, $skippedExistingDelta, $expectedEpoch, $chunkIndex, $nextOffset)`.
-     * Firma legada (compatibilidad hasta IMPL-BATCH-001-B2): `sealJob($jobId, int $total, array $metadata)`; se detecta
-     * porque el tercer argumento es un `array`, y aplica un merge simple vía patchJob().
+     * Firma: `sealJob($jobId, $skippedLockedDelta, $skippedExistingDelta, $expectedEpoch, $chunkIndex, $nextOffset)`.
+     * (La firma legada `sealJob($jobId, $total, array $metadata)` fue retirada en SDD-BATCH-001 B2.)
      *
-     * @param  int  $skippedLockedDelta  Delta de `skipped_locked` (firma legada: `$total`).
-     * @param  int|array<string,mixed>  $skippedExistingDelta  Delta de `skipped_existing` (firma legada: `$metadata`).
+     * @param  int  $skippedLockedDelta  Delta de `skipped_locked`.
+     * @param  int  $skippedExistingDelta  Delta de `skipped_existing`.
      * @return bool `false` si el job no existe, el epoch es obsoleto o el job ya está sellado/en reaping/terminal.
      */
     public function sealJob(
         string $jobId,
         int $skippedLockedDelta = 0,
-        int|array $skippedExistingDelta = 0,
+        int $skippedExistingDelta = 0,
         ?int $expectedEpoch = null,
         ?int $chunkIndex = null,
         ?int $nextOffset = null
     ): bool {
-        if (is_array($skippedExistingDelta)) {
-            return $this->patchJob($jobId, array_merge($skippedExistingDelta, [
-                'sealed' => true,
-                'total' => max(0, $skippedLockedDelta),
-            ]));
-        }
-
         $result = (int) $this->evalScript(
             self::LUA_HELPERS . "\n" . self::SEAL_JOB_LUA,
             [self::jobKey($jobId), self::TELEMETRY_KEY, self::jobAuditsKey($jobId), self::jobCandidatesKey($jobId)],
@@ -1034,32 +972,6 @@ class BatchJobStore
     // ── Lock de generación (fencing) ─────────────────────────────────────
 
     /**
-     * Intenta adquirir el lock atómico para la generación de un lote batch.
-     *
-     * @param  string  $jobId     UUID del job batch.
-     * @param  string  $workerId  Identificador/token del worker solicitante.
-     * @param  int     $ttlSeconds Tiempo de vida del lock (default 1800s = 30 min).
-     * @return bool    true si adquirió el lock; false si otro worker ya lo tiene.
-     * @deprecated Reemplazado por claimJobGenerationFencedLock(); se conserva hasta IMPL-BATCH-001-B2.
-     */
-    public function claimJobGenerationLock(string $jobId, string $workerId, int $ttlSeconds = 1800): bool
-    {
-        if ($jobId === '' || $workerId === '') {
-            return false;
-        }
-
-        try {
-            return $this->redis->setnx(
-                self::jobGenerationLockKey($jobId),
-                $workerId,
-                max(60, $ttlSeconds)
-            );
-        } catch (RedisUnavailableException $e) {
-            throw new RuntimeException('Redis no disponible al adquirir lock de generación batch', 0, $e);
-        }
-    }
-
-    /**
      * Adquiere el lock de generación incrementando `generation_epoch` (único punto donde crece el epoch).
      *
      * @param  int  $chunkIndex  Chunk recibido; `c > 1` promueve `last_continuation_dispatched_chunk` a `c - 1` (`R-CONT`).
@@ -1116,7 +1028,8 @@ class BatchJobStore
     /**
      * Libera el lock de generación si coincide `worker_id` (y `epoch` cuando no es `null`).
      *
-     * Acepta también el valor legado (string plano con el `workerId`) escrito por claimJobGenerationLock().
+     * Acepta también el valor legado (string plano con el `workerId`) que pudo dejar la versión anterior del lock;
+     * `migrateBatchV2()` (tarea C) lo normaliza al formato JSON `{worker_id, epoch}`.
      */
     public function releaseJobGenerationLock(string $jobId, string $workerId, ?int $epoch = null): bool
     {
@@ -1266,7 +1179,7 @@ if not raw then return 0 end
 local workerId = tostring(ARGV[1] or '')
 local expectedEpoch = tostring(ARGV[2] or '')
 
--- Valor legado (string plano con el worker_id) escrito por claimJobGenerationLock().
+-- Valor legado (string plano con el worker_id) que pudo dejar la versión anterior del lock.
 if tostring(raw) == workerId then
     redis.call('DEL', KEYS[1])
     return 1

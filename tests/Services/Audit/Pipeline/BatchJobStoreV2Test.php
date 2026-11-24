@@ -322,7 +322,7 @@ final class BatchJobStoreV2Test extends TestCase
         $this->assertNull($this->store(false)->getBatchDispensaEntry('j1', 'D1'));
     }
 
-    public function testMarkAuditsDispatchedAcceptsMapAndListFormats(): void
+    public function testMarkAuditsDispatchedUsesSingleMapFormatDisDetNroToAuditId(): void
     {
         $store = $this->store(1);
 
@@ -333,14 +333,18 @@ final class BatchJobStoreV2Test extends TestCase
         $this->assertSame('1', $args[1]);
         $this->assertSame(['D1', 'a1', '2002', 'a2'], array_slice($args, 4));
 
-        $this->assertTrue($store->markAuditsDispatched(
-            'j1',
-            [['dis_det_nro' => 'D3', 'audit_id' => 'a3']],
-            false,
-            5
-        ));
+        // El formato de lista legado ya no existe: una fila anidada no se interpreta como par (R-CLEAN).
+        $this->assertTrue($store->markAuditsDispatched('j1', ['D3' => 'a3', ' ' => 'ignorada'], false, 5));
         $this->assertSame('0', $this->calls[1]['args'][1]);
-        $this->assertSame(['D3', 'a3'], array_slice($this->calls[1]['args'], 4));
+        $this->assertSame(['D3', 'a3'], array_slice($this->calls[1]['args'], 4), 'Claves vacías se descartan.');
+    }
+
+    public function testLegacyBatchJobStoreApisAreRetired(): void
+    {
+        $this->assertFalse(method_exists(BatchJobStore::class, 'initJob'));
+        $this->assertFalse(method_exists(BatchJobStore::class, 'claimJobGenerationLock'));
+        $params = (new \ReflectionMethod(BatchJobStore::class, 'sealJob'))->getParameters();
+        $this->assertSame('int', (string) $params[2]->getType(), 'sealJob ya no admite el 3.er parámetro array legado.');
     }
 
     public function testMarkAuditsDispatchedFalseOnStaleEpochOrClosedJob(): void
@@ -418,19 +422,6 @@ final class BatchJobStoreV2Test extends TestCase
 
         $this->assertFalse($this->store(-2)->sealJob('j1', 0, 0, 1));
         $this->assertFalse($this->store(-1)->sealJob('j1', 0, 0, 1));
-    }
-
-    public function testSealJobLegacySignatureStillMergesTotalThroughPatch(): void
-    {
-        $store = $this->store(1);
-
-        $this->assertTrue($store->sealJob('j1', 8, ['skipped_locked' => 2]));
-        $this->assertSame([BatchJobStore::jobKey('j1')], $this->calls[0]['keys']);
-        $patch = $this->calls[0]['args'][0];
-        $this->assertIsArray($patch);
-        $this->assertTrue($patch['sealed']);
-        $this->assertSame(8, $patch['total']);
-        $this->assertSame(2, $patch['skipped_locked']);
     }
 
     public function testPublishEmptyBatchArgumentsAndRejection(): void
