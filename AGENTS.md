@@ -37,6 +37,7 @@ El proyecto tiene skills en `.agent/skills/`. Consultar `CATALOG.md` para el map
 | `audfact-mcp-wrap`                | MCP                | Webhook, herramientas, ApiClient                                                                      |
 | `audfact-runtime-docker`          | Docker/Ops         | Contenedores, Nginx, conectividad                                                                     |
 | `audfact-production-ops`          | Producción LAN     | SSH a `admon@172.16.0.3`, diagnósticos, runner self-hosted, GitHub Secrets/Variables, deploy/rollback |
+| `audfact-incident-diagnosis`      | Diagnóstico / RCA  | Metodología RCA en 5 capas, triaje `/health` y `/metrics/async`, playbooks de fallos y falsos positivos |
 | `audfact-security-guardrails`     | Seguridad          | Rate limit, CORS, sanitización                                                                        |
 | `audfact-docs-sync`               | Documentación      | Sincronización de `README.md`, `plans/*`, `CHANGELOG.md` y skills                                     |
 | `audit-skill-router`              | Auditoría técnica  | Enrutamiento de auditorías amplias/ambiguas a dominios especializados                                 |

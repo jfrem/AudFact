@@ -1,0 +1,4 @@
+interface:
+  display_name: "AudFact Incident Diagnosis"
+  short_description: "Diagnóstico causa raíz en 5 capas para incidentes AudFact"
+  default_prompt: "Usa $audfact-incident-diagnosis para diagnosticar un incidente en AudFact capa por capa hasta aislar su causa raíz verificada."

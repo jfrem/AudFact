@@ -151,7 +151,7 @@ final class FieldValueResolver
             return $base;
         }
 
-        $values = self::uniqueSortedValues(array_merge($base->values, $unmatchedNames));
+        $values = self::uniquePreservingOrder(array_merge($base->values, $unmatchedNames));
         $meta = $base->evidenceMeta + ['unmatched_articles' => array_values($unmatchedNames)];
 
         return self::resolvedValue(ResolvedAuditValue::SOURCE_DOCUMENT, $valueType, implode(', ', $values), $values, false, $meta);
@@ -246,6 +246,10 @@ final class FieldValueResolver
 
         if ($ambiguousValues !== []) {
             array_push($ambiguousValues, ...$itemValues);
+        }
+
+        if ($evidenceMeta !== []) {
+            $evidenceMeta['valores'] = self::uniquePreservingOrder($itemValues);
         }
 
         return [$itemValues, $evidenceMeta, self::uniqueSortedValues($ambiguousValues)];
@@ -460,5 +464,16 @@ final class FieldValueResolver
         sort($unique, SORT_STRING);
 
         return $unique;
+    }
+
+    /**
+     * Preserva el orden relativo de primera aparición descartando duplicados idénticos en string.
+     *
+     * @param  array<int,string> $values
+     * @return array<int,string>
+     */
+    private static function uniquePreservingOrder(array $values): array
+    {
+        return array_values(array_unique($values, SORT_STRING));
     }
 }

@@ -1,0 +1,4 @@
+.husky/* text eol=lf
+.husky/pre-commit text eol=lf
+.husky/pre-push text eol=lf
+scripts/*.sh text eol=lf

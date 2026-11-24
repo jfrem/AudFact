@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AudFact Git Hook — pre-push
+# Validaciones previas al push remoto:
+# 1. Procesamiento canónico de stdin de Git (<local-ref> <local-sha> <remote-ref> <remote-sha>)
+# 2. Acumulación de estado sin sobreescritura (archivos de señalización)
+# 3. Certificación de árbol de trabajo 100% limpio (git status --porcelain -uall)
+# 4. Verificación de coincidencia entre commit enviado y HEAD actual
+# 5. Ejecución de la suite unitaria PHPUnit (1,134 pruebas)
+# 6. Detección exhaustiva de cambios en .env.example (incluyendo merges y raíces con --root -m)
+# 7. Verificación de gobernanza para sincronización remota en GitHub
+# ==============================================================================
+set -euo pipefail
+
+# Bypass check
+if [ "${HUSKY:-1}" = "0" ] || [ "${SKIP_PRE_PUSH:-0}" = "1" ]; then
+  exit 0
+fi
+
+TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'husky_pp')
+cleanup() {
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT INT TERM
+
+remote_name="$1"
+remote_url="$2"
+zero_oid="0000000000000000000000000000000000000000"
+
+REFS_DATA=$(cat)
+if [ -z "$REFS_DATA" ]; then
+  exit 0
+fi
+
+current_head=$(git rev-parse HEAD 2>/dev/null) || { echo "❌ ERROR: No se pudo resolver HEAD"; exit 1; }
+
+while read -r local_ref local_oid remote_ref remote_oid; do
+  # 1. Ignorar eliminaciones de ramas remotas
+  if [ "$local_oid" = "$zero_oid" ]; then
+    continue
+  fi
+
+  touch "$TMP_DIR/should_run_tests"
+
+  # 2. Resolver commit destino si es tag anotado o referencia indirecta
+  commit_oid=$(git rev-parse "$local_oid^{commit}" 2>/dev/null || echo "$local_oid")
+
+  # 3. Verificar si el commit a subir coincide con HEAD
+  if [ "$commit_oid" != "$current_head" ]; then
+    echo "oid_mismatch: $local_ref ($commit_oid) != HEAD ($current_head)" >> "$TMP_DIR/mismatches.log"
+    touch "$TMP_DIR/oid_mismatch"
+  fi
+
+  # 4. Determinar lista de commits salientes con fail-closed
+  if [ "$remote_oid" = "$zero_oid" ]; then
+    commits=$(git rev-list "$commit_oid" --not --remotes="$remote_name" 2>/dev/null || git rev-list "$commit_oid" 2>/dev/null) || {
+      echo "❌ ERROR: Fallo al resolver el historial saliente de $commit_oid"
+      exit 1
+    }
+  else
+    commits=$(git rev-list "$remote_oid..$commit_oid" 2>/dev/null) || {
+      echo "❌ ERROR: Fallo al resolver el rango $remote_oid..$commit_oid"
+      exit 1
+    }
+  fi
+
+  # 5. Comprobar si .env.example fue alterado en el historial saliente
+  if [ -n "$commits" ]; then
+    for c in $commits; do
+      if git diff-tree --root -m --no-commit-id --name-only -r "$c" 2>/dev/null | grep -q "^\.env\.example$"; then
+        touch "$TMP_DIR/env_example_changed"
+        break
+      fi
+    done
+  fi
+done <<< "$REFS_DATA"
+
+if [ ! -f "$TMP_DIR/should_run_tests" ]; then
+  exit 0
+fi
+
+# Certificación de árbol de trabajo limpio
+DIRTY_STATUS=$(git status --porcelain -uall 2>&1)
+STATUS_CODE=$?
+if [ $STATUS_CODE -ne 0 ]; then
+  echo "❌ ERROR: git status falló con código $STATUS_CODE: $DIRTY_STATUS"
+  exit 1
+fi
+
+if [ -n "$DIRTY_STATUS" ]; then
+  echo "❌ ERROR: Existen modificaciones sin confirmar o archivos no rastreados en el árbol de trabajo:"
+  echo "$DIRTY_STATUS"
+  echo ""
+  echo "   Para garantizar que la suite unitaria certifique exactamente el commit a subir,"
+  echo "   haz commit o stash de tus cambios antes de ejecutar push."
+  exit 1
+fi
+
+if [ -f "$TMP_DIR/oid_mismatch" ]; then
+  echo "❌ ERROR: Se detectó un intento de push de un commit que no coincide con HEAD actual:"
+  cat "$TMP_DIR/mismatches.log"
+  echo ""
+  echo "   Cambia a la rama o commit correspondiente antes de realizar el push para ejecutar los tests sobre el código exacto."
+  exit 1
+fi
+
+# Ejecución de Pruebas Unitarias PHPUnit
+echo "🧪 Ejecutando suite unitaria PHPUnit antes de subir cambios..."
+if [ -f "vendor/bin/phpunit" ]; then
+  PHPUNIT="vendor/bin/phpunit"
+elif [ -f "vendor/bin/phpunit.bat" ]; then
+  PHPUNIT="vendor/bin/phpunit.bat"
+else
+  PHPUNIT="php vendor/phpunit/phpunit/phpunit"
+fi
+
+if ! $PHPUNIT --configuration phpunit.xml --testsuite Unit; then
+  echo "❌ ERROR: Pruebas unitarias PHPUnit fallaron. Push rechazado."
+  exit 1
+fi
+
+# Verificación de Sincronización Remota de .env.example
+if [ -f "$TMP_DIR/env_example_changed" ]; then
+  echo ""
+  echo "========================================================================"
+  echo "🚨 ALERTA CRÍTICA DE GOBERNANZA AUDFACT 🚨"
+  echo "El archivo .env.example ha sido modificado en los commits salientes."
+  echo "REGLA OBLIGATORIA (AGENTS.md):"
+  echo "Es obligatorio crear/actualizar los secretos y variables correspondientes"
+  echo "en GitHub (entorno production) antes de hacer push a ramas remotas."
+  echo "========================================================================"
+  echo ""
+
+  if [ -t 1 ] && [ -e /dev/tty ]; then
+    echo "Para continuar, escribe 'CONFIRMO' para acreditar que ya sincronizaste GitHub:"
+    read -r confirmation < /dev/tty
+    if [ "$confirmation" != "CONFIRMO" ]; then
+      echo "❌ Push cancelado. No se acreditó la sincronización en GitHub."
+      exit 1
+    fi
+    echo "✅ Confirmación acreditada. Continuando push..."
+  else
+    if [ "${CONFIRM_ENV_SYNC:-0}" = "1" ]; then
+      echo "✅ Confirmación por variable de entorno CONFIRM_ENV_SYNC=1 acreditada."
+    else
+      echo "❌ Push bloqueado. Sincroniza variables en GitHub o ejecuta CONFIRM_ENV_SYNC=1 git push."
+      exit 1
+    fi
+  fi
+fi
+
+exit 0

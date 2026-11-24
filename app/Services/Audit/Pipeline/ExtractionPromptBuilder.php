@@ -373,6 +373,7 @@ final class ExtractionPromptBuilder
             '### Regla de identidad',
             '',
             "Si una linea combina tipo de documento, numero de identificacion y/o nombre, separalos estrictamente en sus campos correspondientes ({$fieldsList}).",
+            'En formatos tabulares o formularios con columnas adyacentes, asocia estrictamente NombrePaciente con la fila o columna de identificacion del paciente, y Medico con la celda del profesional prescriptor y el recuadro de firma o sello. Nunca intercambies el paciente con el medico.',
             '',
             'Solo extrae datos visibles y requeridos; no infieras ni completes identidades faltantes.',
         ]);

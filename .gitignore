@@ -58,3 +58,10 @@ GEMINI.md
 /opt/
 # Junction local a .agent/skills (fuente única de skills para Claude Code)
 .claude/skills
+
+# Git Hooks local backup
+.husky/.previous-hooks-path
+
+# Local prompts
+system.md
+

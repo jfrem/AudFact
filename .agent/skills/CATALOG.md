@@ -13,6 +13,7 @@ Colección de skills específicas para el proyecto `AudFact` — Sistema de audi
 | `audfact-mcp-wrap` | Protocolo MCP | `app/wrap/*` | Integración MCP y herramientas internas. |
 | `audfact-runtime-docker` | Ops / Runtime | `docker/*`, `docker-compose.yml`, `.github/workflows/*.yml`, `scripts/sync-github-production-env.sh` | Entorno Docker, CI/CD, Environment GitHub y conectividad DB. |
 | `audfact-production-ops` | Producción LAN | `.agent/skills/audfact-production-ops/**`, `scripts/sync-github-production-env.sh`, servidor LAN | Acceso SSH no interactivo, diagnóstico de producción, runner self-hosted, GitHub Secrets/Variables y despliegues. |
+| `audfact-incident-diagnosis` | Diagnóstico / RCA | `.agent/skills/audfact-incident-diagnosis/**`, `app/Controllers/ObservabilityController.php`, `app/Controllers/HealthController.php` | Metodología determinista de diagnóstico causa raíz (RCA) en 5 capas para incidentes en producción LAN y local. |
 | `audfact-security-guardrails` | Seguridad | `core/RateLimit.php`, `core/Logger.php`, `core/AuthMiddleware.php`, `core/Middleware.php` | Rate limit (100/min), autenticación operativa, CORS y logs. |
 | `audfact-docs-sync` | Documentación | `README.md`, `plans/*`, `.agent/skills/*` | Sincronización obligatoria de documentación y skills después de cambios de código o drift documental. |
 | `audit-skill-router` | Auditoría Técnica | Repositorio completo | Enrutador de auditorías amplias/ambiguas hacia dominios especializados con salida consolidada. |
@@ -44,6 +45,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-mcp-wrap` | MCP, webhook, capabilities, tools, ApiClient, JSON-RPC |
 | `audfact-runtime-docker` | docker, compose, nginx, php-fpm, healthcheck, despliegue |
 | `audfact-production-ops` | producción, servidor LAN, SSH, admon@172.16.0.3, runner self-hosted, deploy production, rollback, healthcheck remoto |
+| `audfact-incident-diagnosis` | RCA, causa raíz, diagnóstico, triage, incidente, jobs no avanzan, jobs en pending, pipeline bloqueado, 502, 503, 504, audit_capacity_unavailable, 08S01, Head-of-Line, audit:admission:paused, lag Redis, audit.dlq, salud de hardware |
 | `audfact-security-guardrails` | rate limit, CORS, sanitización, secretos, hardening, seguridad |
 | `audfact-docs-sync` | documentación, docs sync, changelog, actualizar README, sincronizar skills, documentation drift |
 | `audit-skill-router` | auditoría técnica integral, assessment, review global, scoring, 30/60/90 |
@@ -66,7 +68,7 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `audfact-core` | `audfact-api-rest`, `audfact-sqlsrv-models`, `audfact-project-overview`, `audfact-docs-sync` | Cambios en API + Datos |
 | `audfact-ai-audit` | `audfact-audit-gemini`, `audfact-sqlsrv-models`, `audfact-security-guardrails`, `audfact-docs-sync` | Pipeline de auditoría completo |
 | `audfact-integration` | `audfact-mcp-wrap`, `audfact-api-rest`, `audfact-docs-sync` | Integración con agentes IA |
-| `audfact-ops` | `audfact-runtime-docker`, `audfact-production-ops`, `audfact-security-guardrails`, `audfact-docs-sync` | Infraestructura, producción LAN y hardening |
+| `audfact-ops` | `audfact-runtime-docker`, `audfact-production-ops`, `audfact-incident-diagnosis`, `audfact-security-guardrails`, `audfact-docs-sync` | Infraestructura, producción LAN, diagnóstico RCA y hardening |
 | `audfact-tech-assessment` | `audit-skill-router`, `architecture-assessment`, `code-quality-assessment`, `security-assessment`, `technical-governance-assessment`, `audfact-docs-sync` | Auditorías técnicas integrales con score global |
 | `audfact-docs` | `audfact-docs-sync`, `audfact-project-overview` | Sincronización documental y validación de drift |
 | `audfact-frontend` | `next-best-practices`, `impeccable`, `audfact-docs-sync` | Cambios de frontend en Next.js 15.5.15 con revisión UI/UX |
@@ -102,6 +104,8 @@ Usar estos triggers para reducir ambigüedad en el enrutamiento. Si el prompt co
 | `scripts/sync-github-production-env.sh` | `audfact-runtime-docker` + `audfact-production-ops` |
 | `bin/audit-execution-maintenance.php` | `audfact-runtime-docker` + `audfact-production-ops` + `audfact-audit-gemini` |
 | `.agent/skills/audfact-production-ops/**` | `audfact-production-ops` |
+| `.agent/skills/audfact-incident-diagnosis/**` | `audfact-incident-diagnosis` |
+| `app/Controllers/ObservabilityController.php`, `app/Controllers/HealthController.php` | `audfact-api-rest` + `audfact-incident-diagnosis` |
 | `.env*` | `audfact-runtime-docker` |
 | `bin/*.php` (Workers) | `audfact-audit-gemini` + `audfact-runtime-docker` |
 | `bin/audit-import.php`, `scripts/audit-import.test.mjs` | `audfact-audit-gemini` + `audfact-runtime-docker` (cliente CLI de `/audit/single`) |

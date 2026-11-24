@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AudFact Git Hook — pre-commit
+# Validaciones locales previas al commit:
+# 1. Aislamiento estricto de staged con delimitador NUL
+# 2. Linting de sintaxis PHP sobre blobs staged (git show)
+# 3. Escaneo de secretos en diff staged con redacción obligatoria
+# 4. Validación de composer en subshell aislada
+# 5. Validación del contrato de variables de entorno (.env.example)
+# 6. Validación de skills si aplica
+# ==============================================================================
+set -euo pipefail
+
+# Bypass check
+if [ "${HUSKY:-1}" = "0" ] || [ "${SKIP_PRE_COMMIT:-0}" = "1" ]; then
+  exit 0
+fi
+
+TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'husky_pc')
+cleanup() {
+  rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT INT TERM
+
+has_errors=0
+has_php=0
+has_fe=0
+has_composer=0
+has_skills=0
+has_env_example=0
+
+# Detección determinista de archivos staged con delimitador NUL
+while IFS= read -r -d '' file; do
+  case "$file" in
+    *.php)
+      has_php=1
+      if git cat-file -e ":$file" 2>/dev/null; then
+        if git show ":$file" > "$TMP_DIR/check.php" 2>/dev/null; then
+          if ! php -l "$TMP_DIR/check.php" > "$TMP_DIR/lint.log" 2>&1; then
+            echo "❌ Error de sintaxis PHP en staged: $file"
+            sed "s|$TMP_DIR/check\.php|$file|g" "$TMP_DIR/lint.log"
+            has_errors=1
+          fi
+        else
+          echo "❌ Error extrayendo el contenido staged: $file"
+          has_errors=1
+        fi
+        rm -f "$TMP_DIR/check.php"
+      fi
+      ;;
+    frontend/*)
+      has_fe=1
+      ;;
+    composer.json|composer.lock)
+      has_composer=1
+      ;;
+    .env.example)
+      has_env_example=1
+      ;;
+    .agent/skills/*)
+      has_skills=1
+      ;;
+  esac
+done < <(git diff --cached -z --name-only --diff-filter=ACMR)
+
+# Escaneo de secretos en diff staged
+git diff --cached -U0 --no-color > "$TMP_DIR/staged.patch" 2>/dev/null || touch "$TMP_DIR/staged.patch"
+
+if [ -s "$TMP_DIR/staged.patch" ]; then
+  awk '
+    /^\+\+\+ b\// { file = substr($0, 7); sub(/\r$/, "", file); next }
+    file ~ /^(\.env\.example|.*\.md$|tests\/|.*\.pub$|.*\.sample$)/ { next }
+    /^\+[^+]/ {
+      line = substr($0, 2);
+      sub(/\r$/, "", line);
+      print file ":" line;
+    }
+  ' "$TMP_DIR/staged.patch" > "$TMP_DIR/added_lines.txt"
+
+  if [ -s "$TMP_DIR/added_lines.txt" ]; then
+    if grep -E -q -e '-----BEGIN ([A-Z0-9_-]+ )?PRIVATE KEY-----' \
+                 -e 'AIza[0-9A-Za-z_\\-]{30,}' \
+                 -e '(password|secret|api_key|access_token)[[:space:]]*[:=][[:space:]]*["\x27][^"\x27[:space:]]{8,}["\x27]' "$TMP_DIR/added_lines.txt"; then
+      echo "❌ ERROR: Posible secreto o credencial detectada en el código staged:"
+      grep -E -e '-----BEGIN ([A-Z0-9_-]+ )?PRIVATE KEY-----' \
+              -e 'AIza[0-9A-Za-z_\\-]{30,}' \
+              -e '(password|secret|api_key|access_token)[[:space:]]*[:=][[:space:]]*["\x27][^"\x27[:space:]]{8,}["\x27]' "$TMP_DIR/added_lines.txt" | while IFS=: read -r f _; do
+        echo "   - Archivo: $f | Línea: *** [REDACTADO POR SEGURIDAD] ***"
+      done | sort -u
+      has_errors=1
+    fi
+  fi
+fi
+
+# Validación aislada de Composer
+if [ "$has_composer" -eq 1 ]; then
+  if git cat-file -e ":composer.json" 2>/dev/null; then
+    git show ":composer.json" > "$TMP_DIR/composer.json"
+    if git cat-file -e ":composer.lock" 2>/dev/null; then
+      git show ":composer.lock" > "$TMP_DIR/composer.lock"
+    fi
+
+    if ! (cd "$TMP_DIR" && composer validate --strict > composer.log 2>&1); then
+      echo "❌ composer validate falló en el contenido staged:"
+      cat "$TMP_DIR/composer.log"
+      has_errors=1
+    fi
+  fi
+fi
+
+# Validación del contrato de variables de entorno (.env.example)
+if [ "$has_php" -eq 1 ] || [ "$has_fe" -eq 1 ] || [ "$has_env_example" -eq 1 ]; then
+  git grep --cached -h -o -P "(?:getenv|Env::get)\(['\"]\K[A-Z_][A-Z0-9_]*" -- "*.php" ":(exclude)vendor/**" ":(exclude)tests/**" 2>/dev/null | sort -u > "$TMP_DIR/used_php.txt" || touch "$TMP_DIR/used_php.txt"
+  git grep --cached -h -o -P "process\.env\.\K[A-Z_][A-Z0-9_]*" -- "frontend/" ":(exclude)frontend/node_modules/**" 2>/dev/null | grep -v -E '^(NODE_ENV|PORT|CI|VERCEL)$' | sort -u > "$TMP_DIR/used_fe.txt" || touch "$TMP_DIR/used_fe.txt"
+  cat "$TMP_DIR/used_php.txt" "$TMP_DIR/used_fe.txt" 2>/dev/null | grep -v '^$' | sort -u > "$TMP_DIR/all_used.txt" || touch "$TMP_DIR/all_used.txt"
+
+  if git cat-file -e ":.env.example" 2>/dev/null; then
+    git show ":.env.example" | grep -o -P "^[A-Z_][A-Z0-9_]*(?==)" | sort -u > "$TMP_DIR/env_keys.txt" || touch "$TMP_DIR/env_keys.txt"
+  else
+    git show "HEAD:.env.example" 2>/dev/null | grep -o -P "^[A-Z_][A-Z0-9_]*(?==)" | sort -u > "$TMP_DIR/env_keys.txt" || touch "$TMP_DIR/env_keys.txt"
+  fi
+
+  while IFS= read -r key; do
+    if [ -n "$key" ] && ! grep -q "^${key}$" "$TMP_DIR/env_keys.txt"; then
+      echo "❌ Variable de entorno '$key' usada en código staged pero ausente en .env.example"
+      has_errors=1
+    fi
+  done < "$TMP_DIR/all_used.txt"
+fi
+
+# Validación de Skills si aplica
+if [ "$has_skills" -eq 1 ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "❌ Se modificaron archivos en .agent/skills/ pero 'node' no está disponible para validar."
+    has_errors=1
+  else
+    if ! node .agent/skills/_shared/scripts/validate-skills.mjs > "$TMP_DIR/skills.log" 2>&1; then
+      echo "❌ Validación de skills falló:"
+      cat "$TMP_DIR/skills.log"
+      has_errors=1
+    fi
+  fi
+fi
+
+if [ "$has_errors" -ne 0 ]; then
+  echo ""
+  echo "🚫 Commit cancelado por fallos de validación pre-commit."
+  exit 1
+fi
+
+exit 0

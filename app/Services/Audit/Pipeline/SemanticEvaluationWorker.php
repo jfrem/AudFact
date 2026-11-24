@@ -95,8 +95,15 @@ final class SemanticEvaluationWorker extends AuditEventConsumer
             $pairs = array_slice($pairs, 0, AuditExecutionConfig::MAX_PAIRS);
             while (true) {
                 try {
-                    $response = $judge->evaluateBatch($pairs, ['audit_id' => $event->auditId, 'document_id' => $event->documentId,
-                        'plan_id' => $plan['plan_id'], 'generation' => $plan['generation']]);
+                    $context = [
+                        'audit_id' => $event->auditId,
+                        'document_id' => $event->documentId,
+                        'plan_id' => $plan['plan_id'],
+                        'generation' => $plan['generation'],
+                        'dis_det_nro' => $task->record['dis_det_nro'] ?? null,
+                        'document_type' => $task->record['document_type'] ?? null,
+                    ];
+                    $response = $judge->evaluateBatch($pairs, $context);
                     break;
                 } catch (\DomainException $error) {
                     if ($error->getMessage() !== 'semantic_input_too_large' || count($pairs) === 1) {
