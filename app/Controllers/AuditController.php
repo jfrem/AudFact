@@ -62,6 +62,7 @@ class AuditController extends Controller
         }
 
         $this->assertAuditAdmission();
+        $this->assertPriorityAdmission();
         $stateStore = $this->buildStateStore();
         $publisher  = $this->buildEventPublisher();
 
@@ -650,6 +651,33 @@ class AuditController extends Controller
             header('Retry-After: 5');
             Response::error('La auditoría está temporalmente al límite de capacidad', 503);
         }
+    }
+
+    /**
+     * Contrapresión VIP de `POST /audit/single`: 429 si la espera de la tarea más antigua del carril
+     * prioritario alcanza AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS; 503 si las métricas fallan.
+     */
+    protected function assertPriorityAdmission(): void
+    {
+        $config = \App\Services\Audit\Pipeline\AuditExecutionConfig::fromEnv();
+        try {
+            $full = (new \App\Services\Audit\Pipeline\AuditAdmissionGuard($this->buildAdmissionRedis(), $config))
+                ->priorityLaneAtCapacity();
+        } catch (\RuntimeException $error) {
+            $this->sendRetryAfter(5);
+            Response::error('La auditoría está temporalmente al límite de capacidad', 503);
+        }
+        if ($full) {
+            Logger::warning('audit_priority_admission_rejected', ['source' => 'single']);
+            $this->sendRetryAfter(60);
+            Response::error('La cola prioritaria está saturada; reintente más tarde', 429);
+        }
+    }
+
+    /** Emite `Retry-After`; punto de extensión para observar la cabecera en pruebas CLI. */
+    protected function sendRetryAfter(int $seconds): void
+    {
+        header('Retry-After: ' . $seconds);
     }
 
     protected function buildAdmissionRedis(): \Core\RedisClient

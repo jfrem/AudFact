@@ -202,6 +202,7 @@ jobs:
           AUDIT_INTERNAL_API_BASE: ${{ vars.AUDIT_INTERNAL_API_BASE }}
           AUDIT_WORKER_LANE: ${{ vars.AUDIT_WORKER_LANE }}
           AUDIT_WORKER_ORCHESTRATOR_REPLICAS: ${{ vars.AUDIT_WORKER_ORCHESTRATOR_REPLICAS }}
+          AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS }}
           AUDIT_WORKER_DOWNLOADER_REPLICAS: ${{ vars.AUDIT_WORKER_DOWNLOADER_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_VIP_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_VIP_REPLICAS }}
           AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS: ${{ vars.AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS }}
@@ -230,6 +231,9 @@ jobs:
           AUDIT_EXTRACTION_CACHE_TTL: ${{ vars.AUDIT_EXTRACTION_CACHE_TTL }}
           AUDIT_DOCUMENT_CACHE_MAX_BYTES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_BYTES }}
           AUDIT_DOCUMENT_CACHE_MAX_ENTRIES: ${{ vars.AUDIT_DOCUMENT_CACHE_MAX_ENTRIES }}
+          AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT: ${{ vars.AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT }}
+          AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS: ${{ vars.AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS }}
+          AUDIT_DOCUMENT_STREAM_READ_COUNT: ${{ vars.AUDIT_DOCUMENT_STREAM_READ_COUNT }}
           RUN_REDIS_INTEGRATION: ${{ vars.RUN_REDIS_INTEGRATION }}
           AUDIT_VERSION_EXTRACTOR: ${{ vars.AUDIT_VERSION_EXTRACTOR }}
           AUDIT_VERSION_NORMALIZER: ${{ vars.AUDIT_VERSION_NORMALIZER }}
@@ -376,7 +380,7 @@ jobs:
             write_env_var 'GEMINI_QUOTA_RPD' "$GEMINI_QUOTA_RPD"
             write_env_var 'GEMINI_QUOTA_MAX_INFLIGHT' "$GEMINI_QUOTA_MAX_INFLIGHT"
             write_env_var 'AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE' "${AUDIT_EXECUTION_MAX_QUEUED_PER_STAGE:-20000}"
-            write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-1}"
+            write_env_var 'AUDIT_WORKER_SEMANTIC_VIP_REPLICAS' "${AUDIT_WORKER_SEMANTIC_VIP_REPLICAS:-3}"
             write_env_var 'AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS' "${AUDIT_WORKER_SEMANTIC_BATCH_REPLICAS:-12}"
             write_env_var 'GEMINI_TEMPERATURE' "${GEMINI_TEMPERATURE:-0.0}"
             write_env_var 'GEMINI_TIMEOUT' "${GEMINI_TIMEOUT:-300}"
@@ -426,8 +430,9 @@ jobs:
             write_env_var 'AUDIT_INTERNAL_API_BASE' "${AUDIT_INTERNAL_API_BASE:-http://nginx}"
             write_env_var 'AUDIT_WORKER_LANE' "${AUDIT_WORKER_LANE:-all}"
             write_env_var 'AUDIT_WORKER_ORCHESTRATOR_REPLICAS' "${AUDIT_WORKER_ORCHESTRATOR_REPLICAS:-12}"
+            write_env_var 'AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS:-4}"
             write_env_var 'AUDIT_WORKER_DOWNLOADER_REPLICAS' "${AUDIT_WORKER_DOWNLOADER_REPLICAS:-16}"
-            write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-2}"
+            write_env_var 'AUDIT_WORKER_EXTRACTION_VIP_REPLICAS' "${AUDIT_WORKER_EXTRACTION_VIP_REPLICAS:-6}"
             write_env_var 'AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS' "${AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS:-36}"
             write_env_var 'AUDIT_WORKER_NORMALIZER_REPLICAS' "${AUDIT_WORKER_NORMALIZER_REPLICAS:-4}"
             write_env_var 'AUDIT_WORKER_POLICY_REPLICAS' "${AUDIT_WORKER_POLICY_REPLICAS:-12}"
@@ -454,6 +459,9 @@ jobs:
             write_env_var 'AUDIT_EXTRACTION_CACHE_TTL' "${AUDIT_EXTRACTION_CACHE_TTL:-604800}"
             write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_BYTES' "${AUDIT_DOCUMENT_CACHE_MAX_BYTES:-3221225472}"
             write_env_var 'AUDIT_DOCUMENT_CACHE_MAX_ENTRIES' "${AUDIT_DOCUMENT_CACHE_MAX_ENTRIES:-4096}"
+            write_env_var 'AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT' "${AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT:-25}"
+            write_env_var 'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS' "${AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS:-1200000}"
+            write_env_var 'AUDIT_DOCUMENT_STREAM_READ_COUNT' "${AUDIT_DOCUMENT_STREAM_READ_COUNT:-5}"
             printf '\n'
             write_env_var 'RUN_REDIS_INTEGRATION' "${RUN_REDIS_INTEGRATION:-0}"
             printf '\n'
@@ -573,7 +581,7 @@ jobs:
           cd "$DEPLOY_PATH"
           ctl() { docker compose run --rm --no-deps -T --entrypoint php php bin/audit-execution-maintenance.php "$@"; }
           ctl protocol
-          services=(php nginx frontend docs worker-batch worker-orchestrator worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
+          services=(php nginx frontend docs worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance)
           docker compose --profile frontend --profile docs up -d --no-deps --no-build "${services[@]}"
 
       - name: Health check
@@ -598,5 +606,5 @@ jobs:
           cd "$DEPLOY_PATH"
           echo "::error::Health check failed"
           docker ps --format "table {{.Names}}\t{{.Status}}"
-          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance
+          docker compose logs --tail=120 frontend php nginx worker-batch worker-orchestrator worker-extraction-vip worker-extraction-batch worker-downloader-vip worker-downloader-batch worker-normalizer worker-policy worker-persistence worker-semantic-vip worker-semantic-batch worker-execution-maintenance
           exit 1

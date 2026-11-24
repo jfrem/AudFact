@@ -74,7 +74,7 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | *N/A* | Código baked en imagen | No hay mount de código fuente |
 
 ### Producción
-`docker-compose.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta como volumen dedicado; en producción `ResponseIADiskStore` tiene hard-deny por `APP_ENV=production`. La topología incluye `worker-batch`, `worker-orchestrator`, `worker-downloader`, `worker-extraction-vip`, `worker-extraction-batch`, `worker-normalizer`, `worker-policy` y `worker-persistence`. Las réplicas dependen del entorno; los defaults de Compose no prueban las réplicas desplegadas.
+`docker-compose.yml` monta `./logs` y ejecuta código baked desde imágenes GHCR. El directorio `responseIA/` no se monta como volumen dedicado; en producción `ResponseIADiskStore` tiene hard-deny por `APP_ENV=production`. La topología incluye `worker-batch`, `worker-orchestrator`, `worker-downloader-vip`, `worker-downloader-batch`, `worker-extraction-vip`, `worker-extraction-batch`, `worker-normalizer`, `worker-policy` y `worker-persistence`. Las réplicas dependen del entorno; los defaults de Compose no prueban las réplicas desplegadas.
 
 ## Variables .env obligatorias
 
@@ -111,8 +111,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_RESPONSE_IA_ENABLED` | `1` (solo dev) | Habilita snapshots Gemini en `logs/responseIA` solo con `APP_ENV=development` (excluida de deploy productivo) |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `8` | Default Compose del worker que consume `audit_created` |
 | `AUDIT_WORKER_BATCH_REPLICAS` | `4` | Default Compose del worker que consume `batch_requested` |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | Default Compose; consume `document_registered` |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | Default Compose del carril prioritario Gemini |
+| `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS` | `4` | Default Compose de `worker-downloader-vip` (`--priority-only`); consume `document_registered` VIP |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `16` | Default Compose de `worker-downloader-batch` (`--batch-only`) |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `6` | Default Compose del carril prioritario Gemini |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | Default Compose del carril batch; verificar cuotas antes de escalar |
 | `AUDIT_WORKER_EXTRACTION_REPLICAS` | `8` | Clave legacy presente en plantilla/deploy; no escala los servicios actuales VIP/batch de Compose |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | Default Compose; consume `document_extracted` y publica `document_normalized` |
@@ -128,6 +129,9 @@ El frontend Next.js en desarrollo suele usar `npm run dev` en el host o un mount
 | `AUDIT_PERSISTENCE_QUEUE_TTL` | `604800` | Retencion de turnos, pendientes y deduplicacion de persistencia |
 | `AUDIT_DOCUMENT_CACHE_MAX_BYTES` | `268435456` | Presupuesto global de bytes JSON BLOB; metadata/overhead Redis se miden por separado |
 | `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` | `1024` | Presupuesto global de entradas compartido entre réplicas |
+| `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT` | `25` | Porcentaje (1..99) del presupuesto de caché para el carril VIP; batch recibe el resto |
+| `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS` | `1200000` | `POST /audit/single` responde `429` + `Retry-After: 60` si la espera VIP alcanza este valor; `86400000` lo desactiva |
+| `AUDIT_DOCUMENT_STREAM_READ_COUNT` | `5` | Mensajes por lectura del descargador (1..50); `1` revierte |
 
 ## Flujo de revisión
 
@@ -173,7 +177,7 @@ al primer uso o después de perder el índice y fallan con 503 si no completan.
 wsl bash -c "cd /mnt/c/Users/USER/Desktop/AudFact && docker compose down && docker compose up --build -d"
 
 # Inspeccionar réplicas reales de workers
-wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence
+wsl docker compose top worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction-vip worker-extraction-batch worker-normalizer worker-policy worker-persistence
 
 # Deploy producción desde imagenes GHCR (runner LAN)
 AUDFACT_IMAGE_TAG=<sha> docker compose pull

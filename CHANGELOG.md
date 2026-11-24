@@ -1,3 +1,13 @@
+## [2026-11-24]
+
+### feat / ops / docs
+- **Aislamiento de carriles VIP/batch, contrapresión VIP y descarga por carril (`SDD-BATCH-002`, parte B: admisión, despliegue y documentación)**:
+  - `POST /audit/single` responde `429` + `Retry-After: 60` cuando la tarea más antigua del carril `priority` espera `>= AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS` (defecto `1200000`); `503` + `Retry-After: 5` si las métricas fallan; `POST /audit/async` no cambia (`INV-F3-05`).
+  - Nuevas variables: `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS`, `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT`, `AUDIT_DOCUMENT_STREAM_READ_COUNT` y `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS`. Defaults nuevos: extracción VIP `6`, semántica VIP `3`, descarga VIP `4`.
+  - `worker-downloader` se reemplaza por `worker-downloader-vip` y `worker-downloader-batch` en `deploy-production.yml` (verificación de salud y logs), `.env.example` y documentación operativa.
+  - Archivos modificados: `AuditExecutionConfig.php`, `AuditAdmissionGuard.php`, `AuditController.php`, `deploy-production.yml`, `.env.example`.
+  - Impacto: obligatorio `gh variable set --env production` de las variables nuevas y de cada réplica con su valor efectivo antes del deploy. Despliegue condicionado a `SDD-BATCH-000/001` (ver `plans/sdd-aislamiento-carriles-y-descarga.md`, Sección 14).
+
 ## [2026-11-17]
 
 ### fix / refactor / ops / docs

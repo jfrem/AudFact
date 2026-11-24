@@ -25,7 +25,7 @@ graph TB
     subgraph Workers["Workers CLI PHP"]
         Batch["worker-batch<br/>2 replicas"]
         Orchestrator["worker-orchestrator<br/>3 replicas"]
-        Downloader["worker-downloader<br/>8 replicas"]
+        Downloader["worker-downloader-vip / -batch<br/>4 + 16 replicas"]
         Extraction["worker-extraction<br/>8 replicas"]
         Normalizer["worker-normalizer<br/>2 replicas"]
         Policy["worker-policy<br/>2 replicas"]
@@ -62,7 +62,7 @@ graph TB
 
 | Archivo | Uso actual | Observacion |
 |---|---|---|
-| `docker-compose.yml` | Local y produccion LAN | Incluye `php`, `redis`, `nginx`, frontend por perfil e imagenes GHCR/7 servicios de worker, incluido `worker-downloader`. |
+| `docker-compose.yml` | Local y produccion LAN | Incluye `php`, `redis`, `nginx`, frontend por perfil e imagenes GHCR/7 servicios de worker, incluidos `worker-downloader-vip` y `worker-downloader-batch`. |
 
 ### PHP-FPM
 
@@ -92,9 +92,10 @@ El pipeline usa un launcher unico: `php bin/audit-worker.php <worker>`.
 |---|---|---:|
 | `worker-batch` | `BatchRequestedWorker` | `AUDIT_WORKER_BATCH_REPLICAS=2` |
 | `worker-orchestrator` | `DocumentAuditOrchestrator` | `3` |
-| `worker-downloader` | `AttachmentDownloadWorker` | `AUDIT_WORKER_DOWNLOADER_REPLICAS=12` |
+| `worker-downloader-vip` | `AttachmentDownloadWorker` (`--priority-only`) | `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS=4` |
+| `worker-downloader-batch` | `AttachmentDownloadWorker` (`--batch-only`) | `AUDIT_WORKER_DOWNLOADER_REPLICAS=16` |
 | `worker-extraction-batch` | `DocumentExtractionWorker` | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS=12` |
-| `worker-extraction-vip` | `DocumentExtractionWorker` | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=2` |
+| `worker-extraction-vip` | `DocumentExtractionWorker` | `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=6` |
 | `worker-normalizer` | `DocumentNormalizer` | `AUDIT_WORKER_NORMALIZER_REPLICAS=4` |
 | `worker-policy` | `RulesEvaluationWorker` | `AUDIT_WORKER_POLICY_REPLICAS=8` |
 | `worker-persistence` | `AuditPersistenceWorker` | `AUDIT_WORKER_PERSISTENCE_REPLICAS=6` |

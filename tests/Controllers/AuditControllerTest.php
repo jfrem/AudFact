@@ -146,6 +146,80 @@ final class AuditControllerTest extends TestCase
         self::assertSame([], $publisher->published);
     }
 
+    public function testSingleReturns429WithRetryAfterWhenPriorityLaneSaturated(): void
+    {
+        // Arrange:
+        $redis = new PriorityWaitAdmissionRedis(['extraction:priority' => 1200000]);
+        $state = $this->createMock(AuditStateStore::class);
+        $state->expects($this->never())->method('initAudit');
+        $publisher = new InMemoryAuditEventPublisher();
+        $controller = new TestableAuditController(body: ['disId' => '87723098', 'disDetNro' => 'T38250701547'],
+            stateStore: $state, publisher: $publisher, admissionRedis: $redis);
+
+        // Act:
+        $response = self::captureResponse(static fn() => $controller->single());
+
+        // Assert:
+        self::assertSame(429, $response->getCode());
+        self::assertSame('La cola prioritaria está saturada; reintente más tarde', $response->getData()['message']);
+        self::assertSame([], $publisher->published);
+        self::assertSame([60], $controller->retryAfter);
+    }
+
+    public function testSingleIsAdmittedWhenPriorityWaitIsBelowLimit(): void
+    {
+        // Arrange:
+        $redis = new PriorityWaitAdmissionRedis(['extraction:priority' => 1199999, 'extraction:batch' => 99999999]);
+        $publisher = new InMemoryAuditEventPublisher();
+        $controller = new TestableAuditController(body: ['disId' => '87723098', 'disDetNro' => 'T38250701547'],
+            stateStore: $this->newStoreStub(initAuditReturns: true), publisher: $publisher, admissionRedis: $redis);
+
+        // Act:
+        $response = self::captureResponse(static fn() => $controller->single());
+
+        // Assert:
+        self::assertSame(202, $response->getCode());
+        self::assertCount(1, $publisher->published);
+    }
+
+    public function testSingleReturns503WhenMetricsFail(): void
+    {
+        // Arrange: la primera lectura de métricas es la de assertAccepting(); la segunda, la de contrapresión VIP.
+        $redis = new PriorityWaitAdmissionRedis([], failFromMetricsCall: 2);
+        $state = $this->createMock(AuditStateStore::class);
+        $state->expects($this->never())->method('initAudit');
+        $publisher = new InMemoryAuditEventPublisher();
+        $controller = new TestableAuditController(body: ['disId' => '87723098', 'disDetNro' => 'T38250701547'],
+            stateStore: $state, publisher: $publisher, admissionRedis: $redis);
+
+        // Act:
+        $response = self::captureResponse(static fn() => $controller->single());
+
+        // Assert:
+        self::assertSame(503, $response->getCode());
+        self::assertSame([], $publisher->published);
+        self::assertSame(2, $redis->metricsCalls);
+        self::assertSame([5], $controller->retryAfter);
+    }
+
+    public function testAsyncIgnoresPriorityBackpressure(): void
+    {
+        // Arrange: INV-F3-05, la espera VIP saturada no afecta a POST /audit/async.
+        $redis = new PriorityWaitAdmissionRedis(['extraction:priority' => 99999999]);
+        $publisher = new InMemoryAuditEventPublisher();
+        $controller = new TestableAuditController(
+            body: ['facNitSec' => 2426, 'date' => '2025-07-29', 'dateTo' => '2025-07-29', 'limit' => 10],
+            jobStore: $this->newJobStoreStub(initJobReturns: true), publisher: $publisher, admissionRedis: $redis);
+
+        // Act:
+        $response = self::captureResponse(static fn() => $controller->async());
+
+        // Assert:
+        self::assertSame(202, $response->getCode());
+        self::assertSame(1, $redis->metricsCalls, 'async solo evalúa la admisión global, no la contrapresión VIP');
+        self::assertSame(AuditEvent::TYPE_BATCH_REQUESTED, $publisher->published[0]->eventType);
+    }
+
     public function testSingleReturns404WhenDispensationNotFound(): void
     {
         $controller = new TestableAuditController(
@@ -535,6 +609,9 @@ final class AuditControllerTest extends TestCase
 
 final class TestableAuditController extends AuditController
 {
+    /** @var list<int> Valores de `Retry-After` solicitados por la contrapresión VIP. */
+    public array $retryAfter = [];
+
     public function __construct(
         private array $body = [],
         private ?AuditStateStore $stateStore = null,
@@ -576,6 +653,11 @@ final class TestableAuditController extends AuditController
                     : [];
             }
         };
+    }
+
+    protected function sendRetryAfter(int $seconds): void
+    {
+        $this->retryAfter[] = $seconds;
     }
 
     protected function currentTime(): \DateTimeImmutable
@@ -621,6 +703,61 @@ final class TestableAuditController extends AuditController
     protected function buildClientsModel(): \App\Models\ClientsModel
     {
         return $this->clientsModel ?? new StubClientsModel([]);
+    }
+}
+
+/** Redis de admisión con esperas VIP sintéticas por `etapa:carril` (ms de la tarea más antigua). */
+final class PriorityWaitAdmissionRedis extends \Core\RedisClient
+{
+    private const NOW = 10000000;
+    public int $metricsCalls = 0;
+
+    /** @param array<string,int> $waitMs */
+    public function __construct(private array $waitMs = [], private int $failFromMetricsCall = 0)
+    {
+    }
+
+    public function get(string $key): ?string
+    {
+        return $key === 'audit:execution:heartbeat' ? (string) self::NOW : null;
+    }
+
+    public function serverConfiguration(array $patterns): array
+    {
+        return ['appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction'];
+    }
+
+    public function serverInfo(?string $section = null): array
+    {
+        return ['aof_last_write_status' => 'ok', 'used_memory' => '100', 'maxmemory' => '1000'];
+    }
+
+    public function eval(string $script, array $keys = [], array $args = []): mixed
+    {
+        if ($keys === []) {
+            return self::NOW;
+        }
+        if (($keys[0] ?? '') !== \App\Services\Audit\Pipeline\FairAuditTaskQueue::COUNTS) {
+            return [];
+        }
+        $this->metricsCalls++;
+        if ($this->failFromMetricsCall > 0 && $this->metricsCalls >= $this->failFromMetricsCall) {
+            throw new \RuntimeException('redis_unavailable');
+        }
+        $flat = [];
+        $heads = [];
+        foreach (\App\Services\Audit\Pipeline\AuditTaskStage::cases() as $stage) {
+            foreach (['priority', 'batch'] as $lane) {
+                $name = $stage->value . ':' . $lane;
+                if (isset($this->waitMs[$name])) {
+                    array_push($flat, $name . ':pending', '1');
+                    $heads[] = ['synthetic-task', (string) (self::NOW - $this->waitMs[$name])];
+                } else {
+                    $heads[] = [];
+                }
+            }
+        }
+        return [$flat, $heads];
     }
 }
 

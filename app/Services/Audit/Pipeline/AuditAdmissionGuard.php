@@ -33,6 +33,19 @@ final class AuditAdmissionGuard
         return $this->stagesAtCapacity(AuditTaskStage::cases()) || $this->memoryAtCapacity();
     }
 
+    /** Contrapresión VIP: espera real de la tarea más antigua del carril prioritario. */
+    public function priorityLaneAtCapacity(): bool
+    {
+        $limit = AuditExecutionConfig::priorityAdmissionMaxWaitMs();
+        $metrics = (new FairAuditTaskQueue($this->redis, $this->config))->metrics();
+        foreach (AuditTaskStage::cases() as $stage) {
+            if (($metrics[$stage->value]['priority']['oldest_wait_ms'] ?? 0) >= $limit) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** El trabajo admitido puede drenar su cola, respetando capacidad aguas abajo. */
     public function orchestrationAtCapacity(): bool
     {

@@ -88,6 +88,65 @@ final class AuditExecutionConfigTest extends TestCase
         }
     }
 
+    /** @return iterable<string,array{string,int}> */
+    public static function validPriorityWaitValues(): iterable
+    {
+        yield 'empty uses default' => ['', 1200000];
+        yield 'minimum accepted' => ['1000', 1000];
+        yield 'custom value' => ['300000', 300000];
+        yield 'rollback switch' => ['86400000', 86400000];
+    }
+
+    #[DataProvider('validPriorityWaitValues')]
+    public function testPriorityAdmissionMaxWaitMsReadsTheVariable(string $value, int $expected): void
+    {
+        // Arrange:
+        $key = 'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS';
+        $previous = (string) Env::get($key, '');
+        try {
+            Env::set($key, $value);
+            Env::clearCache($key);
+
+            // Act / Assert:
+            self::assertSame($expected, AuditExecutionConfig::priorityAdmissionMaxWaitMs());
+        } finally {
+            Env::set($key, $previous === '' ? null : $previous);
+            Env::clearCache($key);
+        }
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function invalidPriorityWaitValues(): iterable
+    {
+        yield 'below minimum' => ['999'];
+        yield 'zero' => ['0'];
+        yield 'negative' => ['-5000'];
+        yield 'not numeric' => ['veinte'];
+        yield 'decimal' => ['1500.5'];
+    }
+
+    #[DataProvider('invalidPriorityWaitValues')]
+    public function testPriorityAdmissionMaxWaitMsRejectsInvalidValues(string $value): void
+    {
+        // Arrange:
+        $key = 'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS';
+        $previous = (string) Env::get($key, '');
+        try {
+            Env::set($key, $value);
+            Env::clearCache($key);
+
+            // Assert:
+            $this->expectException(InvalidArgumentException::class);
+            $this->expectExceptionMessage($key . '_invalid');
+
+            // Act:
+            AuditExecutionConfig::priorityAdmissionMaxWaitMs();
+        } finally {
+            Env::set($key, $previous === '' ? null : $previous);
+            Env::clearCache($key);
+        }
+    }
+
     public function testEveryStageKeepsTheSingleTurnContractByDefault(): void
     {
         // Arrange:

@@ -154,9 +154,10 @@ Variables de capacidad inicial:
 |---|---:|---|
 | `AUDIT_WORKER_BATCH_REPLICAS` | `2` | `worker-batch` |
 | `AUDIT_WORKER_ORCHESTRATOR_REPLICAS` | `3` | `worker-orchestrator` |
-| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `12` | `worker-downloader` |
+| `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS` | `4` | `worker-downloader-vip` (`--priority-only`) |
+| `AUDIT_WORKER_DOWNLOADER_REPLICAS` | `16` | `worker-downloader-batch` (`--batch-only`) |
 | `AUDIT_WORKER_EXTRACTION_BATCH_REPLICAS` | `12` | `worker-extraction-batch` |
-| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `2` | `worker-extraction-vip` |
+| `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS` | `6` | `worker-extraction-vip` |
 | `AUDIT_WORKER_NORMALIZER_REPLICAS` | `4` | `worker-normalizer` |
 | `AUDIT_WORKER_POLICY_REPLICAS` | `8` | `worker-policy` |
 | `AUDIT_WORKER_PERSISTENCE_REPLICAS` | `6` | `worker-persistence` |
@@ -180,6 +181,9 @@ Redis se configura desde Compose mediante variables no sensibles:
 | `AUDIT_ORCHESTRATION_JOB_SLOTS`, `AUDIT_EXTRACTION_JOB_SLOTS`, `AUDIT_POLICY_JOB_SLOTS`, `AUDIT_SEMANTIC_JOB_SLOTS` | `1` | Tareas simultáneas por job y etapa (1..16). Se aplican al reiniciar los workers; `1` conserva RR/cap1. |
 | `AUDIT_DOCUMENT_CACHE_MAX_BYTES` | `268435456` | Presupuesto global de bytes JSON BLOB nuevos. |
 | `AUDIT_DOCUMENT_CACHE_MAX_ENTRIES` | `1024` | Presupuesto global de entradas BLOB nuevas. |
+| `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT` | `25` | Porcentaje (1..99) del presupuesto de caché para el carril VIP; el carril batch recibe el resto. |
+| `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS` | `1200000` | `POST /audit/single` responde `429` + `Retry-After: 60` si la tarea VIP más antigua espera `>=` este valor (mínimo `1000`). `86400000` lo desactiva sin cambiar código (reiniciar `php`). |
+| `AUDIT_DOCUMENT_STREAM_READ_COUNT` | `5` | Mensajes por lectura del descargador (1..50); `1` revierte. |
 
 Validaciones operativas despues de deploy:
 
@@ -218,7 +222,7 @@ publicas sin `localhost`, e internos Docker como `INTERNAL_API_URL=http://nginx`
 Comandos de diagnóstico:
 
 ```bash
-wsl docker compose top worker-batch worker-orchestrator worker-downloader worker-extraction worker-policy worker-persistence
+wsl docker compose top worker-batch worker-orchestrator worker-downloader-vip worker-downloader-batch worker-extraction worker-policy worker-persistence
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.inbox
 wsl docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
@@ -251,11 +255,11 @@ curl -sf http://localhost:${AUDFACT_FRONTEND_HOST_PORT:-3100}/clients
 ```
 
 Despues de desplegar cambios en `/audit/async`, verificar que `worker-batch` y
-`worker-downloader` existan y que Redis haya creado los consumer groups:
+`worker-downloader-vip` y `worker-downloader-batch` existan y que Redis haya creado los consumer groups:
 
 ```bash
 docker compose ps worker-batch
-docker compose ps worker-downloader
+docker compose ps worker-downloader-vip worker-downloader-batch
 docker compose exec redis redis-cli XINFO GROUPS audfact:audit.batch.inbox
 docker compose exec redis redis-cli XINFO GROUPS audfact:audit.documents
 ```

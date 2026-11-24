@@ -101,6 +101,23 @@ final readonly class AuditExecutionConfig
         );
     }
 
+    /**
+     * Espera máxima (ms) de la tarea más antigua del carril prioritario antes de rechazar
+     * `POST /audit/single` con 429 (AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS, mínimo 1000, defecto 1200000).
+     *
+     * @throws \InvalidArgumentException Si el valor no es un entero decimal mayor o igual al mínimo.
+     */
+    public static function priorityAdmissionMaxWaitMs(): int
+    {
+        return self::digitsOrDefault(
+            'AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS',
+            (string) Env::get('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS', ''),
+            1200000,
+            1000,
+            PHP_INT_MAX
+        );
+    }
+
     /** Valor vacío usa el defecto; cualquier otro valor debe ser un entero decimal dentro del rango. */
     private static function digitsOrDefault(string $key, string $raw, int $default, int $min, int $max): int
     {
