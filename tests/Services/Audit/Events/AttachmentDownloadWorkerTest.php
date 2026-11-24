@@ -281,6 +281,52 @@ final class AttachmentDownloadWorkerTest extends TestCase
         self::assertSame('audit:document-cache:{budget}:priority:expires', $blobCalls[0][1]);
     }
 
+    /** @return array<string,array{0:array<string,mixed>}> */
+    public static function nonPriorityPayloads(): array
+    {
+        return [
+            'sin is_priority' => [['attachment_id' => 'att-1', 'dis_det_nro' => 'T38250701547']],
+            'is_priority false' => [['attachment_id' => 'att-1', 'dis_det_nro' => 'T38250701547', 'is_priority' => false]],
+            'is_priority no booleano' => [['attachment_id' => 'att-1', 'dis_det_nro' => 'T38250701547', 'is_priority' => 'true']],
+        ];
+    }
+
+    /** @param array<string,mixed> $payload */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonPriorityPayloads')]
+    public function testEventWithoutPriorityPutsBlobInBatchLaneIndex(array $payload): void
+    {
+        // Arrange:
+        $calls = [];
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys) use (&$calls): int {
+            $calls[] = $keys;
+            return 1;
+        });
+        $worker = new AttachmentDownloadWorker(
+            stateStore: new DownloadRecordingStateStore(),
+            downloader: new StubAttachmentDownloadService($this->downloadedDocument()),
+            redis: $redis,
+            publisher: new DownloadPublisher(),
+            consumerName: 'downloader-lane-batch-test',
+            blobTtl: 60
+        );
+        $event = AuditEvent::create(
+            eventType: AuditEvent::TYPE_DOCUMENT_REGISTERED,
+            auditId: AuditEvent::uuidV4(),
+            jobId: AuditEvent::uuidV4(),
+            documentId: AuditEvent::uuidV4(),
+            payload: $payload,
+        );
+
+        // Act:
+        $worker->processEvent($event);
+
+        // Assert: DEC-F3-02, todo evento que no sea `is_priority === true` cae en el carril batch.
+        $blobCalls = array_values(array_filter($calls, static fn(array $keys): bool => str_starts_with($keys[0], 'audit:blob:')));
+        self::assertCount(1, $blobCalls);
+        self::assertSame('audit:document-cache:{budget}:batch:expires', $blobCalls[0][1]);
+    }
+
     public function testLaneAllProcessRequiresBothGatesOpen(): void
     {
         // Arrange: el carril prioritario está al límite; el batch tiene capacidad.
@@ -299,6 +345,24 @@ final class AttachmentDownloadWorkerTest extends TestCase
         // Act / Assert:
         self::assertFalse($canRead->invoke($priorityClosed));
         self::assertTrue($canRead->invoke($open));
+    }
+
+    public function testLaneAllProcessStaysClosedWhenOnlyBatchLaneIsFull(): void
+    {
+        // Arrange: dirección inversa; el carril batch está al límite y el prioritario tiene capacidad.
+        $batchFull = $this->createStub(RedisClient::class);
+        $batchFull->method('eval')->willReturnCallback(
+            static fn(string $script, array $keys): array => str_contains($keys[1] ?? '', ':batch:') ? [0, 1000000000000, 0] : [0, 0, 0]
+        );
+        $worker = new AttachmentDownloadWorker(redis: $batchFull, publisher: new DownloadPublisher(),
+            consumerName: 'lane-all-batch-full');
+        $canRead = new \ReflectionMethod(AttachmentDownloadWorker::class, 'canReadNewMessages');
+
+        // Act:
+        $result = $canRead->invoke($worker);
+
+        // Assert: en carril `all` basta un carril lleno para cerrar (DEC-F3-10).
+        self::assertFalse($result);
     }
 
     public function testXReadGroupRequestsConfiguredReadCount(): void

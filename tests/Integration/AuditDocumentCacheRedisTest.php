@@ -65,34 +65,106 @@ final class AuditDocumentCacheRedisTest extends TestCase
 
     public function testUsageReportsOldestAgeAndTtl(): void
     {
+        // Arrange: TTL 100 s; dos blobs con edades distintas fijadas por el score (expiración) del índice.
+        $ttlMs = 100000;
+        $cache = new AuditDocumentCache($this->redis, 100000, 100, 100);
+        $cache->put('audit:blob:old', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+        $cache->put('audit:blob:young', ['mime' => 'application/pdf', 'data' => 'BBBB']);
+        $this->setBlobAgeMs('audit:blob:old', 40000, $ttlMs);
+        $this->setBlobAgeMs('audit:blob:young', 10000, $ttlMs);
+
+        // Act:
+        $first = $cache->usage();
+        $this->setBlobAgeMs('audit:blob:old', 55000, $ttlMs);
+        $second = $cache->usage();
+        $this->redis->eval('return redis.call("ZREM",KEYS[2],KEYS[1])', ['audit:blob:old', self::BUDGET . ':expires']);
+        $afterRemoval = $cache->usage();
+
+        // Assert: R-F3-05, la edad es la del blob MÁS antiguo (no 0, no el TTL, no la fórmula invertida).
+        self::assertSame($ttlMs, $first['ttl_ms']);
+        self::assertSame(2, $first['reserved_entries']);
+        self::assertGreaterThanOrEqual(40000, $first['oldest_age_ms']);
+        self::assertLessThan(45000, $first['oldest_age_ms']);
+        self::assertGreaterThanOrEqual(55000, $second['oldest_age_ms']);
+        self::assertLessThan(60000, $second['oldest_age_ms']);
+        self::assertGreaterThan($first['oldest_age_ms'], $second['oldest_age_ms']);
+        self::assertGreaterThanOrEqual(10000, $afterRemoval['oldest_age_ms']);
+        self::assertLessThan(15000, $afterRemoval['oldest_age_ms']);
+    }
+
+    public function testUsageReportsZeroAgeWhenIndexIsEmpty(): void
+    {
         // Arrange:
-        $cache = new AuditDocumentCache($this->redis, 100000, 100, 60);
-        $cache->put('audit:blob:age', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+        $cache = new AuditDocumentCache($this->redis, 100000, 100, 100);
 
         // Act:
         $usage = $cache->usage();
 
-        // Assert: ZRANGE ... WITHSCORES devuelve el blob más antiguo (R-F3-05).
-        self::assertSame(60000, $usage['ttl_ms']);
-        self::assertGreaterThanOrEqual(0, $usage['oldest_age_ms']);
-        self::assertLessThanOrEqual(60000, $usage['oldest_age_ms']);
+        // Assert:
+        self::assertSame(0, $usage['reserved_entries']);
+        self::assertSame(0, $usage['oldest_age_ms']);
     }
 
-    public function testReleaseWithWrongLaneStillDeletesBlobAndSelfHeals(): void
+    public function testReleaseWithWrongLaneDeletesBlobImmediatelyAndLeavesLaneIndexUncorrected(): void
     {
-        // Arrange: blob admitido en el carril batch, liberado por error con el carril prioritario.
-        $base = new AuditDocumentCache($this->redis, 100000, 100, 1);
+        // Arrange: blob admitido en el carril batch, liberado por error con el carril prioritario; TTL largo.
+        $document = ['mime' => 'application/pdf', 'data' => 'AAAA'];
+        $size = strlen(json_encode($document, JSON_UNESCAPED_SLASHES));
+        $base = new AuditDocumentCache($this->redis, 100000, 100, 3600);
         $batch = $base->forLane(\App\Services\Audit\Pipeline\AuditLane::BATCH);
-        $batch->put('audit:blob:wrong', ['mime' => 'application/pdf', 'data' => 'AAAA']);
+        $batch->put('audit:blob:wrong', $document);
+        self::assertSame(1, $this->zcard(self::BUDGET . ':batch:expires'));
+        self::assertSame($size, (int) $this->redis->get(self::BUDGET . ':batch:bytes'));
 
         // Act:
         $base->release('audit:blob:wrong', \App\Services\Audit\Pipeline\AuditLane::PRIORITY);
-        usleep(2100000);
-        $batch->usage();
 
-        // Assert: INV-F3-03 y INV-F3-04, el índice equivocado se corrige por prune() en <= TTL.
+        // Assert: INV-F3-03, el blob se elimina siempre y de inmediato (sin depender del TTL).
         self::assertNull($base->read('audit:blob:wrong'));
-        self::assertSame(0, $batch->usage()['reserved_entries']);
+        // Según RELEASE_LUA el carril equivocado cae al índice heredado, que no lo contiene: el índice
+        // batch NO se corrige (entrada y bytes persisten) y el heredado queda en 0.
+        self::assertSame(1, $this->zcard(self::BUDGET . ':batch:expires'));
+        self::assertSame($size, (int) $this->redis->get(self::BUDGET . ':batch:bytes'));
+        self::assertSame(0, (int) $this->redis->get(self::BUDGET . ':bytes'));
+        self::assertSame(1, $batch->usage()['reserved_entries']);
+    }
+
+    public function testWrongLaneReleaseResidueIsSelfHealedByPruneWhenReservationExpires(): void
+    {
+        // Arrange: residuo del escenario anterior; se vence la reserva forzando el score, sin esperas.
+        $document = ['mime' => 'application/pdf', 'data' => 'AAAA'];
+        $base = new AuditDocumentCache($this->redis, 100000, 100, 3600);
+        $batch = $base->forLane(\App\Services\Audit\Pipeline\AuditLane::BATCH);
+        $batch->put('audit:blob:wrong', $document);
+        $base->release('audit:blob:wrong', \App\Services\Audit\Pipeline\AuditLane::PRIORITY);
+        $before = $batch->usage();
+        $this->redis->eval('return redis.call("ZADD",KEYS[2],0,KEYS[1])', ['audit:blob:wrong', self::BUDGET . ':batch:expires']);
+
+        // Act:
+        $after = $batch->usage();
+
+        // Assert: INV-F3-04, prune() corrige entradas y bytes del carril.
+        self::assertSame(1, $before['reserved_entries']);
+        self::assertGreaterThan(0, $before['reserved_bytes']);
+        self::assertSame(0, $after['reserved_entries']);
+        self::assertSame(0, $after['reserved_bytes']);
+        self::assertSame(0, (int) $this->redis->get(self::BUDGET . ':batch:bytes'));
+    }
+
+    /** Fija la edad de una reserva moviendo su score (expiración = ahora + TTL - edad). */
+    private function setBlobAgeMs(string $blobKey, int $ageMs, int $ttlMs): void
+    {
+        $this->redis->eval(
+            'local t = redis.call("TIME"); local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000); '
+            . 'return redis.call("ZADD", KEYS[2], now + tonumber(ARGV[1]) - tonumber(ARGV[2]), KEYS[1])',
+            [$blobKey, self::BUDGET . ':expires'],
+            [$ttlMs, $ageMs]
+        );
+    }
+
+    private function zcard(string $key): int
+    {
+        return (int) $this->redis->eval('return redis.call("ZCARD",KEYS[1])', [$key]);
     }
 
     public function testMultipleConnectionsShareByteBudgetAndReleaseIsIdempotent(): void
