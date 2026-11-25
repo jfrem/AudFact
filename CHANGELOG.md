@@ -1,3 +1,10 @@
+## [2026-11-25]
+
+### fix
+- **Auditoría IA — orden determinista de candidatos en la resolución semántica (`SDD-SEMANTIC-RESOLVE-001`)**: auditorías con varios artículos de la dispensación fallaban en la etapa `policy` con `DomainException: semantic_result_missing` (falla permanente con DLQ). El plan semántico ordena los candidatos de cada fila con las asignaciones de las Fases 1, 1.5 y 2, pero la reproducción (`evaluateResolved`) reordenaba las filas siguientes con cada positivo de la Fase 3 y pedía pares que el plan dejó sin veredicto. `evaluateArticleSetField()` congela el estado de asignación al entrar en la Fase 3 (`$assignedBeforeSemantic`) y lo usa en las dos llamadas a `rankUnmatchedCandidates()`.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php` (T1-T6, 78 → 84 tests), `plans/sdd-optimizacion-homologacion-semantica-evidencia.md` (enmienda de INV-3).
+  - Impacto: el plan v2 (pares, orden y `plan_id`) no cambia y el resultado por campo tampoco. En filas agotadas cuyo orden alteraba un positivo previo, el `detalle` publica el primer razonamiento en el orden planificado (decisión D-5). Requiere reconstruir la imagen de `worker-policy`; el rollback es `operation=deploy` con el SHA anterior, no `operation=rollback`. Las auditorías ya fallidas no se reprocesan.
+
 ## [2026-11-24]
 
 ### feat / ops / docs

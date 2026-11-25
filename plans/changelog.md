@@ -1,5 +1,15 @@
 # Changelog AudFact
 
+## [2026-11-25] — fix: orden determinista de candidatos en la resolución semántica (`SDD-SEMANTIC-RESOLVE-001`)
+
+- **Problema**: `DomainException: semantic_result_missing` en la etapa `policy` para auditorías con varias filas huérfanas (muestra local: 5 de unas 100 auditorías de un job del cliente 2624). El plan se construye con `SemanticCandidateCollector`, que nunca devuelve positivos; `evaluateResolved()` agregaba cada positivo de la Fase 3 a `$matchedFdv` y el ranking de las filas siguientes cambiaba, de modo que pedía un par que `SemanticEvaluationStore::advance()` había dejado sin veredicto al cortar la fila en su primer positivo.
+- **Cambio**: `DocumentPolicyEngine::evaluateArticleSetField()` copia `$matchedFdv` al entrar en la Fase 3 (`$assignedBeforeSemantic`) y la pasa a las dos llamadas a `rankUnmatchedCandidates()` (pares huérfanos del batch y bucle individual). La condición `isset($matchedFdv[$fi])` conserva el estado vivo. Sin cambios en `ResolvedSemanticResolver`, `SemanticCandidateCollector`, `SemanticEvaluationStore` ni `RulesEvaluationWorker`.
+- **Invariantes**: el orden de pares por fila en la reproducción es el prefijo resuelto del orden planificado (INV-1); el plan v2 no cambia (INV-2); el nivel 2 de INV-3 de `plans/sdd-optimizacion-homologacion-semantica-evidencia.md` queda enmendado como «asignados antes de iniciar la Fase 3»; el resultado por campo no cambia ante veredictos fijos (INV-4).
+- **Contrato**: el `detalle` de una fila agotada puede cambiar cuando un positivo previo alteraba su orden: ahora publica el primer razonamiento no nulo en el orden planificado (D-5, aprobada el 2026-11-25).
+- **Pruebas**: `DocumentPolicyEngineTest` T1-T6 (84 tests). T4 es una guardia permanente: matriz de 784 máscaras de veredictos sobre seis fixtures sintéticos; ejecutarla con cada cambio de la Fase 3 o de `rankUnmatchedCandidates()`.
+- **Despliegue y rollback**: reconstruir `worker-policy` con `operation=deploy`; revertir con `operation=deploy` e `image_tag=<SHA anterior>` (validación `git merge-base --is-ancestor 45fd44b <SHA anterior>`), nunca con `operation=rollback`.
+- **Spec**: SDD-SEMANTIC-RESOLVE-001 v3 (pendiente Q-1 antes de integrar y desplegar).
+
 ## [2026-11-24] — fix: predicado de fecha SARGable compatible con SQL Server (hotfix `SDD-BATCH-001`)
 
 - **Problema**: `InvoicesModel::buildOptimizedBatchSql()` usaba `CONVERT(datetime, :dateFromD, 23)` y `DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))`. Medido contra SQL Server 16.0.4225 (compatibilidad 160, conexión `db2`): SQLSTATE 22007 «Conversion failed», incluso con el literal `'2026-01-01'`. Toda congelación de batch fallaba.

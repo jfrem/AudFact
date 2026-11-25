@@ -858,12 +858,14 @@ class DocumentPolicyEngine
             $lastReasoningByFdv = [];
 
             // Construir pares huérfanos: cada FDV → top-1 doc por prioridad (excluir ya emparejados)
+            // El orden de candidatos de cada fila depende solo del estado previo a la Fase 3 (INV-1).
+            $assignedBeforeSemantic = $matchedFdv;
             $orphanPairs = [];
             foreach ($fdvArticles as $fi => $fdvOriginal) {
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
-                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
+                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $assignedBeforeSemantic);
                 if ($candidates === []) {
                     continue;
                 }
@@ -897,7 +899,7 @@ class DocumentPolicyEngine
                     if (isset($matchedFdv[$fi])) {
                         continue;
                     }
-                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
+                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $assignedBeforeSemantic);
 
                     foreach ($candidates as $di => $jaccardScore) {
                         $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docArticles[$di], array_merge($context, [
@@ -1074,7 +1076,7 @@ class DocumentPolicyEngine
     /**
      * Prioriza y ordena candidatos documentales para resolución semántica según política de 3 niveles:
      * - Nivel 1: Ítems primarios extraídos no asignados (máxima prioridad para evitar llamadas LLM redundantes).
-     * - Nivel 2: Ítems primarios extraídos ya asignados en $matchedFdv (preserva cobertura suryectiva N:1 para entregas divididas).
+     * - Nivel 2: Ítems primarios extraídos asignados antes de iniciar la Fase 3 (Fases 1, 1.5 y 2; preserva cobertura suryectiva N:1 para entregas divididas).
      * - Nivel 3: Artículos residuales no coincidentes ($unmatchedSet / restricción D-11 como estricto fallback).
      *
      * Dentro de cada nivel, ordena descendentemente por score compuesto:
@@ -1083,7 +1085,7 @@ class DocumentPolicyEngine
      * @param  string               $fdvOriginal  Artículo FDV a emparejar.
      * @param  array<int,string>    $docArticles  Todos los artículos del documento.
      * @param  array<string,bool>   $unmatchedSet Conjunto de artículos catalogados como unmatched_articles.
-     * @param  array<int,int>       $matchedFdv   Mapa fdvIdx→docIdx ya emparejado.
+     * @param  array<int,int>       $matchedFdv   Mapa fdvIdx→docIdx asignado antes de la Fase 3 (estado congelado, INV-1; no el vivo).
      * @return array<int,float>     docIdx→score, ordenado desc por prioridad y similitud.
      */
     private function rankUnmatchedCandidates(

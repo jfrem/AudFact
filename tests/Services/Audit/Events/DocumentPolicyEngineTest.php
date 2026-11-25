@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Services\Audit\Pipeline;
 
+use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\DocumentPolicyEngine;
 use App\Services\Audit\Pipeline\ExtractedEvidence;
 use App\Services\Audit\Pipeline\ExtractionState;
+use App\Services\Audit\Pipeline\SemanticEvaluationStore;
+use App\Services\Audit\ResolvedSemanticResolver;
+use App\Services\Audit\SemanticCandidateCollector;
+use App\Services\Audit\SemanticMatchResolver;
+use Core\RedisClient;
 use PHPUnit\Framework\TestCase;
 
 final class DocumentPolicyEngineTest extends TestCase
@@ -2388,6 +2394,567 @@ final class DocumentPolicyEngineTest extends TestCase
         self::assertSame('VALOR_DISTINTO', $byCampo['CodigoDiagnostico']);
         self::assertSame('VALOR_DISTINTO', $byCampo['Lote']);
         self::assertSame(1, $judge->calls);
+    }
+
+    // ─── SDD-SEMANTIC-RESOLVE-001: paridad plan-reproducción en la Fase 3 ──
+
+    public function testSemanticResolveT1TwoRowsSharingOnePositiveDocumentResolveAsMatch(): void
+    {
+        // Arrange:
+        $snapshot = self::resolveSnapshot(...self::resolveFixtures()['dos_filas_tres_docs']);
+        $engine = new DocumentPolicyEngine();
+
+        // Act:
+        $plan = $this->resolveBuildPlan($snapshot);
+        [$plan, $waves, $verdicts] = self::resolveRunWaves($plan, self::resolveFirstTermOracle());
+        $results = SemanticEvaluationStore::results($plan);
+        $resumed = $engine->evaluateResolved($snapshot, $results);
+
+        // Assert:
+        self::assertCount(6, $plan['pairs']);
+        self::assertCount(2, $results);
+        self::assertSame(1, $waves);
+        self::assertSame(2, $verdicts);
+        self::assertSame(['semantic_match', 'semantic_match'], array_column(array_values($plan['rows']), 'state'));
+        self::assertSame('COINCIDE', self::resolveFieldResult($resumed));
+    }
+
+    public function testSemanticResolveT2ThreeRowsXYXResolveAsMatch(): void
+    {
+        // Arrange:
+        $snapshot = self::resolveSnapshot(...self::resolveFixtures()['tres_filas_tres_docs']);
+        $engine = new DocumentPolicyEngine();
+
+        // Act:
+        $plan = $this->resolveBuildPlan($snapshot);
+        $planned = self::resolveRowSequences($plan);
+        [$plan, $waves, $verdicts] = self::resolveRunWaves($plan, self::resolveT2Oracle());
+        $results = SemanticEvaluationStore::results($plan);
+        $resumed = $engine->evaluateResolved($snapshot, $results);
+
+        // Assert:
+        self::assertSame([
+            ['ALFA 10MG TABLETA -> MOLX 10 MG', 'ALFA 10MG TABLETA -> MOLY 30 MG', 'ALFA 10MG TABLETA -> MOLZ 20 MG'],
+            ['BETA 20MG TABLETA -> MOLZ 20 MG', 'BETA 20MG TABLETA -> MOLX 10 MG', 'BETA 20MG TABLETA -> MOLY 30 MG'],
+            ['GAMMA 30MG TABLETA -> MOLY 30 MG', 'GAMMA 30MG TABLETA -> MOLX 10 MG', 'GAMMA 30MG TABLETA -> MOLZ 20 MG'],
+        ], $planned);
+        self::assertCount(9, $plan['pairs']);
+        self::assertCount(6, $results);
+        self::assertSame(3, $waves);
+        self::assertSame(6, $verdicts);
+        self::assertSame('COINCIDE', self::resolveFieldResult($resumed));
+    }
+
+    /**
+     * Plan invariante (INV-2) y caché completa/parcial. La caché parcial se comprueba al final:
+     * es la única parte que falla sin el cambio.
+     */
+    public function testSemanticResolveT3PlanIsInvariantAndCachedPlansResolve(): void
+    {
+        // Arrange: valores fijos tomados antes del cambio de producción.
+        $expectedPlans = [
+            'dos_filas_tres_docs' => [
+                '24bd8cf691c914dd1084767120469a909c32727ba5333a38fe71cacf0f0a1268',
+                'a39554ce87fc05365b137670521853a722847b3bef6e8d5c0ca367609d622f3d',
+                [
+                    ['CABERGOLINA 0.5MG FCO*4 TABLETA -> CABERGOLINA TAB 0,5 MG', 'CABERGOLINA 0.5MG FCO*4 TABLETA -> METFORMINA TAB 850 MG', 'CABERGOLINA 0.5MG FCO*4 TABLETA -> LOSARTAN TAB 50 MG'],
+                    ['CABERGOLINA 0.5MG FCO*8 TABLETA -> CABERGOLINA TAB 0,5 MG', 'CABERGOLINA 0.5MG FCO*8 TABLETA -> METFORMINA TAB 850 MG', 'CABERGOLINA 0.5MG FCO*8 TABLETA -> LOSARTAN TAB 50 MG'],
+                ],
+            ],
+            'tres_filas_tres_docs' => [
+                'c3c753ef11c3cd8c93878881f997a53df4b97f3a5db74f94fe0ee006bd34a9aa',
+                'a70be2afb4c1368e2143e1144018350ded6f845b274281a5fc648264d463d36b',
+                [
+                    ['ALFA 10MG TABLETA -> MOLX 10 MG', 'ALFA 10MG TABLETA -> MOLY 30 MG', 'ALFA 10MG TABLETA -> MOLZ 20 MG'],
+                    ['BETA 20MG TABLETA -> MOLZ 20 MG', 'BETA 20MG TABLETA -> MOLX 10 MG', 'BETA 20MG TABLETA -> MOLY 30 MG'],
+                    ['GAMMA 30MG TABLETA -> MOLY 30 MG', 'GAMMA 30MG TABLETA -> MOLX 10 MG', 'GAMMA 30MG TABLETA -> MOLZ 20 MG'],
+                ],
+            ],
+        ];
+        $snapshot = self::resolveSnapshot(...self::resolveFixtures()['dos_filas_tres_docs']);
+        $base = $this->resolveBuildPlan($snapshot);
+        $oracle = self::resolveFirstTermOracle();
+        $positive = array_filter($base['pairs'], static fn(array $pair): bool => $pair['actual'] === 'CABERGOLINA TAB 0,5 MG');
+        $fullCachePlan = $this->resolveBuildPlan($snapshot, self::resolveCacheEntries($base, $base['pairs'], $oracle));
+        $partialCachePlan = $this->resolveBuildPlan($snapshot, self::resolveCacheEntries($base, $positive, $oracle));
+
+        // Act + Assert: plan invariante.
+        foreach ($expectedPlans as $fixture => [$planHash, $pairsHash, $expectedRows]) {
+            $plan = $this->resolveBuildPlan(self::resolveSnapshot(...self::resolveFixtures()[$fixture]));
+            $orderedPairIds = array_merge(...array_column(array_values($plan['rows']), 'pair_ids'));
+            self::assertSame($planHash, hash('sha256', json_encode($plan, JSON_THROW_ON_ERROR)), $fixture);
+            self::assertSame($pairsHash, hash('sha256', implode(',', $orderedPairIds)), $fixture);
+            self::assertSame($expectedRows, self::resolveRowSequences($plan), $fixture);
+        }
+
+        // Act + Assert: caché completa (seis pares).
+        $full = (new DocumentPolicyEngine())->evaluateResolved($snapshot, SemanticEvaluationStore::results($fullCachePlan));
+        self::assertSame('ready', $fullCachePlan['state']);
+        self::assertCount(6, SemanticEvaluationStore::results($fullCachePlan));
+        self::assertSame('COINCIDE', self::resolveFieldResult($full));
+
+        // Act + Assert: caché parcial (solo los dos pares positivos CABERGOLINA → CABERGOLINA TAB).
+        self::assertCount(2, $positive);
+        self::assertSame('ready', $partialCachePlan['state']);
+        $partial = (new DocumentPolicyEngine())->evaluateResolved($snapshot, SemanticEvaluationStore::results($partialCachePlan));
+        self::assertSame('COINCIDE', self::resolveFieldResult($partial));
+    }
+
+    /**
+     * Guardia permanente (RQ-8): ejecutar con cada cambio de la Fase 3 o de rankUnmatchedCandidates.
+     */
+    public function testSemanticResolveT4VerdictMatrixKeepsPlanReplayParity(): void
+    {
+        $summary = [];
+        $riskMasks = 0;
+        foreach (self::resolveFixtures() as $name => $fixture) {
+            // Arrange:
+            $snapshot = self::resolveSnapshot(...$fixture);
+            $base = $this->resolveBuildPlan($snapshot);
+            $pairIds = array_keys($base['pairs']);
+            $counts = ['masks' => 0, 'exceptions' => 0, 'outside_prefix' => 0, 'sequence_mismatch' => 0, 'result_mismatch' => 0];
+
+            for ($mask = 0; $mask < (1 << count($pairIds)); $mask++) {
+                $verdicts = [];
+                foreach ($pairIds as $bit => $pairId) {
+                    $verdicts[$pairId] = (($mask >> $bit) & 1) === 1;
+                }
+                [$plan] = self::resolveRunWaves($base, static fn(array $pair): array => [
+                    'is_match' => $verdicts[$pair['pair_id']],
+                    'reasoning' => 'R-' . $pair['pair_id'],
+                ]);
+                $prefixes = self::resolvePrefixes($plan);
+                $expectedResult = self::resolveResultFromRows($plan);
+                $riskMasks += self::resolveIsRiskMask($plan, $prefixes) ? 1 : 0;
+                $tracer = self::resolveTracer(new ResolvedSemanticResolver(SemanticEvaluationStore::results($plan)));
+                $counts['masks']++;
+
+                // Act:
+                try {
+                    $result = (new DocumentPolicyEngine($tracer))->evaluate(
+                        $snapshot['document_state'], $snapshot['normalized_payload'], $snapshot['fac_nro']
+                    );
+                } catch (\DomainException) {
+                    $counts['exceptions']++;
+                    continue;
+                }
+
+                // Assert (acumulado por fixture):
+                $requestedByRow = [];
+                foreach ($tracer->calls as $call) {
+                    if (!in_array($call['pair'], $prefixes[$call['row']] ?? [], true)) {
+                        $counts['outside_prefix']++;
+                    }
+                    $requestedByRow[$call['row']][] = $call['pair'];
+                }
+                foreach ($prefixes as $row => $prefix) {
+                    if (($requestedByRow[$row] ?? []) !== $prefix) {
+                        $counts['sequence_mismatch']++;
+                    }
+                }
+                if (self::resolveFieldResult($result) !== $expectedResult) {
+                    $counts['result_mismatch']++;
+                }
+            }
+            $summary[$name] = $counts;
+        }
+
+        $expected = [];
+        foreach ($summary as $name => $counts) {
+            $expected[$name] = ['masks' => $counts['masks']] + array_fill_keys(['exceptions', 'outside_prefix', 'sequence_mismatch', 'result_mismatch'], 0);
+        }
+        self::assertSame([
+            'dos_filas_tres_docs' => 64,
+            'tres_filas_tres_docs' => 512,
+            'tres_filas_dos_docs_unmatched' => 64,
+            'fase1_asigna_una_fila' => 64,
+            'empate_puntaje' => 64,
+            'dos_filas_dos_docs' => 16,
+        ], array_map(static fn(array $counts): int => $counts['masks'], $summary));
+        self::assertGreaterThan(0, $riskMasks, 'La matriz debe incluir máscaras con la forma del fallo (0.6).');
+        self::assertSame($expected, $summary);
+    }
+
+    /**
+     * Tres aserciones separadas sobre la fila agotada (BETA): resultado, documento elegido y motivo (D-5).
+     * El motivo se comprueba al final: es la única que cambia respecto de la versión anterior.
+     */
+    public function testSemanticResolveT5ExhaustedRowResultChosenDocumentAndReason(): void
+    {
+        // Act:
+        [$result, $chosen] = $this->resolveT5Evaluation();
+
+        // Assert 1: resultado por campo.
+        self::assertSame('NO_CONCLUYENTE', self::resolveFieldResult($result));
+
+        // Assert 2: documento elegido (último par con is_match=true por índice FDV).
+        self::assertSame([0 => 'AXIAL 10 MG', 1 => null], $chosen);
+
+        // Assert 3: D-5, primer razonamiento no nulo en el orden planificado [AXIAL, CUARZO].
+        self::assertSame(
+            "En 'Nombre Articulo', el documento soporte no contiene evidencia para 1 de 2 artículos de la dispensación: "
+            . "'BETA 10MG TABLETA'. Artículos visibles en el documento: 'AXIAL 10 MG, CUARZO 30 MG'. "
+            . "Motivo: Para 'BETA 10MG TABLETA': R-axial",
+            self::resolveFieldDetail($result)
+        );
+    }
+
+    /**
+     * Guardia: pasa con y sin el cambio.
+     */
+    public function testSemanticResolveT6MissingOrMalformedResultStillThrows(): void
+    {
+        // Arrange: se corrompe el primer par planificado de la primera fila (siempre en el prefijo resuelto).
+        $snapshot = self::resolveSnapshot(...self::resolveT5Fixture());
+        [$plan] = self::resolveRunWaves($this->resolveBuildPlan($snapshot), self::resolveFirstTermOracle());
+        $results = SemanticEvaluationStore::results($plan);
+        $firstPair = array_values($plan['rows'])[0]['pair_ids'][0];
+        $removed = $results;
+        unset($removed[$firstPair]);
+        $malformed = $results;
+        $malformed[$firstPair]['is_match'] = 'true';
+
+        foreach (['veredicto eliminado' => $removed, 'is_match no booleano' => $malformed] as $case => $corrupted) {
+            // Act:
+            $message = null;
+            try {
+                (new DocumentPolicyEngine())->evaluateResolved($snapshot, $corrupted);
+            } catch (\DomainException $error) {
+                $message = $error->getMessage();
+            }
+
+            // Assert:
+            self::assertSame('semantic_result_missing', $message, $case);
+        }
+    }
+
+    /**
+     * @return array<string,array{0:list<string>,1:list<string>,2:list<string>}>
+     */
+    private static function resolveFixtures(): array
+    {
+        return [
+            'dos_filas_tres_docs' => [
+                ['CABERGOLINA 0.5MG FCO*4 TABLETA', 'CABERGOLINA 0.5MG FCO*8 TABLETA'],
+                ['CABERGOLINA TAB 0,5 MG', 'LOSARTAN TAB 50 MG', 'METFORMINA TAB 850 MG'],
+                [],
+            ],
+            'tres_filas_tres_docs' => [
+                ['ALFA 10MG TABLETA', 'BETA 20MG TABLETA', 'GAMMA 30MG TABLETA'],
+                ['MOLX 10 MG', 'MOLZ 20 MG', 'MOLY 30 MG'],
+                [],
+            ],
+            'tres_filas_dos_docs_unmatched' => [
+                ['ALFA 10MG TABLETA', 'BETA 20MG TABLETA', 'GAMMA 30MG TABLETA'],
+                ['MOLX 10 MG', 'MOLY 30 MG'],
+                ['MOLY 30 MG'],
+            ],
+            'fase1_asigna_una_fila' => [
+                ['LOSARTAN 50MG TABLETA', 'ALFA 10MG TABLETA', 'BETA 20MG TABLETA'],
+                ['LOSARTAN 50MG TABLETA', 'MOLX 10 MG', 'MOLY 30 MG'],
+                [],
+            ],
+            'empate_puntaje' => [
+                ['ALFA TABLETA', 'BETA TABLETA'],
+                ['MOLX TABLETA', 'MOLY TABLETA', 'MOLZ TABLETA'],
+                [],
+            ],
+            'dos_filas_dos_docs' => [
+                ['ALFA 10MG TABLETA', 'BETA 20MG TABLETA'],
+                ['MOLX 10 MG', 'MOLY 30 MG'],
+                [],
+            ],
+        ];
+    }
+
+    /**
+     * Fixture de T5 y T6: ejemplo sintético de la sección 10 (candidatos planificados [AXIAL, CUARZO]).
+     *
+     * @return array{0:list<string>,1:list<string>,2:list<string>}
+     */
+    private static function resolveT5Fixture(): array
+    {
+        return [['AXIAL 10MG TABLETA', 'BETA 10MG TABLETA'], ['AXIAL 10 MG', 'CUARZO 30 MG'], []];
+    }
+
+    /**
+     * @return array{0:array<string,mixed>,1:array<int,string|null>}
+     */
+    private function resolveT5Evaluation(): array
+    {
+        $snapshot = self::resolveSnapshot(...self::resolveT5Fixture());
+        [$plan] = self::resolveRunWaves($this->resolveBuildPlan($snapshot), self::resolveFirstTermOracle());
+        $tracer = self::resolveTracer(new ResolvedSemanticResolver(SemanticEvaluationStore::results($plan)));
+        $result = (new DocumentPolicyEngine($tracer))->evaluate(
+            $snapshot['document_state'], $snapshot['normalized_payload'], $snapshot['fac_nro']
+        );
+        $chosen = [0 => null, 1 => null];
+        foreach ($tracer->calls as $call) {
+            if ($call['is_match']) {
+                $chosen[$call['fdv_index']] = $call['actual'];
+            }
+        }
+
+        return [$result, $chosen];
+    }
+
+    /**
+     * @param  list<string> $fdv
+     * @param  list<string> $doc
+     * @param  list<string> $unmatched
+     * @return array<string,mixed>
+     */
+    private static function resolveSnapshot(array $fdv, array $doc, array $unmatched = []): array
+    {
+        $state = self::baseState(
+            'FORMULA MEDICA',
+            [self::field('NombreArticulo', 'S', 'alta', 'article_name')],
+            ['header' => [], 'items' => array_map(static fn(string $name): array => ['NombreArticulo' => $name], $fdv)]
+        );
+        $payload = self::payload(
+            'FORMULA MEDICA',
+            [],
+            array_map(static fn(string $name): array => ['NombreArticulo' => $name], $doc)
+        );
+        $payload['unmatched_articles'] = $unmatched;
+
+        return [
+            'source_event' => [
+                'event_id' => 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb',
+                'parent_event_id' => null,
+                'event_type' => AuditEvent::TYPE_DOCUMENT_NORMALIZED,
+                'audit_id' => 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+                'job_id' => null,
+                'document_id' => 'doc-resolve',
+                'timestamp' => '2026-11-25T00:00:00Z',
+                'version_extractor' => 'fixture',
+                'version_normalizer' => '1.0.0',
+                'version_rules' => '1.0.0',
+                'payload' => [],
+            ],
+            'versions' => ['model' => 'fixture', 'rules' => '1', 'normalizer' => '1', 'extractor' => '1'],
+            'document_state' => $state,
+            'normalized_payload' => $payload,
+            'fac_nro' => 'FAC-RESOLVE',
+        ];
+    }
+
+    /**
+     * @param  array<string,mixed>  $snapshot
+     * @param  array<string,string> $cache Clave de caché semántica → resultado JSON.
+     * @return array<string,mixed>
+     */
+    private function resolveBuildPlan(array $snapshot, array $cache = []): array
+    {
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('get')->willReturnCallback(static fn(string $key): ?string => $cache[$key] ?? null);
+        $planning = (new DocumentPolicyEngine())->plan(
+            $snapshot['document_state'], $snapshot['normalized_payload'], $snapshot['fac_nro']
+        );
+
+        return (new SemanticEvaluationStore($redis))->buildPlan($snapshot, $planning['candidates']);
+    }
+
+    /**
+     * @param  array<string,mixed>                $plan
+     * @param  array<string,array<string,mixed>>  $pairs
+     * @return array<string,string>
+     */
+    private static function resolveCacheEntries(array $plan, array $pairs, callable $oracle): array
+    {
+        $cache = [];
+        foreach ($pairs as $pair) {
+            $cache[SemanticEvaluationStore::cacheKey($plan, $pair)] = json_encode($oracle($pair), JSON_THROW_ON_ERROR);
+        }
+
+        return $cache;
+    }
+
+    /**
+     * Resuelve las olas del plan con el oráculo hasta que queda `ready`.
+     *
+     * @param  array<string,mixed> $plan
+     * @return array{0:array<string,mixed>,1:int,2:int} Plan, olas (una llamada simulada por ola) y veredictos.
+     */
+    private static function resolveRunWaves(array $plan, callable $oracle): array
+    {
+        $waves = 0;
+        $verdicts = 0;
+        while ($plan['state'] !== 'ready') {
+            $current = SemanticEvaluationStore::waves($plan);
+            self::assertNotSame([], $current, 'Plan sin olas y sin estado ready.');
+            foreach ($current as $wave) {
+                $waves++;
+                foreach ($wave as $pair) {
+                    $plan['pairs'][$pair['pair_id']]['state'] = 'resolved';
+                    $plan['pairs'][$pair['pair_id']]['result'] = $oracle($pair);
+                    $verdicts++;
+                }
+            }
+            $plan = SemanticEvaluationStore::advance($plan);
+        }
+
+        return [$plan, $waves, $verdicts];
+    }
+
+    /**
+     * Oráculo común: casa si el primer término de ambos textos, en mayúsculas, es igual.
+     */
+    private static function resolveFirstTermOracle(): callable
+    {
+        return static function (array $pair): array {
+            $expected = strtoupper(explode(' ', $pair['expected'])[0]);
+            $actual = strtoupper(explode(' ', $pair['actual'])[0]);
+
+            return ['is_match' => $expected === $actual, 'reasoning' => 'R-' . strtolower($actual)];
+        };
+    }
+
+    /**
+     * Oráculo de T2: ALFA y GAMMA casan con MOLX; BETA casa con MOLY.
+     */
+    private static function resolveT2Oracle(): callable
+    {
+        $matches = ['ALFA' => 'MOLX', 'BETA' => 'MOLY', 'GAMMA' => 'MOLX'];
+
+        return static function (array $pair) use ($matches): array {
+            $expected = explode(' ', $pair['expected'])[0];
+            $actual = explode(' ', $pair['actual'])[0];
+
+            return ['is_match' => ($matches[$expected] ?? null) === $actual, 'reasoning' => 'R-' . strtolower($actual)];
+        };
+    }
+
+    /**
+     * @param  array<string,mixed> $plan
+     * @return list<list<string>>
+     */
+    private static function resolveRowSequences(array $plan): array
+    {
+        return array_map(
+            static fn(array $row): array => array_map(
+                static fn(string $pairId): string => $plan['pairs'][$pairId]['expected'] . ' -> ' . $plan['pairs'][$pairId]['actual'],
+                $row['pair_ids']
+            ),
+            array_values($plan['rows'])
+        );
+    }
+
+    /**
+     * Prefijo resuelto de cada fila: hasta el primer positivo, o la fila completa si quedó agotada.
+     *
+     * @param  array<string,mixed> $plan
+     * @return array<string,list<string>>
+     */
+    private static function resolvePrefixes(array $plan): array
+    {
+        $prefixes = [];
+        foreach ($plan['rows'] as $rowId => $row) {
+            $length = $row['state'] === 'semantic_match' ? $row['cursor'] + 1 : count($row['pair_ids']);
+            $prefixes[$rowId] = array_slice($row['pair_ids'], 0, $length);
+        }
+
+        return $prefixes;
+    }
+
+    /**
+     * Forma necesaria del fallo (0.6): una fila con prefijo truncado por su propio positivo cuyo prefijo
+     * contiene un documento asignado por el positivo de una fila anterior.
+     *
+     * @param array<string,mixed>         $plan
+     * @param array<string,list<string>>  $prefixes
+     */
+    private static function resolveIsRiskMask(array $plan, array $prefixes): bool
+    {
+        $assignedDocs = [];
+        foreach ($plan['rows'] as $rowId => $row) {
+            $prefixDocs = array_map(static fn(string $pairId): string => $plan['pairs'][$pairId]['actual'], $prefixes[$rowId]);
+            $truncated = $row['state'] === 'semantic_match' && count($prefixes[$rowId]) < count($row['pair_ids']);
+            if ($truncated && array_intersect($prefixDocs, $assignedDocs) !== []) {
+                return true;
+            }
+            if ($row['state'] === 'semantic_match') {
+                $assignedDocs[] = end($prefixDocs);
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string,mixed> $plan
+     */
+    private static function resolveResultFromRows(array $plan): string
+    {
+        foreach ($plan['rows'] as $row) {
+            if ($row['state'] !== 'semantic_match') {
+                return 'NO_CONCLUYENTE';
+            }
+        }
+
+        return 'COINCIDE';
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function resolveFieldResult(array $result): string
+    {
+        return (string) self::resolveArticleFinding($result)['resultado'];
+    }
+
+    /**
+     * @param array<string,mixed> $result
+     */
+    private static function resolveFieldDetail(array $result): string
+    {
+        return (string) (self::resolveArticleFinding($result)['detalle'] ?? '');
+    }
+
+    /**
+     * @param  array<string,mixed> $result
+     * @return array<string,mixed>
+     */
+    private static function resolveArticleFinding(array $result): array
+    {
+        foreach ($result['hallazgos']['items'] as $item) {
+            if ($item['campo'] === 'NombreArticulo') {
+                return $item;
+            }
+        }
+        self::fail('Hallazgo NombreArticulo ausente.');
+    }
+
+    /**
+     * Decorador de ResolvedSemanticResolver que registra los pares pedidos por el motor.
+     */
+    private static function resolveTracer(ResolvedSemanticResolver $inner): SemanticMatchResolver
+    {
+        return new class ($inner) implements SemanticMatchResolver {
+            /** @var list<array{row:string,pair:string,fdv_index:int,actual:string,is_match:bool|null}> */
+            public array $calls = [];
+
+            public function __construct(private readonly ResolvedSemanticResolver $inner)
+            {
+            }
+
+            public function evaluate(string $expected, string $actual, array $context = []): array
+            {
+                [$row, $pair] = SemanticCandidateCollector::identity($expected, $actual, $context);
+                $index = count($this->calls);
+                $this->calls[] = [
+                    'row' => $row,
+                    'pair' => $pair,
+                    'fdv_index' => (int) ($context['semantic_row_index'] ?? -1),
+                    'actual' => $actual,
+                    'is_match' => null,
+                ];
+                $result = $this->inner->evaluate($expected, $actual, $context);
+                $this->calls[$index]['is_match'] = $result['is_match'];
+
+                return $result;
+            }
+        };
     }
 }
 
