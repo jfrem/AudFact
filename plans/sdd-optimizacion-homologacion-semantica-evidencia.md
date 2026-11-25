@@ -32,7 +32,7 @@ A partir del análisis de las 4 dispensas reales en producción (`D03261002256`,
 - **INV-2 (Criterio Clínico Estricto - Opción B)**: Discrepancias de forma farmacéutica (`CAPSULA` vs `TABLETA`) deben mantener veredicto `NO_CONCLUYENTE` $\to$ `manual_review` con exposición clara del motivo clínico en `detalle`.
 - **INV-3 (Prioridad Estricta de 3 Niveles)**:
   - Nivel 1: `items` primarios extraídos no asignados.
-  - Nivel 2: `items` primarios extraídos ya asignados en `$matchedFdv` (cobertura suryectiva N:1 para multi-lote).
+  - Nivel 2: `items` primarios extraídos ya asignados en `$matchedFdv` por las Fases 1, 1.5 y 2, es decir, antes de iniciar la Fase 3 (cobertura suryectiva N:1 para multi-lote). Las coincidencias de la propia Fase 3 no reordenan los candidatos de otras filas (SDD-SEMANTIC-RESOLVE-001).
   - Nivel 3: `unmatched_articles` residuales.
 - **INV-4 (Completitud de Evidencia)**: `extraction_meta.valores` debe reflejar el 100% de los valores extraídos de las filas del documento.
 - **INV-5 (Latencia y Costo Óptimo)**: Si un medicamento es léxicamente idéntico tras normalización estándar, debe resolverse en Capa 1 (`0 ms`, 0 tokens).

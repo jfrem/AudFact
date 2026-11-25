@@ -858,12 +858,14 @@ class DocumentPolicyEngine
             $lastReasoningByFdv = [];
 
             // Construir pares huérfanos: cada FDV → top-1 doc por prioridad (excluir ya emparejados)
+            // El orden de candidatos de cada fila depende solo del estado previo a la Fase 3 (INV-1).
+            $assignedBeforeSemantic = $matchedFdv;
             $orphanPairs = [];
             foreach ($fdvArticles as $fi => $fdvOriginal) {
                 if (isset($matchedFdv[$fi])) {
                     continue;
                 }
-                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
+                $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $assignedBeforeSemantic);
                 if ($candidates === []) {
                     continue;
                 }
@@ -897,7 +899,7 @@ class DocumentPolicyEngine
                     if (isset($matchedFdv[$fi])) {
                         continue;
                     }
-                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $matchedFdv);
+                    $candidates = $this->rankUnmatchedCandidates($fdvOriginal, $docArticles, $unmatchedSet, $assignedBeforeSemantic);
 
                     foreach ($candidates as $di => $jaccardScore) {
                         $judgeResult = $this->semanticJudge->evaluate($fdvOriginal, $docArticles[$di], array_merge($context, [
