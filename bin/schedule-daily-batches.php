@@ -24,6 +24,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Models\ClientsModel;
 use App\Models\AuditConfigModel;
+use App\Services\Audit\AuditBatchOrchestrator;
 use App\Services\Audit\Pipeline\AuditEvent;
 use App\Services\Audit\Pipeline\AuditEventPublisher;
 use App\Services\Audit\Pipeline\AuditAdmissionGuard;
@@ -144,7 +145,7 @@ foreach ($clients as $client) {
     if ($config === null || !$config['activo'] || empty((array) $config['documents'])) {
         fwrite(STDOUT, "  ⏭  {$label} ({$clientName}) — Sin configuración completa, omitido\n");
         Logger::info('schedule-daily-batches: cliente sin configuración completa', [
-            'fac_nit_sec' => $facNitSec,
+            'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
         ]);
         $summary['skipped_no_config']++;
         continue;
@@ -175,8 +176,8 @@ foreach ($clients as $client) {
     } catch (\RuntimeException $e) {
         fwrite(STDERR, "  ✗  {$label} ({$clientName}) — Error de idempotencia: {$e->getMessage()}\n");
         Logger::error('schedule-daily-batches: error idempotencia', [
-            'fac_nit_sec' => $facNitSec,
-            'error'       => $e->getMessage(),
+            'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
+            'error'              => $e->getMessage(),
         ]);
         $summary['errors']++;
         continue;
@@ -185,16 +186,30 @@ foreach ($clients as $client) {
     if ($existingJobId !== null) {
         fwrite(STDOUT, "  ⏭  {$label} ({$clientName}) — Ya encolado hoy (job_id={$existingJobId})\n");
         Logger::info('schedule-daily-batches: cliente ya encolado', [
-            'fac_nit_sec'     => $facNitSec,
-            'existing_job_id' => $existingJobId,
+            'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
+            'existing_job_id'    => $existingJobId,
         ]);
         $summary['skipped_duplicate']++;
         continue;
     }
 
-    // ── Init job and publish event ───────────────────────────────────────
+    // ── Init job (exclusivo por NIT + rango solapado) and publish event ──
+    $jobCreated = false;
     try {
-        $jobStore->initJob($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+        $initResult = $jobStore->initJobExclusive($jobId, $facNitSec, $dateFrom, $dateTo, $limit);
+        if (($initResult['created'] ?? false) !== true) {
+            // INV-03: ya existe un job activo solapado para el NIT; se libera la llave de idempotencia recién reclamada.
+            $jobStore->releaseIdempotencyKeyIfMatches($idempotencyKey, $jobId);
+            $conflictJobId = (string) ($initResult['conflict_job_id'] ?? '');
+            fwrite(STDOUT, "  ⏭  {$label} ({$clientName}) — Ya existe job activo solapado (job_id={$conflictJobId})\n");
+            Logger::info('schedule-daily-batches: cliente omitido por solapamiento activo', [
+                'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
+                'active_job_id'      => $conflictJobId,
+            ]);
+            $summary['skipped_duplicate']++;
+            continue;
+        }
+        $jobCreated = true;
 
         $event = AuditEvent::create(
             eventType: AuditEvent::TYPE_BATCH_REQUESTED,
@@ -214,16 +229,27 @@ foreach ($clients as $client) {
 
         fwrite(STDOUT, "  ✓  {$label} ({$clientName}) — Encolado (job_id={$jobId})\n");
         Logger::info('schedule-daily-batches: batch encolado', [
-            'fac_nit_sec' => $facNitSec,
-            'job_id'      => $jobId,
+            'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
+            'job_id'             => $jobId,
         ]);
         $summary['queued']++;
     } catch (\Throwable $e) {
+        // Compensación best-effort: un fallo de Redis aquí no debe ocultar el error original.
+        if ($jobCreated) {
+            try {
+                $jobStore->deleteJob($jobId);
+            } catch (\Throwable) {
+            }
+        }
+        try {
+            $jobStore->releaseIdempotencyKeyIfMatches($idempotencyKey, $jobId);
+        } catch (\Throwable) {
+        }
         fwrite(STDERR, "  ✗  {$label} ({$clientName}) — Error: {$e->getMessage()}\n");
         Logger::error('schedule-daily-batches: error encolando', [
-            'fac_nit_sec' => $facNitSec,
-            'job_id'      => $jobId,
-            'error'       => $e->getMessage(),
+            'fac_nit_sec_masked' => AuditBatchOrchestrator::maskNit($facNitSec),
+            'job_id'             => $jobId,
+            'error'              => $e->getMessage(),
         ]);
         $summary['errors']++;
     }

@@ -1,5 +1,46 @@
 # Changelog AudFact
 
+## [2026-11-25] — fix: orden determinista de candidatos en la resolución semántica (`SDD-SEMANTIC-RESOLVE-001`)
+
+- **Problema**: `DomainException: semantic_result_missing` en la etapa `policy` para auditorías con varias filas huérfanas (muestra local: 5 de unas 100 auditorías de un job del cliente 2624). El plan se construye con `SemanticCandidateCollector`, que nunca devuelve positivos; `evaluateResolved()` agregaba cada positivo de la Fase 3 a `$matchedFdv` y el ranking de las filas siguientes cambiaba, de modo que pedía un par que `SemanticEvaluationStore::advance()` había dejado sin veredicto al cortar la fila en su primer positivo.
+- **Cambio**: `DocumentPolicyEngine::evaluateArticleSetField()` copia `$matchedFdv` al entrar en la Fase 3 (`$assignedBeforeSemantic`) y la pasa a las dos llamadas a `rankUnmatchedCandidates()` (pares huérfanos del batch y bucle individual). La condición `isset($matchedFdv[$fi])` conserva el estado vivo. Sin cambios en `ResolvedSemanticResolver`, `SemanticCandidateCollector`, `SemanticEvaluationStore` ni `RulesEvaluationWorker`.
+- **Invariantes**: el orden de pares por fila en la reproducción es el prefijo resuelto del orden planificado (INV-1); el plan v2 no cambia (INV-2); el nivel 2 de INV-3 de `plans/sdd-optimizacion-homologacion-semantica-evidencia.md` queda enmendado como «asignados antes de iniciar la Fase 3»; el resultado por campo no cambia ante veredictos fijos (INV-4).
+- **Contrato**: el `detalle` de una fila agotada puede cambiar cuando un positivo previo alteraba su orden: ahora publica el primer razonamiento no nulo en el orden planificado (D-5, aprobada el 2026-11-25).
+- **Pruebas**: `DocumentPolicyEngineTest` T1-T6 (84 tests). T4 es una guardia permanente: matriz de 784 máscaras de veredictos sobre seis fixtures sintéticos; ejecutarla con cada cambio de la Fase 3 o de `rankUnmatchedCandidates()`.
+- **Despliegue y rollback**: reconstruir `worker-policy` con `operation=deploy`; revertir con `operation=deploy` e `image_tag=<SHA anterior>` (validación `git merge-base --is-ancestor 45fd44b <SHA anterior>`), nunca con `operation=rollback`.
+- **Spec**: SDD-SEMANTIC-RESOLVE-001 v3 (pendiente Q-1 antes de integrar y desplegar).
+
+## [2026-11-24] — fix: predicado de fecha SARGable compatible con SQL Server (hotfix `SDD-BATCH-001`)
+
+- **Problema**: `InvoicesModel::buildOptimizedBatchSql()` usaba `CONVERT(datetime, :dateFromD, 23)` y `DATEADD(day, 1, CONVERT(datetime, :dateToD, 23))`. Medido contra SQL Server 16.0.4225 (compatibilidad 160, conexión `db2`): SQLSTATE 22007 «Conversion failed», incluso con el literal `'2026-01-01'`. Toda congelación de batch fallaba.
+- **Cambio**: `d.DisFecSol >= CAST(:dateFromD AS date) AND d.DisFecSol < DATEADD(day, 1, CAST(:dateToD AS date))`. La semántica (inicio inclusivo, fin inclusivo por día completo) no cambia y no depende del idioma de sesión.
+- **Pruebas**: `tests/Models/InvoicesModelTest.php` espera el predicado nuevo y añade un test que impide volver a `, 23)` o `CONVERT(datetime, :dateFromD`.
+
+## [2026-11-24] — Admisión VIP, despliegue y documentación de aislamiento de carriles (`SDD-BATCH-002`, parte B)
+
+- **Motivación**: la ráfaga de `POST /audit/single` (`P-F3-01..03`) saturó la cola VIP y detuvo a los descargadores; el límite por IP de Nginx no la habría frenado (`P-F3-02`).
+- **Componentes**:
+  - `AuditExecutionConfig::priorityAdmissionMaxWaitMs()` (`AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS`, defecto `1200000`, mínimo `1000`).
+  - `AuditAdmissionGuard::priorityLaneAtCapacity()`: `true` si `oldest_wait_ms` del carril `priority` alcanza el límite en cualquier etapa.
+  - `AuditController::assertPriorityAdmission()` invocada en `single()` tras `assertAuditAdmission()`: `429` + `Retry-After: 60` si saturado; `503` + `Retry-After: 5` si las métricas fallan. `async()` queda fuera (`INV-F3-05`).
+  - `deploy-production.yml`: cuatro variables nuevas (`env:` y `write_env_var`), defectos `AUDIT_WORKER_EXTRACTION_VIP_REPLICAS=6` y `AUDIT_WORKER_SEMANTIC_VIP_REPLICAS=3`, y `worker-downloader` sustituido por `worker-downloader-vip worker-downloader-batch` en la verificación de salud y en los logs.
+  - Documentación: `.env.example`, `AGENTS.md`, `README.md`, `plans/docker-operations.md`, `plans/high-availability.md`, `plans/features/audit-workflow.md`, `website/docs/features/audit-workflow.md`, `.agent/skills/audfact-runtime-docker/SKILL.md`.
+- **Pruebas**: `AuditAdmissionGuardTest`, `AuditControllerTest` y `AuditExecutionConfigTest` ampliados.
+- **Pendiente de integración**: sustituir `worker-downloader` en `v2_services` y en el `docker compose stop` del paso de cutover/rollback que añade `SDD-BATCH-001` (no existen en este árbol); ejecutar `gh variable set --env production` de las variables nuevas antes del deploy.
+- **Spec**: `plans/sdd-aislamiento-carriles-y-descarga.md` (v1.3).
+
+## [2026-11-24] — Estabilización batch: migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C)
+
+- **Problema y motivación**: el esquema v2 de jobs batch (estado compacto, hashes `audits`/`by_dispensa`, reserva por `DisDetNro`, fencing) necesita una migración controlada de los datos v1, un rollback seguro, un cierre automático de jobs atascados (`R-STALE`) y un `gc()` que recolecte las claves v2 sin cargar jobs enteros en memoria.
+- **Cambios**:
+  - `BatchJobStore`: `migrateBatchV2(bool $clearClaims)`, `repairJobStates()`, `reconcileJobTelemetryMetrics()` y `rollbackBatchV2()` con los Lua de la Sección 9 (`MIGRATE_JOB_KEY_LUA`, `MIGRATE_RESERVATION_KEY_LUA`, `MIGRATE_CLAIM_LOCK_LUA`, `ROLLBACK_*`). Desviación defensiva: los Lua normalizan `cjson.null` a cadena vacía antes de usarlo como identidad.
+  - `AuditExecutionMaintenance::gc()`: reaper (`reapStaleJob`) con presupuesto, pausa y `resumed_at_ms`; reanudación pre-bucle de `reap_job_id`; HSCAN reanudable con `hscan_sha1`; reservas huérfanas de jobs terminales (`X-F2-B1`); pasada legada `disid:*` persistida entre ticks (`X-F2-B3`); guarda `enteredPatternLoop` en `finally` (`R5-F2-B2`, `R5-F2-I1`); `jobs_reaped` en `heartbeat:meta` reiniciado por tick. Un job con `STRLEN >= 2048` (v1 residual) se omite con `Logger::critical('gc_v1_job_state_after_migration')`.
+  - `AuditExecutionInspector`: `snapshot()` usa `HLEN job:{id}:audits`; nuevos `reapStaleJobs()` y `repairCorruptedJobs()`.
+  - `AuditBatchMaintenanceCommands` (nuevo) + `bin/audit-execution-maintenance.php`: `migrate-batch-v2 [--clear-claims]`, `rollback-batch-v2`, `repair-jobs [--force-stale[=jobId]]`; `resume` escribe `audit:execution:resumed_at_ms`; log de arranque con `job_stale_after_seconds` y `freeze_query_timeout_seconds`.
+  - `deploy-production.yml`: input `operation`, `env.OPERATION`, rollback de datos antes de `Prepare deployment directory`, barrera pausa/stop/migración antes de `Upgrade extractors`, `resume` tras heartbeat; listas de servicios filtradas contra el compose desplegado (`worker-downloader` o `worker-downloader-vip`/`worker-downloader-batch`).
+  - `.env.example`, `AGENTS.md`, `plans/audit-identity-contract.md`.
+- **Pendiente de despliegue**: `gh variable set` de `AUDIT_BATCH_LOCK_TTL_SECONDS`, `AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS` y `AUDIT_JOB_STALE_AFTER_SECONDS` en `production`; ejecución de la suite de integración con `RUN_REDIS_INTEGRATION=1`.
+
 ## [2026-11-23] — Optimización de homologación semántica, priorización de candidatos y completitud de evidencia (`SDD-OPTIM-SEMANTIC-EVIDENCE-2026-11`)
 
 - **Problema y Motivación**:
@@ -55,6 +96,21 @@
 - **Pendientes**:
   - Orden de implementación obligatorio: `000` → `001` → `002`, con despliegues separados.
   - Despliegue de `001` condicionado a `000` estable `24 h` (`SUP-03`); de `002`, a `000` y `001` estables `24 h` y al `gh variable set` previo.
+
+## [2026-11-22] — Hotfix de mantenimiento de ejecución (`SDD-BATCH-000`)
+
+- **Problema y motivación**: el proceso `worker-execution-maintenance` agotaba `memory_limit` (512M) dentro de `gc()` cada 19–42 s (`H11`, `E20`) y nunca escribía el heartbeat; con el heartbeat ausente la admisión respondía 503. En producción, `P-F1-03` registró 406,3 MiB / 512 MiB con 42 h de ejecución. Además, la pausa `audit:admission:paused` sin TTL dejó la intake de `worker-batch` cerrada sin aviso (`P-F1-01`).
+- **Cambios**:
+  - `AuditExecutionMaintenance`: `tick()` con deadline de 2.500 ms; outbox en ráfaga; intake `COUNT 200` con `.priority` antes que `.batch`; GC con presupuesto (500 ítems / 500 ms / 256 MiB) y estado persistido en `audit:execution:gc:cursors`; heartbeat y meta en un único `eval`; `expireLegacyIdempotency()`.
+  - `AuditStateStore`: `getAuditStatus()` y `readAuditRetentionMetadata()` (lectores compactos vía Lua); `RECOVER_FAILED_AUDIT_LUA` recibe el umbral de heartbeat como `ARGV[7]`.
+  - `AuditExecutionConfig`: `HEARTBEAT_TTL_SECONDS = 30` y `HEARTBEAT_MAX_AGE_MS = 30000` (fuente única).
+  - `AuditAdmissionGuard`: umbral de heartbeat desde `HEARTBEAT_MAX_AGE_MS` (antes 10.000 ms).
+  - `BatchJobStore::claimIdempotencyKey()`: `SET NX EX max($ttl, AUDIT_JOB_TTL)` en un único eval; `$ttl <= 0` lanza `InvalidArgumentException`.
+  - `AuditController::async()`: captura `InvalidArgumentException` y responde 500 controlado.
+  - `bin/audit-execution-maintenance.php`: comando `idem-expire-legacy`; aviso por `stderr` en `pause`/`observe`; contexto de arranque ampliado.
+- **Pruebas**: `AuditMemoryCompactionAndGcTest` (T-U1, T-U5, T-U6), `AuditAdmissionGuardTest` (T-U2), `RedisTtlConfigTest` (T-U3), `AuditControllerTest` (T-U4), `AuditDlqRecoveryRedisTest` (T-I6) y `AuditExecutionMaintenanceTickRedisTest` (T-I2..T-I15, requiere Redis).
+- **Certificación**: suite PHPUnit local 1.165 pruebas, 5.889 aserciones, 95 omitidas (incluye las de integración Redis), 0 fallos.
+- **Pendiente de despliegue** (ver spec, secciones 14 y 20): verificar `redis_version >= 7.0`, `appendonly yes` y `appendfsync always`; después `idem-expire-legacy` hasta `expired = 0`; `resume` si `audit:admission:paused` quedó activo.
 
 ## [2026-11-20] — Sintonización de concurrencia y ampliación de caché documental (`SDD-SCALE-001`)
 

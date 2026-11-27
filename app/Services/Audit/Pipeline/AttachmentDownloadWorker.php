@@ -15,7 +15,8 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
     private TelemetryPublisher $telemetryPublisher;
     private string $consumerName;
     private AuditDocumentCache $documentCache;
-    private AuditDocumentPrefetchGate $prefetchGate;
+    /** @var list<AuditDocumentPrefetchGate> Una compuerta por carril activo (DEC-F3-10). */
+    private array $prefetchGates;
 
     public function __construct(
         ?AuditStateStore           $stateStore         = null,
@@ -42,29 +43,46 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             ttlSeconds: $resolvedBlobTtl > 0 ? $resolvedBlobTtl : AuditDocumentCache::DEFAULT_TTL_SECONDS
         );
         $metrics = new AuditDocumentMetrics($this->redis);
-        $this->prefetchGate = $prefetchGate ?? new AuditDocumentPrefetchGate(
-            $this->documentCache,
-            static function (AuditDocumentPrefetchEvent $event, int $durationMs) use ($metrics): void {
-                match ($event) {
-                    AuditDocumentPrefetchEvent::PAUSED => $metrics->record($event->value),
-                    AuditDocumentPrefetchEvent::WAITED => $metrics->recordPrefetchWait($durationMs),
-                };
-            }
-        );
+        $record = static function (AuditDocumentPrefetchEvent $event, int $durationMs) use ($metrics): void {
+            match ($event) {
+                AuditDocumentPrefetchEvent::PAUSED => $metrics->record($event->value),
+                AuditDocumentPrefetchEvent::WAITED => $metrics->recordPrefetchWait($durationMs),
+            };
+        };
+        $this->prefetchGates = $prefetchGate !== null
+            ? [$prefetchGate]
+            : array_map(
+                static fn(AuditDocumentCache $cache): AuditDocumentPrefetchGate => new AuditDocumentPrefetchGate($cache, $record),
+                $this->gateCaches()
+            );
     }
 
+    /** La compuerta de cada carril evalúa solo su cuota; `all` (desarrollo) exige ambas (DEC-F3-10). */
     protected function canReadNewMessages(): bool
     {
-        return $this->prefetchGate->canRead();
+        $open = true;
+        foreach ($this->prefetchGates as $gate) {
+            $open = $gate->canRead() && $open;
+        }
+        return $open;
+    }
+
+    /** Mensajes por lectura desde `AUDIT_DOCUMENT_STREAM_READ_COUNT` (DEC-F3-07). */
+    protected function readCount(): int
+    {
+        return AuditExecutionConfig::documentStreamReadCount();
     }
 
     protected function startupContext(): array
     {
         return [
+            'lane' => $this->laneEnum->value,
             'document_cache_limits' => $this->documentCache->configuration(),
             'prefetch_high_percent' => AuditDocumentPrefetchGate::HIGH_PERCENT,
             'prefetch_low_percent' => AuditDocumentPrefetchGate::LOW_PERCENT,
-            'prefetch_check_ms' => AuditDocumentPrefetchGate::CHECK_INTERVAL_MS
+            'residency_high_percent' => AuditDocumentPrefetchGate::RESIDENCY_HIGH_PERCENT,
+            'prefetch_check_ms' => AuditDocumentPrefetchGate::CHECK_INTERVAL_MS,
+            'read_count' => $this->readCount(),
         ];
     }
 
@@ -142,7 +160,7 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
         try {
             $documentHash = $this->documentHash($document);
             $blobKey = $this->blobKey((string) $event->auditId, (string) $event->documentId, $documentHash);
-            $cached = $this->documentCache->put($blobKey, $document);
+            $cached = $this->cacheFor($event)->put($blobKey, $document);
 
             $newPayload = array_merge($payload, [
                 'blob_reference_key' => $blobKey,
@@ -177,6 +195,22 @@ final class AttachmentDownloadWorker extends AuditEventConsumer
             );
             throw $error;
         }
+    }
+
+    /** Carril del blob según el evento: `is_priority === true` → prioritario; cualquier otro caso → batch (DEC-F3-02). */
+    private function cacheFor(AuditEvent $event): AuditDocumentCache
+    {
+        $lane = ($event->payload['is_priority'] ?? null) === true ? AuditLane::PRIORITY : AuditLane::BATCH;
+        return $this->documentCache->forLane($lane);
+    }
+
+    /** @return list<AuditDocumentCache> Cachés de cada carril que este proceso consume. */
+    private function gateCaches(): array
+    {
+        if ($this->laneEnum->isAll()) {
+            return [$this->documentCache->forLane(AuditLane::PRIORITY), $this->documentCache->forLane(AuditLane::BATCH)];
+        }
+        return [$this->documentCache->forLane($this->laneEnum)];
     }
 
     /**

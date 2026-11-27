@@ -17,7 +17,7 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
 
 | Identificador | Fuente | Uso correcto |
 |---|---|---|
-| `DisId` | Vista `vw_discolnet_dispensas` | Llave canónica de auditoría. Identifica la dispensación que se audita. |
+| `DisId` | Vista `vw_discolnet_dispensas` | Identifica la factura/dispensación de origen (FDV); varias `Dispensa` (`DisDetNro`) pueden compartir el mismo `DisId`. Se conserva en `AudDispEst.FacSec`. **No** es la llave de reserva Redis. |
 | `dis_id` | Contrato PHP / Redis (pipeline snake_case) | Alias snake_case de `DisId` en eventos y payloads internos. |
 | `AudDispEst.FacSec` | Tabla `AudDispEst` (columna legacy) | Almacena el `DisId`; no renombrada por decisión operativa. |
 | `DisDetNro` | `DispensacionDetalleServicio` | Llave operativa de la dispensación usada por endpoints y workers. |
@@ -39,6 +39,20 @@ DisDetNro == vw_discolnet_dispensas.Dispensa == AudDispEst.FacNro
    - si el evento trae `fac_nit_sec`, debe coincidir con `FDV.header.NitSec`.
 7. `AuditPersistenceWorker` entrega el outcome a `AuditResultPersistenceModel`, que persiste `FacSec = audit.dis_id` (columna legacy) y `FacNro = audit.dis_det_nro`.
 8. `AuditResultPersistenceModel` ejecuta un upsert serializable por `FacNro`; en cada escritura conserva `FacSec = audit.dis_id` como columna legacy que almacena `DisId`.
+
+## Reserva Idempotente en Redis (SDD-BATCH-001, DEC-01)
+
+La reserva de auditoría usa **`DisDetNro`** como llave, alineada `1:1` con `AudDispEst.FacNro`:
+
+```text
+audit:reservation:disdetnro:{DisDetNro}   (antes: audit:reservation:disid:{DisId})
+```
+
+- Contenido: `{job_id, audit_id, dis_det_nro, fac_nit_sec, dis_id, source, token, claimed_at}`; sin TTL mientras viva la auditoría. Se libera con `dis_det_nro` + `reservation_token` al terminar, o la recolecta `gc()` cuando la auditoría es terminal/ausente.
+- Dos `Dispensa` hermanas con el mismo `DisId` generan dos reservas y dos auditorías independientes (`skipped_locked = 0`).
+- `DisId` se sigue almacenando en `AudDispEst.FacSec` y en la reserva (`dis_id`) solo para trazabilidad.
+- En un job batch, la unicidad `(jobId, DisDetNro)` la garantiza además `job:{id}:by_dispensa` con un `audit_id` determinista (`AuditEvent::deterministicUuidV4("batch-audit:{jobId}:{DisDetNro}")`).
+- Migración: `bin/audit-execution-maintenance.php migrate-batch-v2` convierte las reservas `disid:*` a `disdetnro:*`; aborta sin borrar el origen si la identidad no se resuelve o colisiona. El rollback (`rollback-batch-v2`) solo se permite sin reservas `disdetnro:*` activas (DEC-11).
 
 ## Adjuntos
 

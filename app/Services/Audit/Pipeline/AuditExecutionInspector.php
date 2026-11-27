@@ -9,8 +9,89 @@ use Core\RedisClient;
 /** Lectura paginada de la fuente durable; los índices son reconstruibles. */
 final class AuditExecutionInspector
 {
-    public function __construct(private readonly RedisClient $redis)
+    private ?BatchJobStore $jobStore;
+
+    public function __construct(
+        private readonly RedisClient $redis,
+        /** Costura de prueba; por defecto usa la misma conexión Redis. */
+        ?BatchJobStore $jobStore = null
+    ) {
+        $this->jobStore = $jobStore;
+    }
+
+    /**
+     * Cierra jobs no terminales sin progreso (`repair-jobs --force-stale[=jobId]`, `DEC-10`) iterando
+     * `BatchJobStore::reapStaleJob()` hasta su última rebanada. Un job con `batch:claim:{id}` vivo nunca se cierra.
+     *
+     * @param  string|null  $forceJobId  Solo ese job; `null` recorre todos los `job:*:state` no terminales.
+     * @param  int  $thresholdMs  Umbral de inactividad (`0` desde la CLI).
+     * @return array{reaped_jobs:int,cancelled_audits:int,skipped_claimed:int}
+     */
+    public function reapStaleJobs(?string $forceJobId, int $thresholdMs): array
     {
+        $store = $this->store();
+        $result = ['reaped_jobs' => 0, 'cancelled_audits' => 0, 'skipped_claimed' => 0];
+        $jobIds = [];
+        if ($forceJobId !== null) {
+            $jobIds[] = $forceJobId;
+        } else {
+            foreach ($this->records('job:*:state') as $record) {
+                $job = $record['value'];
+                if (!in_array($job['status'] ?? '', ['completed', 'completed_with_errors', 'failed'], true)
+                    && is_string($job['job_id'] ?? null) && $job['job_id'] !== '') {
+                    $jobIds[] = $job['job_id'];
+                }
+            }
+        }
+
+        foreach ($jobIds as $jobId) {
+            $summary = $store->getJobSummary($jobId);
+            if ($summary === null || in_array($summary['status'] ?? '', ['completed', 'completed_with_errors', 'failed'], true)) {
+                continue;
+            }
+            if (($summary['reaping'] ?? false) !== true
+                && (int) $this->redis->eval('return redis.call("EXISTS",KEYS[1])', [BatchJobStore::jobGenerationLockKey($jobId)]) === 1) {
+                $result['skipped_claimed']++;
+                continue;
+            }
+            $cursor = null;
+            $cancelled = 0;
+            $guard = 0;
+            do {
+                $slice = $store->reapStaleJob($jobId, (int) floor(microtime(true) * 1000), $thresholdMs, $cursor);
+                $cancelled += (int) $slice['cancelled_audits'];
+                $cursor = $slice['cursor'];
+            } while (!$slice['done'] && ++$guard < 100000);
+            $result['cancelled_audits'] += $cancelled;
+            if ($slice['reaped']) {
+                $result['reaped_jobs']++;
+                \Core\Logger::warning('stale_no_progress', [
+                    'job_id' => $jobId, 'cancelled_audits' => $cancelled, 'threshold_ms' => $thresholdMs, 'source' => 'repair-jobs',
+                ]);
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * `repair-jobs`: `BatchJobStore::repairJobStates()` + `reconcileJobTelemetryMetrics()` (sin tocar reservas ni
+     * `batch:claim:*`; nunca pone `sealed = false`).
+     *
+     * @return array{repaired_jobs:int,audits_recounted:int}
+     */
+    public function repairCorruptedJobs(): array
+    {
+        $store = $this->store();
+        $repaired = $store->repairJobStates();
+        $store->reconcileJobTelemetryMetrics();
+
+        return ['repaired_jobs' => $repaired['repaired_jobs'], 'audits_recounted' => $repaired['audits_recounted']];
+    }
+
+    private function store(): BatchJobStore
+    {
+        return $this->jobStore ??= new BatchJobStore($this->redis);
     }
 
     public function records(string $pattern, bool $hash = false): \Generator
@@ -57,8 +138,11 @@ final class AuditExecutionInspector
             $total = (int) ($job['total'] ?? 0);
             $done = (int) ($job['done'] ?? 0);
             $failed = (int) ($job['failed'] ?? 0);
+            // SDD-BATCH-001: las auditorías del job viven en el hash job:{id}:audits (sin `audits` inline).
+            $jobIdOfKey = preg_match('/^job:([^:]+):state$/D', $key, $match) === 1 ? $match[1] : (string) ($job['job_id'] ?? '');
+            $auditsCount = (int) $this->redis->eval('return redis.call("HLEN",KEYS[1])', [BatchJobStore::jobAuditsKey($jobIdOfKey)]);
             if ($total < 0 || $done < 0 || $failed < 0 || $done + $failed > $total
-                || count($job['audits'] ?? []) !== $total) {
+                || $auditsCount !== $total) {
                 throw new \RuntimeException('job_totals_inconsistent');
             }
             if (in_array($job['status'], ['completed', 'completed_with_errors', 'failed'], true)) {

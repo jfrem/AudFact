@@ -9,9 +9,7 @@ final class AuditTaskEffects
 {
     public static function uuid(string $identity): string
     {
-        $hex = hash('sha256', $identity);
-        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-4' . substr($hex, 13, 3)
-            . '-a' . substr($hex, 17, 3) . '-' . substr($hex, 20, 12);
+        return AuditEvent::deterministicUuidV4($identity);
     }
 
     public static function followUp(AuditTask $task, string $type, array $payload, ?string $documentId, string $name): AuditEvent

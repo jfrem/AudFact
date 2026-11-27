@@ -138,6 +138,12 @@ abstract class AuditEventConsumer
     {
     }
 
+    /** Mensajes por `XREADGROUP`; por defecto 1. Solo los consumidores que lo declaran lo amplían. */
+    protected function readCount(): int
+    {
+        return 1;
+    }
+
     protected function canReadNewMessages(): bool
     {
         return true;
@@ -245,7 +251,7 @@ abstract class AuditEventConsumer
                     $this->group(),
                     $this->consumer(),
                     $this->activeStreams(),
-                    1,
+                    $this->readCount(),
                     $this->blockMs
                 );
             } catch (\Exception $e) {
@@ -406,6 +412,15 @@ abstract class AuditEventConsumer
                 $ackDurationMs
             );
             $this->clearAttempts($event->eventId);
+        } catch (JobGenerationBusyException $busy) {
+            // INV-02: otro worker genera este job. El mensaje permanece en PEL (sin XACK, sin handleFailure y sin
+            // consumir intentos de DLQ) y se reentrega por XAUTOCLAIM cuando expire el lock/idle de reclaim.
+            Logger::warning('AuditEventConsumer: lock de generación ocupado, mensaje retenido en PEL', [
+                'job_id' => $busy->jobId,
+                'event_id' => $event->eventId,
+                'chunk_index' => $busy->chunkIndex,
+            ]);
+            return;
         } catch (Throwable $e) {
             $this->recordFailedTelemetry(
                 $event,
@@ -631,7 +646,9 @@ abstract class AuditEventConsumer
             || ($error instanceof AttachmentDownloadException && !$error->retryable())
             || $error instanceof \DomainException
             || $error instanceof \InvalidArgumentException
-            || $error instanceof SqlServerOperationException;
+            || $error instanceof SqlServerOperationException
+            // SUP-01: el envoltorio con epoch no debe anular la regla de no reintentar SqlServerOperationException (HYT00 → DLQ).
+            || ($error instanceof JobGenerationFailedException && $error->getPrevious() instanceof SqlServerOperationException);
 
         if ($attempts >= $this->maxRetries || $nonRetryable) {
             $this->finalizeDeadLetterAudit($event, $error);
@@ -689,9 +706,21 @@ abstract class AuditEventConsumer
         ]);
     }
 
+    /**
+     * `BatchJobStore` usado por la DLQ de `batch_requested` (punto de extensión; `BatchRequestedWorker` reutiliza el suyo).
+     */
+    protected function batchJobStoreForDeadLetter(): BatchJobStore
+    {
+        return new BatchJobStore($this->redis);
+    }
+
     private function finalizeDeadLetterAudit(AuditEvent $event, Throwable $error): void
     {
         if ($event->auditId === null) {
+            if ($event->eventType === AuditEvent::TYPE_BATCH_REQUESTED && $event->jobId !== null) {
+                $this->failBatchRequestedJob($event, $error);
+            }
+
             return;
         }
 
@@ -726,6 +755,42 @@ abstract class AuditEventConsumer
             $jobStore->releaseAuditReservationFromAudit($audit);
         } catch (Throwable $finalizeError) {
             throw new RuntimeException('No se pudo cerrar auditoría antes de DLQ', 0, $finalizeError);
+        }
+    }
+
+    /**
+     * DLQ de `batch_requested` (SDD-BATCH-001): cierra el job SOLO si el error porta el epoch del propietario que falló
+     * (fencing); sin epoch no hay prueba de propiedad y no se cierra un job posiblemente sano (`R-CONT`).
+     */
+    private function failBatchRequestedJob(AuditEvent $event, Throwable $error): void
+    {
+        try {
+            $jobId = (string) $event->jobId;
+            $failedChunk = (int) ($event->payload['chunk_index'] ?? 1);
+            $expectedEpoch = $error instanceof JobGenerationFailedException ? $error->epoch : null;
+            if ($expectedEpoch === null) {
+                Logger::critical('batch_requested_dlq_without_epoch', [
+                    'job_id' => $jobId,
+                    'chunk_index' => $failedChunk,
+                    'error' => $error->getMessage(),
+                ]);
+
+                return; // REAP_STALE_JOB_LUA lo cerrará si deja de progresar (DEC-10)
+            }
+
+            $store = $this->batchJobStoreForDeadLetter();
+            $closed = $store->markJobFailed($jobId, $error->getMessage(), $expectedEpoch, $failedChunk);
+            // R4-F2-I3: solo status/stale_reason, sin HGETALL de audits.
+            $failedJob = $closed ? null : $store->getJobSummary($jobId);
+            // X-F2-I2: se repite en cada reentrega mientras el job siga failed por DLQ (sin stale_reason); es
+            // idempotente y cubre una caída entre markJobFailed() y cancelUndispatchedAudits().
+            if ($closed || (($failedJob['status'] ?? '') === BatchJobStore::JOB_STATUS_FAILED && ($failedJob['stale_reason'] ?? null) === null)) {
+                // W-F2-B4: auditorías registradas sin publicar (dispatched = false) nunca se procesarán; sin cancelarlas,
+                // sus reservas disdetnro:* y audits_in_flight quedarían retenidos para siempre.
+                $store->cancelUndispatchedAudits($jobId, 'batch_dlq_unpublished');
+            }
+        } catch (Throwable $finalizeError) {
+            throw new RuntimeException('No se pudo cerrar job batch antes de DLQ', 0, $finalizeError);
         }
     }
 

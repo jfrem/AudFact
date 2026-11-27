@@ -1,3 +1,47 @@
+## [2026-11-25]
+
+### fix
+- **Auditoría IA — orden determinista de candidatos en la resolución semántica (`SDD-SEMANTIC-RESOLVE-001`)**: auditorías con varios artículos de la dispensación fallaban en la etapa `policy` con `DomainException: semantic_result_missing` (falla permanente con DLQ). El plan semántico ordena los candidatos de cada fila con las asignaciones de las Fases 1, 1.5 y 2, pero la reproducción (`evaluateResolved`) reordenaba las filas siguientes con cada positivo de la Fase 3 y pedía pares que el plan dejó sin veredicto. `evaluateArticleSetField()` congela el estado de asignación al entrar en la Fase 3 (`$assignedBeforeSemantic`) y lo usa en las dos llamadas a `rankUnmatchedCandidates()`.
+  - Archivos modificados: `app/Services/Audit/Pipeline/DocumentPolicyEngine.php`, `tests/Services/Audit/Events/DocumentPolicyEngineTest.php` (T1-T6, 78 → 84 tests), `plans/sdd-optimizacion-homologacion-semantica-evidencia.md` (enmienda de INV-3).
+  - Impacto: el plan v2 (pares, orden y `plan_id`) no cambia y el resultado por campo tampoco. En filas agotadas cuyo orden alteraba un positivo previo, el `detalle` publica el primer razonamiento en el orden planificado (decisión D-5). Requiere reconstruir la imagen de `worker-policy`; el rollback es `operation=deploy` con el SHA anterior, no `operation=rollback`. Las auditorías ya fallidas no se reprocesan.
+
+## [2026-11-24]
+
+### feat / ops / docs
+- **Aislamiento de carriles VIP/batch, contrapresión VIP y descarga por carril (`SDD-BATCH-002`, parte B: admisión, despliegue y documentación)**:
+  - `POST /audit/single` responde `429` + `Retry-After: 60` cuando la tarea más antigua del carril `priority` espera `>= AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS` (defecto `1200000`); `503` + `Retry-After: 5` si las métricas fallan; `POST /audit/async` no cambia (`INV-F3-05`).
+  - Nuevas variables: `AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS`, `AUDIT_DOCUMENT_CACHE_PRIORITY_SHARE_PERCENT`, `AUDIT_DOCUMENT_STREAM_READ_COUNT` y `AUDIT_WORKER_DOWNLOADER_VIP_REPLICAS`. Defaults nuevos: extracción VIP `6`, semántica VIP `3`, descarga VIP `4`.
+  - `worker-downloader` se reemplaza por `worker-downloader-vip` y `worker-downloader-batch` en `deploy-production.yml` (verificación de salud y logs), `.env.example` y documentación operativa.
+  - Archivos modificados: `AuditExecutionConfig.php`, `AuditAdmissionGuard.php`, `AuditController.php`, `deploy-production.yml`, `.env.example`.
+  - Impacto: obligatorio `gh variable set --env production` de las variables nuevas y de cada réplica con su valor efectivo antes del deploy. Despliegue condicionado a `SDD-BATCH-000/001` (ver `plans/sdd-aislamiento-carriles-y-descarga.md`, Sección 14).
+
+### feat / ops / fix
+- **fix (hotfix SQL) — predicado de fecha SARGable en `InvoicesModel::buildOptimizedBatchSql()`**: `CONVERT(datetime, :dateFromD, 23)` / `CONVERT(datetime, :dateToD, 23)` falla en SQL Server real con SQLSTATE 22007 (el estilo 23 no es válido para texto→datetime), lo que hacía fallar toda congelación de batch. Sustituido por `CAST(:dateFromD AS date)` y `DATEADD(day, 1, CAST(:dateToD AS date))`; la columna `d.DisFecSol` sigue sin funciones. Archivos: `app/Models/InvoicesModel.php`, `tests/Models/InvoicesModelTest.php` (+1 test de guarda). Suite: 1430 tests, 154 omitidos, en verde.
+- **Estabilización batch — migración, mantenimiento y despliegue (`SDD-BATCH-001` parte C, spec `plans/sdd-estabilizacion-batch-y-mantenimiento.md` v1.2)**:
+  - **Migración Redis v1 → v2** (`BatchJobStore::migrateBatchV2()`, CLI `migrate-batch-v2 [--clear-claims]`): extrae `audits` inline a `job:{id}:audits`, puebla `job:{id}:by_dispensa` y `jobs:active:nit:{nit}`, recuenta `total/done/failed` (también con 0 auditorías), conserva `failed`, nunca deja `sealed = false` en un job cerrado (`R-SEAL`), marca `generation_abandoned` si no hay `batch_requested` pendiente, convierte reservas `disid:*` a `disdetnro:*` (aborta sin borrar el origen ante identidad irresuelta o colisión), limpia o normaliza `batch:claim:*`, recalcula `telemetry:async_metrics` y expira `batch:idem:*` legados (`legacy_idempotency` en la salida).
+  - **Rollback forward-fix only** (`rollbackBatchV2()`, CLI `rollback-batch-v2`): sale con código `1` sin mutar claves si hay jobs no terminales o reservas `disdetnro:*` (`DEC-11`); en reposo es reentrante.
+  - **`repair-jobs` y `repair-jobs --force-stale[=jobId]`**: reparación de contadores sin tocar reservas ni locks; cierre manual de jobs sin progreso con umbral `0`, respetando `batch:claim` vivo.
+  - **`gc()` (delta Fase 2)**: reaper automático de jobs sin progreso tras `AUDIT_JOB_STALE_AFTER_SECONDS` (no actúa en pausa; umbral desde `max(last_progress_at, audit:execution:resumed_at_ms)`), reanudación por rebanadas (`reap_job_id`/`reap_cursor`), recolección de jobs terminales con `HSCAN` reanudable y borrado por `sha1` (`hscan_*`), liberación de reservas huérfanas de jobs terminales (`orphaned_job_terminal`), pasada única por ciclo sobre reservas legadas `disid:*` que sobrevive a cortes de presupuesto, y `jobs_reaped` en `heartbeat:meta`. `resume` escribe `audit:execution:resumed_at_ms`.
+  - **Despliegue**: `deploy-production.yml` con `operation=deploy|rollback` (`env.OPERATION = deploy` en `workflow_run`); en `deploy`, pausa + `stop` de `php` y workers + `migrate-batch-v2 --clear-claims`/`repair-jobs`/`reconcile` antes de actualizar extractors y `resume` al ver heartbeat; en `rollback`, `rollback-batch-v2` sobre el stack v2 vigente antes de tocar `.env` (si aborta, relanza v2 en pausa y termina con `exit 1`).
+  - **Configuración**: `AUDIT_BATCH_LOCK_TTL_SECONDS` 300 → 1800; nuevas `AUDIT_BATCH_FREEZE_QUERY_TIMEOUT_SECONDS=300` y `AUDIT_JOB_STALE_AFTER_SECONDS=21600`; documentadas `DB_TIMEOUT`/`DB2_TIMEOUT`.
+- **Archivos modificados**: `app/Services/Audit/Pipeline/BatchJobStore.php`, `AuditExecutionMaintenance.php`, `AuditExecutionInspector.php`, nuevo `AuditBatchMaintenanceCommands.php`, `bin/audit-execution-maintenance.php`, `.env.example`, `.github/workflows/deploy-production.yml`, `AGENTS.md`, `plans/audit-identity-contract.md`; tests en `tests/Services/Audit/Pipeline/`, `tests/Integration/` y `tests/Support/IsolatedAuditRedis.php`.
+- **Pendiente antes de desplegar**: `gh variable set` de las tres variables en GitHub Environment `production` (ver `AGENTS.md`).
+
+## [2026-11-22]
+
+### fix / ops / perf
+- **Hotfix de Mantenimiento de Ejecución (`SDD-BATCH-000`, spec `plans/sdd-hotfix-mantenimiento-ejecucion.md` v1.2)**:
+  - **Heartbeat unificado**: `audit:execution:heartbeat` expira en 30 s y la admisión (`POST /audit/async`, cron, Lua de recuperación DLQ y `resume`) lo acepta hasta 30.000 ms de edad (antes 10.000 ms). Nuevo `audit:execution:heartbeat:meta` (TTL 60 s) con `tick_duration_ms`, contadores de intake/GC, `memory_bytes`, `gc_budget_stopped`, `admission_paused` y `execution_paused`.
+  - **GC incremental y reanudable**: `gc()` ya no cachea estados completos; lee solo `status` (y metadatos de retención con `sha1`); presupuesto por ítems (500), tiempo (500 ms) y memoria (256 MiB). El estado persiste en `audit:execution:gc:cursors`, así que un reinicio continúa donde quedó. Borrado de `audit:*:state` y `job:*:state` por `sha1`, sin reenviar el JSON completo como ARGV.
+  - **Tick acotado**: deadline de 2.500 ms entre unidades de trabajo, outbox en ráfaga (hasta 20 × 100 efectos por tick) y heartbeat escrito en una sola operación.
+  - **Intake por lotes**: lectura `COUNT 200`, confirmación por lote, `.priority` antes que `.batch` dentro de cada etapa y capacidad compartida entre sus streams.
+  - **Idempotencia con TTL**: `claimIdempotencyKey()` usa `SET NX EX max(TTL, AUDIT_JOB_TTL)` en un único script; el GC amplía la clave mientras viva el job. Un TTL `≤ 0` responde HTTP 500 `Configuración de idempotencia inválida` con `Logger::error` (antes 503 no controlado).
+  - **Comando `idem-expire-legacy`**: `php bin/audit-execution-maintenance.php idem-expire-legacy` fija TTL a las claves `batch:idem:*` legadas sin expiración (salida `{"scanned","expired"}`); repetir hasta `expired = 0`.
+  - **Visibilidad de pausas (P-F1-01)**: `Logger::warning('Audit admission paused')` como máximo cada 5 min mientras `audit:admission:paused = 1`, y aviso por `stderr` en `pause`/`observe` (stdout sin cambios). La bandera sigue sin TTL a propósito; se libera con `resume`.
+- **Archivos modificados**: `app/Services/Audit/Pipeline/AuditExecutionMaintenance.php`, `AuditStateStore.php`, `AuditExecutionConfig.php`, `AuditAdmissionGuard.php`, `BatchJobStore.php`, `app/Controllers/AuditController.php`, `bin/audit-execution-maintenance.php`; tests en `tests/Services/Audit/Pipeline/` (`AuditMemoryCompactionAndGcTest`, `AuditAdmissionGuardTest`, `RedisTtlConfigTest`), `tests/Controllers/AuditControllerTest.php`, `tests/Integration/AuditDlqRecoveryRedisTest.php` y nuevo `tests/Integration/AuditExecutionMaintenanceTickRedisTest.php`.
+- **Compatibilidad**: sin migración de esquema ni cambios de endpoints o eventos; sin variables de entorno nuevas. Umbral de heartbeat para monitores externos: confirmar que ninguno usa 10 s.
+- **Certificación PHPUnit (local, sin Redis)**: 1.165 pruebas, 5.889 aserciones, 95 omitidas (78 previas + 17 de integración Redis), 0 fallos. Las pruebas de integración requieren `RUN_REDIS_INTEGRATION=1` y no se ejecutaron en este equipo.
+
 ## [2026-11-18]
 
 ### feat / tooling / governance

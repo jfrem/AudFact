@@ -8,6 +8,7 @@ use App\Services\Audit\Pipeline\AuditAdmissionGuard;
 use App\Services\Audit\Pipeline\AuditExecutionConfig;
 use App\Services\Audit\Pipeline\AuditTaskStage;
 use App\Services\Audit\Pipeline\FairAuditTaskQueue;
+use Core\Env;
 use Core\RedisClient;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -45,6 +46,139 @@ final class AuditAdmissionGuardTest extends TestCase
         ], 700, true, true];
         yield 'active work is not waiting capacity' => [['orchestration:batch:active' => 80], 700, false, false];
         yield 'memory threshold still blocks fanout' => [[], 800, true, true];
+    }
+
+    /**
+     * T-U2 (CA-F1-09, REQ-F1-06): la guarda acepta un heartbeat de hasta HEARTBEAT_MAX_AGE_MS (30.000 ms).
+     */
+    #[DataProvider('heartbeatAgeCases')]
+    public function testHeartbeatAgeThreshold(?string $heartbeatOffset, bool $accepted): void
+    {
+        $now = 1000000;
+        $heartbeat = $heartbeatOffset === null ? null : (string) ($now + (int) $heartbeatOffset);
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('get')->willReturnCallback(static fn(string $key): ?string => match ($key) {
+            'audit:execution:version' => '2',
+            'audit:execution:heartbeat' => $heartbeat,
+            default => null,
+        });
+        $redis->method('serverConfiguration')->willReturn([
+            'appendonly' => 'yes', 'appendfsync' => 'always', 'maxmemory-policy' => 'noeviction',
+        ]);
+        $redis->method('serverInfo')->willReturn([
+            'aof_last_write_status' => 'ok', 'used_memory' => '100', 'maxmemory' => '1000',
+        ]);
+        $redis->method('eval')->willReturnCallback(static fn(string $script, array $keys = []): mixed => $keys === []
+            ? $now
+            : [[], array_fill(0, 8, [])]);
+
+        $guard = new AuditAdmissionGuard($redis, new AuditExecutionConfig(2, 100));
+        try {
+            $guard->assertAccepting();
+            $result = true;
+        } catch (\RuntimeException $error) {
+            $result = false;
+            self::assertSame(503, $error->getCode());
+        }
+
+        self::assertSame($accepted, $result);
+    }
+
+    public static function heartbeatAgeCases(): iterable
+    {
+        yield 'age 29.999 ms is accepted' => ['-29999', true];
+        yield 'age 30.001 ms is rejected' => ['-30001', false];
+        yield 'missing heartbeat is rejected' => [null, false];
+        yield 'future heartbeat is rejected' => ['1', false];
+    }
+
+    /** @return iterable<string,array{array<string,int>,?int,bool}> */
+    public static function priorityWaitCases(): iterable
+    {
+        yield 'extraction priority exactly at the limit' => [['extraction:priority' => 1200000], null, true];
+        yield 'orchestration priority above the limit' => [['orchestration:priority' => 5000000], null, true];
+        yield 'policy priority above the limit' => [['policy:priority' => 1300000], null, true];
+        yield 'semantic priority above the limit' => [['semantic:priority' => 1200001], null, true];
+        yield 'one millisecond below the limit' => [['extraction:priority' => 1199999], null, false];
+        yield 'batch lane never triggers priority backpressure' => [['extraction:batch' => 99999999], null, false];
+        yield 'configured limit lowers the threshold' => [['extraction:priority' => 5000], 5000, true];
+        yield 'configured limit raises the threshold' => [['extraction:priority' => 1200000], 2000000, false];
+    }
+
+    /** @param array<string,int> $waits */
+    #[DataProvider('priorityWaitCases')]
+    public function testPriorityLaneAtCapacityWhenOldestWaitReachesLimit(array $waits, ?int $limitMs, bool $expected): void
+    {
+        // Arrange:
+        $previous = (string) Env::get('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS', '');
+        try {
+            Env::set('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS', $limitMs === null ? '' : (string) $limitMs);
+            Env::clearCache('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS');
+            $guard = new AuditAdmissionGuard($this->waitingRedis($waits), new AuditExecutionConfig(2, 100));
+
+            // Act / Assert:
+            self::assertSame($expected, $guard->priorityLaneAtCapacity());
+        } finally {
+            Env::set('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS', $previous === '' ? null : $previous);
+            Env::clearCache('AUDIT_PRIORITY_ADMISSION_MAX_WAIT_MS');
+        }
+    }
+
+    public function testPriorityLaneNotAtCapacityWithEmptyQueue(): void
+    {
+        // Arrange:
+        $guard = new AuditAdmissionGuard($this->waitingRedis([]), new AuditExecutionConfig(2, 100));
+
+        // Act / Assert:
+        self::assertFalse($guard->priorityLaneAtCapacity());
+    }
+
+    public function testPriorityLaneMetricsFailurePropagates(): void
+    {
+        // Arrange:
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys = []): mixed {
+            if ($keys === []) {
+                return 1000000;
+            }
+            throw new \RuntimeException('redis_unavailable');
+        });
+        $guard = new AuditAdmissionGuard($redis, new AuditExecutionConfig(2, 100));
+
+        // Assert / Act:
+        $this->expectException(\RuntimeException::class);
+        $guard->priorityLaneAtCapacity();
+    }
+
+    /**
+     * Redis cuya cola tiene, por `etapa:carril`, una tarea esperando los milisegundos indicados.
+     *
+     * @param array<string,int> $waitMs
+     */
+    private function waitingRedis(array $waitMs): RedisClient
+    {
+        $now = 10000000;
+        $redis = $this->createStub(RedisClient::class);
+        $redis->method('eval')->willReturnCallback(static function (string $script, array $keys = []) use ($waitMs, $now): mixed {
+            if ($keys === []) {
+                return $now;
+            }
+            $flat = [];
+            $heads = [];
+            foreach (AuditTaskStage::cases() as $stage) {
+                foreach (['priority', 'batch'] as $lane) {
+                    $name = $stage->value . ':' . $lane;
+                    if (isset($waitMs[$name])) {
+                        array_push($flat, $name . ':pending', '1');
+                        $heads[] = ['synthetic-task', (string) ($now - $waitMs[$name])];
+                    } else {
+                        $heads[] = [];
+                    }
+                }
+            }
+            return [$flat, $heads];
+        });
+        return $redis;
     }
 
     private function redis(array $counts, int $memoryUsed): RedisClient
